@@ -45,3 +45,7 @@
 (test
  (name test_effects)
  (libraries wand alcotest))
+
+(test
+ (name test_file_io)
+ (libraries wand alcotest))

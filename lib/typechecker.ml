@@ -481,8 +481,10 @@ let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     in
     let tenv = local_tenv @ init_tenv in
     let builtin_env = [
-      ("print",   Mono (TFun (TString, TUnit)));
-      ("println", Mono (TFun (TString, TUnit)));
+      ("print",      Mono (TFun (TString, TUnit)));
+      ("println",    Mono (TFun (TString, TUnit)));
+      ("read_file",  Mono (TFun (TString, TString)));
+      ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
     ] in
     let base_env = tenv_to_ctor_env tenv @ builtin_env @ init_env in
     let env = List.fold_left (fun env item ->

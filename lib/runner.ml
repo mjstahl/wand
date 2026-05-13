@@ -39,6 +39,19 @@ let run_with_default_handler (thunk : unit -> value) : value =
           | WandEffect ("process_run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VString (exec_command cmd)))
+          | WandEffect ("read_file", VString path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let content =
+                try In_channel.with_open_text path In_channel.input_all
+                with Sys_error msg -> raise (EvalError ("read_file: " ^ msg))
+              in
+              Effect.Deep.continue k (VString content))
+          | WandEffect ("write_file", VTuple [VString path; VString content]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              (try Out_channel.with_open_text path (fun oc ->
+                 Out_channel.output_string oc content)
+               with Sys_error msg -> raise (EvalError ("write_file: " ^ msg)));
+              Effect.Deep.continue k VUnit)
           | _ -> None
     }
 

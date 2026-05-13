@@ -391,6 +391,10 @@ let eval_expr (e : expr) : (value, string) result =
   with EvalError msg -> Error msg
 
 let base_eval_env : env = [
-  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
-  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
+  ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
+  ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
+  ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("read_file",  v))));
+  ("write_file", VBuiltin (fun path ->
+    VBuiltin (fun content ->
+      Effect.perform (WandEffect ("write_file", VTuple [path; content])))));
 ]
