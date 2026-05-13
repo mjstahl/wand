@@ -27,10 +27,20 @@ let advance s =
     s.pos <- s.pos + 1; t
   end
 
+let keywords = [
+  "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn";
+  "type"; "start"; "import"; "when"; "of"; "and"; "or"
+]
+
+let keyword_hint = function
+  | Token.Ident s -> Util.hint s keywords
+  | _ -> ""
+
 let expect s tok =
   let t = advance s in
   if not (Token.equal t tok) then
-    raise (ParseError (Format.asprintf "expected %a, got %a" Token.pp tok Token.pp t))
+    raise (ParseError (Format.asprintf "expected %a, got %a%s"
+      Token.pp tok Token.pp t (keyword_hint t)))
 
 let expect_ident s =
   match advance s with
@@ -98,7 +108,8 @@ let rec pat_ s =
       args := !args @ [pat_atom_ s]
     done;
     PConstr (name, !args)
-  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a" Token.pp t))
+  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t)))
 
 and pat_atom_ s =
   match peek s with
@@ -124,7 +135,8 @@ and pat_atom_ s =
     end
   | Token.LBrace ->
     ignore (advance s); record_pat_ s
-  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a" Token.pp t))
+  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t)))
 
 and record_pat_ s =
   (* { already consumed *)
@@ -217,7 +229,8 @@ and atom_ s =
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
   | Token.Fn       -> fn_ s
-  | t -> raise (ParseError (Format.asprintf "unexpected token: %a" Token.pp t))
+  | t -> raise (ParseError (Format.asprintf "unexpected token: %a%s"
+      Token.pp t (keyword_hint t)))
 
 and list_ s =
   (* [ already consumed *)
@@ -310,9 +323,18 @@ let parse_expr tokens =
   let s = make tokens in
   expr_ 0 s
 
+let builtin_types = [
+  "Int"; "Float"; "String"; "Bool"; "Unit"; "Path";
+  "Date"; "Time"; "DateTime"; "Duration"; "Url";
+  "IPv4"; "CIDR"; "Port"; "Version"; "Size"
+]
+
 let parse_type_expr s =
   match advance s with
   | Token.Upper name -> Ast.TEName name
+  | Token.Ident name ->
+    raise (ParseError (Printf.sprintf "expected type name, got '%s'%s"
+      name (Util.hint name builtin_types)))
   | t -> raise (ParseError (Format.asprintf "expected type name, got %a" Token.pp t))
 
 let parse_type_fields s =
@@ -393,6 +415,7 @@ let parse_program tokens =
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]
-    | t -> raise (ParseError (Format.asprintf "unexpected top-level token: %a" Token.pp t))
+    | t -> raise (ParseError (Format.asprintf "unexpected top-level token: %a%s"
+        Token.pp t (keyword_hint t)))
   done;
   { Ast.items = !items; Ast.start = !start }

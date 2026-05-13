@@ -116,11 +116,15 @@ let rec eval (env : env) (e : expr) : value =
   | Var name ->
     (match List.assoc_opt name env with
      | Some v -> v
-     | None   -> raise (EvalError (Printf.sprintf "unbound variable '%s'" name)))
+     | None   ->
+       raise (EvalError (Printf.sprintf "unbound variable '%s'%s"
+         name (Util.hint name (List.map fst env)))))
   | Constr name ->
     (match List.assoc_opt name env with
      | Some v -> v
-     | None   -> raise (EvalError (Printf.sprintf "unknown constructor '%s'" name)))
+     | None   ->
+       raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
+         name (Util.hint name (List.map fst env)))))
   | Hole ->
     raise (EvalError "cannot evaluate a hole")
   | UnOp ("-", e) ->
@@ -165,7 +169,9 @@ let rec eval (env : env) (e : expr) : value =
      | VRecord kvs ->
        (match List.assoc_opt label kvs with
         | Some v -> v
-        | None   -> raise (EvalError (Printf.sprintf "no field '%s'" label)))
+        | None   ->
+          raise (EvalError (Printf.sprintf "no field '%s'%s"
+            label (Util.hint label (List.map fst kvs)))))
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b

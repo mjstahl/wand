@@ -133,7 +133,9 @@ type env = (string * scheme) list
 let lookup name (env : env) =
   match List.assoc_opt name env with
   | Some s -> s
-  | None   -> raise (TypeError (Printf.sprintf "unbound variable '%s'" name))
+  | None   ->
+    raise (TypeError (Printf.sprintf "unbound variable '%s'%s"
+      name (Util.hint name (List.map fst env))))
 
 (* ── Free type variables ──────────────────────────────────────────────────── *)
 
@@ -299,7 +301,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let ctor_env = tenv_to_ctor_env tenv in
     (match List.assoc_opt name ctor_env with
      | Some s -> instantiate s
-     | None   -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name)))
+     | None   ->
+       raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
+         name (Util.hint name (List.map fst ctor_env)))))
   | Hole -> fresh ()
   | UnOp ("-", e) -> unify (infer tenv env e) TInt; TInt
   | UnOp ("!", e) -> unify (infer tenv env e) TBool; TBool
@@ -361,14 +365,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | TRecord kvs ->
        (match List.assoc_opt label kvs with
         | Some t -> t
-        | None   -> raise (TypeError (Printf.sprintf "no field '%s'" label)))
+        | None   ->
+          raise (TypeError (Printf.sprintf "no field '%s'%s"
+            label (Util.hint label (List.map fst kvs)))))
      | TName tname ->
        (match List.assoc_opt tname tenv with
         | Some (RecordType (_, fields)) ->
           (match List.assoc_opt label fields with
            | Some te -> type_of_te te
-           | None    -> raise (TypeError (Printf.sprintf
-               "type '%s' has no field '%s'" tname label)))
+           | None    ->
+             raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
+               tname label (Util.hint label (List.map fst fields)))))
         | _ -> raise (TypeError (Printf.sprintf
             "cannot access field '%s' on non-record type '%s'" label tname)))
      | t -> raise (TypeError (Printf.sprintf
