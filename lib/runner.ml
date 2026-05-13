@@ -24,12 +24,15 @@ let run_string src =
   try
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
-    let env    = List.fold_left run_item [] prog.Ast.items in
-    let result = match prog.Ast.start with
-      | None   -> VUnit
-      | Some e -> eval env e
-    in
-    Ok (show_value result)
+    (match Typechecker.infer_program prog with
+     | Error msg -> Error ("type error: " ^ msg)
+     | Ok _ ->
+       let env    = List.fold_left run_item [] prog.Ast.items in
+       let result = match prog.Ast.start with
+         | None   -> VUnit
+         | Some e -> eval env e
+       in
+       Ok (show_value result))
   with
   | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)

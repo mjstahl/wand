@@ -53,6 +53,7 @@ type expr =
   | Record   of (string * expr) list
   | Field    of expr * string
   | Seq      of expr * expr
+  | Located  of Token.loc * expr
 
 and case = pat * expr option * expr
 
@@ -117,6 +118,7 @@ let rec show : expr -> string = function
                          (List.map (fun (k,v) -> k ^ "=" ^ show v) kvs))
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
+  | Located (_, e)  -> show e
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 

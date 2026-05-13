@@ -92,6 +92,15 @@ let test_locations () =
   err_suggests "line number"   "let x = 1\n= bad\nstart x" "2:";
   err_suggests "column number" "let x = 1\n= bad\nstart x" ":1"
 
+(* ── Source locations in type errors ────────────────────────────────────── *)
+
+let test_type_error_locations () =
+  (* "let y = 1 + true": body starts at col 9, line 1 *)
+  err_suggests "type error line"   "let y = 1 + true\nstart y" "1:";
+  err_suggests "type error column" "let y = 1 + true\nstart y" ":9";
+  (* error on line 2 *)
+  err_suggests "type error line 2" "let x = 1\nlet y = x + true\nstart y" "2:"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -111,6 +120,7 @@ let () =
       Alcotest.test_case "recursive"   `Quick test_recursive;
       Alcotest.test_case "suggestions" `Quick test_suggestions;
       Alcotest.test_case "locations"   `Quick test_locations;
+      Alcotest.test_case "type error locations" `Quick test_type_error_locations;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

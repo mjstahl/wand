@@ -433,7 +433,8 @@ let parse_program tokens =
         params := !params @ [pat_atom_ s]
       done;
       expect s Token.Eq;
-      let body = expr_ 0 s in
+      let loc = peek_loc s in
+      let body = Ast.Located (loc, expr_ 0 s) in
       items := !items @ [Ast.TLLet (name, !params, body)]
     | Token.Import ->
       ignore (advance s);
@@ -442,7 +443,8 @@ let parse_program tokens =
        | t -> raise (ParseError (Format.asprintf "expected string after import, got %a" Token.pp t)))
     | Token.Start ->
       ignore (advance s);
-      start := Some (expr_ 0 s)
+      let loc = peek_loc s in
+      start := Some (Ast.Located (loc, expr_ 0 s))
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]

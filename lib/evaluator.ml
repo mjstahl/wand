@@ -175,6 +175,7 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
+  | Located (_, e) -> eval env e
 
 and apply vf vx =
   match vf with
