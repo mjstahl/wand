@@ -1,0 +1,5 @@
+import "greetings"
+
+let guest = $("whoami")
+
+start shout (greet guest)

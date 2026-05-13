@@ -128,6 +128,17 @@ let test_sizes () =
 
 (* ── Suite ──────────────────────────────────────────────────────────────── *)
 
+(* ── Environment variables ───────────────────────────────────────────────── *)
+
+let test_envvars () =
+  check "simple"           "$HOME"      [EnvVar "HOME"];
+  check "with underscore"  "$MY_VAR"    [EnvVar "MY_VAR"];
+  check "with digits"      "$VAR2"      [EnvVar "VAR2"];
+  (* $ followed by ( stays as Dollar for command substitution *)
+  check "cmd sub unaffected" "$(x)"     [Dollar; LParen; Ident "x"; RParen];
+  (* $ followed by lowercase is not an env var *)
+  check "lowercase not env" "$home"     [Dollar; Ident "home"]
+
 let () =
   Alcotest.run "Domain tokens" [
     "paths", [
@@ -157,5 +168,8 @@ let () =
     ];
     "sizes", [
       Alcotest.test_case "sizes"              `Quick test_sizes;
+    ];
+    "env vars", [
+      Alcotest.test_case "env vars"           `Quick test_envvars;
     ];
   ]

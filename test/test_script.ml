@@ -46,10 +46,27 @@ let test_start () =
 
 (* ── Imports ─────────────────────────────────────────────────────────────── *)
 
+let with_tmp src f =
+  let path = Filename.temp_file "wand_test" ".wand" in
+  let () = let oc = open_out path in output_string oc src; close_out oc in
+  let result = f path in
+  Sys.remove path; result
+
 let test_import () =
-  ok "import parsed and skipped" {|import "utils"
-let x = 1
-start x|} "1"
+  with_tmp {|let answer = 42|} (fun lib ->
+    ok "import binding"
+      (Printf.sprintf {|import "%s"
+start answer|} lib) "42");
+  with_tmp {|let double x = x * 2|} (fun lib ->
+    ok "import function"
+      (Printf.sprintf {|import "%s"
+start double 21|} lib) "42");
+  with_tmp {|let greeting = "hello"
+let shout s = s ++ "!"|}
+    (fun lib ->
+      ok "import multiple bindings"
+        (Printf.sprintf {|import "%s"
+start shout greeting|} lib) "hello!")
 
 (* ── Recursive top-level functions ──────────────────────────────────────── *)
 
@@ -109,6 +126,44 @@ let test_eval_error_locations () =
   err_suggests "eval error line"   src "3:";
   err_suggests "eval error column" src ":9"
 
+(* ── Multi-equation functions ───────────────────────────────────────────── *)
+
+let test_multi_equation () =
+  ok "factorial"
+    {|let fact 0 = 1
+let fact n = n * fact (n - 1)
+start fact 5|}
+    "120";
+  ok "two args"
+    {|let add 0 y = y
+let add x 0 = x
+let add x y = x + y
+start "${add 3 4}, ${add 0 9}, ${add 5 0}"|}
+    "7, 9, 5";
+  ok "constructor patterns"
+    {|type Opt = None | Some of Int
+let show None     = "nothing"
+let show (Some n) = "just ${n}"
+start "${show None}, ${show (Some 42)}"|}
+    "nothing, just 42";
+  ok "wildcard catch-all"
+    {|let label 1 = "one"
+let label 2 = "two"
+let label _ = "other"
+start "${label 1}, ${label 2}, ${label 99}"|}
+    "one, two, other"
+
+(* ── Environment variables ───────────────────────────────────────────────── *)
+
+let test_envvar () =
+  let home = Sys.getenv "HOME" in
+  ok "basic"           "start $HOME"                    home;
+  ok "in let"          "let d = $HOME\nstart d"         home;
+  ok "concatenation"   {|start $HOME ++ "/bin"|}        (home ^ "/bin");
+  ok "interpolation"   {|start "home: ${$HOME}"|}       ("home: " ^ home);
+  ok "string shorthand" {|start "home: $HOME"|}         ("home: " ^ home);
+  err "unset var"      "start $WAND_UNSET_XYZ_99999"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -125,7 +180,9 @@ let () =
       Alcotest.test_case "chained"   `Quick test_chained;
       Alcotest.test_case "start"     `Quick test_start;
       Alcotest.test_case "import"    `Quick test_import;
-      Alcotest.test_case "recursive"   `Quick test_recursive;
+      Alcotest.test_case "recursive"        `Quick test_recursive;
+      Alcotest.test_case "multi-equation"   `Quick test_multi_equation;
+      Alcotest.test_case "env vars"         `Quick test_envvar;
       Alcotest.test_case "suggestions" `Quick test_suggestions;
       Alcotest.test_case "locations"   `Quick test_locations;
       Alcotest.test_case "type error locations" `Quick test_type_error_locations;
