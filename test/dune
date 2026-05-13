@@ -13,3 +13,11 @@
 (test
  (name test_parser)
  (libraries wand alcotest))
+
+(test
+ (name test_typechecker)
+ (libraries wand alcotest))
+
+(test
+ (name test_eval)
+ (libraries wand alcotest))
