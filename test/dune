@@ -1,0 +1,11 @@
+(test
+ (name test_wand)
+ (libraries wand))
+
+(test
+ (name test_lexer)
+ (libraries wand alcotest))
+
+(test
+ (name test_domain_tokens)
+ (libraries wand alcotest))

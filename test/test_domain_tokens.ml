@@ -1,0 +1,160 @@
+open Wand
+
+let tokens s =
+  Lexer.tokenize s
+  |> List.filter (fun t -> t <> Token.EOF && t <> Token.Newline)
+
+let check label input expected =
+  let got = tokens input in
+  Alcotest.(check (list (testable Token.pp Token.equal))) label expected got
+
+(* ── Paths ──────────────────────────────────────────────────────────────── *)
+
+let test_paths () =
+  check "absolute"        "/etc/passwd"          [Path "/etc/passwd"];
+  check "absolute nested" "/var/log/app.log"     [Path "/var/log/app.log"];
+  check "relative"        "./script.wand"        [Path "./script.wand"];
+  check "parent"          "../sibling"           [Path "../sibling"];
+  check "home"            "~/projects"           [Path "~/projects"];
+  (* slash in expression is division — space separates *)
+  check "slash operator"  "n / 2"                [Ident "n"; Slash; Int 2];
+  (* paths in expression position *)
+  check "two paths"       "copy /src /dst"
+    [Ident "copy"; Path "/src"; Path "/dst"]
+
+(* ── Dates ──────────────────────────────────────────────────────────────── *)
+
+let test_dates () =
+  check "basic date"   "2024-01-15"  [Date "2024-01-15"];
+  check "end of year"  "2024-12-31"  [Date "2024-12-31"];
+  check "epoch"        "1970-01-01"  [Date "1970-01-01"]
+
+let test_date_disambiguation () =
+  (* space before minus → int + minus, not date *)
+  check "int minus int" "2024 - 1"   [Int 2024; Minus; Int 1];
+  check "plain int"     "2024"       [Int 2024]
+
+(* ── DateTime ───────────────────────────────────────────────────────────── *)
+
+let test_datetimes () =
+  check "utc"      "2024-01-15T14:32:01Z"      [DateTime "2024-01-15T14:32:01Z"];
+  check "no tz"    "2024-01-15T00:00:00"       [DateTime "2024-01-15T00:00:00"]
+
+(* ── Times ──────────────────────────────────────────────────────────────── *)
+
+let test_times () =
+  check "afternoon" "14:32:01"  [Time "14:32:01"];
+  check "midnight"  "00:00:00"  [Time "00:00:00"];
+  check "noon"      "12:00:00"  [Time "12:00:00"]
+
+let test_time_disambiguation () =
+  (* colon with space → colon + int, not time *)
+  check "colon space int" ": 80"    [Colon; Int 80]
+
+(* ── Durations ──────────────────────────────────────────────────────────── *)
+
+let test_durations () =
+  check "minutes"      "5min"    [Duration "5min"];
+  check "hours"        "1h"      [Duration "1h"];
+  check "compound"     "1h30m"   [Duration "1h30m"];
+  check "days"         "2d"      [Duration "2d"];
+  check "milliseconds" "500ms"   [Duration "500ms"];
+  check "seconds"      "30s"     [Duration "30s"];
+  check "weeks"        "1w"      [Duration "1w"];
+  check "complex"      "2d12h30m" [Duration "2d12h30m"]
+
+(* ── URLs ───────────────────────────────────────────────────────────────── *)
+
+let test_urls () =
+  check "https bare"   "https://example.com"           [Url "https://example.com"];
+  check "http"         "http://localhost:8080"          [Url "http://localhost:8080"];
+  check "with path"    "https://example.com/api/v1"    [Url "https://example.com/api/v1"];
+  check "with query"   "https://example.com/s?q=foo"   [Url "https://example.com/s?q=foo"]
+
+(* ── IPv4 ───────────────────────────────────────────────────────────────── *)
+
+let test_ipv4 () =
+  check "loopback"   "127.0.0.1"       [IPv4 "127.0.0.1"];
+  check "private"    "192.168.1.1"     [IPv4 "192.168.1.1"];
+  check "zeros"      "0.0.0.0"         [IPv4 "0.0.0.0"];
+  check "broadcast"  "255.255.255.255" [IPv4 "255.255.255.255"]
+
+let test_ipv4_vs_float () =
+  (* two segments → float, not IPv4 *)
+  check "float not ipv4" "192.168"  [Float 192.168]
+
+(* ── CIDR ───────────────────────────────────────────────────────────────── *)
+
+let test_cidr () =
+  check "class c"    "192.168.0.0/24"  [CIDR "192.168.0.0/24"];
+  check "class a"    "10.0.0.0/8"      [CIDR "10.0.0.0/8"];
+  check "default"    "0.0.0.0/0"       [CIDR "0.0.0.0/0"]
+
+(* ── Ports ──────────────────────────────────────────────────────────────── *)
+
+let test_ports () =
+  check "http"   ":80"    [Port 80];
+  check "https"  ":443"   [Port 443];
+  check "dev"    ":8080"  [Port 8080]
+
+let test_port_disambiguation () =
+  (* colon with space before digits → colon token, not port *)
+  check "type annotation" ": Int"  [Colon; Upper "Int"]
+
+(* ── Versions ───────────────────────────────────────────────────────────── *)
+
+let test_versions () =
+  check "semver"       "1.2.3"          [Version "1.2.3"];
+  check "zeros"        "0.1.0"          [Version "0.1.0"];
+  check "pre-release"  "1.2.3-alpha.1"  [Version "1.2.3-alpha.1"];
+  check "rc"           "2.0.0-rc.1"     [Version "2.0.0-rc.1"]
+
+let test_version_vs_float () =
+  (* two segments → float *)
+  check "float not version" "1.2"  [Float 1.2]
+
+(* ── Sizes ──────────────────────────────────────────────────────────────── *)
+
+let test_sizes () =
+  check "bytes"      "100B"     [Size "100B"];
+  check "kilobytes"  "512KB"    [Size "512KB"];
+  check "megabytes"  "10MB"     [Size "10MB"];
+  check "gigabytes"  "1GB"      [Size "1GB"];
+  check "terabytes"  "2TB"      [Size "2TB"];
+  check "petabytes"  "1PB"      [Size "1PB"];
+  check "decimal"    "1.5GB"    [Size "1.5GB"];
+  check "decimal kb" "2.5KB"    [Size "2.5KB"]
+
+(* ── Suite ──────────────────────────────────────────────────────────────── *)
+
+let () =
+  Alcotest.run "Domain tokens" [
+    "paths", [
+      Alcotest.test_case "paths"              `Quick test_paths;
+    ];
+    "dates", [
+      Alcotest.test_case "dates"              `Quick test_dates;
+      Alcotest.test_case "date disambiguation" `Quick test_date_disambiguation;
+      Alcotest.test_case "datetimes"          `Quick test_datetimes;
+      Alcotest.test_case "times"              `Quick test_times;
+      Alcotest.test_case "time disambiguation" `Quick test_time_disambiguation;
+    ];
+    "durations", [
+      Alcotest.test_case "durations"          `Quick test_durations;
+    ];
+    "network", [
+      Alcotest.test_case "urls"               `Quick test_urls;
+      Alcotest.test_case "ipv4"               `Quick test_ipv4;
+      Alcotest.test_case "ipv4 vs float"      `Quick test_ipv4_vs_float;
+      Alcotest.test_case "cidr"               `Quick test_cidr;
+      Alcotest.test_case "ports"              `Quick test_ports;
+      Alcotest.test_case "port disambiguation" `Quick test_port_disambiguation;
+    ];
+    "versions", [
+      Alcotest.test_case "versions"           `Quick test_versions;
+      Alcotest.test_case "version vs float"   `Quick test_version_vs_float;
+    ];
+    "sizes", [
+      Alcotest.test_case "sizes"              `Quick test_sizes;
+    ];
+  ]
