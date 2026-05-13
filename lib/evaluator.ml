@@ -91,6 +91,15 @@ let rec try_match (p : pat) v (env : env) : env option =
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) pats vals
+  | PRecord kvs, VRecord fields ->
+    List.fold_left
+      (fun acc (k, p) -> match acc with
+        | None     -> None
+        | Some env ->
+          (match List.assoc_opt k fields with
+           | None   -> None
+           | Some v -> try_match p v env))
+      (Some env) kvs
   | _ -> None
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)

@@ -65,6 +65,42 @@ let origin = Point { x = 0, y = 0 }
 start origin.y|}
     "0"
 
+(* ── Record patterns ─────────────────────────────────────────────────────── *)
+
+let test_record_pat () =
+  ok "destructure named record"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 3, y = 4 }
+let sum = match p with | { x = a, y = b } -> a + b
+start sum|}
+    "7";
+  ok "shorthand binding"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 10, y = 20 }
+let get_x = match p with | { x } -> x
+start get_x|}
+    "10";
+  ok "wildcard field"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 5, y = 99 }
+let get_x = match p with | { x = v, y = _ } -> v
+start get_x|}
+    "5";
+  ok "in local let binding"
+    {|type Point = { x: Int, y: Int }
+let add_coords p =
+  let { x = a, y = b } = p in
+  a + b
+start add_coords (Point { x = 7, y = 8 })|}
+    "15"
+
+let test_record_pat_errors () =
+  err "unknown field in pattern"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 1, y = 2 }
+let sum = match p with | { x = a, z = b } -> a + b
+start sum|}
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -82,7 +118,9 @@ let () =
       Alcotest.test_case "match variant" `Quick test_match_variant;
     ];
     "records", [
-      Alcotest.test_case "record type"   `Quick test_record_type;
+      Alcotest.test_case "record type"    `Quick test_record_type;
+      Alcotest.test_case "record pattern" `Quick test_record_pat;
+      Alcotest.test_case "record pattern errors" `Quick test_record_pat_errors;
     ];
     "errors", [
       Alcotest.test_case "type errors"   `Quick test_errors;

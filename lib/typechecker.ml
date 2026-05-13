@@ -212,7 +212,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
     ) ctors
   | RecordType (tname, fields) ->
     let field_types = List.map (fun (k, te) -> (k, type_of_te te)) fields in
-    [(tname, Mono (TFun (TRecord field_types, TName tname)))]
+    [(tname, Mono (TFun (TRecord field_types, TRecord field_types)))]
 
 let tenv_to_ctor_env (tenv : typedef_env) : env =
   List.concat_map (fun (_, tdef) -> ctor_schemes tdef) tenv
@@ -263,7 +263,26 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
            name (List.length arg_ts) (List.length pats)));
        unify t result_t;
        List.fold_left2 (fun env p at -> infer_pat tenv p at env) env pats arg_ts)
-  | PRecord _ -> raise (TypeError "record patterns not yet supported")
+  | PRecord kvs ->
+    let field_types =
+      match repr t with
+      | TRecord fts -> fts
+      | TName tname ->
+        (match List.assoc_opt tname tenv with
+         | Some (RecordType (_, fields)) ->
+           List.map (fun (k, te) -> (k, type_of_te te)) fields
+         | _ -> raise (TypeError (Printf.sprintf
+             "cannot use record pattern on non-record type '%s'" tname)))
+      | _ ->
+        let fts = List.map (fun (k, _) -> (k, fresh ())) kvs in
+        unify t (TRecord fts); fts
+    in
+    List.fold_left (fun env (k, p) ->
+      match List.assoc_opt k field_types with
+      | None -> raise (TypeError (Printf.sprintf "record has no field '%s'%s"
+          k (Util.hint k (List.map fst field_types))))
+      | Some ft -> infer_pat tenv p ft env
+    ) env kvs
 
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
 let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
