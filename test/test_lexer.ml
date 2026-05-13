@@ -1,6 +1,6 @@
 open Wand
 
-let tokenize s = Lexer.tokenize s
+let tokenize s = List.map fst (Lexer.tokenize s)
 
 (* Strip EOF for cleaner test assertions *)
 let tokens s =

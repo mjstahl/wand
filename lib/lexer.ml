@@ -3,11 +3,13 @@ open Token
 exception LexError of string
 
 type state = {
-  src : string;
-  mutable pos : int;
+  src  : string;
+  mutable pos  : int;
+  mutable line : int;
+  mutable col  : int;
 }
 
-let make src = { src; pos = 0 }
+let make src = { src; pos = 0; line = 1; col = 1 }
 
 let len s = String.length s.src
 let is_at_end s = s.pos >= len s
@@ -16,7 +18,12 @@ let peek2 s = if s.pos + 1 >= len s then '\000' else s.src.[s.pos + 1]
 let char_at s offset =
   let i = s.pos + offset in
   if i >= len s then '\000' else s.src.[i]
-let advance s = let c = peek s in s.pos <- s.pos + 1; c
+let advance s =
+  let c = peek s in
+  s.pos <- s.pos + 1;
+  (if c = '\n' then (s.line <- s.line + 1; s.col <- 1)
+   else s.col <- s.col + 1);
+  c
 
 let is_digit c = c >= '0' && c <= '9'
 let is_lower c = c >= 'a' && c <= 'z'
@@ -305,56 +312,55 @@ let read_port s =
 
 let next_token s =
   let rec scan () =
-    if is_at_end s then EOF
+    let l = s.line and c = s.col in
+    let loc = Token.{ line = l; col = c } in
+    let ret tok = (tok, loc) in
+    if is_at_end s then ret EOF
     else match advance s with
     | ' ' | '\t' | '\r' -> scan ()
-    | '\n' -> Newline
-    | '"'  -> read_string s
+    | '\n' -> ret Newline
+    | '"'  -> ret (read_string s)
     | '('  when peek s = '*' -> skip_comment s; scan ()
-    | '('  -> LParen
-    | ')'  -> RParen
-    | '['  -> LBracket
-    | ']'  -> RBracket
-    | '{'  -> LBrace
-    | '}'  -> RBrace
-    | ','  -> Comma
-    | ';'  -> Semicolon
-    | '?'  -> Hole
-    | '+'  -> Plus
-    | '*'  -> Star
-    | '!'  -> if peek s = '=' then (ignore (advance s); BangEq) else Bang
-    | '='  -> if peek s = '=' then (ignore (advance s); EqEq)  else Eq
-    | '<'  -> if peek s = '=' then (ignore (advance s); LtEq)  else Lt
-    | '>'  -> if peek s = '=' then (ignore (advance s); GtEq)  else Gt
-    | '&'  -> if peek s = '&' then (ignore (advance s); AmpAmp)
+    | '('  -> ret LParen
+    | ')'  -> ret RParen
+    | '['  -> ret LBracket
+    | ']'  -> ret RBracket
+    | '{'  -> ret LBrace
+    | '}'  -> ret RBrace
+    | ','  -> ret Comma
+    | ';'  -> ret Semicolon
+    | '?'  -> ret Hole
+    | '+'  -> ret Plus
+    | '*'  -> ret Star
+    | '!'  -> ret (if peek s = '=' then (ignore (advance s); BangEq) else Bang)
+    | '='  -> ret (if peek s = '=' then (ignore (advance s); EqEq)  else Eq)
+    | '<'  -> ret (if peek s = '=' then (ignore (advance s); LtEq)  else Lt)
+    | '>'  -> ret (if peek s = '=' then (ignore (advance s); GtEq)  else Gt)
+    | '&'  -> if peek s = '&' then ret (ignore (advance s); AmpAmp)
               else raise (LexError "unexpected '&'")
-    | '|'  -> (match peek s with
+    | '|'  -> ret (match peek s with
                | '>' -> ignore (advance s); PipeArrow
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
-    | '-'  -> if peek s = '>' then (ignore (advance s); Arrow) else Minus
-    (* Colon: Port if immediately followed by digits, else Colon *)
-    | ':'  -> if is_digit (peek s) then read_port s else Colon
-    (* Slash: Path if immediately followed by path-start char, else Slash *)
+    | '-'  -> ret (if peek s = '>' then (ignore (advance s); Arrow) else Minus)
+    | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/'  ->
-      if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s) || peek s = '_' || peek s = '.') then
-        read_path_body s "/"
-      else
-        Slash
-    (* Dot: ./ path, ../ path, .., or plain dot *)
+      ret (if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
+                                    || peek s = '_' || peek s = '.') then
+             read_path_body s "/"
+           else Slash)
     | '.'  ->
-      (match peek s with
+      ret (match peek s with
        | '/' -> ignore (advance s); read_path_body s "./"
        | '.' when peek2 s = '/' ->
          ignore (advance s); ignore (advance s); read_path_body s "../"
        | '.' -> ignore (advance s); DotDot
        | _   -> Dot)
-    (* Home path *)
     | '~'  ->
-      if peek s = '/' then (ignore (advance s); read_path_body s "~/")
-      else raise (LexError "unexpected '~'")
-    | c when is_digit c -> read_numeric s c
-    | c when is_alpha c || c = '_' -> read_ident s c
+      ret (if peek s = '/' then (ignore (advance s); read_path_body s "~/")
+           else raise (LexError "unexpected '~'"))
+    | c when is_digit c -> ret (read_numeric s c)
+    | c when is_alpha c || c = '_' -> ret (read_ident s c)
     | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()
@@ -363,9 +369,11 @@ let tokenize src =
   let s = make src in
   let toks = ref [] in
   let rec loop () =
-    let t = next_token s in
-    toks := t :: !toks;
+    let (t, loc) = next_token s in
+    toks := (t, loc) :: !toks;
     if t <> EOF then loop ()
   in
   loop ();
   List.rev !toks
+
+let tokenize_plain src = List.map fst (tokenize src)

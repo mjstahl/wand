@@ -2,6 +2,7 @@ open Wand
 
 let tokens s =
   Lexer.tokenize s
+  |> List.map fst
   |> List.filter (fun t -> t <> Token.EOF && t <> Token.Newline)
 
 let check label input expected =

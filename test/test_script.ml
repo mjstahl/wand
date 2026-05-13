@@ -86,6 +86,12 @@ start p.xy|}
     "lte x = 1\nstart x"
     "let"
 
+(* ── Source locations in parse errors ───────────────────────────────────── *)
+
+let test_locations () =
+  err_suggests "line number"   "let x = 1\n= bad\nstart x" "2:";
+  err_suggests "column number" "let x = 1\n= bad\nstart x" ":1"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -104,6 +110,7 @@ let () =
       Alcotest.test_case "import"    `Quick test_import;
       Alcotest.test_case "recursive"   `Quick test_recursive;
       Alcotest.test_case "suggestions" `Quick test_suggestions;
+      Alcotest.test_case "locations"   `Quick test_locations;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

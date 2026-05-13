@@ -3,7 +3,7 @@ open Ast
 exception ParseError of string
 
 type state = {
-  tokens : Token.t array;
+  tokens : (Token.t * Token.loc) array;
   mutable pos : int;
 }
 
@@ -11,21 +11,40 @@ let make tokens = { tokens = Array.of_list tokens; pos = 0 }
 
 let skip s =
   while s.pos < Array.length s.tokens
-     && s.tokens.(s.pos) = Token.Newline do
+     && fst s.tokens.(s.pos) = Token.Newline do
     s.pos <- s.pos + 1
   done
 
 let peek s =
   skip s;
-  if s.pos < Array.length s.tokens then s.tokens.(s.pos) else Token.EOF
+  if s.pos < Array.length s.tokens then fst s.tokens.(s.pos) else Token.EOF
+
+let peek_loc s =
+  skip s;
+  if s.pos < Array.length s.tokens
+  then snd s.tokens.(s.pos)
+  else Token.{ line = 0; col = 0 }
 
 let advance s =
   skip s;
   if s.pos >= Array.length s.tokens then Token.EOF
   else begin
-    let t = s.tokens.(s.pos) in
+    let t = fst s.tokens.(s.pos) in
     s.pos <- s.pos + 1; t
   end
+
+let advance_loc s =
+  skip s;
+  if s.pos >= Array.length s.tokens
+  then (Token.EOF, Token.{ line = 0; col = 0 })
+  else begin
+    let pair = s.tokens.(s.pos) in
+    s.pos <- s.pos + 1; pair
+  end
+
+let loc_prefix s =
+  let l = peek_loc s in
+  Printf.sprintf "%d:%d: " l.Token.line l.Token.col
 
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn";
@@ -37,15 +56,17 @@ let keyword_hint = function
   | _ -> ""
 
 let expect s tok =
+  let loc = loc_prefix s in
   let t = advance s in
   if not (Token.equal t tok) then
-    raise (ParseError (Format.asprintf "expected %a, got %a%s"
-      Token.pp tok Token.pp t (keyword_hint t)))
+    raise (ParseError (Format.asprintf "%sexpected %a, got %a%s"
+      loc Token.pp tok Token.pp t (keyword_hint t)))
 
 let expect_ident s =
+  let loc = loc_prefix s in
   match advance s with
   | Token.Ident name -> name
-  | t -> raise (ParseError (Format.asprintf "expected identifier, got %a" Token.pp t))
+  | t -> raise (ParseError (Format.asprintf "%sexpected identifier, got %a" loc Token.pp t))
 
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
@@ -108,8 +129,10 @@ let rec pat_ s =
       args := !args @ [pat_atom_ s]
     done;
     PConstr (name, !args)
-  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a%s"
-      Token.pp t (keyword_hint t)))
+  | t ->
+    let loc = loc_prefix s in
+    raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
+      loc Token.pp t (keyword_hint t)))
 
 and pat_atom_ s =
   match peek s with
@@ -135,8 +158,10 @@ and pat_atom_ s =
     end
   | Token.LBrace ->
     ignore (advance s); record_pat_ s
-  | t -> raise (ParseError (Format.asprintf "unexpected token in pattern: %a%s"
-      Token.pp t (keyword_hint t)))
+  | t ->
+    let loc = loc_prefix s in
+    raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
+      loc Token.pp t (keyword_hint t)))
 
 and record_pat_ s =
   (* { already consumed *)
@@ -190,6 +215,7 @@ and infix_ left op s =
   | t -> raise (ParseError (Format.asprintf "unexpected infix: %a" Token.pp t))
 
 and atom_ s =
+  let loc = loc_prefix s in
   match advance s with
   | Token.Int n      -> (Int n : expr)
   | Token.Float f    -> Float f
@@ -229,8 +255,8 @@ and atom_ s =
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
   | Token.Fn       -> fn_ s
-  | t -> raise (ParseError (Format.asprintf "unexpected token: %a%s"
-      Token.pp t (keyword_hint t)))
+  | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
+      loc Token.pp t (keyword_hint t)))
 
 and list_ s =
   (* [ already consumed *)
@@ -330,12 +356,13 @@ let builtin_types = [
 ]
 
 let parse_type_expr s =
+  let loc = loc_prefix s in
   match advance s with
   | Token.Upper name -> Ast.TEName name
   | Token.Ident name ->
-    raise (ParseError (Printf.sprintf "expected type name, got '%s'%s"
-      name (Util.hint name builtin_types)))
-  | t -> raise (ParseError (Format.asprintf "expected type name, got %a" Token.pp t))
+    raise (ParseError (Printf.sprintf "%sexpected type name, got '%s'%s"
+      loc name (Util.hint name builtin_types)))
+  | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
 
 let parse_type_fields s =
   let first = parse_type_expr s in
@@ -348,9 +375,11 @@ let parse_type_fields s =
 
 let parse_type_def s =
   (* type already consumed *)
-  let type_name = match advance s with
+  let type_name =
+    let loc = loc_prefix s in
+    match advance s with
     | Token.Upper n -> n
-    | t -> raise (ParseError (Format.asprintf "expected type name, got %a" Token.pp t))
+    | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
   in
   expect s Token.Eq;
   match peek s with
@@ -369,9 +398,11 @@ let parse_type_def s =
   | _ ->
     let ctors = ref [] in
     let parse_ctor () =
-      let name = match advance s with
+      let name =
+        let loc = loc_prefix s in
+        match advance s with
         | Token.Upper n -> n
-        | t -> raise (ParseError (Format.asprintf "expected constructor name, got %a" Token.pp t))
+        | t -> raise (ParseError (Format.asprintf "%sexpected constructor name, got %a" loc Token.pp t))
       in
       let fields =
         if peek s = Token.Of then (ignore (advance s); parse_type_fields s)
@@ -415,7 +446,9 @@ let parse_program tokens =
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]
-    | t -> raise (ParseError (Format.asprintf "unexpected top-level token: %a%s"
-        Token.pp t (keyword_hint t)))
+    | t ->
+      let loc = loc_prefix s in
+      raise (ParseError (Format.asprintf "%sunexpected top-level token: %a%s"
+        loc Token.pp t (keyword_hint t)))
   done;
   { Ast.items = !items; Ast.start = !start }

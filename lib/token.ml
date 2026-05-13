@@ -82,6 +82,8 @@ type t =
   | Newline
   | EOF
 
+type loc = { line: int; col: int }
+
 let pp ppf tok =
   let s = match tok with
     | Int n      -> Printf.sprintf "Int(%d)" n
