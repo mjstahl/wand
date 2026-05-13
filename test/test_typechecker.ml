@@ -84,8 +84,11 @@ let test_if () =
 (* ── Let ──────────────────────────────────────────────────────────────────── *)
 
 let test_let () =
-  ok "body arith" "let x = 1 in x + 1"           "Int";
-  ok "fn in let"  "let f = fn x -> x + 1 in f 5" "Int"
+  ok "body arith"   "let x = 1 in x + 1"              "Int";
+  ok "fn in let"    "let f = fn x -> x + 1 in f 5"    "Int";
+  ok "fn shorthand" "let f x = x + 1 in f 5"          "Int";
+  ok "recursive"    "let fact n = if n <= 0 then 1 else n * fact (n - 1) in fact 5" "Int";
+  ok "poly id"      "let id x = x in id 1"             "Int"
 
 (* ── Functions ────────────────────────────────────────────────────────────── *)
 

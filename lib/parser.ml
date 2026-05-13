@@ -247,11 +247,24 @@ and record_ s =
 and let_ s =
   (* let already consumed *)
   let p = pat_ s in
-  expect s Token.Eq;
-  let e1 = expr_ 0 s in
-  expect s Token.In;
-  let e2 = expr_ 0 s in
-  Let (p, e1, e2)
+  match p with
+  | PVar name when peek s <> Token.Eq ->
+    (* function shorthand: let f params = body in rest *)
+    let params = ref [] in
+    while is_pat_atom_start (peek s) do
+      params := !params @ [pat_atom_ s]
+    done;
+    expect s Token.Eq;
+    let body = expr_ 0 s in
+    expect s Token.In;
+    let rest = expr_ 0 s in
+    Let (PVar name, Fn (!params, body), rest)
+  | _ ->
+    expect s Token.Eq;
+    let e1 = expr_ 0 s in
+    expect s Token.In;
+    let e2 = expr_ 0 s in
+    Let (p, e1, e2)
 
 and if_ s =
   (* if already consumed *)

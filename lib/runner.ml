@@ -6,7 +6,7 @@ let run_item (env : env) (item : Ast.top_item) : env =
     let v = eval env body in
     (name, v) :: env
   | Ast.TLLet (name, params, body) ->
-    let v = VFun (env, params, body) in
+    let v = VFix (name, env, params, body) in
     (name, v) :: env
   | Ast.TLImport _ -> env
   | Ast.TLType (Ast.Variants (_, ctors)) ->

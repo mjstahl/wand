@@ -39,6 +39,16 @@ let test_import () =
 let x = 1
 start x|} "1"
 
+(* ── Recursive top-level functions ──────────────────────────────────────── *)
+
+let test_recursive () =
+  ok "factorial"
+    "let fact n = if n <= 0 then 1 else n * fact (n - 1)\nstart fact 5"
+    "120";
+  ok "fibonacci"
+    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)\nstart fib 10"
+    "55"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -55,6 +65,7 @@ let () =
       Alcotest.test_case "chained"   `Quick test_chained;
       Alcotest.test_case "start"     `Quick test_start;
       Alcotest.test_case "import"    `Quick test_import;
+      Alcotest.test_case "recursive" `Quick test_recursive;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

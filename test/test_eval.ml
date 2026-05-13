@@ -160,6 +160,19 @@ let test_pipeline () =
      3 |> double"
     "6"
 
+(* ── Recursive let ────────────────────────────────────────────────────────── *)
+
+let test_recursive_let () =
+  ok "factorial"
+    "let fact n = if n <= 0 then 1 else n * fact (n - 1) in fact 5"
+    "120";
+  ok "fibonacci"
+    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2) in fib 10"
+    "55";
+  ok "countdown"
+    "let count n = if n == 0 then 0 else count (n - 1) in count 100"
+    "0"
+
 (* ── Errors ───────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -188,6 +201,7 @@ let () =
       Alcotest.test_case "list"          `Quick test_list;
       Alcotest.test_case "record"        `Quick test_record;
       Alcotest.test_case "pipeline"      `Quick test_pipeline;
+      Alcotest.test_case "recursive let" `Quick test_recursive_let;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

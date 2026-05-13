@@ -321,10 +321,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
     unify tf (TFun (tx, tr));
     tr
   | Let (p, e1, e2) ->
-    let t1     = infer tenv env e1 in
-    let scheme = generalize env t1 in
-    let env'   = infer_pat_let tenv p t1 scheme env in
-    infer tenv env' e2
+    (match p, e1 with
+     | PVar name, Fn _ ->
+       let placeholder = fresh () in
+       let env_rec = (name, Mono placeholder) :: env in
+       let t1 = infer tenv env_rec e1 in
+       unify placeholder t1;
+       infer tenv ((name, generalize env t1) :: env) e2
+     | _ ->
+       let t1     = infer tenv env e1 in
+       let scheme = generalize env t1 in
+       infer tenv (infer_pat_let tenv p t1 scheme env) e2)
   | If (cond, then_, else_) ->
     unify (infer tenv env cond) TBool;
     let tt = infer tenv env then_ in
@@ -413,7 +420,10 @@ let infer_program (prog : program) : (typ, string) result =
         let t = infer tenv env body in
         (name, generalize env t) :: env
       | TLLet (name, params, body) ->
-        let t = infer tenv env (Fn (params, body)) in
+        let placeholder = fresh () in
+        let env_rec = (name, Mono placeholder) :: env in
+        let t = infer tenv env_rec (Fn (params, body)) in
+        unify placeholder t;
         (name, generalize env t) :: env
       | TLType _ | TLImport _ -> env
     ) base_env prog.items

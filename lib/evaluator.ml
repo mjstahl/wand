@@ -26,6 +26,7 @@ type value =
   | VConstr        of string * value list
   | VPartialConstr of string * int * value list
   | VRecordCtor
+  | VFix           of string * env * pat list * expr
 
 and env = (string * value) list
 
@@ -48,7 +49,7 @@ let rec show_value = function
   | VPort n     -> Printf.sprintf ":%d" n
   | VVersion s  -> s
   | VSize s     -> s
-  | VFun _           -> "<fn>"
+  | VFun _ | VFix _  -> "<fn>"
   | VRecordCtor      -> "<record-ctor>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
@@ -140,9 +141,13 @@ let rec eval (env : env) (e : expr) : value =
     let vx = eval env x in
     apply vf vx
   | Let (p, e1, e2) ->
-    let v1   = eval env e1 in
-    let env' = bind_pat p v1 env in
-    eval env' e2
+    let v1 = eval env e1 in
+    let v1 = match p, v1 with
+      | PVar name, VFun (fenv, params, body) ->
+        VFix (name, fenv, params, body)
+      | _ -> v1
+    in
+    eval (bind_pat p v1 env) e2
   | If (cond, then_, else_) ->
     (match eval env cond with
      | VBool true  -> eval env then_
@@ -174,6 +179,9 @@ and apply vf vx =
      | p :: rest ->
        let env' = bind_pat p vx fenv in
        VFun (env', rest, body))
+  | VFix (name, fenv, params, body) ->
+    let fenv' = (name, VFix (name, fenv, params, body)) :: fenv in
+    apply (VFun (fenv', params, body)) vx
   | VPartialConstr (name, 1, args) -> VConstr (name, args @ [vx])
   | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])
   | VRecordCtor ->
