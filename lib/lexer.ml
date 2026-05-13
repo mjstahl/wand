@@ -47,7 +47,8 @@ let keyword_or_ident word = match word with
   | "end"      -> End      | "class"    -> Class
   | "instance" -> Instance | "orphan"   -> Orphan
   | "when"     -> When     | "and"      -> And
-  | "or"       -> Or
+  | "or"       -> Or       | "handle"   -> Handle
+  | "return"   -> Return
   | "true"     -> Bool true
   | "false"    -> Bool false
   | "_"        -> Underscore
@@ -57,18 +58,48 @@ let keyword_or_ident word = match word with
 (* ── String literals ────────────────────────────────────────────────────── *)
 
 let read_string s =
+  let parts = ref [] in
   let buf = Buffer.create 16 in
   let rec loop () =
     if is_at_end s then raise (LexError "unterminated string literal");
     match advance s with
-    | '"'  -> String (Buffer.contents buf)
+    | '"'  ->
+      if !parts = [] then String (Buffer.contents buf)
+      else InterpStr (!parts, Buffer.contents buf)
     | '\\' ->
       let c = match advance s with
         | 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r'
-        | '\\' -> '\\' | '"' -> '"'
+        | '\\' -> '\\' | '"' -> '"' | '$' -> '$'
         | c -> raise (LexError (Printf.sprintf "unknown escape \\%c" c))
       in
       Buffer.add_char buf c; loop ()
+    | '$' when peek s = '{' ->
+      ignore (advance s);
+      let lit = Buffer.contents buf in
+      Buffer.clear buf;
+      let expr_buf = Buffer.create 16 in
+      let depth = ref 1 in
+      while !depth > 0 do
+        if is_at_end s then raise (LexError "unterminated string interpolation");
+        let c = advance s in
+        if c = '{' then (incr depth; Buffer.add_char expr_buf c)
+        else if c = '}' then begin
+          decr depth;
+          if !depth > 0 then Buffer.add_char expr_buf c
+        end else
+          Buffer.add_char expr_buf c
+      done;
+      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      loop ()
+    | '$' when is_upper (peek s) ->
+      let lit = Buffer.contents buf in
+      Buffer.clear buf;
+      let name_buf = Buffer.create 8 in
+      while not (is_at_end s) && (is_upper (peek s) || is_digit (peek s) || peek s = '_') do
+        Buffer.add_char name_buf (advance s)
+      done;
+      parts := !parts @ [(lit, "$" ^ Buffer.contents name_buf)];
+      loop ()
     | c -> Buffer.add_char buf c; loop ()
   in
   loop ()
@@ -330,7 +361,7 @@ let next_token s =
     | ','  -> ret Comma
     | ';'  -> ret Semicolon
     | '?'  -> ret Hole
-    | '+'  -> ret Plus
+    | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
     | '*'  -> ret Star
     | '!'  -> ret (if peek s = '=' then (ignore (advance s); BangEq) else Bang)
     | '='  -> ret (if peek s = '=' then (ignore (advance s); EqEq)  else Eq)
@@ -356,7 +387,14 @@ let next_token s =
          ignore (advance s); ignore (advance s); read_path_body s "../"
        | '.' -> ignore (advance s); DotDot
        | _   -> Dot)
-    | '$'  -> ret Dollar
+    | '$'  ->
+      if is_upper (peek s) then
+        let buf = Buffer.create 8 in
+        while not (is_at_end s) && (is_upper (peek s) || is_digit (peek s) || peek s = '_') do
+          Buffer.add_char buf (advance s)
+        done;
+        ret (EnvVar (Buffer.contents buf))
+      else ret Dollar
     | '~'  ->
       ret (if peek s = '/' then (ignore (advance s); read_path_body s "~/")
            else raise (LexError "unexpected '~'"))

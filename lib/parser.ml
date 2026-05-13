@@ -49,7 +49,8 @@ let loc_prefix s =
 
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn";
-  "type"; "start"; "import"; "when"; "of"; "and"; "or"
+  "type"; "start"; "import"; "when"; "of"; "and"; "or";
+  "handle"; "return"
 ]
 
 let keyword_hint = function
@@ -72,13 +73,14 @@ let expect_ident s =
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
 let lbp = function
+  | Token.Semicolon  -> 5
   | Token.PipeArrow -> 10
   | Token.PipePipe  -> 20
   | Token.AmpAmp    -> 30
   | Token.EqEq | Token.BangEq
   | Token.Lt   | Token.Gt
   | Token.LtEq | Token.GtEq -> 40
-  | Token.Plus | Token.Minus -> 50
+  | Token.Plus | Token.Minus | Token.PlusPlus -> 50
   | Token.Star | Token.Slash -> 60
   | Token.Dot  -> 80
   | _ -> 0
@@ -90,7 +92,8 @@ let is_atom_start = function
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket | Token.LBrace
-  | Token.Dollar -> true
+  | Token.Dollar | Token.InterpStr _ | Token.EnvVar _
+  | Token.Handle -> true
   | _ -> false
 
 let is_pat_atom_start = function
@@ -200,6 +203,7 @@ let rec expr_ bp s =
 
 and infix_ left op s =
   match op with
+  | Token.Semicolon  -> Seq (left, expr_ 4 s)
   | Token.PipeArrow -> BinOp ("|>", left, expr_ 10 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
   | Token.AmpAmp    -> BinOp ("&&", left, expr_ 30 s)
@@ -211,6 +215,7 @@ and infix_ left op s =
   | Token.GtEq      -> BinOp (">=", left, expr_ 40 s)
   | Token.Plus      -> BinOp ("+",  left, expr_ 50 s)
   | Token.Minus     -> BinOp ("-",  left, expr_ 50 s)
+  | Token.PlusPlus  -> BinOp ("++", left, expr_ 50 s)
   | Token.Star      -> BinOp ("*",  left, expr_ 60 s)
   | Token.Slash     -> BinOp ("/",  left, expr_ 60 s)
   | Token.Dot       -> Field (left, expect_ident s)
@@ -234,9 +239,10 @@ and atom_ s =
   | Token.Port n     -> Port n
   | Token.Version v  -> Version v
   | Token.Size sz    -> Size sz
-  | Token.Ident name -> Var name
-  | Token.Upper name -> Constr name
-  | Token.Hole       -> Hole
+  | Token.Ident name  -> Var name
+  | Token.Upper name  -> Constr name
+  | Token.EnvVar name -> EnvVar name
+  | Token.Hole        -> Hole
   | Token.Minus      -> UnOp ("-", expr_ 65 s)
   | Token.Bang       -> UnOp ("!", expr_ 65 s)
   | Token.LParen     ->
@@ -263,6 +269,14 @@ and atom_ s =
     let e = expr_ 0 s in
     expect s Token.RParen;
     RunCmd e
+  | Token.InterpStr (parts, tail) ->
+    let parsed = List.map (fun (lit, src) ->
+      let toks = Lexer.tokenize src in
+      let s2 = make toks in
+      (lit, expr_ 0 s2)
+    ) parts in
+    Interp (parsed, tail)
+  | Token.Handle -> parse_handle_ s
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
 
@@ -370,6 +384,81 @@ and fn_ s =
   done;
   expect s Token.Arrow;
   Fn (!params, parse_contract_body s)
+
+(* ── Handle expression ────────────────────────────────────────────────────── *)
+
+and parse_handle_ s =
+  (* handle already consumed *)
+  let body = expr_ 0 s in
+  expect s Token.With;
+  let arms = ref [] in
+  while peek s = Token.Pipe do
+    ignore (advance s);
+    let arm = match peek s with
+      | Token.Return ->
+        ignore (advance s);
+        let p = pat_atom_ s in
+        expect s Token.Arrow;
+        let b = expr_ 0 s in
+        Ast.ReturnArm (p, b)
+      | Token.Ident op_name ->
+        ignore (advance s);
+        let arg_pat = pat_atom_ s in
+        let cont_name = expect_ident s in
+        expect s Token.Arrow;
+        let b = expr_ 0 s in
+        Ast.EffectArm (op_name, arg_pat, cont_name, b)
+      | t ->
+        raise (ParseError (Format.asprintf "%sunexpected token in handler arm: %a"
+          (loc_prefix s) Token.pp t))
+    in
+    arms := !arms @ [arm]
+  done;
+  Ast.Handle (body, !arms)
+
+(* ── Multi-equation merging ───────────────────────────────────────────────── *)
+
+(* Merge consecutive top-level lets with the same name and arity into one
+   function whose body dispatches via match. *)
+let merge_equations items =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | Ast.TLLet (name, (_ :: _ as params), body) :: rest ->
+      let arity = List.length params in
+      let eqs  = ref [(params, body)] in
+      let tail = ref rest in
+      let stop = ref false in
+      while not !stop do
+        match !tail with
+        | Ast.TLLet (n2, p2, b2) :: rest2
+          when n2 = name && List.length p2 = arity ->
+          eqs  := !eqs @ [(p2, b2)];
+          tail := rest2
+        | _ -> stop := true
+      done;
+      let item = match !eqs with
+        | [(p, b)] -> Ast.TLLet (name, p, b)
+        | eqs ->
+          let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+          let scrutinee = match fresh with
+            | [v] -> Ast.Var v
+            | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
+          in
+          let arms = List.map (fun (pats, body) ->
+            let pat = match pats with
+              | [p] -> p
+              | ps  -> Ast.PTuple ps
+            in
+            (pat, None, body)
+          ) eqs in
+          Ast.TLLet (name,
+            List.map (fun v -> Ast.PVar v) fresh,
+            Ast.Match (scrutinee, arms))
+      in
+      go (item :: acc) !tail
+    | item :: rest -> go (item :: acc) rest
+  in
+  go [] items
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
@@ -481,4 +570,4 @@ let parse_program tokens =
       raise (ParseError (Format.asprintf "%sunexpected top-level token: %a%s"
         loc Token.pp t (keyword_hint t)))
   done;
-  { Ast.items = !items; Ast.start = !start }
+  { Ast.items = merge_equations !items; Ast.start = !start }

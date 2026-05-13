@@ -40,6 +40,7 @@ type expr =
   | Size     of string
   | Var      of string
   | Constr   of string
+  | EnvVar   of string
   | Hole
   | App      of expr * expr
   | Fn       of pat list * expr
@@ -56,8 +57,14 @@ type expr =
   | Located  of Token.loc * expr
   | Contract of expr list * expr list * expr
   | RunCmd   of expr
+  | Interp   of (string * expr) list * string
+  | Handle   of expr * handle_arm list
 
 and case = pat * expr option * expr
+
+and handle_arm =
+  | EffectArm of string * pat * string * expr  (* op, arg_pat, cont_name, body *)
+  | ReturnArm of pat * expr
 
 (* ── Pretty-print ─────────────────────────────────────────────────────────── *)
 
@@ -105,6 +112,7 @@ let rec show : expr -> string = function
   | Size s     -> Printf.sprintf "size:%s" s
   | Var x      -> x
   | Constr x   -> x
+  | EnvVar x   -> Printf.sprintf "$%s" x
   | Hole       -> "?"
   | App (f, x)      -> Printf.sprintf "(@ %s %s)" (show f) (show x)
   | Fn (ps, e)      -> Printf.sprintf "(fn %s -> %s)"
@@ -122,6 +130,27 @@ let rec show : expr -> string = function
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
   | RunCmd e -> Printf.sprintf "$(%s)" (show e)
+  | Interp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    Buffer.add_char buf '"';
+    List.iter (fun (lit, e) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf "${";
+      Buffer.add_string buf (show e);
+      Buffer.add_char buf '}'
+    ) parts;
+    Buffer.add_string buf tail;
+    Buffer.add_char buf '"';
+    Buffer.contents buf
+  | Handle (body, arms) ->
+    let show_arm = function
+      | EffectArm (op, p, k, b) ->
+        Printf.sprintf "(| %s %s %s -> %s)" op (show_pat p) k (show b)
+      | ReturnArm (p, b) ->
+        Printf.sprintf "(| return %s -> %s)" (show_pat p) (show b)
+    in
+    Printf.sprintf "(handle %s with %s)" (show body)
+      (String.concat " " (List.map show_arm arms))
   | Contract (reqs, ens, body) ->
     let clause kw e = Printf.sprintf "(%s %s)" kw (show e) in
     let rs = String.concat " " (List.map (clause "requires") reqs) in

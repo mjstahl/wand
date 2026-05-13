@@ -27,6 +27,7 @@ type value =
   | VPartialConstr of string * int * value list
   | VRecordCtor
   | VFix           of string * env * pat list * expr
+  | VBuiltin       of (value -> value)
 
 and env = (string * value) list
 
@@ -49,7 +50,7 @@ let rec show_value = function
   | VPort n     -> Printf.sprintf ":%d" n
   | VVersion s  -> s
   | VSize s     -> s
-  | VFun _ | VFix _  -> "<fn>"
+  | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
   | VRecordCtor      -> "<record-ctor>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
@@ -66,6 +67,10 @@ let rec show_value = function
 (* ── Runtime error ────────────────────────────────────────────────────────── *)
 
 exception EvalError of string
+
+(* ── Algebraic effects ────────────────────────────────────────────────────── *)
+
+type _ Effect.t += WandEffect : string * value -> value Effect.t
 
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
@@ -134,6 +139,11 @@ let rec eval (env : env) (e : expr) : value =
      | None   ->
        raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst env)))))
+  | EnvVar name ->
+    (match Sys.getenv_opt name with
+     | Some v -> VString v
+     | None   -> raise (EvalError (Printf.sprintf
+         "environment variable '%s' is not set" name)))
   | Hole ->
     raise (EvalError "cannot evaluate a hole")
   | UnOp ("-", e) ->
@@ -189,26 +199,49 @@ let rec eval (env : env) (e : expr) : value =
       | VString s -> s
       | _ -> raise (EvalError "$(…) requires a string")
     in
-    let ic = Unix.open_process_in cmd in
-    let buf = Buffer.create 64 in
-    (try while true do Buffer.add_channel buf ic 1 done
-     with End_of_file -> ());
-    let status = Unix.close_process_in ic in
-    let output = Buffer.contents buf in
-    let output = (* strip trailing newlines like bash $() *)
-      let n = String.length output in
-      let i = ref n in
-      while !i > 0 && output.[!i - 1] = '\n' do decr i done;
-      String.sub output 0 !i
+    Effect.perform (WandEffect ("process_run", VString cmd))
+  | Handle (body_expr, arms) ->
+    let effect_arms = List.filter_map (function
+      | Ast.EffectArm (n, p, k, b) -> Some (n, p, k, b)
+      | _ -> None) arms in
+    let return_arm = List.find_opt (function
+      | Ast.ReturnArm _ -> true | _ -> false) arms in
+    let apply_return v =
+      match return_arm with
+      | None -> v
+      | Some (Ast.ReturnArm (p, b)) -> eval (bind_pat p v env) b
+      | Some (Ast.EffectArm _) -> assert false
     in
-    (match status with
-     | Unix.WEXITED 0 -> VString output
-     | Unix.WEXITED n -> raise (EvalError (Printf.sprintf
-         "command exited with code %d: %s" n cmd))
-     | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf
-         "command killed by signal %d: %s" n cmd))
-     | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf
-         "command stopped by signal %d: %s" n cmd)))
+    Effect.Deep.match_with (fun () -> eval env body_expr) ()
+      { Effect.Deep.
+          retc = apply_return;
+          exnc = raise;
+          effc = fun (type a) (eff : a Effect.t) ->
+            match eff with
+            | WandEffect (op, arg) ->
+              let rec try_arms = function
+                | [] -> (None : ((a, value) Effect.Deep.continuation -> value) option)
+                | (name, arg_pat, cont_name, arm_body) :: rest ->
+                  if name <> op then try_arms rest
+                  else
+                    match try_match arg_pat arg env with
+                    | None -> try_arms rest
+                    | Some env' ->
+                      Some (fun (k : (a, value) Effect.Deep.continuation) ->
+                        let cont = VBuiltin (fun v -> Effect.Deep.continue k v) in
+                        eval ((cont_name, cont) :: env') arm_body)
+              in
+              try_arms effect_arms
+            | _ -> None
+      }
+  | Interp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, e) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf (show_value (eval env e))
+    ) parts;
+    Buffer.add_string buf tail;
+    VString (Buffer.contents buf)
   | Contract (reqs, ens, body) ->
     List.iter (fun req ->
       match eval env req with
@@ -236,6 +269,7 @@ let rec eval (env : env) (e : expr) : value =
 
 and apply vf vx =
   match vf with
+  | VBuiltin f -> f vx
   | VFun (fenv, params, body) ->
     (match params with
      | []      -> raise (EvalError "function with no parameters")
@@ -300,6 +334,10 @@ and eval_binop (env : env) op a b : value =
      | VInt x,   VInt y   -> VInt (x / y)
      | VFloat x, VFloat y -> VFloat (x /. y)
      | _ -> raise (EvalError "'/' requires matching numeric types"))
+  | "++" ->
+    (match eval env a, eval env b with
+     | VString s1, VString s2 -> VString (s1 ^ s2)
+     | _ -> raise (EvalError "'++' requires strings"))
   | "==" -> VBool (eval env a = eval env b)
   | "!=" -> VBool (eval env a <> eval env b)
   | "<"  ->
@@ -351,3 +389,8 @@ and eval_binop (env : env) op a b : value =
 let eval_expr (e : expr) : (value, string) result =
   try Ok (eval [] e)
   with EvalError msg -> Error msg
+
+let base_eval_env : env = [
+  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
+  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
+]

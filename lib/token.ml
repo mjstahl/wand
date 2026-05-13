@@ -47,6 +47,8 @@ type t =
   | When
   | And                (* and — keyword, not && *)
   | Or                 (* or — keyword, not || *)
+  | Handle             (* handle *)
+  | Return             (* return — in effect handler arms *)
   (* Operators *)
   | Eq                 (* = *)
   | Arrow              (* -> *)
@@ -71,6 +73,9 @@ type t =
   | PipePipe           (* || *)
   | Bang               (* ! *)
   | Dollar             (* $ *)
+  | EnvVar of string   (* $HOME, $PATH, $MY_VAR — uppercase only *)
+  | PlusPlus           (* ++ *)
+  | InterpStr of (string * string) list * string  (* "lit ${src} ... tail" *)
   (* Delimiters *)
   | LParen             (* ( *)
   | RParen             (* ) *)
@@ -118,6 +123,7 @@ let pp ppf tok =
     | Class      -> "class"  | Instance   -> "instance"
     | Orphan     -> "orphan" | When       -> "when"
     | And        -> "and"   | Or         -> "or"
+    | Handle     -> "handle" | Return    -> "return"
     | Eq         -> "="      | Arrow      -> "->"
     | Pipe       -> "|"      | PipeArrow  -> "|>"
     | Plus       -> "+"      | Minus      -> "-"
@@ -130,6 +136,9 @@ let pp ppf tok =
     | GtEq       -> ">="     | AmpAmp     -> "&&"
     | PipePipe   -> "||"     | Bang       -> "!"
     | Dollar     -> "$"
+    | EnvVar s   -> Printf.sprintf "$%s" s
+    | PlusPlus   -> "++"
+    | InterpStr _ -> "InterpStr"
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"

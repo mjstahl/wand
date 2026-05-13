@@ -37,3 +37,11 @@
 (test
  (name test_process)
  (libraries wand alcotest))
+
+(test
+ (name test_strings)
+ (libraries wand alcotest))
+
+(test
+ (name test_effects)
+ (libraries wand alcotest))

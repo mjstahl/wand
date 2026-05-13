@@ -323,6 +323,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | None   ->
        raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst ctor_env)))))
+  | EnvVar _ -> TString
   | Hole -> fresh ()
   | UnOp ("-", e) -> unify (infer tenv env e) TInt; TInt
   | UnOp ("!", e) -> unify (infer tenv env e) TBool; TBool
@@ -400,6 +401,26 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | t -> raise (TypeError (Printf.sprintf
          "field access requires a record, got %s" (string_of_typ t))))
   | RunCmd e -> unify (infer tenv env e) TString; TString
+  | Handle (body_expr, arms) ->
+    let body_t = infer tenv env body_expr in
+    let result_t = fresh () in
+    List.iter (fun arm ->
+      match arm with
+      | Ast.ReturnArm (p, b) ->
+        let env' = infer_pat tenv p body_t env in
+        unify result_t (infer tenv env' b)
+      | Ast.EffectArm (_, arg_pat, cont_name, arm_body) ->
+        let arg_t = fresh () in
+        let env' = infer_pat tenv arg_pat arg_t env in
+        let cont_arg_t = fresh () in
+        let cont_t = TFun (cont_arg_t, result_t) in
+        let env'' = (cont_name, Mono cont_t) :: env' in
+        unify result_t (infer tenv env'' arm_body)
+    ) arms;
+    result_t
+  | Interp (parts, _) ->
+    List.iter (fun (_, e) -> ignore (infer tenv env e)) parts;
+    TString
   | Seq (a, b) -> ignore (infer tenv env a); infer tenv env b
   | Contract (reqs, ens, body) ->
     List.iter (fun req -> unify (infer tenv env req) TBool) reqs;
@@ -421,6 +442,10 @@ and infer_binop tenv (env : env) op a b : typ =
     unify (infer tenv env a) TInt;
     unify (infer tenv env b) TInt;
     TInt
+  | "++" ->
+    unify (infer tenv env a) TString;
+    unify (infer tenv env b) TString;
+    TString
   | "==" | "!=" ->
     unify (infer tenv env a) (infer tenv env b); TBool
   | "<" | ">" | "<=" | ">=" ->
@@ -443,9 +468,10 @@ let infer_expr (e : expr) : (typ, string) result =
   try Ok (infer [] [] e)
   with TypeError msg -> Error msg
 
-let infer_program (prog : program) : (typ, string) result =
+let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : (env * typ, string) result =
   try
-    let tenv = List.filter_map (function
+    let local_tenv = List.filter_map (function
       | TLType tdef ->
         let name = match tdef with
           | Variants (n, _) | RecordType (n, _) -> n
@@ -453,7 +479,12 @@ let infer_program (prog : program) : (typ, string) result =
         Some (name, tdef)
       | _ -> None) prog.items
     in
-    let base_env = tenv_to_ctor_env tenv in
+    let tenv = local_tenv @ init_tenv in
+    let builtin_env = [
+      ("print",   Mono (TFun (TString, TUnit)));
+      ("println", Mono (TFun (TString, TUnit)));
+    ] in
+    let base_env = tenv_to_ctor_env tenv @ builtin_env @ init_env in
     let env = List.fold_left (fun env item ->
       match item with
       | TLLet (name, [], body) ->
@@ -472,5 +503,12 @@ let infer_program (prog : program) : (typ, string) result =
       | None   -> TUnit
       | Some e -> infer tenv env e
     in
-    Ok result_t
+    Ok (env, result_t)
   with TypeError msg -> Error msg
+
+let infer_program (prog : program) : (typ, string) result =
+  Result.map snd (infer_program_full prog)
+
+let infer_program_env ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : (env, string) result =
+  Result.map fst (infer_program_full ~init_tenv ~init_env prog)
