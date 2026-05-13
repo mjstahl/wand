@@ -152,6 +152,61 @@ let test_errors () =
   err "apply non-fn"    "1 2";
   err "list mismatch"   "[1, true]"
 
+(* ── Program-level inference ──────────────────────────────────────────────── *)
+
+let infer_prog s =
+  Lexer.tokenize s
+  |> Parser.parse_program
+  |> Typechecker.infer_program
+  |> Result.map Typechecker.string_of_typ
+
+let ok_prog label input expected =
+  Alcotest.(check ty) label (Ok expected) (infer_prog input)
+
+let err_prog label input =
+  match infer_prog input with
+  | Error _ -> ()
+  | Ok t -> Alcotest.failf "%s: expected type error but got: %s" label t
+
+let test_enum_types () =
+  ok_prog "nullary"  "type Color = Red | Green\nstart Red"   "Color";
+  ok_prog "second"   "type Color = Red | Green\nstart Green" "Color"
+
+let test_payload_types () =
+  ok_prog "single arg" "type Wrap = Wrap of Int\nstart Wrap 42"         "Wrap";
+  ok_prog "two args"   "type Pair = Pair of Int * Int\nstart Pair 3 4"  "Pair"
+
+let test_match_ctor () =
+  ok_prog "nullary arms"
+    {|type Color = Red | Green
+let f c = match c with
+| Red   -> 1
+| Green -> 2
+start f Red|}
+    "Int";
+  ok_prog "payload arm"
+    {|type Wrap = Wrap of Int
+let unwrap w = match w with
+| Wrap n -> n
+start unwrap (Wrap 42)|}
+    "Int"
+
+let test_record_typedef () =
+  ok_prog "field access"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 1, y = 2 }
+start p.x|}
+    "Int";
+  ok_prog "second field"
+    {|type Point = { x: Int, y: Int }
+let p = Point { x = 1, y = 2 }
+start p.y|}
+    "Int"
+
+let test_ctor_errors () =
+  err_prog "unknown ctor"   "start Bogus";
+  err_prog "wrong arg type" "type Wrap = Wrap of Int\nstart Wrap true"
+
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -178,5 +233,12 @@ let () =
     ];
     "errors", [
       Alcotest.test_case "type errors" `Quick test_errors;
+    ];
+    "type definitions", [
+      Alcotest.test_case "enum types"     `Quick test_enum_types;
+      Alcotest.test_case "payload types"  `Quick test_payload_types;
+      Alcotest.test_case "match ctor"     `Quick test_match_ctor;
+      Alcotest.test_case "record typedef" `Quick test_record_typedef;
+      Alcotest.test_case "ctor errors"    `Quick test_ctor_errors;
     ];
   ]
