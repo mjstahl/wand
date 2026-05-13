@@ -35,10 +35,12 @@ let keyword_or_ident word = match word with
   | "token"    -> Token    | "import"   -> Import
   | "start"    -> Start    | "requires" -> Requires
   | "ensures"  -> Ensures  | "result"   -> Result
+  | "fn"       -> Fn
   | "for"      -> For      | "do"       -> Do
   | "end"      -> End      | "class"    -> Class
   | "instance" -> Instance | "orphan"   -> Orphan
-  | "and"      -> And      | "or"       -> Or
+  | "when"     -> When     | "and"      -> And
+  | "or"       -> Or
   | "true"     -> Bool true
   | "false"    -> Bool false
   | "_"        -> Underscore
@@ -316,6 +318,7 @@ let next_token s =
     | '{'  -> LBrace
     | '}'  -> RBrace
     | ','  -> Comma
+    | ';'  -> Semicolon
     | '?'  -> Hole
     | '+'  -> Plus
     | '*'  -> Star

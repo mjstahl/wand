@@ -36,12 +36,14 @@ type t =
   | Requires
   | Ensures
   | Result
+  | Fn
   | For
   | Do
   | End
   | Class
   | Instance
   | Orphan
+  | When
   | And                (* and — keyword, not && *)
   | Or                 (* or — keyword, not || *)
   (* Operators *)
@@ -74,6 +76,7 @@ type t =
   | RBracket           (* ] *)
   | LBrace             (* { *)
   | RBrace             (* } *)
+  | Semicolon          (* ; *)
   (* Structure *)
   | Newline
   | EOF
@@ -105,11 +108,12 @@ let pp ppf tok =
     | Type       -> "type"   | Token      -> "token"
     | Import     -> "import" | Start      -> "start"
     | Requires   -> "requires" | Ensures  -> "ensures"
-    | Result     -> "result" | For        -> "for"
+    | Result     -> "result" | Fn         -> "fn"
+    | For        -> "for"
     | Do         -> "do"     | End        -> "end"
     | Class      -> "class"  | Instance   -> "instance"
-    | Orphan     -> "orphan" | And        -> "and"
-    | Or         -> "or"
+    | Orphan     -> "orphan" | When       -> "when"
+    | And        -> "and"   | Or         -> "or"
     | Eq         -> "="      | Arrow      -> "->"
     | Pipe       -> "|"      | PipeArrow  -> "|>"
     | Plus       -> "+"      | Minus      -> "-"
@@ -124,7 +128,8 @@ let pp ppf tok =
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"
-    | Newline    -> "\\n"    | EOF        -> "EOF"
+    | Semicolon  -> ";"      | Newline    -> "\\n"
+    | EOF        -> "EOF"
   in
   Format.pp_print_string ppf s
 

@@ -60,12 +60,14 @@ let test_keywords () =
     "requires", Requires;
     "ensures",  Ensures;
     "result",   Result;
+    "fn",       Fn;
     "for",      For;
     "do",       Do;
     "end",      End;
     "class",    Class;
     "instance", Instance;
     "orphan",   Orphan;
+    "when",     When;
     "and",      And;
     "or",       Or;
   ] in
@@ -111,9 +113,10 @@ let test_operators () =
 (* ── Delimiters ─────────────────────────────────────────────────────────── *)
 
 let test_delimiters () =
-  check_tokens "parens"   "()"   [LParen; RParen];
-  check_tokens "brackets" "[]"   [LBracket; RBracket];
-  check_tokens "braces"   "{}"   [LBrace; RBrace]
+  check_tokens "parens"    "()"    [LParen; RParen];
+  check_tokens "brackets"  "[]"    [LBracket; RBracket];
+  check_tokens "braces"    "{}"    [LBrace; RBrace];
+  check_tokens "semicolon" ";"     [Semicolon]
 
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
