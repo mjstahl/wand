@@ -1,0 +1,4 @@
+(executable
+ (public_name wand)
+ (name main)
+ (libraries wand))
