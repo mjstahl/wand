@@ -25,3 +25,9 @@ let hint name candidates =
   match suggest name candidates with
   | Some s -> Printf.sprintf " (did you mean '%s'?)" s
   | None   -> ""
+
+let has_loc_prefix msg =
+  let n = String.length msg in
+  let i = ref 0 in
+  while !i < n && msg.[!i] >= '0' && msg.[!i] <= '9' do incr i done;
+  !i > 0 && !i < n && msg.[!i] = ':'

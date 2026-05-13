@@ -175,7 +175,12 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
-  | Located (_, e) -> eval env e
+  | Located (loc, e) ->
+    (try eval env e
+     with EvalError msg ->
+       if Util.has_loc_prefix msg then raise (EvalError msg)
+       else raise (EvalError (Printf.sprintf "%d:%d: %s"
+              loc.Token.line loc.Token.col msg)))
 
 and apply vf vx =
   match vf with

@@ -101,6 +101,14 @@ let test_type_error_locations () =
   (* error on line 2 *)
   err_suggests "type error line 2" "let x = 1\nlet y = x + true\nstart y" "2:"
 
+(* ── Source locations in eval errors ────────────────────────────────────── *)
+
+let test_eval_error_locations () =
+  (* non-exhaustive match on line 3, body starts at col 9 ("match") *)
+  let src = "type C = A | B\nlet x = A\nlet y = match x with | B -> 1\nstart y" in
+  err_suggests "eval error line"   src "3:";
+  err_suggests "eval error column" src ":9"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -121,6 +129,7 @@ let () =
       Alcotest.test_case "suggestions" `Quick test_suggestions;
       Alcotest.test_case "locations"   `Quick test_locations;
       Alcotest.test_case "type error locations" `Quick test_type_error_locations;
+      Alcotest.test_case "eval error locations" `Quick test_eval_error_locations;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

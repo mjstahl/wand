@@ -278,12 +278,6 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
 
 (* ── Expression inference ─────────────────────────────────────────────────── *)
 
-let has_loc_prefix msg =
-  let n = String.length msg in
-  let i = ref 0 in
-  while !i < n && msg.[!i] >= '0' && msg.[!i] <= '9' do incr i done;
-  !i > 0 && !i < n && msg.[!i] = ':'
-
 let rec infer tenv (env : env) (e : expr) : typ =
   match e with
   | Int _      -> TInt
@@ -390,7 +384,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Located (loc, e) ->
     (try infer tenv env e
      with TypeError msg ->
-       if has_loc_prefix msg then raise (TypeError msg)
+       if Util.has_loc_prefix msg then raise (TypeError msg)
        else raise (TypeError (Printf.sprintf "%d:%d: %s"
               loc.Token.line loc.Token.col msg)))
 
