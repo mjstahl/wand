@@ -37,6 +37,7 @@ type t =
   | Ensures
   | Result
   | Fn
+  | Of
   | For
   | Do
   | End
@@ -109,7 +110,7 @@ let pp ppf tok =
     | Import     -> "import" | Start      -> "start"
     | Requires   -> "requires" | Ensures  -> "ensures"
     | Result     -> "result" | Fn         -> "fn"
-    | For        -> "for"
+    | Of         -> "of"    | For        -> "for"
     | Do         -> "do"     | End        -> "end"
     | Class      -> "class"  | Instance   -> "instance"
     | Orphan     -> "orphan" | When       -> "when"

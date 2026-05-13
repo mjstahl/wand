@@ -9,6 +9,16 @@ let run_item (env : env) (item : Ast.top_item) : env =
     let v = VFun (env, params, body) in
     (name, v) :: env
   | Ast.TLImport _ -> env
+  | Ast.TLType (Ast.Variants (_, ctors)) ->
+    List.fold_left (fun env ctor ->
+      let v = match ctor.Ast.fields with
+        | [] -> VConstr (ctor.Ast.name, [])
+        | fs -> VPartialConstr (ctor.Ast.name, List.length fs, [])
+      in
+      (ctor.Ast.name, v) :: env
+    ) env ctors
+  | Ast.TLType (Ast.RecordType (type_name, _)) ->
+    (type_name, VRecordCtor) :: env
 
 let run_string src =
   try

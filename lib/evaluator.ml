@@ -19,10 +19,13 @@ type value =
   | VPort     of int
   | VVersion  of string
   | VSize     of string
-  | VTuple    of value list
-  | VList     of value list
-  | VRecord   of (string * value) list
-  | VFun      of env * pat list * expr
+  | VTuple         of value list
+  | VList          of value list
+  | VRecord        of (string * value) list
+  | VFun           of env * pat list * expr
+  | VConstr        of string * value list
+  | VPartialConstr of string * int * value list
+  | VRecordCtor
 
 and env = (string * value) list
 
@@ -45,7 +48,12 @@ let rec show_value = function
   | VPort n     -> Printf.sprintf ":%d" n
   | VVersion s  -> s
   | VSize s     -> s
-  | VFun _      -> "<fn>"
+  | VFun _           -> "<fn>"
+  | VRecordCtor      -> "<record-ctor>"
+  | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
+  | VConstr (name, []) -> name
+  | VConstr (name, vs) ->
+    name ^ "(" ^ String.concat ", " (List.map show_value vs) ^ ")"
   | VTuple vs   ->
     "(" ^ String.concat ", " (List.map show_value vs) ^ ")"
   | VList vs    ->
@@ -75,6 +83,13 @@ let rec try_match (p : pat) v (env : env) : env option =
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) ps vs
+  | PConstr (name, pats), VConstr (vname, vals)
+    when name = vname && List.length pats = List.length vals ->
+    List.fold_left2
+      (fun acc p v -> match acc with
+        | None     -> None
+        | Some env -> try_match p v env)
+      (Some env) pats vals
   | _ -> None
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
@@ -102,7 +117,9 @@ let rec eval (env : env) (e : expr) : value =
      | Some v -> v
      | None   -> raise (EvalError (Printf.sprintf "unbound variable '%s'" name)))
   | Constr name ->
-    raise (EvalError (Printf.sprintf "constructor '%s' not yet supported" name))
+    (match List.assoc_opt name env with
+     | Some v -> v
+     | None   -> raise (EvalError (Printf.sprintf "unknown constructor '%s'" name)))
   | Hole ->
     raise (EvalError "cannot evaluate a hole")
   | UnOp ("-", e) ->
@@ -157,6 +174,12 @@ and apply vf vx =
      | p :: rest ->
        let env' = bind_pat p vx fenv in
        VFun (env', rest, body))
+  | VPartialConstr (name, 1, args) -> VConstr (name, args @ [vx])
+  | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])
+  | VRecordCtor ->
+    (match vx with
+     | VRecord _ -> vx
+     | _ -> raise (EvalError "record constructor requires a record literal"))
   | _ -> raise (EvalError "cannot apply a non-function")
 
 and bind_pat (p : pat) v (env : env) : env =

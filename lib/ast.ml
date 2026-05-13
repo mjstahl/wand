@@ -130,9 +130,22 @@ let equal : expr -> expr -> bool = (=)
 
 (* ── Top-level program ────────────────────────────────────────────────────── *)
 
+type type_expr =
+  | TEName of string
+
+type ctor_def = {
+  name   : string;
+  fields : type_expr list;
+}
+
+type type_def =
+  | Variants   of string * ctor_def list
+  | RecordType of string * (string * type_expr) list
+
 type top_item =
   | TLLet    of string * pat list * expr
   | TLImport of string
+  | TLType   of type_def
 
 type program = {
   items : top_item list;

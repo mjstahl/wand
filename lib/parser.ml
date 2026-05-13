@@ -297,6 +297,60 @@ let parse_expr tokens =
   let s = make tokens in
   expr_ 0 s
 
+let parse_type_expr s =
+  match advance s with
+  | Token.Upper name -> Ast.TEName name
+  | t -> raise (ParseError (Format.asprintf "expected type name, got %a" Token.pp t))
+
+let parse_type_fields s =
+  let first = parse_type_expr s in
+  let rest = ref [] in
+  while peek s = Token.Star do
+    ignore (advance s);
+    rest := !rest @ [parse_type_expr s]
+  done;
+  first :: !rest
+
+let parse_type_def s =
+  (* type already consumed *)
+  let type_name = match advance s with
+    | Token.Upper n -> n
+    | t -> raise (ParseError (Format.asprintf "expected type name, got %a" Token.pp t))
+  in
+  expect s Token.Eq;
+  match peek s with
+  | Token.LBrace ->
+    ignore (advance s);
+    let fields = ref [] in
+    while peek s <> Token.RBrace do
+      let fname = expect_ident s in
+      expect s Token.Colon;
+      let ftype = parse_type_expr s in
+      fields := !fields @ [(fname, ftype)];
+      if peek s = Token.Comma then ignore (advance s)
+    done;
+    expect s Token.RBrace;
+    Ast.RecordType (type_name, !fields)
+  | _ ->
+    let ctors = ref [] in
+    let parse_ctor () =
+      let name = match advance s with
+        | Token.Upper n -> n
+        | t -> raise (ParseError (Format.asprintf "expected constructor name, got %a" Token.pp t))
+      in
+      let fields =
+        if peek s = Token.Of then (ignore (advance s); parse_type_fields s)
+        else []
+      in
+      { Ast.name; fields }
+    in
+    ctors := [parse_ctor ()];
+    while peek s = Token.Pipe do
+      ignore (advance s);
+      ctors := !ctors @ [parse_ctor ()]
+    done;
+    Ast.Variants (type_name, !ctors)
+
 let parse_program tokens =
   let s = make tokens in
   let items = ref [] in
@@ -323,6 +377,9 @@ let parse_program tokens =
     | Token.Start ->
       ignore (advance s);
       start := Some (expr_ 0 s)
+    | Token.Type ->
+      ignore (advance s);
+      items := !items @ [Ast.TLType (parse_type_def s)]
     | t -> raise (ParseError (Format.asprintf "unexpected top-level token: %a" Token.pp t))
   done;
   { Ast.items = !items; Ast.start = !start }
