@@ -1,2 +1,3 @@
 (library
- (name wand))
+ (name wand)
+ (libraries unix))

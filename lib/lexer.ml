@@ -356,6 +356,7 @@ let next_token s =
          ignore (advance s); ignore (advance s); read_path_body s "../"
        | '.' -> ignore (advance s); DotDot
        | _   -> Dot)
+    | '$'  -> ret Dollar
     | '~'  ->
       ret (if peek s = '/' then (ignore (advance s); read_path_body s "~/")
            else raise (LexError "unexpected '~'"))

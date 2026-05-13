@@ -55,6 +55,7 @@ type expr =
   | Seq      of expr * expr
   | Located  of Token.loc * expr
   | Contract of expr list * expr list * expr
+  | RunCmd   of expr
 
 and case = pat * expr option * expr
 
@@ -120,6 +121,7 @@ let rec show : expr -> string = function
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
+  | RunCmd e -> Printf.sprintf "$(%s)" (show e)
   | Contract (reqs, ens, body) ->
     let clause kw e = Printf.sprintf "(%s %s)" kw (show e) in
     let rs = String.concat " " (List.map (clause "requires") reqs) in

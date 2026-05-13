@@ -89,7 +89,8 @@ let is_atom_start = function
   | Token.Duration _ | Token.Url _ | Token.IPv4 _ | Token.CIDR _
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
-  | Token.LParen | Token.LBracket | Token.LBrace -> true
+  | Token.LParen | Token.LBracket | Token.LBrace
+  | Token.Dollar -> true
   | _ -> false
 
 let is_pat_atom_start = function
@@ -257,6 +258,11 @@ and atom_ s =
   | Token.Match    -> match_ s
   | Token.Fn       -> fn_ s
   | Token.Result   -> Var "result"
+  | Token.Dollar   ->
+    expect s Token.LParen;
+    let e = expr_ 0 s in
+    expect s Token.RParen;
+    RunCmd e
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
 

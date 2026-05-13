@@ -399,6 +399,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
             "cannot access field '%s' on non-record type '%s'" label tname)))
      | t -> raise (TypeError (Printf.sprintf
          "field access requires a record, got %s" (string_of_typ t))))
+  | RunCmd e -> unify (infer tenv env e) TString; TString
   | Seq (a, b) -> ignore (infer tenv env a); infer tenv env b
   | Contract (reqs, ens, body) ->
     List.iter (fun req -> unify (infer tenv env req) TBool) reqs;

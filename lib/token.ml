@@ -70,6 +70,7 @@ type t =
   | AmpAmp             (* && *)
   | PipePipe           (* || *)
   | Bang               (* ! *)
+  | Dollar             (* $ *)
   (* Delimiters *)
   | LParen             (* ( *)
   | RParen             (* ) *)
@@ -128,6 +129,7 @@ let pp ppf tok =
     | Gt         -> ">"      | LtEq       -> "<="
     | GtEq       -> ">="     | AmpAmp     -> "&&"
     | PipePipe   -> "||"     | Bang       -> "!"
+    | Dollar     -> "$"
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"

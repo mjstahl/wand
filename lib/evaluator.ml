@@ -184,6 +184,31 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
+  | RunCmd e ->
+    let cmd = match eval env e with
+      | VString s -> s
+      | _ -> raise (EvalError "$(…) requires a string")
+    in
+    let ic = Unix.open_process_in cmd in
+    let buf = Buffer.create 64 in
+    (try while true do Buffer.add_channel buf ic 1 done
+     with End_of_file -> ());
+    let status = Unix.close_process_in ic in
+    let output = Buffer.contents buf in
+    let output = (* strip trailing newlines like bash $() *)
+      let n = String.length output in
+      let i = ref n in
+      while !i > 0 && output.[!i - 1] = '\n' do decr i done;
+      String.sub output 0 !i
+    in
+    (match status with
+     | Unix.WEXITED 0 -> VString output
+     | Unix.WEXITED n -> raise (EvalError (Printf.sprintf
+         "command exited with code %d: %s" n cmd))
+     | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf
+         "command killed by signal %d: %s" n cmd))
+     | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf
+         "command stopped by signal %d: %s" n cmd)))
   | Contract (reqs, ens, body) ->
     List.iter (fun req ->
       match eval env req with
