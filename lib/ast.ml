@@ -127,3 +127,14 @@ and show_case (p, g, e) =
 
 let pp ppf (e : expr) = Format.pp_print_string ppf (show e)
 let equal : expr -> expr -> bool = (=)
+
+(* ── Top-level program ────────────────────────────────────────────────────── *)
+
+type top_item =
+  | TLLet    of string * pat list * expr
+  | TLImport of string
+
+type program = {
+  items : top_item list;
+  start : expr option;
+}

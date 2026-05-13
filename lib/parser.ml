@@ -296,3 +296,33 @@ and fn_ s =
 let parse_expr tokens =
   let s = make tokens in
   expr_ 0 s
+
+let parse_program tokens =
+  let s = make tokens in
+  let items = ref [] in
+  let start = ref None in
+  let continue_ = ref true in
+  while !continue_ do
+    match peek s with
+    | Token.EOF -> continue_ := false
+    | Token.Let ->
+      ignore (advance s);
+      let name = expect_ident s in
+      let params = ref [] in
+      while is_pat_atom_start (peek s) do
+        params := !params @ [pat_atom_ s]
+      done;
+      expect s Token.Eq;
+      let body = expr_ 0 s in
+      items := !items @ [Ast.TLLet (name, !params, body)]
+    | Token.Import ->
+      ignore (advance s);
+      (match advance s with
+       | Token.String path -> items := !items @ [Ast.TLImport path]
+       | t -> raise (ParseError (Format.asprintf "expected string after import, got %a" Token.pp t)))
+    | Token.Start ->
+      ignore (advance s);
+      start := Some (expr_ 0 s)
+    | t -> raise (ParseError (Format.asprintf "unexpected top-level token: %a" Token.pp t))
+  done;
+  { Ast.items = !items; Ast.start = !start }
