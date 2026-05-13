@@ -184,6 +184,24 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
+  | Contract (reqs, ens, body) ->
+    List.iter (fun req ->
+      match eval env req with
+      | VBool true  -> ()
+      | VBool false -> raise (EvalError (Printf.sprintf
+          "precondition failed: %s" (Ast.show req)))
+      | _ -> assert false
+    ) reqs;
+    let v = eval env body in
+    List.iter (fun e ->
+      let env' = ("result", v) :: env in
+      match eval env' e with
+      | VBool true  -> ()
+      | VBool false -> raise (EvalError (Printf.sprintf
+          "postcondition failed: %s" (Ast.show e)))
+      | _ -> assert false
+    ) ens;
+    v
   | Located (loc, e) ->
     (try eval env e
      with EvalError msg ->

@@ -54,6 +54,7 @@ type expr =
   | Field    of expr * string
   | Seq      of expr * expr
   | Located  of Token.loc * expr
+  | Contract of expr list * expr list * expr
 
 and case = pat * expr option * expr
 
@@ -110,8 +111,8 @@ let rec show : expr -> string = function
   | Let (p, e1, e2) -> Printf.sprintf "(let %s = %s in %s)" (show_pat p) (show e1) (show e2)
   | If (c, t, e)    -> Printf.sprintf "(if %s %s %s)" (show c) (show t) (show e)
   | Match (e, cs)   -> Printf.sprintf "(match %s %s)" (show e) (show_cases cs)
-  | BinOp (op,a,b)  -> Printf.sprintf "(%s %s %s)" op (show a) (show b)
-  | UnOp (op, e)    -> Printf.sprintf "(%s %s)" op (show e)
+  | BinOp (op,a,b)  -> Printf.sprintf "(%s %s %s)" (show a) op (show b)
+  | UnOp (op, e)    -> Printf.sprintf "(%s%s)" op (show e)
   | Tuple es        -> Printf.sprintf "(tuple %s)" (String.concat " " (List.map show es))
   | List es         -> Printf.sprintf "[%s]" (String.concat "; " (List.map show es))
   | Record kvs      -> Printf.sprintf "{%s}" (String.concat "; "
@@ -119,6 +120,11 @@ let rec show : expr -> string = function
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
+  | Contract (reqs, ens, body) ->
+    let clause kw e = Printf.sprintf "(%s %s)" kw (show e) in
+    let rs = String.concat " " (List.map (clause "requires") reqs) in
+    let es = String.concat " " (List.map (clause "ensures") ens) in
+    Printf.sprintf "(contract %s %s %s)" rs es (show body)
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 

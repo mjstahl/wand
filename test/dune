@@ -29,3 +29,7 @@
 (test
  (name test_typedef)
  (libraries wand alcotest))
+
+(test
+ (name test_contracts)
+ (libraries wand alcotest))

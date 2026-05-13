@@ -5,9 +5,10 @@ exception ParseError of string
 type state = {
   tokens : (Token.t * Token.loc) array;
   mutable pos : int;
+  mutable in_contract : bool;
 }
 
-let make tokens = { tokens = Array.of_list tokens; pos = 0 }
+let make tokens = { tokens = Array.of_list tokens; pos = 0; in_contract = false }
 
 let skip s =
   while s.pos < Array.length s.tokens
@@ -189,7 +190,7 @@ let rec expr_ bp s =
     if bp' > bp then begin
       ignore (advance s);
       left := infix_ !left t s
-    end else if is_atom_start t && 70 > bp then
+    end else if is_atom_start t && 70 > bp && not s.in_contract then
       left := App (!left, atom_ s)
     else
       continue_ := false
@@ -255,6 +256,7 @@ and atom_ s =
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
   | Token.Fn       -> fn_ s
+  | Token.Result   -> Var "result"
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
 
@@ -294,7 +296,7 @@ and let_ s =
       params := !params @ [pat_atom_ s]
     done;
     expect s Token.Eq;
-    let body = expr_ 0 s in
+    let body = parse_contract_body s in
     expect s Token.In;
     let rest = expr_ 0 s in
     Let (PVar name, Fn (!params, body), rest)
@@ -333,6 +335,27 @@ and match_ s =
   done;
   Match (scrutinee, !arms)
 
+and contract_expr_ s =
+  let saved = s.in_contract in
+  s.in_contract <- true;
+  let e = expr_ 0 s in
+  s.in_contract <- saved;
+  e
+
+and parse_contract_body s =
+  let reqs = ref [] in
+  let ens  = ref [] in
+  let continue_ = ref true in
+  while !continue_ do
+    match peek s with
+    | Token.Requires -> ignore (advance s); reqs := !reqs @ [contract_expr_ s]
+    | Token.Ensures  -> ignore (advance s); ens  := !ens  @ [contract_expr_ s]
+    | _ -> continue_ := false
+  done;
+  let body = expr_ 0 s in
+  if !reqs = [] && !ens = [] then body
+  else Ast.Contract (!reqs, !ens, body)
+
 and fn_ s =
   (* fn already consumed *)
   let params = ref [] in
@@ -340,8 +363,7 @@ and fn_ s =
     params := !params @ [pat_atom_ s]
   done;
   expect s Token.Arrow;
-  let body = expr_ 0 s in
-  Fn (!params, body)
+  Fn (!params, parse_contract_body s)
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
@@ -434,7 +456,7 @@ let parse_program tokens =
       done;
       expect s Token.Eq;
       let loc = peek_loc s in
-      let body = Ast.Located (loc, expr_ 0 s) in
+      let body = Ast.Located (loc, parse_contract_body s) in
       items := !items @ [Ast.TLLet (name, !params, body)]
     | Token.Import ->
       ignore (advance s);

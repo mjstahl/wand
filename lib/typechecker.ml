@@ -400,6 +400,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | t -> raise (TypeError (Printf.sprintf
          "field access requires a record, got %s" (string_of_typ t))))
   | Seq (a, b) -> ignore (infer tenv env a); infer tenv env b
+  | Contract (reqs, ens, body) ->
+    List.iter (fun req -> unify (infer tenv env req) TBool) reqs;
+    let body_t = infer tenv env body in
+    List.iter (fun e ->
+      unify (infer tenv (("result", Mono body_t) :: env) e) TBool
+    ) ens;
+    body_t
   | Located (loc, e) ->
     (try infer tenv env e
      with TypeError msg ->
