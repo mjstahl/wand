@@ -360,6 +360,11 @@ let read_ident s first_char =
   while not (is_at_end s) && is_alnum_or_under (peek s) do
     Buffer.add_char buf (advance s)
   done;
+  (* Consume one trailing ? or ! suffix (predicate / bang convention) *)
+  if not (is_at_end s) && peek s = '?' then
+    Buffer.add_char buf (advance s)
+  else if not (is_at_end s) && peek s = '!' && peek2 s <> '=' then
+    Buffer.add_char buf (advance s);
   let word = Buffer.contents buf in
   (* let* *)
   if word = "let" && peek s = '*' then (ignore (advance s); LetStar)

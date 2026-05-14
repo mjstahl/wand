@@ -145,6 +145,15 @@ let test_pipeline () =
   check_tokens "pipeline" "xs |> map f"
     [Ident "xs"; PipeArrow; Ident "map"; Ident "f"]
 
+let test_suffix_idents () =
+  check_tokens "? suffix"       "is_empty?"        [Ident "is_empty?"];
+  check_tokens "! suffix"       "get!"              [Ident "get!"];
+  check_tokens "standalone ?"   "?"                 [Hole];
+  check_tokens "standalone !"   "!true"             [Bang; Bool true];
+  check_tokens "!= unaffected"  "foo != bar"        [Ident "foo"; BangEq; Ident "bar"];
+  check_tokens "!= no space"    "foo!=bar"          [Ident "foo"; BangEq; Ident "bar"];
+  check_tokens "? in expr"      "is_empty? xs"      [Ident "is_empty?"; Ident "xs"]
+
 (* ── Suite ──────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -156,12 +165,13 @@ let () =
       Alcotest.test_case "booleans"  `Quick test_bool;
     ];
     "identifiers", [
-      Alcotest.test_case "lowercase" `Quick test_ident;
-      Alcotest.test_case "uppercase" `Quick test_upper;
-      Alcotest.test_case "keywords"  `Quick test_keywords;
-      Alcotest.test_case "let*"      `Quick test_let_star;
-      Alcotest.test_case "underscore" `Quick test_underscore;
-      Alcotest.test_case "hole"      `Quick test_hole;
+      Alcotest.test_case "lowercase"    `Quick test_ident;
+      Alcotest.test_case "uppercase"    `Quick test_upper;
+      Alcotest.test_case "keywords"     `Quick test_keywords;
+      Alcotest.test_case "let*"         `Quick test_let_star;
+      Alcotest.test_case "underscore"   `Quick test_underscore;
+      Alcotest.test_case "hole"         `Quick test_hole;
+      Alcotest.test_case "? and ! suffix" `Quick test_suffix_idents;
     ];
     "operators", [
       Alcotest.test_case "operators"  `Quick test_operators;
