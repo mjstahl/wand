@@ -89,6 +89,18 @@ let rec try_match (p : pat) v (env : env) : env option =
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) ps vs
+  | PList ps, VList vs when List.length ps = List.length vs ->
+    List.fold_left2
+      (fun acc p v -> match acc with
+        | None     -> None
+        | Some env -> try_match p v env)
+      (Some env) ps vs
+  | PList _, VList _ -> None
+  | PCons (hp, tp), VList (v :: vs) ->
+    (match try_match hp v env with
+     | None      -> None
+     | Some env' -> try_match tp (VList vs) env')
+  | PCons _, VList [] -> None
   | PConstr (name, pats), VConstr (vname, vals)
     when name = vname && List.length pats = List.length vals ->
     List.fold_left2
@@ -338,6 +350,11 @@ and eval_binop (env : env) op a b : value =
     (match eval env a, eval env b with
      | VString s1, VString s2 -> VString (s1 ^ s2)
      | _ -> raise (EvalError "'++' requires strings"))
+  | "::" ->
+    let vh = eval env a in
+    (match eval env b with
+     | VList vs -> VList (vh :: vs)
+     | _        -> raise (EvalError "'::' right side must be a list"))
   | "==" -> VBool (eval env a = eval env b)
   | "!=" -> VBool (eval env a <> eval env b)
   | "<"  ->

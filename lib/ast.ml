@@ -18,6 +18,8 @@ type pat =
   | PVar     of string
   | Wild
   | PTuple   of pat list
+  | PList    of pat list
+  | PCons    of pat * pat
   | PConstr  of string * pat list
   | PRecord  of (string * pat) list
 
@@ -88,6 +90,8 @@ let rec show_pat : pat -> string = function
   | PVar s         -> s
   | Wild           -> "_"
   | PTuple ps      -> Printf.sprintf "(%s)" (String.concat ", " (List.map show_pat ps))
+  | PList ps       -> "[" ^ String.concat ", " (List.map show_pat ps) ^ "]"
+  | PCons (h, t)   -> Printf.sprintf "[%s :: %s]" (show_pat h) (show_pat t)
   | PConstr (c,[]) -> c
   | PConstr (c,ps) -> Printf.sprintf "(%s %s)" c (String.concat " " (List.map show_pat ps))
   | PRecord kvs    -> Printf.sprintf "{%s}" (String.concat "; "

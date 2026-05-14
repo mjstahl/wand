@@ -374,7 +374,9 @@ let next_token s =
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
     | '-'  -> ret (if peek s = '>' then (ignore (advance s); Arrow) else Minus)
-    | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
+    | ':'  ->
+      if peek s = ':' then (ignore (advance s); ret ColonColon)
+      else ret (if is_digit (peek s) then read_port s else Colon)
     | '/'  ->
       ret (if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
                                     || peek s = '_' || peek s = '.') then

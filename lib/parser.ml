@@ -73,8 +73,9 @@ let expect_ident s =
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
 let lbp = function
-  | Token.Semicolon  -> 5
-  | Token.PipeArrow -> 10
+  | Token.Semicolon   -> 5
+  | Token.PipeArrow   -> 10
+  | Token.ColonColon  -> 15
   | Token.PipePipe  -> 20
   | Token.AmpAmp    -> 30
   | Token.EqEq | Token.BangEq
@@ -99,7 +100,7 @@ let is_atom_start = function
 let is_pat_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
   | Token.Ident _ | Token.Underscore | Token.Upper _
-  | Token.LParen | Token.LBrace -> true
+  | Token.LParen | Token.LBrace | Token.LBracket -> true
   | _ -> false
 
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
@@ -127,6 +128,8 @@ let rec pat_ s =
     end
   | Token.LBrace ->
     ignore (advance s); record_pat_ s
+  | Token.LBracket ->
+    ignore (advance s); list_pat_ s
   | Token.Upper name ->
     ignore (advance s);
     let args = ref [] in
@@ -163,10 +166,32 @@ and pat_atom_ s =
     end
   | Token.LBrace ->
     ignore (advance s); record_pat_ s
+  | Token.LBracket ->
+    ignore (advance s); list_pat_ s
   | t ->
     let loc = loc_prefix s in
     raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
       loc Token.pp t (keyword_hint t)))
+
+and list_pat_ s =
+  (* [ already consumed *)
+  if peek s = Token.RBracket then (ignore (advance s); PList [])
+  else begin
+    let first = pat_ s in
+    if peek s = Token.ColonColon then begin
+      ignore (advance s);
+      let tl = pat_ s in
+      expect s Token.RBracket;
+      PCons (first, tl)
+    end else begin
+      let pats = ref [first] in
+      while peek s = Token.Comma do
+        ignore (advance s); pats := !pats @ [pat_ s]
+      done;
+      expect s Token.RBracket;
+      PList !pats
+    end
+  end
 
 and record_pat_ s =
   (* { already consumed *)
@@ -204,7 +229,8 @@ let rec expr_ bp s =
 and infix_ left op s =
   match op with
   | Token.Semicolon  -> Seq (left, expr_ 4 s)
-  | Token.PipeArrow -> BinOp ("|>", left, expr_ 10 s)
+  | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
+  | Token.ColonColon -> BinOp ("::", left, expr_ 14 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
   | Token.AmpAmp    -> BinOp ("&&", left, expr_ 30 s)
   | Token.EqEq      -> BinOp ("==", left, expr_ 40 s)

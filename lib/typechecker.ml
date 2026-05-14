@@ -250,6 +250,18 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     let ts = List.map (fun _ -> fresh ()) ps in
     unify t (TTuple ts);
     List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts
+  | PList [] ->
+    unify t (TList (fresh ())); env
+  | PList (p :: rest) ->
+    let elem_t = fresh () in
+    unify t (TList elem_t);
+    let env' = infer_pat tenv p elem_t env in
+    List.fold_left (fun env p -> infer_pat tenv p elem_t env) env' rest
+  | PCons (hp, tp) ->
+    let elem_t = fresh () in
+    unify t (TList elem_t);
+    let env' = infer_pat tenv hp elem_t env in
+    infer_pat tenv tp (TList elem_t) env'
   | PConstr (name, pats) ->
     let ctor_env = tenv_to_ctor_env tenv in
     (match List.assoc_opt name ctor_env with
@@ -446,6 +458,11 @@ and infer_binop tenv (env : env) op a b : typ =
     unify (infer tenv env a) TString;
     unify (infer tenv env b) TString;
     TString
+  | "::" ->
+    let elem_t = fresh () in
+    unify (infer tenv env a) elem_t;
+    unify (infer tenv env b) (TList elem_t);
+    TList elem_t
   | "==" | "!=" ->
     unify (infer tenv env a) (infer tenv env b); TBool
   | "<" | ">" | "<=" | ">=" ->
