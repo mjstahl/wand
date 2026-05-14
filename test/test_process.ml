@@ -26,23 +26,23 @@ let err_contains label input needle =
 
 let test_basic () =
   ok "echo"
-    {|start $("echo hello")|}
+    {|start $(echo hello)|}
     "hello";
   ok "trailing newline stripped"
-    {|start $("printf hello")|}
+    {|start $(printf hello)|}
     "hello";
-  ok "dynamic cmd"
+  ok "dynamic cmd via interpolation"
     {|let cmd = "echo world"
-start $(cmd)|}
+start $(${cmd})|}
     "world"
 
 let test_composition () =
   ok "result in binding"
-    {|let out = $("echo hello")
+    {|let out = $(echo hello)
 start out|}
     "hello";
   ok "result in expression"
-    {|let out = $("echo 3")
+    {|let out = $(echo 3)
 start out == "3"|}
     "true"
 
@@ -50,17 +50,10 @@ start out == "3"|}
 
 let test_errors () =
   err "nonzero exit"
-    {|start $("exit 1")|};
+    {|start $(exit 1)|};
   err_contains "shows exit code"
-    {|start $("sh -c 'exit 42'")|}
+    {|start $(sh -c 'exit 42')|}
     "42"
-
-(* ── Type errors ─────────────────────────────────────────────────────────── *)
-
-let test_type_errors () =
-  err "non-string cmd" {|start $(42)|};
-  err "non-string var" {|let n = 1
-start $(n)|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
@@ -72,6 +65,5 @@ let () =
     ];
     "errors", [
       Alcotest.test_case "exit errors" `Quick test_errors;
-      Alcotest.test_case "type errors" `Quick test_type_errors;
     ];
   ]

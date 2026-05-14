@@ -104,6 +104,45 @@ let read_string s =
   in
   loop ()
 
+(* ── Run-command literals: $(cmd ${var}) ────────────────────────────────── *)
+
+let read_run_cmd s =
+  let parts = ref [] in
+  let buf = Buffer.create 16 in
+  let depth = ref 1 in
+  let rec loop () =
+    if is_at_end s then raise (LexError "unterminated $() command");
+    match advance s with
+    | '(' ->
+      incr depth; Buffer.add_char buf '('; loop ()
+    | ')' ->
+      decr depth;
+      if !depth > 0 then (Buffer.add_char buf ')'; loop ())
+      else (* closing paren — done *)
+        if !parts = [] then RunCmdRaw ([], Buffer.contents buf)
+        else RunCmdRaw (!parts, Buffer.contents buf)
+    | '$' when peek s = '{' ->
+      ignore (advance s);
+      let lit = Buffer.contents buf in
+      Buffer.clear buf;
+      let expr_buf = Buffer.create 16 in
+      let idepth = ref 1 in
+      while !idepth > 0 do
+        if is_at_end s then raise (LexError "unterminated string interpolation");
+        let c = advance s in
+        if c = '{' then (incr idepth; Buffer.add_char expr_buf c)
+        else if c = '}' then begin
+          decr idepth;
+          if !idepth > 0 then Buffer.add_char expr_buf c
+        end else
+          Buffer.add_char expr_buf c
+      done;
+      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      loop ()
+    | c -> Buffer.add_char buf c; loop ()
+  in
+  loop ()
+
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
 let skip_comment s =
@@ -390,7 +429,8 @@ let next_token s =
        | '.' -> ignore (advance s); DotDot
        | _   -> Dot)
     | '$'  ->
-      if is_upper (peek s) then
+      if peek s = '(' then (ignore (advance s); ret (read_run_cmd s))
+      else if is_upper (peek s) then
         let buf = Buffer.create 8 in
         while not (is_at_end s) && (is_upper (peek s) || is_digit (peek s) || peek s = '_') do
           Buffer.add_char buf (advance s)

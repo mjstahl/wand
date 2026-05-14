@@ -77,7 +77,8 @@ type t =
   | EnvVar of string   (* $HOME, $PATH, $MY_VAR — uppercase only *)
   | PlusPlus           (* ++ *)
   | ColonColon         (* :: *)
-  | InterpStr of (string * string) list * string  (* "lit ${src} ... tail" *)
+  | InterpStr    of (string * string) list * string  (* "lit ${src} ... tail" *)
+  | RunCmdRaw    of (string * string) list * string  (* $(cmd ${var} ...) *)
   (* Delimiters *)
   | LParen             (* ( *)
   | RParen             (* ) *)
@@ -140,7 +141,8 @@ let pp ppf tok =
     | Dollar     -> "$"
     | EnvVar s   -> Printf.sprintf "$%s" s
     | PlusPlus   -> "++"     | ColonColon -> "::"
-    | InterpStr _ -> "InterpStr"
+    | InterpStr _  -> "InterpStr"
+    | RunCmdRaw _  -> "RunCmdRaw"
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"

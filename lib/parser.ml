@@ -16,6 +16,11 @@ let skip s =
     s.pos <- s.pos + 1
   done
 
+let has_newline_before_next s =
+  let i = ref s.pos in
+  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
+  !i > s.pos
+
 let peek s =
   skip s;
   if s.pos < Array.length s.tokens then fst s.tokens.(s.pos) else Token.EOF
@@ -93,9 +98,14 @@ let is_atom_start = function
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket | Token.LBrace
-  | Token.Dollar | Token.InterpStr _ | Token.EnvVar _
+  | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.EnvVar _
   | Token.Handle | Token.Try -> true
   | _ -> false
+
+let is_expr_start = function
+  | Token.Let | Token.If | Token.Match | Token.Fn
+  | Token.Minus | Token.Bang -> true
+  | t -> is_atom_start t
 
 let is_pat_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
@@ -214,12 +224,14 @@ let rec expr_ bp s =
   let left = ref (atom_ s) in
   let continue_ = ref true in
   while !continue_ do
+    let had_newline = has_newline_before_next s in
     let t = peek s in
     let bp' = lbp t in
     if bp' > bp then begin
       ignore (advance s);
       left := infix_ !left t s
-    end else if is_atom_start t && 70 > bp && not s.in_contract then
+    end else if is_atom_start t && 70 > bp && not s.in_contract
+            && not had_newline then
       left := App (!left, atom_ s)
     else
       continue_ := false
@@ -303,6 +315,14 @@ and atom_ s =
     let e = expr_ 0 s in
     expect s Token.RParen;
     RunCmd e
+  | Token.RunCmdRaw (parts, tail) ->
+    let parse_parts = List.map (fun (lit, src) ->
+      let toks = Lexer.tokenize src in
+      let s2 = make toks in
+      (lit, expr_ 0 s2)
+    ) parts in
+    if parse_parts = [] then RunCmd (String tail)
+    else RunCmd (Interp (parse_parts, tail))
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src) ->
       let toks = Lexer.tokenize src in
@@ -343,23 +363,34 @@ and record_ s =
 and let_ s =
   (* let already consumed *)
   let p = pat_ s in
+  (* Parse a sequence of newline-separated statements as the let body *)
+  let parse_body () =
+    let e = ref (expr_ 0 s) in
+    while is_expr_start (peek s) do
+      e := Seq (!e, expr_ 0 s)
+    done;
+    !e
+  in
+  let consume_rest () =
+    if peek s = Token.In then (ignore (advance s); parse_body ())
+    else if is_expr_start (peek s) then parse_body ()
+    else Unit
+  in
   match p with
   | PVar name when peek s <> Token.Eq ->
-    (* function shorthand: let f params = body in rest *)
+    (* function shorthand: let f params = body *)
     let params = ref [] in
     while is_pat_atom_start (peek s) do
       params := !params @ [pat_atom_ s]
     done;
     expect s Token.Eq;
     let body = parse_contract_body s in
-    expect s Token.In;
-    let rest = expr_ 0 s in
+    let rest = consume_rest () in
     Let (PVar name, Fn (!params, body), rest)
   | _ ->
     expect s Token.Eq;
     let e1 = expr_ 0 s in
-    expect s Token.In;
-    let e2 = expr_ 0 s in
+    let e2 = consume_rest () in
     Let (p, e1, e2)
 
 and if_ s =
@@ -598,7 +629,11 @@ let parse_program tokens =
     | Token.Start ->
       ignore (advance s);
       let loc = peek_loc s in
-      start := Some (Ast.Located (loc, expr_ 0 s))
+      let e = ref (expr_ 0 s) in
+      while is_expr_start (peek s) do
+        e := Seq (!e, expr_ 0 s)
+      done;
+      start := Some (Ast.Located (loc, !e))
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]

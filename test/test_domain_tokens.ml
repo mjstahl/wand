@@ -134,8 +134,8 @@ let test_envvars () =
   check "simple"           "$HOME"      [EnvVar "HOME"];
   check "with underscore"  "$MY_VAR"    [EnvVar "MY_VAR"];
   check "with digits"      "$VAR2"      [EnvVar "VAR2"];
-  (* $ followed by ( stays as Dollar for command substitution *)
-  check "cmd sub unaffected" "$(x)"     [Dollar; LParen; Ident "x"; RParen];
+  (* $( lexes as raw command literal *)
+  check "cmd sub raw" "$(x)"     [RunCmdRaw ([], "x")];
   (* $ followed by lowercase is not an env var *)
   check "lowercase not env" "$home"     [Dollar; Ident "home"]
 
