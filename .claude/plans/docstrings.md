@@ -127,11 +127,25 @@ test.
 When the REPL exists, `:doc length` or `length?` prints the doc string for
 `length` including formatted examples.
 
+## Stdlib doc coverage
+
+Every stdlib function gets a doc string as part of this effort. Each doc
+string must include at least one example block. The doctest runner then
+serves as the stdlib's integration test suite — if the examples pass, the
+function works as documented.
+
+Functions implemented as OCaml primitives (registered in `evaluator.ml` /
+`typechecker.ml`) need their doc strings added to the corresponding `.wand`
+stub file where the wand-level binding lives. If no stub exists yet, one is
+created for the sole purpose of holding the doc.
+
 ## Implementation order
 
 1. Lexer: `DocComment` token
 2. Parser: stash and attach to definitions
 3. AST: parallel doc map
 4. Doctest runner (highest immediate value — validates stdlib examples)
-5. Doc generation CLI
-6. REPL integration (deferred until REPL exists)
+5. Add doc strings to all existing stdlib functions (`String`, `List`, `FS`)
+6. Add doc strings to each new stdlib module as it is implemented
+7. Doc generation CLI
+8. REPL integration (deferred until REPL exists)
