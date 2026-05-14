@@ -359,9 +359,11 @@ and record_ s =
   Record !fields
 
 and parse_body s =
-  let e = ref (expr_ 0 s) in
+  let loc = peek_loc s in
+  let e = ref (Located (loc, expr_ 0 s)) in
   while is_expr_start (peek s) do
-    e := Seq (!e, expr_ 0 s)
+    let loc = peek_loc s in
+    e := Seq (!e, Located (loc, expr_ 0 s))
   done;
   !e
 
@@ -369,7 +371,11 @@ and let_ s =
   (* let already consumed *)
   let p = pat_ s in
   let consume_rest () =
-    if peek s = Token.In then (ignore (advance s); expr_ 0 s)
+    if peek s = Token.In then begin
+      ignore (advance s);
+      let loc = peek_loc s in
+      Located (loc, expr_ 0 s)
+    end
     else if is_expr_start (peek s) then parse_body s
     else Unit
   in
@@ -381,7 +387,8 @@ and let_ s =
       params := !params @ [pat_atom_ s]
     done;
     expect s Token.Eq;
-    let body = parse_contract_body s in
+    let body_loc = peek_loc s in
+    let body = Located (body_loc, parse_contract_body s) in
     let arity = List.length !params in
     let eqs = ref [(!params, body)] in
     let more = ref true in
@@ -395,7 +402,8 @@ and let_ s =
         while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
         if List.length !ps <> arity then raise Exit;
         (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-        let b = parse_contract_body s in
+        let b_loc = peek_loc s in
+        let b = Located (b_loc, parse_contract_body s) in
         eqs := !eqs @ [(!ps, b)]
       with Exit -> s.pos <- saved; more := false)
     done;
@@ -424,7 +432,8 @@ and let_ s =
 
 and if_ s =
   (* if already consumed *)
-  let cond   = expr_ 0 s in
+  let cond_loc = peek_loc s in
+  let cond   = Located (cond_loc, expr_ 0 s) in
   expect s Token.Then;
   let then_loc = peek_loc s in
   let then_ = Located (then_loc, expr_ 0 s) in
@@ -444,9 +453,11 @@ and match_ s =
       ignore (advance s);
       let p = pat_ s in
       let guard =
-        if peek s = Token.When
-        then (ignore (advance s); Some (expr_ 0 s))
-        else None
+        if peek s = Token.When then begin
+          ignore (advance s);
+          let loc = peek_loc s in
+          Some (Located (loc, expr_ 0 s))
+        end else None
       in
       expect s Token.Arrow;
       let body_loc = peek_loc s in
@@ -467,11 +478,18 @@ and parse_contract_body s =
   let continue_ = ref true in
   while !continue_ do
     match peek s with
-    | Token.Requires -> ignore (advance s); reqs := !reqs @ [contract_expr_ s]
-    | Token.Ensures  -> ignore (advance s); ens  := !ens  @ [contract_expr_ s]
+    | Token.Requires ->
+      ignore (advance s);
+      let loc = peek_loc s in
+      reqs := !reqs @ [Located (loc, contract_expr_ s)]
+    | Token.Ensures  ->
+      ignore (advance s);
+      let loc = peek_loc s in
+      ens := !ens @ [Located (loc, contract_expr_ s)]
     | _ -> continue_ := false
   done;
-  let body = expr_ 0 s in
+  let body_loc = peek_loc s in
+  let body = Located (body_loc, expr_ 0 s) in
   if !reqs = [] && !ens = [] then body
   else Ast.Contract (!reqs, !ens, body)
 
@@ -482,7 +500,8 @@ and fn_ s =
     params := !params @ [pat_atom_ s]
   done;
   expect s Token.Arrow;
-  Fn (!params, parse_contract_body s)
+  let body_loc = peek_loc s in
+  Fn (!params, Located (body_loc, parse_contract_body s))
 
 (* ── Handle expression ────────────────────────────────────────────────────── *)
 
@@ -500,14 +519,16 @@ and parse_handle_ s =
           ignore (advance s);
           let p = pat_atom_ s in
           expect s Token.Arrow;
-          let b = expr_ 0 s in
+          let b_loc = peek_loc s in
+          let b = Located (b_loc, expr_ 0 s) in
           Ast.ReturnArm (p, b)
         | Token.Ident op_name ->
           ignore (advance s);
           let arg_pat = pat_atom_ s in
           let cont_name = expect_ident s in
           expect s Token.Arrow;
-          let b = expr_ 0 s in
+          let b_loc = peek_loc s in
+          let b = Located (b_loc, expr_ 0 s) in
           Ast.EffectArm (op_name, arg_pat, cont_name, b)
         | t ->
           raise (ParseError (Format.asprintf "%sunexpected token in handler arm: %a"
