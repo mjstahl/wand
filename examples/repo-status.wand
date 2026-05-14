@@ -1,0 +1,23 @@
+import String
+
+let branch  = $("git branch --show-current")
+let dirty   = String.to_int $("git status --porcelain | wc -l | tr -d ' '")
+let ahead   = String.to_int $("git rev-list --count @{upstream}..HEAD 2>/dev/null || echo 0")
+let behind  = String.to_int $("git rev-list --count HEAD..@{upstream} 2>/dev/null || echo 0")
+let last    = $("git log -1 --format='%h %s'")
+let stashes = String.to_int $("git stash list | wc -l | tr -d ' '")
+
+let status_msg =
+  if dirty > 0 then "${dirty} file(s) changed" else "clean"
+
+let sync_msg =
+  if ahead > 0 || behind > 0
+  then "^${ahead} ahead  v${behind} behind"
+  else "up to date"
+
+start
+  println "Branch:  ${branch}";
+  println "Status:  ${status_msg}";
+  println "Sync:    ${sync_msg}";
+  if stashes > 0 then println "Stashes: ${stashes} saved" else ();
+  println "Last:    ${last}"

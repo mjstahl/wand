@@ -61,6 +61,7 @@ type expr =
   | RunCmd   of expr
   | Interp   of (string * expr) list * string
   | Handle   of expr * handle_arm list
+  | Try      of expr
 
 and case = pat * expr option * expr
 
@@ -160,6 +161,7 @@ let rec show : expr -> string = function
     let rs = String.concat " " (List.map (clause "requires") reqs) in
     let es = String.concat " " (List.map (clause "ensures") ens) in
     Printf.sprintf "(contract %s %s %s)" rs es (show body)
+  | Try e -> Printf.sprintf "(try %s)" (show e)
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 

@@ -1,0 +1,34 @@
+import List
+
+let length s = str_length s
+
+let upper s = str_upper s
+
+let lower s = str_lower s
+
+let trim s = str_trim s
+
+let slice from_ to_ s = str_slice from_ to_ s
+
+let split delim s = str_split delim s
+
+let contains needle s = str_contains needle s
+
+let starts_with prefix s = str_starts_with prefix s
+
+let ends_with suffix s = str_ends_with suffix s
+
+let replace old_ new_ s = str_replace old_ new_ s
+
+let chars s = str_chars s
+
+let of_int n = int_to_str n
+
+let to_int s = str_to_int s
+
+let join sep xs =
+  List.fold_left (fn acc x -> if acc == "" then x else acc ++ sep ++ x) "" xs
+
+let lines s = str_split "\n" s
+
+let words s = str_split " " s

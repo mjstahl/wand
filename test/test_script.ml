@@ -52,44 +52,52 @@ let with_tmp src f =
   let result = f path in
   Sys.remove path; result
 
+(* Create a temp file with a predictable basename so the namespace name is known *)
+let with_named name src f =
+  let dir = Filename.get_temp_dir_name () in
+  let path = Filename.concat dir (name ^ ".wand") in
+  let () = let oc = open_out path in output_string oc src; close_out oc in
+  let result = (try f path with e -> Sys.remove path; raise e) in
+  Sys.remove path; result
+
 let test_import () =
-  with_tmp {|let answer = 42|} (fun lib ->
+  with_named "Lib" {|let answer = 42|} (fun lib ->
     ok "import binding"
       (Printf.sprintf {|import %s
-start answer|} lib) "42");
-  with_tmp {|let double x = x * 2|} (fun lib ->
+start Lib.answer|} lib) "42");
+  with_named "Lib" {|let double x = x * 2|} (fun lib ->
     ok "import function"
       (Printf.sprintf {|import %s
-start double 21|} lib) "42");
-  with_tmp {|let greeting = "hello"
+start Lib.double 21|} lib) "42");
+  with_named "Lib" {|let greeting = "hello"
 let shout s = s ++ "!"|}
     (fun lib ->
       ok "import multiple bindings"
         (Printf.sprintf {|import %s
-start shout greeting|} lib) "hello!")
+start Lib.shout Lib.greeting|} lib) "hello!")
 
 (* ── Stdlib imports ──────────────────────────────────────────────────────── *)
 
 let test_stdlib_import () =
   ok "List.map"
     {|import List
-start map (fn x -> x * 2) [1, 2, 3]|}
+start List.map (fn x -> x * 2) [1, 2, 3]|}
     "[2, 4, 6]";
   ok "List.filter"
     {|import List
-start filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
+start List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
     "[3, 4, 5]";
   ok "List.length"
     {|import List
-start length [1, 2, 3, 4, 5]|}
+start List.length [1, 2, 3, 4, 5]|}
     "5";
   ok "List.reverse"
     {|import List
-start reverse [1, 2, 3]|}
+start List.reverse [1, 2, 3]|}
     "[3, 2, 1]";
   ok "List.fold_left sum"
     {|import List
-start fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
+start List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
     "15"
 
 (* ── Recursive top-level functions ──────────────────────────────────────── *)

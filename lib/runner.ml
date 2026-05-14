@@ -38,20 +38,22 @@ let run_with_default_handler (thunk : unit -> value) : value =
               Effect.Deep.continue k VUnit)
           | WandEffect ("process_run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              Effect.Deep.continue k (VString (exec_command cmd)))
+              match (try Ok (exec_command cmd) with EvalError m -> Error m) with
+              | Ok s    -> Effect.Deep.continue    k (VString s)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("read_file", VString path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              let content =
-                try In_channel.with_open_text path In_channel.input_all
-                with Sys_error msg -> raise (EvalError ("read_file: " ^ msg))
-              in
-              Effect.Deep.continue k (VString content))
+              match (try Ok (In_channel.with_open_text path In_channel.input_all)
+                     with Sys_error m -> Error ("read_file: " ^ m)) with
+              | Ok s    -> Effect.Deep.continue    k (VString s)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("write_file", VTuple [VString path; VString content]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              (try Out_channel.with_open_text path (fun oc ->
-                 Out_channel.output_string oc content)
-               with Sys_error msg -> raise (EvalError ("write_file: " ^ msg)));
-              Effect.Deep.continue k VUnit)
+              match (try Out_channel.with_open_text path
+                           (fun oc -> Out_channel.output_string oc content); Ok ()
+                     with Sys_error m -> Error ("write_file: " ^ m)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | _ -> None
     }
 
@@ -74,13 +76,28 @@ let find_stdlib_dir () =
     in
     ascend (Sys.getcwd ())
 
+let resolve_stdlib name =
+  let stdlib_dir = find_stdlib_dir () in
+  let exact = Filename.concat stdlib_dir (name ^ ".wand") in
+  if Sys.file_exists exact then exact
+  else
+    let lower = Filename.concat stdlib_dir (String.lowercase_ascii name ^ ".wand") in
+    if Sys.file_exists lower then lower
+    else exact
+
 let resolve_import base_dir = function
-  | Ast.StdlibModule name ->
-    Filename.concat (find_stdlib_dir ()) (name ^ ".wand")
+  | Ast.StdlibModule name -> resolve_stdlib name
   | Ast.UserPath path ->
     if Filename.is_relative path
     then Filename.concat base_dir (add_ext path)
     else add_ext path
+
+let namespace_name_of = function
+  | Ast.StdlibModule name -> name
+  | Ast.UserPath path ->
+    let base = Filename.basename (Filename.remove_extension path) in
+    if String.length base = 0 then "Module"
+    else String.make 1 (Char.uppercase_ascii base.[0]) ^ String.sub base 1 (String.length base - 1)
 
 type import_env = {
   tenv     : (string * Ast.type_def) list;
@@ -124,7 +141,8 @@ let run_item env item =
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
-(* Load imports for a program; visited is shared to detect cycles *)
+(* Load imports for a program; visited is shared to detect cycles.
+   Returns (import_env, own_type_env, own_eval_env) for namespace building. *)
 let rec load_imports_for ~base_dir ~visited prog =
   List.fold_left (fun acc item ->
     match item with
@@ -133,7 +151,14 @@ let rec load_imports_for ~base_dir ~visited prog =
       if List.mem full !visited then acc
       else begin
         visited := full :: !visited;
-        merge_import_env acc (load_module full visited)
+        let ns_name = namespace_name_of kind in
+        let (modul_import, own_type, own_eval) = load_module full visited in
+        (* Merge tenv for constructor visibility; expose functions as namespace *)
+        let ns_type_entry = (ns_name, Typechecker.Namespace own_type) in
+        let ns_eval_entry = (ns_name, VRecord own_eval) in
+        { tenv     = modul_import.tenv @ acc.tenv;
+          type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
+          eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env }
       end
     | _ -> acc
   ) empty_import_env prog.Ast.items
@@ -156,13 +181,18 @@ and load_module path visited =
   in
   let base_dir = Filename.dirname path in
   let imported = load_imports_for ~base_dir ~visited prog in
-  (match Typechecker.infer_program_env ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
+  (match Typechecker.infer_program_env_with_own
+           ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
    | Error msg -> failwith ("type error: " ^ msg)
-   | Ok type_env ->
-     let eval_env = List.fold_left run_item imported.eval_env prog.Ast.items in
-     { tenv     = local_tenv_of prog @ imported.tenv;
-       type_env;
-       eval_env })
+   | Ok (type_env, own_type) ->
+     let base = base_eval_env @ imported.eval_env in
+     let full_eval = List.fold_left run_item base prog.Ast.items in
+     let n_own = List.length full_eval - List.length base in
+     let own_eval = List.filteri (fun i _ -> i < n_own) full_eval in
+     let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
+                         type_env;
+                         eval_env = full_eval } in
+     (full_import, own_type, own_eval))
 
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 

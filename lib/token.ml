@@ -49,6 +49,7 @@ type t =
   | Or                 (* or — keyword, not || *)
   | Handle             (* handle *)
   | Return             (* return — in effect handler arms *)
+  | Try                (* try    *)
   (* Operators *)
   | Eq                 (* = *)
   | Arrow              (* -> *)
@@ -124,7 +125,7 @@ let pp ppf tok =
     | Class      -> "class"  | Instance   -> "instance"
     | Orphan     -> "orphan" | When       -> "when"
     | And        -> "and"   | Or         -> "or"
-    | Handle     -> "handle" | Return    -> "return"
+    | Handle     -> "handle" | Return    -> "return"  | Try    -> "try"
     | Eq         -> "="      | Arrow      -> "->"
     | Pipe       -> "|"      | PipeArrow  -> "|>"
     | Plus       -> "+"      | Minus      -> "-"

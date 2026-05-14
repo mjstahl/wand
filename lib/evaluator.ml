@@ -272,6 +272,16 @@ let rec eval (env : env) (e : expr) : value =
       | _ -> assert false
     ) ens;
     v
+  | Try e ->
+    Effect.Deep.match_with (fun () -> eval env e) ()
+      { Effect.Deep.
+          retc = (fun v -> VConstr ("Ok", [v]));
+          exnc = (function
+            | EvalError msg -> VConstr ("Error", [VString msg])
+            | Failure  msg  -> VConstr ("Error", [VString msg])
+            | exn           -> raise exn);
+          effc = fun (type a) (_ : a Effect.t) ->
+            (None : ((a, value) Effect.Deep.continuation -> value) option) }
   | Located (loc, e) ->
     (try eval env e
      with EvalError msg ->
@@ -407,6 +417,65 @@ let eval_expr (e : expr) : (value, string) result =
   try Ok (eval [] e)
   with EvalError msg -> Error msg
 
+(* ── String primitive helpers ─────────────────────────────────────────────── *)
+
+let str_split_impl delim str =
+  let dlen = String.length delim in
+  let slen = String.length str in
+  if dlen = 0 then
+    List.init slen (fun i -> VString (String.make 1 str.[i]))
+  else begin
+    let result = ref [] in
+    let start = ref 0 in
+    let i = ref 0 in
+    while !i <= slen - dlen do
+      if String.sub str !i dlen = delim then begin
+        result := VString (String.sub str !start (!i - !start)) :: !result;
+        i := !i + dlen;
+        start := !i
+      end else
+        incr i
+    done;
+    result := VString (String.sub str !start (slen - !start)) :: !result;
+    List.rev !result
+  end
+
+let str_replace_impl old_ new_ str =
+  let olen = String.length old_ in
+  let slen = String.length str in
+  if olen = 0 then str
+  else begin
+    let buf = Buffer.create slen in
+    let i = ref 0 in
+    while !i <= slen - olen do
+      if String.sub str !i olen = old_ then begin
+        Buffer.add_string buf new_;
+        i := !i + olen
+      end else begin
+        Buffer.add_char buf str.[!i];
+        incr i
+      end
+    done;
+    if !i < slen then
+      Buffer.add_string buf (String.sub str !i (slen - !i));
+    Buffer.contents buf
+  end
+
+let str_contains_impl needle haystack =
+  let nlen = String.length needle in
+  let hlen = String.length haystack in
+  if nlen = 0 then true
+  else if nlen > hlen then false
+  else begin
+    let found = ref false in
+    for i = 0 to hlen - nlen do
+      if String.sub haystack i nlen = needle then found := true
+    done;
+    !found
+  end
+
+let exe_args_ref : string list ref = ref []
+
 let base_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
@@ -414,4 +483,83 @@ let base_eval_env : env = [
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
       Effect.perform (WandEffect ("write_file", VTuple [path; content])))));
+  (* Result constructors *)
+  ("Ok",    VPartialConstr ("Ok",    1, []));
+  ("Error", VPartialConstr ("Error", 1, []));
+  (* String primitives *)
+  ("str_length", VBuiltin (function
+    | VString s -> VInt (String.length s)
+    | _ -> raise (EvalError "str_length: expected String")));
+  ("str_upper", VBuiltin (function
+    | VString s -> VString (String.uppercase_ascii s)
+    | _ -> raise (EvalError "str_upper: expected String")));
+  ("str_lower", VBuiltin (function
+    | VString s -> VString (String.lowercase_ascii s)
+    | _ -> raise (EvalError "str_lower: expected String")));
+  ("str_trim", VBuiltin (function
+    | VString s -> VString (String.trim s)
+    | _ -> raise (EvalError "str_trim: expected String")));
+  ("str_slice", VBuiltin (function
+    | VInt start -> VBuiltin (function
+      | VInt end_ -> VBuiltin (function
+        | VString s ->
+          let len = String.length s in
+          let start = max 0 (min start len) in
+          let end_  = max start (min end_ len) in
+          VString (String.sub s start (end_ - start))
+        | _ -> raise (EvalError "str_slice: expected String"))
+      | _ -> raise (EvalError "str_slice: expected Int"))
+    | _ -> raise (EvalError "str_slice: expected Int")));
+  ("str_split", VBuiltin (function
+    | VString delim -> VBuiltin (function
+      | VString str -> VList (str_split_impl delim str)
+      | _ -> raise (EvalError "str_split: expected String"))
+    | _ -> raise (EvalError "str_split: expected String")));
+  ("str_contains", VBuiltin (function
+    | VString needle -> VBuiltin (function
+      | VString haystack -> VBool (str_contains_impl needle haystack)
+      | _ -> raise (EvalError "str_contains: expected String"))
+    | _ -> raise (EvalError "str_contains: expected String")));
+  ("str_starts_with", VBuiltin (function
+    | VString prefix -> VBuiltin (function
+      | VString s ->
+        let plen = String.length prefix in
+        VBool (String.length s >= plen && String.sub s 0 plen = prefix)
+      | _ -> raise (EvalError "str_starts_with: expected String"))
+    | _ -> raise (EvalError "str_starts_with: expected String")));
+  ("str_ends_with", VBuiltin (function
+    | VString suffix -> VBuiltin (function
+      | VString s ->
+        let suf = String.length suffix and slen = String.length s in
+        VBool (slen >= suf && String.sub s (slen - suf) suf = suffix)
+      | _ -> raise (EvalError "str_ends_with: expected String"))
+    | _ -> raise (EvalError "str_ends_with: expected String")));
+  ("str_replace", VBuiltin (function
+    | VString old_ -> VBuiltin (function
+      | VString new_ -> VBuiltin (function
+        | VString s -> VString (str_replace_impl old_ new_ s)
+        | _ -> raise (EvalError "str_replace: expected String"))
+      | _ -> raise (EvalError "str_replace: expected String"))
+    | _ -> raise (EvalError "str_replace: expected String")));
+  ("str_chars", VBuiltin (function
+    | VString s ->
+      VList (List.init (String.length s) (fun i -> VString (String.make 1 s.[i])))
+    | _ -> raise (EvalError "str_chars: expected String")));
+  ("int_to_str", VBuiltin (function
+    | VInt n -> VString (string_of_int n)
+    | _ -> raise (EvalError "int_to_str: expected Int")));
+  ("str_to_int", VBuiltin (function
+    | VString s ->
+      (match int_of_string_opt s with
+       | Some n -> VInt n
+       | None   -> raise (EvalError (Printf.sprintf "str_to_int: cannot parse %S" s)))
+    | _ -> raise (EvalError "str_to_int: expected String")));
+  (* Exe primitives *)
+  ("exe_args", VBuiltin (function
+    | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
+    | _ -> raise (EvalError "exe_args: expected Unit")));
+  ("exe_exit", VBuiltin (function
+    | VInt n -> exit n
+    | _ -> raise (EvalError "exe_exit: expected Int")));
+  ("exe_cwd", VString (Sys.getcwd ()));
 ]

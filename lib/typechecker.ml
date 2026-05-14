@@ -10,6 +10,7 @@ type typ =
   | TFun    of typ * typ
   | TTuple  of typ list
   | TList   of typ
+  | TResult of typ
   | TName   of string
   | TRecord of (string * typ) list
 
@@ -69,10 +70,16 @@ let string_of_typ t =
         match repr t with TTuple _ -> "(" ^ go t ^ ")" | _ -> go t) ts)
     | TList t ->
       let s = match repr t with
-        | TFun _ | TTuple _ | TList _ -> "(" ^ go t ^ ")"
+        | TFun _ | TTuple _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "List " ^ s
+    | TResult t ->
+      let s = match repr t with
+        | TFun _ | TTuple _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
+        | _ -> go t
+      in
+      "Result " ^ s
     | TRecord kvs ->
       "{ " ^ String.concat ", " (List.map (fun (k, t) -> k ^ ": " ^ go t) kvs) ^ " }"
   in
@@ -86,6 +93,7 @@ let rec occurs (tv : tv) t =
   | TFun (a, b) -> occurs tv a || occurs tv b
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
+  | TResult t   -> occurs tv t
   | TRecord kvs -> List.exists (fun (_, t) -> occurs tv t) kvs
   | _           -> false
 
@@ -110,8 +118,8 @@ let rec unify t1 t2 =
     unify a1 a2; unify r1 r2
   | TTuple ts1, TTuple ts2 when List.length ts1 = List.length ts2 ->
     List.iter2 unify ts1 ts2
-  | TList t1, TList t2 ->
-    unify t1 t2
+  | TList t1,   TList t2   -> unify t1 t2
+  | TResult t1, TResult t2 -> unify t1 t2
   | TRecord kvs1, TRecord kvs2 ->
     let s1 = List.sort (fun (a,_) (b,_) -> compare a b) kvs1 in
     let s2 = List.sort (fun (a,_) (b,_) -> compare a b) kvs2 in
@@ -127,8 +135,9 @@ let rec unify t1 t2 =
 type scheme =
   | Mono of typ
   | Poly of int list * typ
+  | Namespace of env
 
-type env = (string * scheme) list
+and env = (string * scheme) list
 
 let lookup name (env : env) =
   match List.assoc_opt name env with
@@ -145,12 +154,14 @@ let rec free_tvars t =
   | TFun (a, b) -> free_tvars a @ free_tvars b
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
+  | TResult t   -> free_tvars t
   | TRecord kvs -> List.concat_map (fun (_, t) -> free_tvars t) kvs
   | _           -> []
 
 let free_tvars_scheme = function
   | Mono t        -> free_tvars t
   | Poly (ids, t) -> List.filter (fun id -> not (List.mem id ids)) (free_tvars t)
+  | Namespace _   -> []
 
 let free_tvars_env (env : env) =
   List.concat_map (fun (_, s) -> free_tvars_scheme s) env
@@ -167,6 +178,7 @@ let generalize (env : env) t =
   if quantify = [] then Mono t else Poly (quantify, t)
 
 let instantiate = function
+  | Namespace _ -> TUnit
   | Mono t -> t
   | Poly (ids, t) ->
     let subst = List.map (fun id -> (id, fresh ())) ids in
@@ -179,6 +191,7 @@ let instantiate = function
       | TFun (a, b) -> TFun (inst a, inst b)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
+      | TResult t   -> TResult (inst t)
       | TRecord kvs -> TRecord (List.map (fun (k, t) -> (k, inst t)) kvs)
       | t           -> t
     in
@@ -264,7 +277,12 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     infer_pat tenv tp (TList elem_t) env'
   | PConstr (name, pats) ->
     let ctor_env = tenv_to_ctor_env tenv in
-    (match List.assoc_opt name ctor_env with
+    let builtin_result_ctor = match name with
+      | "Ok"    -> let t = fresh () in Some (Mono (TFun (t, TResult t)))
+      | "Error" -> let t = fresh () in Some (Mono (TFun (TString, TResult t)))
+      | _       -> None
+    in
+    (match Option.fold ~none:(List.assoc_opt name ctor_env) ~some:Option.some builtin_result_ctor with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
      | Some s ->
        let ctor_t = instantiate s in
@@ -333,8 +351,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (match List.assoc_opt name ctor_env with
      | Some s -> instantiate s
      | None   ->
-       raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (List.map fst ctor_env)))))
+       (match name with
+        | "Ok"    -> let t = fresh () in TFun (t, TResult t)
+        | "Error" -> let t = fresh () in TFun (TString, TResult t)
+        | _ ->
+          raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
+            name (Util.hint name (List.map fst ctor_env))))))
   | EnvVar _ -> TString
   | Hole -> fresh ()
   | UnOp ("-", e) -> unify (infer tenv env e) TInt; TInt
@@ -393,25 +415,42 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Record kvs ->
     TRecord (List.map (fun (k, e) -> (k, infer tenv env e)) kvs)
   | Field (e, label) ->
-    (match repr (infer tenv env e) with
-     | TRecord kvs ->
-       (match List.assoc_opt label kvs with
-        | Some t -> t
-        | None   ->
-          raise (TypeError (Printf.sprintf "no field '%s'%s"
-            label (Util.hint label (List.map fst kvs)))))
-     | TName tname ->
-       (match List.assoc_opt tname tenv with
-        | Some (RecordType (_, fields)) ->
-          (match List.assoc_opt label fields with
-           | Some te -> type_of_te te
-           | None    ->
-             raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
-               tname label (Util.hint label (List.map fst fields)))))
-        | _ -> raise (TypeError (Printf.sprintf
-            "cannot access field '%s' on non-record type '%s'" label tname)))
-     | t -> raise (TypeError (Printf.sprintf
-         "field access requires a record, got %s" (string_of_typ t))))
+    (* Namespace access: Ns.member — check before falling into regular field inference *)
+    let rec unwrap_loc = function Located (_, x) -> unwrap_loc x | x -> x in
+    let ns_result = match unwrap_loc e with
+      | Constr ns_name ->
+        (match List.assoc_opt ns_name env with
+         | Some (Namespace ns_env) ->
+           Some (match List.assoc_opt label ns_env with
+             | Some s -> instantiate s
+             | None   -> raise (TypeError (Printf.sprintf
+                 "namespace '%s' has no member '%s'%s"
+                 ns_name label (Util.hint label (List.map fst ns_env)))))
+         | _ -> None)
+      | _ -> None
+    in
+    (match ns_result with
+     | Some t -> t
+     | None ->
+       (match repr (infer tenv env e) with
+        | TRecord kvs ->
+          (match List.assoc_opt label kvs with
+           | Some t -> t
+           | None   ->
+             raise (TypeError (Printf.sprintf "no field '%s'%s"
+               label (Util.hint label (List.map fst kvs)))))
+        | TName tname ->
+          (match List.assoc_opt tname tenv with
+           | Some (RecordType (_, fields)) ->
+             (match List.assoc_opt label fields with
+              | Some te -> type_of_te te
+              | None    ->
+                raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
+                  tname label (Util.hint label (List.map fst fields)))))
+           | _ -> raise (TypeError (Printf.sprintf
+               "cannot access field '%s' on non-record type '%s'" label tname)))
+        | t -> raise (TypeError (Printf.sprintf
+            "field access requires a record, got %s" (string_of_typ t)))))
   | RunCmd e -> unify (infer tenv env e) TString; TString
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
@@ -441,6 +480,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       unify (infer tenv (("result", Mono body_t) :: env) e) TBool
     ) ens;
     body_t
+  | Try e -> TResult (infer tenv env e)
   | Located (loc, e) ->
     (try infer tenv env e
      with TypeError msg ->
@@ -485,44 +525,78 @@ let infer_expr (e : expr) : (typ, string) result =
   try Ok (infer [] [] e)
   with TypeError msg -> Error msg
 
+let builtin_type_env : env = [
+  ("print",      Mono (TFun (TString, TUnit)));
+  ("println",    Mono (TFun (TString, TUnit)));
+  ("read_file",  Mono (TFun (TString, TString)));
+  ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
+  (* String primitives *)
+  ("str_length",     Mono (TFun (TString, TInt)));
+  ("str_upper",      Mono (TFun (TString, TString)));
+  ("str_lower",      Mono (TFun (TString, TString)));
+  ("str_trim",       Mono (TFun (TString, TString)));
+  ("str_slice",      Mono (TFun (TInt, TFun (TInt, TFun (TString, TString)))));
+  ("str_split",      Mono (TFun (TString, TFun (TString, TList TString))));
+  ("str_contains",   Mono (TFun (TString, TFun (TString, TBool))));
+  ("str_starts_with",Mono (TFun (TString, TFun (TString, TBool))));
+  ("str_ends_with",  Mono (TFun (TString, TFun (TString, TBool))));
+  ("str_replace",    Mono (TFun (TString, TFun (TString, TFun (TString, TString)))));
+  ("str_chars",      Mono (TFun (TString, TList TString)));
+  ("int_to_str",     Mono (TFun (TInt, TString)));
+  ("str_to_int",     Mono (TFun (TString, TInt)));
+  (* Exe primitives *)
+  ("exe_args", Mono (TFun (TUnit, TList TString)));
+  ("exe_exit", Mono (TFun (TInt,  TUnit)));
+  ("exe_cwd",  Mono TString);
+]
+
+(* Core: infer types, returning (tenv, full_env, own_env).
+   own_env contains only the bindings added by this program itself. *)
+let infer_program_core ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : typedef_env * env * env =
+  let local_tenv = List.filter_map (function
+    | TLType tdef ->
+      let name = match tdef with Variants (n, _) | RecordType (n, _) -> n in
+      Some (name, tdef)
+    | _ -> None) prog.items
+  in
+  let tenv = local_tenv @ init_tenv in
+  let base_env = tenv_to_ctor_env tenv @ builtin_type_env @ init_env in
+  let env = List.fold_left (fun env item ->
+    match item with
+    | TLLet (name, [], body) ->
+      let t = infer tenv env body in
+      (name, generalize env t) :: env
+    | TLLet (name, params, body) ->
+      let placeholder = fresh () in
+      let env_rec = (name, Mono placeholder) :: env in
+      let t = infer tenv env_rec (Fn (params, body)) in
+      unify placeholder t;
+      (name, generalize env t) :: env
+    | TLType _ | TLImport _ -> env
+  ) base_env prog.items
+  in
+  let n_own = List.length env - List.length base_env in
+  let own_env = List.filteri (fun i _ -> i < n_own) env in
+  (tenv, env, own_env)
+
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * typ, string) result =
   try
-    let local_tenv = List.filter_map (function
-      | TLType tdef ->
-        let name = match tdef with
-          | Variants (n, _) | RecordType (n, _) -> n
-        in
-        Some (name, tdef)
-      | _ -> None) prog.items
-    in
-    let tenv = local_tenv @ init_tenv in
-    let builtin_env = [
-      ("print",      Mono (TFun (TString, TUnit)));
-      ("println",    Mono (TFun (TString, TUnit)));
-      ("read_file",  Mono (TFun (TString, TString)));
-      ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
-    ] in
-    let base_env = tenv_to_ctor_env tenv @ builtin_env @ init_env in
-    let env = List.fold_left (fun env item ->
-      match item with
-      | TLLet (name, [], body) ->
-        let t = infer tenv env body in
-        (name, generalize env t) :: env
-      | TLLet (name, params, body) ->
-        let placeholder = fresh () in
-        let env_rec = (name, Mono placeholder) :: env in
-        let t = infer tenv env_rec (Fn (params, body)) in
-        unify placeholder t;
-        (name, generalize env t) :: env
-      | TLType _ | TLImport _ -> env
-    ) base_env prog.items
-    in
+    let (tenv, env, _) = infer_program_core ~init_tenv ~init_env prog in
     let result_t = match prog.start with
       | None   -> TUnit
       | Some e -> infer tenv env e
     in
     Ok (env, result_t)
+  with TypeError msg -> Error msg
+
+(* Returns (full_env, own_env) where own_env is only this program's bindings. *)
+let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : (env * env, string) result =
+  try
+    let (_, env, own) = infer_program_core ~init_tenv ~init_env prog in
+    Ok (env, own)
   with TypeError msg -> Error msg
 
 let infer_program (prog : program) : (typ, string) result =

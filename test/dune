@@ -53,3 +53,7 @@
 (test
  (name test_list_patterns)
  (libraries wand alcotest))
+
+(test
+ (name test_string_stdlib)
+ (libraries wand alcotest))

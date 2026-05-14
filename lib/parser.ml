@@ -94,7 +94,7 @@ let is_atom_start = function
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket | Token.LBrace
   | Token.Dollar | Token.InterpStr _ | Token.EnvVar _
-  | Token.Handle -> true
+  | Token.Handle | Token.Try -> true
   | _ -> false
 
 let is_pat_atom_start = function
@@ -266,7 +266,15 @@ and atom_ s =
   | Token.Version v  -> Version v
   | Token.Size sz    -> Size sz
   | Token.Ident name  -> Var name
-  | Token.Upper name  -> Constr name
+  | Token.Upper name  ->
+    (* Eagerly consume dot-chains so Ns.f is one atom, enabling `Ns.f Ns.g` to parse
+       as App(Field(Constr Ns, f), Field(Constr Ns, g)) instead of Field(App(...), g). *)
+    let e = ref (Constr name) in
+    while peek s = Token.Dot do
+      ignore (advance s);
+      e := Field (!e, expect_ident s)
+    done;
+    !e
   | Token.EnvVar name -> EnvVar name
   | Token.Hole        -> Hole
   | Token.Minus      -> UnOp ("-", expr_ 65 s)
@@ -303,6 +311,7 @@ and atom_ s =
     ) parts in
     Interp (parsed, tail)
   | Token.Handle -> parse_handle_ s
+  | Token.Try    -> Ast.Try (expr_ 0 s)
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
 
