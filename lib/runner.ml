@@ -59,10 +59,28 @@ let run_with_default_handler (thunk : unit -> value) : value =
 
 let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
 
-let resolve_import base_dir path =
-  if Filename.is_relative path
-  then Filename.concat base_dir (add_ext path)
-  else add_ext path
+let find_stdlib_dir () =
+  match Sys.getenv_opt "WAND_STDLIB" with
+  | Some dir -> dir
+  | None ->
+    (* Walk up from CWD until we find a stdlib/ directory *)
+    let rec ascend dir =
+      let candidate = Filename.concat dir "stdlib" in
+      if Sys.file_exists candidate then candidate
+      else
+        let parent = Filename.dirname dir in
+        if parent = dir then Filename.concat (Sys.getcwd ()) "stdlib"
+        else ascend parent
+    in
+    ascend (Sys.getcwd ())
+
+let resolve_import base_dir = function
+  | Ast.StdlibModule name ->
+    Filename.concat (find_stdlib_dir ()) (name ^ ".wand")
+  | Ast.UserPath path ->
+    if Filename.is_relative path
+    then Filename.concat base_dir (add_ext path)
+    else add_ext path
 
 type import_env = {
   tenv     : (string * Ast.type_def) list;
@@ -92,7 +110,7 @@ let run_item env item =
     (name, eval env body) :: env
   | Ast.TLLet (name, params, body) ->
     (name, VFix (name, env, params, body)) :: env
-  | Ast.TLImport _ -> env
+  | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
   | Ast.TLType (Ast.Variants (_, ctors)) ->
     List.fold_left (fun env ctor ->
       let v = match ctor.Ast.fields with
@@ -110,8 +128,8 @@ let run_item env item =
 let rec load_imports_for ~base_dir ~visited prog =
   List.fold_left (fun acc item ->
     match item with
-    | Ast.TLImport path ->
-      let full = resolve_import base_dir path in
+    | Ast.TLImport kind ->
+      let full = resolve_import base_dir kind in
       if List.mem full !visited then acc
       else begin
         visited := full :: !visited;

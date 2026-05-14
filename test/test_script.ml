@@ -55,18 +55,42 @@ let with_tmp src f =
 let test_import () =
   with_tmp {|let answer = 42|} (fun lib ->
     ok "import binding"
-      (Printf.sprintf {|import "%s"
+      (Printf.sprintf {|import %s
 start answer|} lib) "42");
   with_tmp {|let double x = x * 2|} (fun lib ->
     ok "import function"
-      (Printf.sprintf {|import "%s"
+      (Printf.sprintf {|import %s
 start double 21|} lib) "42");
   with_tmp {|let greeting = "hello"
 let shout s = s ++ "!"|}
     (fun lib ->
       ok "import multiple bindings"
-        (Printf.sprintf {|import "%s"
+        (Printf.sprintf {|import %s
 start shout greeting|} lib) "hello!")
+
+(* ── Stdlib imports ──────────────────────────────────────────────────────── *)
+
+let test_stdlib_import () =
+  ok "List.map"
+    {|import List
+start map (fn x -> x * 2) [1, 2, 3]|}
+    "[2, 4, 6]";
+  ok "List.filter"
+    {|import List
+start filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
+    "[3, 4, 5]";
+  ok "List.length"
+    {|import List
+start length [1, 2, 3, 4, 5]|}
+    "5";
+  ok "List.reverse"
+    {|import List
+start reverse [1, 2, 3]|}
+    "[3, 2, 1]";
+  ok "List.fold_left sum"
+    {|import List
+start fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
+    "15"
 
 (* ── Recursive top-level functions ──────────────────────────────────────── *)
 
@@ -179,8 +203,9 @@ let () =
       Alcotest.test_case "fn let"    `Quick test_fn_let;
       Alcotest.test_case "chained"   `Quick test_chained;
       Alcotest.test_case "start"     `Quick test_start;
-      Alcotest.test_case "import"    `Quick test_import;
-      Alcotest.test_case "recursive"        `Quick test_recursive;
+      Alcotest.test_case "import"         `Quick test_import;
+      Alcotest.test_case "stdlib import"   `Quick test_stdlib_import;
+      Alcotest.test_case "recursive"       `Quick test_recursive;
       Alcotest.test_case "multi-equation"   `Quick test_multi_equation;
       Alcotest.test_case "env vars"         `Quick test_envvar;
       Alcotest.test_case "suggestions" `Quick test_suggestions;

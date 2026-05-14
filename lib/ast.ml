@@ -185,9 +185,13 @@ type type_def =
   | Variants   of string * ctor_def list
   | RecordType of string * (string * type_expr) list
 
+type import_kind =
+  | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)
+  | UserPath     of string   (* import ./utils     — resolves relative to caller  *)
+
 type top_item =
   | TLLet    of string * pat list * expr
-  | TLImport of string
+  | TLImport of import_kind
   | TLType   of type_def
 
 type program = {

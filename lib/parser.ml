@@ -582,8 +582,10 @@ let parse_program tokens =
     | Token.Import ->
       ignore (advance s);
       (match advance s with
-       | Token.String path -> items := !items @ [Ast.TLImport path]
-       | t -> raise (ParseError (Format.asprintf "expected string after import, got %a" Token.pp t)))
+       | Token.Upper name -> items := !items @ [Ast.TLImport (Ast.StdlibModule name)]
+       | Token.Path path  -> items := !items @ [Ast.TLImport (Ast.UserPath path)]
+       | t -> raise (ParseError (Format.asprintf
+           "expected module name or path after import, got %a" Token.pp t)))
     | Token.Start ->
       ignore (advance s);
       let loc = peek_loc s in
