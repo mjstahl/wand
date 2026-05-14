@@ -353,12 +353,12 @@ import ./lib/helpers
 ```
 
 Top-level definitions from the imported file are available under the module
-name derived from the filename:
+name derived from the filename (capitalised):
 
 ```
 import ./utils
 
-utils.my_function 42
+Utils.my_function 42
 ```
 
 ---
