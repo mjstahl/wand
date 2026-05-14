@@ -449,6 +449,9 @@ let next_token s =
 
 let tokenize src =
   let s = make src in
+  (* skip shebang line if present *)
+  if String.length src >= 2 && src.[0] = '#' && src.[1] = '!' then
+    while not (is_at_end s) && peek s <> '\n' do ignore (advance s) done;
   let toks = ref [] in
   let rec loop () =
     let (t, loc) = next_token s in
