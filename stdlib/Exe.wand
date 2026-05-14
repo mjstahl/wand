@@ -1,3 +1,4 @@
+let stdin () = exe_stdin ()
 let args = exe_args ()
 let exit code = exe_exit code
 let cwd = exe_cwd

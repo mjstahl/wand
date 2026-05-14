@@ -568,7 +568,10 @@ let base_eval_env : env = [
   ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
   ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
   ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
-  (* Exe primitives *)
+  (* Exe primitives — exe_stdin reads all of stdin on demand *)
+  ("exe_stdin", VBuiltin (function
+    | VUnit -> VString (In_channel.input_all In_channel.stdin)
+    | _ -> raise (EvalError "exe_stdin: expected Unit")));
   ("exe_args", VBuiltin (function
     | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
     | _ -> raise (EvalError "exe_args: expected Unit")));

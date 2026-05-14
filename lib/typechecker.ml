@@ -553,7 +553,8 @@ let builtin_type_env : env = [
   ("fs_ls",      Mono (TFun (TString, TList TString)));
   ("fs_remove",  Mono (TFun (TString, TUnit)));
   (* Exe primitives *)
-  ("exe_args", Mono (TFun (TUnit, TList TString)));
+  ("exe_stdin", Mono (TFun (TUnit, TString)));
+  ("exe_args",  Mono (TFun (TUnit, TList TString)));
   ("exe_exit", Mono (TFun (TInt,  TUnit)));
   ("exe_cwd",  Mono TString);
 ]
