@@ -14,23 +14,23 @@ let err label input =
 
 let test_enum () =
   ok "nullary constructor"
-    "type Color = Red | Green | Blue\nstart Red"
+    "type Color = Red | Green | Blue; start Red"
     "Red";
   ok "constructor equality"
-    "type Color = Red | Green | Blue\nstart Red == Red"
+    "type Color = Red | Green | Blue; start Red == Red"
     "true";
   ok "constructor inequality"
-    "type Color = Red | Green | Blue\nstart Red == Green"
+    "type Color = Red | Green | Blue; start Red == Green"
     "false"
 
 (* ── Variants with payloads ─────────────────────────────────────────────── *)
 
 let test_payload () =
   ok "single payload"
-    "type Wrap = Wrap of Int\nstart Wrap 42"
+    "type Wrap = Wrap Int; start Wrap 42"
     "Wrap(42)";
   ok "two payloads"
-    "type Pair = Pair of Int * Int\nstart Pair 3 4"
+    "type Pair = Pair (Int, Int); start Pair 3 4"
     "Pair(3, 4)"
 
 (* ── Pattern matching on variants ───────────────────────────────────────── *)
@@ -45,7 +45,7 @@ let describe c = match c with
 start describe Green|}
     "green";
   ok "match payload"
-    {|type Rect = Rect of Int * Int
+    {|type Rect = Rect (Int, Int)
 let area r = match r with
 | Rect w h -> w * h
 start area (Rect 3 4)|}
@@ -106,7 +106,7 @@ start sum|}
 let test_errors () =
   err "unknown constructor" "start Bogus";
   err "wrong arity"
-    "type Wrap = Wrap of Int\nstart Wrap 1 2"
+    "type Wrap = Wrap Int; start Wrap 1 2"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

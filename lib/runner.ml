@@ -167,6 +167,8 @@ let run_item env item =
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
   | Ast.TLType (Ast.Variants (_, ctors)) ->
     List.fold_left (fun env ctor ->
+      let field_names = List.map fst ctor.Ast.fields in
+      Hashtbl.replace Evaluator.constr_fields ctor.Ast.name field_names;
       let v = match ctor.Ast.fields with
         | [] -> VConstr (ctor.Ast.name, [])
         | fs -> VPartialConstr (ctor.Ast.name, List.length fs, [])

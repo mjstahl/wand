@@ -1,5 +1,16 @@
 open Ast
 
+(* ── Constructor field name registry ─────────────────────────────────────── *)
+
+let constr_fields : (string, string option list) Hashtbl.t = Hashtbl.create 16
+
+let find_field_index names label =
+  let rec go i = function
+    | [] -> None
+    | Some n :: _ when n = label -> Some i
+    | _ :: rest -> go (i + 1) rest
+  in go 0 names
+
 (* ── Values ───────────────────────────────────────────────────────────────── *)
 
 type value =
@@ -203,6 +214,19 @@ let rec eval (env : env) (e : expr) : value =
         | None   ->
           raise (EvalError (Printf.sprintf "no field '%s'%s"
             label (Util.hint label (List.map fst kvs)))))
+     | VConstr (name, vals) ->
+       (match Hashtbl.find_opt constr_fields name with
+        | Some names ->
+          (match find_field_index names label with
+           | Some i ->
+             (match List.nth_opt vals i with
+              | Some v -> v
+              | None   -> raise (EvalError (Printf.sprintf
+                  "constructor '%s' is not fully applied" name)))
+           | None -> raise (EvalError (Printf.sprintf
+               "constructor '%s' has no field named '%s'" name label)))
+        | None -> raise (EvalError (Printf.sprintf
+            "constructor '%s' has no named fields" name)))
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b

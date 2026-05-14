@@ -180,7 +180,7 @@ type type_expr =
 
 type ctor_def = {
   name   : string;
-  fields : type_expr list;
+  fields : (string option * type_expr) list;
 }
 
 type type_def =

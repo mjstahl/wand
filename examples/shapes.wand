@@ -1,4 +1,4 @@
-type Shape = Circle of Int | Rect of Int * Int
+type Shape = Circle Int | Rect (Int, Int)
 
 let area s = match s with
   | Circle r   -> r * r * 3

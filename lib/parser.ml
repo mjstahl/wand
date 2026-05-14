@@ -240,7 +240,10 @@ let rec expr_ bp s =
 
 and infix_ left op s =
   match op with
-  | Token.Semicolon  -> Seq (left, expr_ 4 s)
+  | Token.Semicolon  ->
+    (match peek s with
+     | Token.Let | Token.Type | Token.Import | Token.Start | Token.EOF -> left
+     | _ -> Seq (left, expr_ 4 s))
   | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
   | Token.ColonColon -> BinOp ("::", left, expr_ 14 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
@@ -577,15 +580,6 @@ let parse_type_expr s =
       loc name (Util.hint name builtin_types)))
   | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
 
-let parse_type_fields s =
-  let first = parse_type_expr s in
-  let rest = ref [] in
-  while peek s = Token.Star do
-    ignore (advance s);
-    rest := !rest @ [parse_type_expr s]
-  done;
-  first :: !rest
-
 let parse_type_def s =
   (* type already consumed *)
   let type_name =
@@ -609,6 +603,35 @@ let parse_type_def s =
     expect s Token.RBrace;
     Ast.RecordType (type_name, !fields)
   | _ ->
+    let parse_ctor_fields () =
+      (* Peek: if next is Upper, single positional field, no parens.
+         If LParen, parse (fields...) where fields are either:
+           - named:      ident Upper (, ident Upper)*
+           - positional: Upper (, Upper)* *)
+      match peek s with
+      | Token.Upper _ ->
+        [(None, parse_type_expr s)]
+      | Token.LParen ->
+        ignore (advance s);
+        let named = match peek s with Token.Ident _ -> true | _ -> false in
+        let parse_one () =
+          if named then
+            let fname = expect_ident s in
+            let ftype = parse_type_expr s in
+            (Some fname, ftype)
+          else
+            (None, parse_type_expr s)
+        in
+        let first = parse_one () in
+        let rest = ref [] in
+        while peek s = Token.Comma do
+          ignore (advance s);
+          rest := !rest @ [parse_one ()]
+        done;
+        expect s Token.RParen;
+        first :: !rest
+      | _ -> []
+    in
     let ctors = ref [] in
     let parse_ctor () =
       let name =
@@ -617,10 +640,7 @@ let parse_type_def s =
         | Token.Upper n -> n
         | t -> raise (ParseError (Format.asprintf "%sexpected constructor name, got %a" loc Token.pp t))
       in
-      let fields =
-        if peek s = Token.Of then (ignore (advance s); parse_type_fields s)
-        else []
-      in
+      let fields = parse_ctor_fields () in
       { Ast.name; fields }
     in
     ctors := [parse_ctor ()];
@@ -663,6 +683,7 @@ let parse_program tokens =
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]
+    | Token.Semicolon -> ignore (advance s)
     | t ->
       let loc = loc_prefix s in
       raise (ParseError (Format.asprintf "%sunexpected top-level token: %a%s"

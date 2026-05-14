@@ -172,12 +172,12 @@ let err_prog label input =
   | Ok t -> Alcotest.failf "%s: expected type error but got: %s" label t
 
 let test_enum_types () =
-  ok_prog "nullary"  "type Color = Red | Green\nstart Red"   "Color";
-  ok_prog "second"   "type Color = Red | Green\nstart Green" "Color"
+  ok_prog "nullary"  "type Color = Red | Green; start Red"   "Color";
+  ok_prog "second"   "type Color = Red | Green; start Green" "Color"
 
 let test_payload_types () =
-  ok_prog "single arg" "type Wrap = Wrap of Int\nstart Wrap 42"         "Wrap";
-  ok_prog "two args"   "type Pair = Pair of Int * Int\nstart Pair 3 4"  "Pair"
+  ok_prog "single arg" "type Wrap = Wrap Int; start Wrap 42"           "Wrap";
+  ok_prog "two args"   "type Pair = Pair (Int, Int); start Pair 3 4"  "Pair"
 
 let test_match_ctor () =
   ok_prog "nullary arms"
@@ -188,7 +188,7 @@ let f c = match c with
 start f Red|}
     "Int";
   ok_prog "payload arm"
-    {|type Wrap = Wrap of Int
+    {|type Wrap = Wrap Int
 let unwrap w = match w with
 | Wrap n -> n
 start unwrap (Wrap 42)|}
@@ -208,7 +208,7 @@ start p.y|}
 
 let test_ctor_errors () =
   err_prog "unknown ctor"   "start Bogus";
-  err_prog "wrong arg type" "type Wrap = Wrap of Int\nstart Wrap true"
+  err_prog "wrong arg type" "type Wrap = Wrap Int; start Wrap true"
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 

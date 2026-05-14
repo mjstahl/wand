@@ -219,7 +219,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
   | Variants (tname, ctors) ->
     List.map (fun ctor ->
       let result = TName tname in
-      let t = List.fold_right (fun te acc -> TFun (type_of_te te, acc))
+      let t = List.fold_right (fun (_, te) acc -> TFun (type_of_te te, acc))
                 ctor.fields result in
       (ctor.name, Mono t)
     ) ctors
@@ -447,6 +447,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
               | None    ->
                 raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
                   tname label (Util.hint label (List.map fst fields)))))
+           | Some (Variants (_, ctors)) ->
+             let all_named = List.concat_map (fun c ->
+               List.filter_map (fun (fname, te) ->
+                 match fname with Some n -> Some (n, te) | None -> None)
+               c.fields) ctors in
+             (match List.assoc_opt label all_named with
+              | Some te -> type_of_te te
+              | None    ->
+                let names = List.map fst all_named in
+                raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
+                  tname label (Util.hint label names))))
            | _ -> raise (TypeError (Printf.sprintf
                "cannot access field '%s' on non-record type '%s'" label tname)))
         | t -> raise (TypeError (Printf.sprintf

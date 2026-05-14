@@ -25,16 +25,16 @@ let err label input =
 (* ── Value bindings ──────────────────────────────────────────────────────── *)
 
 let test_value_let () =
-  ok "single binding" "let x = 42\nstart x" "42";
+  ok "single binding" "let x = 42; start x" "42";
   ok "no start"       "let x = 42" "()"
 
 let test_fn_let () =
-  ok "fn shorthand" "let double x = x * 2\nstart double 5" "10";
-  ok "two params"   "let add x y = x + y\nstart add 3 4" "7"
+  ok "fn shorthand" "let double x = x * 2; start double 5" "10";
+  ok "two params"   "let add x y = x + y; start add 3 4" "7"
 
 let test_chained () =
   ok "two lets"
-    "let double x = x * 2\nlet quad x = double (double x)\nstart quad 3"
+    "let double x = x * 2; let quad x = double (double x); start quad 3"
     "12"
 
 (* ── Start ───────────────────────────────────────────────────────────────── *)
@@ -104,10 +104,10 @@ start List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
 
 let test_recursive () =
   ok "factorial"
-    "let fact n = if n <= 0 then 1 else n * fact (n - 1)\nstart fact 5"
+    "let fact n = if n <= 0 then 1 else n * fact (n - 1); start fact 5"
     "120";
   ok "fibonacci"
-    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)\nstart fib 10"
+    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2); start fib 10"
     "55"
 
 (* ── "Did you mean?" suggestions ────────────────────────────────────────── *)
@@ -121,10 +121,10 @@ let err_suggests label input needle =
 
 let test_suggestions () =
   err_suggests "var typo"
-    "let name = 1\nstart naem"
+    "let name = 1; start naem"
     "name";
   err_suggests "ctor typo"
-    "type Color = Red | Green\nstart Gren"
+    "type Color = Red | Green; start Gren"
     "Green";
   err_suggests "field typo"
     {|type Point = { x: Int, y: Int }
@@ -132,7 +132,7 @@ let p = Point { x = 1, y = 2 }
 start p.xy|}
     "x";
   err_suggests "parse keyword typo"
-    "lte x = 1\nstart x"
+    "lte x = 1; start x"
     "let"
 
 (* ── Source locations in parse errors ───────────────────────────────────── *)
@@ -173,7 +173,7 @@ let add x y = x + y
 start "${add 3 4}, ${add 0 9}, ${add 5 0}"|}
     "7, 9, 5";
   ok "constructor patterns"
-    {|type Opt = None | Some of Int
+    {|type Opt = None | Some Int
 let show None     = "nothing"
 let show (Some n) = "just ${n}"
 start "${show None}, ${show (Some 42)}"|}
@@ -190,7 +190,7 @@ start "${label 1}, ${label 2}, ${label 99}"|}
 let test_envvar () =
   let home = Sys.getenv "HOME" in
   ok "basic"           "start $HOME"                    home;
-  ok "in let"          "let d = $HOME\nstart d"         home;
+  ok "in let"          "let d = $HOME; start d"         home;
   ok "concatenation"   {|start $HOME ++ "/bin"|}        (home ^ "/bin");
   ok "interpolation"   {|start "home: ${$HOME}"|}       ("home: " ^ home);
   ok "string shorthand" {|start "home: $HOME"|}         ("home: " ^ home);
@@ -200,7 +200,7 @@ let test_envvar () =
 
 let test_errors () =
   err "unbound in start" "start x";
-  err "unbound in let"   "let x = y\nstart x"
+  err "unbound in let"   "let x = y; start x"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
