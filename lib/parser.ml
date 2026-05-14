@@ -540,49 +540,22 @@ and parse_handle_ s =
   done;
   Ast.Handle (body, !arms)
 
-(* ── Multi-equation merging ───────────────────────────────────────────────── *)
-
-(* Merge consecutive top-level lets with the same name and arity into one
-   function whose body dispatches via match. *)
-let merge_equations items =
-  let rec go acc = function
-    | [] -> List.rev acc
-    | Ast.TLLet (name, (_ :: _ as params), body) :: rest ->
-      let arity = List.length params in
-      let eqs  = ref [(params, body)] in
-      let tail = ref rest in
-      let stop = ref false in
-      while not !stop do
-        match !tail with
-        | Ast.TLLet (n2, p2, b2) :: rest2
-          when n2 = name && List.length p2 = arity ->
-          eqs  := !eqs @ [(p2, b2)];
-          tail := rest2
-        | _ -> stop := true
-      done;
-      let item = match !eqs with
-        | [(p, b)] -> Ast.TLLet (name, p, b)
-        | eqs ->
-          let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
-          let scrutinee = match fresh with
-            | [v] -> Ast.Var v
-            | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
-          in
-          let arms = List.map (fun (pats, body) ->
-            let pat = match pats with
-              | [p] -> p
-              | ps  -> Ast.PTuple ps
-            in
-            (pat, None, body)
-          ) eqs in
-          Ast.TLLet (name,
-            List.map (fun v -> Ast.PVar v) fresh,
-            Ast.Match (scrutinee, arms))
-      in
-      go (item :: acc) !tail
-    | item :: rest -> go (item :: acc) rest
-  in
-  go [] items
+let build_multi_equation name arity eqs =
+  match eqs with
+  | [(p, b)] -> Ast.TLLet (name, p, b)
+  | eqs ->
+    let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+    let scrutinee = match fresh with
+      | [v] -> Ast.Var v
+      | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
+    in
+    let arms = List.map (fun (pats, body) ->
+      let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
+      (pat, None, body)
+    ) eqs in
+    Ast.TLLet (name,
+      List.map (fun v -> Ast.PVar v) fresh,
+      Ast.Match (scrutinee, arms))
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
@@ -695,7 +668,28 @@ let parse_program tokens =
          expect s Token.Eq;
          let loc = peek_loc s in
          let body = Ast.Located (loc, parse_contract_body s) in
-         items := !items @ [Ast.TLLet (name, !params, body)]
+         let arity = List.length !params in
+         let eqs = ref [(!params, body)] in
+         if arity > 0 then begin
+           let more = ref true in
+           while !more do
+             let saved2 = s.pos in
+             (try
+               (match peek s with Token.Let -> ignore (advance s) | _ -> raise Exit);
+               (match peek s with
+                | Token.Ident n when n = name -> ignore (advance s)
+                | _ -> raise Exit);
+               let ps = ref [] in
+               while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
+               if List.length !ps <> arity then raise Exit;
+               (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
+               let b_loc = peek_loc s in
+               let b = Ast.Located (b_loc, parse_contract_body s) in
+               eqs := !eqs @ [(!ps, b)]
+             with Exit -> s.pos <- saved2; more := false)
+           done
+         end;
+         items := !items @ [build_multi_equation name arity !eqs]
        | _ ->
          s.pos <- saved;
          let loc = peek_loc s in
@@ -733,4 +727,4 @@ let parse_program tokens =
          | None -> ())
       end
   done;
-  { Ast.items = merge_equations !items }
+  { Ast.items = !items }
