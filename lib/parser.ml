@@ -417,17 +417,20 @@ and let_ s =
     Let (PVar name, fn_val, rest)
   | _ ->
     expect s Token.Eq;
-    let e1 = expr_ 0 s in
+    let e1_loc = peek_loc s in
+    let e1 = Located (e1_loc, expr_ 0 s) in
     let e2 = consume_rest () in
     Let (p, e1, e2)
 
 and if_ s =
   (* if already consumed *)
-  let cond  = expr_ 0 s in
+  let cond   = expr_ 0 s in
   expect s Token.Then;
-  let then_ = expr_ 0 s in
+  let then_loc = peek_loc s in
+  let then_ = Located (then_loc, expr_ 0 s) in
   expect s Token.Else;
-  let else_ = expr_ 0 s in
+  let else_loc = peek_loc s in
+  let else_ = Located (else_loc, expr_ 0 s) in
   If (cond, then_, else_)
 
 and match_ s =
@@ -446,7 +449,8 @@ and match_ s =
         else None
       in
       expect s Token.Arrow;
-      let body = expr_ 0 s in
+      let body_loc = peek_loc s in
+      let body = Located (body_loc, expr_ 0 s) in
       arms := !arms @ [(p, guard, body)]
     end else
       continue_ := false

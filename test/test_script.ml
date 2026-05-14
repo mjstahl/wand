@@ -148,7 +148,11 @@ let test_type_error_locations () =
   err_suggests "type error line"   "let y = 1 + true\ny" "1:";
   err_suggests "type error column" "let y = 1 + true\ny" ":9";
   (* error on line 2 *)
-  err_suggests "type error line 2" "let x = 1\nlet y = x + true\ny" "2:"
+  err_suggests "type error line 2" "let x = 1\nlet y = x + true\ny" "2:";
+  (* error inside if branch: line 3 *)
+  err_suggests "if branch line" "let x =\n  if true then\n    1 + true\n  else 0\nx" "3:";
+  (* error inside match arm: line 3 *)
+  err_suggests "match arm line" "let f n =\n  match n with\n  | 0 -> 1 + true\n  | _ -> 0\nf 1" "3:"
 
 (* ── Source locations in eval errors ────────────────────────────────────── *)
 

@@ -171,7 +171,7 @@ and show_case (p, g, e) =
   | Some g -> Printf.sprintf "(| %s when %s -> %s)" (show_pat p) (show g) (show e)
 
 let pp ppf (e : expr) = Format.pp_print_string ppf (show e)
-let equal : expr -> expr -> bool = (=)
+let equal a b = show a = show b
 
 (* ── Top-level program ────────────────────────────────────────────────────── *)
 
