@@ -93,7 +93,7 @@ let test_process_mock () =
 (* ── Type errors ─────────────────────────────────────────────────────────── *)
 
 let test_type_errors () =
-  err "print non-string" {|start print 42|}
+  err "unbound var" {|start println undefined_var|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

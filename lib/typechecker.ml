@@ -526,8 +526,8 @@ let infer_expr (e : expr) : (typ, string) result =
   with TypeError msg -> Error msg
 
 let builtin_type_env : env = [
-  ("print",      Mono (TFun (TString, TUnit)));
-  ("println",    Mono (TFun (TString, TUnit)));
+  ("print",      let a = fresh () in generalize [] (TFun (a, TUnit)));
+  ("println",    let a = fresh () in generalize [] (TFun (a, TUnit)));
   ("read_file",  Mono (TFun (TString, TString)));
   ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
   (* String primitives *)
