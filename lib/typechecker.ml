@@ -559,7 +559,7 @@ let builtin_type_env : env = [
   ("str_chars",      Mono (TFun (TString, TList TString)));
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
-  (* Fs primitives *)
+  (* FS primitives *)
   ("fs_exists",  Mono (TFun (TString, TBool)));
   ("fs_is_file", Mono (TFun (TString, TBool)));
   ("fs_is_dir",  Mono (TFun (TString, TBool)));

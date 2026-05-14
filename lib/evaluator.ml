@@ -604,7 +604,7 @@ let base_eval_env : env = [
        | Some n -> VInt n
        | None   -> raise (EvalError (Printf.sprintf "str_to_int: cannot parse %S" s)))
     | _ -> raise (EvalError "str_to_int: expected String")));
-  (* Fs primitives *)
+  (* FS primitives *)
   ("fs_exists",  VBuiltin (function
     | VString p -> VBool (Sys.file_exists p)
     | _ -> raise (EvalError "fs_exists: expected String")));
