@@ -2,4 +2,4 @@ import "greetings"
 
 let guest = $("whoami")
 
-start shout (greet guest)
+shout (greet guest)

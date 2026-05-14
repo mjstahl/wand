@@ -177,6 +177,7 @@ let run_item env item =
     ) env ctors
   | Ast.TLType (Ast.RecordType (type_name, _)) ->
     (type_name, VRecordCtor) :: env
+  | Ast.TLExpr _ -> env
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
@@ -242,10 +243,12 @@ let run_program ~base_dir prog =
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
      let result = run_with_default_handler (fun () ->
-       let env = List.fold_left run_item (base_eval_env @ imp.eval_env) prog.Ast.items in
-       match prog.Ast.start with
-       | None   -> VUnit
-       | Some e -> eval env e
+       let (_, last) = List.fold_left (fun (env, last) item ->
+         match item with
+         | Ast.TLExpr e -> (env, eval env e)
+         | _            -> (run_item env item, last)
+       ) (base_eval_env @ imp.eval_env, VUnit) prog.Ast.items
+       in last
      ) in
      Ok (show_value result))
 

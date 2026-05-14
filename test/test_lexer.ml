@@ -56,7 +56,6 @@ let test_keywords () =
     "type",     Type;
     "token",    Token.Token;
     "import",   Import;
-    "start",    Start;
     "requires", Requires;
     "ensures",  Ensures;
     "result",   Result;

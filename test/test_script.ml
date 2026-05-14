@@ -25,23 +25,23 @@ let err label input =
 (* ── Value bindings ──────────────────────────────────────────────────────── *)
 
 let test_value_let () =
-  ok "single binding" "let x = 42; start x" "42";
+  ok "single binding" "let x = 42; x" "42";
   ok "no start"       "let x = 42" "()"
 
 let test_fn_let () =
-  ok "fn shorthand" "let double x = x * 2; start double 5" "10";
-  ok "two params"   "let add x y = x + y; start add 3 4" "7"
+  ok "fn shorthand" "let double x = x * 2; double 5" "10";
+  ok "two params"   "let add x y = x + y; add 3 4" "7"
 
 let test_chained () =
   ok "two lets"
-    "let double x = x * 2; let quad x = double (double x); start quad 3"
+    "let double x = x * 2; let quad x = double (double x); quad 3"
     "12"
 
 (* ── Start ───────────────────────────────────────────────────────────────── *)
 
 let test_start () =
-  ok "literal"  "start 42" "42";
-  ok "expr"     "start 1 + 2" "3";
+  ok "literal"  "42" "42";
+  ok "expr"     "1 + 2" "3";
   ok "no start" "let x = 1" "()"
 
 (* ── Imports ─────────────────────────────────────────────────────────────── *)
@@ -64,50 +64,50 @@ let test_import () =
   with_named "Lib" {|let answer = 42|} (fun lib ->
     ok "import binding"
       (Printf.sprintf {|import %s
-start Lib.answer|} lib) "42");
+Lib.answer|} lib) "42");
   with_named "Lib" {|let double x = x * 2|} (fun lib ->
     ok "import function"
       (Printf.sprintf {|import %s
-start Lib.double 21|} lib) "42");
+Lib.double 21|} lib) "42");
   with_named "Lib" {|let greeting = "hello"
 let shout s = s ++ "!"|}
     (fun lib ->
       ok "import multiple bindings"
         (Printf.sprintf {|import %s
-start Lib.shout Lib.greeting|} lib) "hello!")
+Lib.shout Lib.greeting|} lib) "hello!")
 
 (* ── Stdlib imports ──────────────────────────────────────────────────────── *)
 
 let test_stdlib_import () =
   ok "List.map"
     {|import List
-start List.map (fn x -> x * 2) [1, 2, 3]|}
+List.map (fn x -> x * 2) [1, 2, 3]|}
     "[2, 4, 6]";
   ok "List.filter"
     {|import List
-start List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
+List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
     "[3, 4, 5]";
   ok "List.length"
     {|import List
-start List.length [1, 2, 3, 4, 5]|}
+List.length [1, 2, 3, 4, 5]|}
     "5";
   ok "List.reverse"
     {|import List
-start List.reverse [1, 2, 3]|}
+List.reverse [1, 2, 3]|}
     "[3, 2, 1]";
   ok "List.fold_left sum"
     {|import List
-start List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
+List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]|}
     "15"
 
 (* ── Recursive top-level functions ──────────────────────────────────────── *)
 
 let test_recursive () =
   ok "factorial"
-    "let fact n = if n <= 0 then 1 else n * fact (n - 1); start fact 5"
+    "let fact n = if n <= 0 then 1 else n * fact (n - 1); fact 5"
     "120";
   ok "fibonacci"
-    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2); start fib 10"
+    "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2); fib 10"
     "55"
 
 (* ── "Did you mean?" suggestions ────────────────────────────────────────── *)
@@ -121,40 +121,40 @@ let err_suggests label input needle =
 
 let test_suggestions () =
   err_suggests "var typo"
-    "let name = 1; start naem"
+    "let name = 1; naem"
     "name";
   err_suggests "ctor typo"
-    "type Color = Red | Green; start Gren"
+    "type Color = Red | Green; Gren"
     "Green";
   err_suggests "field typo"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 1, y = 2 }
-start p.xy|}
+p.xy|}
     "x";
   err_suggests "parse keyword typo"
-    "lte x = 1; start x"
+    "lte x = 1; x"
     "let"
 
 (* ── Source locations in parse errors ───────────────────────────────────── *)
 
 let test_locations () =
-  err_suggests "line number"   "let x = 1\n= bad\nstart x" "2:";
-  err_suggests "column number" "let x = 1\n= bad\nstart x" ":1"
+  err_suggests "line number"   "let x = 1\n= bad\nx" "2:";
+  err_suggests "column number" "let x = 1\n= bad\nx" ":1"
 
 (* ── Source locations in type errors ────────────────────────────────────── *)
 
 let test_type_error_locations () =
   (* "let y = 1 + true": body starts at col 9, line 1 *)
-  err_suggests "type error line"   "let y = 1 + true\nstart y" "1:";
-  err_suggests "type error column" "let y = 1 + true\nstart y" ":9";
+  err_suggests "type error line"   "let y = 1 + true\ny" "1:";
+  err_suggests "type error column" "let y = 1 + true\ny" ":9";
   (* error on line 2 *)
-  err_suggests "type error line 2" "let x = 1\nlet y = x + true\nstart y" "2:"
+  err_suggests "type error line 2" "let x = 1\nlet y = x + true\ny" "2:"
 
 (* ── Source locations in eval errors ────────────────────────────────────── *)
 
 let test_eval_error_locations () =
   (* non-exhaustive match on line 3, body starts at col 9 ("match") *)
-  let src = "type C = A | B\nlet x = A\nlet y = match x with | B -> 1\nstart y" in
+  let src = "type C = A | B\nlet x = A\nlet y = match x with | B -> 1\ny" in
   err_suggests "eval error line"   src "3:";
   err_suggests "eval error column" src ":9"
 
@@ -164,43 +164,43 @@ let test_multi_equation () =
   ok "factorial"
     {|let fact 0 = 1
 let fact n = n * fact (n - 1)
-start fact 5|}
+fact 5|}
     "120";
   ok "two args"
     {|let add 0 y = y
 let add x 0 = x
 let add x y = x + y
-start "${add 3 4}, ${add 0 9}, ${add 5 0}"|}
+"${add 3 4}, ${add 0 9}, ${add 5 0}"|}
     "7, 9, 5";
   ok "constructor patterns"
     {|type Opt = None | Some Int
 let show None     = "nothing"
 let show (Some n) = "just ${n}"
-start "${show None}, ${show (Some 42)}"|}
+"${show None}, ${show (Some 42)}"|}
     "nothing, just 42";
   ok "wildcard catch-all"
     {|let label 1 = "one"
 let label 2 = "two"
 let label _ = "other"
-start "${label 1}, ${label 2}, ${label 99}"|}
+"${label 1}, ${label 2}, ${label 99}"|}
     "one, two, other"
 
 (* ── Environment variables ───────────────────────────────────────────────── *)
 
 let test_envvar () =
   let home = Sys.getenv "HOME" in
-  ok "basic"           "start $HOME"                    home;
-  ok "in let"          "let d = $HOME; start d"         home;
-  ok "concatenation"   {|start $HOME ++ "/bin"|}        (home ^ "/bin");
-  ok "interpolation"   {|start "home: ${$HOME}"|}       ("home: " ^ home);
-  ok "string shorthand" {|start "home: $HOME"|}         ("home: " ^ home);
-  err "unset var"      "start $WAND_UNSET_XYZ_99999"
+  ok "basic"           "$HOME"                    home;
+  ok "in let"          "let d = $HOME; d"         home;
+  ok "concatenation"   {|$HOME ++ "/bin"|}        (home ^ "/bin");
+  ok "interpolation"   {|"home: ${$HOME}"|}       ("home: " ^ home);
+  ok "string shorthand" {|"home: $HOME"|}         ("home: " ^ home);
+  err "unset var"      "$WAND_UNSET_XYZ_99999"
 
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
-  err "unbound in start" "start x";
-  err "unbound in let"   "let x = y; start x"
+  err "unbound in start" "x";
+  err "unbound in let"   "let x = y; x"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

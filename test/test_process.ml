@@ -26,33 +26,33 @@ let err_contains label input needle =
 
 let test_basic () =
   ok "echo"
-    {|start $(echo hello)|}
+    {|$(echo hello)|}
     "hello";
   ok "trailing newline stripped"
-    {|start $(printf hello)|}
+    {|$(printf hello)|}
     "hello";
   ok "dynamic cmd via interpolation"
     {|let cmd = "echo world"
-start $(${cmd})|}
+$(${cmd})|}
     "world"
 
 let test_composition () =
   ok "result in binding"
     {|let out = $(echo hello)
-start out|}
+out|}
     "hello";
   ok "result in expression"
     {|let out = $(echo 3)
-start out == "3"|}
+out == "3"|}
     "true"
 
 (* ── Error handling ──────────────────────────────────────────────────────── *)
 
 let test_errors () =
   err "nonzero exit"
-    {|start $(exit 1)|};
+    {|$(exit 1)|};
   err_contains "shows exit code"
-    {|start $(sh -c 'exit 42')|}
+    {|$(sh -c 'exit 42')|}
     "42"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)

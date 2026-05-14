@@ -40,7 +40,7 @@ let keyword_or_ident word = match word with
   | "if"       -> If       | "then"     -> Then
   | "else"     -> Else     | "type"     -> Type
   | "token"    -> Token    | "import"   -> Import
-  | "start"    -> Start    | "requires" -> Requires
+  | "requires" -> Requires
   | "ensures"  -> Ensures  | "result"   -> Result
   | "fn"       -> Fn       | "of"       -> Of
   | "for"      -> For      | "do"       -> Do

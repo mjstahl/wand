@@ -11,4 +11,4 @@ let describe s = match s with
 let c = Circle 5
 let r = Rect 3 4
 
-start "${describe c} area=${area c}, ${describe r} area=${area r}"
+"${describe c} area=${area c}, ${describe r} area=${area r}"

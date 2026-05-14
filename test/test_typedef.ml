@@ -14,23 +14,23 @@ let err label input =
 
 let test_enum () =
   ok "nullary constructor"
-    "type Color = Red | Green | Blue; start Red"
+    "type Color = Red | Green | Blue; Red"
     "Red";
   ok "constructor equality"
-    "type Color = Red | Green | Blue; start Red == Red"
+    "type Color = Red | Green | Blue; Red == Red"
     "true";
   ok "constructor inequality"
-    "type Color = Red | Green | Blue; start Red == Green"
+    "type Color = Red | Green | Blue; Red == Green"
     "false"
 
 (* ── Variants with payloads ─────────────────────────────────────────────── *)
 
 let test_payload () =
   ok "single payload"
-    "type Wrap = Wrap Int; start Wrap 42"
+    "type Wrap = Wrap Int; Wrap 42"
     "Wrap(42)";
   ok "two payloads"
-    "type Pair = Pair (Int, Int); start Pair 3 4"
+    "type Pair = Pair (Int, Int); Pair 3 4"
     "Pair(3, 4)"
 
 (* ── Pattern matching on variants ───────────────────────────────────────── *)
@@ -42,13 +42,13 @@ let describe c = match c with
 | Red   -> "red"
 | Green -> "green"
 | Blue  -> "blue"
-start describe Green|}
+describe Green|}
     "green";
   ok "match payload"
     {|type Rect = Rect (Int, Int)
 let area r = match r with
 | Rect w h -> w * h
-start area (Rect 3 4)|}
+area (Rect 3 4)|}
     "12"
 
 (* ── Record types ────────────────────────────────────────────────────────── *)
@@ -57,12 +57,12 @@ let test_record_type () =
   ok "construct and access"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 1, y = 2 }
-start p.x|}
+p.x|}
     "1";
   ok "record field"
     {|type Point = { x: Int, y: Int }
 let origin = Point { x = 0, y = 0 }
-start origin.y|}
+origin.y|}
     "0"
 
 (* ── Record patterns ─────────────────────────────────────────────────────── *)
@@ -72,26 +72,26 @@ let test_record_pat () =
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 3, y = 4 }
 let sum = match p with | { x = a, y = b } -> a + b
-start sum|}
+sum|}
     "7";
   ok "shorthand binding"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 10, y = 20 }
 let get_x = match p with | { x } -> x
-start get_x|}
+get_x|}
     "10";
   ok "wildcard field"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 5, y = 99 }
 let get_x = match p with | { x = v, y = _ } -> v
-start get_x|}
+get_x|}
     "5";
   ok "in local let binding"
     {|type Point = { x: Int, y: Int }
 let add_coords p =
   let { x = a, y = b } = p in
   a + b
-start add_coords (Point { x = 7, y = 8 })|}
+add_coords (Point { x = 7, y = 8 })|}
     "15"
 
 let test_record_pat_errors () =
@@ -99,14 +99,14 @@ let test_record_pat_errors () =
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 1, y = 2 }
 let sum = match p with | { x = a, z = b } -> a + b
-start sum|}
+sum|}
 
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
-  err "unknown constructor" "start Bogus";
+  err "unknown constructor" "Bogus";
   err "wrong arity"
-    "type Wrap = Wrap Int; start Wrap 1 2"
+    "type Wrap = Wrap Int; Wrap 1 2"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

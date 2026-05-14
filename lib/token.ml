@@ -32,7 +32,6 @@ type t =
   | Type
   | Token
   | Import
-  | Start
   | Requires
   | Ensures
   | Result
@@ -118,7 +117,7 @@ let pp ppf tok =
     | With       -> "with"   | If         -> "if"
     | Then       -> "then"   | Else       -> "else"
     | Type       -> "type"   | Token      -> "token"
-    | Import     -> "import" | Start      -> "start"
+    | Import     -> "import"
     | Requires   -> "requires" | Ensures  -> "ensures"
     | Result     -> "result" | Fn         -> "fn"
     | Of         -> "of"    | For        -> "for"

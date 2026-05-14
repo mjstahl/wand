@@ -14,44 +14,44 @@ let err label input =
 
 let test_concat () =
   ok "simple concat"
-    {|start "hello" ++ " world"|}
+    {|"hello" ++ " world"|}
     "hello world";
   ok "concat with var"
     {|let name = "Alice"
-start "Hello, " ++ name ++ "!"|}
+"Hello, " ++ name ++ "!"|}
     "Hello, Alice!";
   ok "concat empty"
-    {|start "" ++ "abc"|}
+    {|"" ++ "abc"|}
     "abc"
 
 let test_concat_errors () =
-  err "int ++ string" {|start 1 ++ "a"|};
-  err "string ++ int" {|start "a" ++ 1|}
+  err "int ++ string" {|1 ++ "a"|};
+  err "string ++ int" {|"a" ++ 1|}
 
 (* ── String interpolation ────────────────────────────────────────────────── *)
 
 let test_interp () =
   ok "simple interp"
     {|let name = "World"
-start "Hello, ${name}!"|}
+"Hello, ${name}!"|}
     "Hello, World!";
   ok "interp arithmetic"
-    {|start "1 + 2 = ${1 + 2}"|}
+    {|"1 + 2 = ${1 + 2}"|}
     "1 + 2 = 3";
   ok "interp bool"
-    {|start "flag: ${true}"|}
+    {|"flag: ${true}"|}
     "flag: true";
   ok "no interp"
-    {|start "plain string"|}
+    {|"plain string"|}
     "plain string";
   ok "multiple interps"
     {|let x = "a"
 let y = "b"
-start "${x} and ${y}"|}
+"${x} and ${y}"|}
     "a and b"
 
 let test_interp_errors () =
-  err "bad expr in interp" {|start "${1 + true}"|}
+  err "bad expr in interp" {|"${1 + true}"|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

@@ -172,12 +172,12 @@ let err_prog label input =
   | Ok t -> Alcotest.failf "%s: expected type error but got: %s" label t
 
 let test_enum_types () =
-  ok_prog "nullary"  "type Color = Red | Green; start Red"   "Color";
-  ok_prog "second"   "type Color = Red | Green; start Green" "Color"
+  ok_prog "nullary"  "type Color = Red | Green; Red"   "Color";
+  ok_prog "second"   "type Color = Red | Green; Green" "Color"
 
 let test_payload_types () =
-  ok_prog "single arg" "type Wrap = Wrap Int; start Wrap 42"           "Wrap";
-  ok_prog "two args"   "type Pair = Pair (Int, Int); start Pair 3 4"  "Pair"
+  ok_prog "single arg" "type Wrap = Wrap Int; Wrap 42"           "Wrap";
+  ok_prog "two args"   "type Pair = Pair (Int, Int); Pair 3 4"  "Pair"
 
 let test_match_ctor () =
   ok_prog "nullary arms"
@@ -185,30 +185,30 @@ let test_match_ctor () =
 let f c = match c with
 | Red   -> 1
 | Green -> 2
-start f Red|}
+f Red|}
     "Int";
   ok_prog "payload arm"
     {|type Wrap = Wrap Int
 let unwrap w = match w with
 | Wrap n -> n
-start unwrap (Wrap 42)|}
+unwrap (Wrap 42)|}
     "Int"
 
 let test_record_typedef () =
   ok_prog "field access"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 1, y = 2 }
-start p.x|}
+p.x|}
     "Int";
   ok_prog "second field"
     {|type Point = { x: Int, y: Int }
 let p = Point { x = 1, y = 2 }
-start p.y|}
+p.y|}
     "Int"
 
 let test_ctor_errors () =
-  err_prog "unknown ctor"   "start Bogus";
-  err_prog "wrong arg type" "type Wrap = Wrap Int; start Wrap true"
+  err_prog "unknown ctor"   "Bogus";
+  err_prog "wrong arg type" "type Wrap = Wrap Int; Wrap true"
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 

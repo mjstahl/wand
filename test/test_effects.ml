@@ -12,28 +12,32 @@ let err label input =
 
 (* ── Default handler ─────────────────────────────────────────────────────── *)
 
-(* print/println go to stdout via default handler; start returns its value *)
+(* print/println go to stdout via default handler; returns its value *)
 let test_default_io () =
-  ok "print returns unit"   {|start let () = print "hi" in 42|}  "42";
-  ok "println returns unit" {|start let () = println "hi" in 99|} "99"
+  ok "print returns unit"   {|let () = print "hi" in 42|}  "42";
+  ok "println returns unit" {|let () = println "hi" in 99|} "99"
 
 (* ── Sequencing ──────────────────────────────────────────────────────────── *)
 
 let test_semicolon () =
-  ok "semicolon sequences"
-    {|start handle print "a"; print "b"; print "c" with
+  ok "newline sequences"
+    {|handle
+        let () = print "a" in
+        let () = print "b" in
+        print "c"
+      with
         | print s k -> s ++ k ()
         | return _  -> ""|}
     "abc";
   ok "unit sequencing"
-    {|start let () = print "x" in 42|}
+    {|let () = print "x" in 42|}
     "42"
 
 (* ── Custom handlers ─────────────────────────────────────────────────────── *)
 
 let test_capture () =
   ok "collect prints"
-    {|start handle
+    {|handle
         let () = print "hello" in
         print " world"
       with
@@ -41,7 +45,7 @@ let test_capture () =
         | return _  -> ""|}
     "hello world";
   ok "count prints"
-    {|start handle
+    {|handle
         let () = print "a" in
         let () = print "b" in
         print "c"
@@ -52,16 +56,16 @@ let test_capture () =
 
 let test_return_arm () =
   ok "transform return value"
-    {|start handle 42 with | return n -> n * 2|}
+    {|handle 42 with | return n -> n * 2|}
     "84";
   ok "no effect arms needed"
-    {|start handle 10 + 5 with | return n -> n|}
+    {|handle 10 + 5 with | return n -> n|}
     "15"
 
 let test_propagates () =
   (* No print arm — effect propagates to outer default handler *)
   ok "unhandled effect reaches default"
-    {|start handle
+    {|handle
         let () = print "x" in 1
       with
         | return n -> n|}
@@ -71,7 +75,7 @@ let test_propagates () =
 
 let test_effect_patterns () =
   ok "literal match on arg"
-    {|start handle
+    {|handle
         let () = print "hello" in
         print "world"
       with
@@ -84,7 +88,7 @@ let test_effect_patterns () =
 
 let test_process_mock () =
   ok "mock process"
-    {|start handle
+    {|handle
         $("echo real")
       with
         | process_run _ k -> k "mocked"|}
@@ -93,7 +97,7 @@ let test_process_mock () =
 (* ── Type errors ─────────────────────────────────────────────────────────── *)
 
 let test_type_errors () =
-  err "unbound var" {|start println undefined_var|}
+  err "unbound var" {|println undefined_var|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

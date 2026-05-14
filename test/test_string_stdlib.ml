@@ -14,126 +14,126 @@ let err label input =
 
 let test_length () =
   ok "empty"    {|import String
-start String.length ""|} "0";
+String.length ""|} "0";
   ok "hello"    {|import String
-start String.length "hello"|} "5";
+String.length "hello"|} "5";
   ok "unicode"  {|import String
-start String.length "abc"|} "3"
+String.length "abc"|} "3"
 
 (* ── upper / lower ──────────────────────────────────────────────────────── *)
 
 let test_case () =
   ok "upper" {|import String
-start String.upper "hello"|} "HELLO";
+String.upper "hello"|} "HELLO";
   ok "lower" {|import String
-start String.lower "WORLD"|} "world";
+String.lower "WORLD"|} "world";
   ok "round trip" {|import String
-start String.lower (String.upper "Hello")|} "hello"
+String.lower (String.upper "Hello")|} "hello"
 
 (* ── trim ───────────────────────────────────────────────────────────────── *)
 
 let test_trim () =
   ok "spaces"   {|import String
-start String.trim "  hello  "|} "hello";
+String.trim "  hello  "|} "hello";
   ok "newlines" {|import String
-start String.trim "\n  hi\n"|} "hi";
+String.trim "\n  hi\n"|} "hi";
   ok "clean"    {|import String
-start String.trim "clean"|} "clean"
+String.trim "clean"|} "clean"
 
 (* ── slice ──────────────────────────────────────────────────────────────── *)
 
 let test_slice () =
   ok "full"    {|import String
-start String.slice 0 5 "hello"|} "hello";
+String.slice 0 5 "hello"|} "hello";
   ok "prefix"  {|import String
-start String.slice 0 3 "hello"|} "hel";
+String.slice 0 3 "hello"|} "hel";
   ok "suffix"  {|import String
-start String.slice 2 5 "hello"|} "llo";
+String.slice 2 5 "hello"|} "llo";
   ok "empty"   {|import String
-start String.slice 2 2 "hello"|} "";
+String.slice 2 2 "hello"|} "";
   ok "clamp"   {|import String
-start String.slice 0 100 "hi"|} "hi"
+String.slice 0 100 "hi"|} "hi"
 
 (* ── split ──────────────────────────────────────────────────────────────── *)
 
 let test_split () =
   ok "csv"     {|import String
-start String.split "," "a,b,c"|} "[a, b, c]";
+String.split "," "a,b,c"|} "[a, b, c]";
   ok "no match" {|import String
-start String.split "," "abc"|} "[abc]";
+String.split "," "abc"|} "[abc]";
   ok "words"   {|import String
-start String.split " " "hello world"|} "[hello, world]"
+String.split " " "hello world"|} "[hello, world]"
 
 (* ── contains / starts_with / ends_with ─────────────────────────────────── *)
 
 let test_predicates () =
   ok "contains yes"    {|import String
-start String.contains "ll" "hello"|} "true";
+String.contains "ll" "hello"|} "true";
   ok "contains no"     {|import String
-start String.contains "xy" "hello"|} "false";
+String.contains "xy" "hello"|} "false";
   ok "starts_with yes" {|import String
-start String.starts_with "he" "hello"|} "true";
+String.starts_with "he" "hello"|} "true";
   ok "starts_with no"  {|import String
-start String.starts_with "lo" "hello"|} "false";
+String.starts_with "lo" "hello"|} "false";
   ok "ends_with yes"   {|import String
-start String.ends_with "lo" "hello"|} "true";
+String.ends_with "lo" "hello"|} "true";
   ok "ends_with no"    {|import String
-start String.ends_with "he" "hello"|} "false"
+String.ends_with "he" "hello"|} "false"
 
 (* ── replace ────────────────────────────────────────────────────────────── *)
 
 let test_replace () =
   ok "basic"    {|import String
-start String.replace "o" "0" "hello world"|} "hell0 w0rld";
+String.replace "o" "0" "hello world"|} "hell0 w0rld";
   ok "no match" {|import String
-start String.replace "x" "y" "hello"|} "hello";
+String.replace "x" "y" "hello"|} "hello";
   ok "prefix"   {|import String
-start String.replace "he" "HE" "hello"|} "HEllo"
+String.replace "he" "HE" "hello"|} "HEllo"
 
 (* ── chars ──────────────────────────────────────────────────────────────── *)
 
 let test_chars () =
   ok "chars" {|import String
-start String.chars "abc"|} "[a, b, c]";
+String.chars "abc"|} "[a, b, c]";
   ok "empty" {|import String
-start String.chars ""|} "[]"
+String.chars ""|} "[]"
 
 (* ── of_int / to_int ────────────────────────────────────────────────────── *)
 
 let test_conversions () =
   ok "of_int"   {|import String
-start String.of_int 42|} "42";
+String.of_int 42|} "42";
   ok "to_int"   {|import String
-start String.to_int "123"|} "123";
+String.to_int "123"|} "123";
   ok "negative" {|import String
-start String.of_int (-7)|} "-7";
+String.of_int (-7)|} "-7";
   err "bad int" {|import String
-start String.to_int "abc"|}
+String.to_int "abc"|}
 
 (* ── join ───────────────────────────────────────────────────────────────── *)
 
 let test_join () =
   ok "csv"    {|import String
-start String.join ", " ["a", "b", "c"]|} "a, b, c";
+String.join ", " ["a", "b", "c"]|} "a, b, c";
   ok "empty"  {|import String
-start String.join ", " []|} "";
+String.join ", " []|} "";
   ok "single" {|import String
-start String.join ", " ["only"]|} "only"
+String.join ", " ["only"]|} "only"
 
 (* ── lines / words ──────────────────────────────────────────────────────── *)
 
 let test_lines_words () =
   ok "lines" {|import String
-start String.lines "a\nb\nc"|} "[a, b, c]";
+String.lines "a\nb\nc"|} "[a, b, c]";
   ok "words" {|import String
-start String.words "one two three"|} "[one, two, three]"
+String.words "one two three"|} "[one, two, three]"
 
 (* ── pipeline style ─────────────────────────────────────────────────────── *)
 
 let test_pipeline () =
   ok "pipe" {|import String
 let s = "  Hello, World!  "
-start s |> String.trim |> String.lower|} "hello, world!"
+s |> String.trim |> String.lower|} "hello, world!"
 
 (* ── Suite ──────────────────────────────────────────────────────────────── *)
 

@@ -50,5 +50,5 @@ let drop n [_ :: t] = drop (n - 1) t
 
 let each f xs =
   let go _ []       = ()
-      go i [h :: t] = f (i, h); go (i + 1) t
+      go i [h :: t] = let () = f (i, h) in go (i + 1) t
   in go 0 xs

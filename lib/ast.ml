@@ -195,8 +195,8 @@ type top_item =
   | TLLet    of string * pat list * expr
   | TLImport of import_kind
   | TLType   of type_def
+  | TLExpr   of expr
 
 type program = {
   items : top_item list;
-  start : expr option;
 }

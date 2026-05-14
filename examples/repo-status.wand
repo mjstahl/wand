@@ -15,9 +15,8 @@ let sync_msg =
   then "^${ahead} ahead  v${behind} behind"
   else "up to date"
 
-start
-  println "Branch:  ${branch}";
-  println "Status:  ${status_msg}";
-  println "Sync:    ${sync_msg}";
-  if stashes > 0 then println "Stashes: ${stashes} saved" else ();
-  println "Last:    ${last}"
+println "Branch:  ${branch}";
+println "Status:  ${status_msg}";
+println "Sync:    ${sync_msg}";
+if stashes > 0 then println "Stashes: ${stashes} saved" else ();
+println "Last:    ${last}"

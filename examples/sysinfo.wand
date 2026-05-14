@@ -2,4 +2,4 @@ let hostname = $("hostname")
 let os       = $("uname -s")
 let kernel   = $("uname -r")
 
-start "user=$USER home=$HOME host=${hostname} os=${os} kernel=${kernel}"
+"user=$USER home=$HOME host=${hostname} os=${os} kernel=${kernel}"

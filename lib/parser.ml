@@ -78,7 +78,6 @@ let expect_ident s =
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
 let lbp = function
-  | Token.Semicolon   -> 5
   | Token.PipeArrow   -> 10
   | Token.ColonColon  -> 15
   | Token.PipePipe  -> 20
@@ -224,6 +223,7 @@ let rec expr_ bp s =
   let left = ref (atom_ s) in
   let continue_ = ref true in
   while !continue_ do
+    let pre = s.pos in
     let had_newline = has_newline_before_next s in
     let t = peek s in
     let bp' = lbp t in
@@ -233,17 +233,15 @@ let rec expr_ bp s =
     end else if is_atom_start t && 70 > bp && not s.in_contract
             && not had_newline then
       left := App (!left, atom_ s)
-    else
+    else begin
+      s.pos <- pre;
       continue_ := false
+    end
   done;
   !left
 
 and infix_ left op s =
   match op with
-  | Token.Semicolon  ->
-    (match peek s with
-     | Token.Let | Token.Type | Token.Import | Token.Start | Token.EOF -> left
-     | _ -> Seq (left, expr_ 4 s))
   | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
   | Token.ColonColon -> BinOp ("::", left, expr_ 14 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
@@ -440,17 +438,24 @@ and match_ s =
   let scrutinee = expr_ 0 s in
   expect s Token.With;
   let arms = ref [] in
-  while peek s = Token.Pipe do
-    ignore (advance s);
-    let p = pat_ s in
-    let guard =
-      if peek s = Token.When
-      then (ignore (advance s); Some (expr_ 0 s))
-      else None
-    in
-    expect s Token.Arrow;
-    let body = expr_ 0 s in
-    arms := !arms @ [(p, guard, body)]
+  let continue_ = ref true in
+  while !continue_ do
+    let saved = s.pos in
+    if peek s = Token.Pipe then begin
+      ignore (advance s);
+      let p = pat_ s in
+      let guard =
+        if peek s = Token.When
+        then (ignore (advance s); Some (expr_ 0 s))
+        else None
+      in
+      expect s Token.Arrow;
+      let body = expr_ 0 s in
+      arms := !arms @ [(p, guard, body)]
+    end else begin
+      s.pos <- saved;
+      continue_ := false
+    end
   done;
   Match (scrutinee, !arms)
 
@@ -491,27 +496,34 @@ and parse_handle_ s =
   let body = expr_ 0 s in
   expect s Token.With;
   let arms = ref [] in
-  while peek s = Token.Pipe do
-    ignore (advance s);
-    let arm = match peek s with
-      | Token.Return ->
-        ignore (advance s);
-        let p = pat_atom_ s in
-        expect s Token.Arrow;
-        let b = expr_ 0 s in
-        Ast.ReturnArm (p, b)
-      | Token.Ident op_name ->
-        ignore (advance s);
-        let arg_pat = pat_atom_ s in
-        let cont_name = expect_ident s in
-        expect s Token.Arrow;
-        let b = expr_ 0 s in
-        Ast.EffectArm (op_name, arg_pat, cont_name, b)
-      | t ->
-        raise (ParseError (Format.asprintf "%sunexpected token in handler arm: %a"
-          (loc_prefix s) Token.pp t))
-    in
-    arms := !arms @ [arm]
+  let continue_ = ref true in
+  while !continue_ do
+    let saved = s.pos in
+    if peek s = Token.Pipe then begin
+      ignore (advance s);
+      let arm = match peek s with
+        | Token.Return ->
+          ignore (advance s);
+          let p = pat_atom_ s in
+          expect s Token.Arrow;
+          let b = expr_ 0 s in
+          Ast.ReturnArm (p, b)
+        | Token.Ident op_name ->
+          ignore (advance s);
+          let arg_pat = pat_atom_ s in
+          let cont_name = expect_ident s in
+          expect s Token.Arrow;
+          let b = expr_ 0 s in
+          Ast.EffectArm (op_name, arg_pat, cont_name, b)
+        | t ->
+          raise (ParseError (Format.asprintf "%sunexpected token in handler arm: %a"
+            (loc_prefix s) Token.pp t))
+      in
+      arms := !arms @ [arm]
+    end else begin
+      s.pos <- saved;
+      continue_ := false
+    end
   done;
   Ast.Handle (body, !arms)
 
@@ -653,22 +665,29 @@ let parse_type_def s =
 let parse_program tokens =
   let s = make tokens in
   let items = ref [] in
-  let start = ref None in
   let continue_ = ref true in
   while !continue_ do
     match peek s with
     | Token.EOF -> continue_ := false
     | Token.Let ->
+      let saved = s.pos in
       ignore (advance s);
-      let name = expect_ident s in
-      let params = ref [] in
-      while is_pat_atom_start (peek s) do
-        params := !params @ [pat_atom_ s]
-      done;
-      expect s Token.Eq;
-      let loc = peek_loc s in
-      let body = Ast.Located (loc, parse_contract_body s) in
-      items := !items @ [Ast.TLLet (name, !params, body)]
+      (match peek s with
+       | Token.Ident _ ->
+         let name = expect_ident s in
+         let params = ref [] in
+         while is_pat_atom_start (peek s) do
+           params := !params @ [pat_atom_ s]
+         done;
+         expect s Token.Eq;
+         let loc = peek_loc s in
+         let body = Ast.Located (loc, parse_contract_body s) in
+         items := !items @ [Ast.TLLet (name, !params, body)]
+       | _ ->
+         s.pos <- saved;
+         let loc = peek_loc s in
+         let e = Ast.Located (loc, expr_ 0 s) in
+         items := !items @ [Ast.TLExpr e])
     | Token.Import ->
       ignore (advance s);
       (match advance s with
@@ -676,17 +695,29 @@ let parse_program tokens =
        | Token.Path path  -> items := !items @ [Ast.TLImport (Ast.UserPath path)]
        | t -> raise (ParseError (Format.asprintf
            "expected module name or path after import, got %a" Token.pp t)))
-    | Token.Start ->
-      ignore (advance s);
-      let loc = peek_loc s in
-      start := Some (Ast.Located (loc, parse_body s))
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]
     | Token.Semicolon -> ignore (advance s)
-    | t ->
-      let loc = loc_prefix s in
-      raise (ParseError (Format.asprintf "%sunexpected top-level token: %a%s"
-        loc Token.pp t (keyword_hint t)))
+    | _ ->
+      let loc = peek_loc s in
+      let e = Ast.Located (loc, expr_ 0 s) in
+      items := !items @ [Ast.TLExpr e];
+      if peek s = Token.Eq then begin
+        let rec head_ident = function
+          | Ast.Located (_, inner) -> head_ident inner
+          | Ast.App (f, _) -> head_ident f
+          | Ast.Var id -> Some id
+          | _ -> None
+        in
+        let inner = match e with Ast.Located (_, i) -> i | i -> i in
+        (match head_ident inner with
+         | Some id ->
+           let hint = keyword_hint (Token.Ident id) in
+           if hint <> "" then
+             raise (ParseError (Format.asprintf "%sunexpected '='; did you mean 'let'?%s"
+               (loc_prefix s) hint))
+         | None -> ())
+      end
   done;
-  { Ast.items = merge_equations !items; Ast.start = !start }
+  { Ast.items = merge_equations !items }

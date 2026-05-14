@@ -398,7 +398,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Match (scrutinee, cases) ->
     let ts       = infer tenv env scrutinee in
     let result_t = fresh () in
-    List.iter (fun (p, guard, body) ->
+    List.iteri (fun _ (p, guard, body) ->
       let env' = infer_pat tenv p ts env in
       (match guard with
        | None   -> ()
@@ -593,6 +593,7 @@ let infer_program_core ?(init_tenv=[]) ?(init_env=[]) (prog : program)
       let t = infer tenv env_rec (Fn (params, body)) in
       unify placeholder t;
       (name, generalize env t) :: env
+    | TLExpr _ -> env
     | TLType _ | TLImport _ -> env
   ) base_env prog.items
   in
@@ -604,11 +605,12 @@ let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * typ, string) result =
   try
     let (tenv, env, _) = infer_program_core ~init_tenv ~init_env prog in
-    let result_t = match prog.start with
-      | None   -> TUnit
-      | Some e -> infer tenv env e
-    in
-    Ok (env, result_t)
+    let last_t = List.fold_left (fun acc item ->
+      match item with
+      | TLExpr e -> infer tenv env e
+      | _        -> acc
+    ) TUnit prog.items in
+    Ok (env, last_t)
   with TypeError msg -> Error msg
 
 (* Returns (full_env, own_env) where own_env is only this program's bindings. *)

@@ -1,2 +1,2 @@
 let name = "World"
-start "Hello, ${name}!"
+"Hello, ${name}!"

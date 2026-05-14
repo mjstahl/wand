@@ -14,13 +14,13 @@ let err label input =
 
 let test_mock_read () =
   ok "mock read_file"
-    {|start handle read_file "/nonexistent" with
+    {|handle read_file "/nonexistent" with
         | read_file _ k -> k "mocked content"|}
     "mocked content"
 
 let test_mock_write () =
   ok "mock write_file"
-    {|start handle
+    {|handle
         let () = write_file "/nonexistent" "data" in
         "done"
       with
@@ -30,7 +30,7 @@ let test_mock_write () =
 
 let test_mock_capture_path () =
   ok "capture write path"
-    {|start handle
+    {|handle
         let () = write_file "/tmp/foo.txt" "hello" in
         "wrote"
       with
@@ -44,7 +44,7 @@ let test_real_read () =
   let tmp = Filename.temp_file "wand_test_" ".txt" in
   Out_channel.with_open_text tmp (fun oc ->
     Out_channel.output_string oc "hello from file");
-  let src = Printf.sprintf {|start read_file "%s"|} tmp in
+  let src = Printf.sprintf {|read_file "%s"|} tmp in
   (try ok "read real file" src "hello from file"
    with e -> (try Sys.remove tmp with _ -> ()); raise e);
   (try Sys.remove tmp with _ -> ())
@@ -52,7 +52,7 @@ let test_real_read () =
 let test_real_write () =
   let tmp = Filename.temp_file "wand_test_" ".txt" in
   (try Sys.remove tmp with _ -> ());
-  let src = Printf.sprintf {|start let () = write_file "%s" "written" in "ok"|} tmp in
+  let src = Printf.sprintf {|let () = write_file "%s" "written" in "ok"|} tmp in
   ok "write real file" src "ok";
   let content = In_channel.with_open_text tmp In_channel.input_all in
   Alcotest.(check string) "file content" "written" content;
@@ -61,9 +61,8 @@ let test_real_write () =
 let test_real_roundtrip () =
   let tmp = Filename.temp_file "wand_test_" ".txt" in
   let src = Printf.sprintf
-    {|start
-      let () = write_file "%s" "round trip" in
-      read_file "%s"|} tmp tmp in
+    {|let () = write_file "%s" "round trip"
+read_file "%s"|} tmp tmp in
   (try ok "roundtrip" src "round trip"
    with e -> (try Sys.remove tmp with _ -> ()); raise e);
   (try Sys.remove tmp with _ -> ())
@@ -71,13 +70,13 @@ let test_real_roundtrip () =
 (* ── Runtime errors ─────────────────────────────────────────────────────────── *)
 
 let test_runtime_errors () =
-  err "read nonexistent" {|start read_file "/no/such/path/wand_test_xyz"|}
+  err "read nonexistent" {|read_file "/no/such/path/wand_test_xyz"|}
 
 (* ── Type errors ─────────────────────────────────────────────────────────── *)
 
 let test_type_errors () =
-  err "read_file non-string"      {|start read_file 42|};
-  err "write_file non-string arg" {|start write_file 42 "content"|}
+  err "read_file non-string"      {|read_file 42|};
+  err "write_file non-string arg" {|write_file 42 "content"|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
