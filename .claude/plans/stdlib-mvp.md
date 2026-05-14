@@ -161,6 +161,21 @@ Wraps `Unix.create_process` / `Unix.open_process_*`.
 
 `Exe.args` becomes `Env.args ()` (and the auto-imported top-level `args`).
 
+**`$SYNTAX` consistency**: `EnvVar` in the evaluator calls `Sys.getenv_opt` at
+evaluation time (not at parse time), so `Env.set "FOO" "bar"` followed by
+`$FOO` in the same script will see the updated value. The two are naturally
+consistent — no special wiring needed.
+
+**`Env.set` implementation**: use `Unix.putenv`. OCaml's stdlib has no direct
+`unsetenv`; `Env.unset` can be implemented by setting the variable to `""` or
+by shelling out — document the behaviour clearly.
+
+**Case convention**: the `$VAR` lexer only tokenises `$[A-Z0-9_]+` as
+`EnvVar`, so `Env.set "lower" "val"` will update the process environment but
+the value won't be reachable via `$lower` (it won't lex as an EnvVar). This is
+intentional — env vars are conventionally uppercase. `Env.get "lower"` still
+works for lowercase keys.
+
 ---
 
 ## Phase 3: Modules requiring additional token types
