@@ -371,21 +371,52 @@ and let_ s =
   (* let already consumed *)
   let p = pat_ s in
   let consume_rest () =
-    if peek s = Token.In then (ignore (advance s); parse_body s)
+    if peek s = Token.In then (ignore (advance s); expr_ 0 s)
     else if is_expr_start (peek s) then parse_body s
     else Unit
   in
   match p with
   | PVar name when peek s <> Token.Eq ->
-    (* function shorthand: let f params = body *)
+    (* function shorthand: let f params = body, with optional multi-equation *)
     let params = ref [] in
     while is_pat_atom_start (peek s) do
       params := !params @ [pat_atom_ s]
     done;
     expect s Token.Eq;
     let body = parse_contract_body s in
+    let arity = List.length !params in
+    let eqs = ref [(!params, body)] in
+    let more = ref true in
+    while !more do
+      let saved = s.pos in
+      (try
+        (match peek s with
+         | Token.Ident n when n = name -> ignore (advance s)
+         | _ -> raise Exit);
+        let ps = ref [] in
+        while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
+        if List.length !ps <> arity then raise Exit;
+        (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
+        let b = parse_contract_body s in
+        eqs := !eqs @ [(!ps, b)]
+      with Exit -> s.pos <- saved; more := false)
+    done;
+    let fn_val = match !eqs with
+      | [(ps, b)] -> Fn (ps, b)
+      | eqs ->
+        let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+        let scrutinee = match fresh with
+          | [v] -> Var v
+          | vs  -> Tuple (List.map (fun v -> Var v) vs)
+        in
+        let arms = List.map (fun (pats, b) ->
+          let pat = match pats with [p] -> p | ps -> PTuple ps in
+          (pat, None, b)
+        ) eqs in
+        Fn (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
+    in
     let rest = consume_rest () in
-    Let (PVar name, Fn (!params, body), rest)
+    Let (PVar name, fn_val, rest)
   | _ ->
     expect s Token.Eq;
     let e1 = expr_ 0 s in
