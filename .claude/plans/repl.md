@@ -3,13 +3,15 @@
 ## Invocation
 
 ```
-wand i            # start interactive session
-wand i file.wand  # start session with file preloaded
+wand i               # start interactive session
+wand i file.wand     # start session with file preloaded
+wand eval "expr"     # evaluate a single expression and exit
 ```
 
-`i` is a subcommand (not a flag), mnemonic for interactive. `wand` with no
-args runs stdin as a script; `wand file.wand` runs a file — interactive mode
-is always explicit via `i`.
+`i` is a subcommand, mnemonic for interactive. `wand eval` is a separate
+subcommand for one-shot evaluation — useful for quick queries from Claude or
+scripts without managing a persistent session. Exits with code 0 on success,
+1 on error.
 
 ## Prompt and multi-line input
 
