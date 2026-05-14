@@ -544,6 +544,14 @@ let builtin_type_env : env = [
   ("str_chars",      Mono (TFun (TString, TList TString)));
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
+  (* Fs primitives *)
+  ("fs_exists",  Mono (TFun (TString, TBool)));
+  ("fs_is_file", Mono (TFun (TString, TBool)));
+  ("fs_is_dir",  Mono (TFun (TString, TBool)));
+  ("fs_mkdir",   Mono (TFun (TString, TUnit)));
+  ("fs_mkdir_p", Mono (TFun (TString, TUnit)));
+  ("fs_ls",      Mono (TFun (TString, TList TString)));
+  ("fs_remove",  Mono (TFun (TString, TUnit)));
   (* Exe primitives *)
   ("exe_args", Mono (TFun (TUnit, TList TString)));
   ("exe_exit", Mono (TFun (TInt,  TUnit)));

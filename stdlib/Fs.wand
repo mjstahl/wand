@@ -1,0 +1,6 @@
+let exists path  = fs_exists path
+let is_file path = fs_is_file path
+let is_dir path  = fs_is_dir path
+let mkdir path   = fs_mkdir_p path
+let ls path      = fs_ls path
+let delete path  = fs_remove path

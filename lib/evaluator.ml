@@ -554,6 +554,20 @@ let base_eval_env : env = [
        | Some n -> VInt n
        | None   -> raise (EvalError (Printf.sprintf "str_to_int: cannot parse %S" s)))
     | _ -> raise (EvalError "str_to_int: expected String")));
+  (* Fs primitives *)
+  ("fs_exists",  VBuiltin (function
+    | VString p -> VBool (Sys.file_exists p)
+    | _ -> raise (EvalError "fs_exists: expected String")));
+  ("fs_is_file", VBuiltin (function
+    | VString p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
+    | _ -> raise (EvalError "fs_is_file: expected String")));
+  ("fs_is_dir",  VBuiltin (function
+    | VString p -> VBool (Sys.file_exists p && Sys.is_directory p)
+    | _ -> raise (EvalError "fs_is_dir: expected String")));
+  ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir",   v))));
+  ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
+  ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
+  ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
   (* Exe primitives *)
   ("exe_args", VBuiltin (function
     | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)

@@ -54,6 +54,43 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("write_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_mkdir", VString path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Unix.mkdir path 0o755; Ok ()
+                     with Unix.Unix_error (e, _, _) -> Error ("mkdir: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_mkdir_p", VString path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let rec mkdir_p p =
+                if Sys.file_exists p then ()
+                else begin mkdir_p (Filename.dirname p); Unix.mkdir p 0o755 end
+              in
+              match (try mkdir_p path; Ok ()
+                     with Unix.Unix_error (e, _, _) -> Error ("mkdir_p: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_ls", VString path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try
+                       let entries = Sys.readdir path in
+                       Array.sort String.compare entries;
+                       Ok (Array.to_list (Array.map (fun s -> VString s) entries))
+                     with Sys_error m -> Error ("ls: " ^ m)) with
+              | Ok vs   -> Effect.Deep.continue    k (VList vs)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_remove", VString path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let rm () =
+                if Sys.file_exists path && Sys.is_directory path
+                then Unix.rmdir path
+                else Sys.remove path
+              in
+              match (try rm (); Ok ()
+                     with Sys_error m -> Error ("remove: " ^ m)
+                        | Unix.Unix_error (e, _, _) -> Error ("remove: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | _ -> None
     }
 
