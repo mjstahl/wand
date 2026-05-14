@@ -360,20 +360,19 @@ and record_ s =
   expect s Token.RBrace;
   Record !fields
 
+and parse_body s =
+  let e = ref (expr_ 0 s) in
+  while is_expr_start (peek s) do
+    e := Seq (!e, expr_ 0 s)
+  done;
+  !e
+
 and let_ s =
   (* let already consumed *)
   let p = pat_ s in
-  (* Parse a sequence of newline-separated statements as the let body *)
-  let parse_body () =
-    let e = ref (expr_ 0 s) in
-    while is_expr_start (peek s) do
-      e := Seq (!e, expr_ 0 s)
-    done;
-    !e
-  in
   let consume_rest () =
-    if peek s = Token.In then (ignore (advance s); parse_body ())
-    else if is_expr_start (peek s) then parse_body ()
+    if peek s = Token.In then (ignore (advance s); parse_body s)
+    else if is_expr_start (peek s) then parse_body s
     else Unit
   in
   match p with
@@ -629,11 +628,7 @@ let parse_program tokens =
     | Token.Start ->
       ignore (advance s);
       let loc = peek_loc s in
-      let e = ref (expr_ 0 s) in
-      while is_expr_start (peek s) do
-        e := Seq (!e, expr_ 0 s)
-      done;
-      start := Some (Ast.Located (loc, !e))
+      start := Some (Ast.Located (loc, parse_body s))
     | Token.Type ->
       ignore (advance s);
       items := !items @ [Ast.TLType (parse_type_def s)]

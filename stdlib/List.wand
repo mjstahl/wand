@@ -47,3 +47,5 @@ let take n [h :: t] = h :: take (n - 1) t
 let drop 0 xs       = xs
 let drop _ []       = []
 let drop n [_ :: t] = drop (n - 1) t
+
+let each f xs = fold_left (fn i x -> f (i, x); i + 1) 0 xs
