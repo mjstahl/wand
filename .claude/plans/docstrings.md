@@ -50,8 +50,9 @@ Results are always tagged `Ok value` or `Err message`, mirroring the runtime's
 ```
 
 The `=` line is optional — if omitted, the example is run but its output is
-not checked (useful for `let` bindings or side-effectful calls where you only
-want to show usage):
+not checked. This is the standard form for `let` bindings and side-effectful
+calls; asserting `= Ok ()` on a `let` is allowed but discouraged as it adds
+no information:
 
 ```
 (**
