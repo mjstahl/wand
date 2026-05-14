@@ -139,6 +139,7 @@ let read_run_cmd s =
       done;
       parts := !parts @ [(lit, Buffer.contents expr_buf)];
       loop ()
+    | '\\' when peek s = '\n' -> ignore (advance s); loop ()
     | c -> Buffer.add_char buf c; loop ()
   in
   loop ()
