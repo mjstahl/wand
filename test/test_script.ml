@@ -200,6 +200,13 @@ let test_envvar () =
   ok "string shorthand" {|"home: $HOME"|}         ("home: " ^ home);
   err "unset var"      "$WAND_UNSET_XYZ_99999"
 
+(* ── Type annotations ────────────────────────────────────────────────────── *)
+
+let test_annot () =
+  ok "value annot"      "let x : Int = 42; x"              "42";
+  ok "fn return annot"  "let double x : Int = x * 2; double 3" "6";
+  err "annot mismatch"  "let x : Bool = 42; x"
+
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
 
 let test_errors () =
@@ -224,6 +231,7 @@ let () =
       Alcotest.test_case "locations"   `Quick test_locations;
       Alcotest.test_case "type error locations" `Quick test_type_error_locations;
       Alcotest.test_case "eval error locations" `Quick test_eval_error_locations;
+      Alcotest.test_case "type annotations"    `Quick test_annot;
     ];
     "errors", [
       Alcotest.test_case "runtime errors" `Quick test_errors;

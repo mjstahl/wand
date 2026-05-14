@@ -1,3 +1,6 @@
+type type_expr =
+  | TEName of string
+
 type pat =
   | Int      of int
   | Float    of float
@@ -62,6 +65,7 @@ type expr =
   | Interp   of (string * expr) list * string
   | Handle   of expr * handle_arm list
   | Try      of expr
+  | Annot    of type_expr * expr
 
 and case = pat * expr option * expr
 
@@ -164,6 +168,7 @@ let rec show : expr -> string = function
     let es = String.concat " " (List.map (clause "ensures") ens) in
     Printf.sprintf "(contract %s %s %s)" rs es (show body)
   | Try e -> Printf.sprintf "(try %s)" (show e)
+  | Annot (_, e) -> show e
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 
@@ -176,9 +181,6 @@ let pp ppf (e : expr) = Format.pp_print_string ppf (show e)
 let equal a b = show a = show b
 
 (* ── Top-level program ────────────────────────────────────────────────────── *)
-
-type type_expr =
-  | TEName of string
 
 type ctor_def = {
   name   : string;

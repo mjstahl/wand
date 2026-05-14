@@ -210,6 +210,13 @@ let test_ctor_errors () =
   err_prog "unknown ctor"   "Bogus";
   err_prog "wrong arg type" "type Wrap = Wrap Int; Wrap true"
 
+(* ── Type annotations ────────────────────────────────────────────────────── *)
+
+let test_annot () =
+  ok_prog "value annot"    "let x : Int = 42; x"          "Int";
+  ok_prog "fn return annot" "let double x : Int = x * 2; double 3" "Int";
+  err_prog "annot mismatch" "let x : Bool = 42"
+
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -243,5 +250,8 @@ let () =
       Alcotest.test_case "match ctor"     `Quick test_match_ctor;
       Alcotest.test_case "record typedef" `Quick test_named_field_typedef;
       Alcotest.test_case "ctor errors"    `Quick test_ctor_errors;
+    ];
+    "annotations", [
+      Alcotest.test_case "type annotations" `Quick test_annot;
     ];
   ]

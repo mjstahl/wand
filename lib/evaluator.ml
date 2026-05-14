@@ -335,6 +335,7 @@ let rec eval (env : env) (e : expr) : value =
             | exn           -> raise exn);
           effc = fun (type a) (_ : a Effect.t) ->
             (None : ((a, value) Effect.Deep.continuation -> value) option) }
+  | Annot (_, e) -> eval env e
   | Located (loc, e) ->
     (try eval env e
      with EvalError msg ->

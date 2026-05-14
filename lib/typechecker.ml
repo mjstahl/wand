@@ -492,6 +492,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
     ) ens;
     body_t
   | Try e -> TResult (infer tenv env e)
+  | Annot (te, e) ->
+    let t = type_of_te te in
+    unify t (infer tenv env e);
+    t
   | Located (loc, e) ->
     (try infer tenv env e
      with TypeError msg ->

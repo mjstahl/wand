@@ -247,6 +247,21 @@ and list_pat_ s =
     end
   end
 
+let builtin_types = [
+  "Int"; "Float"; "String"; "Bool"; "Unit"; "Path";
+  "Date"; "Time"; "DateTime"; "Duration"; "Url";
+  "IPv4"; "CIDR"; "Port"; "Version"; "Size"
+]
+
+let parse_type_expr s =
+  let loc = loc_prefix s in
+  match advance s with
+  | Token.Upper name -> Ast.TEName name
+  | Token.Ident name ->
+    raise (ParseError (Printf.sprintf "%sexpected type name, got '%s'%s"
+      loc name (Util.hint name builtin_types)))
+  | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
+
 (* ── Expression parsing (Pratt) ───────────────────────────────────────────── *)
 
 let rec expr_ bp s =
@@ -429,43 +444,57 @@ and let_ s =
     while is_pat_atom_start (peek s) do
       params := !params @ [pat_atom_ s]
     done;
+    let annot = if peek s = Token.Colon then
+      (ignore (advance s); Some (parse_type_expr s))
+    else None in
     expect s Token.Eq;
     let body_loc = peek_loc s in
     let body = Located (body_loc, parse_contract_body s) in
-    let arity = List.length !params in
-    let eqs = ref [(!params, body)] in
-    let more = ref true in
-    while !more do
-      let saved = s.pos in
-      (try
-        (match peek s with
-         | Token.Ident n when n = name -> ignore (advance s)
-         | _ -> raise Exit);
-        let ps = ref [] in
-        while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
-        if List.length !ps <> arity then raise Exit;
-        (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-        let b_loc = peek_loc s in
-        let b = Located (b_loc, parse_contract_body s) in
-        eqs := !eqs @ [(!ps, b)]
-      with Exit -> s.pos <- saved; more := false)
-    done;
-    let fn_val = match !eqs with
-      | [(ps, b)] -> Fn (ps, b)
-      | eqs ->
-        let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
-        let scrutinee = match fresh with
-          | [v] -> Var v
-          | vs  -> Tuple (List.map (fun v -> Var v) vs)
-        in
-        let arms = List.map (fun (pats, b) ->
-          let pat = match pats with [p] -> p | ps -> PTuple ps in
-          (pat, None, b)
-        ) eqs in
-        Fn (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
-    in
-    let rest = consume_rest () in
-    Let (PVar name, fn_val, rest)
+    if !params = [] then begin
+      (* annotated value binding: let x : T = e *)
+      let e = match annot with Some te -> Annot (te, body) | None -> body in
+      let rest = consume_rest () in
+      Let (PVar name, e, rest)
+    end else begin
+      let body = match annot with
+        | Some te -> Located (body_loc, Annot (te, body))
+        | None -> body
+      in
+      let arity = List.length !params in
+      let eqs = ref [(!params, body)] in
+      let more = ref true in
+      while !more do
+        let saved = s.pos in
+        (try
+          (match peek s with
+           | Token.Ident n when n = name -> ignore (advance s)
+           | _ -> raise Exit);
+          let ps = ref [] in
+          while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
+          if List.length !ps <> arity then raise Exit;
+          (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
+          let b_loc = peek_loc s in
+          let b = Located (b_loc, parse_contract_body s) in
+          eqs := !eqs @ [(!ps, b)]
+        with Exit -> s.pos <- saved; more := false)
+      done;
+      let fn_val = match !eqs with
+        | [(ps, b)] -> Fn (ps, b)
+        | eqs ->
+          let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+          let scrutinee = match fresh with
+            | [v] -> Var v
+            | vs  -> Tuple (List.map (fun v -> Var v) vs)
+          in
+          let arms = List.map (fun (pats, b) ->
+            let pat = match pats with [p] -> p | ps -> PTuple ps in
+            (pat, None, b)
+          ) eqs in
+          Fn (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
+      in
+      let rest = consume_rest () in
+      Let (PVar name, fn_val, rest)
+    end
   | _ ->
     expect s Token.Eq;
     let e1_loc = peek_loc s in
@@ -606,21 +635,6 @@ let parse_expr tokens =
   let s = make tokens in
   expr_ 0 s
 
-let builtin_types = [
-  "Int"; "Float"; "String"; "Bool"; "Unit"; "Path";
-  "Date"; "Time"; "DateTime"; "Duration"; "Url";
-  "IPv4"; "CIDR"; "Port"; "Version"; "Size"
-]
-
-let parse_type_expr s =
-  let loc = loc_prefix s in
-  match advance s with
-  | Token.Upper name -> Ast.TEName name
-  | Token.Ident name ->
-    raise (ParseError (Printf.sprintf "%sexpected type name, got '%s'%s"
-      loc name (Util.hint name builtin_types)))
-  | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
-
 let parse_type_def s =
   (* type already consumed *)
   let type_name =
@@ -699,12 +713,25 @@ let parse_program tokens =
          while is_pat_atom_start (peek s) do
            params := !params @ [pat_atom_ s]
          done;
+         let annot = if peek s = Token.Colon then
+           (ignore (advance s); Some (parse_type_expr s))
+         else None in
          expect s Token.Eq;
          let loc = peek_loc s in
          let body = Ast.Located (loc, parse_contract_body s) in
          let arity = List.length !params in
-         let eqs = ref [(!params, body)] in
-         if arity > 0 then begin
+         if arity = 0 then begin
+           let e = match annot with
+             | Some te -> Ast.Annot (te, body)
+             | None -> body
+           in
+           items := !items @ [Ast.TLLet (name, [], e)]
+         end else begin
+           let body = match annot with
+             | Some te -> Ast.Located (loc, Ast.Annot (te, body))
+             | None -> body
+           in
+           let eqs = ref [(!params, body)] in
            let more = ref true in
            while !more do
              let saved2 = s.pos in
@@ -721,9 +748,9 @@ let parse_program tokens =
                let b = Ast.Located (b_loc, parse_contract_body s) in
                eqs := !eqs @ [(!ps, b)]
              with Exit -> s.pos <- saved2; more := false)
-           done
-         end;
-         items := !items @ [build_multi_equation name arity !eqs]
+           done;
+           items := !items @ [build_multi_equation name arity !eqs]
+         end
        | _ ->
          s.pos <- saved;
          let loc = peek_loc s in
