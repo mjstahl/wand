@@ -1,54 +1,54 @@
 let map _ []       = []
-let map f [h :: t] = f h :: map f t
+let map f [h : t] = f h : map f t
 
 let filter _ []       = []
-let filter p [h :: t] =
-  if p h then h :: filter p t
+let filter p [h : t] =
+  if p h then h : filter p t
   else filter p t
 
 let fold_left f acc []       = acc
-let fold_left f acc [h :: t] = fold_left f (f acc h) t
+let fold_left f acc [h : t] = fold_left f (f acc h) t
 
 let fold_right f []       acc = acc
-let fold_right f [h :: t] acc = f h (fold_right f t acc)
+let fold_right f [h : t] acc = f h (fold_right f t acc)
 
 let length []       = 0
-let length [_ :: t] = 1 + length t
+let length [_ : t] = 1 + length t
 
 let append []       ys = ys
-let append [h :: t] ys = h :: append t ys
+let append [h : t] ys = h : append t ys
 
-let reverse xs = fold_left (fn acc x -> x :: acc) [] xs
+let reverse xs = fold_left (fn acc x -> x : acc) [] xs
 
-let head [h :: _] = h
+let head [h : _] = h
 
-let tail [_ :: t] = t
+let tail [_ : t] = t
 
 let is_empty []  = true
 let is_empty _   = false
 
 let any _ []       = false
-let any p [h :: t] = if p h then true else any p t
+let any p [h : t] = if p h then true else any p t
 
 let all _ []       = true
-let all p [h :: t] = if p h then all p t else false
+let all p [h : t] = if p h then all p t else false
 
 let find _ []       = false
-let find p [h :: t] = if p h then true else find p t
+let find p [h : t] = if p h then true else find p t
 
 let zip []       _        = []
 let zip _        []       = []
-let zip [a :: t] [b :: u] = (a, b) :: zip t u
+let zip [a : t] [b : u] = (a, b) : zip t u
 
 let take 0 _        = []
 let take _ []       = []
-let take n [h :: t] = h :: take (n - 1) t
+let take n [h : t] = h : take (n - 1) t
 
 let drop 0 xs       = xs
 let drop _ []       = []
-let drop n [_ :: t] = drop (n - 1) t
+let drop n [_ : t] = drop (n - 1) t
 
 let each f xs =
   let go _ []       = ()
-      go i [h :: t] = let () = f (i, h) in go (i + 1) t
+      go i [h : t] = let () = f (i, h) in go (i + 1) t
   in go 0 xs

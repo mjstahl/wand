@@ -409,11 +409,11 @@ and eval_binop (env : env) op a b : value =
     (match eval env a, eval env b with
      | VString s1, VString s2 -> VString (s1 ^ s2)
      | _ -> raise (EvalError "'++' requires strings"))
-  | "::" ->
+  | ":" ->
     let vh = eval env a in
     (match eval env b with
      | VList vs -> VList (vh :: vs)
-     | _        -> raise (EvalError "'::' right side must be a list"))
+     | _        -> raise (EvalError "':' right side must be a list"))
   | "==" -> VBool (eval env a = eval env b)
   | "!=" -> VBool (eval env a <> eval env b)
   | "<"  ->

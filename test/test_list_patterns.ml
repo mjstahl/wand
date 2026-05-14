@@ -13,10 +13,10 @@ let err label input =
 (* ── Cons operator (expressions) ─────────────────────────────────────────── *)
 
 let test_cons_expr () =
-  ok "prepend one"    {|1 :: [2, 3]|}         "[1, 2, 3]";
-  ok "chain cons"     {|1 :: 2 :: 3 :: []|}   "[1, 2, 3]";
-  ok "cons onto empty" {|42 :: []|}            "[42]";
-  ok "string cons"    {|"a" :: ["b", "c"]|}   "[a, b, c]"
+  ok "prepend one"    {|1 : [2, 3]|}         "[1, 2, 3]";
+  ok "chain cons"     {|1 : 2 : 3 : []|}   "[1, 2, 3]";
+  ok "cons onto empty" {|42 : []|}            "[42]";
+  ok "string cons"    {|"a" : ["b", "c"]|}   "[a, b, c]"
 
 (* ── List patterns ───────────────────────────────────────────────────────── *)
 
@@ -38,13 +38,13 @@ let test_exact_pattern () =
 
 let test_cons_pattern () =
   ok "head"
-    {|match [1, 2, 3] with | [h :: _] -> h | [] -> 0|}
+    {|match [1, 2, 3] with | [h : _] -> h | [] -> 0|}
     "1";
   ok "tail"
-    {|match [1, 2, 3] with | [_ :: t] -> t | [] -> []|}
+    {|match [1, 2, 3] with | [_ : t] -> t | [] -> []|}
     "[2, 3]";
   ok "no match on empty"
-    {|match [] with | [_ :: _] -> "yes" | [] -> "no"|}
+    {|match [] with | [_ : _] -> "yes" | [] -> "no"|}
     "no"
 
 (* ── Recursive functions over lists ──────────────────────────────────────── *)
@@ -52,39 +52,39 @@ let test_cons_pattern () =
 let test_length () =
   ok "length"
     {|let len []       = 0
-let len [_ :: t] = 1 + len t
+let len [_ : t] = 1 + len t
 len [1, 2, 3, 4, 5]|}
     "5";
   ok "length empty"
     {|let len []       = 0
-let len [_ :: t] = 1 + len t
+let len [_ : t] = 1 + len t
 len []|}
     "0"
 
 let test_sum () =
   ok "sum"
     {|let sum []       = 0
-let sum [h :: t] = h + sum t
+let sum [h : t] = h + sum t
 sum [1, 2, 3, 4, 5]|}
     "15"
 
 let test_map () =
   ok "double"
     {|let map _ []       = []
-let map f [h :: t] = f h :: map f t
+let map f [h : t] = f h : map f t
 map (fn x -> x * 2) [1, 2, 3]|}
     "[2, 4, 6]";
   ok "to string"
     {|let map _ []       = []
-let map f [h :: t] = f h :: map f t
+let map f [h : t] = f h : map f t
 map (fn x -> x ++ "!") ["a", "b", "c"]|}
     "[a!, b!, c!]"
 
 let test_filter () =
   ok "filter gt 2"
     {|let filter _ []       = []
-let filter p [h :: t] =
-  if p h then h :: filter p t
+let filter p [h : t] =
+  if p h then h : filter p t
   else filter p t
 filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
     "[3, 4, 5]"
@@ -92,14 +92,14 @@ filter (fn x -> x > 2) [1, 2, 3, 4, 5]|}
 let test_append () =
   ok "append"
     {|let append []       ys = ys
-let append [h :: t] ys = h :: append t ys
+let append [h : t] ys = h : append t ys
 append [1, 2] [3, 4]|}
     "[1, 2, 3, 4]"
 
 let test_reverse () =
   ok "reverse"
     {|let rev_acc []       acc = acc
-let rev_acc [h :: t] acc = rev_acc t (h :: acc)
+let rev_acc [h : t] acc = rev_acc t (h : acc)
 let reverse xs = rev_acc xs []
 reverse [1, 2, 3, 4, 5]|}
     "[5, 4, 3, 2, 1]"
@@ -107,8 +107,8 @@ reverse [1, 2, 3, 4, 5]|}
 (* ── Type errors ─────────────────────────────────────────────────────────── *)
 
 let test_type_errors () =
-  err "cons non-list rhs"    {|1 :: 2|};
-  err "cons type mismatch"   {|1 :: ["a", "b"]|}
+  err "cons non-list rhs"    {|1 : 2|};
+  err "cons type mismatch"   {|1 : ["a", "b"]|}
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

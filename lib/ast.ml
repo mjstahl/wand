@@ -92,7 +92,7 @@ let rec show_pat : pat -> string = function
   | Wild           -> "_"
   | PTuple ps      -> Printf.sprintf "(%s)" (String.concat ", " (List.map show_pat ps))
   | PList ps       -> "[" ^ String.concat ", " (List.map show_pat ps) ^ "]"
-  | PCons (h, t)   -> Printf.sprintf "[%s :: %s]" (show_pat h) (show_pat t)
+  | PCons (h, t)   -> Printf.sprintf "[%s : %s]" (show_pat h) (show_pat t)
   | PConstr (c,[]) -> c
   | PConstr (c,ps) -> Printf.sprintf "(%s %s)" c (String.concat " " (List.map show_pat ps))
   | PConstrNamed (c, kvs) ->

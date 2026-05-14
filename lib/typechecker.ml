@@ -509,7 +509,7 @@ and infer_binop tenv (env : env) op a b : typ =
     unify (infer tenv env a) TString;
     unify (infer tenv env b) TString;
     TString
-  | "::" ->
+  | ":" ->
     let elem_t = fresh () in
     unify (infer tenv env a) elem_t;
     unify (infer tenv env b) (TList elem_t);

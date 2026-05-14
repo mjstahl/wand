@@ -97,7 +97,7 @@ let expect_ident s =
 
 let lbp = function
   | Token.PipeArrow   -> 10
-  | Token.ColonColon  -> 15
+  | Token.Colon       -> 15
   | Token.PipePipe  -> 20
   | Token.AmpAmp    -> 30
   | Token.EqEq | Token.BangEq
@@ -232,7 +232,7 @@ and list_pat_ s =
   if peek s = Token.RBracket then (ignore (advance s); PList [])
   else begin
     let first = pat_ s in
-    if peek s = Token.ColonColon then begin
+    if peek s = Token.Colon then begin
       ignore (advance s);
       let tl = pat_ s in
       expect s Token.RBracket;
@@ -270,7 +270,7 @@ let rec expr_ bp s =
 and infix_ left op s =
   match op with
   | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
-  | Token.ColonColon -> BinOp ("::", left, expr_ 14 s)
+  | Token.Colon      -> BinOp (":", left, expr_ 14 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
   | Token.AmpAmp    -> BinOp ("&&", left, expr_ 30 s)
   | Token.EqEq      -> BinOp ("==", left, expr_ 40 s)
