@@ -22,14 +22,14 @@ let has_newline_before_next s =
   !i > s.pos
 
 let peek s =
-  skip s;
-  if s.pos < Array.length s.tokens then fst s.tokens.(s.pos) else Token.EOF
+  let i = ref s.pos in
+  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
+  if !i < Array.length s.tokens then fst s.tokens.(!i) else Token.EOF
 
 let peek_loc s =
-  skip s;
-  if s.pos < Array.length s.tokens
-  then snd s.tokens.(s.pos)
-  else Token.{ line = 0; col = 0 }
+  let i = ref s.pos in
+  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
+  if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.{ line = 0; col = 0 }
 
 let advance s =
   skip s;
@@ -223,7 +223,6 @@ let rec expr_ bp s =
   let left = ref (atom_ s) in
   let continue_ = ref true in
   while !continue_ do
-    let pre = s.pos in
     let had_newline = has_newline_before_next s in
     let t = peek s in
     let bp' = lbp t in
@@ -233,10 +232,8 @@ let rec expr_ bp s =
     end else if is_atom_start t && 70 > bp && not s.in_contract
             && not had_newline then
       left := App (!left, atom_ s)
-    else begin
-      s.pos <- pre;
+    else
       continue_ := false
-    end
   done;
   !left
 
@@ -440,7 +437,6 @@ and match_ s =
   let arms = ref [] in
   let continue_ = ref true in
   while !continue_ do
-    let saved = s.pos in
     if peek s = Token.Pipe then begin
       ignore (advance s);
       let p = pat_ s in
@@ -452,19 +448,14 @@ and match_ s =
       expect s Token.Arrow;
       let body = expr_ 0 s in
       arms := !arms @ [(p, guard, body)]
-    end else begin
-      s.pos <- saved;
+    end else
       continue_ := false
-    end
   done;
   Match (scrutinee, !arms)
 
 and contract_expr_ s =
-  let saved = s.in_contract in
   s.in_contract <- true;
-  let e = expr_ 0 s in
-  s.in_contract <- saved;
-  e
+  Fun.protect ~finally:(fun () -> s.in_contract <- false) (fun () -> expr_ 0 s)
 
 and parse_contract_body s =
   let reqs = ref [] in
@@ -498,7 +489,6 @@ and parse_handle_ s =
   let arms = ref [] in
   let continue_ = ref true in
   while !continue_ do
-    let saved = s.pos in
     if peek s = Token.Pipe then begin
       ignore (advance s);
       let arm = match peek s with
@@ -520,10 +510,8 @@ and parse_handle_ s =
             (loc_prefix s) Token.pp t))
       in
       arms := !arms @ [arm]
-    end else begin
-      s.pos <- saved;
+    end else
       continue_ := false
-    end
   done;
   Ast.Handle (body, !arms)
 

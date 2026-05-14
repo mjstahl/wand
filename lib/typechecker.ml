@@ -570,10 +570,10 @@ let builtin_type_env : env = [
   ("exe_cwd",  Mono TString);
 ]
 
-(* Core: infer types, returning (tenv, full_env, own_env).
-   own_env contains only the bindings added by this program itself. *)
-let infer_program_core ?(init_tenv=[]) ?(init_env=[]) (prog : program)
-    : typedef_env * env * env =
+(* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
+let infer_program_ ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : typedef_env * env * env * typ =
+  next_id := 0;
   let local_tenv = List.filter_map (function
     | TLType tdef ->
       let name = match tdef with Variants (n, _) | RecordType (n, _) -> n in
@@ -582,34 +582,30 @@ let infer_program_core ?(init_tenv=[]) ?(init_env=[]) (prog : program)
   in
   let tenv = local_tenv @ init_tenv in
   let base_env = tenv_to_ctor_env tenv @ builtin_type_env @ init_env in
-  let env = List.fold_left (fun env item ->
+  let (env, last_t) = List.fold_left (fun (env, last_t) item ->
     match item with
     | TLLet (name, [], body) ->
       let t = infer tenv env body in
-      (name, generalize env t) :: env
+      ((name, generalize env t) :: env, last_t)
     | TLLet (name, params, body) ->
       let placeholder = fresh () in
       let env_rec = (name, Mono placeholder) :: env in
       let t = infer tenv env_rec (Fn (params, body)) in
       unify placeholder t;
-      (name, generalize env t) :: env
-    | TLExpr _ -> env
-    | TLType _ | TLImport _ -> env
-  ) base_env prog.items
+      ((name, generalize env t) :: env, last_t)
+    | TLExpr e ->
+      (env, infer tenv env e)
+    | TLType _ | TLImport _ -> (env, last_t)
+  ) (base_env, TUnit) prog.items
   in
   let n_own = List.length env - List.length base_env in
   let own_env = List.filteri (fun i _ -> i < n_own) env in
-  (tenv, env, own_env)
+  (tenv, env, own_env, last_t)
 
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * typ, string) result =
   try
-    let (tenv, env, _) = infer_program_core ~init_tenv ~init_env prog in
-    let last_t = List.fold_left (fun acc item ->
-      match item with
-      | TLExpr e -> infer tenv env e
-      | _        -> acc
-    ) TUnit prog.items in
+    let (_, env, _, last_t) = infer_program_ ~init_tenv ~init_env prog in
     Ok (env, last_t)
   with TypeError msg -> Error msg
 
@@ -617,7 +613,7 @@ let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
 let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * env, string) result =
   try
-    let (_, env, own) = infer_program_core ~init_tenv ~init_env prog in
+    let (_, env, own, _) = infer_program_ ~init_tenv ~init_env prog in
     Ok (env, own)
   with TypeError msg -> Error msg
 
