@@ -32,11 +32,10 @@ type value =
   | VSize     of string
   | VTuple         of value list
   | VList          of value list
-  | VRecord        of (string * value) list
+  | VRecord        of (string * value) list  (* used for module namespaces *)
   | VFun           of env * pat list * expr
   | VConstr        of string * value list
   | VPartialConstr of string * int * value list
-  | VRecordCtor
   | VFix           of string * env * pat list * expr
   | VBuiltin       of (value -> value)
 
@@ -62,7 +61,6 @@ let rec show_value = function
   | VVersion s  -> s
   | VSize s     -> s
   | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
-  | VRecordCtor      -> "<record-ctor>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
@@ -112,6 +110,12 @@ let rec try_match (p : pat) v (env : env) : env option =
      | None      -> None
      | Some env' -> try_match tp (VList vs) env')
   | PCons _, VList [] -> None
+  | PTuple ps, VConstr (_, vals) when List.length ps = List.length vals ->
+    List.fold_left2
+      (fun acc p v -> match acc with
+        | None     -> None
+        | Some env -> try_match p v env)
+      (Some env) ps vals
   | PConstr (name, pats), VConstr (vname, vals)
     when name = vname && List.length pats = List.length vals ->
     List.fold_left2
@@ -119,15 +123,21 @@ let rec try_match (p : pat) v (env : env) : env option =
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) pats vals
-  | PRecord kvs, VRecord fields ->
-    List.fold_left
-      (fun acc (k, p) -> match acc with
-        | None     -> None
-        | Some env ->
-          (match List.assoc_opt k fields with
-           | None   -> None
-           | Some v -> try_match p v env))
-      (Some env) kvs
+  | PConstrNamed (name, bindings), VConstr (vname, vals) when name = vname ->
+    (match Hashtbl.find_opt constr_fields name with
+     | None -> None
+     | Some field_names ->
+       List.fold_left (fun acc (fname, p) ->
+         match acc with
+         | None -> None
+         | Some env ->
+           (match find_field_index field_names fname with
+            | None -> None
+            | Some i ->
+              (match List.nth_opt vals i with
+               | None -> None
+               | Some v -> try_match p v env))
+       ) (Some env) bindings)
   | _ -> None
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
@@ -204,8 +214,27 @@ let rec eval (env : env) (e : expr) : value =
     eval_match env sv cases
   | Tuple es  -> VTuple (List.map (eval env) es)
   | List es   -> VList  (List.map (eval env) es)
-  | Record kvs ->
-    VRecord (List.map (fun (k, e) -> (k, eval env e)) kvs)
+  | ConstrApp (name, fields) ->
+    let provided = List.filter_map (fun (fname_opt, e) ->
+      match fname_opt with
+      | Some fname -> Some (fname, eval env e)
+      | None -> None
+    ) fields in
+    (match Hashtbl.find_opt constr_fields name with
+     | None -> raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
+         name (Util.hint name (List.map fst env))))
+     | Some field_names ->
+       let ordered = List.map (fun fname_opt ->
+         match fname_opt with
+         | None -> raise (EvalError (Printf.sprintf
+             "constructor '%s' has an unnamed field" name))
+         | Some fn ->
+           (match List.assoc_opt fn provided with
+            | Some v -> v
+            | None -> raise (EvalError (Printf.sprintf
+                "constructor '%s' missing field '%s'" name fn)))
+       ) field_names in
+       VConstr (name, ordered))
   | Field (e, label) ->
     (match eval env e with
      | VRecord kvs ->
@@ -328,10 +357,6 @@ and apply vf vx =
     apply (VFun (fenv', params, body)) vx
   | VPartialConstr (name, 1, args) -> VConstr (name, args @ [vx])
   | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])
-  | VRecordCtor ->
-    (match vx with
-     | VRecord _ -> vx
-     | _ -> raise (EvalError "record constructor requires a record literal"))
   | _ -> raise (EvalError "cannot apply a non-function")
 
 and bind_pat (p : pat) v (env : env) : env =

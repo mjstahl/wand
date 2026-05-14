@@ -11,8 +11,7 @@ type typ =
   | TTuple  of typ list
   | TList   of typ
   | TResult of typ
-  | TName   of string
-  | TRecord of (string * typ) list
+  | TName of string
 
 and tv = {
   id  : int;
@@ -80,8 +79,6 @@ let string_of_typ t =
         | _ -> go t
       in
       "Result " ^ s
-    | TRecord kvs ->
-      "{ " ^ String.concat ", " (List.map (fun (k, t) -> k ^ ": " ^ go t) kvs) ^ " }"
   in
   go t
 
@@ -94,7 +91,6 @@ let rec occurs (tv : tv) t =
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
   | TResult t   -> occurs tv t
-  | TRecord kvs -> List.exists (fun (_, t) -> occurs tv t) kvs
   | _           -> false
 
 (* ── Unification ──────────────────────────────────────────────────────────── *)
@@ -120,12 +116,6 @@ let rec unify t1 t2 =
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
   | TResult t1, TResult t2 -> unify t1 t2
-  | TRecord kvs1, TRecord kvs2 ->
-    let s1 = List.sort (fun (a,_) (b,_) -> compare a b) kvs1 in
-    let s2 = List.sort (fun (a,_) (b,_) -> compare a b) kvs2 in
-    if List.map fst s1 <> List.map fst s2 then
-      raise (TypeError "record field mismatch");
-    List.iter2 (fun (_, t1) (_, t2) -> unify t1 t2) s1 s2
   | t1, t2 ->
     raise (TypeError (Printf.sprintf "cannot unify %s with %s"
       (string_of_typ t1) (string_of_typ t2)))
@@ -154,9 +144,8 @@ let rec free_tvars t =
   | TFun (a, b) -> free_tvars a @ free_tvars b
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
-  | TResult t   -> free_tvars t
-  | TRecord kvs -> List.concat_map (fun (_, t) -> free_tvars t) kvs
-  | _           -> []
+  | TResult t -> free_tvars t
+  | _         -> []
 
 let free_tvars_scheme = function
   | Mono t        -> free_tvars t
@@ -191,9 +180,8 @@ let instantiate = function
       | TFun (a, b) -> TFun (inst a, inst b)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
-      | TResult t   -> TResult (inst t)
-      | TRecord kvs -> TRecord (List.map (fun (k, t) -> (k, inst t)) kvs)
-      | t           -> t
+      | TResult t -> TResult (inst t)
+      | t         -> t
     in
     inst t
 
@@ -223,9 +211,15 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
                 ctor.fields result in
       (ctor.name, Mono t)
     ) ctors
-  | RecordType (tname, fields) ->
-    let field_types = List.map (fun (k, te) -> (k, type_of_te te)) fields in
-    [(tname, Mono (TFun (TRecord field_types, TRecord field_types)))]
+
+let find_ctor_in_tenv tenv name =
+  List.find_map (fun (tname, tdef) ->
+    match tdef with
+    | Variants (_, ctors) ->
+      (match List.find_opt (fun c -> c.name = name) ctors with
+       | Some c -> Some (tname, c)
+       | None -> None)
+  ) tenv
 
 let tenv_to_ctor_env (tenv : typedef_env) : env =
   List.concat_map (fun (_, tdef) -> ctor_schemes tdef) tenv
@@ -260,9 +254,25 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | Version _  -> unify t TVersion;  env
   | Size _     -> unify t TSize;     env
   | PTuple ps  ->
-    let ts = List.map (fun _ -> fresh ()) ps in
-    unify t (TTuple ts);
-    List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts
+    (* If the expected type is a single-constructor ADT with matching arity, unwrap it *)
+    (match repr t with
+     | TName tname ->
+       (match find_ctor_in_tenv tenv tname with
+        | Some (_, ctor) when List.length ctor.fields = List.length ps ->
+          let arg_ts = List.map (fun (_, te) -> type_of_te te) ctor.fields in
+          List.fold_left2 (fun env p at -> infer_pat tenv p at env) env ps arg_ts
+        | _ ->
+          let ts = List.map (fun _ -> fresh ()) ps in
+          unify t (TTuple ts);
+          List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts)
+     | TVar _ ->
+       (* Type is unresolved — don't commit to tuple; let the call site resolve it *)
+       let ts = List.map (fun _ -> fresh ()) ps in
+       List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts
+     | _ ->
+       let ts = List.map (fun _ -> fresh ()) ps in
+       unify t (TTuple ts);
+       List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts)
   | PList [] ->
     unify t (TList (fresh ())); env
   | PList (p :: rest) ->
@@ -293,36 +303,24 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
            name (List.length arg_ts) (List.length pats)));
        unify t result_t;
        List.fold_left2 (fun env p at -> infer_pat tenv p at env) env pats arg_ts)
-  | PRecord kvs ->
-    let field_types =
-      match repr t with
-      | TRecord fts -> fts
-      | TName tname ->
-        (match List.assoc_opt tname tenv with
-         | Some (RecordType (_, fields)) ->
-           List.map (fun (k, te) -> (k, type_of_te te)) fields
-         | _ -> raise (TypeError (Printf.sprintf
-             "cannot use record pattern on non-record type '%s'" tname)))
-      | _ ->
-        let fts = List.map (fun (k, _) -> (k, fresh ())) kvs in
-        unify t (TRecord fts); fts
-    in
-    List.fold_left (fun env (k, p) ->
-      match List.assoc_opt k field_types with
-      | None -> raise (TypeError (Printf.sprintf "record has no field '%s'%s"
-          k (Util.hint k (List.map fst field_types))))
-      | Some ft -> infer_pat tenv p ft env
-    ) env kvs
+  | PConstrNamed (name, bindings) ->
+    (match find_ctor_in_tenv tenv name with
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
+     | Some (tname, ctor) ->
+       unify t (TName tname);
+       List.fold_left (fun env (fname, p) ->
+         match List.find_opt (fun (dn, _) -> dn = Some fname) ctor.fields with
+         | None -> raise (TypeError (Printf.sprintf
+             "constructor '%s' has no field '%s'%s"
+             name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
+         | Some (_, te) -> infer_pat tenv p (type_of_te te) env
+       ) env bindings)
 
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
 let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
   match p with
   | PVar name -> (name, scheme) :: env
   | Wild      -> env
-  | PTuple ps ->
-    let ts = List.map (fun _ -> fresh ()) ps in
-    unify t (TTuple ts);
-    List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts
   | _         -> infer_pat tenv p t env
 
 (* ── Expression inference ─────────────────────────────────────────────────── *)
@@ -412,8 +410,22 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let t = infer tenv env e in
     List.iter (fun e' -> unify t (infer tenv env e')) rest;
     TList t
-  | Record kvs ->
-    TRecord (List.map (fun (k, e) -> (k, infer tenv env e)) kvs)
+  | ConstrApp (name, fields) ->
+    (match find_ctor_in_tenv tenv name with
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
+         name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
+     | Some (tname, ctor) ->
+       List.iter (fun (fname_opt, e) ->
+         match fname_opt with
+         | None -> raise (TypeError "positional field in named construction")
+         | Some fname ->
+           (match List.find_opt (fun (dn, _) -> dn = Some fname) ctor.fields with
+            | None -> raise (TypeError (Printf.sprintf
+                "constructor '%s' has no field '%s'%s"
+                name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
+            | Some (_, te) -> unify (infer tenv env e) (type_of_te te))
+       ) fields;
+       TName tname)
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let rec unwrap_loc = function Located (_, x) -> unwrap_loc x | x -> x in
@@ -433,20 +445,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | Some t -> t
      | None ->
        (match repr (infer tenv env e) with
-        | TRecord kvs ->
-          (match List.assoc_opt label kvs with
-           | Some t -> t
-           | None   ->
-             raise (TypeError (Printf.sprintf "no field '%s'%s"
-               label (Util.hint label (List.map fst kvs)))))
         | TName tname ->
           (match List.assoc_opt tname tenv with
-           | Some (RecordType (_, fields)) ->
-             (match List.assoc_opt label fields with
-              | Some te -> type_of_te te
-              | None    ->
-                raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
-                  tname label (Util.hint label (List.map fst fields)))))
            | Some (Variants (_, ctors)) ->
              let all_named = List.concat_map (fun c ->
                List.filter_map (fun (fname, te) ->
@@ -459,9 +459,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
                 raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
                   tname label (Util.hint label names))))
            | _ -> raise (TypeError (Printf.sprintf
-               "cannot access field '%s' on non-record type '%s'" label tname)))
+               "cannot access field '%s' on type '%s'" label tname)))
         | t -> raise (TypeError (Printf.sprintf
-            "field access requires a record, got %s" (string_of_typ t)))))
+            "field access requires a named type, got %s" (string_of_typ t)))))
   | RunCmd e -> unify (infer tenv env e) TString; TString
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
@@ -575,9 +575,7 @@ let infer_program_ ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
   let local_tenv = List.filter_map (function
-    | TLType tdef ->
-      let name = match tdef with Variants (n, _) | RecordType (n, _) -> n in
-      Some (name, tdef)
+    | TLType (Variants (n, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv in

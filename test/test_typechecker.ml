@@ -194,15 +194,15 @@ let unwrap w = match w with
 unwrap (Wrap 42)|}
     "Int"
 
-let test_record_typedef () =
+let test_named_field_typedef () =
   ok_prog "field access"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 1, y = 2 }
+    {|type Point (x Int, y Int)
+let p = Point (x = 1, y = 2)
 p.x|}
     "Int";
   ok_prog "second field"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 1, y = 2 }
+    {|type Point (x Int, y Int)
+let p = Point (x = 1, y = 2)
 p.y|}
     "Int"
 
@@ -241,7 +241,7 @@ let () =
       Alcotest.test_case "enum types"     `Quick test_enum_types;
       Alcotest.test_case "payload types"  `Quick test_payload_types;
       Alcotest.test_case "match ctor"     `Quick test_match_ctor;
-      Alcotest.test_case "record typedef" `Quick test_record_typedef;
+      Alcotest.test_case "record typedef" `Quick test_named_field_typedef;
       Alcotest.test_case "ctor errors"    `Quick test_ctor_errors;
     ];
   ]

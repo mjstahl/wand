@@ -20,8 +20,8 @@ type pat =
   | PTuple   of pat list
   | PList    of pat list
   | PCons    of pat * pat
-  | PConstr  of string * pat list
-  | PRecord  of (string * pat) list
+  | PConstr       of string * pat list
+  | PConstrNamed  of string * (string * pat) list
 
 type expr =
   | Int      of int
@@ -51,10 +51,10 @@ type expr =
   | Match    of expr * case list
   | BinOp    of string * expr * expr
   | UnOp     of string * expr
-  | Tuple    of expr list
-  | List     of expr list
-  | Record   of (string * expr) list
-  | Field    of expr * string
+  | Tuple      of expr list
+  | List       of expr list
+  | ConstrApp  of string * (string option * expr) list
+  | Field      of expr * string
   | Seq      of expr * expr
   | Located  of Token.loc * expr
   | Contract of expr list * expr list * expr
@@ -95,8 +95,9 @@ let rec show_pat : pat -> string = function
   | PCons (h, t)   -> Printf.sprintf "[%s :: %s]" (show_pat h) (show_pat t)
   | PConstr (c,[]) -> c
   | PConstr (c,ps) -> Printf.sprintf "(%s %s)" c (String.concat " " (List.map show_pat ps))
-  | PRecord kvs    -> Printf.sprintf "{%s}" (String.concat "; "
-                        (List.map (fun (k,p) -> k ^ "=" ^ show_pat p) kvs))
+  | PConstrNamed (c, kvs) ->
+    Printf.sprintf "(%s %s)" c (String.concat ", "
+      (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
 
 let rec show : expr -> string = function
   | Int n      -> string_of_int n
@@ -129,8 +130,9 @@ let rec show : expr -> string = function
   | UnOp (op, e)    -> Printf.sprintf "(%s%s)" op (show e)
   | Tuple es        -> Printf.sprintf "(tuple %s)" (String.concat " " (List.map show es))
   | List es         -> Printf.sprintf "[%s]" (String.concat "; " (List.map show es))
-  | Record kvs      -> Printf.sprintf "{%s}" (String.concat "; "
-                         (List.map (fun (k,v) -> k ^ "=" ^ show v) kvs))
+  | ConstrApp (c, kvs) ->
+    Printf.sprintf "(%s %s)" c (String.concat ", "
+      (List.map (fun (k, v) -> (match k with Some n -> n ^ "=" | None -> "") ^ show v) kvs))
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
@@ -184,8 +186,7 @@ type ctor_def = {
 }
 
 type type_def =
-  | Variants   of string * ctor_def list
-  | RecordType of string * (string * type_expr) list
+  | Variants of string * ctor_def list
 
 type import_kind =
   | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)

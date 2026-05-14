@@ -137,19 +137,6 @@ let test_list () =
   ok "strings"  {|["a", "b"]|} "[a, b]";
   ok "computed" "[1 + 1, 2 + 2]" "[2, 4]"
 
-(* ── Records ──────────────────────────────────────────────────────────────── *)
-
-let test_record () =
-  ok "literal"
-    {|{ name = "alice", age = 30 }|}
-    {|{ name = alice, age = 30 }|};
-  ok "field access"
-    {|{ x = 10, y = 20 }.x|}
-    "10";
-  ok "nested field"
-    "{ a = { b = 42 } }.a.b"
-    "42"
-
 (* ── Pipeline ─────────────────────────────────────────────────────────────── *)
 
 let test_pipeline () =
@@ -199,7 +186,6 @@ let () =
       Alcotest.test_case "match"         `Quick test_match;
       Alcotest.test_case "tuple"         `Quick test_tuple;
       Alcotest.test_case "list"          `Quick test_list;
-      Alcotest.test_case "record"        `Quick test_record;
       Alcotest.test_case "pipeline"      `Quick test_pipeline;
       Alcotest.test_case "recursive let" `Quick test_recursive_let;
     ];

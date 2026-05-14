@@ -99,15 +99,15 @@ let test_list () =
   e "several"  "[1, 2, 3]"   (List [Int 1; Int 2; Int 3]);
   e "strings"  {|["a", "b"]|} (List [String "a"; String "b"])
 
-(* ── Records ─────────────────────────────────────────────────────────────── *)
+(* ── Constructor application (named) ─────────────────────────────────────── *)
 
-let test_record () =
-  e "record"
-    {|{ name = "alice", age = 30 }|}
-    (Record [("name", String "alice"); ("age", Int 30)]);
-  e "single field"
-    "{ x = 1 }"
-    (Record [("x", Int 1)])
+let test_constr_app () =
+  e "named construction"
+    {|Point (x = 1, y = 2)|}
+    (ConstrApp ("Point", [Some "x", Int 1; Some "y", Int 2]));
+  e "single named field"
+    "Circle (radius = 5)"
+    (ConstrApp ("Circle", [Some "radius", Int 5]))
 
 (* ── Field access ────────────────────────────────────────────────────────── *)
 
@@ -168,18 +168,18 @@ let test_constr_pats () =
       (PConstr ("Err", [PVar "e"]), None, Int 0);
     ]))
 
-(* ── Record patterns ─────────────────────────────────────────────────────── *)
+(* ── Named constructor patterns ──────────────────────────────────────────── *)
 
-let test_record_pats () =
-  e "punning"
-    "match p with\n| { x, y } -> x"
+let test_constr_named_pats () =
+  e "named pattern"
+    "match p with\n| Point (x = a, y = b) -> a"
     (Match (Var "p", [
-      (PRecord [("x", PVar "x"); ("y", PVar "y")], None, Var "x")
+      (PConstrNamed ("Point", [("x", PVar "a"); ("y", PVar "b")]), None, Var "a")
     ]));
-  e "explicit binding"
-    "match p with\n| { x = a, y = b } -> a"
-    (Match (Var "p", [
-      (PRecord [("x", PVar "a"); ("y", PVar "b")], None, Var "a")
+  e "single named field pattern"
+    "match c with\n| Circle (radius = r) -> r"
+    (Match (Var "c", [
+      (PConstrNamed ("Circle", [("radius", PVar "r")]), None, Var "r")
     ]))
 
 (* ── Fn (lambda) ─────────────────────────────────────────────────────────── *)
@@ -214,15 +214,15 @@ let () =
       Alcotest.test_case "application"  `Quick test_app;
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
-      Alcotest.test_case "record"       `Quick test_record;
+      Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "field"        `Quick test_field;
     ];
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
       Alcotest.test_case "if"           `Quick test_if;
       Alcotest.test_case "match"        `Quick test_match;
-      Alcotest.test_case "constr pats"  `Quick test_constr_pats;
-      Alcotest.test_case "record pats"  `Quick test_record_pats;
+      Alcotest.test_case "constr pats"       `Quick test_constr_pats;
+      Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
       Alcotest.test_case "fn"           `Quick test_fn;
     ];
   ]

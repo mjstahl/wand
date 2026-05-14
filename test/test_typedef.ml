@@ -51,54 +51,81 @@ let area r = match r with
 area (Rect 3 4)|}
     "12"
 
-(* ── Record types ────────────────────────────────────────────────────────── *)
+(* ── Single-constructor shorthand (named fields) ─────────────────────────── *)
 
-let test_record_type () =
+let test_named_fields () =
   ok "construct and access"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 1, y = 2 }
+    {|type Point (x Int, y Int)
+let p = Point (x = 1, y = 2)
 p.x|}
     "1";
-  ok "record field"
-    {|type Point = { x: Int, y: Int }
-let origin = Point { x = 0, y = 0 }
+  ok "second field"
+    {|type Point (x Int, y Int)
+let origin = Point (x = 0, y = 0)
 origin.y|}
-    "0"
+    "0";
+  ok "field on function result"
+    {|type Circle (radius Int)
+let unit_circle = Circle (radius = 1)
+unit_circle.radius|}
+    "1"
 
-(* ── Record patterns ─────────────────────────────────────────────────────── *)
+(* ── Named constructor patterns ──────────────────────────────────────────── *)
 
-let test_record_pat () =
-  ok "destructure named record"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 3, y = 4 }
-let sum = match p with | { x = a, y = b } -> a + b
+let test_named_pat () =
+  ok "destructure named fields"
+    {|type Point (x Int, y Int)
+let p = Point (x = 3, y = 4)
+let sum = match p with | Point (x = a, y = b) -> a + b
 sum|}
     "7";
-  ok "shorthand binding"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 10, y = 20 }
-let get_x = match p with | { x } -> x
-get_x|}
-    "10";
   ok "wildcard field"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 5, y = 99 }
-let get_x = match p with | { x = v, y = _ } -> v
+    {|type Point (x Int, y Int)
+let p = Point (x = 5, y = 99)
+let get_x = match p with | Point (x = v, y = _) -> v
 get_x|}
     "5";
   ok "in local let binding"
-    {|type Point = { x: Int, y: Int }
+    {|type Point (x Int, y Int)
 let add_coords p =
-  let { x = a, y = b } = p in
+  let Point (x = a, y = b) = p in
   a + b
-add_coords (Point { x = 7, y = 8 })|}
+add_coords (Point (x = 7, y = 8))|}
     "15"
 
-let test_record_pat_errors () =
+(* ── Single-constructor shorthand destructuring ──────────────────────────── *)
+
+let test_single_ctor_destructure () =
+  ok "single field shorthand let"
+    {|type Circle (radius Int)
+let c = Circle (radius = 7)
+let (r) = c
+r|}
+    "7";
+  ok "multi field shorthand let"
+    {|type Point (x Int, y Int)
+let p = Point (x = 3, y = 4)
+let (a, b) = p
+"${a}, ${b}"|}
+    "3, 4";
+  ok "match arm shorthand"
+    {|type Circle (radius Int)
+let c = Circle (radius = 9)
+match c with | (r) -> r|}
+    "9";
+  ok "in local let inside fn"
+    {|type Circle (radius Int)
+let area c =
+  let (r) = c in
+  r * r
+area (Circle (radius = 5))|}
+    "25"
+
+let test_named_pat_errors () =
   err "unknown field in pattern"
-    {|type Point = { x: Int, y: Int }
-let p = Point { x = 1, y = 2 }
-let sum = match p with | { x = a, z = b } -> a + b
+    {|type Point (x Int, y Int)
+let p = Point (x = 1, y = 2)
+let sum = match p with | Point (x = a, z = b) -> a + b
 sum|}
 
 (* ── Errors ──────────────────────────────────────────────────────────────── *)
@@ -117,10 +144,11 @@ let () =
       Alcotest.test_case "payload"       `Quick test_payload;
       Alcotest.test_case "match variant" `Quick test_match_variant;
     ];
-    "records", [
-      Alcotest.test_case "record type"    `Quick test_record_type;
-      Alcotest.test_case "record pattern" `Quick test_record_pat;
-      Alcotest.test_case "record pattern errors" `Quick test_record_pat_errors;
+    "named fields", [
+      Alcotest.test_case "named fields"              `Quick test_named_fields;
+      Alcotest.test_case "named patterns"            `Quick test_named_pat;
+      Alcotest.test_case "named pattern errors"      `Quick test_named_pat_errors;
+      Alcotest.test_case "shorthand destructuring"   `Quick test_single_ctor_destructure;
     ];
     "errors", [
       Alcotest.test_case "type errors"   `Quick test_errors;

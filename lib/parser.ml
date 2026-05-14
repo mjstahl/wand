@@ -52,6 +52,24 @@ let loc_prefix s =
   let l = peek_loc s in
   Printf.sprintf "%d:%d: " l.Token.line l.Token.col
 
+(* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
+let peek_named_args s =
+  let arr = s.tokens in
+  let n = Array.length arr in
+  let i = ref s.pos in
+  let skip () = while !i < n && fst arr.(!i) = Token.Newline do incr i done in
+  skip ();
+  if !i >= n || fst arr.(!i) <> Token.LParen then false
+  else begin
+    incr i; skip ();
+    if !i >= n then false
+    else match fst arr.(!i) with
+    | Token.Ident _ ->
+      incr i; skip ();
+      !i < n && fst arr.(!i) = Token.Eq
+    | _ -> false
+  end
+
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn";
   "type"; "start"; "import"; "when"; "of"; "and"; "or";
@@ -96,7 +114,7 @@ let is_atom_start = function
   | Token.Duration _ | Token.Url _ | Token.IPv4 _ | Token.CIDR _
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
-  | Token.LParen | Token.LBracket | Token.LBrace
+  | Token.LParen | Token.LBracket
   | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.EnvVar _
   | Token.Handle | Token.Try -> true
   | _ -> false
@@ -109,7 +127,7 @@ let is_expr_start = function
 let is_pat_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
   | Token.Ident _ | Token.Underscore | Token.Upper _
-  | Token.LParen | Token.LBrace | Token.LBracket -> true
+  | Token.LParen | Token.LBracket -> true
   | _ -> false
 
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
@@ -133,19 +151,48 @@ let rec pat_ s =
           ignore (advance s); ps := !ps @ [pat_ s]
         done;
         expect s Token.RParen; PTuple !ps
-      end else (expect s Token.RParen; p)
+      end else begin
+        expect s Token.RParen;
+        (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
+        match p with PVar _ -> PTuple [p] | _ -> p
+      end
     end
-  | Token.LBrace ->
-    ignore (advance s); record_pat_ s
   | Token.LBracket ->
     ignore (advance s); list_pat_ s
   | Token.Upper name ->
     ignore (advance s);
-    let args = ref [] in
-    while is_pat_atom_start (peek s) do
-      args := !args @ [pat_atom_ s]
-    done;
-    PConstr (name, !args)
+    if peek_named_args s then begin
+      ignore (advance s); (* consume LParen *)
+      let fields = ref [] in
+      if peek s <> Token.RParen then begin
+        let parse_field () =
+          let fname = expect_ident s in
+          expect s Token.Eq;
+          fields := !fields @ [(fname, pat_ s)]
+        in
+        parse_field ();
+        while peek s = Token.Comma do ignore (advance s); parse_field () done
+      end;
+      expect s Token.RParen;
+      PConstrNamed (name, !fields)
+    end else if peek s = Token.LParen then begin
+      ignore (advance s); (* consume LParen *)
+      if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
+      else begin
+        let pats = ref [pat_ s] in
+        while peek s = Token.Comma do
+          ignore (advance s); pats := !pats @ [pat_ s]
+        done;
+        expect s Token.RParen;
+        PConstr (name, !pats)
+      end
+    end else begin
+      let args = ref [] in
+      while is_pat_atom_start (peek s) do
+        args := !args @ [pat_atom_ s]
+      done;
+      PConstr (name, !args)
+    end
   | t ->
     let loc = loc_prefix s in
     raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
@@ -173,8 +220,6 @@ and pat_atom_ s =
         expect s Token.RParen; PTuple !ps
       end else (expect s Token.RParen; p)
     end
-  | Token.LBrace ->
-    ignore (advance s); record_pat_ s
   | Token.LBracket ->
     ignore (advance s); list_pat_ s
   | t ->
@@ -201,21 +246,6 @@ and list_pat_ s =
       PList !pats
     end
   end
-
-and record_pat_ s =
-  (* { already consumed *)
-  let fields = ref [] in
-  while peek s <> Token.RBrace do
-    let key = expect_ident s in
-    let p =
-      if peek s = Token.Eq then (ignore (advance s); pat_ s)
-      else PVar key
-    in
-    fields := !fields @ [(key, p)];
-    if peek s = Token.Comma then ignore (advance s)
-  done;
-  expect s Token.RBrace;
-  PRecord !fields
 
 (* ── Expression parsing (Pratt) ───────────────────────────────────────────── *)
 
@@ -277,14 +307,41 @@ and atom_ s =
   | Token.Size sz    -> Size sz
   | Token.Ident name  -> Var name
   | Token.Upper name  ->
-    (* Eagerly consume dot-chains so Ns.f is one atom, enabling `Ns.f Ns.g` to parse
-       as App(Field(Constr Ns, f), Field(Constr Ns, g)) instead of Field(App(...), g). *)
-    let e = ref (Constr name) in
-    while peek s = Token.Dot do
-      ignore (advance s);
-      e := Field (!e, expect_ident s)
-    done;
-    !e
+    if peek s = Token.Dot then begin
+      (* Eagerly consume dot-chains so Ns.f is one atom *)
+      let e = ref (Constr name) in
+      while peek s = Token.Dot do
+        ignore (advance s);
+        e := Field (!e, expect_ident s)
+      done;
+      !e
+    end else if peek_named_args s then begin
+      ignore (advance s); (* consume LParen *)
+      let fields = ref [] in
+      if peek s <> Token.RParen then begin
+        let parse_field () =
+          let fname = expect_ident s in
+          expect s Token.Eq;
+          fields := !fields @ [(Some fname, expr_ 0 s)]
+        in
+        parse_field ();
+        while peek s = Token.Comma do ignore (advance s); parse_field () done
+      end;
+      expect s Token.RParen;
+      ConstrApp (name, !fields)
+    end else if peek s = Token.LParen then begin
+      ignore (advance s); (* consume LParen *)
+      if peek s = Token.RParen then (ignore (advance s); App (Constr name, Unit))
+      else begin
+        let args = ref [expr_ 0 s] in
+        while peek s = Token.Comma do
+          ignore (advance s); args := !args @ [expr_ 0 s]
+        done;
+        expect s Token.RParen;
+        List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) !args
+      end
+    end else
+      Constr name
   | Token.EnvVar name -> EnvVar name
   | Token.Hole        -> Hole
   | Token.Minus      -> UnOp ("-", expr_ 65 s)
@@ -302,7 +359,6 @@ and atom_ s =
       end else (expect s Token.RParen; e)
     end
   | Token.LBracket -> list_ s
-  | Token.LBrace   -> record_ s
   | Token.Let      -> let_ s
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
@@ -344,19 +400,6 @@ and list_ s =
     expect s Token.RBracket;
     List !elems
   end
-
-and record_ s =
-  (* { already consumed *)
-  let fields = ref [] in
-  while peek s <> Token.RBrace do
-    let key = expect_ident s in
-    expect s Token.Eq;
-    let v = expr_ 0 s in
-    fields := !fields @ [(key, v)];
-    if peek s = Token.Comma then ignore (advance s)
-  done;
-  expect s Token.RBrace;
-  Record !fields
 
 and parse_body s =
   let loc = peek_loc s in
@@ -586,51 +629,41 @@ let parse_type_def s =
     | Token.Upper n -> n
     | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
   in
-  expect s Token.Eq;
-  match peek s with
-  | Token.LBrace ->
-    ignore (advance s);
-    let fields = ref [] in
-    while peek s <> Token.RBrace do
-      let fname = expect_ident s in
-      expect s Token.Colon;
-      let ftype = parse_type_expr s in
-      fields := !fields @ [(fname, ftype)];
-      if peek s = Token.Comma then ignore (advance s)
-    done;
-    expect s Token.RBrace;
-    Ast.RecordType (type_name, !fields)
-  | _ ->
-    let parse_ctor_fields () =
-      (* Peek: if next is Upper, single positional field, no parens.
-         If LParen, parse (fields...) where fields are either:
-           - named:      ident Upper (, ident Upper)*
-           - positional: Upper (, Upper)* *)
-      match peek s with
-      | Token.Upper _ ->
-        [(None, parse_type_expr s)]
-      | Token.LParen ->
+  let parse_ctor_fields () =
+    (* Peek: if next is Upper, single positional field, no parens.
+       If LParen, parse (fields...) where fields are either:
+         - named:      ident Upper (, ident Upper)*
+         - positional: Upper (, Upper)* *)
+    match peek s with
+    | Token.Upper _ ->
+      [(None, parse_type_expr s)]
+    | Token.LParen ->
+      ignore (advance s);
+      let named = match peek s with Token.Ident _ -> true | _ -> false in
+      let parse_one () =
+        if named then
+          let fname = expect_ident s in
+          let ftype = parse_type_expr s in
+          (Some fname, ftype)
+        else
+          (None, parse_type_expr s)
+      in
+      let first = parse_one () in
+      let rest = ref [] in
+      while peek s = Token.Comma do
         ignore (advance s);
-        let named = match peek s with Token.Ident _ -> true | _ -> false in
-        let parse_one () =
-          if named then
-            let fname = expect_ident s in
-            let ftype = parse_type_expr s in
-            (Some fname, ftype)
-          else
-            (None, parse_type_expr s)
-        in
-        let first = parse_one () in
-        let rest = ref [] in
-        while peek s = Token.Comma do
-          ignore (advance s);
-          rest := !rest @ [parse_one ()]
-        done;
-        expect s Token.RParen;
-        first :: !rest
-      | _ -> []
-    in
-    let ctors = ref [] in
+        rest := !rest @ [parse_one ()]
+      done;
+      expect s Token.RParen;
+      first :: !rest
+    | _ -> []
+  in
+  (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
+  if peek s = Token.LParen then begin
+    let fields = parse_ctor_fields () in
+    Ast.Variants (type_name, [{ Ast.name = type_name; fields }])
+  end else begin
+    expect s Token.Eq;
     let parse_ctor () =
       let name =
         let loc = loc_prefix s in
@@ -641,12 +674,13 @@ let parse_type_def s =
       let fields = parse_ctor_fields () in
       { Ast.name; fields }
     in
-    ctors := [parse_ctor ()];
+    let ctors = ref [parse_ctor ()] in
     while peek s = Token.Pipe do
       ignore (advance s);
       ctors := !ctors @ [parse_ctor ()]
     done;
     Ast.Variants (type_name, !ctors)
+  end
 
 let parse_program tokens =
   let s = make tokens in

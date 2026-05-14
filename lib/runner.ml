@@ -152,9 +152,7 @@ let merge_import_env a b = {
 
 let local_tenv_of prog =
   List.filter_map (function
-    | Ast.TLType tdef ->
-      let n = match tdef with Ast.Variants(n,_) | Ast.RecordType(n,_) -> n in
-      Some (n, tdef)
+    | Ast.TLType (Ast.Variants (n, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.Ast.items
 
 (* Evaluate a single top-level item; imports already merged into env *)
@@ -175,8 +173,6 @@ let run_item env item =
       in
       (ctor.Ast.name, v) :: env
     ) env ctors
-  | Ast.TLType (Ast.RecordType (type_name, _)) ->
-    (type_name, VRecordCtor) :: env
   | Ast.TLExpr _ -> env
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
