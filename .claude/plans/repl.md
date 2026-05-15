@@ -3,15 +3,63 @@
 ## Invocation
 
 ```
-wand i               # start interactive session
-wand i file.wand     # start session with file preloaded
-wand e "expr"        # evaluate a single expression and exit
+wand i                             # start interactive session
+wand i --load file.wand            # start session with file preloaded
+wand e "expr"                      # evaluate a single expression and exit
+wand e --load config.wand "expr"   # evaluate in context of a preloaded file
+wand t "expr"                      # typecheck only, print inferred type
+wand t --load file.wand "expr"     # typecheck in context of a preloaded file
+wand d <name>                      # print doc string for a name
+wand d --load file.wand <name>     # doc in context of a preloaded file
 ```
 
-`i` and `e` are single-letter subcommands, consistent with each other.
-`wand e` is for one-shot evaluation — useful for quick queries from Claude or
-scripts without managing a persistent session. Exits with code 0 on success,
-1 on error.
+`--load` can be repeated to preload multiple files. It mirrors the `:load`
+special command inside the session.
+
+Each subcommand has a single-letter short form and a full-word alias:
+
+| Short | Long          |
+|-------|---------------|
+| `i`   | `interactive` |
+| `e`   | `eval`        |
+| `t`   | `type`        |
+| `d`   | `doc`         |
+| `h`   | `help`        |
+
+`wand e` exits with code 0 on success, 1 on error. `wand t` typechecks
+only — no evaluation, no side effects. `wand d` prints the doc string for a
+name; prints "no doc" until docstrings are implemented.
+
+## Help
+
+`h` is a subcommand, consistent with the single-letter pattern. `help` is an
+alias.
+
+- `wand h` — lists all subcommands with a one-line description each
+- `wand h <sub>` — shows usage specific to that subcommand
+
+Example:
+
+```
+$ wand h
+wand — a typed scripting language
+
+Commands:
+  i    Start an interactive session
+  e    Evaluate an expression and exit
+  t    Typecheck an expression without evaluating
+  d    Print the doc string for a name
+  h    Show this help, or help for a specific command
+
+$ wand h e
+Usage: wand e [--load <file>]... <expr>
+
+Evaluate a wand expression and print the result.
+If the expression contains a hole (?), typechecks only (same output as `wand t`).
+
+Options:
+  --load <file>    Load a .wand file before evaluating (repeatable)
+```
 
 ## Prompt and multi-line input
 
@@ -151,6 +199,11 @@ Hole: expected Bool
 
 Holes complement `:type`: `:type expr` tells you the type of a complete
 expression; `?` inside an expression tells you the type of a missing piece.
+
+For `wand e`, if the expression contains a hole, evaluation is skipped and
+the output is identical to `wand t` — hole types are reported, no side
+effects occur. A hole in `wand e` is a signal that the expression is
+incomplete, so running it would be meaningless.
 
 ### Typechecker changes
 
