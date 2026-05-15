@@ -861,9 +861,6 @@ let stdlib_eval_env : env = [
   ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_all",    v))));
   ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("io_flush",       v))));
   (* Exe primitives *)
-  ("exe_stdin", VBuiltin (function
-    | VUnit -> VString (In_channel.input_all In_channel.stdin)
-    | _ -> raise (EvalError "exe_stdin: expected Unit")));
   ("exe_args", VBuiltin (function
     | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
     | _ -> raise (EvalError "exe_args: expected Unit")));

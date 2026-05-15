@@ -613,7 +613,6 @@ let stdlib_type_env : env = [
   ("io_read_all",    Mono (TFun (TUnit, TString)));
   ("io_flush",       Mono (TFun (TUnit, TUnit)));
   (* Exe primitives *)
-  ("exe_stdin", Mono (TFun (TUnit, TString)));
   ("exe_args",  Mono (TFun (TUnit, TList TString)));
   ("exe_exit",  Mono (TFun (TInt,  TUnit)));
   ("exe_cwd",   Mono TString);
