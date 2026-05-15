@@ -545,6 +545,25 @@ let str_reverse s =
   let n = String.length s in
   String.init n (fun i -> s.[n - 1 - i])
 
+let path_normalize s =
+  let is_abs = String.length s > 0 && s.[0] = '/' in
+  let is_cur = (String.length s >= 2 && s.[0] = '.' && s.[1] = '/') || s = "." in
+  let parts = String.split_on_char '/' s in
+  let rec process acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: rest -> process acc rest
+    | ".." :: rest ->
+      (match acc with
+       | [] | ".." :: _ -> process (".." :: acc) rest
+       | _ :: tl -> process tl rest)
+    | p :: rest -> process (p :: acc) rest
+  in
+  let parts = process [] parts in
+  let joined = String.concat "/" parts in
+  if is_abs then "/" ^ joined
+  else if is_cur then "./" ^ joined
+  else joined
+
 let exe_args_ref : string list ref = ref []
 
 let stdlib_eval_env : env = [
@@ -660,6 +679,48 @@ let stdlib_eval_env : env = [
   ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
   ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
   ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
+  (* Path primitives — pure string operations on VPath values *)
+  ("path_join", VBuiltin (function
+    | VPath p1 | VString p1 -> VBuiltin (function
+      | VPath p2 | VString p2 -> VPath (path_normalize (Filename.concat p1 p2))
+      | _ -> raise (EvalError "path_join: expected Path"))
+    | _ -> raise (EvalError "path_join: expected Path")));
+  ("path_parent", VBuiltin (function
+    | VPath s | VString s -> VPath (Filename.dirname s)
+    | _ -> raise (EvalError "path_parent: expected Path")));
+  ("path_basename", VBuiltin (function
+    | VPath s | VString s -> VString (Filename.basename s)
+    | _ -> raise (EvalError "path_basename: expected Path")));
+  ("path_extension", VBuiltin (function
+    | VPath s | VString s -> VString (Filename.extension s)
+    | _ -> raise (EvalError "path_extension: expected Path")));
+  ("path_with_extension", VBuiltin (function
+    | VString ext -> VBuiltin (function
+      | VPath s | VString s -> VPath (Filename.remove_extension s ^ ext)
+      | _ -> raise (EvalError "path_with_extension: expected Path"))
+    | _ -> raise (EvalError "path_with_extension: expected String ext")));
+  ("path_is_absolute", VBuiltin (function
+    | VPath s | VString s ->
+      VBool (String.length s > 0 && s.[0] = '/')
+    | _ -> raise (EvalError "path_is_absolute: expected Path")));
+  ("path_is_relative", VBuiltin (function
+    | VPath s | VString s ->
+      VBool (String.length s = 0 || s.[0] <> '/')
+    | _ -> raise (EvalError "path_is_relative: expected Path")));
+  ("path_normalize", VBuiltin (function
+    | VPath s | VString s -> VPath (path_normalize s)
+    | _ -> raise (EvalError "path_normalize: expected Path")));
+  ("path_to_string", VBuiltin (function
+    | VPath s | VString s -> VString s
+    | _ -> raise (EvalError "path_to_string: expected Path")));
+  ("path_of_string", VBuiltin (function
+    | VString s -> VPath s
+    | _ -> raise (EvalError "path_of_string: expected String")));
+  ("path_components", VBuiltin (function
+    | VPath s | VString s ->
+      let parts = String.split_on_char '/' s |> List.filter (fun p -> p <> "") in
+      VList (List.map (fun p -> VString p) parts)
+    | _ -> raise (EvalError "path_components: expected Path")));
   (* IO primitives *)
   ("io_print_err",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_print_err",   v))));
   ("io_println_err", VBuiltin (fun v -> Effect.perform (WandEffect ("io_println_err", v))));

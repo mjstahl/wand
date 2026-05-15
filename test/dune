@@ -61,3 +61,7 @@
 (test
  (name test_io)
  (libraries wand alcotest))
+
+(test
+ (name test_path)
+ (libraries wand alcotest))

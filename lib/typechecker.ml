@@ -566,6 +566,18 @@ let stdlib_type_env : env = [
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
   ("str_to_float",   Mono (TFun (TString, TFloat)));
+  (* Path primitives *)
+  ("path_join",           Mono (TFun (TPath, TFun (TPath, TPath))));
+  ("path_parent",         Mono (TFun (TPath, TPath)));
+  ("path_basename",       Mono (TFun (TPath, TString)));
+  ("path_extension",      Mono (TFun (TPath, TString)));
+  ("path_with_extension", Mono (TFun (TString, TFun (TPath, TPath))));
+  ("path_is_absolute",    Mono (TFun (TPath, TBool)));
+  ("path_is_relative",    Mono (TFun (TPath, TBool)));
+  ("path_normalize",      Mono (TFun (TPath, TPath)));
+  ("path_to_string",      Mono (TFun (TPath, TString)));
+  ("path_of_string",      Mono (TFun (TString, TPath)));
+  ("path_components",     Mono (TFun (TPath, TList TString)));
   (* FS primitives *)
   ("fs_exists",  Mono (TFun (TString, TBool)));
   ("fs_is_file", Mono (TFun (TString, TBool)));

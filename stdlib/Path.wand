@@ -1,0 +1,12 @@
+let join           p1 p2  = path_join p1 p2
+let parent         p      = path_parent p
+let basename       p      = path_basename p
+let dirname        p      = path_parent p
+let extension      p      = path_extension p
+let with_extension ext p  = path_with_extension ext p
+let is_absolute?   p      = path_is_absolute p
+let is_relative?   p      = path_is_relative p
+let normalize      p      = path_normalize p
+let to_string      p      = path_to_string p
+let of_string      s      = path_of_string s
+let components     p      = path_components p
