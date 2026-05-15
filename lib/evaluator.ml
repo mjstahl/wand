@@ -866,6 +866,42 @@ let stdlib_eval_env : env = [
     | VInt n -> exit n
     | _ -> raise (EvalError "exe_exit: expected Int")));
   ("exe_cwd", VString (Sys.getcwd ()));
+  (* List primitives *)
+  ("list_sort", VBuiltin (function
+    | VList xs -> VList (List.sort compare xs)
+    | _ -> raise (EvalError "list_sort: expected List")));
+  ("list_sort_by", VBuiltin (fun f ->
+    VBuiltin (function
+      | VList xs ->
+        VList (List.sort (fun a b -> compare (apply f a) (apply f b)) xs)
+      | _ -> raise (EvalError "list_sort_by: expected List"))));
+  ("list_unique", VBuiltin (function
+    | VList xs ->
+      let seen = Hashtbl.create 16 in
+      VList (List.filter (fun x ->
+        if Hashtbl.mem seen x then false
+        else (Hashtbl.add seen x (); true)) xs)
+    | _ -> raise (EvalError "list_unique: expected List")));
+  ("list_range", VBuiltin (function
+    | VInt lo -> VBuiltin (function
+      | VInt hi ->
+        let rec go i acc =
+          if i < lo then acc else go (i - 1) (VInt i :: acc)
+        in
+        VList (go hi [])
+      | _ -> raise (EvalError "list_range: expected Int"))
+    | _ -> raise (EvalError "list_range: expected Int")));
+  ("list_flatten", VBuiltin (function
+    | VList xss ->
+      VList (List.concat_map (function
+        | VList xs -> xs
+        | _ -> raise (EvalError "list_flatten: expected List of Lists")) xss)
+    | _ -> raise (EvalError "list_flatten: expected List")));
+  ("list_concat", VBuiltin (function
+    | VList xs -> VBuiltin (function
+      | VList ys -> VList (xs @ ys)
+      | _ -> raise (EvalError "list_concat: expected List"))
+    | _ -> raise (EvalError "list_concat: expected List")));
 ]
 
 (* User-visible globals — the only names available without an import *)

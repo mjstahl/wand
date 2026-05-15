@@ -238,29 +238,35 @@ let run_item env item =
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
-(* Load imports for a program; visited is shared to detect cycles.
-   Returns (import_env, own_type_env, own_eval_env) for namespace building. *)
-let rec load_imports_for ~base_dir ~visited prog =
+type module_result = import_env * (string * Typechecker.scheme) list * env
+
+(* Load imports for a program.
+   `cache` maps path -> result so each module is loaded once per run_program.
+   `loading` detects import cycles. *)
+let rec load_imports_for ~base_dir ~cache ~loading prog =
   List.fold_left (fun acc item ->
     match item with
     | Ast.TLImport kind ->
       let full = resolve_import base_dir kind in
-      if List.mem full !visited then acc
-      else begin
-        visited := full :: !visited;
-        let ns_name = namespace_name_of kind in
-        let (modul_import, own_type, own_eval) = load_module full visited in
-        (* Merge tenv for constructor visibility; expose functions as namespace *)
-        let ns_type_entry = (ns_name, Typechecker.Namespace own_type) in
-        let ns_eval_entry = (ns_name, VRecord own_eval) in
-        { tenv     = modul_import.tenv @ acc.tenv;
-          type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
-          eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env }
-      end
+      let ns_name = namespace_name_of kind in
+      let (modul_import, own_type, own_eval) =
+        match Hashtbl.find_opt cache full with
+        | Some cached -> cached
+        | None ->
+          if List.mem full !loading then
+            failwith ("import cycle detected: " ^ full)
+          else
+            load_module full ~cache ~loading
+      in
+      let ns_type_entry = (ns_name, Typechecker.Namespace own_type) in
+      let ns_eval_entry = (ns_name, VRecord own_eval) in
+      { tenv     = modul_import.tenv @ acc.tenv;
+        type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
+        eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env }
     | _ -> acc
   ) empty_import_env prog.Ast.items
 
-and load_module path visited =
+and load_module path ~cache ~loading =
   let src =
     try In_channel.with_open_text path In_channel.input_all
     with Sys_error msg ->
@@ -277,25 +283,32 @@ and load_module path visited =
       failwith ("parse error in '" ^ path ^ "': " ^ msg)
   in
   let base_dir = Filename.dirname path in
-  let imported = load_imports_for ~base_dir ~visited prog in
-  (match Typechecker.infer_program_env_with_own
-           ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
-   | Error msg -> failwith ("type error: " ^ msg)
-   | Ok (type_env, own_type) ->
-     let base = stdlib_eval_env @ imported.eval_env in
-     let full_eval = List.fold_left run_item base prog.Ast.items in
-     let n_own = List.length full_eval - List.length base in
-     let own_eval = List.filteri (fun i _ -> i < n_own) full_eval in
-     let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
-                         type_env;
-                         eval_env = full_eval } in
-     (full_import, own_type, own_eval))
+  loading := path :: !loading;
+  let imported = load_imports_for ~base_dir ~cache ~loading prog in
+  let result =
+    (match Typechecker.infer_program_env_with_own
+             ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
+     | Error msg -> failwith ("type error: " ^ msg)
+     | Ok (type_env, own_type) ->
+       let base = stdlib_eval_env @ imported.eval_env in
+       let full_eval = List.fold_left run_item base prog.Ast.items in
+       let n_own = List.length full_eval - List.length base in
+       let own_eval = List.filteri (fun i _ -> i < n_own) full_eval in
+       let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
+                           type_env;
+                           eval_env = full_eval } in
+       (full_import, own_type, own_eval))
+  in
+  Hashtbl.replace cache path result;
+  loading := List.filter (fun p -> p <> path) !loading;
+  result
 
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 
 let run_program ~base_dir prog =
-  let visited = ref [] in
-  let imp = load_imports_for ~base_dir ~visited prog in
+  let cache = Hashtbl.create 8 in
+  let loading = ref [] in
+  let imp = load_imports_for ~base_dir ~cache ~loading prog in
   (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->

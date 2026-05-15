@@ -617,6 +617,14 @@ let stdlib_type_env : env = [
   ("exe_args",  Mono (TFun (TUnit, TList TString)));
   ("exe_exit",  Mono (TFun (TInt,  TUnit)));
   ("exe_cwd",   Mono TString);
+  (* List primitives *)
+  ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
+  ("list_sort_by", let a = fresh () in let b = fresh () in
+                   generalize [] (TFun (TFun (a, b), TFun (TList a, TList a))));
+  ("list_unique",  let a = fresh () in generalize [] (TFun (TList a, TList a)));
+  ("list_range",   Mono (TFun (TInt, TFun (TInt, TList TInt))));
+  ("list_flatten", let a = fresh () in generalize [] (TFun (TList (TList a), TList a)));
+  ("list_concat",  let a = fresh () in generalize [] (TFun (TList a, TFun (TList a, TList a))));
 ]
 
 (* User-visible globals — the only names available without an import *)

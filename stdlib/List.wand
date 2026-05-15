@@ -52,3 +52,10 @@ let each f xs =
   let go _ []       = ()
       go i [h : t] = let () = f (i, h) in go (i + 1) t
   in go 0 xs
+
+let sort       xs   = list_sort xs
+let sort_by    f xs = list_sort_by f xs
+let unique     xs   = list_unique xs
+let range      lo hi = list_range lo hi
+let flatten    xs   = list_flatten xs
+let concat     xs ys = list_concat xs ys
