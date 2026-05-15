@@ -279,7 +279,8 @@ Backed by `cohttp-lwt` or `httpaf`. Requires async story to be decided first.
 ```
 0.1 ?/! identifiers          ✓ done
 0.2 DateTime timezone tests  ✓ done (to_utc/offset deferred to Phase 5.1)
-1.4 IO module  ← absorbs Exe.stdin, Exe.exit
+1.4 IO module                ✓ done (print_err, println_err, read_line, read_all, flush, exit; IO.wand + top-level aliases)
+1.1 String (expand)  ←
 1.1 String (expand)
 1.2 Path module
 2.1 FS (expand)  ← absorbs Exe.cwd

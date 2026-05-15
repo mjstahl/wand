@@ -91,6 +91,26 @@ let run_with_default_handler (thunk : unit -> value) : value =
                         | Unix.Unix_error (e, _, _) -> Error ("remove: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect (("io_print_err" | "print_err"), v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              output_string stderr (show_value v);
+              Effect.Deep.continue k VUnit)
+          | WandEffect (("io_println_err" | "println_err"), v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              output_string stderr (show_value v ^ "\n");
+              Effect.Deep.continue k VUnit)
+          | WandEffect (("io_read_line" | "read_line"), VUnit) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (input_line stdin) with End_of_file -> Error "end of input") with
+              | Ok s    -> Effect.Deep.continue    k (VString s)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("io_read_all", VUnit) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Effect.Deep.continue k (VString (In_channel.input_all stdin)))
+          | WandEffect ("io_flush", VUnit) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              flush stdout;
+              Effect.Deep.continue k VUnit)
           | _ -> None
     }
 

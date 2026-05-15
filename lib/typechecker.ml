@@ -567,11 +567,22 @@ let builtin_type_env : env = [
   ("fs_mkdir_p", Mono (TFun (TString, TUnit)));
   ("fs_ls",      Mono (TFun (TString, TList TString)));
   ("fs_remove",  Mono (TFun (TString, TUnit)));
-  (* Exe primitives *)
+  (* IO primitives *)
+  ("io_print_err",   Mono (TFun (TString, TUnit)));
+  ("io_println_err", Mono (TFun (TString, TUnit)));
+  ("io_read_line",   Mono (TFun (TUnit, TString)));
+  ("io_read_all",    Mono (TFun (TUnit, TString)));
+  ("io_flush",       Mono (TFun (TUnit, TUnit)));
+  (* Top-level IO aliases *)
+  ("print_err",   Mono (TFun (TString, TUnit)));
+  ("println_err", Mono (TFun (TString, TUnit)));
+  ("read_line",   Mono (TFun (TUnit, TString)));
+  ("exit",        let a = fresh () in generalize [] (TFun (TInt, a)));
+  (* Exe primitives — kept for backward compat until Env/FS absorb them *)
   ("exe_stdin", Mono (TFun (TUnit, TString)));
   ("exe_args",  Mono (TFun (TUnit, TList TString)));
-  ("exe_exit", Mono (TFun (TInt,  TUnit)));
-  ("exe_cwd",  Mono TString);
+  ("exe_exit",  Mono (TFun (TInt,  TUnit)));
+  ("exe_cwd",   Mono TString);
 ]
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)

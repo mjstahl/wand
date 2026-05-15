@@ -1,0 +1,7 @@
+let print     = print
+let println   = println
+let print_err   s = io_print_err s
+let println_err s = io_println_err s
+let read_line ()  = io_read_line ()
+let read_all  ()  = io_read_all ()
+let flush     ()  = io_flush ()

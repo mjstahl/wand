@@ -57,3 +57,7 @@
 (test
  (name test_string_stdlib)
  (libraries wand alcotest))
+
+(test
+ (name test_io)
+ (libraries wand alcotest))
