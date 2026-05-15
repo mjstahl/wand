@@ -540,9 +540,11 @@ let infer_expr (e : expr) : (typ, string) result =
   try Ok (infer [] [] e)
   with TypeError msg -> Error msg
 
-let builtin_type_env : env = [
+(* All primitives — used when typechecking stdlib modules *)
+let stdlib_type_env : env = [
   ("print",      let a = fresh () in generalize [] (TFun (a, TUnit)));
   ("println",    let a = fresh () in generalize [] (TFun (a, TUnit)));
+  ("exit",       let a = fresh () in generalize [] (TFun (TInt, a)));
   ("read_file",  Mono (TFun (TString, TString)));
   ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
   (* String primitives *)
@@ -573,20 +575,22 @@ let builtin_type_env : env = [
   ("io_read_line",   Mono (TFun (TUnit, TString)));
   ("io_read_all",    Mono (TFun (TUnit, TString)));
   ("io_flush",       Mono (TFun (TUnit, TUnit)));
-  (* Top-level IO aliases *)
-  ("print_err",   Mono (TFun (TString, TUnit)));
-  ("println_err", Mono (TFun (TString, TUnit)));
-  ("read_line",   Mono (TFun (TUnit, TString)));
-  ("exit",        let a = fresh () in generalize [] (TFun (TInt, a)));
-  (* Exe primitives — kept for backward compat until Env/FS absorb them *)
+  (* Exe primitives *)
   ("exe_stdin", Mono (TFun (TUnit, TString)));
   ("exe_args",  Mono (TFun (TUnit, TList TString)));
   ("exe_exit",  Mono (TFun (TInt,  TUnit)));
   ("exe_cwd",   Mono TString);
 ]
 
+(* User-visible globals — the only names available without an import *)
+let builtin_type_env : env = [
+  ("print",   let a = fresh () in generalize [] (TFun (a, TUnit)));
+  ("println", let a = fresh () in generalize [] (TFun (a, TUnit)));
+  ("exit",    let a = fresh () in generalize [] (TFun (TInt, a)));
+]
+
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
-let infer_program_ ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
   let local_tenv = List.filter_map (function
@@ -594,7 +598,7 @@ let infer_program_ ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv in
-  let base_env = tenv_to_ctor_env tenv @ builtin_type_env @ init_env in
+  let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let (env, last_t) = List.fold_left (fun (env, last_t) item ->
     match item with
     | TLLet (name, [], body) ->
@@ -622,11 +626,11 @@ let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     Ok (env, last_t)
   with TypeError msg -> Error msg
 
-(* Returns (full_env, own_env) where own_env is only this program's bindings. *)
+(* Returns (full_env, own_env); uses stdlib_type_env as base (for module loading). *)
 let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * env, string) result =
   try
-    let (_, env, own, _) = infer_program_ ~init_tenv ~init_env prog in
+    let (_, env, own, _) = infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env prog in
     Ok (env, own)
   with TypeError msg -> Error msg
 

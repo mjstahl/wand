@@ -1,0 +1,9 @@
+let read_file  = read_file
+let write_file = write_file
+let exists?  path = fs_exists path
+let is_file? path = fs_is_file path
+let is_dir?  path = fs_is_dir path
+let mkdir    path = fs_mkdir path
+let mkdir_p  path = fs_mkdir_p path
+let list_dir path = fs_ls path
+let delete   path = fs_remove path

@@ -526,9 +526,10 @@ let str_contains_impl needle haystack =
 
 let exe_args_ref : string list ref = ref []
 
-let base_eval_env : env = [
+let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
+  ("exit",       VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
   ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("read_file",  v))));
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
@@ -618,18 +619,13 @@ let base_eval_env : env = [
   ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
   ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
   ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
-  (* IO primitives — effect name matches function name for user-interceptable handle *)
+  (* IO primitives *)
   ("io_print_err",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_print_err",   v))));
   ("io_println_err", VBuiltin (fun v -> Effect.perform (WandEffect ("io_println_err", v))));
   ("io_read_line",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_line",   v))));
   ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_all",    v))));
   ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("io_flush",       v))));
-  (* Top-level aliases — fire effects under their own names so handle arms match *)
-  ("print_err",  VBuiltin (fun v -> Effect.perform (WandEffect ("print_err",  v))));
-  ("println_err",VBuiltin (fun v -> Effect.perform (WandEffect ("println_err",v))));
-  ("read_line",  VBuiltin (fun v -> Effect.perform (WandEffect ("read_line",  v))));
-  ("exit",       VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
-  (* Exe primitives — kept for backward compat until Env/FS absorb them *)
+  (* Exe primitives *)
   ("exe_stdin", VBuiltin (function
     | VUnit -> VString (In_channel.input_all In_channel.stdin)
     | _ -> raise (EvalError "exe_stdin: expected Unit")));
@@ -640,4 +636,13 @@ let base_eval_env : env = [
     | VInt n -> exit n
     | _ -> raise (EvalError "exe_exit: expected Int")));
   ("exe_cwd", VString (Sys.getcwd ()));
+]
+
+(* User-visible globals — the only names available without an import *)
+let base_eval_env : env = [
+  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
+  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
+  ("exit",    VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("Ok",      VPartialConstr ("Ok",    1, []));
+  ("Error",   VPartialConstr ("Error", 1, []));
 ]

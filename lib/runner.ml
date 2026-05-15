@@ -241,7 +241,7 @@ and load_module path visited =
            ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
    | Error msg -> failwith ("type error: " ^ msg)
    | Ok (type_env, own_type) ->
-     let base = base_eval_env @ imported.eval_env in
+     let base = stdlib_eval_env @ imported.eval_env in
      let full_eval = List.fold_left run_item base prog.Ast.items in
      let n_own = List.length full_eval - List.length base in
      let own_eval = List.filteri (fun i _ -> i < n_own) full_eval in
