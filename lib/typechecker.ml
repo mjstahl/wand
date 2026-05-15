@@ -558,9 +558,14 @@ let stdlib_type_env : env = [
   ("str_starts_with",Mono (TFun (TString, TFun (TString, TBool))));
   ("str_ends_with",  Mono (TFun (TString, TFun (TString, TBool))));
   ("str_replace",    Mono (TFun (TString, TFun (TString, TFun (TString, TString)))));
+  ("str_trim_left",  Mono (TFun (TString, TString)));
+  ("str_trim_right", Mono (TFun (TString, TString)));
+  ("str_repeat",     Mono (TFun (TInt, TFun (TString, TString))));
+  ("str_reverse",    Mono (TFun (TString, TString)));
   ("str_chars",      Mono (TFun (TString, TList TString)));
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
+  ("str_to_float",   Mono (TFun (TString, TFloat)));
   (* FS primitives *)
   ("fs_exists",  Mono (TFun (TString, TBool)));
   ("fs_is_file", Mono (TFun (TString, TBool)));

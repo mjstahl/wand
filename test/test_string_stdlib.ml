@@ -10,15 +10,17 @@ let err label input =
   | Error _ -> ()
   | Ok s -> Alcotest.failf "%s: expected error but got: %s" label s
 
-(* ── length ─────────────────────────────────────────────────────────────── *)
+(* ── length / is_empty? ─────────────────────────────────────────────────── *)
 
 let test_length () =
   ok "empty"    {|import String
 String.length ""|} "0";
   ok "hello"    {|import String
 String.length "hello"|} "5";
-  ok "unicode"  {|import String
-String.length "abc"|} "3"
+  ok "is_empty? true"  {|import String
+String.is_empty? ""|} "true";
+  ok "is_empty? false" {|import String
+String.is_empty? "x"|} "false"
 
 (* ── upper / lower ──────────────────────────────────────────────────────── *)
 
@@ -33,12 +35,16 @@ String.lower (String.upper "Hello")|} "hello"
 (* ── trim ───────────────────────────────────────────────────────────────── *)
 
 let test_trim () =
-  ok "spaces"   {|import String
+  ok "trim spaces"   {|import String
 String.trim "  hello  "|} "hello";
-  ok "newlines" {|import String
+  ok "trim newlines" {|import String
 String.trim "\n  hi\n"|} "hi";
-  ok "clean"    {|import String
-String.trim "clean"|} "clean"
+  ok "trim clean"    {|import String
+String.trim "clean"|} "clean";
+  ok "trim_left"     {|import String
+String.trim_left "  hi  "|} "hi  ";
+  ok "trim_right"    {|import String
+String.trim_right "  hi  "|} "  hi"
 
 (* ── slice ──────────────────────────────────────────────────────────────── *)
 
@@ -64,21 +70,21 @@ String.split "," "abc"|} "[abc]";
   ok "words"   {|import String
 String.split " " "hello world"|} "[hello, world]"
 
-(* ── contains / starts_with / ends_with ─────────────────────────────────── *)
+(* ── contains? / starts_with? / ends_with? ──────────────────────────────── *)
 
 let test_predicates () =
-  ok "contains yes"    {|import String
-String.contains "ll" "hello"|} "true";
-  ok "contains no"     {|import String
-String.contains "xy" "hello"|} "false";
-  ok "starts_with yes" {|import String
-String.starts_with "he" "hello"|} "true";
-  ok "starts_with no"  {|import String
-String.starts_with "lo" "hello"|} "false";
-  ok "ends_with yes"   {|import String
-String.ends_with "lo" "hello"|} "true";
-  ok "ends_with no"    {|import String
-String.ends_with "he" "hello"|} "false"
+  ok "contains? yes"      {|import String
+String.contains? "ll" "hello"|} "true";
+  ok "contains? no"       {|import String
+String.contains? "xy" "hello"|} "false";
+  ok "starts_with? yes"   {|import String
+String.starts_with? "he" "hello"|} "true";
+  ok "starts_with? no"    {|import String
+String.starts_with? "lo" "hello"|} "false";
+  ok "ends_with? yes"     {|import String
+String.ends_with? "lo" "hello"|} "true";
+  ok "ends_with? no"      {|import String
+String.ends_with? "he" "hello"|} "false"
 
 (* ── replace ────────────────────────────────────────────────────────────── *)
 
@@ -90,6 +96,20 @@ String.replace "x" "y" "hello"|} "hello";
   ok "prefix"   {|import String
 String.replace "he" "HE" "hello"|} "HEllo"
 
+(* ── repeat / reverse ───────────────────────────────────────────────────── *)
+
+let test_repeat_reverse () =
+  ok "repeat 3"  {|import String
+String.repeat 3 "ab"|} "ababab";
+  ok "repeat 0"  {|import String
+String.repeat 0 "ab"|} "";
+  ok "repeat 1"  {|import String
+String.repeat 1 "x"|} "x";
+  ok "reverse"   {|import String
+String.reverse "hello"|} "olleh";
+  ok "reverse empty" {|import String
+String.reverse ""|} ""
+
 (* ── chars ──────────────────────────────────────────────────────────────── *)
 
 let test_chars () =
@@ -98,17 +118,23 @@ String.chars "abc"|} "[a, b, c]";
   ok "empty" {|import String
 String.chars ""|} "[]"
 
-(* ── of_int / to_int ────────────────────────────────────────────────────── *)
+(* ── of_int / to_int / to_float ─────────────────────────────────────────── *)
 
 let test_conversions () =
-  ok "of_int"   {|import String
+  ok "of_int"    {|import String
 String.of_int 42|} "42";
-  ok "to_int"   {|import String
+  ok "to_int"    {|import String
 String.to_int "123"|} "123";
-  ok "negative" {|import String
+  ok "negative"  {|import String
 String.of_int (-7)|} "-7";
-  err "bad int" {|import String
-String.to_int "abc"|}
+  ok "to_float"  {|import String
+String.to_float "3.14"|} "3.14";
+  ok "to_float int-like" {|import String
+String.to_float "42"|} "42";
+  err "bad int"   {|import String
+String.to_int "abc"|};
+  err "bad float" {|import String
+String.to_float "abc"|}
 
 (* ── join ───────────────────────────────────────────────────────────────── *)
 
@@ -128,7 +154,7 @@ String.lines "a\nb\nc"|} "[a, b, c]";
   ok "words" {|import String
 String.words "one two three"|} "[one, two, three]"
 
-(* ── pipeline style ─────────────────────────────────────────────────────── *)
+(* ── pipeline ────────────────────────────────────────────────────────────── *)
 
 let test_pipeline () =
   ok "pipe" {|import String
@@ -140,17 +166,18 @@ s |> String.trim |> String.lower|} "hello, world!"
 let () =
   Alcotest.run "String stdlib" [
     "core", [
-      Alcotest.test_case "length"      `Quick test_length;
-      Alcotest.test_case "case"        `Quick test_case;
-      Alcotest.test_case "trim"        `Quick test_trim;
-      Alcotest.test_case "slice"       `Quick test_slice;
-      Alcotest.test_case "split"       `Quick test_split;
-      Alcotest.test_case "predicates"  `Quick test_predicates;
-      Alcotest.test_case "replace"     `Quick test_replace;
-      Alcotest.test_case "chars"       `Quick test_chars;
-      Alcotest.test_case "conversions" `Quick test_conversions;
-      Alcotest.test_case "join"        `Quick test_join;
-      Alcotest.test_case "lines/words" `Quick test_lines_words;
-      Alcotest.test_case "pipeline"    `Quick test_pipeline;
+      Alcotest.test_case "length"         `Quick test_length;
+      Alcotest.test_case "case"           `Quick test_case;
+      Alcotest.test_case "trim"           `Quick test_trim;
+      Alcotest.test_case "slice"          `Quick test_slice;
+      Alcotest.test_case "split"          `Quick test_split;
+      Alcotest.test_case "predicates"     `Quick test_predicates;
+      Alcotest.test_case "replace"        `Quick test_replace;
+      Alcotest.test_case "repeat/reverse" `Quick test_repeat_reverse;
+      Alcotest.test_case "chars"          `Quick test_chars;
+      Alcotest.test_case "conversions"    `Quick test_conversions;
+      Alcotest.test_case "join"           `Quick test_join;
+      Alcotest.test_case "lines/words"    `Quick test_lines_words;
+      Alcotest.test_case "pipeline"       `Quick test_pipeline;
     ];
   ]

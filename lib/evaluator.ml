@@ -524,6 +524,27 @@ let str_contains_impl needle haystack =
     !found
   end
 
+let str_trim_left s =
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n && (let c = s.[!i] in c = ' ' || c = '\t' || c = '\n' || c = '\r') do incr i done;
+  String.sub s !i (n - !i)
+
+let str_trim_right s =
+  let n = String.length s in
+  let i = ref (n - 1) in
+  while !i >= 0 && (let c = s.[!i] in c = ' ' || c = '\t' || c = '\n' || c = '\r') do decr i done;
+  String.sub s 0 (!i + 1)
+
+let str_repeat n s =
+  let buf = Buffer.create (max 0 (String.length s * n)) in
+  for _ = 1 to n do Buffer.add_string buf s done;
+  Buffer.contents buf
+
+let str_reverse s =
+  let n = String.length s in
+  String.init n (fun i -> s.[n - 1 - i])
+
 let exe_args_ref : string list ref = ref []
 
 let stdlib_eval_env : env = [
@@ -592,6 +613,20 @@ let stdlib_eval_env : env = [
         | _ -> raise (EvalError "str_replace: expected String"))
       | _ -> raise (EvalError "str_replace: expected String"))
     | _ -> raise (EvalError "str_replace: expected String")));
+  ("str_trim_left", VBuiltin (function
+    | VString s -> VString (str_trim_left s)
+    | _ -> raise (EvalError "str_trim_left: expected String")));
+  ("str_trim_right", VBuiltin (function
+    | VString s -> VString (str_trim_right s)
+    | _ -> raise (EvalError "str_trim_right: expected String")));
+  ("str_repeat", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VString s -> VString (str_repeat n s)
+      | _ -> raise (EvalError "str_repeat: expected String"))
+    | _ -> raise (EvalError "str_repeat: expected Int")));
+  ("str_reverse", VBuiltin (function
+    | VString s -> VString (str_reverse s)
+    | _ -> raise (EvalError "str_reverse: expected String")));
   ("str_chars", VBuiltin (function
     | VString s ->
       VList (List.init (String.length s) (fun i -> VString (String.make 1 s.[i])))
@@ -605,6 +640,12 @@ let stdlib_eval_env : env = [
        | Some n -> VInt n
        | None   -> raise (EvalError (Printf.sprintf "str_to_int: cannot parse %S" s)))
     | _ -> raise (EvalError "str_to_int: expected String")));
+  ("str_to_float", VBuiltin (function
+    | VString s ->
+      (match float_of_string_opt s with
+       | Some f -> VFloat f
+       | None   -> raise (EvalError (Printf.sprintf "str_to_float: cannot parse %S" s)))
+    | _ -> raise (EvalError "str_to_float: expected String")));
   (* FS primitives *)
   ("fs_exists",  VBuiltin (function
     | VString p -> VBool (Sys.file_exists p)
