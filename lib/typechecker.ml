@@ -566,6 +566,18 @@ let stdlib_type_env : env = [
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
   ("str_to_float",   Mono (TFun (TString, TFloat)));
+  (* Duration primitives *)
+  ("dur_zero",    Mono TDuration);
+  ("dur_seconds", Mono (TFun (TInt, TDuration)));
+  ("dur_minutes", Mono (TFun (TInt, TDuration)));
+  ("dur_hours",   Mono (TFun (TInt, TDuration)));
+  ("dur_days",    Mono (TFun (TInt, TDuration)));
+  ("dur_weeks",   Mono (TFun (TInt, TDuration)));
+  ("dur_add",     Mono (TFun (TDuration, TFun (TDuration, TDuration))));
+  ("dur_sub",     Mono (TFun (TDuration, TFun (TDuration, TDuration))));
+  ("dur_scale",   Mono (TFun (TInt, TFun (TDuration, TDuration))));
+  ("dur_format",  Mono (TFun (TDuration, TString)));
+  ("dur_to_ms",   Mono (TFun (TDuration, TInt)));
   (* Path primitives *)
   ("path_join",           Mono (TFun (TPath, TFun (TPath, TPath))));
   ("path_parent",         Mono (TFun (TPath, TPath)));

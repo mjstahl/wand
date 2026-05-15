@@ -1,0 +1,11 @@
+let zero     = dur_zero
+let seconds  n = dur_seconds n
+let minutes  n = dur_minutes n
+let hours    n = dur_hours n
+let days     n = dur_days n
+let weeks    n = dur_weeks n
+let add      a b = dur_add a b
+let sub      a b = dur_sub a b
+let scale    n d = dur_scale n d
+let format   d   = dur_format d
+let to_ms    d   = dur_to_ms d

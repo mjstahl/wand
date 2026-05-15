@@ -545,6 +545,51 @@ let str_reverse s =
   let n = String.length s in
   String.init n (fun i -> s.[n - 1 - i])
 
+let parse_dur_ms s =
+  let n = String.length s in
+  let i = ref 0 in
+  let total = ref 0 in
+  let at i prefix =
+    let plen = String.length prefix in
+    n >= i + plen && String.sub s i plen = prefix
+  in
+  (try
+    while !i < n do
+      let j = ref !i in
+      while !j < n && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
+      if !j = !i then raise Exit;
+      let num = int_of_string (String.sub s !i (!j - !i)) in
+      i := !j;
+      if      at !i "min" then (total := !total + num * 60000;              i := !i + 3)
+      else if at !i "ms"  then (total := !total + num;                      i := !i + 2)
+      else if at !i "w"   then (total := !total + num * 7 * 24 * 3600000;  i := !i + 1)
+      else if at !i "d"   then (total := !total + num * 24 * 3600000;       i := !i + 1)
+      else if at !i "h"   then (total := !total + num * 3600000;             i := !i + 1)
+      else if at !i "m"   then (total := !total + num * 60000;              i := !i + 1)
+      else if at !i "s"   then (total := !total + num * 1000;               i := !i + 1)
+      else raise Exit
+    done
+  with Exit -> raise (EvalError (Printf.sprintf "invalid duration: %S" s)));
+  !total
+
+let format_dur_ms ms =
+  if ms = 0 then "0s"
+  else
+    let ms = abs ms in
+    let buf = Buffer.create 16 in
+    let add n unit =
+      if n > 0 then (Buffer.add_string buf (string_of_int n); Buffer.add_string buf unit)
+    in
+    let rem = ref ms in
+    let wk = !rem / (7*24*3600000) in rem := !rem mod (7*24*3600000);
+    let dy = !rem / (24*3600000)   in rem := !rem mod (24*3600000);
+    let hr = !rem / 3600000        in rem := !rem mod 3600000;
+    let mn = !rem / 60000          in rem := !rem mod 60000;
+    let sc = !rem / 1000           in rem := !rem mod 1000;
+    let ml = !rem in
+    add wk "w"; add dy "d"; add hr "h"; add mn "m"; add sc "s"; add ml "ms";
+    Buffer.contents buf
+
 let path_normalize s =
   let is_abs = String.length s > 0 && s.[0] = '/' in
   let is_cur = (String.length s >= 2 && s.[0] = '.' && s.[1] = '/') || s = "." in
@@ -679,6 +724,44 @@ let stdlib_eval_env : env = [
   ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
   ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
   ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
+  (* Duration primitives *)
+  ("dur_zero",    VDuration "0s");
+  ("dur_seconds", VBuiltin (function
+    | VInt n -> VDuration (format_dur_ms (n * 1000))
+    | _ -> raise (EvalError "dur_seconds: expected Int")));
+  ("dur_minutes", VBuiltin (function
+    | VInt n -> VDuration (format_dur_ms (n * 60000))
+    | _ -> raise (EvalError "dur_minutes: expected Int")));
+  ("dur_hours",   VBuiltin (function
+    | VInt n -> VDuration (format_dur_ms (n * 3600000))
+    | _ -> raise (EvalError "dur_hours: expected Int")));
+  ("dur_days",    VBuiltin (function
+    | VInt n -> VDuration (format_dur_ms (n * 24 * 3600000))
+    | _ -> raise (EvalError "dur_days: expected Int")));
+  ("dur_weeks",   VBuiltin (function
+    | VInt n -> VDuration (format_dur_ms (n * 7 * 24 * 3600000))
+    | _ -> raise (EvalError "dur_weeks: expected Int")));
+  ("dur_add", VBuiltin (function
+    | VDuration a -> VBuiltin (function
+      | VDuration b -> VDuration (format_dur_ms (parse_dur_ms a + parse_dur_ms b))
+      | _ -> raise (EvalError "dur_add: expected Duration"))
+    | _ -> raise (EvalError "dur_add: expected Duration")));
+  ("dur_sub", VBuiltin (function
+    | VDuration a -> VBuiltin (function
+      | VDuration b -> VDuration (format_dur_ms (max 0 (parse_dur_ms a - parse_dur_ms b)))
+      | _ -> raise (EvalError "dur_sub: expected Duration"))
+    | _ -> raise (EvalError "dur_sub: expected Duration")));
+  ("dur_scale", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VDuration d -> VDuration (format_dur_ms (n * parse_dur_ms d))
+      | _ -> raise (EvalError "dur_scale: expected Duration"))
+    | _ -> raise (EvalError "dur_scale: expected Int")));
+  ("dur_format", VBuiltin (function
+    | VDuration d -> VString (format_dur_ms (parse_dur_ms d))
+    | _ -> raise (EvalError "dur_format: expected Duration")));
+  ("dur_to_ms", VBuiltin (function
+    | VDuration d -> VInt (parse_dur_ms d)
+    | _ -> raise (EvalError "dur_to_ms: expected Duration")));
   (* Path primitives — pure string operations on VPath values *)
   ("path_join", VBuiltin (function
     | VPath p1 | VString p1 -> VBuiltin (function
