@@ -712,18 +712,63 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "str_to_float: expected String")));
   (* FS primitives *)
   ("fs_exists",  VBuiltin (function
-    | VString p -> VBool (Sys.file_exists p)
-    | _ -> raise (EvalError "fs_exists: expected String")));
+    | VPath p -> VBool (Sys.file_exists p)
+    | _ -> raise (EvalError "fs_exists: expected Path")));
   ("fs_is_file", VBuiltin (function
-    | VString p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
-    | _ -> raise (EvalError "fs_is_file: expected String")));
+    | VPath p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
+    | _ -> raise (EvalError "fs_is_file: expected Path")));
   ("fs_is_dir",  VBuiltin (function
-    | VString p -> VBool (Sys.file_exists p && Sys.is_directory p)
-    | _ -> raise (EvalError "fs_is_dir: expected String")));
-  ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir",   v))));
-  ("fs_mkdir_p", VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
+    | VPath p -> VBool (Sys.file_exists p && Sys.is_directory p)
+    | _ -> raise (EvalError "fs_is_dir: expected Path")));
+  ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
   ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
   ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
+  ("fs_append",  VBuiltin (fun path ->
+    VBuiltin (fun content ->
+      Effect.perform (WandEffect ("fs_append", VTuple [path; content])))));
+  ("fs_create",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_create",  v))));
+  ("fs_rename",  VBuiltin (fun old_ ->
+    VBuiltin (fun new_ ->
+      Effect.perform (WandEffect ("fs_rename", VTuple [old_; new_])))));
+  ("fs_copy",    VBuiltin (fun src ->
+    VBuiltin (fun dst ->
+      Effect.perform (WandEffect ("fs_copy", VTuple [src; dst])))));
+  ("fs_cd",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_cd",      v))));
+  ("fs_cwd",     VBuiltin (function
+    | VUnit -> VPath (Sys.getcwd ())
+    | _ -> raise (EvalError "fs_cwd: expected Unit")));
+  ("fs_mtime",   VBuiltin (function
+    | VString p | VPath p ->
+      (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
+        Error ("mtime: " ^ Unix.error_message e)) with
+       | Error m -> raise (EvalError m)
+       | Ok st ->
+         let tm = Unix.gmtime st.Unix.st_mtime in
+         VDateTime (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+           (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+           tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec))
+    | _ -> raise (EvalError "fs_mtime: expected Path")));
+  ("fs_size",    VBuiltin (function
+    | VString p | VPath p ->
+      (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
+        Error ("size: " ^ Unix.error_message e)) with
+       | Error m -> raise (EvalError m)
+       | Ok st   -> VInt st.Unix.st_size)
+    | _ -> raise (EvalError "fs_size: expected Path")));
+  ("fs_walk",    VBuiltin (function
+    | VString p | VPath p ->
+      let rec collect path acc =
+        if not (Sys.file_exists path) then acc
+        else if Sys.is_directory path then
+          let entries = Sys.readdir path in
+          Array.sort String.compare entries;
+          Array.fold_left
+            (fun a name -> collect (Filename.concat path name) a)
+            acc entries
+        else VPath path :: acc
+      in
+      VList (List.rev (collect p []))
+    | _ -> raise (EvalError "fs_walk: expected Path")));
   (* Duration primitives *)
   ("dur_zero",    VDuration "0s");
   ("dur_seconds", VBuiltin (function

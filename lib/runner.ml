@@ -60,7 +60,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Unix.Unix_error (e, _, _) -> Error ("mkdir: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_mkdir_p", VString path) ->
+          | WandEffect ("fs_mkdir_p", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rec mkdir_p p =
                 if Sys.file_exists p then ()
@@ -70,16 +70,57 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Unix.Unix_error (e, _, _) -> Error ("mkdir_p: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_ls", VString path) ->
+          | WandEffect ("fs_ls", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try
                        let entries = Sys.readdir path in
                        Array.sort String.compare entries;
-                       Ok (Array.to_list (Array.map (fun s -> VString s) entries))
+                       Ok (Array.to_list (Array.map (fun s ->
+                         VPath (Filename.concat path s)) entries))
                      with Sys_error m -> Error ("ls: " ^ m)) with
               | Ok vs   -> Effect.Deep.continue    k (VList vs)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_remove", VString path) ->
+          | WandEffect ("fs_append", VTuple [VPath path; VString content]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Out_channel.with_open_gen
+                           [Open_wronly; Open_creat; Open_append] 0o644 path
+                           (fun oc -> Out_channel.output_string oc content); Ok ()
+                     with Sys_error m -> Error ("append: " ^ m)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_create", VPath path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Out_channel.with_open_gen
+                           [Open_wronly; Open_creat; Open_trunc] 0o644 path
+                           (fun _ -> ()); Ok ()
+                     with Sys_error m -> Error ("create_file: " ^ m)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_rename", VTuple [VPath old_; VPath new_]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Unix.rename old_ new_; Ok ()
+                     with Unix.Unix_error (e, _, _) ->
+                       Error ("rename: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_copy", VTuple [VPath src; VPath dst]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try
+                       let content = In_channel.with_open_bin src In_channel.input_all in
+                       Out_channel.with_open_bin dst
+                         (fun oc -> Out_channel.output_string oc content);
+                       Ok ()
+                     with Sys_error m -> Error ("copy: " ^ m)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_cd", VPath path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Unix.chdir path; Ok ()
+                     with Unix.Unix_error (e, _, _) ->
+                       Error ("cd: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_remove", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rm () =
                 if Sys.file_exists path && Sys.is_directory path

@@ -591,13 +591,21 @@ let stdlib_type_env : env = [
   ("path_of_string",      Mono (TFun (TString, TPath)));
   ("path_components",     Mono (TFun (TPath, TList TString)));
   (* FS primitives *)
-  ("fs_exists",  Mono (TFun (TString, TBool)));
-  ("fs_is_file", Mono (TFun (TString, TBool)));
-  ("fs_is_dir",  Mono (TFun (TString, TBool)));
-  ("fs_mkdir",   Mono (TFun (TString, TUnit)));
-  ("fs_mkdir_p", Mono (TFun (TString, TUnit)));
-  ("fs_ls",      Mono (TFun (TString, TList TString)));
-  ("fs_remove",  Mono (TFun (TString, TUnit)));
+  ("fs_exists",  Mono (TFun (TPath, TBool)));
+  ("fs_is_file", Mono (TFun (TPath, TBool)));
+  ("fs_is_dir",  Mono (TFun (TPath, TBool)));
+  ("fs_mkdir",   Mono (TFun (TPath, TUnit)));
+  ("fs_ls",      Mono (TFun (TPath, TList TPath)));
+  ("fs_remove",  Mono (TFun (TPath, TUnit)));
+  ("fs_append",  Mono (TFun (TPath, TFun (TString, TUnit))));
+  ("fs_create",  Mono (TFun (TPath, TUnit)));
+  ("fs_rename",  Mono (TFun (TPath, TFun (TPath, TUnit))));
+  ("fs_copy",    Mono (TFun (TPath, TFun (TPath, TUnit))));
+  ("fs_cd",      Mono (TFun (TPath, TUnit)));
+  ("fs_cwd",     Mono (TFun (TUnit, TPath)));
+  ("fs_mtime",   Mono (TFun (TPath, TDateTime)));
+  ("fs_size",    Mono (TFun (TPath, TInt)));
+  ("fs_walk",    Mono (TFun (TPath, TList TPath)));
   (* IO primitives *)
   ("io_print_err",   Mono (TFun (TString, TUnit)));
   ("io_println_err", Mono (TFun (TString, TUnit)));

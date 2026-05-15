@@ -69,3 +69,7 @@
 (test
  (name test_duration)
  (libraries wand alcotest))
+
+(test
+ (name test_fs)
+ (libraries wand alcotest unix))
