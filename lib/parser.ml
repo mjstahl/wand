@@ -104,7 +104,7 @@ let lbp = function
   | Token.Lt   | Token.Gt
   | Token.LtEq | Token.GtEq -> 40
   | Token.Plus | Token.Minus | Token.PlusPlus -> 50
-  | Token.Star | Token.Slash -> 60
+  | Token.Star | Token.Slash | Token.Percent -> 60
   | Token.Dot  -> 80
   | _ -> 0
 
@@ -297,8 +297,9 @@ and infix_ left op s =
   | Token.Plus      -> BinOp ("+",  left, expr_ 50 s)
   | Token.Minus     -> BinOp ("-",  left, expr_ 50 s)
   | Token.PlusPlus  -> BinOp ("++", left, expr_ 50 s)
-  | Token.Star      -> BinOp ("*",  left, expr_ 60 s)
-  | Token.Slash     -> BinOp ("/",  left, expr_ 60 s)
+  | Token.Star      -> BinOp ("*",   left, expr_ 60 s)
+  | Token.Slash     -> BinOp ("/",   left, expr_ 60 s)
+  | Token.Percent   -> BinOp ("%",   left, expr_ 60 s)
   | Token.Dot       -> Field (left, expect_ident s)
   | t -> raise (ParseError (Format.asprintf "unexpected infix: %a" Token.pp t))
 

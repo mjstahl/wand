@@ -58,6 +58,7 @@ type t =
   | Minus              (* - *)
   | Star               (* * *)
   | Slash              (* / *)
+  | Percent            (* % *)
   | Dot                (* . *)
   | DotDot             (* .. *)
   | Colon              (* : *)
@@ -128,7 +129,7 @@ let pp ppf tok =
     | Eq         -> "="      | Arrow      -> "->"
     | Pipe       -> "|"      | PipeArrow  -> "|>"
     | Plus       -> "+"      | Minus      -> "-"
-    | Star       -> "*"      | Slash      -> "/"
+    | Star       -> "*"      | Slash      -> "/"    | Percent    -> "%"
     | Dot        -> "."      | DotDot     -> ".."
     | Colon      -> ":"      | Comma      -> ","
     | Underscore -> "_"      | EqEq       -> "=="

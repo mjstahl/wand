@@ -505,7 +505,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
 
 and infer_binop tenv (env : env) op a b : typ =
   match op with
-  | "+" | "-" | "*" | "/" ->
+  | "+" | "-" | "*" | "/" | "%" ->
     unify (infer tenv env a) TInt;
     unify (infer tenv env b) TInt;
     TInt

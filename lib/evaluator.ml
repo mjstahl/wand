@@ -406,6 +406,11 @@ and eval_binop (env : env) op a b : value =
      | VInt x,   VInt y   -> VInt (x / y)
      | VFloat x, VFloat y -> VFloat (x /. y)
      | _ -> raise (EvalError "'/' requires matching numeric types"))
+  | "%"  ->
+    (match eval env a, eval env b with
+     | VInt _,   VInt 0   -> raise (EvalError "modulo by zero")
+     | VInt x,   VInt y   -> VInt (x mod y)
+     | _ -> raise (EvalError "'%' requires Int operands"))
   | "++" ->
     (match eval env a, eval env b with
      | VString s1, VString s2 -> VString (s1 ^ s2)

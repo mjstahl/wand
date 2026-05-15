@@ -109,7 +109,7 @@ let test_pipeline () =
   ok "range |> filter |> sort_by"
     {|import List
 List.range 1 10
-|> List.filter (fn x -> x / 2 * 2 == x)
+|> List.filter (fn x -> x % 2 == 0)
 |> List.sort_by (fn x -> 0 - x)|}
     "[10, 8, 6, 4, 2]";
   ok "flatten after map"

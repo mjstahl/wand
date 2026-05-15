@@ -408,6 +408,7 @@ let next_token s =
     | '?'  -> ret Hole
     | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
     | '*'  -> ret Star
+    | '%'  -> ret Percent
     | '!'  -> ret (if peek s = '=' then (ignore (advance s); BangEq) else Bang)
     | '='  -> ret (if peek s = '=' then (ignore (advance s); EqEq)  else Eq)
     | '<'  -> ret (if peek s = '=' then (ignore (advance s); LtEq)  else Lt)
