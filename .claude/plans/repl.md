@@ -5,11 +5,11 @@
 ```
 wand i               # start interactive session
 wand i file.wand     # start session with file preloaded
-wand eval "expr"     # evaluate a single expression and exit
+wand e "expr"        # evaluate a single expression and exit
 ```
 
-`i` is a subcommand, mnemonic for interactive. `wand eval` is a separate
-subcommand for one-shot evaluation — useful for quick queries from Claude or
+`i` and `e` are single-letter subcommands, consistent with each other.
+`wand e` is for one-shot evaluation — useful for quick queries from Claude or
 scripts without managing a persistent session. Exits with code 0 on success,
 1 on error.
 
