@@ -46,3 +46,26 @@ Key pipeline stages to expect: **Lexing → Parsing → Type inference → Evalu
 - Tests use `(test ...)` stanzas or inline `let () = ...` assertions with `OUnit2` or `Alcotest`.
 - `_build/` and `_opam/` are generated — never edit them.
 - The active OPAM switch is local (`_opam/`) if present.
+
+## Writing wand code
+
+Read `README.md` for the wand language reference — syntax, types, functions,
+pattern matching, imports, and the standard library.
+
+When you need to explore or verify wand behaviour, use the REPL in
+machine-readable mode:
+
+```bash
+# One-shot evaluation
+dune exec bin/wand -- i --eval "1 + 2" --json
+
+# Interactive session (send expressions over stdin, one per line)
+dune exec bin/wand -- i --json
+```
+
+Every response is a JSON object: `{"ok": true, "value": "3", "type": "Int"}`.
+Use `:type expr`, `:doc name`, and `:env` as inputs to query types, doc
+strings, and the current environment.
+
+This is the primary way to learn what wand can do, verify types, and test
+snippets before writing them into scripts or implementation code.
