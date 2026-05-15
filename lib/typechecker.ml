@@ -617,6 +617,11 @@ let stdlib_type_env : env = [
   ("exe_args",  Mono (TFun (TUnit, TList TString)));
   ("exe_exit",  Mono (TFun (TInt,  TUnit)));
   ("exe_cwd",   Mono TString);
+  (* Process primitives *)
+  ("process_run",       Mono (TFun (TString, TString)));
+  ("process_run_quiet", Mono (TFun (TString, TUnit)));
+  ("process_exit_code", Mono (TFun (TString, TInt)));
+  ("process_pid",       Mono (TFun (TUnit,   TInt)));
   (* List primitives *)
   ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in

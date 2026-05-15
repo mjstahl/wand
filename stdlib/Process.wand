@@ -1,0 +1,4 @@
+let run       cmd = process_run cmd
+let run_quiet cmd = process_run_quiet cmd
+let exit_code cmd = process_exit_code cmd
+let pid       ()  = process_pid ()

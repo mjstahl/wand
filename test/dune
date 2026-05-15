@@ -77,3 +77,7 @@
 (test
  (name test_list_stdlib)
  (libraries wand alcotest))
+
+(test
+ (name test_process_module)
+ (libraries wand alcotest))

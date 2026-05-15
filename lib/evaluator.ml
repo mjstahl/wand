@@ -871,6 +871,16 @@ let stdlib_eval_env : env = [
     | VInt n -> exit n
     | _ -> raise (EvalError "exe_exit: expected Int")));
   ("exe_cwd", VString (Sys.getcwd ()));
+  (* Process primitives *)
+  ("process_run", VBuiltin (fun v ->
+    Effect.perform (WandEffect ("process_run", v))));
+  ("process_run_quiet", VBuiltin (fun v ->
+    Effect.perform (WandEffect ("process_run_quiet", v))));
+  ("process_exit_code", VBuiltin (fun v ->
+    Effect.perform (WandEffect ("process_exit_code", v))));
+  ("process_pid", VBuiltin (function
+    | VUnit -> VInt (Unix.getpid ())
+    | _ -> raise (EvalError "process_pid: expected Unit")));
   (* List primitives *)
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)

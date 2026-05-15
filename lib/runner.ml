@@ -21,6 +21,23 @@ let exec_command cmd =
   | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
+let exec_command_quiet cmd =
+  let ic = Unix.open_process_in cmd in
+  (try while true do ignore (input_char ic) done with End_of_file -> ());
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0   -> ()
+  | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
+  | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
+  | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
+
+let exec_command_exit_code cmd =
+  let ic = Unix.open_process_in cmd in
+  (try while true do ignore (input_char ic) done with End_of_file -> ());
+  match Unix.close_process_in ic with
+  | Unix.WEXITED n   -> n
+  | Unix.WSIGNALED _ -> 128
+  | Unix.WSTOPPED  _ -> 128
+
 let run_with_default_handler (thunk : unit -> value) : value =
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
@@ -41,6 +58,14 @@ let run_with_default_handler (thunk : unit -> value) : value =
               match (try Ok (exec_command cmd) with EvalError m -> Error m) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("process_run_quiet", VString cmd) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try exec_command_quiet cmd; Ok () with EvalError m -> Error m) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("process_exit_code", VString cmd) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
           | WandEffect ("read_file", VString path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)
