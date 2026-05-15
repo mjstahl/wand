@@ -277,8 +277,8 @@ Backed by `cohttp-lwt` or `httpaf`. Requires async story to be decided first.
 ## Implementation order
 
 ```
-0.1 ?/! identifiers
-0.2 DateTime timezone tests + to_utc/offset
+0.1 ?/! identifiers          ✓ done
+0.2 DateTime timezone tests  ✓ done (to_utc/offset deferred to Phase 5.1)
 1.4 IO module  ← absorbs Exe.stdin, Exe.exit
 1.1 String (expand)
 1.2 Path module
