@@ -881,6 +881,51 @@ let stdlib_eval_env : env = [
   ("process_pid", VBuiltin (function
     | VUnit -> VInt (Unix.getpid ())
     | _ -> raise (EvalError "process_pid: expected Unit")));
+  (* Env primitives *)
+  ("env_get", VBuiltin (function
+    | VString name -> VString (Option.value ~default:"" (Sys.getenv_opt name))
+    | _ -> raise (EvalError "env_get: expected String")));
+  ("env_get_exn", VBuiltin (function
+    | VString name ->
+      (match Sys.getenv_opt name with
+       | Some v -> VString v
+       | None   -> raise (EvalError ("env: variable not set: " ^ name)))
+    | _ -> raise (EvalError "env_get_exn: expected String")));
+  ("env_set", VBuiltin (function
+    | VString name -> VBuiltin (function
+      | VString value -> Unix.putenv name value; VUnit
+      | _ -> raise (EvalError "env_set: expected String value"))
+    | _ -> raise (EvalError "env_set: expected String name")));
+  ("env_unset", VBuiltin (function
+    | VString name -> Unix.putenv name ""; VUnit
+    | _ -> raise (EvalError "env_unset: expected String")));
+  ("env_all", VBuiltin (function
+    | VUnit ->
+      let pairs = Array.to_list (Unix.environment ()) |> List.filter_map (fun s ->
+        match String.split_on_char '=' s with
+        | [] | [""] -> None
+        | name :: rest -> Some (VTuple [VString name; VString (String.concat "=" rest)]))
+      in
+      VList pairs
+    | _ -> raise (EvalError "env_all: expected Unit")));
+  ("env_args", VBuiltin (function
+    | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
+    | _ -> raise (EvalError "env_args: expected Unit")));
+  ("env_home", VBuiltin (function
+    | VUnit ->
+      (match Sys.getenv_opt "HOME" with
+       | Some h -> VPath h
+       | None   -> raise (EvalError "env: HOME not set"))
+    | _ -> raise (EvalError "env_home: expected Unit")));
+  ("env_user", VBuiltin (function
+    | VUnit ->
+      let user =
+        match Sys.getenv_opt "USER" with
+        | Some u -> u
+        | None   -> (try Unix.getlogin () with _ -> "")
+      in
+      VString user
+    | _ -> raise (EvalError "env_user: expected Unit")));
   (* List primitives *)
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)

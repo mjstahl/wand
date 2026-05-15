@@ -81,3 +81,7 @@
 (test
  (name test_process_module)
  (libraries wand alcotest))
+
+(test
+ (name test_env)
+ (libraries wand alcotest unix))

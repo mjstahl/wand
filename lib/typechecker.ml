@@ -622,6 +622,15 @@ let stdlib_type_env : env = [
   ("process_run_quiet", Mono (TFun (TString, TUnit)));
   ("process_exit_code", Mono (TFun (TString, TInt)));
   ("process_pid",       Mono (TFun (TUnit,   TInt)));
+  (* Env primitives *)
+  ("env_get",     Mono (TFun (TString, TString)));
+  ("env_get_exn", Mono (TFun (TString, TString)));
+  ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));
+  ("env_unset",   Mono (TFun (TString, TUnit)));
+  ("env_all",     Mono (TFun (TUnit,   TList (TTuple [TString; TString]))));
+  ("env_args",    Mono (TFun (TUnit,   TList TString)));
+  ("env_home",    Mono (TFun (TUnit,   TPath)));
+  ("env_user",    Mono (TFun (TUnit,   TString)));
   (* List primitives *)
   ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
