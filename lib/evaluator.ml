@@ -860,14 +860,6 @@ let stdlib_eval_env : env = [
   ("io_read_line",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_line",   v))));
   ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_all",    v))));
   ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("io_flush",       v))));
-  (* Exe primitives *)
-  ("exe_args", VBuiltin (function
-    | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
-    | _ -> raise (EvalError "exe_args: expected Unit")));
-  ("exe_exit", VBuiltin (function
-    | VInt n -> exit n
-    | _ -> raise (EvalError "exe_exit: expected Int")));
-  ("exe_cwd", VString (Sys.getcwd ()));
   (* Process primitives *)
   ("process_run", VBuiltin (fun v ->
     Effect.perform (WandEffect ("process_run", v))));
