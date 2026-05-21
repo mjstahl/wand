@@ -378,3 +378,128 @@ let run_file path =
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)
   | EvalError msg         -> Error ("eval error: " ^ msg)
   | Failure msg           -> Error (msg)
+
+(* ── REPL session ─────────────────────────────────────────────────────────── *)
+
+type repl_result =
+  | RBind     of string * string
+  | RType     of string
+  | RVal      of string * string
+  | RTypeExpr of string
+  | RSilent
+
+type session = {
+  s_tenv      : (string * Ast.type_def) list;
+  s_type_env  : Typechecker.env;
+  s_eval_env  : env;
+  s_cache     : (string, module_result) Hashtbl.t;
+  s_base_dir  : string;
+  s_last_load : string option;
+}
+
+let make_session ?(base_dir = Sys.getcwd ()) () = {
+  s_tenv      = [];
+  s_type_env  = [];
+  s_eval_env  = [];
+  s_cache     = Hashtbl.create 8;
+  s_base_dir  = base_dir;
+  s_last_load = None;
+}
+
+let last_non_import prog =
+  List.fold_left (fun acc item ->
+    match item with Ast.TLImport _ -> acc | other -> Some other
+  ) None prog.Ast.items
+
+let run_session (sess : session) (src : string) : (session * repl_result, string) result =
+  try
+    let tokens = Lexer.tokenize src in
+    let prog   = Parser.parse_program tokens in
+    let loading = ref [] in
+    let imp = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
+    let merged_type_env = imp.type_env @ sess.s_type_env in
+    match Typechecker.infer_program_full_with_own
+            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+    | Error msg -> Error ("type error: " ^ msg)
+    | Ok (full_type_env, own_type_env, last_t) ->
+      let base_eval = base_eval_env @ imp.eval_env @ sess.s_eval_env in
+      let env_ref  = ref base_eval in
+      let last_ref = ref VUnit in
+      ignore (run_with_default_handler (fun () ->
+        List.iter (fun item ->
+          match item with
+          | Ast.TLLet (name, [], body) ->
+            env_ref := (name, eval !env_ref body) :: !env_ref
+          | Ast.TLLet (name, params, body) ->
+            env_ref := (name, VFix (name, !env_ref, params, body)) :: !env_ref
+          | Ast.TLType (Ast.Variants (_, ctors)) ->
+            List.iter (fun ctor ->
+              Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
+              env_ref := (ctor.Ast.name,
+                match ctor.Ast.fields with
+                | [] -> VConstr (ctor.Ast.name, [])
+                | _  -> VPartialConstr (ctor.Ast.name, List.length ctor.Ast.fields, [])
+              ) :: !env_ref
+            ) ctors
+          | Ast.TLExpr e ->
+            last_ref := eval !env_ref e
+          | Ast.TLImport _ -> ()
+        ) prog.Ast.items;
+        VUnit));
+      let new_eval_env = !env_ref in
+      let last_v       = !last_ref in
+      let n_own = List.length new_eval_env - List.length base_eval in
+      let own_eval_env = List.filteri (fun i _ -> i < n_own) new_eval_env in
+      let new_sess = { sess with
+        s_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv;
+        s_type_env = own_type_env @ imp.type_env @ sess.s_type_env;
+        s_eval_env = own_eval_env @ imp.eval_env @ sess.s_eval_env;
+      } in
+      let display = match last_non_import prog with
+        | None -> RSilent
+        | Some (Ast.TLLet (name, _, _)) ->
+          (match List.assoc_opt name full_type_env with
+           | Some s -> RBind (name, Typechecker.string_of_scheme s)
+           | None   -> RBind (name, "?"))
+        | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+        | Some (Ast.TLExpr _) ->
+          (match last_v with
+           | VUnit -> RSilent
+           | v     -> RVal (show_value v, Typechecker.string_of_typ last_t))
+        | Some _ -> RSilent
+      in
+      Ok (new_sess, display)
+  with
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | EvalError msg         -> Error ("runtime error: " ^ msg)
+  | Failure msg           -> Error msg
+
+let typecheck_session (sess : session) (src : string) : (repl_result, string) result =
+  try
+    let tokens = Lexer.tokenize src in
+    let prog   = Parser.parse_program tokens in
+    let loading = ref [] in
+    let imp = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
+    let merged_type_env = imp.type_env @ sess.s_type_env in
+    match Typechecker.infer_program_full_with_own
+            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+    | Error msg -> Error ("type error: " ^ msg)
+    | Ok (full_type_env, _, last_t) ->
+      let display = match last_non_import prog with
+        | None -> RSilent
+        | Some (Ast.TLLet (name, _, _)) ->
+          (match List.assoc_opt name full_type_env with
+           | Some s -> RBind (name, Typechecker.string_of_scheme s)
+           | None   -> RBind (name, "?"))
+        | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+        | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
+        | Some _ -> RSilent
+      in
+      Ok display
+  with
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | Failure msg           -> Error msg

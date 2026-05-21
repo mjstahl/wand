@@ -694,3 +694,14 @@ let infer_program (prog : program) : (typ, string) result =
 let infer_program_env ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env, string) result =
   Result.map fst (infer_program_full ~init_tenv ~init_env prog)
+
+let string_of_scheme = function
+  | Mono t | Poly (_, t) -> string_of_typ t
+  | Namespace _           -> "<namespace>"
+
+let infer_program_full_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+    : (env * env * typ, string) result =
+  try
+    let (_, full_env, own_env, last_t) = infer_program_ ~init_tenv ~init_env prog in
+    Ok (full_env, own_env, last_t)
+  with TypeError msg -> Error msg

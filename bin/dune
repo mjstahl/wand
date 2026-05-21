@@ -1,4 +1,5 @@
 (executable
  (public_name wand)
  (name main)
- (libraries wand))
+ (modules main repl)
+ (libraries wand linenoise))
