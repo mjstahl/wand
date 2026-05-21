@@ -395,6 +395,7 @@ type session = {
   s_cache     : (string, module_result) Hashtbl.t;
   s_base_dir  : string;
   s_last_load : string option;
+  s_sources   : (string * string) list;  (* name -> source text *)
 }
 
 let make_session ?(base_dir = Sys.getcwd ()) () = {
@@ -404,6 +405,7 @@ let make_session ?(base_dir = Sys.getcwd ()) () = {
   s_cache     = Hashtbl.create 8;
   s_base_dir  = base_dir;
   s_last_load = None;
+  s_sources   = [];
 }
 
 let last_non_import prog =
@@ -451,10 +453,16 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
       let last_v       = !last_ref in
       let n_own = List.length new_eval_env - List.length base_eval in
       let own_eval_env = List.filteri (fun i _ -> i < n_own) new_eval_env in
+      let new_sources =
+        List.filter_map (function
+          | Ast.TLLet (name, _, _) -> Some (name, src)
+          | _ -> None) prog.Ast.items
+      in
       let new_sess = { sess with
         s_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv;
         s_type_env = own_type_env @ imp.type_env @ sess.s_type_env;
         s_eval_env = own_eval_env @ imp.eval_env @ sess.s_eval_env;
+        s_sources  = new_sources @ sess.s_sources;
       } in
       let display = match last_non_import prog with
         | None -> RSilent

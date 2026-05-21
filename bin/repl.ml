@@ -58,6 +58,34 @@ let rec gather_lines acc =
       ignore (LNoise.history_add combined);
       gather_lines combined
 
+(* ── Editor integration ───────────────────────────────────────────────────── *)
+
+let find_editor () =
+  match Sys.getenv_opt "EDITOR" with
+  | Some e -> e
+  | None -> match Sys.getenv_opt "VISUAL" with
+    | Some e -> e
+    | None -> "vi"
+
+let edit_in_editor (sess : Runner.session) content =
+  let tmp = Filename.temp_file "wand_edit_" ".wand" in
+  Fun.protect ~finally:(fun () -> (try Sys.remove tmp with Sys_error _ -> ())) (fun () ->
+    Out_channel.with_open_text tmp (fun oc -> output_string oc content);
+    let editor = find_editor () in
+    let exit_code = Sys.command (Printf.sprintf "%s %s" editor (Filename.quote tmp)) in
+    if exit_code <> 0 then (
+      Printf.printf "Editor exited with code %d — discarding changes.\n%!" exit_code;
+      sess)
+    else
+      let src = In_channel.with_open_text tmp In_channel.input_all in
+      let src = String.trim src in
+      if src = "" || src = String.trim content then (
+        print_endline "No changes."; sess)
+      else
+        match Runner.run_session sess src with
+        | Error msg -> Printf.printf "Error: %s\n(changes discarded)\n%!" msg; sess
+        | Ok (new_sess, result) -> print_result result; new_sess)
+
 (* ── Special commands and main loop (mutually recursive) ─────────────────── *)
 
 let load_file (sess : Runner.session) path =
@@ -89,6 +117,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     print_endline "Special commands:";
     print_endline "  :type <expr>   (:t)  — show type without evaluating";
     print_endline "  :doc  <name>   (:d)  — show doc string";
+    print_endline "  :edit [name]   (:e)  — open definition in $EDITOR";
     print_endline "  :load <path>   (:l)  — load a .wand file into session";
     print_endline "  :reload        (:r)  — reload last loaded file";
     print_endline "  :env                 — list bindings in scope";
@@ -106,6 +135,18 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":d" | ":doc" ->
     if rest = "" then (print_endline "Usage: :doc <name>"; sess)
     else (Printf.printf "%s: no doc\n%!" rest; sess)
+  | ":e" | ":edit" ->
+    let content =
+      if rest = "" then ""
+      else
+        match List.assoc_opt rest sess.s_sources with
+        | Some src -> src
+        | None ->
+          (match List.assoc_opt rest sess.s_type_env with
+           | Some _ -> Printf.sprintf "let %s = " rest
+           | None   -> "")
+    in
+    edit_in_editor sess content
   | ":l" | ":load" ->
     if rest = "" then (print_endline "Usage: :load <path>"; sess)
     else load_file sess rest
