@@ -238,19 +238,13 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
         Printf.printf "Unknown module '%s'\n" rest
     end else begin
       (* :env — show loaded modules and user bindings *)
-      let modules = sess.s_type_env |> List.filter_map (fun (name, s) ->
-        match s with Typechecker.Namespace _ -> Some name | _ -> None)
-        |> List.rev in
-      let bindings = sess.s_type_env |> List.rev |> List.filter (fun (_, s) ->
-        match s with Typechecker.Namespace _ -> false | _ -> true) in
-      if modules <> [] then
-        Printf.printf "Modules: %s\n" (String.concat ", " modules);
-      if bindings = [] && modules = [] then
-        print_endline "(empty)"
-      else
-        List.iter (fun (name, scheme) ->
-          Printf.printf "  %s : %s\n" name (Typechecker.string_of_scheme scheme)
-        ) bindings
+      let entries = List.rev sess.s_type_env in
+      if entries = [] then print_endline "(empty)"
+      else List.iter (fun (name, s) ->
+        match s with
+        | Typechecker.Namespace _ -> print_endline name
+        | _ -> Printf.printf "%s : %s\n" name (Typechecker.string_of_scheme s)
+      ) entries
     end;
     flush stdout;
     sess
