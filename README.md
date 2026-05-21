@@ -467,11 +467,17 @@ Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`
 ## Building
 
 ```bash
+# Install dependencies
+opam install . --deps-only
+
 # Build
 dune build
 
 # Run tests
 dune test
+
+# Create a local wand symlink for development
+ln -sf _build/default/bin/main.exe wand
 ```
 
 Requires OCaml 5.x and opam. Dependencies managed via `wand.opam`.
