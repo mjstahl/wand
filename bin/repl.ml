@@ -182,6 +182,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     print_endline "  :clear               — clear the screen";
     print_endline "  :reset               — clear all session bindings";
     print_endline "  :quit          (:q)  — exit";
+    flush stdout;
     sess
   | ":t" | ":type" ->
     if rest = "" then (print_endline "Usage: :type <expr>"; sess)
@@ -230,6 +231,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     else List.iter (fun (name, scheme) ->
       Printf.printf "  %s : %s\n" name (Typechecker.string_of_scheme scheme)
     ) entries;
+    flush stdout;
     sess
   | _ ->
     Printf.printf "Unknown command '%s' — type :help for a list\n%!" cmd;
