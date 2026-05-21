@@ -214,7 +214,12 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
      | Some path -> load_file sess path)
   | ":reset" ->
     print_endline "Session reset.";
-    Runner.make_session ~base_dir:sess.s_base_dir ()
+    let prelude = "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
+                   import Duration\nimport Process\nimport Env" in
+    let fresh = Runner.make_session ~base_dir:sess.s_base_dir () in
+    (match Runner.run_session fresh prelude with
+     | Ok (s, _) -> s
+     | Error _   -> fresh)
   | ":env" ->
     let entries = sess.s_type_env |> List.rev |> List.filter (fun (_, s) ->
       match s with Typechecker.Namespace _ -> false | _ -> true) in
@@ -229,7 +234,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
 
 and loop (sess : Runner.session) =
   session_ref := sess;
-  match LNoise.linenoise "wand> " with
+  match LNoise.linenoise ">> " with
   | None ->
     print_newline ();
     ignore (LNoise.history_save ~filename:history_file)
@@ -252,11 +257,19 @@ and loop (sess : Runner.session) =
       end
     end
 
+let stdlib_prelude =
+  "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
+   import Duration\nimport Process\nimport Env"
+
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   print_endline "wand interactive — :help for commands, :quit to exit";
   LNoise.set_completion_callback complete_line;
   ignore (LNoise.history_set ~max_length:1000);
   ignore (LNoise.history_load ~filename:history_file);
   let sess = Runner.make_session ~base_dir () in
+  let sess = match Runner.run_session sess stdlib_prelude with
+    | Ok (s, _) -> s
+    | Error _   -> sess
+  in
   let sess = List.fold_left load_file sess loads in
   loop sess
