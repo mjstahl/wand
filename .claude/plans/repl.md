@@ -2,10 +2,12 @@
 
 ## Status
 
-Core implementation shipped in commit 8894d87. Remaining items not yet implemented:
+Core implementation shipped in commit 8894d87.
+`:edit` command shipped in commit f3be12f.
+Tab completion shipped in commit bae86f9.
+
+Remaining item not yet implemented:
 - Typed holes (`?` reporting in typechecker)
-- `:edit` command
-- Tab completion
 
 ## Invocation
 
