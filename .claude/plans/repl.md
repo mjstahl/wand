@@ -1,4 +1,11 @@
-# REPL Plan
+# REPL Plan ✓ DONE
+
+## Status
+
+Core implementation shipped in commit 8894d87. Remaining items not yet implemented:
+- Typed holes (`?` reporting in typechecker)
+- `:edit` command
+- Tab completion
 
 ## Invocation
 
