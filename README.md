@@ -417,12 +417,15 @@ Utils.my_function 42
 ### `List`
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head`, `tail`, `is_empty`, `any`, `all`, `find`, `zip`, `take`, `drop`, `each`
+`head`, `tail`, `is_empty`, `any`, `all`, `find`, `zip`, `take`, `drop`, `each`,
+`sort`, `sort_by`, `unique`, `range`, `flatten`, `concat`
 
 ### `String`
 
-`length`, `upper`, `lower`, `trim`, `split`, `join`, `lines`, `contains`,
-`starts_with`, `ends_with`, `replace`, `chars`, `slice`, `words`
+`length`, `is_empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
+`slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
+`repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
+`to_float`
 
 ### `Map`
 
@@ -431,7 +434,32 @@ Utils.my_function 42
 
 ### `FS`
 
-`read_file`, `write_file`
+`read_file`, `write_file`, `append`, `create_file`, `exists?`, `is_file?`,
+`is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`, `walk`, `mtime`,
+`size`, `cwd`, `cd`
+
+### `Path`
+
+`join`, `parent`, `basename`, `dirname`, `extension`, `with_extension`,
+`is_absolute?`, `is_relative?`, `normalize`, `to_string`, `of_string`,
+`components`
+
+### `IO`
+
+`print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`
+
+### `Env`
+
+`get`, `get!`, `set`, `unset`, `all`, `args`, `home`, `user`
+
+### `Process`
+
+`run`, `run_quiet`, `exit_code`, `pid`
+
+### `Duration`
+
+`zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,
+`format`, `to_ms`
 
 ---
 
