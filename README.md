@@ -206,6 +206,45 @@ let sum [h : t] = h + sum t
 
 ---
 
+## Maps
+
+String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
+
+```
+let m = [x = 1, y = 2, z = 3]   -- Map Int
+
+m.x                              -- 1
+```
+
+Using the `Map` module:
+
+```
+Map.get  "x" m     -- Ok(1)
+Map.get! "x" m     -- 1  (raises on missing)
+Map.has? "x" m     -- true
+Map.set  "w" 4 m   -- [w = 4, x = 1, y = 2, z = 3]
+Map.delete "x" m   -- [y = 2, z = 3]
+Map.keys   m       -- ["x", "y", "z"]
+Map.values m       -- [1, 2, 3]
+Map.size   m       -- 3
+Map.to_list m      -- [("x", 1), ("y", 2), ("z", 3)]
+Map.from_list [("a", 1), ("b", 2)]   -- [a = 1, b = 2]
+Map.map    (fn x -> x * 2) m         -- [x = 2, y = 4, z = 6]
+Map.filter (fn x -> x > 1) m        -- [y = 2, z = 3]
+Map.merge m1 m2                      -- keys in m2 take precedence
+```
+
+Map patterns:
+
+```
+match m with
+| [x = a, y = b] -> a + b    -- binds a=m.x, b=m.y
+```
+
+An empty map is `Map.empty`.
+
+---
+
 ## Type definitions
 
 ### Enum-style (no payload)
@@ -379,6 +418,11 @@ Utils.my_function 42
 
 `length`, `upper`, `lower`, `trim`, `split`, `join`, `lines`, `contains`,
 `starts_with`, `ends_with`, `replace`, `chars`, `slice`, `words`
+
+### `Map`
+
+`empty`, `get`, `get!`, `set`, `delete`, `has?`, `keys`, `values`, `size`,
+`to_list`, `from_list`, `merge`, `map`, `filter`
 
 ### `FS`
 
