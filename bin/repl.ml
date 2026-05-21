@@ -247,16 +247,17 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
       (* :env ModuleName — show members of that namespace *)
       match List.assoc_opt rest sess.s_type_env with
       | Some (Typechecker.Namespace members) ->
+        let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) members in
         List.iter (fun (name, scheme) ->
           Printf.printf "%s.%s : %s\n" rest name (Typechecker.string_of_scheme scheme)
-        ) members
+        ) sorted
       | Some _ ->
         Printf.printf "%s is a binding, not a module\n" rest
       | None ->
         Printf.printf "Unknown module '%s'\n" rest
     end else begin
       (* :env — show loaded modules and user bindings *)
-      let entries = List.rev sess.s_type_env in
+      let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.s_type_env in
       if entries = [] then print_endline "(empty)"
       else List.iter (fun (name, s) ->
         match s with

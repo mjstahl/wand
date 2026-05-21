@@ -139,7 +139,7 @@ let () =
     | "env" ->
       let (loads, _) = parse_loads rest in
       let sess = load_files loads in
-      let entries = List.rev sess.Wand.Runner.s_type_env in
+      let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Wand.Runner.s_type_env in
       if entries = [] then print_endline "(empty)"
       else List.iter (fun (name, s) ->
         match s with
