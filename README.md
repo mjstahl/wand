@@ -234,11 +234,13 @@ Map.filter (fn x -> x > 1) m        -- [y = 2, z = 3]
 Map.merge m1 m2                      -- keys in m2 take precedence
 ```
 
-Map patterns:
+Map patterns (partial — only name the keys you need):
 
 ```
 match m with
 | [x = a, y = b] -> a + b    -- binds a=m.x, b=m.y
+
+let [x = a] = m in a         -- extract just x; other keys ignored
 ```
 
 An empty map is `Map.empty`.
