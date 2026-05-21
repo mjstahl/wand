@@ -85,3 +85,7 @@
 (test
  (name test_env)
  (libraries wand alcotest unix))
+
+(test
+ (name test_cli)
+ (libraries wand alcotest))

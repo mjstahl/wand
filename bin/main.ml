@@ -137,15 +137,26 @@ let () =
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
     | "env" ->
-      let (loads, _) = parse_loads rest in
+      let (loads, rest') = parse_loads rest in
       let sess = load_files loads in
-      let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Wand.Runner.s_type_env in
-      if entries = [] then print_endline "(empty)"
-      else List.iter (fun (name, s) ->
-        match s with
-        | Wand.Typechecker.Namespace _ -> print_endline name
-        | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
-      ) entries
+      (match rest' with
+       | [modname] ->
+         (match List.assoc_opt modname sess.Wand.Runner.s_type_env with
+          | Some (Wand.Typechecker.Namespace members) ->
+            let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) members in
+            List.iter (fun (name, scheme) ->
+              Printf.printf "%s.%s : %s\n" modname name (Wand.Typechecker.string_of_scheme scheme)
+            ) sorted
+          | Some _ -> Printf.eprintf "%s is a binding, not a module\n" modname; exit 1
+          | None   -> Printf.eprintf "Unknown module '%s'\n" modname; exit 1)
+       | _ ->
+         let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Wand.Runner.s_type_env in
+         if entries = [] then print_endline "(empty)"
+         else List.iter (fun (name, s) ->
+           match s with
+           | Wand.Typechecker.Namespace _ -> print_endline name
+           | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
+         ) entries)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       Wand.Evaluator.exe_args_ref := rest;
