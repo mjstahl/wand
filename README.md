@@ -418,19 +418,20 @@ wand i --load utils.wand  # start with a file preloaded
 Inside the session:
 
 ```
-wand> 1 + 2
+>> 1 + 2
 3 : Int
 
-wand> let double x = x * 2
+>> let double x = x * 2
 double : Int -> Int
 
-wand> double 21
+>> double 21
 42 : Int
 
-wand> import List
-wand> List.map double [1, 2, 3]
+>> List.map double [1, 2, 3]
 [2, 4, 6] : List Int
 ```
+
+All stdlib modules (List, String, Path, FS, IO, Duration, Process, Env) are available without any imports.
 
 Special commands:
 
