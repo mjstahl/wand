@@ -128,6 +128,9 @@ let () =
          Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
        | [name] ->
          let sess = load_files loads in
+         (match Wand.Runner.lookup_type sess name with
+          | Some t -> Printf.printf "%s : %s\n" name t
+          | None   -> ());
          (match List.assoc_opt name sess.Wand.Runner.s_docs with
           | Some doc -> print_endline doc
           | None     -> Printf.printf "%s: no doc\n" name)

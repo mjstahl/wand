@@ -413,6 +413,21 @@ let make_session ?(base_dir = Sys.getcwd ()) () = {
   s_docs      = [];
 }
 
+let lookup_type (sess : session) (name : string) : string option =
+  match String.split_on_char '.' name with
+  | [ns; member] ->
+    (match List.assoc_opt ns sess.s_type_env with
+     | Some (Typechecker.Namespace members) ->
+       (match List.assoc_opt member members with
+        | Some s -> Some (Typechecker.string_of_scheme s)
+        | None   -> None)
+     | _ -> None)
+  | [plain] ->
+    (match List.assoc_opt plain sess.s_type_env with
+     | Some s -> Some (Typechecker.string_of_scheme s)
+     | None   -> None)
+  | _ -> None
+
 let last_non_import prog =
   List.fold_left (fun acc item ->
     match item with Ast.TLImport _ -> acc | other -> Some other

@@ -205,6 +205,9 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":d" | ":doc" ->
     if rest = "" then (print_endline "Usage: :doc <name>"; sess)
     else begin
+      (match Runner.lookup_type sess rest with
+       | Some t -> Printf.printf "%s : %s\n" rest t
+       | None   -> ());
       (match List.assoc_opt rest sess.s_docs with
        | Some doc -> Printf.printf "%s\n%!" doc
        | None     -> Printf.printf "%s: no doc\n%!" rest);
