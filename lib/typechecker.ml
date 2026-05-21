@@ -21,6 +21,7 @@ and tv = {
 (* ── Fresh variable generation ────────────────────────────────────────────── *)
 
 let next_id = ref 0
+let holes : typ list ref = ref []
 
 let fresh () =
   let id = !next_id in
@@ -356,7 +357,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
           raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
             name (Util.hint name (List.map fst ctor_env))))))
   | EnvVar _ -> TString
-  | Hole -> fresh ()
+  | Hole ->
+    let t = fresh () in
+    holes := t :: !holes;
+    t
   | UnOp ("-", e) -> unify (infer tenv env e) TInt; TInt
   | UnOp ("!", e) -> unify (infer tenv env e) TBool; TBool
   | UnOp (op, _)  -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
@@ -647,6 +651,7 @@ let builtin_type_env : env = [
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
+  holes := [];
   let local_tenv = List.filter_map (function
     | TLType (Variants (n, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.items
@@ -700,8 +705,9 @@ let string_of_scheme = function
   | Namespace _           -> "<namespace>"
 
 let infer_program_full_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
-    : (env * env * typ, string) result =
+    : (env * env * typ * typ list, string) result =
   try
     let (_, full_env, own_env, last_t) = infer_program_ ~init_tenv ~init_env prog in
-    Ok (full_env, own_env, last_t)
+    let hole_types = List.rev_map repr !holes in
+    Ok (full_env, own_env, last_t, hole_types)
   with TypeError msg -> Error msg

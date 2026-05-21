@@ -47,6 +47,8 @@ let print_result = function
   | Runner.RType  n       -> Printf.printf "type %s\n%!" n
   | Runner.RVal   (v, t)  -> Printf.printf "%s : %s\n%!" v t
   | Runner.RTypeExpr t    -> Printf.printf "%s\n%!" t
+  | Runner.RHoles holes   ->
+    List.iter (fun t -> Printf.printf "Hole: %s\n%!" t) holes
 
 (* ── Multi-line input ─────────────────────────────────────────────────────── *)
 

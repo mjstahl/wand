@@ -386,6 +386,7 @@ type repl_result =
   | RType     of string
   | RVal      of string * string
   | RTypeExpr of string
+  | RHoles    of string list
   | RSilent
 
 type session = {
@@ -424,42 +425,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
     | Error msg -> Error ("type error: " ^ msg)
-    | Ok (full_type_env, own_type_env, last_t) ->
-      let base_eval = base_eval_env @ imp.eval_env @ sess.s_eval_env in
-      let env_ref  = ref base_eval in
-      let last_ref = ref VUnit in
-      ignore (run_with_default_handler (fun () ->
-        List.iter (fun item ->
-          match item with
-          | Ast.TLLet (name, [], body) ->
-            env_ref := (name, eval !env_ref body) :: !env_ref
-          | Ast.TLLet (name, params, body) ->
-            env_ref := (name, VFix (name, !env_ref, params, body)) :: !env_ref
-          | Ast.TLType (Ast.Variants (_, ctors)) ->
-            List.iter (fun ctor ->
-              Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
-              env_ref := (ctor.Ast.name,
-                match ctor.Ast.fields with
-                | [] -> VConstr (ctor.Ast.name, [])
-                | _  -> VPartialConstr (ctor.Ast.name, List.length ctor.Ast.fields, [])
-              ) :: !env_ref
-            ) ctors
-          | Ast.TLExpr e ->
-            last_ref := eval !env_ref e
-          | Ast.TLImport _ -> ()
-        ) prog.Ast.items;
-        VUnit));
-      let new_eval_env = !env_ref in
-      let last_v       = !last_ref in
-      let n_own = List.length new_eval_env - List.length base_eval in
-      let own_eval_env = List.filteri (fun i _ -> i < n_own) new_eval_env in
-      let new_sources =
-        List.filter_map (function
-          | Ast.TLLet (name, _, _) -> Some (name, src)
-          | _ -> None) prog.Ast.items
-      in
-      (* Keep only namespace entries from imports — raw primitives come from
-         the typechecker/evaluator base and don't belong in the session. *)
+    | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
         List.fold_right (fun x acc ->
           if List.mem_assoc (fst x) acc then acc else x :: acc) lst []
@@ -468,26 +434,77 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         match s with Typechecker.Namespace _ -> true | _ -> false) imp.type_env in
       let ns_eval = List.filter (fun (_, v) ->
         match v with VRecord _ -> true | _ -> false) imp.eval_env in
-      let new_sess = { sess with
-        s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
-        s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
-        s_eval_env = dedup (own_eval_env @ ns_eval @ sess.s_eval_env);
-        s_sources  = new_sources @ sess.s_sources;
-      } in
-      let display = match last_non_import prog with
-        | None -> RSilent
-        | Some (Ast.TLLet (name, _, _)) ->
-          (match List.assoc_opt name full_type_env with
-           | Some s -> RBind (name, Typechecker.string_of_scheme s)
-           | None   -> RBind (name, "?"))
-        | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
-        | Some (Ast.TLExpr _) ->
-          (match last_v with
-           | VUnit -> RSilent
-           | v     -> RVal (show_value v, Typechecker.string_of_typ last_t))
-        | Some _ -> RSilent
-      in
-      Ok (new_sess, display)
+      if hole_types <> [] then begin
+        (* Holes present — skip evaluation, report hole types *)
+        let new_sources =
+          List.filter_map (function
+            | Ast.TLLet (name, _, _) -> Some (name, src)
+            | _ -> None) prog.Ast.items
+        in
+        let new_sess = { sess with
+          s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
+          s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
+          s_sources  = new_sources @ sess.s_sources;
+        } in
+        let hole_strs = List.map Typechecker.string_of_typ hole_types in
+        Ok (new_sess, RHoles hole_strs)
+      end else begin
+        let base_eval = base_eval_env @ imp.eval_env @ sess.s_eval_env in
+        let env_ref  = ref base_eval in
+        let last_ref = ref VUnit in
+        ignore (run_with_default_handler (fun () ->
+          List.iter (fun item ->
+            match item with
+            | Ast.TLLet (name, [], body) ->
+              env_ref := (name, eval !env_ref body) :: !env_ref
+            | Ast.TLLet (name, params, body) ->
+              env_ref := (name, VFix (name, !env_ref, params, body)) :: !env_ref
+            | Ast.TLType (Ast.Variants (_, ctors)) ->
+              List.iter (fun ctor ->
+                Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
+                env_ref := (ctor.Ast.name,
+                  match ctor.Ast.fields with
+                  | [] -> VConstr (ctor.Ast.name, [])
+                  | _  -> VPartialConstr (ctor.Ast.name, List.length ctor.Ast.fields, [])
+                ) :: !env_ref
+              ) ctors
+            | Ast.TLExpr e ->
+              last_ref := eval !env_ref e
+            | Ast.TLImport _ -> ()
+          ) prog.Ast.items;
+          VUnit));
+        let new_eval_env = !env_ref in
+        let last_v       = !last_ref in
+        let n_own = List.length new_eval_env - List.length base_eval in
+        let own_eval_env = List.filteri (fun i _ -> i < n_own) new_eval_env in
+        let new_sources =
+          List.filter_map (function
+            | Ast.TLLet (name, _, _) -> Some (name, src)
+            | _ -> None) prog.Ast.items
+        in
+        (* Keep only namespace entries from imports — raw primitives come from
+           the typechecker/evaluator base and don't belong in the session. *)
+        let new_sess = { sess with
+          s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
+          s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
+          s_eval_env = dedup (own_eval_env @ ns_eval @ sess.s_eval_env);
+          s_sources  = new_sources @ sess.s_sources;
+        } in
+        let display = match last_non_import prog with
+          | None -> RSilent
+          | Some (Ast.TLLet (name, _, _)) ->
+            (match List.assoc_opt name full_type_env with
+             | Some s -> RBind (name, Typechecker.string_of_scheme s)
+             | None   -> RBind (name, "?"))
+          | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+          | Some (Ast.TLExpr _) ->
+            (match last_v with
+             | VUnit -> RSilent
+             | v     -> RVal (show_value v, Typechecker.string_of_typ last_t))
+          | Some _ -> RSilent
+        in
+        Ok (new_sess, display)
+      end
   with
   | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)
@@ -505,18 +522,21 @@ let typecheck_session (sess : session) (src : string) : (repl_result, string) re
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
     | Error msg -> Error ("type error: " ^ msg)
-    | Ok (full_type_env, _, last_t) ->
-      let display = match last_non_import prog with
-        | None -> RSilent
-        | Some (Ast.TLLet (name, _, _)) ->
-          (match List.assoc_opt name full_type_env with
-           | Some s -> RBind (name, Typechecker.string_of_scheme s)
-           | None   -> RBind (name, "?"))
-        | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
-        | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
-        | Some _ -> RSilent
-      in
-      Ok display
+    | Ok (full_type_env, _, last_t, hole_types) ->
+      if hole_types <> [] then
+        Ok (RHoles (List.map Typechecker.string_of_typ hole_types))
+      else
+        let display = match last_non_import prog with
+          | None -> RSilent
+          | Some (Ast.TLLet (name, _, _)) ->
+            (match List.assoc_opt name full_type_env with
+             | Some s -> RBind (name, Typechecker.string_of_scheme s)
+             | None   -> RBind (name, "?"))
+          | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+          | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
+          | Some _ -> RSilent
+        in
+        Ok display
   with
   | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)

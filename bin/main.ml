@@ -60,8 +60,16 @@ let parse_loads args =
   in
   go [] [] args
 
+let stdlib_prelude =
+  "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
+   import Duration\nimport Process\nimport Env"
+
 let load_files loads =
   let sess = Wand.Runner.make_session () in
+  let sess = match Wand.Runner.run_session sess stdlib_prelude with
+    | Ok (s, _) -> s
+    | Error _   -> sess
+  in
   List.fold_left (fun s path ->
     match (try Ok (In_channel.with_open_text path In_channel.input_all)
            with Sys_error m -> Error m) with
