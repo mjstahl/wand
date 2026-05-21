@@ -458,10 +458,20 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           | Ast.TLLet (name, _, _) -> Some (name, src)
           | _ -> None) prog.Ast.items
       in
+      (* Keep only namespace entries from imports — raw primitives come from
+         the typechecker/evaluator base and don't belong in the session. *)
+      let dedup lst =
+        List.fold_right (fun x acc ->
+          if List.mem_assoc (fst x) acc then acc else x :: acc) lst []
+      in
+      let ns_type = List.filter (fun (_, s) ->
+        match s with Typechecker.Namespace _ -> true | _ -> false) imp.type_env in
+      let ns_eval = List.filter (fun (_, v) ->
+        match v with VRecord _ -> true | _ -> false) imp.eval_env in
       let new_sess = { sess with
-        s_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv;
-        s_type_env = own_type_env @ imp.type_env @ sess.s_type_env;
-        s_eval_env = own_eval_env @ imp.eval_env @ sess.s_eval_env;
+        s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
+        s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
+        s_eval_env = dedup (own_eval_env @ ns_eval @ sess.s_eval_env);
         s_sources  = new_sources @ sess.s_sources;
       } in
       let display = match last_non_import prog with

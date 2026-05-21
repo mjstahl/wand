@@ -178,7 +178,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     print_endline "  :edit [name]   (:e)  — open definition in $EDITOR";
     print_endline "  :load <path>   (:l)  — load a .wand file into session";
     print_endline "  :reload        (:r)  — reload last loaded file";
-    print_endline "  :env                 — list bindings in scope";
+    print_endline "  :env [module]        — list bindings and modules; :env List shows List members";
     print_endline "  :clear               — clear the screen";
     print_endline "  :reset               — clear all session bindings";
     print_endline "  :quit          (:q)  — exit";
@@ -225,12 +225,33 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":clear" ->
     LNoise.clear_screen (); sess
   | ":env" ->
-    let entries = sess.s_type_env |> List.rev |> List.filter (fun (_, s) ->
-      match s with Typechecker.Namespace _ -> false | _ -> true) in
-    if entries = [] then print_endline "(no bindings)"
-    else List.iter (fun (name, scheme) ->
-      Printf.printf "  %s : %s\n" name (Typechecker.string_of_scheme scheme)
-    ) entries;
+    if rest <> "" then begin
+      (* :env ModuleName — show members of that namespace *)
+      match List.assoc_opt rest sess.s_type_env with
+      | Some (Typechecker.Namespace members) ->
+        List.iter (fun (name, scheme) ->
+          Printf.printf "  %s.%s : %s\n" rest name (Typechecker.string_of_scheme scheme)
+        ) members
+      | Some _ ->
+        Printf.printf "%s is a binding, not a module\n" rest
+      | None ->
+        Printf.printf "Unknown module '%s'\n" rest
+    end else begin
+      (* :env — show loaded modules and user bindings *)
+      let modules = sess.s_type_env |> List.filter_map (fun (name, s) ->
+        match s with Typechecker.Namespace _ -> Some name | _ -> None)
+        |> List.rev in
+      let bindings = sess.s_type_env |> List.rev |> List.filter (fun (_, s) ->
+        match s with Typechecker.Namespace _ -> false | _ -> true) in
+      if modules <> [] then
+        Printf.printf "Modules: %s\n" (String.concat ", " modules);
+      if bindings = [] && modules = [] then
+        print_endline "(empty)"
+      else
+        List.iter (fun (name, scheme) ->
+          Printf.printf "  %s : %s\n" name (Typechecker.string_of_scheme scheme)
+        ) bindings
+    end;
     flush stdout;
     sess
   | _ ->
