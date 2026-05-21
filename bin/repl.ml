@@ -240,7 +240,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
       match List.assoc_opt rest sess.s_type_env with
       | Some (Typechecker.Namespace members) ->
         List.iter (fun (name, scheme) ->
-          Printf.printf "  %s.%s : %s\n" rest name (Typechecker.string_of_scheme scheme)
+          Printf.printf "%s.%s : %s\n" rest name (Typechecker.string_of_scheme scheme)
         ) members
       | Some _ ->
         Printf.printf "%s is a binding, not a module\n" rest
