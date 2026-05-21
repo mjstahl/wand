@@ -7,8 +7,11 @@ A typed ML-style scripting language for Human-AI collaboration.
 ## Quick start
 
 ```
-dune exec bin/wand -- script.wand   # run a script
-wand i                              # interactive mode (coming soon)
+wand script.wand        # run a script
+wand i                  # interactive session
+wand e "1 + 2"          # evaluate an expression
+wand t "1 + 2"          # typecheck without evaluating
+wand h                  # help
 ```
 
 ---
@@ -396,6 +399,70 @@ Block comments, nestable:
 
 ---
 
+## REPL and CLI
+
+### Running scripts
+
+```
+wand script.wand          # run a script
+wand script.wand arg1     # pass arguments (available via Env.args)
+```
+
+### Interactive session
+
+```
+wand i                    # start session
+wand i --load utils.wand  # start with a file preloaded
+```
+
+Inside the session:
+
+```
+wand> 1 + 2
+3 : Int
+
+wand> let double x = x * 2
+double : Int -> Int
+
+wand> double 21
+42 : Int
+
+wand> import List
+wand> List.map double [1, 2, 3]
+[2, 4, 6] : List Int
+```
+
+Special commands:
+
+| Command | Short | Description |
+|---|---|---|
+| `:type <expr>` | `:t` | Show type without evaluating |
+| `:doc <name>` | `:d` | Show doc string |
+| `:load <path>` | `:l` | Load a `.wand` file into the session |
+| `:reload` | `:r` | Reload the last loaded file |
+| `:env` | | List all bindings in scope |
+| `:reset` | | Clear all session bindings |
+| `:quit` | `:q` | Exit |
+
+Multi-line input is detected automatically (unclosed brackets, trailing `->`, `=`, `|`, etc.). A blank continuation line submits the accumulated input.
+
+History is saved to `~/.wand_history` between sessions.
+
+### One-shot commands
+
+```
+wand e "1 + 2"                        # evaluate and print result
+wand e --load config.wand "host"      # evaluate in context of a file
+wand t "List.map"                     # typecheck only
+wand d "List.map"                     # show doc string
+wand h                                # show all commands
+wand h e                              # help for a specific command
+```
+
+Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `h`/`help`.
+
+---
+
 ## Building
 
 ```bash
@@ -404,9 +471,6 @@ dune build
 
 # Run tests
 dune test
-
-# Run a script
-dune exec bin/wand -- examples/hello.wand
 ```
 
 Requires OCaml 5.x and opam. Dependencies managed via `wand.opam`.
