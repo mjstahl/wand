@@ -25,6 +25,7 @@ type pat =
   | PCons    of pat * pat
   | PConstr       of string * pat list
   | PConstrNamed  of string * (string * pat) list
+  | PMap          of (string * pat) list
 
 type expr =
   | Int      of int
@@ -66,6 +67,7 @@ type expr =
   | Handle   of expr * handle_arm list
   | Try      of expr
   | Annot    of type_expr * expr
+  | MapLit   of (string * expr) list
 
 and case = pat * expr option * expr
 
@@ -102,6 +104,8 @@ let rec show_pat : pat -> string = function
   | PConstrNamed (c, kvs) ->
     Printf.sprintf "(%s %s)" c (String.concat ", "
       (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
+  | PMap kvs ->
+    "[" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "]"
 
 let rec show : expr -> string = function
   | Int n      -> string_of_int n
@@ -169,6 +173,8 @@ let rec show : expr -> string = function
     Printf.sprintf "(contract %s %s %s)" rs es (show body)
   | Try e -> Printf.sprintf "(try %s)" (show e)
   | Annot (_, e) -> show e
+  | MapLit kvs ->
+    "[" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ show e) kvs) ^ "]"
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 

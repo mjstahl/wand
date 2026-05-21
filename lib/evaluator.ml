@@ -32,6 +32,7 @@ type value =
   | VSize     of string
   | VTuple         of value list
   | VList          of value list
+  | VMap           of (string * value) list
   | VRecord        of (string * value) list  (* used for module namespaces *)
   | VFun           of env * pat list * expr
   | VConstr        of string * value list
@@ -69,6 +70,8 @@ let rec show_value = function
     "(" ^ String.concat ", " (List.map show_value vs) ^ ")"
   | VList vs    ->
     "[" ^ String.concat ", " (List.map show_value vs) ^ "]"
+  | VMap kvs    ->
+    "[" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ show_value v) kvs) ^ "]"
   | VRecord kvs ->
     "{ " ^ String.concat ", " (List.map (fun (k, v) ->
       k ^ " = " ^ show_value v) kvs) ^ " }"
@@ -138,6 +141,15 @@ let rec try_match (p : pat) v (env : env) : env option =
                | None -> None
                | Some v -> try_match p v env))
        ) (Some env) bindings)
+  | PMap bindings, VMap kvs ->
+    List.fold_left (fun acc (key, p) ->
+      match acc with
+      | None -> None
+      | Some env ->
+        (match List.assoc_opt key kvs with
+         | None   -> None
+         | Some v -> try_match p v env)
+    ) (Some env) bindings
   | _ -> None
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
@@ -235,8 +247,14 @@ let rec eval (env : env) (e : expr) : value =
                 "constructor '%s' missing field '%s'" name fn)))
        ) field_names in
        VConstr (name, ordered))
+  | MapLit kvs ->
+    VMap (List.map (fun (k, e) -> (k, eval env e)) kvs)
   | Field (e, label) ->
     (match eval env e with
+     | VMap kvs ->
+       (match List.assoc_opt label kvs with
+        | Some v -> v
+        | None   -> raise (EvalError (Printf.sprintf "map has no key '%s'" label)))
      | VRecord kvs ->
        (match List.assoc_opt label kvs with
         | Some v -> v
@@ -952,6 +970,98 @@ let stdlib_eval_env : env = [
       | _ -> raise (EvalError "list_concat: expected List"))
     | _ -> raise (EvalError "list_concat: expected List")));
 ]
+
+(* ── Map builtins ─────────────────────────────────────────────────────────── *)
+
+let apply_fn f v = match f with
+  | VBuiltin g  -> g v
+  | VFun (env, [p], body) ->
+    (match try_match p v env with
+     | Some env' -> eval env' body
+     | None      -> raise (EvalError "apply_fn: pattern mismatch"))
+  | VFix (name, env, [p], body) ->
+    let rec self = lazy (VFix (name, (name, Lazy.force self) :: env, [p], body)) in
+    (match try_match p v ((name, Lazy.force self) :: env) with
+     | Some env' -> eval env' body
+     | None      -> raise (EvalError "apply_fn: pattern mismatch"))
+  | _ -> raise (EvalError "apply_fn: not a function")
+
+let map_builtins : env = [
+  ("map_empty",  VMap []);
+  ("map_get", VBuiltin (function
+    | VString key -> VBuiltin (function
+      | VMap kvs ->
+        (match List.assoc_opt key kvs with
+         | Some v -> VConstr ("Ok", [v])
+         | None   -> VConstr ("Error", [VString ("key not found: " ^ key)]))
+      | _ -> raise (EvalError "map_get: expected Map"))
+    | _ -> raise (EvalError "map_get: expected String key")));
+  ("map_get_exn", VBuiltin (function
+    | VString key -> VBuiltin (function
+      | VMap kvs ->
+        (match List.assoc_opt key kvs with
+         | Some v -> v
+         | None   -> raise (EvalError ("map key not found: " ^ key)))
+      | _ -> raise (EvalError "map_get!: expected Map"))
+    | _ -> raise (EvalError "map_get!: expected String key")));
+  ("map_set", VBuiltin (function
+    | VString key -> VBuiltin (fun v -> VBuiltin (function
+      | VMap kvs ->
+        let kvs' = List.filter (fun (k, _) -> k <> key) kvs in
+        VMap ((key, v) :: kvs')
+      | _ -> raise (EvalError "map_set: expected Map")))
+    | _ -> raise (EvalError "map_set: expected String key")));
+  ("map_delete", VBuiltin (function
+    | VString key -> VBuiltin (function
+      | VMap kvs -> VMap (List.filter (fun (k, _) -> k <> key) kvs)
+      | _ -> raise (EvalError "map_delete: expected Map"))
+    | _ -> raise (EvalError "map_delete: expected String key")));
+  ("map_has", VBuiltin (function
+    | VString key -> VBuiltin (function
+      | VMap kvs -> VBool (List.mem_assoc key kvs)
+      | _ -> raise (EvalError "map_has?: expected Map"))
+    | _ -> raise (EvalError "map_has?: expected String key")));
+  ("map_keys", VBuiltin (function
+    | VMap kvs -> VList (List.map (fun (k, _) -> VString k) kvs)
+    | _ -> raise (EvalError "map_keys: expected Map")));
+  ("map_values", VBuiltin (function
+    | VMap kvs -> VList (List.map snd kvs)
+    | _ -> raise (EvalError "map_values: expected Map")));
+  ("map_size", VBuiltin (function
+    | VMap kvs -> VInt (List.length kvs)
+    | _ -> raise (EvalError "map_size: expected Map")));
+  ("map_to_list", VBuiltin (function
+    | VMap kvs -> VList (List.map (fun (k, v) -> VTuple [VString k; v]) kvs)
+    | _ -> raise (EvalError "map_to_list: expected Map")));
+  ("map_from_list", VBuiltin (function
+    | VList pairs ->
+      let kvs = List.map (function
+        | VTuple [VString k; v] -> (k, v)
+        | _ -> raise (EvalError "map_from_list: expected list of (String, value) tuples")) pairs
+      in
+      VMap kvs
+    | _ -> raise (EvalError "map_from_list: expected List")));
+  ("map_merge", VBuiltin (function
+    | VMap a -> VBuiltin (function
+      | VMap b ->
+        let keys_b = List.map fst b in
+        let a' = List.filter (fun (k, _) -> not (List.mem k keys_b)) a in
+        VMap (b @ a')
+      | _ -> raise (EvalError "map_merge: expected Map"))
+    | _ -> raise (EvalError "map_merge: expected Map")));
+  ("map_map", VBuiltin (function
+    | f -> VBuiltin (function
+      | VMap kvs -> VMap (List.map (fun (k, v) -> (k, apply_fn f v)) kvs)
+      | _ -> raise (EvalError "map_map: expected Map"))));
+  ("map_filter", VBuiltin (function
+    | f -> VBuiltin (function
+      | VMap kvs ->
+        VMap (List.filter (fun (_, v) ->
+          match apply_fn f v with VBool b -> b | _ -> false) kvs)
+      | _ -> raise (EvalError "map_filter: expected Map"))));
+]
+
+let stdlib_eval_env = stdlib_eval_env @ map_builtins
 
 (* User-visible globals — the only names available without an import *)
 let base_eval_env : env = [

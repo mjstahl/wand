@@ -1,0 +1,41 @@
+(** An empty map. Use Map.empty or the literal [] syntax — but note [] is an empty list; prefer Map.empty for clarity. *)
+let empty = map_empty
+
+(** Look up a key, returning Ok value or Error message. *)
+let get  key m = map_get key m
+
+(** Look up a key, raising a runtime error if not found. *)
+let get! key m = map_get_exn key m
+
+(** Set a key to a value, returning the updated map. *)
+let set  key val_ m = map_set key val_ m
+
+(** Remove a key, returning the updated map. *)
+let delete key m = map_delete key m
+
+(** Return true if the map contains the given key. *)
+let has? key m = map_has key m
+
+(** Return a list of all keys. *)
+let keys m = map_keys m
+
+(** Return a list of all values. *)
+let values m = map_values m
+
+(** Return the number of entries. *)
+let size m = map_size m
+
+(** Return the map as a list of (key, value) tuples. *)
+let to_list m = map_to_list m
+
+(** Build a map from a list of (key, value) tuples. *)
+let from_list xs = map_from_list xs
+
+(** Merge two maps. Keys in the second map take precedence. *)
+let merge a b = map_merge a b
+
+(** Apply a function to every value, returning a new map. *)
+let map f m = map_map f m
+
+(** Keep only entries where the predicate returns true. *)
+let filter f m = map_filter f m

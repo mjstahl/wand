@@ -231,19 +231,48 @@ and list_pat_ s =
   (* [ already consumed *)
   if peek s = Token.RBracket then (ignore (advance s); PList [])
   else begin
-    let first = pat_ s in
-    if peek s = Token.Colon then begin
-      ignore (advance s);
-      let tl = pat_ s in
-      expect s Token.RBracket;
-      PCons (first, tl)
-    end else begin
-      let pats = ref [first] in
+    (* Disambiguate: [ident = pat, ...] is PMap; otherwise PList/PCons *)
+    let is_map =
+      match peek s with
+      | Token.Ident _ | Token.String _ ->
+        let saved = s.pos in
+        ignore (advance s);
+        let result = peek s = Token.Eq in
+        s.pos <- saved;
+        result
+      | _ -> false
+    in
+    if is_map then begin
+      let parse_entry () =
+        let key = match advance s with
+          | Token.Ident k  -> k
+          | Token.String k -> k
+          | t -> raise (ParseError (Format.asprintf "expected map key, got %a" Token.pp t))
+        in
+        expect s Token.Eq;
+        (key, pat_ s)
+      in
+      let entries = ref [parse_entry ()] in
       while peek s = Token.Comma do
-        ignore (advance s); pats := !pats @ [pat_ s]
+        ignore (advance s); entries := !entries @ [parse_entry ()]
       done;
       expect s Token.RBracket;
-      PList !pats
+      PMap !entries
+    end else begin
+      let first = pat_ s in
+      if peek s = Token.Colon then begin
+        ignore (advance s);
+        let tl = pat_ s in
+        expect s Token.RBracket;
+        PCons (first, tl)
+      end else begin
+        let pats = ref [first] in
+        while peek s = Token.Comma do
+          ignore (advance s); pats := !pats @ [pat_ s]
+        done;
+        expect s Token.RBracket;
+        PList !pats
+      end
     end
   end
 
@@ -409,12 +438,41 @@ and list_ s =
   (* [ already consumed *)
   if peek s = Token.RBracket then (ignore (advance s); List [])
   else begin
-    let elems = ref [expr_ 0 s] in
-    while peek s = Token.Comma do
-      ignore (advance s); elems := !elems @ [expr_ 0 s]
-    done;
-    expect s Token.RBracket;
-    List !elems
+    (* Disambiguate: [ident = expr, ...] is MapLit; otherwise List *)
+    let is_map =
+      match peek s with
+      | Token.Ident _ | Token.String _ ->
+        let saved = s.pos in
+        ignore (advance s);
+        let result = peek s = Token.Eq in
+        s.pos <- saved;
+        result
+      | _ -> false
+    in
+    if is_map then begin
+      let parse_entry () =
+        let key = match advance s with
+          | Token.Ident k  -> k
+          | Token.String k -> k
+          | t -> raise (ParseError (Format.asprintf "expected map key, got %a" Token.pp t))
+        in
+        expect s Token.Eq;
+        (key, expr_ 0 s)
+      in
+      let entries = ref [parse_entry ()] in
+      while peek s = Token.Comma do
+        ignore (advance s); entries := !entries @ [parse_entry ()]
+      done;
+      expect s Token.RBracket;
+      MapLit !entries
+    end else begin
+      let elems = ref [expr_ 0 s] in
+      while peek s = Token.Comma do
+        ignore (advance s); elems := !elems @ [expr_ 0 s]
+      done;
+      expect s Token.RBracket;
+      List !elems
+    end
   end
 
 and parse_body s =
@@ -733,6 +791,13 @@ let parse_program tokens =
          let loc = peek_loc s in
          let body = Ast.Located (loc, parse_contract_body s) in
          let arity = List.length !params in
+         if peek s = Token.In then begin
+           (* let x = e in e2 — expression, not top-level binding *)
+           s.pos <- saved;
+           let loc = peek_loc s in
+           let e = Ast.Located (loc, expr_ 0 s) in
+           items := !items @ [Ast.TLExpr e]
+         end else begin
          attach_doc name;
          if arity = 0 then begin
            let e = match annot with
@@ -765,6 +830,7 @@ let parse_program tokens =
            done;
            items := !items @ [build_multi_equation name arity !eqs]
          end
+         end  (* close the outer begin from peek s = Token.In check *)
        | _ ->
          s.pos <- saved;
          let loc = peek_loc s in

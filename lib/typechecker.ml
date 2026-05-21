@@ -11,6 +11,7 @@ type typ =
   | TTuple  of typ list
   | TList   of typ
   | TResult of typ
+  | TMap    of typ
   | TName of string
 
 and tv = {
@@ -76,10 +77,16 @@ let string_of_typ t =
       "List " ^ s
     | TResult t ->
       let s = match repr t with
-        | TFun _ | TTuple _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
+        | TFun _ | TTuple _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "Result " ^ s
+    | TMap t ->
+      let s = match repr t with
+        | TFun _ | TTuple _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
+        | _ -> go t
+      in
+      "Map " ^ s
   in
   go t
 
@@ -92,6 +99,7 @@ let rec occurs (tv : tv) t =
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
   | TResult t   -> occurs tv t
+  | TMap t      -> occurs tv t
   | _           -> false
 
 (* ── Unification ──────────────────────────────────────────────────────────── *)
@@ -117,6 +125,7 @@ let rec unify t1 t2 =
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
   | TResult t1, TResult t2 -> unify t1 t2
+  | TMap t1,    TMap t2    -> unify t1 t2
   | t1, t2 ->
     raise (TypeError (Printf.sprintf "cannot unify %s with %s"
       (string_of_typ t1) (string_of_typ t2)))
@@ -145,8 +154,9 @@ let rec free_tvars t =
   | TFun (a, b) -> free_tvars a @ free_tvars b
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
-  | TResult t -> free_tvars t
-  | _         -> []
+  | TResult t   -> free_tvars t
+  | TMap t      -> free_tvars t
+  | _           -> []
 
 let free_tvars_scheme = function
   | Mono t        -> free_tvars t
@@ -181,8 +191,9 @@ let instantiate = function
       | TFun (a, b) -> TFun (inst a, inst b)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
-      | TResult t -> TResult (inst t)
-      | t         -> t
+      | TResult t   -> TResult (inst t)
+      | TMap t      -> TMap (inst t)
+      | t           -> t
     in
     inst t
 
@@ -316,6 +327,11 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
              name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
          | Some (_, te) -> infer_pat tenv p (type_of_te te) env
        ) env bindings)
+
+  | PMap bindings ->
+    let vt = fresh () in
+    unify t (TMap vt);
+    List.fold_left (fun env (_, p) -> infer_pat tenv p vt env) env bindings
 
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
 let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
@@ -464,8 +480,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
                   tname label (Util.hint label names))))
            | _ -> raise (TypeError (Printf.sprintf
                "cannot access field '%s' on type '%s'" label tname)))
+        | TMap vt -> vt
         | t -> raise (TypeError (Printf.sprintf
-            "field access requires a named type, got %s" (string_of_typ t)))))
+            "field access requires a named type or Map, got %s" (string_of_typ t)))))
+  | MapLit [] ->
+    TMap (fresh ())
+  | MapLit ((_, e0) :: rest) ->
+    let t = infer tenv env e0 in
+    List.iter (fun (_, e) -> unify t (infer tenv env e)) rest;
+    TMap t
   | RunCmd e -> unify (infer tenv env e) TString; TString
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
@@ -638,6 +661,22 @@ let stdlib_type_env : env = [
   ("list_range",   Mono (TFun (TInt, TFun (TInt, TList TInt))));
   ("list_flatten", let a = fresh () in generalize [] (TFun (TList (TList a), TList a)));
   ("list_concat",  let a = fresh () in generalize [] (TFun (TList a, TFun (TList a, TList a))));
+  (* Map builtins *)
+  ("map_empty",    let a = fresh () in generalize [] (TMap a));
+  ("map_get",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TResult a))));
+  ("map_get_exn",  let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, a))));
+  ("map_set",      let a = fresh () in generalize [] (TFun (TString, TFun (a, TFun (TMap a, TMap a)))));
+  ("map_delete",   let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TMap a))));
+  ("map_has",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TBool))));
+  ("map_keys",     let a = fresh () in generalize [] (TFun (TMap a, TList TString)));
+  ("map_values",   let a = fresh () in generalize [] (TFun (TMap a, TList a)));
+  ("map_size",     let a = fresh () in generalize [] (TFun (TMap a, TInt)));
+  ("map_to_list",  let a = fresh () in generalize [] (TFun (TMap a, TList (TTuple [TString; a]))));
+  ("map_from_list",let a = fresh () in generalize [] (TFun (TList (TTuple [TString; a]), TMap a)));
+  ("map_merge",    let a = fresh () in generalize [] (TFun (TMap a, TFun (TMap a, TMap a))));
+  ("map_map",      let a = fresh () in let b = fresh () in
+                   generalize [] (TFun (TFun (a, b), TFun (TMap a, TMap b))));
+  ("map_filter",   let a = fresh () in generalize [] (TFun (TFun (a, TBool), TFun (TMap a, TMap a))));
 ]
 
 (* User-visible globals — the only names available without an import *)

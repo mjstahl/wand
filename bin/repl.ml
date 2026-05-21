@@ -298,7 +298,7 @@ and loop (sess : Runner.session) =
 
 let stdlib_prelude =
   "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Process\nimport Env"
+   import Duration\nimport Process\nimport Env\nimport Map"
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   print_endline "wand interactive — :help for commands, :quit to exit";
