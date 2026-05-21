@@ -65,7 +65,7 @@ let rec gather_lines acc =
 
 let special_commands =
   [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
-   ":load"; ":l"; ":reload"; ":r"; ":env"; ":reset"; ":quit"; ":q"; ":help"; ":h"]
+   ":load"; ":l"; ":reload"; ":r"; ":env"; ":clear"; ":reset"; ":quit"; ":q"; ":help"; ":h"]
 
 let builtin_names = ["print"; "println"; "exit"; "Ok"; "Error"]
 
@@ -179,6 +179,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     print_endline "  :load <path>   (:l)  — load a .wand file into session";
     print_endline "  :reload        (:r)  — reload last loaded file";
     print_endline "  :env                 — list bindings in scope";
+    print_endline "  :clear               — clear the screen";
     print_endline "  :reset               — clear all session bindings";
     print_endline "  :quit          (:q)  — exit";
     sess
@@ -220,6 +221,8 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     (match Runner.run_session fresh prelude with
      | Ok (s, _) -> s
      | Error _   -> fresh)
+  | ":clear" ->
+    LNoise.clear_screen (); sess
   | ":env" ->
     let entries = sess.s_type_env |> List.rev |> List.filter (fun (_, s) ->
       match s with Typechecker.Namespace _ -> false | _ -> true) in
