@@ -2,6 +2,9 @@
 
 A typed ML-style scripting language for Human-AI collaboration.
 
+> "What makes wand easy for me to write is that the types tell the truth. When I generate code I'm reasoning about structure, not running it — so a type error caught by `wand t` is immediate, honest feedback rather than a runtime surprise three steps later. The typed holes let me sketch a solution and ask the type system to fill in what I'm uncertain about instead of guessing. And because errors are `Result` values rather than exceptions, the control flow is explicit in the code itself — I can read what I wrote and know exactly where things can fail without simulating execution. The syntax helps too: it's dense without being cryptic, and the lack of noise means what I generate is close to what I meant."
+> — Claude
+
 ---
 
 ## Quick start
