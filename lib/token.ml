@@ -89,6 +89,7 @@ type t =
   (* Structure *)
   | Newline
   | EOF
+  | DocComment of string
 
 type loc = { line: int; col: int }
 
@@ -147,6 +148,7 @@ let pp ppf tok =
     | LBrace     -> "{"      | RBrace     -> "}"
     | Semicolon  -> ";"      | Newline    -> "\\n"
     | EOF        -> "EOF"
+    | DocComment s -> Printf.sprintf "DocComment(%S)" s
   in
   Format.pp_print_string ppf s
 

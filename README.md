@@ -11,6 +11,8 @@ wand script.wand        # run a script
 wand i                  # interactive session
 wand e "1 + 2"          # evaluate an expression
 wand t "1 + 2"          # typecheck without evaluating
+wand d "List.map"       # show doc string
+wand env                # list all names in scope
 wand h                  # help
 ```
 
@@ -456,6 +458,7 @@ wand e "1 + 2"                        # evaluate and print result
 wand e --load config.wand "host"      # evaluate in context of a file
 wand t "List.map"                     # typecheck only
 wand d "List.map"                     # show doc string
+wand env                              # list all names and modules in scope
 wand h                                # show all commands
 wand h e                              # help for a specific command
 ```

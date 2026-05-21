@@ -204,7 +204,12 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     end
   | ":d" | ":doc" ->
     if rest = "" then (print_endline "Usage: :doc <name>"; sess)
-    else (Printf.printf "%s: no doc\n%!" rest; sess)
+    else begin
+      (match List.assoc_opt rest sess.s_docs with
+       | Some doc -> Printf.printf "%s\n%!" doc
+       | None     -> Printf.printf "%s: no doc\n%!" rest);
+      sess
+    end
   | ":e" | ":edit" ->
     let content =
       if rest = "" then ""

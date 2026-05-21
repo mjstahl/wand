@@ -1,17 +1,50 @@
+(** Read the entire contents of a file as a string. *)
 let read_file   = read_file
+
+(** Write a string to a file, replacing existing contents. *)
 let write_file  = write_file
+
+(** Append a string to a file, creating it if it does not exist. *)
 let append      path s   = fs_append path s
+
+(** Create an empty file at the given path. *)
 let create_file path     = fs_create path
+
+(** Return true if the path exists. *)
 let exists?     path     = fs_exists path
+
+(** Return true if the path is a regular file. *)
 let is_file?    path     = fs_is_file path
+
+(** Return true if the path is a directory. *)
 let is_dir?     path     = fs_is_dir path
+
+(** Create a directory and all missing parents. *)
 let mkdir       path     = fs_mkdir path
+
+(** Delete a file or empty directory. *)
 let delete      path     = fs_remove path
+
+(** Rename or move a file or directory. *)
 let rename      old_ new_ = fs_rename old_ new_
+
+(** Copy a file to a new path. *)
 let copy        src dst  = fs_copy src dst
+
+(** Return a list of paths for the immediate children of a directory. *)
 let list_dir    path     = fs_ls path
+
+(** Recursively walk a directory tree, returning all file paths. *)
 let walk        path     = fs_walk path
+
+(** Return the last-modified time of a file as a DateTime. *)
 let mtime       path     = fs_mtime path
+
+(** Return the size of a file in bytes. *)
 let size        path     = fs_size path
+
+(** Return the current working directory. *)
 let cwd         ()       = fs_cwd ()
+
+(** Change the current working directory. *)
 let cd          path     = fs_cd path

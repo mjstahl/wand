@@ -202,4 +202,5 @@ type top_item =
 
 type program = {
   items : top_item list;
+  docs  : (string * string) list;  (* name -> doc string *)
 }

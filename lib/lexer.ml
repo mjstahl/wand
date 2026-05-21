@@ -146,15 +146,38 @@ let read_run_cmd s =
 
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
-let skip_comment s =
+let read_comment s =
   ignore (advance s);  (* consume '*' after '(' *)
+  let is_doc = peek s = '*' && peek2 s <> ')' in
+  if is_doc then ignore (advance s);  (* consume second '*' *)
+  let buf = if is_doc then Some (Buffer.create 64) else None in
   let depth = ref 1 in
   while !depth > 0 do
     if is_at_end s then raise (LexError "unterminated comment");
     let c = advance s in
     if c = '(' && peek s = '*' then (ignore (advance s); incr depth)
-    else if c = '*' && peek s = ')' then (ignore (advance s); decr depth)
-  done
+    else if c = '*' && peek s = ')' then begin
+      ignore (advance s); decr depth;
+      if !depth > 0 then
+        Option.iter (fun b -> Buffer.add_char b '*'; Buffer.add_char b ')') buf
+    end else
+      Option.iter (fun b -> Buffer.add_char b c) buf
+  done;
+  match buf with
+  | None -> None
+  | Some b ->
+    (* Strip leading/trailing whitespace; strip leading * from each line *)
+    let lines = String.split_on_char '\n' (Buffer.contents b) in
+    let strip line =
+      let s = String.trim line in
+      if String.length s > 0 && s.[0] = '*' then String.trim (String.sub s 1 (String.length s - 1))
+      else s
+    in
+    let lines = List.map strip lines in
+    (* Drop leading and trailing blank lines *)
+    let rec drop_leading = function [] -> [] | "" :: t -> drop_leading t | l -> l in
+    let lines = drop_leading lines |> List.rev |> drop_leading |> List.rev in
+    Some (String.concat "\n" lines)
 
 (* ── Paths ──────────────────────────────────────────────────────────────── *)
 
@@ -396,7 +419,10 @@ let next_token s =
     | ' ' | '\t' | '\r' -> scan ()
     | '\n' -> ret Newline
     | '"'  -> ret (read_string s)
-    | '('  when peek s = '*' -> skip_comment s; scan ()
+    | '('  when peek s = '*' ->
+      (match read_comment s with
+       | None -> scan ()
+       | Some doc -> ret (DocComment doc))
     | '('  -> ret LParen
     | ')'  -> ret RParen
     | '['  -> ret LBracket

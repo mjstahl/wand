@@ -1,5 +1,5 @@
 let usage () =
-  print_endline "wand — a typed scripting language";
+  print_endline "wand — a typed language for human/AI pairing";
   print_endline "";
   print_endline "Usage: wand <command> [options] [args]";
   print_endline "       wand <file.wand> [args]";
@@ -9,6 +9,7 @@ let usage () =
   print_endline "  e, eval <expr>   Evaluate an expression and exit";
   print_endline "  t, type <expr>   Typecheck an expression without evaluating";
   print_endline "  d, doc  <name>   Print the doc string for a name";
+  print_endline "  env              List all names and modules in scope";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
@@ -126,10 +127,22 @@ let () =
        | [] ->
          Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
        | [name] ->
-         let _sess = load_files loads in
-         Printf.printf "%s: no doc\n" name
+         let sess = load_files loads in
+         (match List.assoc_opt name sess.Wand.Runner.s_docs with
+          | Some doc -> print_endline doc
+          | None     -> Printf.printf "%s: no doc\n" name)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
+    | "env" ->
+      let (loads, _) = parse_loads rest in
+      let sess = load_files loads in
+      let entries = List.rev sess.Wand.Runner.s_type_env in
+      if entries = [] then print_endline "(empty)"
+      else List.iter (fun (name, s) ->
+        match s with
+        | Wand.Typechecker.Namespace _ -> print_endline name
+        | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
+      ) entries
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       Wand.Evaluator.exe_args_ref := rest;

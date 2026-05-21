@@ -700,10 +700,22 @@ let parse_type_def s =
 let parse_program tokens =
   let s = make tokens in
   let items = ref [] in
+  let docs  = ref [] in
+  let pending_doc : string option ref = ref None in
+  let attach_doc name =
+    match !pending_doc with
+    | None -> ()
+    | Some d -> docs := (name, d) :: !docs; pending_doc := None
+  in
   let continue_ = ref true in
   while !continue_ do
     match peek s with
     | Token.EOF -> continue_ := false
+    | Token.DocComment doc ->
+      ignore (advance s);
+      pending_doc := Some doc
+    | Token.Newline | Token.Semicolon ->
+      ignore (advance s)
     | Token.Let ->
       let saved = s.pos in
       ignore (advance s);
@@ -721,6 +733,7 @@ let parse_program tokens =
          let loc = peek_loc s in
          let body = Ast.Located (loc, parse_contract_body s) in
          let arity = List.length !params in
+         attach_doc name;
          if arity = 0 then begin
            let e = match annot with
              | Some te -> Ast.Annot (te, body)
@@ -766,8 +779,9 @@ let parse_program tokens =
            "expected module name or path after import, got %a" Token.pp t)))
     | Token.Type ->
       ignore (advance s);
-      items := !items @ [Ast.TLType (parse_type_def s)]
-    | Token.Semicolon -> ignore (advance s)
+      let tdef = parse_type_def s in
+      (match tdef with Ast.Variants (name, _) -> attach_doc name);
+      items := !items @ [Ast.TLType tdef]
     | _ ->
       let loc = peek_loc s in
       let e = Ast.Located (loc, expr_ 0 s) in
@@ -789,4 +803,4 @@ let parse_program tokens =
          | None -> ())
       end
   done;
-  { Ast.items = !items }
+  { Ast.items = !items; docs = !docs }

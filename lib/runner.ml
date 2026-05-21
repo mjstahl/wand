@@ -263,18 +263,18 @@ let run_item env item =
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
-type module_result = import_env * (string * Typechecker.scheme) list * env
+type module_result = import_env * (string * Typechecker.scheme) list * env * (string * string) list
 
 (* Load imports for a program.
    `cache` maps path -> result so each module is loaded once per run_program.
    `loading` detects import cycles. *)
 let rec load_imports_for ~base_dir ~cache ~loading prog =
-  List.fold_left (fun acc item ->
+  List.fold_left (fun (acc, acc_docs) item ->
     match item with
     | Ast.TLImport kind ->
       let full = resolve_import base_dir kind in
       let ns_name = namespace_name_of kind in
-      let (modul_import, own_type, own_eval) =
+      let (modul_import, own_type, own_eval, mod_docs) =
         match Hashtbl.find_opt cache full with
         | Some cached -> cached
         | None ->
@@ -285,11 +285,13 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
       in
       let ns_type_entry = (ns_name, Typechecker.Namespace own_type) in
       let ns_eval_entry = (ns_name, VRecord own_eval) in
-      { tenv     = modul_import.tenv @ acc.tenv;
-        type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
-        eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env }
-    | _ -> acc
-  ) empty_import_env prog.Ast.items
+      let prefixed_docs = List.map (fun (n, d) -> (ns_name ^ "." ^ n, d)) mod_docs in
+      ({ tenv     = modul_import.tenv @ acc.tenv;
+         type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
+         eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env },
+       prefixed_docs @ acc_docs)
+    | _ -> (acc, acc_docs)
+  ) (empty_import_env, []) prog.Ast.items
 
 and load_module path ~cache ~loading =
   let src =
@@ -309,7 +311,7 @@ and load_module path ~cache ~loading =
   in
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
-  let imported = load_imports_for ~base_dir ~cache ~loading prog in
+  let (imported, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
   let result =
     (match Typechecker.infer_program_env_with_own
              ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
@@ -322,7 +324,7 @@ and load_module path ~cache ~loading =
        let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
                            type_env;
                            eval_env = full_eval } in
-       (full_import, own_type, own_eval))
+       (full_import, own_type, own_eval, prog.Ast.docs @ imp_docs))
   in
   Hashtbl.replace cache path result;
   loading := List.filter (fun p -> p <> path) !loading;
@@ -333,7 +335,7 @@ and load_module path ~cache ~loading =
 let run_program ~base_dir prog =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
-  let imp = load_imports_for ~base_dir ~cache ~loading prog in
+  let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
   (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
@@ -397,6 +399,7 @@ type session = {
   s_base_dir  : string;
   s_last_load : string option;
   s_sources   : (string * string) list;  (* name -> source text *)
+  s_docs      : (string * string) list;  (* name -> doc string *)
 }
 
 let make_session ?(base_dir = Sys.getcwd ()) () = {
@@ -407,6 +410,7 @@ let make_session ?(base_dir = Sys.getcwd ()) () = {
   s_base_dir  = base_dir;
   s_last_load = None;
   s_sources   = [];
+  s_docs      = [];
 }
 
 let last_non_import prog =
@@ -419,7 +423,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
-    let imp = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, imp_docs) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
@@ -445,6 +449,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
           s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
           s_sources  = new_sources @ sess.s_sources;
+          s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
         } in
         let hole_strs = List.map Typechecker.string_of_typ hole_types in
         Ok (new_sess, RHoles hole_strs)
@@ -489,6 +494,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
           s_eval_env = dedup (own_eval_env @ ns_eval @ sess.s_eval_env);
           s_sources  = new_sources @ sess.s_sources;
+          s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
         } in
         let display = match last_non_import prog with
           | None -> RSilent
@@ -516,7 +522,7 @@ let typecheck_session (sess : session) (src : string) : (repl_result, string) re
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
-    let imp = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
