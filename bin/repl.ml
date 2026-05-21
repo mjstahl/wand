@@ -5,6 +5,9 @@ let history_file =
   | Some home -> Filename.concat home ".wand_history"
   | None -> ".wand_history"
 
+(* Shared session reference for the completion callback *)
+let session_ref : Runner.session ref = ref (Runner.make_session ())
+
 (* ── Multi-line detection ─────────────────────────────────────────────────── *)
 
 let is_complete src =
@@ -57,6 +60,61 @@ let rec gather_lines acc =
       let combined = acc ^ "\n" ^ more in
       ignore (LNoise.history_add combined);
       gather_lines combined
+
+(* ── Tab completion ───────────────────────────────────────────────────────── *)
+
+let special_commands =
+  [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
+   ":load"; ":l"; ":reload"; ":r"; ":env"; ":reset"; ":quit"; ":q"; ":help"; ":h"]
+
+let builtin_names = ["print"; "println"; "exit"; "Ok"; "Error"]
+
+let is_ident_char = function
+  | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
+  | _ -> false
+
+let starts_with s prefix =
+  let ls = String.length s and lp = String.length prefix in
+  ls >= lp && String.sub s 0 lp = prefix
+
+let complete_line line completions =
+  let n = String.length line in
+  if n > 0 && line.[0] = ':' then
+    (* Command completion *)
+    List.iter (fun cmd ->
+      if starts_with cmd line then LNoise.add_completion completions cmd
+    ) special_commands
+  else begin
+    (* Find the token being completed by walking back over ident chars *)
+    let i = ref (n - 1) in
+    while !i >= 0 && is_ident_char line.[!i] do decr i done;
+    let prefix_start = !i + 1 in
+    let prefix = String.sub line prefix_start (n - prefix_start) in
+    let before  = String.sub line 0 prefix_start in
+    let sess    = !session_ref in
+    match String.split_on_char '.' prefix with
+    | [ns; member_prefix] ->
+      (* ModuleName.prefix → complete module members *)
+      (match List.assoc_opt ns sess.s_type_env with
+       | Some (Typechecker.Namespace members) ->
+         List.iter (fun (name, _) ->
+           if starts_with name member_prefix then
+             LNoise.add_completion completions (before ^ ns ^ "." ^ name)
+         ) members
+       | _ -> ())
+    | [ident_prefix] ->
+      (* Plain identifier → complete from all names in scope + builtins *)
+      let all_names =
+        List.filter_map (fun (name, _) ->
+          if starts_with name ident_prefix then Some name else None
+        ) sess.s_type_env
+        @ List.filter (fun n -> starts_with n ident_prefix) builtin_names
+      in
+      List.iter (fun name ->
+        LNoise.add_completion completions (before ^ name)
+      ) all_names
+    | _ -> ()
+  end
 
 (* ── Editor integration ───────────────────────────────────────────────────── *)
 
@@ -170,6 +228,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     sess
 
 and loop (sess : Runner.session) =
+  session_ref := sess;
   match LNoise.linenoise "wand> " with
   | None ->
     print_newline ();
@@ -195,6 +254,7 @@ and loop (sess : Runner.session) =
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   print_endline "wand interactive — :help for commands, :quit to exit";
+  LNoise.set_completion_callback complete_line;
   ignore (LNoise.history_set ~max_length:1000);
   ignore (LNoise.history_load ~filename:history_file);
   let sess = Runner.make_session ~base_dir () in
