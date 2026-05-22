@@ -461,19 +461,70 @@ List.length [1, 2, 3]                     -- 3
 
 ### User modules
 
+Bind a user module to a name:
+
+```
+let utils   = import ./utils
+let Helpers = import ./lib/helpers    -- capitalisation is convention, not enforced
+```
+
+File extension is optional — `./utils` and `./utils.wand` are equivalent.
+
+Access members via dot notation:
+
+```
+let utils = import ./utils
+
+utils.my_function 42
+utils.greeting
+```
+
+### Destructured imports
+
+Import specific names from a module using map destructuring:
+
+```
+let [foo = bar]     = import ./utils    -- bind utils.foo as bar
+let [f = foo, baz]  = import ./utils    -- rename foo as f, import baz as-is
+```
+
+Or bind multiple names directly (shorthand for same key and alias):
+
+```
+let [foo, bar] = import ./utils         -- bind foo and bar
+```
+
+### Stdlib bound to custom name
+
+```
+let L = import List
+L.length [1, 2, 3]    -- 3
+```
+
+### Private symbols
+
+Names beginning with `_` are private — they cannot be accessed from outside the module:
+
+```
+-- utils.wand
+let _helper x = x * 2      -- private
+let double x = _helper x    -- public, calls private helper
+```
+
+```
+let utils = import ./utils
+utils.double 5       -- 10
+utils._helper 5      -- type error: _helper not found in module
+```
+
+### Bare import (still supported)
+
 ```
 import ./utils
-import ./lib/helpers
 ```
 
-Top-level definitions from the imported file are available under the module
-name derived from the filename (capitalised):
-
-```
-import ./utils
-
-Utils.my_function 42
-```
+Binds the module under the capitalised filename (`Utils`). Equivalent to
+`let Utils = import ./utils`.
 
 ---
 

@@ -116,7 +116,7 @@ let is_atom_start = function
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket
   | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.RunQueryRaw _
-  | Token.Regex _ | Token.EnvVar _
+  | Token.Regex _ | Token.EnvVar _ | Token.Import
   | Token.Handle | Token.Try -> true
   | _ -> false
 
@@ -409,6 +409,12 @@ and atom_ s =
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
   | Token.Fn       -> fn_ s
+  | Token.Import   ->
+    (match advance s with
+     | Token.Upper n -> ImportExpr (Ast.StdlibModule n)
+     | Token.Path p  -> ImportExpr (Ast.UserPath p)
+     | t -> raise (ParseError (Format.asprintf "%sexpected module name or path after import, got %a"
+                loc Token.pp t)))
   | Token.Result   -> Var "result"
   | Token.Dollar   ->
     expect s Token.LParen;
@@ -788,8 +794,26 @@ let parse_program tokens =
       let saved = s.pos in
       ignore (advance s);
       (match peek s with
-       | Token.Ident _ ->
-         let name = expect_ident s in
+       | Token.LBracket | Token.LParen ->
+         (* Top-level pattern destructuring: let <pat> = <expr> *)
+         let p = pat_ s in
+         expect s Token.Eq;
+         let loc = peek_loc s in
+         let body = Ast.Located (loc, parse_contract_body s) in
+         if peek s = Token.In then begin
+           (* Actually a let-in expression — backtrack and parse as TLExpr *)
+           s.pos <- saved;
+           let eloc = peek_loc s in
+           let e = Ast.Located (eloc, expr_ 0 s) in
+           items := !items @ [Ast.TLExpr e]
+         end else
+           items := !items @ [Ast.TLLetPat (p, body)]
+       | Token.Ident _ | Token.Upper _ ->
+         let name = match advance s with
+           | Token.Ident n -> n
+           | Token.Upper n -> n
+           | _ -> assert false
+         in
          let params = ref [] in
          while is_pat_atom_start (peek s) do
            params := !params @ [pat_atom_ s]

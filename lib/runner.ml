@@ -303,13 +303,27 @@ let local_tenv_of prog =
     | Ast.TLType (Ast.Variants (n, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.Ast.items
 
+let is_private name = String.length name > 0 && name.[0] = '_'
+
+let rec strip_located = function
+  | Ast.Located (_, e) -> strip_located e
+  | e -> e
+
+let import_kind_of e = match strip_located e with
+  | Ast.ImportExpr k -> Some k
+  | _ -> None
+
 (* Evaluate a single top-level item; imports already merged into env *)
 let run_item env item =
   match item with
+  | Ast.TLLet (_, [], body) when Option.is_some (import_kind_of body) -> env  (* pre-loaded *)
   | Ast.TLLet (name, [], body) ->
     (name, eval env body) :: env
   | Ast.TLLet (name, params, body) ->
     (name, VFix (name, env, params, body)) :: env
+  | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> env  (* pre-loaded *)
+  | Ast.TLLetPat (pat, e) ->
+    Evaluator.bind_pat pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
   | Ast.TLType (Ast.Variants (_, ctors)) ->
     List.fold_left (fun env ctor ->
@@ -332,26 +346,74 @@ type module_result = import_env * (string * Typechecker.scheme) list * env * (st
    `loading` detects import cycles. *)
 let rec load_imports_for ~base_dir ~cache ~loading prog =
   List.fold_left (fun (acc, acc_docs) item ->
+    let load_kind kind =
+      let full = resolve_import base_dir kind in
+      match Hashtbl.find_opt cache full with
+      | Some cached -> cached
+      | None ->
+        if List.mem full !loading then failwith ("import cycle detected: " ^ full)
+        else load_module full ~cache ~loading
+    in
+    let bind_field own_type own_eval field alias =
+      let t = match List.assoc_opt field own_type with
+        | Some s -> s
+        | None -> failwith (Printf.sprintf "module has no exported symbol '%s'" field)
+      in
+      let v = match List.assoc_opt field own_eval with
+        | Some v -> v
+        | None -> failwith (Printf.sprintf "module has no exported symbol '%s'" field)
+      in
+      ((alias, t), (alias, v))
+    in
+    let add_import modul_import type_entries eval_entries mod_docs =
+      ({ tenv     = modul_import.tenv @ acc.tenv;
+         type_env = type_entries @ modul_import.type_env @ acc.type_env;
+         eval_env = eval_entries @ modul_import.eval_env @ acc.eval_env },
+       mod_docs @ acc_docs)
+    in
     match item with
     | Ast.TLImport kind ->
-      let full = resolve_import base_dir kind in
       let ns_name = namespace_name_of kind in
-      let (modul_import, own_type, own_eval, mod_docs) =
-        match Hashtbl.find_opt cache full with
-        | Some cached -> cached
-        | None ->
-          if List.mem full !loading then
-            failwith ("import cycle detected: " ^ full)
-          else
-            load_module full ~cache ~loading
-      in
-      let ns_type_entry = (ns_name, Typechecker.Namespace own_type) in
-      let ns_eval_entry = (ns_name, VRecord own_eval) in
+      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (ns_name ^ "." ^ n, d)) mod_docs in
-      ({ tenv     = modul_import.tenv @ acc.tenv;
-         type_env = ns_type_entry :: modul_import.type_env @ acc.type_env;
-         eval_env = ns_eval_entry :: modul_import.eval_env @ acc.eval_env },
-       prefixed_docs @ acc_docs)
+      add_import modul_import
+        [(ns_name, Typechecker.Namespace own_type)]
+        [(ns_name, VRecord own_eval)]
+        prefixed_docs
+    | Ast.TLLet (name, [], body) when Option.is_some (import_kind_of body) ->
+      let kind = Option.get (import_kind_of body) in
+      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
+      let prefixed_docs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
+      add_import modul_import
+        [(name, Typechecker.Namespace own_type)]
+        [(name, VRecord own_eval)]
+        prefixed_docs
+    | Ast.TLLetPat (pat, body) when Option.is_some (import_kind_of body) ->
+      let kind = Option.get (import_kind_of body) in
+      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
+      let (type_entries, eval_entries, extra_docs) = match pat with
+        | Ast.PVar name ->
+          let pdocs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
+          [(name, Typechecker.Namespace own_type)],
+          [(name, VRecord own_eval)],
+          pdocs
+        | Ast.PMap binds ->
+          let te, ee = List.map (fun (field, p) ->
+            match p with
+            | Ast.PVar alias -> bind_field own_type own_eval field alias
+            | _ -> failwith "import destructuring only supports name bindings"
+          ) binds |> List.split in
+          te, ee, []
+        | Ast.PList pats ->
+          let te, ee = List.map (fun p ->
+            match p with
+            | Ast.PVar name -> bind_field own_type own_eval name name
+            | _ -> failwith "import destructuring only supports name bindings"
+          ) pats |> List.split in
+          te, ee, []
+        | _ -> failwith "unsupported pattern in import destructuring"
+      in
+      add_import modul_import type_entries eval_entries extra_docs
     | _ -> (acc, acc_docs)
   ) (empty_import_env, []) prog.Ast.items
 
@@ -382,7 +444,9 @@ and load_module path ~cache ~loading =
        let base = stdlib_eval_env @ imported.eval_env in
        let full_eval = List.fold_left run_item base prog.Ast.items in
        let n_own = List.length full_eval - List.length base in
-       let own_eval = List.filteri (fun i _ -> i < n_own) full_eval in
+       let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
+         |> List.filter (fun (n, _) -> not (is_private n)) in
+       let own_type = List.filter (fun (n, _) -> not (is_private n)) own_type in
        let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
                            type_env;
                            eval_env = full_eval } in
@@ -511,10 +575,6 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         List.fold_right (fun x acc ->
           if List.mem_assoc (fst x) acc then acc else x :: acc) lst []
       in
-      let ns_type = List.filter (fun (_, s) ->
-        match s with Typechecker.Namespace _ -> true | _ -> false) imp.type_env in
-      let ns_eval = List.filter (fun (_, v) ->
-        match v with VRecord _ -> true | _ -> false) imp.eval_env in
       if hole_types <> [] then begin
         (* Holes present — skip evaluation, report hole types *)
         let new_sources =
@@ -524,7 +584,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         in
         let new_sess = { sess with
           s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
-          s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
+          s_type_env = dedup (own_type_env @ imp.type_env @ sess.s_type_env);
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
         } in
@@ -537,10 +597,14 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         ignore (run_with_default_handler (fun () ->
           List.iter (fun item ->
             match item with
+            | Ast.TLLet (_, [], body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLet (name, [], body) ->
               env_ref := (name, eval !env_ref body) :: !env_ref
             | Ast.TLLet (name, params, body) ->
               env_ref := (name, VFix (name, !env_ref, params, body)) :: !env_ref
+            | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
+            | Ast.TLLetPat (pat, e) ->
+              env_ref := Evaluator.bind_pat pat (eval !env_ref e) !env_ref
             | Ast.TLType (Ast.Variants (_, ctors)) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
@@ -568,8 +632,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
            the typechecker/evaluator base and don't belong in the session. *)
         let new_sess = { sess with
           s_tenv     = dedup (local_tenv_of prog @ imp.tenv @ sess.s_tenv);
-          s_type_env = dedup (own_type_env @ ns_type @ sess.s_type_env);
-          s_eval_env = dedup (own_eval_env @ ns_eval @ sess.s_eval_env);
+          s_type_env = dedup (own_type_env @ imp.type_env @ sess.s_type_env);
+          s_eval_env = dedup (own_eval_env @ imp.eval_env @ sess.s_eval_env);
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
         } in
@@ -579,6 +643,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             (match List.assoc_opt name full_type_env with
              | Some s -> RBind (name, Typechecker.string_of_scheme s)
              | None   -> RBind (name, "?"))
+          | Some (Ast.TLLetPat _) -> RSilent
           | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
           | Some (Ast.TLExpr _) ->
             (match last_v with

@@ -345,6 +345,12 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
 
 (* ── Expression inference ─────────────────────────────────────────────────── *)
 
+let rec strip_located = function
+  | Located (_, e) -> strip_located e
+  | e -> e
+
+let is_import_expr e = match strip_located e with ImportExpr _ -> true | _ -> false
+
 let rec infer tenv (env : env) (e : expr) : typ =
   match e with
   | Int _      -> TInt
@@ -452,16 +458,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let rec unwrap_loc = function Located (_, x) -> unwrap_loc x | x -> x in
+    let lookup_ns ns_name =
+      match List.assoc_opt ns_name env with
+      | Some (Namespace ns_env) ->
+        Some (match List.assoc_opt label ns_env with
+          | Some s -> instantiate s
+          | None   -> raise (TypeError (Printf.sprintf
+              "namespace '%s' has no member '%s'%s"
+              ns_name label (Util.hint label (List.map fst ns_env)))))
+      | _ -> None
+    in
     let ns_result = match unwrap_loc e with
-      | Constr ns_name ->
-        (match List.assoc_opt ns_name env with
-         | Some (Namespace ns_env) ->
-           Some (match List.assoc_opt label ns_env with
-             | Some s -> instantiate s
-             | None   -> raise (TypeError (Printf.sprintf
-                 "namespace '%s' has no member '%s'%s"
-                 ns_name label (Util.hint label (List.map fst ns_env)))))
-         | _ -> None)
+      | Constr ns_name | Var ns_name -> lookup_ns ns_name
       | _ -> None
     in
     (match ns_result with
@@ -495,6 +503,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | RunCmd    e       -> unify (infer tenv env e) TString; TString
   | RunQuery  e       -> unify (infer tenv env e) TString; TName "ShellResult"
   | RegexLit  _       -> TRegex
+  | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
     let result_t = fresh () in
@@ -733,6 +742,8 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let (env, last_t) = List.fold_left (fun (env, last_t) item ->
     match item with
+    | TLLet (_, [], body) when is_import_expr body ->
+      (env, last_t)  (* pre-loaded by load_imports_for *)
     | TLLet (name, [], body) ->
       let t = infer tenv env body in
       ((name, generalize env t) :: env, last_t)
@@ -742,6 +753,12 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       let t = infer tenv env_rec (Fn (params, body)) in
       unify placeholder t;
       ((name, generalize env t) :: env, last_t)
+    | TLLetPat (_, body) when is_import_expr body ->
+      (env, last_t)  (* pre-loaded by load_imports_for *)
+    | TLLetPat (pat, e) ->
+      let t = infer tenv env e in
+      let env' = infer_pat tenv pat t env in
+      (env', last_t)
     | TLExpr e ->
       (env, infer tenv env e)
     | TLType _ | TLImport _ -> (env, last_t)

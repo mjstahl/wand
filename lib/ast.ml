@@ -1,6 +1,10 @@
 type type_expr =
   | TEName of string
 
+type import_kind =
+  | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)
+  | UserPath     of string   (* import ./utils     — resolves relative to caller  *)
+
 type pat =
   | Int      of int
   | Float    of float
@@ -65,6 +69,7 @@ type expr =
   | RunCmd    of expr
   | RunQuery  of expr
   | RegexLit  of string * string
+  | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
   | Handle   of expr * handle_arm list
   | Try      of expr
@@ -149,6 +154,8 @@ let rec show : expr -> string = function
   | RunCmd   e        -> Printf.sprintf "$(%s)" (show e)
   | RunQuery e        -> Printf.sprintf "$?(%s)" (show e)
   | RegexLit (p, f)   -> Printf.sprintf "r/%s/%s" p f
+  | ImportExpr (StdlibModule n) -> Printf.sprintf "import %s" n
+  | ImportExpr (UserPath p)     -> Printf.sprintf "import %s" p
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     Buffer.add_char buf '"';
@@ -200,12 +207,9 @@ type ctor_def = {
 type type_def =
   | Variants of string * ctor_def list
 
-type import_kind =
-  | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)
-  | UserPath     of string   (* import ./utils     — resolves relative to caller  *)
-
 type top_item =
   | TLLet    of string * pat list * expr
+  | TLLetPat of pat * expr
   | TLImport of import_kind
   | TLType   of type_def
   | TLExpr   of expr

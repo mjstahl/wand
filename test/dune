@@ -93,3 +93,7 @@
 (test
  (name test_regex)
  (libraries wand alcotest))
+
+(test
+ (name test_imports)
+ (libraries wand alcotest))

@@ -147,7 +147,7 @@ let rec try_match (p : pat) v (env : env) : env option =
                | None -> None
                | Some v -> try_match p v env))
        ) (Some env) bindings)
-  | PMap bindings, VMap kvs ->
+  | PMap bindings, (VMap kvs | VRecord kvs) ->
     List.fold_left (fun acc (key, p) ->
       match acc with
       | None -> None
@@ -283,6 +283,8 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
+  | ImportExpr _ ->
+    raise (EvalError "import expressions must be handled by the runner")
   | RegexLit (pat, flags) ->
     let opts = String.to_seq flags |> Seq.flat_map (function
       | 'i' -> List.to_seq [`CASELESS]
