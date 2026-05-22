@@ -375,6 +375,29 @@ let read_numeric s first_char =
      | Some unit -> Size (first ^ unit)
      | None      -> Int (int_of_string first))
 
+(* ── Regex literals: r/pattern/flags ────────────────────────────────────── *)
+
+let read_regex s =
+  ignore (advance s); (* consume opening '/' *)
+  let buf = Buffer.create 16 in
+  let rec loop () =
+    if is_at_end s then raise (LexError "unterminated regex literal");
+    match advance s with
+    | '\\' ->
+      Buffer.add_char buf '\\';
+      if not (is_at_end s) then Buffer.add_char buf (advance s);
+      loop ()
+    | '/' -> () (* closing slash *)
+    | c   -> Buffer.add_char buf c; loop ()
+  in
+  loop ();
+  let pat = Buffer.contents buf in
+  let flags = Buffer.create 4 in
+  while not (is_at_end s) && List.mem (peek s) ['i'; 'm'; 's'] do
+    Buffer.add_char flags (advance s)
+  done;
+  Regex (pat, Buffer.contents flags)
+
 (* ── Identifiers ─────────────────────────────────────────────────────────── *)
 
 let read_ident s first_char =
@@ -391,6 +414,8 @@ let read_ident s first_char =
   let word = Buffer.contents buf in
   (* let* *)
   if word = "let" && peek s = '*' then (ignore (advance s); LetStar)
+  (* Regex literal: r/pattern/flags — only when r is followed immediately by / *)
+  else if word = "r" && peek s = '/' then read_regex s
   (* URL: http:// or https:// *)
   else if (word = "http" || word = "https")
        && peek s = ':' && peek2 s = '/' && char_at s 2 = '/' then

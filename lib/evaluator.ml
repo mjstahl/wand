@@ -34,6 +34,7 @@ type value =
   | VPort     of int
   | VVersion  of string
   | VSize     of string
+  | VRegex         of Re.re
   | VTuple         of value list
   | VList          of value list
   | VMap           of (string * value) list
@@ -65,6 +66,7 @@ let rec show_value = function
   | VPort n     -> Printf.sprintf ":%d" n
   | VVersion s  -> s
   | VSize s     -> s
+  | VRegex _                      -> "<regex>"
   | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
@@ -281,6 +283,16 @@ let rec eval (env : env) (e : expr) : value =
      | _ -> raise (EvalError "field access on non-record"))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
+  | RegexLit (pat, flags) ->
+    let opts = String.to_seq flags |> Seq.flat_map (function
+      | 'i' -> List.to_seq [`CASELESS]
+      | 'm' -> List.to_seq [`MULTILINE]
+      | 's' -> List.to_seq [`DOTALL]
+      | _   -> List.to_seq []) |> List.of_seq
+    in
+    (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
+     with Re.Pcre.Parse_error ->
+       raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags)))
   | RunCmd e ->
     let cmd = match eval env e with
       | VString s -> s
@@ -856,6 +868,52 @@ let stdlib_eval_env : env = [
   ("dur_to_ms", VBuiltin (function
     | VDuration d -> VInt (parse_dur_ms d)
     | _ -> raise (EvalError "dur_to_ms: expected Duration")));
+  (* Regex primitives *)
+  ("regex_match", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString s -> VBool (Re.execp re s)
+      | _ -> raise (EvalError "regex_match: expected String"))
+    | _ -> raise (EvalError "regex_match: expected Regex")));
+  ("regex_capture", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString s ->
+        (match Re.exec_opt re s with
+         | None   -> VList []
+         | Some g ->
+           let all = Re.Group.all g in
+           VList (Array.to_list (Array.map (fun s -> VString s) all)))
+      | _ -> raise (EvalError "regex_capture: expected String"))
+    | _ -> raise (EvalError "regex_capture: expected Regex")));
+  ("regex_replace", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString repl -> VBuiltin (function
+        | VString s ->
+          (match Re.exec_opt re s with
+           | None   -> VString s
+           | Some g ->
+             let (b, e) = Re.Group.offset g 0 in
+             VString (String.sub s 0 b ^ repl ^ String.sub s e (String.length s - e)))
+        | _ -> raise (EvalError "regex_replace: expected String"))
+      | _ -> raise (EvalError "regex_replace: expected String repl"))
+    | _ -> raise (EvalError "regex_replace: expected Regex")));
+  ("regex_replace_all", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString repl -> VBuiltin (function
+        | VString s -> VString (Re.replace_string re ~by:repl s)
+        | _ -> raise (EvalError "regex_replace_all: expected String"))
+      | _ -> raise (EvalError "regex_replace_all: expected String repl"))
+    | _ -> raise (EvalError "regex_replace_all: expected Regex")));
+  ("regex_split", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString s -> VList (List.map (fun s -> VString s) (Re.split re s))
+      | _ -> raise (EvalError "regex_split: expected String"))
+    | _ -> raise (EvalError "regex_split: expected Regex")));
+  ("regex_compile", VBuiltin (function
+    | VString pat ->
+      (try VConstr ("Ok", [VRegex (Re.compile (Re.Pcre.re pat))])
+       with Re.Pcre.Parse_error ->
+         VConstr ("Error", [VString (Printf.sprintf "invalid regex: %s" pat)]))
+    | _ -> raise (EvalError "regex_compile: expected String")));
   (* Path primitives — pure string operations on VPath values *)
   ("path_join", VBuiltin (function
     | VPath p1 | VString p1 -> VBuiltin (function

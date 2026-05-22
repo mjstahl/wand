@@ -12,6 +12,7 @@ type typ =
   | TList   of typ
   | TResult of typ
   | TMap    of typ
+  | TRegex
   | TName of string
 
 and tv = {
@@ -61,6 +62,7 @@ let string_of_typ t =
     | TDateTime -> "DateTime" | TDuration -> "Duration"
     | TUrl      -> "Url"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
+    | TRegex    -> "Regex"
     | TName n   -> n
     | TVar tv   -> name_of tv.id
     | TFun (a, b) ->
@@ -114,6 +116,7 @@ let rec unify t1 t2 =
   | TDateTime, TDateTime | TDuration, TDuration
   | TUrl,      TUrl      | TIPv4,     TIPv4     | TCIDR,    TCIDR
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
+  | TRegex,    TRegex    -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
   | TVar tv, t | t, TVar tv ->
@@ -489,8 +492,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let t = infer tenv env e0 in
     List.iter (fun (_, e) -> unify t (infer tenv env e)) rest;
     TMap t
-  | RunCmd   e -> unify (infer tenv env e) TString; TString
-  | RunQuery e -> unify (infer tenv env e) TString; TName "ShellResult"
+  | RunCmd    e       -> unify (infer tenv env e) TString; TString
+  | RunQuery  e       -> unify (infer tenv env e) TString; TName "ShellResult"
+  | RegexLit  _       -> TRegex
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
     let result_t = fresh () in
@@ -603,7 +607,14 @@ let stdlib_type_env : env = [
   ("str_chars",      Mono (TFun (TString, TList TString)));
   ("int_to_str",     Mono (TFun (TInt, TString)));
   ("str_to_int",     Mono (TFun (TString, TInt)));
-  ("str_to_float",   Mono (TFun (TString, TFloat)));
+  ("str_to_float",      Mono (TFun (TString, TFloat)));
+  (* Regex primitives *)
+  ("regex_match",       Mono (TFun (TRegex, TFun (TString, TBool))));
+  ("regex_capture",     Mono (TFun (TRegex, TFun (TString, TList TString))));
+  ("regex_replace",     Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
+  ("regex_replace_all", Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
+  ("regex_split",       Mono (TFun (TRegex, TFun (TString, TList TString))));
+  ("regex_compile",     Mono (TFun (TString, TResult TRegex)));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
   ("dur_seconds", Mono (TFun (TInt, TDuration)));

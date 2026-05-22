@@ -277,6 +277,42 @@ $(git log --oneline)
   |> $(wc -l)
 ```
 
+Combined with regex:
+
+```
+$(git log --oneline)
+  |> String.lines
+  |> List.filter (String.match? r/fix|bug/i)
+```
+
+---
+
+## Regex
+
+Regex literals use the `r/pattern/` syntax with optional flags `i`, `m`, `s`:
+
+```
+r/\d+/          -- one or more digits
+r/foo/i         -- case-insensitive
+r/^\w+/m        -- match at start of each line
+```
+
+```
+String.match?       r/\d+/ "abc123"           -- true
+String.capture      r/(\w+)@(\w+)/ "a@b"     -- ["a@b", "a", "b"]
+String.replace_re   r/\d+/ "X" "a1b2"        -- "aXb2"
+String.replace_all_re r/\d+/ "X" "a1b2"      -- "aXbX"
+String.split_re     r/\s+/ "a  b   c"        -- ["a", "b", "c"]
+```
+
+Compile a pattern at runtime (e.g. from user input):
+
+```
+match Regex.compile pattern with
+| Ok re  -> String.match? re input
+| Error e -> false
+```
+
 ---
 
 ## Type definitions
@@ -454,7 +490,11 @@ Utils.my_function 42
 `length`, `is_empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
 `slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
 `repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
-`to_float`
+`to_float`, `match?`, `capture`, `replace_re`, `replace_all_re`, `split_re`
+
+### `Regex`
+
+`compile`, `match?`, `capture`, `replace`, `replace_all`, `split`
 
 ### `Map`
 

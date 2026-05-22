@@ -63,7 +63,7 @@ let parse_loads args =
 
 let stdlib_prelude =
   "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Env\nimport Map"
+   import Duration\nimport Env\nimport Map\nimport Regex"
 
 let load_files loads =
   let sess = Wand.Runner.make_session () in

@@ -79,6 +79,7 @@ type t =
   | InterpStr    of (string * string) list * string  (* "lit ${src} ... tail" *)
   | RunCmdRaw    of (string * string) list * string  (* $(cmd ${var} ...) *)
   | RunQueryRaw  of (string * string) list * string  (* $?(cmd ${var} ...) *)
+  | Regex        of string * string                  (* r/pattern/flags *)
   (* Delimiters *)
   | LParen             (* ( *)
   | RParen             (* ) *)
@@ -145,6 +146,7 @@ let pp ppf tok =
     | InterpStr _  -> "InterpStr"
     | RunCmdRaw _  -> "RunCmdRaw"
     | RunQueryRaw _ -> "RunQueryRaw"
+    | Regex (p, f)  -> Printf.sprintf "r/%s/%s" p f
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"

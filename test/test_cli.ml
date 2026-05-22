@@ -2,7 +2,7 @@ open Wand
 
 let stdlib_prelude =
   "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Env\nimport Map"
+   import Duration\nimport Env\nimport Map\nimport Regex"
 
 let make_sess () =
   let sess = Runner.make_session () in
