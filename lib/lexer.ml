@@ -301,6 +301,13 @@ let read_numeric s first_char =
           done;
           let s4 = Buffer.contents seg4 in
           if s4 = "" then raise (LexError "expected digits in segment");
+          let octet_ok seg =
+            match int_of_string_opt seg with
+            | Some n -> n >= 0 && n <= 255
+            | None   -> false
+          in
+          if not (octet_ok first && octet_ok s2 && octet_ok s3 && octet_ok s4) then
+            raise (LexError (Printf.sprintf "invalid IPv4 address: each octet must be 0–255"));
           let ipv4 = Printf.sprintf "%s.%s.%s.%s" first s2 s3 s4 in
           if peek s = '/' && is_digit (peek2 s) then begin
             ignore (advance s);
@@ -308,7 +315,12 @@ let read_numeric s first_char =
             while not (is_at_end s) && is_digit (peek s) do
               Buffer.add_char prefix (advance s)
             done;
-            CIDR (ipv4 ^ "/" ^ Buffer.contents prefix)
+            let prefix_str = Buffer.contents prefix in
+            (match int_of_string_opt prefix_str with
+             | Some n when n >= 0 && n <= 32 ->
+               CIDR (ipv4 ^ "/" ^ prefix_str)
+             | _ ->
+               raise (LexError (Printf.sprintf "invalid CIDR prefix: must be 0–32")))
           end else
             IPv4 ipv4
         | _ ->

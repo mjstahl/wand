@@ -87,12 +87,31 @@ let test_ipv4_vs_float () =
   (* two segments → float, not IPv4 *)
   check "float not ipv4" "192.168"  [Float 192.168]
 
+let test_ipv4_invalid () =
+  let lex_err label src =
+    match Lexer.tokenize_plain src with
+    | _ -> Alcotest.failf "%s: expected LexError but got tokens" label
+    | exception Lexer.LexError _ -> ()
+  in
+  lex_err "octet 999"    "999.0.0.1";
+  lex_err "octet 256"    "256.0.0.1";
+  lex_err "octet neg"    "192.168.1.-1"
+
 (* ── CIDR ───────────────────────────────────────────────────────────────── *)
 
 let test_cidr () =
   check "class c"    "192.168.0.0/24"  [CIDR "192.168.0.0/24"];
   check "class a"    "10.0.0.0/8"      [CIDR "10.0.0.0/8"];
   check "default"    "0.0.0.0/0"       [CIDR "0.0.0.0/0"]
+
+let test_cidr_invalid () =
+  let lex_err label src =
+    match Lexer.tokenize_plain src with
+    | _ -> Alcotest.failf "%s: expected LexError but got tokens" label
+    | exception Lexer.LexError _ -> ()
+  in
+  lex_err "prefix 33"    "10.0.0.0/33";
+  lex_err "prefix 128"   "10.0.0.0/128"
 
 (* ── Ports ──────────────────────────────────────────────────────────────── *)
 
@@ -161,7 +180,9 @@ let () =
       Alcotest.test_case "urls"               `Quick test_urls;
       Alcotest.test_case "ipv4"               `Quick test_ipv4;
       Alcotest.test_case "ipv4 vs float"      `Quick test_ipv4_vs_float;
+      Alcotest.test_case "ipv4 invalid"       `Quick test_ipv4_invalid;
       Alcotest.test_case "cidr"               `Quick test_cidr;
+      Alcotest.test_case "cidr invalid"       `Quick test_cidr_invalid;
       Alcotest.test_case "ports"              `Quick test_ports;
       Alcotest.test_case "port disambiguation" `Quick test_port_disambiguation;
     ];

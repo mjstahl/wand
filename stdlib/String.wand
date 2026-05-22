@@ -51,11 +51,47 @@ let chars      s           = str_chars s
 (** Convert an integer to its string representation. *)
 let of_int     n           = int_to_str n
 
-(** Parse a string as an integer. Returns an error string on failure. *)
-let to_int     s           = str_to_int s
+(** Parse a string as an integer. Returns Ok n or Error msg. *)
+let to_int     s = str_to_int s
 
-(** Parse a string as a float. Returns an error string on failure. *)
-let to_float   s           = str_to_float s
+(** Parse a string as a float. Returns Ok f or Error msg. *)
+let to_float   s = str_to_float s
+
+(** Parse "true" or "false" (case-insensitive). Returns Ok b or Error msg. *)
+let to_bool    s = str_to_bool s
+
+(** Convert a string to a Path value. Always succeeds. *)
+let to_path    s = str_to_path s
+
+(** Parse a URL string. Returns Ok url or Error msg. *)
+let to_url     s = str_to_url s
+
+(** Parse an IPv4 address string. Returns Ok ipv4 or Error msg. *)
+let to_ipv4    s = str_to_ipv4 s
+
+(** Parse a CIDR string (e.g. "192.168.0.0/24"). Returns Ok cidr or Error msg. *)
+let to_cidr    s = str_to_cidr s
+
+(** Parse a port string (e.g. ":8080"). Returns Ok port or Error msg. *)
+let to_port    s = str_to_port s
+
+(** Parse a version string (e.g. "1.2.3"). Returns Ok version or Error msg. *)
+let to_version s = str_to_version s
+
+(** Parse a size string (e.g. "10MB"). Returns Ok size or Error msg. *)
+let to_size    s = str_to_size s
+
+(** Parse a date string (e.g. "2024-01-15"). Returns Ok date or Error msg. *)
+let to_date    s = str_to_date s
+
+(** Parse a time string (e.g. "14:30:00"). Returns Ok time or Error msg. *)
+let to_time    s = str_to_time s
+
+(** Parse a datetime string (e.g. "2024-01-15T14:30:00Z"). Returns Ok datetime or Error msg. *)
+let to_datetime s = str_to_datetime s
+
+(** Parse a duration string (e.g. "5min", "1h30m"). Returns Ok duration or Error msg. *)
+let to_duration s = str_to_duration s
 
 (** Join a list of strings with a separator. *)
 let join sep xs =

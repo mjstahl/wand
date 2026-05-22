@@ -541,7 +541,9 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 `length`, `is_empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
 `slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
 `repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
-`to_float`, `match?`, `capture`, `replace_re`, `replace_all_re`, `split_re`
+`to_float`, `to_bool`, `to_path`, `to_url`, `to_ipv4`, `to_cidr`, `to_port`,
+`to_version`, `to_size`, `to_date`, `to_time`, `to_datetime`, `to_duration`,
+`match?`, `capture`, `replace_re`, `replace_all_re`, `split_re`
 
 ### `Regex`
 

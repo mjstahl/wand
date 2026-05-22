@@ -674,6 +674,12 @@ let path_normalize s =
 
 let exe_args_ref : string list ref = ref []
 
+let try_lex_single s =
+  match Lexer.tokenize_plain s with
+  | [tok; Token.EOF] -> Some tok
+  | _ -> None
+  | exception Lexer.LexError _ -> None
+
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
@@ -763,16 +769,86 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "int_to_str: expected Int")));
   ("str_to_int", VBuiltin (function
     | VString s ->
-      (match int_of_string_opt s with
-       | Some n -> VInt n
-       | None   -> raise (EvalError (Printf.sprintf "str_to_int: cannot parse %S" s)))
+      (match int_of_string_opt (String.trim s) with
+       | Some n -> VConstr ("Ok",    [VInt n])
+       | None   -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Int" s)]))
     | _ -> raise (EvalError "str_to_int: expected String")));
   ("str_to_float", VBuiltin (function
     | VString s ->
-      (match float_of_string_opt s with
-       | Some f -> VFloat f
-       | None   -> raise (EvalError (Printf.sprintf "str_to_float: cannot parse %S" s)))
+      (match float_of_string_opt (String.trim s) with
+       | Some f -> VConstr ("Ok",    [VFloat f])
+       | None   -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Float" s)]))
     | _ -> raise (EvalError "str_to_float: expected String")));
+  ("str_to_bool", VBuiltin (function
+    | VString s ->
+      (match String.lowercase_ascii (String.trim s) with
+       | "true"  -> VConstr ("Ok",    [VBool true])
+       | "false" -> VConstr ("Ok",    [VBool false])
+       | _       -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Bool" s)]))
+    | _ -> raise (EvalError "str_to_bool: expected String")));
+  ("str_to_path", VBuiltin (function
+    | VString s -> VPath s
+    | _ -> raise (EvalError "str_to_path: expected String")));
+  ("str_to_url", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Url u) -> VConstr ("Ok", [VUrl u])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Url" s)]))
+    | _ -> raise (EvalError "str_to_url: expected String")));
+  ("str_to_ipv4", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.IPv4 v) -> VConstr ("Ok", [VIPv4 v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as IPv4" s)]))
+    | _ -> raise (EvalError "str_to_ipv4: expected String")));
+  ("str_to_cidr", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.CIDR v) -> VConstr ("Ok", [VCIDR v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as CIDR" s)]))
+    | _ -> raise (EvalError "str_to_cidr: expected String")));
+  ("str_to_port", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Port n) -> VConstr ("Ok", [VPort n])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Port" s)]))
+    | _ -> raise (EvalError "str_to_port: expected String")));
+  ("str_to_version", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Version v) -> VConstr ("Ok", [VVersion v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Version" s)]))
+    | _ -> raise (EvalError "str_to_version: expected String")));
+  ("str_to_size", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Size v) -> VConstr ("Ok", [VSize v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Size" s)]))
+    | _ -> raise (EvalError "str_to_size: expected String")));
+  ("str_to_date", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Date v) -> VConstr ("Ok", [VDate v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Date" s)]))
+    | _ -> raise (EvalError "str_to_date: expected String")));
+  ("str_to_time", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Time v) -> VConstr ("Ok", [VTime v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Time" s)]))
+    | _ -> raise (EvalError "str_to_time: expected String")));
+  ("str_to_datetime", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.DateTime v) -> VConstr ("Ok", [VDateTime v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as DateTime" s)]))
+    | _ -> raise (EvalError "str_to_datetime: expected String")));
+  ("str_to_duration", VBuiltin (function
+    | VString s ->
+      (match try_lex_single s with
+       | Some (Token.Duration v) -> VConstr ("Ok", [VDuration v])
+       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Duration" s)]))
+    | _ -> raise (EvalError "str_to_duration: expected String")));
   (* FS primitives *)
   ("fs_exists",  VBuiltin (function
     | VPath p -> VBool (Sys.file_exists p)

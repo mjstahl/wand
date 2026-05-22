@@ -614,9 +614,21 @@ let stdlib_type_env : env = [
   ("str_repeat",     Mono (TFun (TInt, TFun (TString, TString))));
   ("str_reverse",    Mono (TFun (TString, TString)));
   ("str_chars",      Mono (TFun (TString, TList TString)));
-  ("int_to_str",     Mono (TFun (TInt, TString)));
-  ("str_to_int",     Mono (TFun (TString, TInt)));
-  ("str_to_float",      Mono (TFun (TString, TFloat)));
+  ("int_to_str",       Mono (TFun (TInt,    TString)));
+  ("str_to_int",       Mono (TFun (TString, TResult TInt)));
+  ("str_to_float",     Mono (TFun (TString, TResult TFloat)));
+  ("str_to_bool",      Mono (TFun (TString, TResult TBool)));
+  ("str_to_path",      Mono (TFun (TString, TPath)));
+  ("str_to_url",       Mono (TFun (TString, TResult TUrl)));
+  ("str_to_ipv4",      Mono (TFun (TString, TResult TIPv4)));
+  ("str_to_cidr",      Mono (TFun (TString, TResult TCIDR)));
+  ("str_to_port",      Mono (TFun (TString, TResult TPort)));
+  ("str_to_version",   Mono (TFun (TString, TResult TVersion)));
+  ("str_to_size",      Mono (TFun (TString, TResult TSize)));
+  ("str_to_date",      Mono (TFun (TString, TResult TDate)));
+  ("str_to_time",      Mono (TFun (TString, TResult TTime)));
+  ("str_to_datetime",  Mono (TFun (TString, TResult TDateTime)));
+  ("str_to_duration",  Mono (TFun (TString, TResult TDuration)));
   (* Regex primitives *)
   ("regex_match",       Mono (TFun (TRegex, TFun (TString, TBool))));
   ("regex_capture",     Mono (TFun (TRegex, TFun (TString, TList TString))));
