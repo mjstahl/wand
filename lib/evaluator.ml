@@ -677,6 +677,81 @@ let path_normalize s =
 
 let exe_args_ref : string list ref = ref []
 
+(* ── CSV helpers ──────────────────────────────────────────────────────────── *)
+
+let csv_parse_string sep src =
+  (* RFC 4180: quoted fields, "" = escaped quote, \r\n or \n line endings *)
+  let src = (* normalise line endings *)
+    let n = String.length src in
+    let buf = Buffer.create n in
+    let i = ref 0 in
+    while !i < n do
+      if src.[!i] = '\r' && !i + 1 < n && src.[!i + 1] = '\n' then
+        (Buffer.add_char buf '\n'; i := !i + 2)
+      else
+        (Buffer.add_char buf src.[!i]; incr i)
+    done;
+    Buffer.contents buf
+  in
+  let n = String.length src in
+  let rows = ref [] in
+  let row  = ref [] in
+  let field = Buffer.create 16 in
+  let i = ref 0 in
+  let sep_char = if String.length sep > 0 then sep.[0] else ',' in
+  let commit_field () =
+    row := Buffer.contents field :: !row;
+    Buffer.clear field
+  in
+  let commit_row () =
+    commit_field ();
+    rows := List.rev !row :: !rows;
+    row := []
+  in
+  while !i < n do
+    let c = src.[!i] in
+    if c = '"' then begin
+      (* quoted field *)
+      incr i;
+      let continue_ = ref true in
+      while !continue_ && !i < n do
+        if src.[!i] = '"' then begin
+          if !i + 1 < n && src.[!i + 1] = '"' then begin
+            Buffer.add_char field '"'; i := !i + 2
+          end else begin
+            incr i; continue_ := false
+          end
+        end else begin
+          Buffer.add_char field src.[!i]; incr i
+        end
+      done
+    end else if c = sep_char then begin
+      commit_field (); incr i
+    end else if c = '\n' then begin
+      commit_row (); incr i
+    end else begin
+      Buffer.add_char field c; incr i
+    end
+  done;
+  (* commit trailing content (file may not end with newline) *)
+  if Buffer.length field > 0 || !row <> [] then commit_row ();
+  List.rev !rows
+
+let csv_stringify_rows sep rows =
+  let sep_char = if String.length sep > 0 then sep.[0] else ',' in
+  let needs_quoting s =
+    String.exists (fun c -> c = sep_char || c = '"' || c = '\n' || c = '\r') s
+  in
+  let quote_field s =
+    if needs_quoting s then
+      "\"" ^ String.concat "" (List.map (fun c ->
+        if c = '"' then "\"\"" else String.make 1 c)
+        (List.init (String.length s) (String.get s))) ^ "\""
+    else s
+  in
+  String.concat "\n" (List.map (fun row ->
+    String.concat sep (List.map quote_field row)) rows)
+
 let try_lex_single s =
   match Lexer.tokenize_plain s with
   | [tok; Token.EOF] -> Some tok
@@ -1078,6 +1153,74 @@ let stdlib_eval_env : env = [
   ("process_exit_code", VBuiltin (fun v ->
     Effect.perform (WandEffect ("process_exit_code", v))));
   (* Env primitives *)
+  ("env_read_dotenv", VBuiltin (function
+    | VString src | VPath src ->
+      let parse_dotenv s =
+        List.filter_map (fun line ->
+          let line = String.trim line in
+          let line =
+            if String.length line > 7 && String.sub line 0 7 = "export " then
+              String.trim (String.sub line 7 (String.length line - 7))
+            else line
+          in
+          if line = "" || line.[0] = '#' then None
+          else match String.split_on_char '=' line with
+            | [] | [""] -> None
+            | key :: rest ->
+              let key = String.trim key in
+              if key = "" then None
+              else
+                let raw = String.concat "=" rest in
+                let value =
+                  let n = String.length raw in
+                  if n >= 2 && ((raw.[0] = '"' && raw.[n-1] = '"')
+                             || (raw.[0] = '\'' && raw.[n-1] = '\'')) then
+                    String.sub raw 1 (n - 2)
+                  else raw
+                in
+                Some (VTuple [VString key; VString value]))
+          (String.split_on_char '\n' s)
+      in
+      VList (parse_dotenv src)
+    | _ -> raise (EvalError "env_read_dotenv: expected String or Path")));
+  ("env_load_file", VBuiltin (function
+    | VString path | VPath path ->
+      let src = try
+        let ic = open_in path in
+        let n = in_channel_length ic in
+        let s = Bytes.create n in
+        really_input ic s 0 n; close_in ic;
+        Bytes.to_string s
+      with Sys_error msg -> raise (EvalError ("env_load_file: " ^ msg))
+      in
+      let pairs = List.filter_map (fun line ->
+        let line = String.trim line in
+        let line =
+          if String.length line > 7 && String.sub line 0 7 = "export " then
+            String.trim (String.sub line 7 (String.length line - 7))
+          else line
+        in
+        if line = "" || line.[0] = '#' then None
+        else match String.split_on_char '=' line with
+          | [] | [""] -> None
+          | key :: rest ->
+            let key = String.trim key in
+            if key = "" then None
+            else
+              let raw = String.concat "=" rest in
+              let value =
+                let n = String.length raw in
+                if n >= 2 && ((raw.[0] = '"' && raw.[n-1] = '"')
+                           || (raw.[0] = '\'' && raw.[n-1] = '\'')) then
+                  String.sub raw 1 (n - 2)
+                else raw
+              in
+              Some (key, value))
+        (String.split_on_char '\n' src)
+      in
+      List.iter (fun (k, v) -> Unix.putenv k v) pairs;
+      VUnit
+    | _ -> raise (EvalError "env_load_file: expected Path")));
   ("env_get", VBuiltin (function
     | VString name -> VString (Option.value ~default:"" (Sys.getenv_opt name))
     | _ -> raise (EvalError "env_get: expected String")));
@@ -1122,6 +1265,49 @@ let stdlib_eval_env : env = [
       in
       VString user
     | _ -> raise (EvalError "env_user: expected Unit")));
+  (* CSV primitives *)
+  ("csv_parse", VBuiltin (function
+    | VString sep -> VBuiltin (function
+      | VString src ->
+        let rows = csv_parse_string sep src in
+        VList (List.map (fun row -> VList (List.map (fun s -> VString s) row)) rows)
+      | _ -> raise (EvalError "csv_parse: expected String content"))
+    | _ -> raise (EvalError "csv_parse: expected String separator")));
+  ("csv_stringify", VBuiltin (function
+    | VString sep -> VBuiltin (function
+      | VList rows ->
+        let str_rows = List.map (function
+          | VList fields -> List.map (function
+            | VString s -> s
+            | v -> show_value v) fields
+          | _ -> raise (EvalError "csv_stringify: rows must be List (List String)")) rows
+        in
+        VString (csv_stringify_rows sep str_rows)
+      | _ -> raise (EvalError "csv_stringify: expected List of rows"))
+    | _ -> raise (EvalError "csv_stringify: expected String separator")));
+  ("csv_read_file", VBuiltin (function
+    | VString path | VPath path ->
+      (try
+        let ic = open_in path in
+        let n = in_channel_length ic in
+        let s = Bytes.create n in
+        really_input ic s 0 n; close_in ic;
+        let rows = csv_parse_string "," (Bytes.to_string s) in
+        let v = VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows) in
+        VConstr ("Ok", [v])
+      with Sys_error msg -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "csv_read_file: expected Path")));
+  ("csv_read_file_exn", VBuiltin (function
+    | VString path | VPath path ->
+      (try
+        let ic = open_in path in
+        let n = in_channel_length ic in
+        let s = Bytes.create n in
+        really_input ic s 0 n; close_in ic;
+        let rows = csv_parse_string "," (Bytes.to_string s) in
+        VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows)
+      with Sys_error msg -> raise (EvalError ("csv_read_file: " ^ msg)))
+    | _ -> raise (EvalError "csv_read_file_exn: expected Path")));
   (* List primitives *)
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)

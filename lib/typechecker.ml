@@ -689,6 +689,13 @@ let stdlib_type_env : env = [
   ("process_run_quiet", Mono (TFun (TString, TUnit)));
   ("process_exit_code", Mono (TFun (TString, TInt)));
   (* Env primitives *)
+  ("env_read_dotenv", Mono (TFun (TString, TList (TTuple [TString; TString]))));
+  ("env_load_file",   Mono (TFun (TPath, TUnit)));
+  (* CSV primitives *)
+  ("csv_parse",         Mono (TFun (TString, TFun (TString, TList (TList TString)))));
+  ("csv_stringify",     Mono (TFun (TString, TFun (TList (TList TString), TString))));
+  ("csv_read_file",     Mono (TFun (TPath, TResult (TList (TList TString)))));
+  ("csv_read_file_exn", Mono (TFun (TPath, TList (TList TString))));
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
   ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));

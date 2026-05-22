@@ -92,6 +92,57 @@ import String
 String.length (Env.user ()) > 0|}
     "true"
 
+(* ── Env.read / Env.load ─────────────────────────────────────────────────── *)
+
+let with_dotenv content f =
+  let path = Filename.temp_file "wand_env_" ".env" in
+  let oc = open_out path in
+  output_string oc content;
+  close_out oc;
+  Fun.protect f ~finally:(fun () -> Sys.remove path)
+
+let test_env_read () =
+  with_dotenv "FOO=bar\nBAZ=qux\n" (fun () ->
+    let path = Filename.temp_file "wand_env_rd_" ".env" in
+    let oc = open_out path in output_string oc "FOO=bar\nBAZ=qux\n"; close_out oc;
+    ok "basic key=value"
+      (Printf.sprintf {|import Env
+import Map
+import Path
+let m = Env.read (Path.of_string "%s")
+Map.get! "FOO" m|} path)
+      "bar";
+    Sys.remove path)
+
+let test_env_read_formats () =
+  let dotenv = "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n" in
+  with_dotenv dotenv (fun () ->
+    let path = Filename.temp_file "wand_env_fmt_" ".env" in
+    let oc = open_out path in output_string oc dotenv; close_out oc;
+    let src key = Printf.sprintf {|import Env
+import Map
+import Path
+let m = Env.read (Path.of_string "%s")
+Map.get! "%s" m|} path key in
+    ok "plain value"   (src "KEY1") "hello";
+    ok "double-quoted" (src "KEY2") "quoted";
+    ok "single-quoted" (src "KEY3") "single";
+    ok "export prefix" (src "KEY4") "exported";
+    ok "value with ="  (src "KEY5") "has=equals";
+    Sys.remove path)
+
+let test_env_load () =
+  with_dotenv "WAND_LOAD_TEST=loaded_value\n" (fun () ->
+    let path = Filename.temp_file "wand_load_" ".env" in
+    let oc = open_out path in output_string oc "WAND_LOAD_TEST=loaded_value\n"; close_out oc;
+    ok "load sets env var"
+      (Printf.sprintf {|import Env
+import Path
+let () = Env.load (Path.of_string "%s")
+Env.get "WAND_LOAD_TEST"|} path)
+      "loaded_value";
+    Sys.remove path)
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -105,5 +156,10 @@ let () =
       Alcotest.test_case "args"  `Quick test_args;
       Alcotest.test_case "home"  `Quick test_home;
       Alcotest.test_case "user"  `Quick test_user;
+    ];
+    "dotenv", [
+      Alcotest.test_case "read"    `Quick test_env_read;
+      Alcotest.test_case "formats" `Quick test_env_read_formats;
+      Alcotest.test_case "load"    `Quick test_env_load;
     ];
   ]

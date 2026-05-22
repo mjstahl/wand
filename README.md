@@ -601,7 +601,31 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 
 ### `Env`
 
-`get`, `get!`, `set`, `unset`, `all`, `args`, `home`, `user`
+`get`, `get!`, `set`, `unset`, `all`, `args`, `home`, `user`, `read`, `load`
+
+### `CSV`
+
+`parse`, `parse_with`, `stringify`, `stringify_with`, `read_file`, `read_file!`
+
+Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV.  Fields may be
+quoted with `""`; embedded quotes are doubled (`"say ""hi"""`).  `read_file`
+returns `Result (List (List String))`; `read_file!` raises on error.
+
+```
+import CSV
+
+let rows = CSV.parse "name,age\nAlice,30"
+-- [["name", "age"], ["Alice", "30"]]
+
+let tsv = CSV.parse_with "\t" "a\tb\tc"
+
+CSV.stringify [["x", "y,z"]]
+-- x,"y,z"
+
+match CSV.read_file ./data.csv with
+| Ok rows  -> rows
+| Error msg -> []
+```
 
 ### `Duration`
 

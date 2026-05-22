@@ -101,3 +101,7 @@
 (test
  (name test_glob)
  (libraries wand alcotest unix))
+
+(test
+ (name test_csv)
+ (libraries wand alcotest unix))

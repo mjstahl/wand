@@ -1,0 +1,18 @@
+(** Parse a CSV string with the default comma separator.
+    Returns a list of rows, each row a list of field strings. *)
+let parse src = csv_parse "," src
+
+(** Parse a CSV string with a custom separator character. *)
+let parse_with sep src = csv_parse sep src
+
+(** Serialise a list of rows back to a CSV string (comma-separated). *)
+let stringify rows = csv_stringify "," rows
+
+(** Serialise a list of rows with a custom separator. *)
+let stringify_with sep rows = csv_stringify sep rows
+
+(** Read and parse a CSV file.  Returns Ok rows or Error message. *)
+let read_file path = csv_read_file path
+
+(** Read and parse a CSV file, raising on error. *)
+let read_file! path = csv_read_file_exn path
