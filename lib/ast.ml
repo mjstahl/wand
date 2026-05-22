@@ -38,6 +38,7 @@ type expr =
   | Bool     of bool
   | Unit
   | Path     of string
+  | Glob     of string
   | Date     of string
   | Time     of string
   | DateTime of string
@@ -121,6 +122,7 @@ let rec show : expr -> string = function
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s     -> Printf.sprintf "path:%s" s
+  | Glob s     -> Printf.sprintf "glob:%s" s
   | Date s     -> Printf.sprintf "date:%s" s
   | Time s     -> Printf.sprintf "time:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s

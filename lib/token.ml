@@ -6,6 +6,7 @@ type t =
   | Bool of bool
   (* Domain literals *)
   | Path of string
+  | Glob of string
   | Date of string
   | Time of string
   | DateTime of string
@@ -102,6 +103,7 @@ let pp ppf tok =
     | String s   -> Printf.sprintf "String(%S)" s
     | Bool b     -> Printf.sprintf "Bool(%b)" b
     | Path s     -> Printf.sprintf "Path(%s)" s
+    | Glob s     -> Printf.sprintf "Glob(%s)" s
     | Date s     -> Printf.sprintf "Date(%s)" s
     | Time s     -> Printf.sprintf "Time(%s)" s
     | DateTime s -> Printf.sprintf "DateTime(%s)" s

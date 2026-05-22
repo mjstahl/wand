@@ -31,6 +31,7 @@ let is_upper c = c >= 'A' && c <= 'Z'
 let is_alpha c = is_lower c || is_upper c
 let is_alnum_or_under c = is_alpha c || is_digit c || c = '_'
 let is_path_body_char c = is_alnum_or_under c || c = '-' || c = '.' || c = '/'
+let is_glob_char c = c = '*' || c = '?' || c = '['
 
 (* ── Keywords & identifiers ─────────────────────────────────────────────── *)
 
@@ -184,10 +185,28 @@ let read_comment s =
 let read_path_body s prefix =
   let buf = Buffer.create 16 in
   Buffer.add_string buf prefix;
-  while not (is_at_end s) && is_path_body_char (peek s) do
-    Buffer.add_char buf (advance s)
-  done;
-  Path (Buffer.contents buf)
+  let has_glob = ref (String.exists (fun c -> c = '*' || c = '?' || c = '[') prefix) in
+  let rec loop () =
+    if not (is_at_end s) then
+      let c = peek s in
+      if is_path_body_char c then begin
+        Buffer.add_char buf (advance s); loop ()
+      end else if is_glob_char c then begin
+        has_glob := true;
+        Buffer.add_char buf (advance s);
+        (* consume rest of bracket expression *)
+        if c = '[' then begin
+          while not (is_at_end s) && peek s <> ']' do
+            Buffer.add_char buf (advance s)
+          done;
+          if not (is_at_end s) then Buffer.add_char buf (advance s)
+        end;
+        loop ()
+      end
+  in
+  loop ();
+  let contents = Buffer.contents buf in
+  if !has_glob then Glob contents else Path contents
 
 (* ── URLs ───────────────────────────────────────────────────────────────── *)
 
@@ -468,9 +487,19 @@ let next_token s =
     | '}'  -> ret RBrace
     | ','  -> ret Comma
     | ';'  -> ret Semicolon
-    | '?'  -> ret Hole
+    | '?'  ->
+      if not (is_at_end s) && (is_path_body_char (peek s) || is_glob_char (peek s)) then
+        ret (read_path_body s "?")
+      else
+        ret Hole
     | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
-    | '*'  -> ret Star
+    | '*'  ->
+      (* ** or *.foo etc → Glob; bare * → Star (multiplication) *)
+      let prefix = if peek s = '*' then (ignore (advance s); "**") else "*" in
+      if not (is_at_end s) && (is_path_body_char (peek s) || is_glob_char (peek s)) then
+        ret (read_path_body s prefix)
+      else
+        ret (if prefix = "**" then Glob "**" else Star)
     | '%'  -> ret Percent
     | '!'  -> ret (if peek s = '=' then (ignore (advance s); BangEq) else Bang)
     | '='  -> ret (if peek s = '=' then (ignore (advance s); EqEq)  else Eq)

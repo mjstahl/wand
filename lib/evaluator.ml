@@ -24,6 +24,7 @@ type value =
   | VBool     of bool
   | VUnit
   | VPath     of string
+  | VGlob     of string
   | VDate     of string
   | VTime     of string
   | VDateTime of string
@@ -56,6 +57,7 @@ let rec show_value = function
   | VBool b     -> string_of_bool b
   | VUnit       -> "()"
   | VPath s     -> s
+  | VGlob s     -> s
   | VDate s     -> s
   | VTime s     -> s
   | VDateTime s -> s
@@ -168,6 +170,7 @@ let rec eval (env : env) (e : expr) : value =
   | Bool b     -> VBool b
   | Unit       -> VUnit
   | Path s     -> VPath s
+  | Glob s     -> VGlob s
   | Date s     -> VDate s
   | Time s     -> VTime s
   | DateTime s -> VDateTime s
@@ -908,6 +911,33 @@ let stdlib_eval_env : env = [
       in
       VList (List.rev (collect p []))
     | _ -> raise (EvalError "fs_walk: expected Path")));
+  ("fs_glob",    VBuiltin (function
+    | VString pat | VGlob pat ->
+      VBuiltin (function
+        | VString base | VPath base ->
+          let norm_pat =
+            if String.length pat > 2 && pat.[0] = '.' && pat.[1] = '/' then
+              String.sub pat 2 (String.length pat - 2)
+            else pat
+          in
+          let re = Re.compile (Re.Glob.glob ~anchored:true ~double_asterisk:true norm_pat) in
+          let rec collect path rel acc =
+            if not (Sys.file_exists path) then acc
+            else if Sys.is_directory path then begin
+              let entries = Sys.readdir path in
+              Array.sort String.compare entries;
+              Array.fold_left (fun a name ->
+                let child_path = Filename.concat path name in
+                let child_rel  = if rel = "" then name
+                                 else rel ^ "/" ^ name in
+                collect child_path child_rel a) acc entries
+            end else if Re.execp re rel then VPath path :: acc
+            else acc
+          in
+          let results = List.rev (collect base "" []) in
+          VList results
+        | _ -> raise (EvalError "fs_glob: second argument must be Path"))
+    | _ -> raise (EvalError "fs_glob: first argument must be Glob or String")));
   (* Duration primitives *)
   ("dur_zero",    VDuration "0s");
   ("dur_seconds", VBuiltin (function

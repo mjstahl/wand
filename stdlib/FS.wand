@@ -48,3 +48,10 @@ let cwd         ()       = fs_cwd ()
 
 (** Change the current working directory. *)
 let cd          path     = fs_cd path
+
+
+(** Return all paths matching a glob pattern, relative to the current directory. *)
+let glob  pattern     = fs_glob pattern (fs_cwd ())
+
+(** Return all paths matching a glob pattern relative to the given directory. *)
+let glob! pattern dir = fs_glob pattern dir

@@ -110,7 +110,7 @@ let lbp = function
 
 let is_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
-  | Token.Path _ | Token.Date _ | Token.Time _ | Token.DateTime _
+  | Token.Path _ | Token.Glob _ | Token.Date _ | Token.Time _ | Token.DateTime _
   | Token.Duration _ | Token.Url _ | Token.IPv4 _ | Token.CIDR _
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
@@ -341,6 +341,7 @@ and atom_ s =
   | Token.String str -> String str
   | Token.Bool b     -> Bool b
   | Token.Path p     -> Path p
+  | Token.Glob g     -> Glob g
   | Token.Date d     -> Date d
   | Token.Time t     -> Time t
   | Token.DateTime d -> DateTime d

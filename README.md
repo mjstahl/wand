@@ -56,6 +56,7 @@ a `Date` where a `Duration` is expected.
 | Type | Example literals |
 |---|---|
 | `Path` | `/etc/hosts` `/home/user/file.txt` `./relative` |
+| `Glob` | `*.wand` `./**/*.ml` `**.wand` |
 | `Date` | `2024-01-15` |
 | `Time` | `14:30:00` |
 | `DateTime` | `2024-01-15T14:30:00Z` `2024-01-15T09:00:00+05:30` |
@@ -284,6 +285,34 @@ $(git log --oneline)
   |> String.lines
   |> List.filter (String.match? r/fix|bug/i)
 ```
+
+---
+
+## Glob
+
+`Glob` is a distinct type from `Path` — a pattern describing a set of files.
+Glob literals use `*`, `**`, or `?` wildcards:
+
+```
+*.wand              -- Glob
+./**/*.ml           -- Glob (relative paths need ./ prefix)
+**.wand             -- Glob (recursive, any depth)
+/var/log/*.log      -- Glob
+
+./utils.wand        -- Path (no wildcards — unchanged)
+```
+
+`FS.glob` accepts a `Glob`, not a `Path` — mixing them is a type error:
+
+```
+import FS
+
+FS.glob *.wand               -- List Path, relative to cwd
+FS.glob! ./**/*.ml ./src     -- List Path, relative to ./src
+```
+
+`FS.glob` always returns a list (empty if nothing matches, never raises).
+Results are sorted lexicographically.
 
 ---
 
@@ -557,8 +586,8 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 ### `FS`
 
 `read_file`, `write_file`, `append`, `create_file`, `exists?`, `is_file?`,
-`is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`, `walk`, `mtime`,
-`size`, `cwd`, `cd`
+`is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`, `walk`, `glob`,
+`glob!`, `mtime`, `size`, `cwd`, `cd`
 
 ### `Path`
 

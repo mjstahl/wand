@@ -4,7 +4,7 @@ open Ast
 
 type typ =
   | TInt | TFloat | TString | TBool | TUnit
-  | TPath | TDate | TTime | TDateTime | TDuration
+  | TPath | TGlob | TDate | TTime | TDateTime | TDuration
   | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TVar    of tv
   | TFun    of typ * typ
@@ -58,7 +58,7 @@ let string_of_typ t =
     match repr t with
     | TInt      -> "Int"      | TFloat    -> "Float"    | TString   -> "String"
     | TBool     -> "Bool"     | TUnit     -> "Unit"
-    | TPath     -> "Path"     | TDate     -> "Date"     | TTime     -> "Time"
+    | TPath     -> "Path"     | TGlob     -> "Glob"     | TDate     -> "Date"     | TTime     -> "Time"
     | TDateTime -> "DateTime" | TDuration -> "Duration"
     | TUrl      -> "Url"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
@@ -112,7 +112,7 @@ let rec unify t1 t2 =
   match repr t1, repr t2 with
   | TInt,      TInt      | TFloat,    TFloat    | TString,  TString
   | TBool,     TBool     | TUnit,     TUnit
-  | TPath,     TPath     | TDate,     TDate     | TTime,    TTime
+  | TPath,     TPath     | TGlob,     TGlob     | TDate,     TDate     | TTime,    TTime
   | TDateTime, TDateTime | TDuration, TDuration
   | TUrl,      TUrl      | TIPv4,     TIPv4     | TCIDR,    TCIDR
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
@@ -209,7 +209,7 @@ let type_of_te : type_expr -> typ = function
     match name with
     | "Int"      -> TInt      | "Float"    -> TFloat
     | "String"   -> TString   | "Bool"     -> TBool
-    | "Unit"     -> TUnit     | "Path"     -> TPath
+    | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
     | "Date"     -> TDate     | "Time"     -> TTime
     | "DateTime" -> TDateTime | "Duration" -> TDuration
     | "Url"      -> TUrl      | "IPv4"     -> TIPv4
@@ -359,6 +359,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Bool _     -> TBool
   | Unit       -> TUnit
   | Path _     -> TPath
+  | Glob _     -> TGlob
   | Date _     -> TDate
   | Time _     -> TTime
   | DateTime _ -> TDateTime
@@ -676,6 +677,7 @@ let stdlib_type_env : env = [
   ("fs_mtime",   Mono (TFun (TPath, TDateTime)));
   ("fs_size",    Mono (TFun (TPath, TInt)));
   ("fs_walk",    Mono (TFun (TPath, TList TPath)));
+  ("fs_glob",    Mono (TFun (TGlob, TFun (TPath, TList TPath))));
   (* IO primitives *)
   ("io_print_err",   Mono (TFun (TString, TUnit)));
   ("io_println_err", Mono (TFun (TString, TUnit)));
