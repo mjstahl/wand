@@ -655,6 +655,36 @@ match JSON.read_file ./config.json with
 | Error msg -> JSON.of_string "localhost"
 ```
 
+### `TOML`
+
+`parse`, `parse!`, `stringify`, `read_file`, `read_file!`,
+`is_table`, `is_array`, `get_bool`, `get_int`, `get_float`, `get_string`,
+`get_array`, `get_table`, `field`, `field!`
+
+`TOML` is an opaque type representing any TOML value (table, string, int,
+float, bool, array).  The top-level parse result is always a table.
+Typed extractors each return `Result`; `field` / `field!` navigate keys.
+
+```
+import TOML
+
+let cfg = TOML.parse! "[server]\nhost = \"localhost\"\nport = 8080\n"
+
+let server = TOML.field! "server" cfg
+
+match TOML.get_string (TOML.field! "host" server) with
+| Ok h  -> h          -- "localhost"
+| Error _ -> "?"
+
+match TOML.get_int (TOML.field! "port" server) with
+| Ok p  -> p          -- 8080
+| Error _ -> 0
+
+match TOML.read_file ./config.toml with
+| Ok t    -> TOML.field! "database" t
+| Error m -> TOML.parse! ""
+```
+
 ### `Duration`
 
 `zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,

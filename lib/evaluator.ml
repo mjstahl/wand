@@ -37,6 +37,7 @@ type value =
   | VSize     of string
   | VRegex         of Re.re
   | VJson          of Yojson.Basic.t
+  | VToml          of Toml.Types.value
   | VTuple         of value list
   | VList          of value list
   | VMap           of (string * value) list
@@ -71,6 +72,15 @@ let rec show_value = function
   | VSize s     -> s
   | VRegex _    -> "<regex>"
   | VJson j     -> Yojson.Basic.to_string j
+  | VToml v     ->
+    (match v with
+     | Toml.Types.TBool b   -> string_of_bool b
+     | Toml.Types.TInt n    -> string_of_int n
+     | Toml.Types.TFloat f  -> Printf.sprintf "%g" f
+     | Toml.Types.TString s -> s
+     | Toml.Types.TTable tbl -> Toml.Printer.string_of_table tbl
+     | Toml.Types.TArray _  -> "<toml-array>"
+     | Toml.Types.TDate _   -> "<toml-date>")
   | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
@@ -1402,6 +1412,113 @@ let stdlib_eval_env : env = [
        | Sys_error msg      -> raise (EvalError ("json_read_file: " ^ msg))
        | Yojson.Json_error msg -> raise (EvalError ("json_read_file: " ^ msg)))
     | _ -> raise (EvalError "json_read_file_exn: expected Path")));
+  (* TOML primitives *)
+  ("toml_parse", VBuiltin (function
+    | VString s ->
+      (match Toml.Parser.from_string s with
+       | `Ok tbl  -> VConstr ("Ok", [VToml (Toml.Types.TTable tbl)])
+       | `Error (msg, _) -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "toml_parse: expected String")));
+  ("toml_parse_exn", VBuiltin (function
+    | VString s ->
+      (match Toml.Parser.from_string s with
+       | `Ok tbl  -> VToml (Toml.Types.TTable tbl)
+       | `Error (msg, _) -> raise (EvalError ("toml_parse: " ^ msg)))
+    | _ -> raise (EvalError "toml_parse_exn: expected String")));
+  ("toml_read_file", VBuiltin (function
+    | VString path | VPath path ->
+      (try
+        let ic = open_in path in
+        let n = in_channel_length ic in
+        let s = Bytes.create n in
+        really_input ic s 0 n; close_in ic;
+        (match Toml.Parser.from_string (Bytes.to_string s) with
+         | `Ok tbl -> VConstr ("Ok", [VToml (Toml.Types.TTable tbl)])
+         | `Error (msg, _) -> VConstr ("Error", [VString msg]))
+      with Sys_error msg -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "toml_read_file: expected Path")));
+  ("toml_read_file_exn", VBuiltin (function
+    | VString path | VPath path ->
+      (try
+        let ic = open_in path in
+        let n = in_channel_length ic in
+        let s = Bytes.create n in
+        really_input ic s 0 n; close_in ic;
+        (match Toml.Parser.from_string (Bytes.to_string s) with
+         | `Ok tbl -> VToml (Toml.Types.TTable tbl)
+         | `Error (msg, _) -> raise (EvalError ("toml_read_file: " ^ msg)))
+      with Sys_error msg -> raise (EvalError ("toml_read_file: " ^ msg)))
+    | _ -> raise (EvalError "toml_read_file_exn: expected Path")));
+  ("toml_stringify", VBuiltin (function
+    | VToml (Toml.Types.TTable tbl) -> VString (Toml.Printer.string_of_table tbl)
+    | VToml _ -> raise (EvalError "toml_stringify: value must be a TOML table")
+    | _ -> raise (EvalError "toml_stringify: expected TOML")));
+  ("toml_is_table", VBuiltin (function
+    | VToml (Toml.Types.TTable _) -> VBool true
+    | VToml _ -> VBool false
+    | _ -> raise (EvalError "toml_is_table: expected TOML")));
+  ("toml_is_array", VBuiltin (function
+    | VToml (Toml.Types.TArray _) -> VBool true
+    | VToml _ -> VBool false
+    | _ -> raise (EvalError "toml_is_array: expected TOML")));
+  ("toml_get_bool", VBuiltin (function
+    | VToml (Toml.Types.TBool b) -> VConstr ("Ok", [VBool b])
+    | VToml _ -> VConstr ("Error", [VString "expected bool"])
+    | _ -> raise (EvalError "toml_get_bool: expected TOML")));
+  ("toml_get_int", VBuiltin (function
+    | VToml (Toml.Types.TInt n) -> VConstr ("Ok", [VInt n])
+    | VToml _ -> VConstr ("Error", [VString "expected int"])
+    | _ -> raise (EvalError "toml_get_int: expected TOML")));
+  ("toml_get_float", VBuiltin (function
+    | VToml (Toml.Types.TFloat f) -> VConstr ("Ok", [VFloat f])
+    | VToml (Toml.Types.TInt n)   -> VConstr ("Ok", [VFloat (float_of_int n)])
+    | VToml _ -> VConstr ("Error", [VString "expected float"])
+    | _ -> raise (EvalError "toml_get_float: expected TOML")));
+  ("toml_get_string", VBuiltin (function
+    | VToml (Toml.Types.TString s) -> VConstr ("Ok", [VString s])
+    | VToml _ -> VConstr ("Error", [VString "expected string"])
+    | _ -> raise (EvalError "toml_get_string: expected TOML")));
+  ("toml_get_array", VBuiltin (function
+    | VToml (Toml.Types.TArray arr) ->
+      let items = match arr with
+        | Toml.Types.NodeBool bs   -> List.map (fun b -> VToml (Toml.Types.TBool b)) bs
+        | Toml.Types.NodeInt ns    -> List.map (fun n -> VToml (Toml.Types.TInt n)) ns
+        | Toml.Types.NodeFloat fs  -> List.map (fun f -> VToml (Toml.Types.TFloat f)) fs
+        | Toml.Types.NodeString ss -> List.map (fun s -> VToml (Toml.Types.TString s)) ss
+        | Toml.Types.NodeDate ds   -> List.map (fun d -> VToml (Toml.Types.TDate d)) ds
+        | Toml.Types.NodeTable ts  -> List.map (fun t -> VToml (Toml.Types.TTable t)) ts
+        | Toml.Types.NodeArray _   -> []
+        | Toml.Types.NodeEmpty     -> []
+      in
+      VConstr ("Ok", [VList items])
+    | VToml _ -> VConstr ("Error", [VString "expected array"])
+    | _ -> raise (EvalError "toml_get_array: expected TOML")));
+  ("toml_get_table", VBuiltin (function
+    | VToml (Toml.Types.TTable tbl) ->
+      let pairs = Toml.Types.Table.to_list tbl in
+      let vmap = VMap (List.map (fun (k, v) ->
+        (Toml.Types.Table.Key.to_string k, VToml v)) pairs) in
+      VConstr ("Ok", [vmap])
+    | VToml _ -> VConstr ("Error", [VString "expected table"])
+    | _ -> raise (EvalError "toml_get_table: expected TOML")));
+  ("toml_field", VBuiltin (fun key ->
+    VBuiltin (function
+      | VToml (Toml.Types.TTable tbl) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "toml_field: key must be String")) in
+        (match Toml.Types.Table.find_opt (Toml.Types.Table.Key.of_string k) tbl with
+         | Some v -> VConstr ("Ok", [VToml v])
+         | None   -> VConstr ("Error", [VString ("no key: " ^ k)]))
+      | VToml _ -> VConstr ("Error", [VString "expected table"])
+      | _ -> raise (EvalError "toml_field: expected TOML"))));
+  ("toml_field_exn", VBuiltin (fun key ->
+    VBuiltin (function
+      | VToml (Toml.Types.TTable tbl) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "toml_field_exn: key must be String")) in
+        (match Toml.Types.Table.find_opt (Toml.Types.Table.Key.of_string k) tbl with
+         | Some v -> VToml v
+         | None   -> raise (EvalError ("toml_field_exn: no key: " ^ k)))
+      | VToml _ -> raise (EvalError "toml_field_exn: expected table")
+      | _ -> raise (EvalError "toml_field_exn: expected TOML"))));
   (* List primitives *)
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)

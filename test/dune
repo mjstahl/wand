@@ -109,3 +109,7 @@
 (test
  (name test_json)
  (libraries wand alcotest unix))
+
+(test
+ (name test_toml)
+ (libraries wand alcotest unix))

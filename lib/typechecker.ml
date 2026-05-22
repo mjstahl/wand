@@ -14,6 +14,7 @@ type typ =
   | TMap    of typ
   | TRegex
   | TJson
+  | TToml
   | TName of string
 
 and tv = {
@@ -65,6 +66,7 @@ let string_of_typ t =
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
     | TRegex    -> "Regex"
     | TJson     -> "JSON"
+    | TToml     -> "TOML"
     | TName n   -> n
     | TVar tv   -> name_of tv.id
     | TFun (a, b) ->
@@ -120,6 +122,7 @@ let rec unify t1 t2 =
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
   | TRegex,    TRegex    -> ()
   | TJson,     TJson     -> ()
+  | TToml,     TToml     -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
   | TVar tv, t | t, TVar tv ->
@@ -219,6 +222,7 @@ let type_of_te : type_expr -> typ = function
     | "CIDR"     -> TCIDR     | "Port"     -> TPort
     | "Version"  -> TVersion  | "Size"     -> TSize
     | "JSON"     -> TJson
+    | "TOML"     -> TToml
     | n          -> TName n
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
@@ -723,6 +727,22 @@ let stdlib_type_env : env = [
   ("json_get_array",    Mono (TFun (TJson, TResult (TList TJson))));
   ("json_get_object",   Mono (TFun (TJson, TResult (TMap TJson))));
   ("json_field",        Mono (TFun (TString, TFun (TJson, TResult TJson))));
+  (* TOML primitives *)
+  ("toml_parse",        Mono (TFun (TString, TResult TToml)));
+  ("toml_parse_exn",    Mono (TFun (TString, TToml)));
+  ("toml_read_file",    Mono (TFun (TPath, TResult TToml)));
+  ("toml_read_file_exn",Mono (TFun (TPath, TToml)));
+  ("toml_stringify",    Mono (TFun (TToml, TString)));
+  ("toml_is_table",     Mono (TFun (TToml, TBool)));
+  ("toml_is_array",     Mono (TFun (TToml, TBool)));
+  ("toml_get_bool",     Mono (TFun (TToml, TResult TBool)));
+  ("toml_get_int",      Mono (TFun (TToml, TResult TInt)));
+  ("toml_get_float",    Mono (TFun (TToml, TResult TFloat)));
+  ("toml_get_string",   Mono (TFun (TToml, TResult TString)));
+  ("toml_get_array",    Mono (TFun (TToml, TResult (TList TToml))));
+  ("toml_get_table",    Mono (TFun (TToml, TResult (TMap TToml))));
+  ("toml_field",        Mono (TFun (TString, TFun (TToml, TResult TToml))));
+  ("toml_field_exn",    Mono (TFun (TString, TFun (TToml, TToml))));
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
   ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));
