@@ -89,3 +89,7 @@
 (test
  (name test_cli)
  (libraries wand alcotest))
+
+(test
+ (name test_regex)
+ (libraries wand alcotest))
