@@ -63,6 +63,7 @@ type expr =
   | Located  of Token.loc * expr
   | Contract of expr list * expr list * expr
   | RunCmd   of expr
+  | RunQuery of expr
   | Interp   of (string * expr) list * string
   | Handle   of expr * handle_arm list
   | Try      of expr
@@ -144,7 +145,8 @@ let rec show : expr -> string = function
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
-  | RunCmd e -> Printf.sprintf "$(%s)" (show e)
+  | RunCmd   e -> Printf.sprintf "$(%s)" (show e)
+  | RunQuery e -> Printf.sprintf "$?(%s)" (show e)
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     Buffer.add_char buf '"';

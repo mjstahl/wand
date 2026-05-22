@@ -2,7 +2,7 @@ open Wand
 
 let stdlib_prelude =
   "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Process\nimport Env\nimport Map"
+   import Duration\nimport Env\nimport Map"
 
 let make_sess () =
   let sess = Runner.make_session () in
@@ -131,7 +131,7 @@ let test_env_all () =
   List.iter (fun name ->
     if not (List.mem_assoc name entries) then
       Alcotest.failf "env: %s not in type env" name
-  ) ["List"; "String"; "Map"; "Process"; "Env"; "Path"; "FS"; "IO"; "Duration"];
+  ) ["List"; "String"; "Map"; "Env"; "Path"; "FS"; "IO"; "Duration"];
   (* user bindings appear after being defined *)
   let sess2 = match Runner.run_session sess "let answer = 42" with
     | Ok (s, _) -> s
@@ -144,14 +144,6 @@ let test_env_all () =
 
 let test_env_module () =
   let sess = make_sess () in
-  (match lookup_module "Process" sess with
-   | None -> Alcotest.fail "Process module not found"
-   | Some members ->
-     let names = List.map fst members in
-     List.iter (fun n ->
-       if not (List.mem n names) then
-         Alcotest.failf "Process.%s missing from env" n
-     ) ["run"; "run_quiet"; "exit_code"; "pid"]);
   (match lookup_module "NoSuchModule" sess with
    | None   -> ()
    | Some _ -> Alcotest.fail "expected None for unknown module");

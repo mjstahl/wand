@@ -78,6 +78,7 @@ type t =
   | PlusPlus           (* ++ *)
   | InterpStr    of (string * string) list * string  (* "lit ${src} ... tail" *)
   | RunCmdRaw    of (string * string) list * string  (* $(cmd ${var} ...) *)
+  | RunQueryRaw  of (string * string) list * string  (* $?(cmd ${var} ...) *)
   (* Delimiters *)
   | LParen             (* ( *)
   | RParen             (* ) *)
@@ -143,6 +144,7 @@ let pp ppf tok =
     | PlusPlus   -> "++"
     | InterpStr _  -> "InterpStr"
     | RunCmdRaw _  -> "RunCmdRaw"
+    | RunQueryRaw _ -> "RunQueryRaw"
     | LParen     -> "("      | RParen     -> ")"
     | LBracket   -> "["      | RBracket   -> "]"
     | LBrace     -> "{"      | RBrace     -> "}"

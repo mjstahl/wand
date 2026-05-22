@@ -460,7 +460,13 @@ let next_token s =
        | '.' -> ignore (advance s); DotDot
        | _   -> Dot)
     | '$'  ->
-      if peek s = '(' then (ignore (advance s); ret (read_run_cmd s))
+      if peek s = '?' && peek2 s = '(' then (
+        ignore (advance s); ignore (advance s);
+        let raw = read_run_cmd s in
+        ret (match raw with
+          | RunCmdRaw (parts, tail) -> RunQueryRaw (parts, tail)
+          | t -> t))
+      else if peek s = '(' then (ignore (advance s); ret (read_run_cmd s))
       else if is_upper (peek s) then
         let buf = Buffer.create 8 in
         while not (is_at_end s) && (is_upper (peek s) || is_digit (peek s) || peek s = '_') do

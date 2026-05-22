@@ -4,6 +4,10 @@ open Ast
 
 let constr_fields : (string, string option list) Hashtbl.t = Hashtbl.create 16
 
+let () =
+  Hashtbl.add constr_fields "ShellResult"
+    [Some "stdout"; Some "stderr"; Some "code"]
+
 let find_field_index names label =
   let rec go i = function
     | [] -> None
@@ -283,6 +287,12 @@ let rec eval (env : env) (e : expr) : value =
       | _ -> raise (EvalError "$(…) requires a string")
     in
     Effect.perform (WandEffect ("process_run", VString cmd))
+  | RunQuery e ->
+    let cmd = match eval env e with
+      | VString s -> s
+      | _ -> raise (EvalError "$?(…) requires a string")
+    in
+    Effect.perform (WandEffect ("process_run_full", VString cmd))
   | Handle (body_expr, arms) ->
     let effect_arms = List.filter_map (function
       | Ast.EffectArm (n, p, k, b) -> Some (n, p, k, b)
@@ -480,8 +490,24 @@ and eval_binop (env : env) op a b : value =
      | _ -> raise (EvalError "'||' requires bools"))
   | "|>" ->
     let va = eval env a in
-    let vf = eval env b in
-    apply vf va
+    (match b with
+     | RunCmd e ->
+       let cmd = match eval env e with
+         | VString s -> s
+         | _ -> raise (EvalError "$(…) requires a string")
+       in
+       let stdin = show_value va in
+       Effect.perform (WandEffect ("process_run_stdin", VTuple [VString cmd; VString stdin]))
+     | RunQuery e ->
+       let cmd = match eval env e with
+         | VString s -> s
+         | _ -> raise (EvalError "$?(…) requires a string")
+       in
+       let stdin = show_value va in
+       Effect.perform (WandEffect ("process_run_full_stdin", VTuple [VString cmd; VString stdin]))
+     | _ ->
+       let vf = eval env b in
+       apply vf va)
   | op -> raise (EvalError (Printf.sprintf "unknown operator '%s'" op))
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
@@ -885,9 +911,6 @@ let stdlib_eval_env : env = [
     Effect.perform (WandEffect ("process_run_quiet", v))));
   ("process_exit_code", VBuiltin (fun v ->
     Effect.perform (WandEffect ("process_exit_code", v))));
-  ("process_pid", VBuiltin (function
-    | VUnit -> VInt (Unix.getpid ())
-    | _ -> raise (EvalError "process_pid: expected Unit")));
   (* Env primitives *)
   ("env_get", VBuiltin (function
     | VString name -> VString (Option.value ~default:"" (Sys.getenv_opt name))

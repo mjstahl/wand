@@ -250,6 +250,35 @@ An empty map is `Map.empty`.
 
 ---
 
+## Shell execution
+
+Run a shell command and get its stdout as a `String`. Raises on non-zero exit.
+
+```
+$(git status)
+$(ls -la)
+$("git log --oneline -${count}")    -- interpolation works
+```
+
+Get full output without raising using `$?()`, which returns a `ShellResult`:
+
+```
+let r = $?(git status)
+r.stdout   -- String
+r.stderr   -- String
+r.code     -- Int
+```
+
+Pipeline with `|>` threads the left-hand string as stdin to the command:
+
+```
+$(git log --oneline)
+  |> $(grep "fix")
+  |> $(wc -l)
+```
+
+---
+
 ## Type definitions
 
 ### Enum-style (no payload)
@@ -451,10 +480,6 @@ Utils.my_function 42
 ### `Env`
 
 `get`, `get!`, `set`, `unset`, `all`, `args`, `home`, `user`
-
-### `Process`
-
-`run`, `run_quiet`, `exit_code`, `pid`
 
 ### `Duration`
 

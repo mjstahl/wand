@@ -10,85 +10,61 @@ let err label input =
   | Error _ -> ()
   | Ok v -> Alcotest.failf "%s: expected error but got: %s" label v
 
-(* ── run ─────────────────────────────────────────────────────────────────── *)
+(* ── $() ────────────────────────────────────────────────────────────────── *)
 
 let test_run () =
-  ok "captures stdout"
-    {|import Process
-Process.run "echo hello"|}
-    "hello";
-  ok "strips trailing newline"
-    {|import Process
-Process.run "printf hello"|}
-    "hello";
-  err "raises on non-zero exit"
-    {|import Process
-Process.run "exit 1"|}
+  ok "captures stdout"    {|$(echo hello)|}    "hello";
+  ok "strips newline"     {|$(printf hello)|}  "hello";
+  err "raises on failure" {|$(exit 1)|}
 
-(* ── run_quiet ───────────────────────────────────────────────────────────── *)
+(* ── $?() ───────────────────────────────────────────────────────────────── *)
 
-let test_run_quiet () =
-  ok "returns unit"
-    {|import Process
-let () = Process.run_quiet "echo hello"
-"done"|}
-    "done";
-  err "raises on non-zero exit"
-    {|import Process
-Process.run_quiet "exit 1"|}
-
-(* ── exit_code ───────────────────────────────────────────────────────────── *)
-
-let test_exit_code () =
-  ok "zero on success"
-    {|import Process
-Process.exit_code "true"|}
-    "0";
-  ok "non-zero on failure"
-    {|import Process
-Process.exit_code "false"|}
-    "1";
-  ok "specific exit code"
-    {|import Process
-Process.exit_code "sh -c 'exit 42'"|}
-    "42";
-  ok "does not raise on failure"
-    {|import Process
-let code = Process.exit_code "false"
-code == 1|}
+let test_query () =
+  ok "stdout field"  {|let r = $?(echo hello); r.stdout|}  "hello";
+  ok "code zero"     {|let r = $?(true);        r.code|}   "0";
+  ok "code non-zero" {|let r = $?(false);       r.code|}   "1";
+  ok "never raises"
+    {|let r = $?(exit 42)
+r.code == 42|}
     "true"
 
-(* ── pid ─────────────────────────────────────────────────────────────────── *)
+(* ── stdin via |> ────────────────────────────────────────────────────────── *)
 
-let test_pid () =
-  ok "returns an int > 0"
-    {|import Process
-Process.pid () > 0|}
-    "true"
+let test_stdin () =
+  ok "pipe into cat"
+    {|"hello" |> $(cat)|}
+    "hello";
+  ok "pipe into wc -w"
+    {|"hello world" |> $(wc -w | tr -d ' ')|}
+    "2";
+  ok "pipe into $?()"
+    {|let r = "hello" |> $?(cat); r.stdout|}
+    "hello"
+
+(* ── interpolation ───────────────────────────────────────────────────────── *)
+
+let test_interp () =
+  ok "interpolated command"
+    {|let word = "hello"; $(echo ${word})|}
+    "hello"
 
 (* ── mock handlers ───────────────────────────────────────────────────────── *)
 
 let test_mock () =
-  ok "mock run"
-    {|import Process
-handle Process.run "ls" with
+  ok "mock process_run"
+    {|handle $(echo hello) with
   | process_run _ k -> k "mocked"|}
-    "mocked";
-  ok "mock exit_code"
-    {|import Process
-handle Process.exit_code "false" with
-  | process_exit_code _ k -> k 99|}
-    "99"
+    "mocked"
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run "Process module" [
     "real", [
-      Alcotest.test_case "run"        `Quick test_run;
-      Alcotest.test_case "run_quiet"  `Quick test_run_quiet;
-      Alcotest.test_case "exit_code"  `Quick test_exit_code;
-      Alcotest.test_case "pid"        `Quick test_pid;
+      Alcotest.test_case "run"   `Quick test_run;
+      Alcotest.test_case "query" `Quick test_query;
+      Alcotest.test_case "stdin" `Quick test_stdin;
+      Alcotest.test_case "interp" `Quick test_interp;
     ];
     "mock", [
       Alcotest.test_case "mock handlers" `Quick test_mock;

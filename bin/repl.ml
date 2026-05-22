@@ -235,7 +235,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":reset" ->
     print_endline "Session reset.";
     let prelude = "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-                   import Duration\nimport Process\nimport Env" in
+                   import Duration\nimport Env" in
     let fresh = Runner.make_session ~base_dir:sess.s_base_dir () in
     (match Runner.run_session fresh prelude with
      | Ok (s, _) -> s
@@ -298,7 +298,7 @@ and loop (sess : Runner.session) =
 
 let stdlib_prelude =
   "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Process\nimport Env\nimport Map"
+   import Duration\nimport Env\nimport Map"
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   print_endline "wand interactive — :help for commands, :quit to exit";

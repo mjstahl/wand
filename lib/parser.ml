@@ -115,7 +115,7 @@ let is_atom_start = function
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket
-  | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.EnvVar _
+  | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.RunQueryRaw _ | Token.EnvVar _
   | Token.Handle | Token.Try -> true
   | _ -> false
 
@@ -422,6 +422,14 @@ and atom_ s =
     ) parts in
     if parse_parts = [] then RunCmd (String tail)
     else RunCmd (Interp (parse_parts, tail))
+  | Token.RunQueryRaw (parts, tail) ->
+    let parse_parts = List.map (fun (lit, src) ->
+      let toks = Lexer.tokenize src in
+      let s2 = make toks in
+      (lit, expr_ 0 s2)
+    ) parts in
+    if parse_parts = [] then RunQuery (String tail)
+    else RunQuery (Interp (parse_parts, tail))
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src) ->
       let toks = Lexer.tokenize src in

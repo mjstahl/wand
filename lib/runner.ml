@@ -38,6 +38,55 @@ let exec_command_exit_code cmd =
   | Unix.WSIGNALED _ -> 128
   | Unix.WSTOPPED  _ -> 128
 
+let read_all ic =
+  let buf = Buffer.create 64 in
+  (try while true do Buffer.add_channel buf ic 1 done with End_of_file -> ());
+  Buffer.contents buf
+
+let strip_trailing_newline s =
+  let n = String.length s in
+  let i = ref n in
+  while !i > 0 && s.[!i - 1] = '\n' do decr i done;
+  String.sub s 0 !i
+
+let exec_command_stdin cmd stdin =
+  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  output_string oc stdin; close_out oc;
+  let stdout = strip_trailing_newline (read_all ic) in
+  let _stderr = read_all ec in
+  match Unix.close_process_full (ic, oc, ec) with
+  | Unix.WEXITED 0   -> stdout
+  | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
+  | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
+  | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
+
+let exec_command_full cmd =
+  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  close_out oc;
+  let stdout = strip_trailing_newline (read_all ic) in
+  let stderr = read_all ec in
+  let code = match Unix.close_process_full (ic, oc, ec) with
+    | Unix.WEXITED n   -> n
+    | Unix.WSIGNALED _ -> 128
+    | Unix.WSTOPPED  _ -> 128
+  in
+  (stdout, stderr, code)
+
+let exec_command_full_stdin cmd stdin =
+  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  output_string oc stdin; close_out oc;
+  let stdout = strip_trailing_newline (read_all ic) in
+  let stderr = read_all ec in
+  let code = match Unix.close_process_full (ic, oc, ec) with
+    | Unix.WEXITED n   -> n
+    | Unix.WSIGNALED _ -> 128
+    | Unix.WSTOPPED  _ -> 128
+  in
+  (stdout, stderr, code)
+
+let shell_result stdout stderr code =
+  VConstr ("ShellResult", [VString stdout; VString stderr; VInt code])
+
 let run_with_default_handler (thunk : unit -> value) : value =
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
@@ -66,6 +115,19 @@ let run_with_default_handler (thunk : unit -> value) : value =
           | WandEffect ("process_exit_code", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
+          | WandEffect ("process_run_stdin", VTuple [VString cmd; VString stdin]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (exec_command_stdin cmd stdin) with EvalError m -> Error m) with
+              | Ok s    -> Effect.Deep.continue    k (VString s)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("process_run_full", VString cmd) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let (stdout, stderr, code) = exec_command_full cmd in
+              Effect.Deep.continue k (shell_result stdout stderr code))
+          | WandEffect ("process_run_full_stdin", VTuple [VString cmd; VString stdin]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
+              Effect.Deep.continue k (shell_result stdout stderr code))
           | WandEffect ("read_file", VString path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)

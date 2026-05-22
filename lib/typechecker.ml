@@ -489,7 +489,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let t = infer tenv env e0 in
     List.iter (fun (_, e) -> unify t (infer tenv env e)) rest;
     TMap t
-  | RunCmd e -> unify (infer tenv env e) TString; TString
+  | RunCmd   e -> unify (infer tenv env e) TString; TString
+  | RunQuery e -> unify (infer tenv env e) TString; TName "ShellResult"
   | Handle (body_expr, arms) ->
     let body_t = infer tenv env body_expr in
     let result_t = fresh () in
@@ -555,10 +556,20 @@ and infer_binop tenv (env : env) op a b : typ =
     TBool
   | "|>" ->
     let ta = infer tenv env a in
-    let tb = infer tenv env b in
-    let tr = fresh () in
-    unify tb (TFun (ta, tr));
-    tr
+    (match b with
+     | RunCmd e ->
+       unify (infer tenv env e) TString;
+       unify ta TString;
+       TString
+     | RunQuery e ->
+       unify (infer tenv env e) TString;
+       unify ta TString;
+       TName "ShellResult"
+     | _ ->
+       let tb = infer tenv env b in
+       let tr = fresh () in
+       unify tb (TFun (ta, tr));
+       tr)
   | op -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
@@ -643,7 +654,6 @@ let stdlib_type_env : env = [
   ("process_run",       Mono (TFun (TString, TString)));
   ("process_run_quiet", Mono (TFun (TString, TUnit)));
   ("process_exit_code", Mono (TFun (TString, TInt)));
-  ("process_pid",       Mono (TFun (TUnit,   TInt)));
   (* Env primitives *)
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
@@ -679,6 +689,19 @@ let stdlib_type_env : env = [
   ("map_filter",   let a = fresh () in generalize [] (TFun (TFun (a, TBool), TFun (TMap a, TMap a))));
 ]
 
+(* Built-in type definitions always available *)
+let shell_result_tdef : type_def =
+  Variants ("ShellResult", [{
+    name   = "ShellResult";
+    fields = [ (Some "stdout", TEName "String");
+               (Some "stderr", TEName "String");
+               (Some "code",   TEName "Int") ];
+  }])
+
+let builtin_tenv : typedef_env = [
+  ("ShellResult", shell_result_tdef);
+]
+
 (* User-visible globals — the only names available without an import *)
 let builtin_type_env : env = [
   ("print",   let a = fresh () in generalize [] (TFun (a, TUnit)));
@@ -695,7 +718,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | TLType (Variants (n, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.items
   in
-  let tenv = local_tenv @ init_tenv in
+  let tenv = local_tenv @ init_tenv @ builtin_tenv in
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let (env, last_t) = List.fold_left (fun (env, last_t) item ->
     match item with
