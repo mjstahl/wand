@@ -70,6 +70,12 @@ let each f xs =
       go i [h : t] = let () = f (i, h) in go (i + 1) t
   in go 0 xs
 
+(** Return the element at index n.  Returns Ok v or Error message. *)
+let get  n xs = list_get n xs
+
+(** Return the element at index n.  Raises if out of bounds. *)
+let get! n xs = list_get_exn n xs
+
 (** Sort a list using the default ordering. *)
 let sort       xs   = list_sort xs
 

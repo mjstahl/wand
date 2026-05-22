@@ -1520,6 +1520,30 @@ let stdlib_eval_env : env = [
       | VToml _ -> raise (EvalError "toml_field_exn: expected table")
       | _ -> raise (EvalError "toml_field_exn: expected TOML"))));
   (* List primitives *)
+  ("list_get", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VList xs ->
+        let rec nth i = function
+          | []     -> VConstr ("Error", [VString (Printf.sprintf "index %d out of bounds" n)])
+          | x :: _ when i = 0 -> VConstr ("Ok", [x])
+          | _ :: t -> nth (i - 1) t
+        in
+        if n < 0 then VConstr ("Error", [VString (Printf.sprintf "index %d out of bounds" n)])
+        else nth n xs
+      | _ -> raise (EvalError "list_get: expected List"))
+    | _ -> raise (EvalError "list_get: expected Int index")));
+  ("list_get_exn", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VList xs ->
+        let rec nth i = function
+          | []     -> raise (EvalError (Printf.sprintf "list_get!: index %d out of bounds" n))
+          | x :: _ when i = 0 -> x
+          | _ :: t -> nth (i - 1) t
+        in
+        if n < 0 then raise (EvalError (Printf.sprintf "list_get!: index %d out of bounds" n))
+        else nth n xs
+      | _ -> raise (EvalError "list_get!: expected List"))
+    | _ -> raise (EvalError "list_get!: expected Int index")));
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)
     | _ -> raise (EvalError "list_sort: expected List")));

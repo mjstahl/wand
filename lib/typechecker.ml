@@ -752,6 +752,8 @@ let stdlib_type_env : env = [
   ("env_home",    Mono (TFun (TUnit,   TPath)));
   ("env_user",    Mono (TFun (TUnit,   TString)));
   (* List primitives *)
+  ("list_get",     let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, TResult a))));
+  ("list_get_exn", let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, a))));
   ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
                    generalize [] (TFun (TFun (a, b), TFun (TList a, TList a))));

@@ -119,6 +119,51 @@ List.range 1 3
 |> List.flatten|}
     "[1, 2, 2, 4, 3, 6]"
 
+(* ── get / get! ──────────────────────────────────────────────────────────── *)
+
+let test_get () =
+  ok "get 0"
+    {|import List
+match List.get 0 ["a", "b", "c"] with
+| Ok v  -> v
+| Error _ -> ""|}
+    "a";
+  ok "get 2"
+    {|import List
+match List.get 2 ["a", "b", "c"] with
+| Ok v  -> v
+| Error _ -> ""|}
+    "c";
+  ok "get out of bounds returns Error"
+    {|import List
+match List.get 5 ["a", "b"] with
+| Ok _    -> "ok"
+| Error _ -> "error"|}
+    "error";
+  ok "get negative returns Error"
+    {|import List
+match List.get (-1) ["a"] with
+| Ok _    -> "ok"
+| Error _ -> "error"|}
+    "error"
+
+let test_get_exn () =
+  ok "get! 1"
+    {|import List
+List.get! 1 [10, 20, 30]|}
+    "20";
+  ok "get! works on nested lists"
+    {|import List
+List.get! 0 (List.get! 1 [[1, 2], [3, 4]])|}
+    "3"
+
+let err_get_exn () =
+  let run s = Runner.run_string s in
+  match run {|import List
+List.get! 9 [1, 2, 3]|} with
+  | Error _ -> ()
+  | Ok v -> Alcotest.failf "get! OOB: expected error but got: %s" v
+
 (* ── Suite ───────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -131,5 +176,10 @@ let () =
       Alcotest.test_case "flatten"  `Quick test_flatten;
       Alcotest.test_case "concat"   `Quick test_concat;
       Alcotest.test_case "pipeline" `Quick test_pipeline;
+    ];
+    "get", [
+      Alcotest.test_case "get"      `Quick test_get;
+      Alcotest.test_case "get_exn"  `Quick test_get_exn;
+      Alcotest.test_case "get_oob"  `Quick err_get_exn;
     ];
   ]
