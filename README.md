@@ -627,6 +627,34 @@ match CSV.read_file ./data.csv with
 | Error msg -> []
 ```
 
+### `JSON`
+
+`parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
+`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
+`is_null`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
+`get_object`, `field`, `field!`
+
+`JSON` is an opaque type.  `parse` / `read_file` return `Result JSON`;
+the `!` variants raise on error.  Typed extractors each return `Result`.
+
+```
+import JSON
+
+let j = JSON.parse! "{\"name\":\"Alice\",\"age\":30}"
+
+match JSON.field "name" j with
+| Ok v  -> JSON.get_string v    -- Ok "Alice"
+| Error _ -> Error "missing"
+
+-- Building JSON
+let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
+JSON.stringify arr    -- "[1,2]"
+
+match JSON.read_file ./config.json with
+| Ok cfg -> JSON.field! "host" cfg
+| Error msg -> JSON.of_string "localhost"
+```
+
 ### `Duration`
 
 `zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,

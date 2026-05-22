@@ -19,7 +19,7 @@
  (name wand)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml linenoise)
+ (depends ocaml linenoise yojson)
  (tags
   ("add topics" "to describe" your project)))
 

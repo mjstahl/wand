@@ -36,6 +36,7 @@ type value =
   | VVersion  of string
   | VSize     of string
   | VRegex         of Re.re
+  | VJson          of Yojson.Basic.t
   | VTuple         of value list
   | VList          of value list
   | VMap           of (string * value) list
@@ -68,7 +69,8 @@ let rec show_value = function
   | VPort n     -> Printf.sprintf ":%d" n
   | VVersion s  -> s
   | VSize s     -> s
-  | VRegex _                      -> "<regex>"
+  | VRegex _    -> "<regex>"
+  | VJson j     -> Yojson.Basic.to_string j
   | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
@@ -1308,6 +1310,98 @@ let stdlib_eval_env : env = [
         VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows)
       with Sys_error msg -> raise (EvalError ("csv_read_file: " ^ msg)))
     | _ -> raise (EvalError "csv_read_file_exn: expected Path")));
+  (* JSON primitives *)
+  ("json_null",  VJson `Null);
+  ("json_of_bool",   VBuiltin (function VBool b  -> VJson (`Bool b)   | _ -> raise (EvalError "json_of_bool: expected Bool")));
+  ("json_of_int",    VBuiltin (function VInt n   -> VJson (`Int n)    | _ -> raise (EvalError "json_of_int: expected Int")));
+  ("json_of_float",  VBuiltin (function VFloat f -> VJson (`Float f)  | _ -> raise (EvalError "json_of_float: expected Float")));
+  ("json_of_string", VBuiltin (function VString s -> VJson (`String s) | _ -> raise (EvalError "json_of_string: expected String")));
+  ("json_of_list",   VBuiltin (function
+    | VList vs ->
+      let items = List.map (function VJson j -> j | _ -> raise (EvalError "json_of_list: elements must be JSON")) vs in
+      VJson (`List items)
+    | _ -> raise (EvalError "json_of_list: expected List")));
+  ("json_of_map",    VBuiltin (function
+    | VMap kvs ->
+      let assoc = List.map (fun (k, v) -> match v with
+        | VJson j -> (k, j)
+        | _ -> raise (EvalError "json_of_map: values must be JSON")) kvs in
+      VJson (`Assoc assoc)
+    | _ -> raise (EvalError "json_of_map: expected Map")));
+  ("json_is_null",   VBuiltin (function VJson `Null -> VBool true | VJson _ -> VBool false | _ -> raise (EvalError "json_is_null: expected JSON")));
+  ("json_get_bool",  VBuiltin (function
+    | VJson (`Bool b) -> VConstr ("Ok", [VBool b])
+    | VJson j -> VConstr ("Error", [VString ("expected bool, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_bool: expected JSON")));
+  ("json_get_int",   VBuiltin (function
+    | VJson (`Int n) -> VConstr ("Ok", [VInt n])
+    | VJson j -> VConstr ("Error", [VString ("expected int, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_int: expected JSON")));
+  ("json_get_float", VBuiltin (function
+    | VJson (`Float f) -> VConstr ("Ok", [VFloat f])
+    | VJson (`Int n)   -> VConstr ("Ok", [VFloat (float_of_int n)])
+    | VJson j -> VConstr ("Error", [VString ("expected float, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_float: expected JSON")));
+  ("json_get_string", VBuiltin (function
+    | VJson (`String s) -> VConstr ("Ok", [VString s])
+    | VJson j -> VConstr ("Error", [VString ("expected string, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_string: expected JSON")));
+  ("json_get_array", VBuiltin (function
+    | VJson (`List vs) -> VConstr ("Ok", [VList (List.map (fun j -> VJson j) vs)])
+    | VJson j -> VConstr ("Error", [VString ("expected array, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_array: expected JSON")));
+  ("json_get_object", VBuiltin (function
+    | VJson (`Assoc kvs) -> VConstr ("Ok", [VMap (List.map (fun (k, j) -> (k, VJson j)) kvs)])
+    | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
+    | _ -> raise (EvalError "json_get_object: expected JSON")));
+  ("json_field", VBuiltin (fun key ->
+    VBuiltin (function
+      | VJson (`Assoc kvs) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "json_field: key must be String")) in
+        (match List.assoc_opt k kvs with
+         | Some j -> VConstr ("Ok", [VJson j])
+         | None   -> VConstr ("Error", [VString ("no field: " ^ k)]))
+      | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
+      | _ -> raise (EvalError "json_field: expected JSON"))));
+  ("json_parse", VBuiltin (function
+    | VString s ->
+      (try VConstr ("Ok", [VJson (Yojson.Basic.from_string s)])
+       with Yojson.Json_error msg -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "json_parse: expected String")));
+  ("json_parse_exn", VBuiltin (function
+    | VString s ->
+      (try VJson (Yojson.Basic.from_string s)
+       with Yojson.Json_error msg -> raise (EvalError ("json_parse: " ^ msg)))
+    | _ -> raise (EvalError "json_parse_exn: expected String")));
+  ("json_field_exn", VBuiltin (fun key ->
+    VBuiltin (function
+      | VJson (`Assoc kvs) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "json_field_exn: key must be String")) in
+        (match List.assoc_opt k kvs with
+         | Some j -> VJson j
+         | None   -> raise (EvalError ("json_field_exn: no field: " ^ k)))
+      | VJson j -> raise (EvalError ("json_field_exn: expected object, got " ^ Yojson.Basic.to_string j))
+      | _ -> raise (EvalError "json_field_exn: expected JSON"))));
+  ("json_stringify", VBuiltin (function
+    | VJson j -> VString (Yojson.Basic.to_string j)
+    | _ -> raise (EvalError "json_stringify: expected JSON")));
+  ("json_stringify_pretty", VBuiltin (function
+    | VJson j -> VString (Yojson.Basic.pretty_to_string j)
+    | _ -> raise (EvalError "json_stringify_pretty: expected JSON")));
+  ("json_read_file", VBuiltin (function
+    | VString path | VPath path ->
+      (try VConstr ("Ok", [VJson (Yojson.Basic.from_file path)])
+       with
+       | Sys_error msg      -> VConstr ("Error", [VString msg])
+       | Yojson.Json_error msg -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "json_read_file: expected Path")));
+  ("json_read_file_exn", VBuiltin (function
+    | VString path | VPath path ->
+      (try VJson (Yojson.Basic.from_file path)
+       with
+       | Sys_error msg      -> raise (EvalError ("json_read_file: " ^ msg))
+       | Yojson.Json_error msg -> raise (EvalError ("json_read_file: " ^ msg)))
+    | _ -> raise (EvalError "json_read_file_exn: expected Path")));
   (* List primitives *)
   ("list_sort", VBuiltin (function
     | VList xs -> VList (List.sort compare xs)

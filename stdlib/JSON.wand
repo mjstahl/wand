@@ -1,0 +1,45 @@
+(** Parse a JSON string.  Returns Ok JSON or Error message. *)
+let parse src = json_parse src
+
+(** Parse a JSON string, raising on error. *)
+let parse! src = json_parse_exn src
+
+(** Serialise a JSON value to a compact string. *)
+let stringify j = json_stringify j
+
+(** Serialise a JSON value to a pretty-printed string. *)
+let stringify_pretty j = json_stringify_pretty j
+
+(** Read and parse a JSON file.  Returns Ok JSON or Error message. *)
+let read_file path = json_read_file path
+
+(** Read and parse a JSON file, raising on error. *)
+let read_file! path = json_read_file_exn path
+
+(** The JSON null value. *)
+let null = json_null
+
+(** Construct JSON values from wand primitives. *)
+let of_bool   b  = json_of_bool b
+let of_int    n  = json_of_int n
+let of_float  f  = json_of_float f
+let of_string s  = json_of_string s
+let of_list   xs = json_of_list xs
+let of_map    m  = json_of_map m
+
+(** Test whether a JSON value is null. *)
+let is_null j = json_is_null j
+
+(** Extract typed values.  Each returns Ok v or Error message. *)
+let get_bool   j = json_get_bool j
+let get_int    j = json_get_int j
+let get_float  j = json_get_float j
+let get_string j = json_get_string j
+let get_array  j = json_get_array j
+let get_object j = json_get_object j
+
+(** Look up a field in a JSON object.  Returns Ok JSON or Error message. *)
+let field key j = json_field key j
+
+(** Look up a field, raising if absent or not an object. *)
+let field! key j = json_field_exn key j

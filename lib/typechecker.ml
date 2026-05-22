@@ -13,6 +13,7 @@ type typ =
   | TResult of typ
   | TMap    of typ
   | TRegex
+  | TJson
   | TName of string
 
 and tv = {
@@ -63,6 +64,7 @@ let string_of_typ t =
     | TUrl      -> "Url"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
     | TRegex    -> "Regex"
+    | TJson     -> "JSON"
     | TName n   -> n
     | TVar tv   -> name_of tv.id
     | TFun (a, b) ->
@@ -117,6 +119,7 @@ let rec unify t1 t2 =
   | TUrl,      TUrl      | TIPv4,     TIPv4     | TCIDR,    TCIDR
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
   | TRegex,    TRegex    -> ()
+  | TJson,     TJson     -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
   | TVar tv, t | t, TVar tv ->
@@ -215,6 +218,7 @@ let type_of_te : type_expr -> typ = function
     | "Url"      -> TUrl      | "IPv4"     -> TIPv4
     | "CIDR"     -> TCIDR     | "Port"     -> TPort
     | "Version"  -> TVersion  | "Size"     -> TSize
+    | "JSON"     -> TJson
     | n          -> TName n
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
@@ -696,6 +700,29 @@ let stdlib_type_env : env = [
   ("csv_stringify",     Mono (TFun (TString, TFun (TList (TList TString), TString))));
   ("csv_read_file",     Mono (TFun (TPath, TResult (TList (TList TString)))));
   ("csv_read_file_exn", Mono (TFun (TPath, TList (TList TString))));
+  (* JSON primitives *)
+  ("json_parse",         Mono (TFun (TString, TResult TJson)));
+  ("json_parse_exn",     Mono (TFun (TString, TJson)));
+  ("json_stringify",     Mono (TFun (TJson, TString)));
+  ("json_stringify_pretty", Mono (TFun (TJson, TString)));
+  ("json_read_file",     Mono (TFun (TPath, TResult TJson)));
+  ("json_read_file_exn", Mono (TFun (TPath, TJson)));
+  ("json_field_exn",     Mono (TFun (TString, TFun (TJson, TJson))));
+  ("json_null",         Mono TJson);
+  ("json_of_bool",      Mono (TFun (TBool, TJson)));
+  ("json_of_int",       Mono (TFun (TInt, TJson)));
+  ("json_of_float",     Mono (TFun (TFloat, TJson)));
+  ("json_of_string",    Mono (TFun (TString, TJson)));
+  ("json_of_list",      Mono (TFun (TList TJson, TJson)));
+  ("json_of_map",       Mono (TFun (TMap TJson, TJson)));
+  ("json_is_null",      Mono (TFun (TJson, TBool)));
+  ("json_get_bool",     Mono (TFun (TJson, TResult TBool)));
+  ("json_get_int",      Mono (TFun (TJson, TResult TInt)));
+  ("json_get_float",    Mono (TFun (TJson, TResult TFloat)));
+  ("json_get_string",   Mono (TFun (TJson, TResult TString)));
+  ("json_get_array",    Mono (TFun (TJson, TResult (TList TJson))));
+  ("json_get_object",   Mono (TFun (TJson, TResult (TMap TJson))));
+  ("json_field",        Mono (TFun (TString, TFun (TJson, TResult TJson))));
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
   ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));
