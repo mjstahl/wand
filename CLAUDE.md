@@ -18,8 +18,8 @@ dune test
 # Run a single test file
 dune exec <test_binary>
 
-# Run the interpreter/REPL (once it exists)
-dune exec bin/wand -- <args>
+# Run the interpreter/REPL
+dune exec wand -- <args>
 
 # Format OCaml source
 ocamlformat --inplace <file>
@@ -57,14 +57,14 @@ a test, or write a small `.wand` script and run it:
 
 ```bash
 # Run a wand script
-dune exec bin/wand -- path/to/script.wand
+dune exec wand -- path/to/script.wand
 
-# One-shot evaluation (once wand e subcommand exists)
-dune exec bin/wand -- e "1 + 2"
+# One-shot evaluation
+dune exec wand -- e "1 + 2"
 
-# Interactive REPL (once wand i subcommand exists)
-dune exec bin/wand -- i
+# Interactive REPL
+dune exec wand -- i
 ```
 
-Until the REPL exists, the most reliable way to test a snippet is via
-`Runner.run_string` in a throwaway test or the existing test suite.
+The most reliable way to test a snippet is via `Runner.run_string` in a
+throwaway test or the existing test suite.

@@ -96,7 +96,7 @@ let () =
        | _     -> usage ())
     | "i" | "interactive" ->
       let (loads, _) = parse_loads rest in
-      Repl.run ~base_dir:(Sys.getcwd ()) ~loads ()
+      Wand.Repl.run ~base_dir:(Sys.getcwd ()) ~loads ()
     | "e" | "eval" ->
       let (loads, rest') = parse_loads rest in
       (match rest' with
@@ -106,7 +106,7 @@ let () =
          let sess = load_files loads in
          (match Wand.Runner.run_session sess expr with
           | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
-          | Ok (_, r) -> Repl.print_result r)
+          | Ok (_, r) -> Wand.Repl.print_result r)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h e' for usage.\n"; exit 1)
     | "t" | "type" ->
@@ -118,7 +118,7 @@ let () =
          let sess = load_files loads in
          (match Wand.Runner.typecheck_session sess expr with
           | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
-          | Ok r      -> Repl.print_result r)
+          | Ok r      -> Wand.Repl.print_result r)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1)
     | "d" | "doc" ->

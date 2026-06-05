@@ -1,5 +1,3 @@
-open Wand
-
 let history_file =
   match Sys.getenv_opt "HOME" with
   | Some home -> Filename.concat home ".wand_history"
