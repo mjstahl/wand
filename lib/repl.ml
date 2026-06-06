@@ -215,12 +215,19 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     let content =
       if rest = "" then ""
       else
-        match List.assoc_opt rest sess.s_sources with
-        | Some src -> src
-        | None ->
+        let all_srcs = List.filter_map (fun (name, src) ->
+          if name = rest then Some src else None) sess.s_sources in
+        match all_srcs with
+        | [] ->
           (match List.assoc_opt rest sess.s_type_env with
            | Some _ -> Printf.sprintf "let %s = " rest
            | None   -> "")
+        | srcs ->
+          let seen = Hashtbl.create 4 in
+          let unique = List.filter (fun s ->
+            if Hashtbl.mem seen s then false
+            else (Hashtbl.add seen s (); true)) srcs in
+          String.concat "\n" (List.rev unique)
     in
     edit_in_editor sess content
   | ":l" | ":load" ->

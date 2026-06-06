@@ -168,11 +168,32 @@ let test_env_map_module () =
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
+let step sess src =
+  match Runner.run_session sess src with
+  | Ok (s, _) -> s
+  | Error e -> Alcotest.failf "step [%s] failed: %s" src e
+
+let run_val sess src =
+  match Runner.run_session sess src with
+  | Ok (_, Runner.RVal (v, _)) -> v
+  | Ok (_, _) -> Alcotest.failf "run [%s]: expected RVal" src
+  | Error e -> Alcotest.failf "run [%s] error: %s" src e
+
+let test_incremental_pattern_match () =
+  let sess = Runner.make_session () in
+  let sess = step sess "let fact 1 = 1" in
+  let sess = step sess "let fact n = 1 + fact (n - 1)" in
+  let sess = step sess "let fact 0 = 0" in
+  Alcotest.(check string) "fact 0 after incremental" "0" (run_val sess "fact 0");
+  Alcotest.(check string) "fact 1 after incremental" "1" (run_val sess "fact 1");
+  Alcotest.(check string) "fact 3 after incremental" "3" (run_val sess "fact 3")
+
 let () =
   Alcotest.run "CLI" [
     "eval", [
       Alcotest.test_case "eval expressions" `Quick test_eval;
       Alcotest.test_case "eval holes"       `Quick test_eval_holes;
+      Alcotest.test_case "incremental pattern match" `Quick test_incremental_pattern_match;
     ];
     "type", [
       Alcotest.test_case "typecheck expressions" `Quick test_type;
