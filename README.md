@@ -924,7 +924,8 @@ wand e --load config.wand "host"      # evaluate in context of a file
 wand t "List.map"                     # typecheck only
 wand d "List.map"                     # show doc string
 wand env                              # list all names and modules in scope
-wand fmt script.wand                  # print a formatted version of a file
+wand fmt script.wand                  # format a file in place
+wand fmt stdlib/*.wand                # format multiple files in place
 wand h                                # show all commands
 wand h e                              # help for a specific command
 ```
@@ -933,7 +934,11 @@ Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`
 
 ### Formatter
 
-`wand fmt <file>` prints a formatted version of a `.wand` file to stdout.
+`wand fmt <file>...` formats one or more `.wand` files in place (each
+file is overwritten with its formatted contents; a confirmation line is
+printed per file). Shell globs work as expected: `wand fmt stdlib/*.wand`
+reformats every file in `stdlib/`.
+
 Comments (both `(* ... *)` and doc `(** ... *)`) are always preserved —
 never silently dropped. Multi-equation function definitions
 (`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses

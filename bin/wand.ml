@@ -47,9 +47,10 @@ let usage_for sub =
     print_endline "Options:";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
   | "fmt" | "format" ->
-    print_endline "Usage: wand fmt <file.wand>";
+    print_endline "Usage: wand fmt <file.wand>...";
     print_endline "";
-    print_endline "Print a formatted version of a .wand file to stdout.";
+    print_endline "Format one or more .wand files in place (each file is";
+    print_endline "overwritten with its formatted contents).";
     print_endline "Comments are preserved; constructs without a dedicated";
     print_endline "formatting rule yet (requires/ensures, handle, $()/$?(), try,";
     print_endline "regex literals) are re-emitted verbatim."
@@ -167,19 +168,26 @@ let () =
          ) entries)
     | "fmt" | "format" ->
       (match rest with
-       | [path] ->
-         (match (try Ok (In_channel.with_open_text path In_channel.input_all)
-                 with Sys_error m -> Error m) with
-          | Error m -> Printf.eprintf "Error loading '%s': %s\n" path m; exit 1
-          | Ok src ->
-            (try print_string (Wand.Formatter.format_source src)
-             with
-             | Wand.Lexer.LexError m -> Printf.eprintf "Error: lex error: %s\n" m; exit 1
-             | Wand.Parser.ParseError m -> Printf.eprintf "Error: parse error: %s\n" m; exit 1))
        | [] ->
-         Printf.eprintf "Error: expected a file\nRun 'wand h fmt' for usage.\n"; exit 1
-       | _ ->
-         Printf.eprintf "Error: too many arguments\nRun 'wand h fmt' for usage.\n"; exit 1)
+         Printf.eprintf "Error: expected one or more files\nRun 'wand h fmt' for usage.\n"; exit 1
+       | paths ->
+         let had_error = ref false in
+         List.iter (fun path ->
+           match (try Ok (In_channel.with_open_text path In_channel.input_all)
+                  with Sys_error m -> Error m) with
+           | Error m -> had_error := true; Printf.eprintf "Error loading '%s': %s\n" path m
+           | Ok src ->
+             (try
+                let formatted = Wand.Formatter.format_source src in
+                Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc formatted);
+                Printf.printf "formatted %s\n" path
+              with
+              | Wand.Lexer.LexError m ->
+                had_error := true; Printf.eprintf "Error: %s: lex error: %s\n" path m
+              | Wand.Parser.ParseError m ->
+                had_error := true; Printf.eprintf "Error: %s: parse error: %s\n" path m)
+         ) paths;
+         if !had_error then exit 1)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       Wand.Evaluator.exe_args_ref := rest;
