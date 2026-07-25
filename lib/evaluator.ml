@@ -46,6 +46,9 @@ type value =
   | VConstr        of string * value list
   | VPartialConstr of string * int * value list
   | VFix           of string * env * pat list * expr
+  | VFixGroup      of (string * pat list * expr) list * env * string
+      (* mutually-recursive function group; last string is which member
+         this particular value represents *)
   | VBuiltin       of (value -> value)
 
 and env = (string * value) list
@@ -81,7 +84,7 @@ let rec show_value = function
      | Toml.Types.TTable tbl -> Toml.Printer.string_of_table tbl
      | Toml.Types.TArray _  -> "<toml-array>"
      | Toml.Types.TDate _   -> "<toml-date>")
-  | VFun _ | VFix _ | VBuiltin _ -> "<fn>"
+  | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
@@ -237,6 +240,10 @@ let rec eval (env : env) (e : expr) : value =
       | _ -> v1
     in
     eval (bind_pat p v1 env) e2
+  | LetRec (bindings, e2) ->
+    let env' = List.fold_left (fun acc (name, _, _) ->
+      (name, VFixGroup (bindings, env, name)) :: acc) env bindings in
+    eval env' e2
   | If (cond, then_, else_) ->
     (match eval env cond with
      | VBool true  -> eval env then_
@@ -412,6 +419,11 @@ and apply vf vx =
        VFun (env', rest, body))
   | VFix (name, fenv, params, body) ->
     let fenv' = (name, VFix (name, fenv, params, body)) :: fenv in
+    apply (VFun (fenv', params, body)) vx
+  | VFixGroup (bindings, fenv, my_name) ->
+    let fenv' = List.fold_left (fun acc (n, _, _) ->
+      (n, VFixGroup (bindings, fenv, n)) :: acc) fenv bindings in
+    let (_, params, body) = List.find (fun (n, _, _) -> n = my_name) bindings in
     apply (VFun (fenv', params, body)) vx
   | VPartialConstr (name, 1, args) -> VConstr (name, args @ [vx])
   | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])

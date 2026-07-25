@@ -366,6 +366,9 @@ let run_item env item =
     (name, eval env body) :: env
   | Ast.TLLet (name, params, body) ->
     (name, VFix (name, env, params, body)) :: env
+  | Ast.TLLetRec bindings ->
+    List.fold_left (fun acc (name, _, _) ->
+      (name, VFixGroup (bindings, env, name)) :: acc) env bindings
   | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> env  (* pre-loaded *)
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat pat (eval env e) env
@@ -655,6 +658,10 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
                 | _ -> VFix (name, !env_ref, params, body)
               in
               env_ref := (name, v) :: !env_ref
+            | Ast.TLLetRec bindings ->
+              List.iter (fun (name, _, _) ->
+                env_ref := (name, VFixGroup (bindings, !env_ref, name)) :: !env_ref
+              ) bindings
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat pat (eval !env_ref e) !env_ref

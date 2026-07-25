@@ -128,6 +128,26 @@ let fib 1 = 1
 let fib n = fib (n - 1) + fib (n - 2)
 ```
 
+Mutually-recursive functions — chain definitions with `and`:
+
+```
+let is_even n = if n == 0 then true else is_odd (n - 1)
+and is_odd n = if n == 0 then false else is_even (n - 1)
+```
+
+Works the same way locally, with `in`:
+
+```
+let answer =
+  let is_even n = if n == 0 then true else is_odd (n - 1)
+  and is_odd n = if n == 0 then false else is_even (n - 1)
+  in is_even 7
+```
+
+`and`-bound members must be functions (at least one parameter) — a plain
+value can't reference a sibling that isn't defined yet, since evaluation
+happens eagerly; only a function's body is deferred until it's called.
+
 ---
 
 ## If expressions

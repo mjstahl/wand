@@ -477,6 +477,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
        let t1     = infer tenv env e1 in
        let scheme = generalize env t1 in
        infer tenv (infer_pat_let tenv p t1 scheme env) e2)
+  | LetRec (bindings, e2) ->
+    let placeholders = List.map (fun (name, _, _) -> (name, fresh ())) bindings in
+    let env_rec = List.map (fun (name, t) -> (name, Mono t)) placeholders @ env in
+    let inferred = List.map (fun (name, params, body) ->
+      let t = infer tenv env_rec (Fn (params, body)) in
+      unify (List.assoc name placeholders) t;
+      (name, t)
+    ) bindings in
+    let env' = List.map (fun (name, t) -> (name, generalize env t)) inferred @ env in
+    infer tenv env' e2
   | If (cond, then_, else_) ->
     unify (infer tenv env cond) TBool;
     let tt = infer tenv env then_ in
@@ -875,6 +885,16 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       let t = infer tenv env_rec (Fn (params, body)) in
       unify placeholder t;
       ((name, generalize env t) :: env, last_t)
+    | TLLetRec bindings ->
+      let placeholders = List.map (fun (name, _, _) -> (name, fresh ())) bindings in
+      let env_rec = List.map (fun (name, t) -> (name, Mono t)) placeholders @ env in
+      let inferred = List.map (fun (name, params, body) ->
+        let t = infer tenv env_rec (Fn (params, body)) in
+        unify (List.assoc name placeholders) t;
+        (name, t)
+      ) bindings in
+      let env' = List.map (fun (name, t) -> (name, generalize env t)) inferred @ env in
+      (env', last_t)
     | TLLetPat (_, body) when is_import_expr body ->
       (env, last_t)  (* pre-loaded by load_imports_for *)
     | TLLetPat (pat, e) ->

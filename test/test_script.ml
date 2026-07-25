@@ -110,6 +110,30 @@ let test_recursive () =
     "let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2); fib 10"
     "55"
 
+(* ── Mutually-recursive top-level functions (`and`) ───────────────────── *)
+
+let test_mutual_recursion () =
+  ok "even/odd, top-level"
+    {|let is_even n = if n == 0 then true else is_odd (n - 1)
+and is_odd n = if n == 0 then false else is_even (n - 1)
+is_even 10|}
+    "true";
+  ok "multi-equation clause plus and-group"
+    {|let f 0 = 1
+let f n = n * g (n - 1)
+and g n = f n
+f 4|}
+    "24";
+  ok "local let ... and ... in"
+    {|let x =
+  let is_even n = if n == 0 then true else is_odd (n - 1)
+  and is_odd n = if n == 0 then false else is_even (n - 1)
+  in is_even 7
+x|}
+    "false";
+  err "and-bound member must be a function"
+    "let f n = n\nand g = 5\nf 1"
+
 (* ── "Did you mean?" suggestions ────────────────────────────────────────── *)
 
 let err_suggests label input needle =
@@ -228,6 +252,7 @@ let () =
       Alcotest.test_case "import"         `Quick test_import;
       Alcotest.test_case "stdlib import"   `Quick test_stdlib_import;
       Alcotest.test_case "recursive"       `Quick test_recursive;
+      Alcotest.test_case "mutual recursion" `Quick test_mutual_recursion;
       Alcotest.test_case "multi-equation"   `Quick test_multi_equation;
       Alcotest.test_case "env vars"         `Quick test_envvar;
       Alcotest.test_case "suggestions" `Quick test_suggestions;

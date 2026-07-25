@@ -557,6 +557,65 @@ and parse_body s =
   done;
   !e
 
+(* Parses `params (: T)? = body`, with optional multi-equation clauses
+   repeating `name`, for a binding already-consumed `name`. Returns the
+   final (params, body) pair — used both for the first binding in a
+   `let ... and ...` group and each subsequent `and name ...` clause.
+   Requires at least one parameter: plain-value mutual recursion isn't
+   supported in a strict language (self-reference only works through a
+   function's laziness), so `and`-bound members must be functions. *)
+and parse_fn_binding s name =
+  let loc = loc_prefix s in
+  let params = ref [] in
+  while is_pat_atom_start (peek s) do
+    params := !params @ [pat_atom_ s]
+  done;
+  if !params = [] then
+    raise (ParseError (Printf.sprintf
+      "%s'%s' in a mutually-recursive 'and' group must take at least one \
+       parameter — plain recursive values aren't supported" loc name));
+  let annot = if peek s = Token.Colon then
+    (ignore (advance s); Some (parse_type_expr s))
+  else None in
+  expect s Token.Eq;
+  let body_loc = peek_loc s in
+  let body = Located (body_loc, parse_contract_body s) in
+  let body = match annot with
+    | Some te -> Located (body_loc, Annot (te, body))
+    | None -> body
+  in
+  let arity = List.length !params in
+  let eqs = ref [(!params, body)] in
+  let more = ref true in
+  while !more do
+    let saved = s.pos in
+    (try
+      (match peek s with
+       | Token.Ident n when n = name -> ignore (advance s)
+       | _ -> raise Exit);
+      let ps = ref [] in
+      while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
+      if List.length !ps <> arity then raise Exit;
+      (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
+      let b_loc = peek_loc s in
+      let b = Located (b_loc, parse_contract_body s) in
+      eqs := !eqs @ [(!ps, b)]
+    with Exit -> s.pos <- saved; more := false)
+  done;
+  match !eqs with
+  | [(ps, b)] -> (ps, b)
+  | eqs ->
+    let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+    let scrutinee = match fresh with
+      | [v] -> Var v
+      | vs  -> Tuple (List.map (fun v -> Var v) vs)
+    in
+    let arms = List.map (fun (pats, b) ->
+      let pat = match pats with [p] -> p | ps -> PTuple ps in
+      (pat, None, b)
+    ) eqs in
+    (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
+
 and let_ s =
   (* let already consumed *)
   let p = pat_ s in
@@ -570,63 +629,40 @@ and let_ s =
     else Unit
   in
   match p with
+  | PVar name when peek s <> Token.Eq && is_pat_atom_start (peek s) ->
+    (* function shorthand: let f params = body, with optional multi-equation
+       and optional mutually-recursive `and` group *)
+    let (params, body) = parse_fn_binding s name in
+    if peek s = Token.And then begin
+      let bindings = ref [(name, params, body)] in
+      while peek s = Token.And do
+        ignore (advance s);
+        let and_loc = loc_prefix s in
+        let name2 = match advance s with
+          | Token.Ident n -> n
+          | t -> raise (ParseError (Format.asprintf
+              "%sexpected identifier after 'and', got %a" and_loc Token.pp t))
+        in
+        let (params2, body2) = parse_fn_binding s name2 in
+        bindings := !bindings @ [(name2, params2, body2)]
+      done;
+      let rest = consume_rest () in
+      LetRec (!bindings, rest)
+    end else begin
+      let rest = consume_rest () in
+      Let (PVar name, Fn (params, body), rest)
+    end
   | PVar name when peek s <> Token.Eq ->
-    (* function shorthand: let f params = body, with optional multi-equation *)
-    let params = ref [] in
-    while is_pat_atom_start (peek s) do
-      params := !params @ [pat_atom_ s]
-    done;
+    (* annotated value binding: let x : T = e *)
     let annot = if peek s = Token.Colon then
       (ignore (advance s); Some (parse_type_expr s))
     else None in
     expect s Token.Eq;
     let body_loc = peek_loc s in
     let body = Located (body_loc, parse_contract_body s) in
-    if !params = [] then begin
-      (* annotated value binding: let x : T = e *)
-      let e = match annot with Some te -> Annot (te, body) | None -> body in
-      let rest = consume_rest () in
-      Let (PVar name, e, rest)
-    end else begin
-      let body = match annot with
-        | Some te -> Located (body_loc, Annot (te, body))
-        | None -> body
-      in
-      let arity = List.length !params in
-      let eqs = ref [(!params, body)] in
-      let more = ref true in
-      while !more do
-        let saved = s.pos in
-        (try
-          (match peek s with
-           | Token.Ident n when n = name -> ignore (advance s)
-           | _ -> raise Exit);
-          let ps = ref [] in
-          while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
-          if List.length !ps <> arity then raise Exit;
-          (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-          let b_loc = peek_loc s in
-          let b = Located (b_loc, parse_contract_body s) in
-          eqs := !eqs @ [(!ps, b)]
-        with Exit -> s.pos <- saved; more := false)
-      done;
-      let fn_val = match !eqs with
-        | [(ps, b)] -> Fn (ps, b)
-        | eqs ->
-          let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
-          let scrutinee = match fresh with
-            | [v] -> Var v
-            | vs  -> Tuple (List.map (fun v -> Var v) vs)
-          in
-          let arms = List.map (fun (pats, b) ->
-            let pat = match pats with [p] -> p | ps -> PTuple ps in
-            (pat, None, b)
-          ) eqs in
-          Fn (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
-      in
-      let rest = consume_rest () in
-      Let (PVar name, fn_val, rest)
-    end
+    let e = match annot with Some te -> Annot (te, body) | None -> body in
+    let rest = consume_rest () in
+    Let (PVar name, e, rest)
   | _ ->
     expect s Token.Eq;
     let e1_loc = peek_loc s in
@@ -744,9 +780,9 @@ and parse_handle_ s =
   done;
   Ast.Handle (body, !arms)
 
-let build_multi_equation name arity eqs =
+let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
   match eqs with
-  | [(p, b)] -> Ast.TLLet (name, p, b)
+  | [(p, b)] -> (p, b)
   | eqs ->
     let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
     let scrutinee = match fresh with
@@ -757,9 +793,57 @@ let build_multi_equation name arity eqs =
       let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
       (pat, None, body)
     ) eqs in
-    Ast.TLLet (name,
-      List.map (fun v -> Ast.PVar v) fresh,
-      Ast.Match (scrutinee, arms))
+    (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, arms))
+
+let build_multi_equation name arity eqs =
+  let (p, b) = collapse_multi_equation arity eqs in
+  Ast.TLLet (name, p, b)
+
+(* Parses `params (: T)? = body` plus any `let name ...` multi-equation
+   continuations, for a NEW name introduced by `and` in a top-level
+   mutually-recursive group. Requires at least one parameter — plain-value
+   mutual recursion isn't supported in a strict language (see the local
+   `parse_fn_binding` above for why). *)
+let parse_top_fn_binding s name =
+  let loc = loc_prefix s in
+  let params = ref [] in
+  while is_pat_atom_start (peek s) do
+    params := !params @ [pat_atom_ s]
+  done;
+  if !params = [] then
+    raise (ParseError (Printf.sprintf
+      "%s'%s' in a mutually-recursive 'and' group must take at least one \
+       parameter — plain recursive values aren't supported" loc name));
+  let annot = if peek s = Token.Colon then
+    (ignore (advance s); Some (parse_type_expr s))
+  else None in
+  expect s Token.Eq;
+  let body_loc = peek_loc s in
+  let body = Ast.Located (body_loc, parse_contract_body s) in
+  let body = match annot with
+    | Some te -> Ast.Located (body_loc, Ast.Annot (te, body))
+    | None -> body
+  in
+  let arity = List.length !params in
+  let eqs = ref [(!params, body)] in
+  let more = ref true in
+  while !more do
+    let saved = s.pos in
+    (try
+      (match peek s with Token.Let -> ignore (advance s) | _ -> raise Exit);
+      (match peek s with
+       | Token.Ident n when n = name -> ignore (advance s)
+       | _ -> raise Exit);
+      let ps = ref [] in
+      while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
+      if List.length !ps <> arity then raise Exit;
+      (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
+      let b_loc = peek_loc s in
+      let b = Ast.Located (b_loc, parse_contract_body s) in
+      eqs := !eqs @ [(!ps, b)]
+    with Exit -> s.pos <- saved; more := false)
+  done;
+  collapse_multi_equation arity !eqs
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
@@ -934,7 +1018,30 @@ let parse_program tokens =
                eqs := !eqs @ [(!ps, b)]
              with Exit -> s.pos <- saved2; more := false)
            done;
-           items := !items @ [build_multi_equation name arity !eqs]
+           if peek s = Token.And then begin
+             let (first_params, first_body) = collapse_multi_equation arity !eqs in
+             let bindings = ref [(name, first_params, first_body)] in
+             while peek s = Token.And do
+               ignore (advance s);
+               let and_loc = loc_prefix s in
+               let name2 = match advance s with
+                 | Token.Ident n -> n
+                 | t -> raise (ParseError (Format.asprintf
+                     "%sexpected identifier after 'and', got %a" and_loc Token.pp t))
+               in
+               let (params2, body2) = parse_top_fn_binding s name2 in
+               bindings := !bindings @ [(name2, params2, body2)]
+             done;
+             if peek s = Token.In then begin
+               (* let f = ... and g = ... in e2 — expression, not top-level *)
+               s.pos <- saved;
+               let loc = peek_loc s in
+               let e = Ast.Located (loc, expr_ 0 s) in
+               items := !items @ [Ast.TLExpr e]
+             end else
+               items := !items @ [Ast.TLLetRec !bindings]
+           end else
+             items := !items @ [build_multi_equation name arity !eqs]
          end
          end  (* close the outer begin from peek s = Token.In check *)
        | _ ->

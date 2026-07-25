@@ -60,6 +60,8 @@ type expr =
   | App      of expr * expr
   | Fn       of pat list * expr
   | Let      of pat * expr * expr
+  | LetRec   of (string * pat list * expr) list * expr
+      (* mutually-recursive function group: let f ... = ... and g ... = ... *)
   | If       of expr * expr * expr
   | Match    of expr * case list
   | BinOp    of string * expr * expr
@@ -145,6 +147,12 @@ let rec show : expr -> string = function
   | Fn (ps, e)      -> Printf.sprintf "(fn %s -> %s)"
                          (String.concat " " (List.map show_pat ps)) (show e)
   | Let (p, e1, e2) -> Printf.sprintf "(let %s = %s in %s)" (show_pat p) (show e1) (show e2)
+  | LetRec (bindings, e2) ->
+    Printf.sprintf "(let rec %s in %s)"
+      (String.concat " and " (List.map (fun (n, ps, b) ->
+        Printf.sprintf "%s %s = %s" n
+          (String.concat " " (List.map show_pat ps)) (show b)) bindings))
+      (show e2)
   | If (c, t, e)    -> Printf.sprintf "(if %s %s %s)" (show c) (show t) (show e)
   | Match (e, cs)   -> Printf.sprintf "(match %s %s)" (show e) (show_cases cs)
   | BinOp (op,a,b)  -> Printf.sprintf "(%s %s %s)" (show a) op (show b)
@@ -216,6 +224,7 @@ type type_def =
 
 type top_item =
   | TLLet    of string * pat list * expr
+  | TLLetRec of (string * pat list * expr) list
   | TLLetPat of pat * expr
   | TLImport of import_kind
   | TLType   of type_def
