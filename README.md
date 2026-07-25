@@ -221,6 +221,14 @@ match xs with
 | [h : t]   -> "head ${h}, tail ${t}"
 ```
 
+Cons patterns chain, matching several leading elements at once:
+
+```
+match xs with
+| [a : b : c : t] -> "first three: ${a}, ${b}, ${c}, rest: ${t}"
+| _               -> "fewer than three elements"
+```
+
 Multi-equation over lists:
 
 ```

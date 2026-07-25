@@ -280,7 +280,16 @@ and list_pat_ s =
       let first = pat_ s in
       if peek s = Token.Colon then begin
         ignore (advance s);
-        let tl = pat_ s in
+        (* Chain further cons cells: [a : b : c : t] is PCons(a, PCons(b,
+           PCons(c, t))), not just a single cons with a flat tail. *)
+        let rec parse_cons_tail () =
+          let p = pat_ s in
+          if peek s = Token.Colon then begin
+            ignore (advance s);
+            PCons (p, parse_cons_tail ())
+          end else p
+        in
+        let tl = parse_cons_tail () in
         expect s Token.RBracket;
         PCons (first, tl)
       end else begin

@@ -47,6 +47,27 @@ let test_cons_pattern () =
     {|match [] with | [_ : _] -> "yes" | [] -> "no"|}
     "no"
 
+let test_chained_cons_pattern () =
+  ok "three-way chain, binds head/mid/tail"
+    {|match [1, 2, 3, 4] with
+      | [a : b : c : t] -> "${a},${b},${c},${t}"
+      | _ -> "no match"|}
+    "1,2,3,[4]";
+  ok "chain exactly consuming the list"
+    {|match [1, 2, 3] with
+      | [a : b : c : t] -> "${a},${b},${c},${t}"
+      | _ -> "no match"|}
+    "1,2,3,[]";
+  ok "chain falls through on too-short list"
+    {|match [1, 2] with
+      | [a : b : c : t] -> "matched"
+      | _ -> "too short"|}
+    "too short";
+  ok "chain in a function multi-equation"
+    {|let third [_ : _ : x : _] = x
+third [10, 20, 30, 40]|}
+    "30"
+
 (* ── Recursive functions over lists ──────────────────────────────────────── *)
 
 let test_length () =
@@ -121,6 +142,7 @@ let () =
       Alcotest.test_case "empty"         `Quick test_empty_pattern;
       Alcotest.test_case "exact"         `Quick test_exact_pattern;
       Alcotest.test_case "cons"          `Quick test_cons_pattern;
+      Alcotest.test_case "chained cons"  `Quick test_chained_cons_pattern;
     ];
     "recursive", [
       Alcotest.test_case "length"        `Quick test_length;
