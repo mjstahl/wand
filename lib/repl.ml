@@ -65,7 +65,8 @@ let rec gather_lines acc =
 
 let special_commands =
   [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
-   ":load"; ":l"; ":reload"; ":r"; ":env"; ":clear"; ":reset"; ":quit"; ":q"; ":help"; ":h"]
+   ":load"; ":l"; ":reload"; ":r"; ":env"; ":clear"; ":reset";
+   ":exit"; ":x"; ":quit"; ":q"; ":help"; ":h"]
 
 let builtin_names = ["print"; "println"; "exit"; "Ok"; "Error"]
 
@@ -176,11 +177,11 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   let rest  = String.trim (String.sub line (String.length cmd)
                              (String.length line - String.length cmd)) in
   match cmd with
-  | ":q" | ":quit" ->
+  | ":x" | ":exit" | ":q" | ":quit" ->
     ignore (LNoise.history_save ~filename:history_file);
     exit 0
   | ":h" | ":help" ->
-    print_endline "Special commands:";
+    print_endline "Commands:";
     print_endline "  :type <expr>   (:t)  — show type without evaluating";
     print_endline "  :doc  <name>   (:d)  — show doc string";
     print_endline "  :edit [name]   (:e)  — open definition in $EDITOR";
@@ -189,7 +190,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     print_endline "  :env [module]        — list bindings and modules; :env List shows List members";
     print_endline "  :clear               — clear the screen";
     print_endline "  :reset               — clear all session bindings";
-    print_endline "  :quit          (:q)  — exit";
+    print_endline "  :exit, :quit   (:q)  — exit";
     flush stdout;
     sess
   | ":t" | ":type" ->
@@ -208,7 +209,11 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
        | None   -> ());
       (match List.assoc_opt rest sess.s_docs with
        | Some doc -> Printf.printf "%s\n%!" doc
-       | None     -> Printf.printf "%s: no doc\n%!" rest);
+       | None     ->
+         if Runner.lookup_type sess rest = None then
+           Printf.printf "%s: does not exist\n%!" rest
+         else
+           Printf.printf "%s: no doc\n%!" rest);
       sess
     end
   | ":e" | ":edit" ->

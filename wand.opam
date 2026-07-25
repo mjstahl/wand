@@ -13,7 +13,8 @@ depends: [
   "dune" {>= "3.23"}
   "ocaml"
   "linenoise"
-  "re"
+  "yojson"
+  "toml"
   "odoc" {with-doc}
 ]
 build: [
