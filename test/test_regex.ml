@@ -113,6 +113,20 @@ let test_split_re () =
     {|import String; String.split_re r/,\s*/ "a, b,c"|}
     "[a, b, c]"
 
+(* ── String.match_all ────────────────────────────────────────────────────── *)
+
+let test_match_all () =
+  ok "all digit runs"
+    {|import String; String.match_all r/\d+/ "a1b22c333"|}
+    "[1, 22, 333]";
+  ok "no matches"
+    {|import String; String.match_all r/\d+/ "abc"|}
+    "[]";
+  ok "tokenizer-style alternation"
+    {|import String
+String.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ "block{x=\"1\"}"|}
+    {|[block, {, x, =, "1", }]|}
+
 (* ── Regex module ────────────────────────────────────────────────────────── *)
 
 let test_regex_module () =
@@ -168,6 +182,9 @@ let () =
     ];
     "String.split_re", [
       Alcotest.test_case "split_re" `Quick test_split_re;
+    ];
+    "String.match_all", [
+      Alcotest.test_case "match_all" `Quick test_match_all;
     ];
     "Regex module", [
       Alcotest.test_case "module functions" `Quick test_regex_module;

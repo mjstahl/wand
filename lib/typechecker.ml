@@ -706,6 +706,7 @@ let stdlib_type_env : env = [
   ("regex_replace",     Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
   ("regex_replace_all", Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
   ("regex_split",       Mono (TFun (TRegex, TFun (TString, TList TString))));
+  ("regex_find_all",    Mono (TFun (TRegex, TFun (TString, TList TString))));
   ("regex_compile",     Mono (TFun (TString, TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);

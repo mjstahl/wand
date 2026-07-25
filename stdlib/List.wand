@@ -64,6 +64,18 @@ let drop 0 xs       = xs
 let drop _ []       = []
 let drop n [_ : t] = drop (n - 1) t
 
+(** Take elements while the predicate holds, stopping at the first miss. *)
+let take_while _ []      = []
+let take_while p [h : t] =
+  if p h then h : take_while p t
+  else []
+
+(** Drop elements while the predicate holds, returning the remainder. *)
+let drop_while _ []      = []
+let drop_while p [h : t] =
+  if p h then drop_while p t
+  else h : t
+
 (** Call f (index, element) for each element, for side effects. *)
 let each f xs =
   let go _ []       = ()

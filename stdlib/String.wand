@@ -117,3 +117,6 @@ let replace_all_re re repl s = regex_replace_all re repl s
 
 (** Split the string on matches of the regex. *)
 let split_re re s = regex_split re s
+
+(** Return every non-overlapping match of the regex, in order. *)
+let match_all re s = regex_find_all re s

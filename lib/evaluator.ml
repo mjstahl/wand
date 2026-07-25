@@ -1118,6 +1118,12 @@ let stdlib_eval_env : env = [
       | VString s -> VList (List.map (fun s -> VString s) (Re.split re s))
       | _ -> raise (EvalError "regex_split: expected String"))
     | _ -> raise (EvalError "regex_split: expected Regex")));
+  ("regex_find_all", VBuiltin (function
+    | VRegex re -> VBuiltin (function
+      | VString s ->
+        VList (List.map (fun g -> VString (Re.Group.get g 0)) (Re.all re s))
+      | _ -> raise (EvalError "regex_find_all: expected String"))
+    | _ -> raise (EvalError "regex_find_all: expected Regex")));
   ("regex_compile", VBuiltin (function
     | VString pat ->
       (try VConstr ("Ok", [VRegex (Re.compile (Re.Pcre.re pat))])

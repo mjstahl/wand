@@ -164,6 +164,44 @@ List.get! 9 [1, 2, 3]|} with
   | Error _ -> ()
   | Ok v -> Alcotest.failf "get! OOB: expected error but got: %s" v
 
+(* ── take_while / drop_while ────────────────────────────────────────────── *)
+
+let test_take_while () =
+  ok "stops at first miss"
+    {|import List
+List.take_while (fn x -> x < 3) [1, 2, 3, 4, 1]|}
+    "[1, 2]";
+  ok "empty list"
+    {|import List
+List.take_while (fn x -> x < 3) []|}
+    "[]";
+  ok "all match"
+    {|import List
+List.take_while (fn x -> x < 10) [1, 2]|}
+    "[1, 2]";
+  ok "no match"
+    {|import List
+List.take_while (fn x -> x < 0) [1, 2]|}
+    "[]"
+
+let test_drop_while () =
+  ok "drops through first miss"
+    {|import List
+List.drop_while (fn x -> x < 3) [1, 2, 3, 4, 1]|}
+    "[3, 4, 1]";
+  ok "empty list"
+    {|import List
+List.drop_while (fn x -> x < 3) []|}
+    "[]";
+  ok "all match"
+    {|import List
+List.drop_while (fn x -> x < 10) [1, 2]|}
+    "[]";
+  ok "no match"
+    {|import List
+List.drop_while (fn x -> x < 0) [1, 2]|}
+    "[1, 2]"
+
 (* ── Suite ───────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -181,5 +219,9 @@ let () =
       Alcotest.test_case "get"      `Quick test_get;
       Alcotest.test_case "get_exn"  `Quick test_get_exn;
       Alcotest.test_case "get_oob"  `Quick err_get_exn;
+    ];
+    "take_while/drop_while", [
+      Alcotest.test_case "take_while" `Quick test_take_while;
+      Alcotest.test_case "drop_while" `Quick test_drop_while;
     ];
   ]

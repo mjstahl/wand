@@ -360,6 +360,15 @@ String.capture      r/(\w+)@(\w+)/ "a@b"     -- ["a@b", "a", "b"]
 String.replace_re   r/\d+/ "X" "a1b2"        -- "aXb2"
 String.replace_all_re r/\d+/ "X" "a1b2"      -- "aXbX"
 String.split_re     r/\s+/ "a  b   c"        -- ["a", "b", "c"]
+String.match_all    r/\d+/ "a1b22c333"       -- ["1", "22", "333"]
+```
+
+`match_all` returns every non-overlapping match in order — useful for
+simple tokenizing with an alternation pattern:
+
+```
+String.match_all r/[a-zA-Z_]\w*|[{}=,]|"[^"]*"|\d+/ "block{x=\"1\"}"
+-- ["block", "{", "x", "=", "\"1\"", "}"]
 ```
 
 Compile a pattern at runtime (e.g. from user input):
@@ -680,8 +689,9 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 ### `List`
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head`, `tail`, `is_empty`, `any`, `all`, `find`, `zip`, `take`, `drop`, `each`,
-`sort`, `sort_by`, `unique`, `range`, `flatten`, `concat`
+`head`, `tail`, `is_empty`, `any`, `all`, `find`, `zip`, `take`, `drop`,
+`take_while`, `drop_while`, `each`, `sort`, `sort_by`, `unique`, `range`,
+`flatten`, `concat`, `get`, `get!`
 
 ### `String`
 
