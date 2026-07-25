@@ -6,9 +6,15 @@ type state = {
   tokens : (Token.t * Token.loc) array;
   mutable pos : int;
   mutable in_contract : bool;
+  ctor_field_count : (string, int) Hashtbl.t;
+    (* constructor name -> number of declared fields, recorded while parsing
+       `type` definitions so `Ctor (e1, ..., en)` call sites can tell apart
+       "n curried positional args" from "one tuple-typed argument" *)
 }
 
-let make tokens = { tokens = Array.of_list tokens; pos = 0; in_contract = false }
+let make tokens =
+  { tokens = Array.of_list tokens; pos = 0; in_contract = false;
+    ctor_field_count = Hashtbl.create 16 }
 
 let skip s =
   while s.pos < Array.length s.tokens
@@ -185,7 +191,12 @@ let rec pat_ s =
           ignore (advance s); pats := !pats @ [pat_ s]
         done;
         expect s Token.RParen;
-        PConstr (name, !pats)
+        (* Mirror the expression-side rule: Ctor (p1, ..., pn) is one
+           tuple-pattern argument when the constructor has a single
+           declared field, else n positional pattern arguments. *)
+        match !pats, Hashtbl.find_opt s.ctor_field_count name with
+        | (_ :: _ :: _ as ps), Some 1 -> PConstr (name, [PTuple ps])
+        | pats, _ -> PConstr (name, pats)
       end
     end else begin
       let args = ref [] in
@@ -283,14 +294,43 @@ let builtin_types = [
   "IPv4"; "CIDR"; "Port"; "Version"; "Size"
 ]
 
-let parse_type_expr s =
+let is_type_atom_start = function
+  | Token.Upper _ | Token.LParen -> true
+  | _ -> false
+
+let rec parse_type_atom s =
   let loc = loc_prefix s in
   match advance s with
   | Token.Upper name -> Ast.TEName name
+  | Token.LParen ->
+    let first = parse_type_expr s in
+    if peek s = Token.Comma then begin
+      let rest = ref [] in
+      while peek s = Token.Comma do
+        ignore (advance s); rest := !rest @ [parse_type_expr s]
+      done;
+      expect s Token.RParen;
+      Ast.TETuple (first :: !rest)
+    end else begin
+      expect s Token.RParen; first   (* pure grouping *)
+    end
   | Token.Ident name ->
     raise (ParseError (Printf.sprintf "%sexpected type name, got '%s'%s"
       loc name (Util.hint name builtin_types)))
   | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
+
+and parse_type_app s =
+  let left = ref (parse_type_atom s) in
+  while is_type_atom_start (peek s) && not (has_newline_before_next s) do
+    left := Ast.TEApp (!left, parse_type_atom s)
+  done;
+  !left
+
+and parse_type_expr s =
+  let left = parse_type_app s in
+  if peek s = Token.Arrow then
+    (ignore (advance s); Ast.TEFun (left, parse_type_expr s))
+  else left
 
 (* ── Expression parsing (Pratt) ───────────────────────────────────────────── *)
 
@@ -385,7 +425,16 @@ and atom_ s =
           ignore (advance s); args := !args @ [expr_ 0 s]
         done;
         expect s Token.RParen;
-        List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) !args
+        (* Ctor (e1, ..., en): if the constructor has a single declared field
+           (e.g. a tuple-typed field, `type Pair = Pair (Int, Int)`), treat
+           the whole parenthesized list as one tuple argument rather than n
+           curried positional arguments. Unknown/built-in constructors (Ok,
+           Error, or anything not seen via a `type` def in this parse) keep
+           the existing curried-args behavior. *)
+        match !args, Hashtbl.find_opt s.ctor_field_count name with
+        | (_ :: _ :: _ as es), Some 1 -> App (Constr name, Tuple es)
+        | args, _ ->
+          List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
       end
     end else
       Constr name
@@ -720,37 +769,45 @@ let parse_type_def s =
     | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
   in
   let parse_ctor_fields () =
-    (* Peek: if next is Upper, single positional field, no parens.
-       If LParen, parse (fields...) where fields are either:
-         - named:      ident Upper (, ident Upper)*
-         - positional: Upper (, Upper)* *)
+    (* Peek: Upper -> space-separated positional type atoms, no parens.
+       LParen + Ident -> named-field record shorthand: (ident : Type, ...).
+       LParen + other -> single field needing grouping/tupling: (List Int),
+         (Int, Int). *)
     match peek s with
     | Token.Upper _ ->
-      [(None, parse_type_expr s)]
-    | Token.LParen ->
-      ignore (advance s);
-      let named = match peek s with Token.Ident _ -> true | _ -> false in
-      let parse_one () =
-        if named then
-          let fname = expect_ident s in
-          let ftype = parse_type_expr s in
-          (Some fname, ftype)
-        else
-          (None, parse_type_expr s)
-      in
-      let first = parse_one () in
-      let rest = ref [] in
-      while peek s = Token.Comma do
-        ignore (advance s);
-        rest := !rest @ [parse_one ()]
+      let fields = ref [(None, parse_type_atom s)] in
+      while is_type_atom_start (peek s) && not (has_newline_before_next s) do
+        fields := !fields @ [(None, parse_type_atom s)]
       done;
-      expect s Token.RParen;
-      first :: !rest
+      !fields
+    | Token.LParen ->
+      let saved = s.pos in
+      ignore (advance s);
+      (match peek s with
+       | Token.Ident _ ->
+         let parse_named () =
+           let fname = expect_ident s in
+           expect s Token.Colon;
+           let ftype = parse_type_atom s in
+           (Some fname, ftype)
+         in
+         let first = parse_named () in
+         let rest = ref [] in
+         while peek s = Token.Comma do
+           ignore (advance s);
+           rest := !rest @ [parse_named ()]
+         done;
+         expect s Token.RParen;
+         first :: !rest
+       | _ ->
+         s.pos <- saved;
+         [(None, parse_type_atom s)])
     | _ -> []
   in
   (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
   if peek s = Token.LParen then begin
     let fields = parse_ctor_fields () in
+    Hashtbl.replace s.ctor_field_count type_name (List.length fields);
     Ast.Variants (type_name, [{ Ast.name = type_name; fields }])
   end else begin
     expect s Token.Eq;
@@ -762,6 +819,7 @@ let parse_type_def s =
         | t -> raise (ParseError (Format.asprintf "%sexpected constructor name, got %a" loc Token.pp t))
       in
       let fields = parse_ctor_fields () in
+      Hashtbl.replace s.ctor_field_count name (List.length fields);
       { Ast.name; fields }
     in
     let ctors = ref [parse_ctor ()] in

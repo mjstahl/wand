@@ -73,23 +73,22 @@ let string_of_typ t =
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
       sa ^ " -> " ^ go b
     | TTuple ts ->
-      String.concat " * " (List.map (fun t ->
-        match repr t with TTuple _ -> "(" ^ go t ^ ")" | _ -> go t) ts)
+      "(" ^ String.concat ", " (List.map go ts) ^ ")"
     | TList t ->
       let s = match repr t with
-        | TFun _ | TTuple _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
+        | TFun _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "List " ^ s
     | TResult t ->
       let s = match repr t with
-        | TFun _ | TTuple _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
+        | TFun _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "Result " ^ s
     | TMap t ->
       let s = match repr t with
-        | TFun _ | TTuple _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
+        | TFun _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "Map " ^ s
@@ -210,20 +209,29 @@ let instantiate = function
 
 type typedef_env = (string * type_def) list
 
-let type_of_te : type_expr -> typ = function
+let rec type_of_te : type_expr -> typ = function
   | TEName name ->
-    match name with
-    | "Int"      -> TInt      | "Float"    -> TFloat
-    | "String"   -> TString   | "Bool"     -> TBool
-    | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
-    | "Date"     -> TDate     | "Time"     -> TTime
-    | "DateTime" -> TDateTime | "Duration" -> TDuration
-    | "Url"      -> TUrl      | "IPv4"     -> TIPv4
-    | "CIDR"     -> TCIDR     | "Port"     -> TPort
-    | "Version"  -> TVersion  | "Size"     -> TSize
-    | "JSON"     -> TJson
-    | "TOML"     -> TToml
-    | n          -> TName n
+    (match name with
+     | "Int"      -> TInt      | "Float"    -> TFloat
+     | "String"   -> TString   | "Bool"     -> TBool
+     | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
+     | "Date"     -> TDate     | "Time"     -> TTime
+     | "DateTime" -> TDateTime | "Duration" -> TDuration
+     | "Url"      -> TUrl      | "IPv4"     -> TIPv4
+     | "CIDR"     -> TCIDR     | "Port"     -> TPort
+     | "Version"  -> TVersion  | "Size"     -> TSize
+     | "JSON"     -> TJson
+     | "TOML"     -> TToml
+     | n          -> TName n)
+  | TEFun (a, b) -> TFun (type_of_te a, type_of_te b)
+  | TETuple ts    -> TTuple (List.map type_of_te ts)
+  | TEApp (TEName "List", arg)   -> TList   (type_of_te arg)
+  | TEApp (TEName "Result", arg) -> TResult (type_of_te arg)
+  | TEApp (TEName "Map", arg)    -> TMap    (type_of_te arg)
+  | TEApp (TEName head, _) ->
+    raise (TypeError (Printf.sprintf
+      "generic type '%s' is not supported (only List, Result, Map are)" head))
+  | TEApp (_, _) -> raise (TypeError "invalid type application")
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
   match tdef with

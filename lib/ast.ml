@@ -1,5 +1,8 @@
 type type_expr =
-  | TEName of string
+  | TEName  of string
+  | TEApp   of type_expr * type_expr    (* List Int, Result Int *)
+  | TETuple of type_expr list            (* (Int, Int), 2+ elements *)
+  | TEFun   of type_expr * type_expr     (* Int -> Int *)
 
 type import_kind =
   | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)

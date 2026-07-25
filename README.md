@@ -361,20 +361,31 @@ let describe d = match d with
 ### Variants with payloads
 
 ```
-type Shape = Circle Int | Rect (Int, Int)
+type Shape = Circle Int | Rect Int Int
 
 let area s = match s with
 | Circle r   -> r * r * 3
 | Rect w h   -> w * h
 ```
 
-### Single-constructor shorthand (named fields)
-
-`type Point (x Int, y Int)` is shorthand for `type Point = Point (x Int, y Int)`.
+Positional fields are space-separated type atoms — `Rect Int Int` is two
+`Int` fields, matching how constructor/function application already works
+(`f x y`). Parentheses are reserved for grouping a single field's type when
+it needs its own structure, not for listing multiple fields:
 
 ```
-type Point  (x Int, y Int)
-type Circle (radius Int)
+type Wrap = Wrap (List Int)     -- one field, type List Int
+type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
+```
+
+### Single-constructor shorthand (named fields)
+
+`type Point (x : Int, y : Int)` is shorthand for
+`type Point = Point (x : Int, y : Int)`.
+
+```
+type Point  (x : Int, y : Int)
+type Circle (radius : Int)
 
 let p = Point  (x = 3, y = 4)
 let c = Circle (radius = 5)
@@ -465,6 +476,33 @@ Wrap "hello"   -- Error: cannot unify Int with String
 match Wrap 42 with
 | Wrap n -> n * 2   -- n inferred as Int
 ```
+
+---
+
+## Type annotations
+
+Any type the checker can infer or print, you can also write explicitly:
+
+```
+let x : Int = 42
+
+let xs : List Int = [1, 2, 3]
+
+let pair : (Int, Bool) = (1, true)
+
+let f : Int -> Int = fn x -> x + 1
+```
+
+Grouping and nesting compose the same way for annotations as they do for
+the printed types:
+
+```
+let g : (Int -> Int) -> Int = fn f -> f 1        -- parens needed for left-nesting
+let m : Map (List Int) = [a = [1, 2], b = [3]]   -- parens needed for a compound argument
+```
+
+`:t` prints types in exactly this syntax, so what you see there is always
+what you can paste back into an annotation.
 
 ---
 

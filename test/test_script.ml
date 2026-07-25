@@ -127,7 +127,7 @@ let test_suggestions () =
     "type Color = Red | Green; Gren"
     "Green";
   err_suggests "field typo"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 1, y = 2)
 p.xy|}
     "x";

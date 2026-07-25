@@ -30,7 +30,7 @@ let test_payload () =
     "type Wrap = Wrap Int; Wrap 42"
     "Wrap(42)";
   ok "two payloads"
-    "type Pair = Pair (Int, Int); Pair 3 4"
+    "type Pair = Pair Int Int; Pair 3 4"
     "Pair(3, 4)"
 
 (* ── Pattern matching on variants ───────────────────────────────────────── *)
@@ -45,7 +45,7 @@ let describe c = match c with
 describe Green|}
     "green";
   ok "match payload"
-    {|type Rect = Rect (Int, Int)
+    {|type Rect = Rect Int Int
 let area r = match r with
 | Rect w h -> w * h
 area (Rect 3 4)|}
@@ -55,17 +55,17 @@ area (Rect 3 4)|}
 
 let test_named_fields () =
   ok "construct and access"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 1, y = 2)
 p.x|}
     "1";
   ok "second field"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let origin = Point (x = 0, y = 0)
 origin.y|}
     "0";
   ok "field on function result"
-    {|type Circle (radius Int)
+    {|type Circle (radius : Int)
 let unit_circle = Circle (radius = 1)
 unit_circle.radius|}
     "1"
@@ -74,19 +74,19 @@ unit_circle.radius|}
 
 let test_named_pat () =
   ok "destructure named fields"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 3, y = 4)
 let sum = match p with | Point (x = a, y = b) -> a + b
 sum|}
     "7";
   ok "wildcard field"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 5, y = 99)
 let get_x = match p with | Point (x = v, y = _) -> v
 get_x|}
     "5";
   ok "in local let binding"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let add_coords p =
   let Point (x = a, y = b) = p in
   a + b
@@ -97,24 +97,24 @@ add_coords (Point (x = 7, y = 8))|}
 
 let test_single_ctor_destructure () =
   ok "single field shorthand let"
-    {|type Circle (radius Int)
+    {|type Circle (radius : Int)
 let c = Circle (radius = 7)
 let (r) = c
 r|}
     "7";
   ok "multi field shorthand let"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 3, y = 4)
 let (a, b) = p
 "${a}, ${b}"|}
     "3, 4";
   ok "match arm shorthand"
-    {|type Circle (radius Int)
+    {|type Circle (radius : Int)
 let c = Circle (radius = 9)
 match c with | (r) -> r|}
     "9";
   ok "in local let inside fn"
-    {|type Circle (radius Int)
+    {|type Circle (radius : Int)
 let area c =
   let (r) = c in
   r * r
@@ -123,7 +123,7 @@ area (Circle (radius = 5))|}
 
 let test_named_pat_errors () =
   err "unknown field in pattern"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 1, y = 2)
 let sum = match p with | Point (x = a, z = b) -> a + b
 sum|}

@@ -116,9 +116,9 @@ let test_let_poly () =
 (* ── Tuples ───────────────────────────────────────────────────────────────── *)
 
 let test_tuple () =
-  ok "pair"    "(1, true)"       "Int * Bool";
-  ok "triple"  "(1, 2, 3)"       "Int * Int * Int";
-  ok "nested"  "((1, 2), true)"  "(Int * Int) * Bool"
+  ok "pair"    "(1, true)"       "(Int, Bool)";
+  ok "triple"  "(1, 2, 3)"       "(Int, Int, Int)";
+  ok "nested"  "((1, 2), true)"  "((Int, Int), Bool)"
 
 (* ── Lists ────────────────────────────────────────────────────────────────── *)
 
@@ -177,7 +177,7 @@ let test_enum_types () =
 
 let test_payload_types () =
   ok_prog "single arg" "type Wrap = Wrap Int; Wrap 42"           "Wrap";
-  ok_prog "two args"   "type Pair = Pair (Int, Int); Pair 3 4"  "Pair"
+  ok_prog "two args"   "type Pair = Pair Int Int; Pair 3 4"  "Pair"
 
 let test_match_ctor () =
   ok_prog "nullary arms"
@@ -196,12 +196,12 @@ unwrap (Wrap 42)|}
 
 let test_named_field_typedef () =
   ok_prog "field access"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 1, y = 2)
 p.x|}
     "Int";
   ok_prog "second field"
-    {|type Point (x Int, y Int)
+    {|type Point (x : Int, y : Int)
 let p = Point (x = 1, y = 2)
 p.y|}
     "Int"
@@ -216,6 +216,35 @@ let test_annot () =
   ok_prog "value annot"    "let x : Int = 42; x"          "Int";
   ok_prog "fn return annot" "let double x : Int = x * 2; double 3" "Int";
   err_prog "annot mismatch" "let x : Bool = 42"
+
+let test_annot_syntax () =
+  ok_prog "tuple annot"
+    "let x : (Int, Int) = (1, 2); x" "(Int, Int)";
+  ok_prog "list annot matches inference"
+    "let xs : List Int = [1, 2, 3]; xs" "List Int";
+  ok_prog "map annot matches inference"
+    "let m : Map Int = [x = 1, y = 2]; m" "Map Int";
+  ok_prog "result annot matches inference"
+    "let r : Result Int = Ok 1; r" "Result Int";
+  ok_prog "function annot"
+    "let f : Int -> Int = fn x -> x + 1; f 1" "Int";
+  ok_prog "left-nested function annot"
+    "let g : (Int -> Int) -> Int = fn f -> f 1; g (fn x -> x + 1)" "Int";
+  ok_prog "list of tuples annot"
+    "let xs : List (Int, Int) = [(1, 2)]; xs" "List (Int, Int)";
+  err_prog "unsupported generic head"
+    "let x : Option Int = 1"
+
+let test_ctor_field_grouping () =
+  ok_prog "single field grouped application"
+    "type Wrap = Wrap (List Int); let w = Wrap [1, 2, 3]; w" "Wrap";
+  ok_prog "single field grouped tuple"
+    "type Pair = Pair (Int, Int); let p = Pair (1, 2); p" "Pair";
+  ok_prog "named field with colon"
+    {|type Point (x : Int, y : Int)
+let p = Point (x = 1, y = 2)
+p.x|}
+    "Int"
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
@@ -253,5 +282,9 @@ let () =
     ];
     "annotations", [
       Alcotest.test_case "type annotations" `Quick test_annot;
+      Alcotest.test_case "annotation syntax" `Quick test_annot_syntax;
+    ];
+    "constructor field grouping", [
+      Alcotest.test_case "field grouping" `Quick test_ctor_field_grouping;
     ];
   ]
