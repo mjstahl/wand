@@ -10,6 +10,14 @@ partially covered, or may conflict with how domain types are currently
 lexed/typed. Re-read against current `lib/lexer.ml`/`lib/parser.ml` and
 the domain-types design before starting.
 
+**Also**: this plan's grammar syntax (`Parser.many1`/`Parser.seq`/etc. in
+the `## Example` below) assumed the full PEG combinator library from
+`.claude/plans/parser.md`, which was reviewed and rejected (see
+`.claude/plans/parser-helpers.md` instead — regex plus mutual recursion,
+now implemented, cover the actual need without a combinator library).
+Whatever grammar syntax `token` declarations end up using needs to be
+rethought against that decision, not against the old `Parser.*` API.
+
 User-defined lexical types backed by a `Parser` grammar. A `token`
 declaration introduces a new nominal type whose values are validated
 at lex time and carry the original matched string.
