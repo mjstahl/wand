@@ -10,6 +10,7 @@ let usage () =
   print_endline "  t, type <expr>   Typecheck an expression without evaluating";
   print_endline "  d, doc  <name>   Print the doc string for a name";
   print_endline "  env              List all names and modules in scope";
+  print_endline "  fmt, format <file>  Print a formatted version of a .wand file";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
@@ -45,6 +46,13 @@ let usage_for sub =
     print_endline "";
     print_endline "Options:";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
+  | "fmt" | "format" ->
+    print_endline "Usage: wand fmt <file.wand>";
+    print_endline "";
+    print_endline "Print a formatted version of a .wand file to stdout.";
+    print_endline "Comments are preserved; constructs without a dedicated";
+    print_endline "formatting rule yet (requires/ensures, handle, $()/$?(), try,";
+    print_endline "regex literals) are re-emitted verbatim."
   | "h" | "help" ->
     print_endline "Usage: wand h [command]";
     print_endline "";
@@ -157,6 +165,21 @@ let () =
            | Wand.Typechecker.Namespace _ -> print_endline name
            | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
          ) entries)
+    | "fmt" | "format" ->
+      (match rest with
+       | [path] ->
+         (match (try Ok (In_channel.with_open_text path In_channel.input_all)
+                 with Sys_error m -> Error m) with
+          | Error m -> Printf.eprintf "Error loading '%s': %s\n" path m; exit 1
+          | Ok src ->
+            (try print_string (Wand.Formatter.format_source src)
+             with
+             | Wand.Lexer.LexError m -> Printf.eprintf "Error: lex error: %s\n" m; exit 1
+             | Wand.Parser.ParseError m -> Printf.eprintf "Error: parse error: %s\n" m; exit 1))
+       | [] ->
+         Printf.eprintf "Error: expected a file\nRun 'wand h fmt' for usage.\n"; exit 1
+       | _ ->
+         Printf.eprintf "Error: too many arguments\nRun 'wand h fmt' for usage.\n"; exit 1)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       Wand.Evaluator.exe_args_ref := rest;

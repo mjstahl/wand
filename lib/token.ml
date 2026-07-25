@@ -94,8 +94,9 @@ type t =
   | Newline
   | EOF
   | DocComment of string
+  | Comment of string
 
-type loc = { line: int; col: int }
+type loc = { line: int; col: int; offset: int }
 
 let pp ppf tok =
   let s = match tok with
@@ -157,6 +158,7 @@ let pp ppf tok =
     | Semicolon  -> ";"      | Newline    -> "\\n"
     | EOF        -> "EOF"
     | DocComment s -> Printf.sprintf "DocComment(%S)" s
+    | Comment s    -> Printf.sprintf "Comment(%S)" s
   in
   Format.pp_print_string ppf s
 

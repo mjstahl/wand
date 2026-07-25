@@ -188,6 +188,26 @@ match n with
 | _             -> "positive"
 ```
 
+### Exhaustiveness checking
+
+`wand t` checks that every `match` covers all possible cases, and rejects
+the program at type-checking time if it doesn't — a missing case is a
+type error, not a runtime surprise:
+
+```
+let f x = match x with | 0 -> "zero"
+-- wand t: type error: non-exhaustive match: missing case, e.g. _
+```
+
+Because guards (`when`) aren't guaranteed to fire, a guarded arm never
+counts toward exhaustiveness on its own — it always needs a plain
+fallback arm alongside it. Infinite domains (`Int`, `Float`, `String`, and
+the other lexical domain types) can only be covered by an explicit
+wildcard or variable pattern; `Bool`, tuples, lists, `Result`, and
+user-defined variant types (including generics like `Option`) are checked
+structurally against their actual set of constructors. Map patterns are
+intentionally partial by design and are never flagged.
+
 ---
 
 ## Tuples
@@ -904,11 +924,27 @@ wand e --load config.wand "host"      # evaluate in context of a file
 wand t "List.map"                     # typecheck only
 wand d "List.map"                     # show doc string
 wand env                              # list all names and modules in scope
+wand fmt script.wand                  # print a formatted version of a file
 wand h                                # show all commands
 wand h e                              # help for a specific command
 ```
 
-Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `h`/`help`.
+Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `fmt`/`format`, `h`/`help`.
+
+### Formatter
+
+`wand fmt <file>` prints a formatted version of a `.wand` file to stdout.
+Comments (both `(* ... *)` and doc `(** ... *)`) are always preserved —
+never silently dropped. Multi-equation function definitions
+(`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
+rather than left as the desugared `match`.
+
+A handful of rarer constructs don't have a dedicated formatting rule yet
+and are re-emitted verbatim, unchanged, wherever they appear:
+`requires`/`ensures` contracts, `handle`, `$(...)`/`$?(...)` shell
+commands, `try`, and regex literals. This is a deliberate, safe
+degradation — such code is left exactly as written rather than risk
+misformatting it.
 
 ---
 

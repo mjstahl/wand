@@ -117,3 +117,11 @@
 (test
  (name test_toml)
  (libraries wand alcotest unix))
+
+(test
+ (name test_exhaustiveness)
+ (libraries wand alcotest))
+
+(test
+ (name test_formatter)
+ (libraries wand alcotest))

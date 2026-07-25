@@ -399,6 +399,178 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
   | Wild      -> env
   | _         -> infer_pat tenv p t env
 
+(* ── Match exhaustiveness ─────────────────────────────────────────────────── *)
+(* Maranget-style specialization algorithm: recurse over a matrix of
+   pattern rows and a parallel list of column types, checking that every
+   constructor of the head column's type is either matched directly or
+   covered by a wildcard, then recursing into each covered constructor's
+   sub-columns. Guards are excluded by the caller (a guarded arm might not
+   fire, so it can't be relied on for exhaustiveness). *)
+
+let is_wild_pat = function
+  | PVar _ | Wild -> true
+  | _ -> false
+
+let builtin_result_scheme = function
+  | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (TFun (t, TResult (e, t))))
+  | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (TFun (e, TResult (e, t))))
+  | _ -> None
+
+(* A generic type like `Option 'a` instantiates to `TApp (TName "Option", arg)`;
+   peel the TApp chain down to the underlying type-def name. *)
+let rec app_head_name t =
+  match repr t with
+  | TName tname -> Some tname
+  | TApp (f, _) -> app_head_name f
+  | _ -> None
+
+(* All constructors of t's type, each with its arg types instantiated to
+   match t specifically (so `Option Int`'s `Some` reports arg type Int,
+   not a generic fresh var) -- reuses the same instantiate/unify machinery
+   `infer_pat`'s PConstr case already uses for the same reason. *)
+let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
+  let via_scheme name scheme =
+    let ctor_t = instantiate scheme in
+    let (arg_ts, result_t) = unwrap_ctor_type ctor_t in
+    (try unify result_t t with TypeError _ -> ());
+    (name, arg_ts)
+  in
+  match repr t with
+  | TBool -> [("true", []); ("false", [])]
+  | TUnit -> [("()", [])]
+  | TTuple ts -> [("(tuple)", ts)]
+  | TList elem_t -> [("[]", []); ("::", [elem_t; TList elem_t])]
+  | TResult _ ->
+    List.filter_map (fun name ->
+      match builtin_result_scheme name with
+      | Some s -> Some (via_scheme name s)
+      | None -> None
+    ) ["Ok"; "Error"]
+  | TMap _ -> []  (* partial by design (README) -- never flagged as non-exhaustive *)
+  | TName _ | TApp _ ->
+    (match app_head_name t with
+     | Some tname ->
+       (match List.assoc_opt tname tenv with
+        | Some (Variants (_, _, ctors)) ->
+          List.map (fun c ->
+            match List.assoc_opt c.name ctor_env with
+            | Some s -> via_scheme c.name s
+            | None -> (c.name, [])
+          ) ctors
+        | None -> [])
+     | None -> [])
+  | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
+  | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
+  | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
+  | TRegex | TJson | TToml | TFun _ ->
+    []  (* infinite/opaque domains: only a wildcard row can cover these *)
+
+let is_infinite_domain t =
+  match repr t with
+  | TApp _ when app_head_name t <> None -> false
+  | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
+  | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
+  | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
+  | TRegex | TJson | TToml | TFun _ | TApp _ -> true
+  | _ -> false
+
+(* Does pattern p match constructor `name` (of the given arity)? Returns
+   the sub-patterns to specialize with if so. PConstrNamed/PMap match
+   their own constructor as fully covered without recursing into named
+   fields (a deliberate, conservative simplification: this can miss a
+   genuinely non-exhaustive nested pattern inside a named field, but never
+   produces a false "exhaustive" claim for the outer constructor itself). *)
+let match_against_ctor name arity (p : pat) =
+  match p with
+  | _ when is_wild_pat p -> `Wildcard
+  | Bool b -> if (b && name = "true") || (not b && name = "false") then `Match [] else `NoMatch
+  | Unit -> `Match []
+  | PTuple ps -> `Match ps
+  | PList [] -> if name = "[]" then `Match [] else `NoMatch
+  | PList (hd :: tl) -> if name = "::" then `Match [hd; PList tl] else `NoMatch
+  | PCons (hp, tp) -> if name = "::" then `Match [hp; tp] else `NoMatch
+  | PConstr (n, ps) -> if n = name then `Match ps else `NoMatch
+  | PConstrNamed (n, _) ->
+    if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
+  | _ -> `NoMatch  (* literal patterns never arise for finite-ctor types *)
+
+type witness = Witness of string * witness list
+
+let rec render_witness (Witness (name, args) : witness) : string =
+  match name, args with
+  | _, [] -> name
+  | "(tuple)", args -> "(" ^ String.concat ", " (List.map render_witness_arg args) ^ ")"
+  | "::", [h; t] -> render_witness_arg h ^ " : " ^ render_witness_arg t
+  | name, args -> name ^ " " ^ String.concat " " (List.map render_witness_arg args)
+and render_witness_arg (Witness (name, args) as w : witness) : string =
+  match args with
+  | [] -> name
+  | _  -> "(" ^ render_witness w ^ ")"
+
+(* Returns None if exhaustive, or Some human-readable witness pattern
+   naming one uncovered case. *)
+let check_exhaustive tenv (scrutinee_t : typ) (pats : pat list) : string option =
+  let ctor_env = tenv_to_ctor_env tenv in
+  (* go types matrix: None if `matrix` covers every value of `types`,
+     else Some witnesses -- one witness per column in `types`, describing
+     one concrete uncovered combination. *)
+  let rec go (types : typ list) (matrix : pat list list) : witness list option =
+    match types with
+    | [] -> if matrix = [] then Some [] else None
+    | t :: rest_types ->
+      if matrix <> [] && List.for_all (fun row -> is_wild_pat (List.hd row)) matrix then begin
+        let default = List.map (fun row -> List.tl row) matrix in
+        match go rest_types default with
+        | None -> None
+        | Some rest_w -> Some (Witness ("_", []) :: rest_w)
+      end else if is_infinite_domain t then begin
+        if List.exists (fun row -> is_wild_pat (List.hd row)) matrix then begin
+          let default = List.filter_map (fun row ->
+            if is_wild_pat (List.hd row) then Some (List.tl row) else None) matrix in
+          match go rest_types default with
+          | None -> None
+          | Some rest_w -> Some (Witness ("_", []) :: rest_w)
+        end else
+          Some (Witness ("_", []) :: List.map (fun _ -> Witness ("_", [])) rest_types)
+      end else begin
+        let ctors = ctors_of_type tenv ctor_env t in
+        match ctors with
+        | [] -> None  (* TMap, or an unresolved type var: nothing to check *)
+        | _ ->
+          List.find_map (fun (cname, arg_ts) ->
+            let arity = List.length arg_ts in
+            let specialized = List.filter_map (fun row ->
+              match row with
+              | [] -> None
+              | h :: tl ->
+                match match_against_ctor cname arity h with
+                | `Match subs -> Some (subs @ tl)
+                | `Wildcard -> Some (List.init arity (fun _ -> Wild) @ tl)
+                | `NoMatch -> None
+            ) matrix in
+            if specialized = [] then
+              Some (Witness (cname, List.init arity (fun _ -> Witness ("_", [])))
+                    :: List.map (fun _ -> Witness ("_", [])) rest_types)
+            else
+              match go (arg_ts @ rest_types) specialized with
+              | None -> None
+              | Some all_w ->
+                let rec split n xs =
+                  if n <= 0 then ([], xs)
+                  else match xs with
+                    | [] -> ([], [])
+                    | x :: xs' -> let (a, b) = split (n - 1) xs' in (x :: a, b)
+                in
+                let (this_ctor_args, rest_w) = split arity all_w in
+                Some (Witness (cname, this_ctor_args) :: rest_w)
+          ) ctors
+      end
+  in
+  match go [scrutinee_t] (List.map (fun p -> [p]) pats) with
+  | None -> None
+  | Some [] -> None
+  | Some (w :: _) -> Some (render_witness w)
+
 (* ── Expression inference ─────────────────────────────────────────────────── *)
 
 let rec strip_located = function
@@ -502,6 +674,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
        | Some g -> unify (infer tenv env' g) TBool);
       unify result_t (infer tenv env' body)
     ) cases;
+    let unguarded_pats = List.filter_map (fun (p, guard, _) ->
+      match guard with None -> Some p | Some _ -> None) cases in
+    (match check_exhaustive tenv ts unguarded_pats with
+     | None -> ()
+     | Some witness ->
+       raise (TypeError (Printf.sprintf
+         "non-exhaustive match: missing case, e.g. %s" witness)));
     result_t
   | Tuple es -> TTuple (List.map (infer tenv env) es)
   | List []        -> TList (fresh ())

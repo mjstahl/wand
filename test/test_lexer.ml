@@ -120,9 +120,10 @@ let test_delimiters () =
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
 let test_comments () =
-  check_tokens "line comment"   "(* ignored *) 1"        [Int 1];
-  check_tokens "doc comment"    "(* doc *)\nlet"         [Token.Let];
-  check_tokens "nested comment" "(* a (* b *) c *) true" [Bool true]
+  check_tokens "line comment"   "(* ignored *) 1"        [Comment " ignored "; Int 1];
+  check_tokens "single-star comment before token" "(* doc *)\nlet" [Comment " doc "; Token.Let];
+  check_tokens "nested comment" "(* a (* b *) c *) true" [Comment " a (* b *) c "; Bool true];
+  check_tokens "doc comment (double-star)" "(** actual doc *) true" [DocComment "actual doc"; Bool true]
 
 (* ── Whitespace ─────────────────────────────────────────────────────────── *)
 

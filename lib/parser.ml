@@ -22,26 +22,46 @@ let make tokens =
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
     ctor_field_count }
 
+(* Plain `Comment _` tokens are invisible to the real parser, exactly like
+   `Newline` -- only `DocComment` is left unfiltered (parse_program's
+   dispatch relies on seeing it for doc-string attachment). *)
+let is_skippable = function
+  | Token.Newline | Token.Comment _ -> true
+  | _ -> false
+
 let skip s =
   while s.pos < Array.length s.tokens
-     && fst s.tokens.(s.pos) = Token.Newline do
+     && is_skippable (fst s.tokens.(s.pos)) do
     s.pos <- s.pos + 1
   done
 
+(* A comment counts as a line break if it's a `Newline` token, or if it's a
+   (possibly multi-line) `Comment` whose text itself contains a newline --
+   there's no separate `Newline` token adjacent to a comment that already
+   spans multiple lines. *)
 let has_newline_before_next s =
   let i = ref s.pos in
-  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
-  !i > s.pos
+  let seen_break = ref false in
+  let continue_ = ref true in
+  while !continue_ && !i < Array.length s.tokens do
+    (match fst s.tokens.(!i) with
+     | Token.Newline -> seen_break := true; incr i
+     | Token.Comment text ->
+       if String.contains text '\n' then seen_break := true;
+       incr i
+     | _ -> continue_ := false)
+  done;
+  !seen_break
 
 let peek s =
   let i = ref s.pos in
-  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
+  while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
   if !i < Array.length s.tokens then fst s.tokens.(!i) else Token.EOF
 
 let peek_loc s =
   let i = ref s.pos in
-  while !i < Array.length s.tokens && fst s.tokens.(!i) = Token.Newline do incr i done;
-  if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.{ line = 0; col = 0 }
+  while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
+  if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.{ line = 0; col = 0; offset = 0 }
 
 let advance s =
   skip s;
@@ -54,7 +74,7 @@ let advance s =
 let advance_loc s =
   skip s;
   if s.pos >= Array.length s.tokens
-  then (Token.EOF, Token.{ line = 0; col = 0 })
+  then (Token.EOF, Token.{ line = 0; col = 0; offset = 0 })
   else begin
     let pair = s.tokens.(s.pos) in
     s.pos <- s.pos + 1; pair
@@ -69,7 +89,7 @@ let peek_named_args s =
   let arr = s.tokens in
   let n = Array.length arr in
   let i = ref s.pos in
-  let skip () = while !i < n && fst arr.(!i) = Token.Newline do incr i done in
+  let skip () = while !i < n && is_skippable (fst arr.(!i)) do incr i done in
   skip ();
   if !i >= n || fst arr.(!i) <> Token.LParen then false
   else begin
@@ -936,7 +956,14 @@ let parse_type_def s =
     Ast.Variants (type_name, !params, !ctors)
   end
 
-let parse_program tokens =
+(* Shared by `parse_program` and `parse_program_with_locs`: every loop
+   iteration appends at most one item to `items` (via `items := !items @
+   [x]`), so a physical-inequality check on the list before/after an
+   iteration cheaply detects "an item was added" without re-walking the
+   list. `on_item` is invoked with (start loc, loc of the item's last
+   consumed token) whenever that happens; `parse_program` passes a no-op,
+   `parse_program_with_locs` records into a side list. *)
+let parse_program_generic ~on_item tokens =
   let s = make tokens in
   let items = ref [] in
   let docs  = ref [] in
@@ -948,7 +975,9 @@ let parse_program tokens =
   in
   let continue_ = ref true in
   while !continue_ do
-    match peek s with
+    let start_loc = peek_loc s in
+    let before_items = !items in
+    (match peek s with
     | Token.EOF -> continue_ := false
     | Token.DocComment doc ->
       ignore (advance s);
@@ -1089,6 +1118,18 @@ let parse_program tokens =
              raise (ParseError (Format.asprintf "%sunexpected '='; did you mean 'let'?%s"
                (loc_prefix s) hint))
          | None -> ())
-      end
+      end);
+    if !items != before_items then begin
+      let last_loc = if s.pos > 0 then snd s.tokens.(s.pos - 1) else start_loc in
+      on_item start_loc last_loc
+    end
   done;
   { Ast.items = !items; docs = !docs }
+
+let parse_program tokens = parse_program_generic ~on_item:(fun _ _ -> ()) tokens
+
+let parse_program_with_locs tokens =
+  let locs = ref [] in
+  let prog = parse_program_generic tokens
+      ~on_item:(fun start_loc end_loc -> locs := !locs @ [(start_loc, end_loc)]) in
+  (prog, !locs)

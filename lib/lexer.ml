@@ -148,28 +148,34 @@ let read_run_cmd s =
 
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
+(* Always accumulates the comment's raw text; `is_doc` says whether it was
+   a doc-comment (extra leading star), so the caller can decide whether to
+   run doc-comment formatting (strip `*` prefixes/blank lines) or keep the
+   text verbatim. *)
 let read_comment s =
   ignore (advance s);  (* consume '*' after '(' *)
   let is_doc = peek s = '*' && peek2 s <> ')' in
   if is_doc then ignore (advance s);  (* consume second '*' *)
-  let buf = if is_doc then Some (Buffer.create 64) else None in
+  let buf = Buffer.create 64 in
   let depth = ref 1 in
   while !depth > 0 do
     if is_at_end s then raise (LexError "unterminated comment");
     let c = advance s in
-    if c = '(' && peek s = '*' then (ignore (advance s); incr depth)
+    if c = '(' && peek s = '*' then begin
+      ignore (advance s); incr depth;
+      Buffer.add_char buf '('; Buffer.add_char buf '*'
+    end
     else if c = '*' && peek s = ')' then begin
       ignore (advance s); decr depth;
-      if !depth > 0 then
-        Option.iter (fun b -> Buffer.add_char b '*'; Buffer.add_char b ')') buf
+      if !depth > 0 then (Buffer.add_char buf '*'; Buffer.add_char buf ')')
     end else
-      Option.iter (fun b -> Buffer.add_char b c) buf
+      Buffer.add_char buf c
   done;
-  match buf with
-  | None -> None
-  | Some b ->
+  let raw = Buffer.contents buf in
+  if not is_doc then (raw, false)
+  else
     (* Strip leading/trailing whitespace; strip leading * from each line *)
-    let lines = String.split_on_char '\n' (Buffer.contents b) in
+    let lines = String.split_on_char '\n' raw in
     let strip line =
       let s = String.trim line in
       if String.length s > 0 && s.[0] = '*' then String.trim (String.sub s 1 (String.length s - 1))
@@ -179,7 +185,7 @@ let read_comment s =
     (* Drop leading and trailing blank lines *)
     let rec drop_leading = function [] -> [] | "" :: t -> drop_leading t | l -> l in
     let lines = drop_leading lines |> List.rev |> drop_leading |> List.rev in
-    Some (String.concat "\n" lines)
+    (String.concat "\n" lines, true)
 
 (* ── Paths ──────────────────────────────────────────────────────────────── *)
 
@@ -468,8 +474,8 @@ let read_port s =
 
 let next_token s =
   let rec scan () =
-    let l = s.line and c = s.col in
-    let loc = Token.{ line = l; col = c } in
+    let l = s.line and c = s.col and o = s.pos in
+    let loc = Token.{ line = l; col = c; offset = o } in
     let ret tok = (tok, loc) in
     if is_at_end s then ret EOF
     else match advance s with
@@ -477,9 +483,8 @@ let next_token s =
     | '\n' -> ret Newline
     | '"'  -> ret (read_string s)
     | '('  when peek s = '*' ->
-      (match read_comment s with
-       | None -> scan ()
-       | Some doc -> ret (DocComment doc))
+      let (text, is_doc) = read_comment s in
+      ret (if is_doc then DocComment text else Comment text)
     | '('  -> ret LParen
     | ')'  -> ret RParen
     | '['  -> ret LBracket

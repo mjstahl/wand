@@ -125,9 +125,9 @@ import List
 let t = TOML.parse! "nums = [10, 20]\n"
 match TOML.get_array (TOML.field! "nums" t) with
 | Ok xs ->
-  match TOML.get_int (List.head xs) with
-  | Ok n  -> n
-  | Error _ -> -1
+  (match TOML.get_int (List.head xs) with
+   | Ok n  -> n
+   | Error _ -> -1)
 | Error _ -> -1|}
     "10"
 
@@ -177,9 +177,9 @@ import Path
 match TOML.read_file (Path.of_string "%s") with
 | Ok t  ->
   let db = TOML.field! "db" t
-  match TOML.get_string (TOML.field! "name" db) with
-  | Ok s  -> s
-  | Error _ -> ""
+  (match TOML.get_string (TOML.field! "name" db) with
+   | Ok s  -> s
+   | Error _ -> "")
 | Error _ -> ""|}  path)
       "mydb";
     Sys.remove path)
