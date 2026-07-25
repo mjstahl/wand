@@ -1,0 +1,4 @@
+let safe_divide x y =
+  match y with
+  | 0 -> Error "division by zero"
+  | _ -> Ok (x / y)

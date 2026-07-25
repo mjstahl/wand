@@ -1,0 +1,18 @@
+import ./solution
+
+let check label ok =
+  if ok then println "ok: ${label}"
+  else let _ = println "FAIL: ${label}" in exit 1
+
+let is_ok_with n r = match r with
+| Ok v    -> v == n
+| Error _ -> false
+
+let is_err r = match r with
+| Ok _    -> false
+| Error _ -> true
+
+check "10/2=5"      (is_ok_with 5 (Solution.safe_divide 10 2))
+check "7/2=3"        (is_ok_with 3 (Solution.safe_divide 7 2))
+check "div by zero"  (is_err (Solution.safe_divide 5 0))
+println "ALL PASS"

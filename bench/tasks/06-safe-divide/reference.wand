@@ -1,0 +1,3 @@
+let safe_divide a b =
+  if b == 0 then Error "division by zero"
+  else Ok (a / b)

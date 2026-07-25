@@ -43,7 +43,8 @@ let keyword_or_ident word = match word with
   | "token"    -> Token    | "import"   -> Import
   | "requires" -> Requires
   | "ensures"  -> Ensures  | "result"   -> Result
-  | "fn"       -> Fn       | "of"       -> Of
+  | "fn"       -> Fn       | "fun"      -> Fn
+  | "of"       -> Of
   | "for"      -> For      | "do"       -> Do
   | "end"      -> End      | "class"    -> Class
   | "instance" -> Instance | "orphan"   -> Orphan

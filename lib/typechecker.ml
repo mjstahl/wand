@@ -1,5 +1,9 @@
 open Ast
 
+let stdlib_module_names =
+  [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
+    "JSON"; "TOML"; "CSV" ]
+
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
 type typ =
@@ -395,6 +399,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
        (match name with
         | "Ok"    -> let t = fresh () in TFun (t, TResult t)
         | "Error" -> let t = fresh () in TFun (TString, TResult t)
+        | _ when List.mem name stdlib_module_names ->
+          raise (TypeError (Printf.sprintf
+            "did you forget to import the standard library %s?" name))
         | _ ->
           raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
             name (Util.hint name (List.map fst ctor_env))))))

@@ -133,7 +133,10 @@ p.xy|}
     "x";
   err_suggests "parse keyword typo"
     "lte x = 1; x"
-    "let"
+    "let";
+  err_suggests "missing stdlib import"
+    "List.map (fn x -> x + 1) [1, 2, 3]"
+    "forget to import the standard library List"
 
 (* ── Source locations in parse errors ───────────────────────────────────── *)
 

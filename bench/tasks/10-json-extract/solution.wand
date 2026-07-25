@@ -1,0 +1,12 @@
+import JSON
+
+let extract_name : String -> Result String = fun input ->
+  match JSON.parse input with
+  | Error e -> Error "invalid JSON: ${e}"
+  | Ok j ->
+    match JSON.field "name" j with
+    | Error _ -> Error "missing \"name\" field"
+    | Ok v ->
+      match JSON.get_string v with
+      | Error _ -> Error "\"name\" field is not a string"
+      | Ok s -> Ok s

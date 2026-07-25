@@ -1,0 +1,5 @@
+type Shape = Circle Int | Rect Int Int
+
+let area s = match s with
+| Circle r -> r * r * 3
+| Rect w h -> w * h

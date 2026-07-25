@@ -1,0 +1,9 @@
+import JSON
+
+let extract_name src =
+  match JSON.parse src with
+  | Error e -> Error e
+  | Ok j ->
+    match JSON.field "name" j with
+    | Error e -> Error e
+    | Ok name_j -> JSON.get_string name_j

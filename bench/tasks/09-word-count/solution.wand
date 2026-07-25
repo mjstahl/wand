@@ -1,0 +1,11 @@
+import Map
+
+let word_count words =
+  let rec go words m =
+    match words with
+    | [] -> m
+    | [h : t] ->
+      match Map.get h m with
+      | Ok n    -> go t (Map.set h (n + 1) m)
+      | Error _ -> go t (Map.set h 1 m)
+  go words Map.empty

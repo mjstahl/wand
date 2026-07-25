@@ -516,6 +516,14 @@ import String
 import FS
 ```
 
+Scripts (run via `wand file.wand`) must `import` a stdlib module before
+using it — referencing `List.map` without `import List` fails with an
+unbound-name error, even though the module ships with wand. The
+interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
+exception: they preload `List`, `String`, `Path`, `FS`, `IO`, `Duration`,
+`Env`, `Map`, and `Regex` for convenience (but not `JSON`, `TOML`, `CSV`,
+or `Process` — those still need an explicit `import` everywhere).
+
 Imported names are available under the module prefix:
 
 ```
@@ -777,7 +785,10 @@ double : Int -> Int
 [2, 4, 6] : List Int
 ```
 
-All stdlib modules (List, String, Path, FS, IO, Duration, Process, Env) are available without any imports.
+This is a REPL/one-shot-command convenience, not a script one — see
+"Standard library modules" under "Imports" above for exactly which
+modules are preloaded, and note that scripts (`wand file.wand`) always
+need an explicit `import`.
 
 Special commands:
 

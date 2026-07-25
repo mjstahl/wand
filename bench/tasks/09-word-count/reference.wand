@@ -1,0 +1,8 @@
+import Map
+
+let bump w m = match Map.get w m with
+| Ok n    -> Map.set w (n + 1) m
+| Error _ -> Map.set w 1 m
+
+let word_count []      = Map.empty
+let word_count [h : t] = bump h (word_count t)

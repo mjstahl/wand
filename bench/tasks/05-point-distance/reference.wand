@@ -1,0 +1,6 @@
+type Point (x : Int, y : Int)
+
+let abs_int n = if n < 0 then 0 - n else n
+
+let manhattan (Point (x = x1, y = y1)) (Point (x = x2, y = y2)) =
+  abs_int (x1 - x2) + abs_int (y1 - y2)

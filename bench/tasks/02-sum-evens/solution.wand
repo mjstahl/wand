@@ -1,0 +1,2 @@
+let sum_evens []      = 0
+let sum_evens [h : t] = if h % 2 == 0 then h + sum_evens t else sum_evens t

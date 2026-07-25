@@ -1,0 +1,15 @@
+import CSV
+import String
+import List
+
+let col_value n row = match String.to_int (List.get! n row) with
+| Ok v    -> v
+| Error _ -> 0
+
+let sum_rows n []      = 0
+let sum_rows n [h : t] = col_value n h + sum_rows n t
+
+let sum_column n src = match CSV.parse src with
+| []         -> 0
+| [_]        -> 0
+| [_ : rows] -> sum_rows n rows

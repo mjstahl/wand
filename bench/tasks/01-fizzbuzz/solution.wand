@@ -1,0 +1,6 @@
+let fizzbuzz n =
+  let divisible d = n - (n / d) * d == 0 in
+  if divisible 15 then "FizzBuzz"
+  else if divisible 3 then "Fizz"
+  else if divisible 5 then "Buzz"
+  else String.of_int n

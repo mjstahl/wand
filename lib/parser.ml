@@ -13,8 +13,14 @@ type state = {
 }
 
 let make tokens =
+  let ctor_field_count = Hashtbl.create 16 in
+  (* Built-in constructors aren't seen via a `type` def in this parse, but
+     each takes exactly one field, so Ok (1, 2)/Error (1, 2) should mean one
+     tuple argument, same as any user-defined single-field constructor. *)
+  Hashtbl.replace ctor_field_count "Ok" 1;
+  Hashtbl.replace ctor_field_count "Error" 1;
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
-    ctor_field_count = Hashtbl.create 16 }
+    ctor_field_count }
 
 let skip s =
   while s.pos < Array.length s.tokens
@@ -77,7 +83,7 @@ let peek_named_args s =
   end
 
 let keywords = [
-  "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn";
+  "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn"; "fun";
   "type"; "start"; "import"; "when"; "of"; "and"; "or";
   "handle"; "return"
 ]

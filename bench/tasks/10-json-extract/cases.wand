@@ -1,0 +1,19 @@
+import ./solution
+
+let check label ok =
+  if ok then println "ok: ${label}"
+  else let _ = println "FAIL: ${label}" in exit 1
+
+let is_ok_with s r = match r with
+| Ok v    -> v == s
+| Error _ -> false
+
+let is_err r = match r with
+| Ok _    -> false
+| Error _ -> true
+
+check "simple"        (is_ok_with "Alice" (Solution.extract_name "{\"name\": \"Alice\", \"age\": 30}"))
+check "invalid json"  (is_err (Solution.extract_name "not json"))
+check "missing field" (is_err (Solution.extract_name "{\"age\": 30}"))
+check "wrong type"    (is_err (Solution.extract_name "{\"name\": 30}"))
+println "ALL PASS"

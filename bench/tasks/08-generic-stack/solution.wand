@@ -1,0 +1,24 @@
+(* Note: wand has no syntax for declaring a type with an explicit type
+   parameter (e.g. `type Stack a = ...`) -- only functions get
+   let-polymorphism, not type declarations. The closest approximation is
+   to write the field type as `List a`, letting `a` behave as an
+   implicitly-quantified type variable the way it would in a function
+   signature, and lean on Hindley-Milner inference through the
+   constructor and the push/pop/peek/empty functions below to make
+   `Stack Int`, `Stack String`, etc. work as distinct instantiations
+   without ever hardcoding the element type. *)
+
+type Stack = Stack (List a)
+
+let empty = Stack []
+
+let push x s = match s with
+| Stack xs -> Stack (x : xs)
+
+let pop s = match s with
+| Stack [] -> Error "pop: empty stack"
+| Stack [h : t] -> Ok (h, Stack t)
+
+let peek s = match s with
+| Stack [] -> Error "peek: empty stack"
+| Stack [h : t] -> Ok h

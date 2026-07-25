@@ -1,0 +1,12 @@
+import ./solution
+
+let check label ok =
+  if ok then println "ok: ${label}"
+  else let _ = println "FAIL: ${label}" in exit 1
+
+check "3 -> Fizz"     (Solution.fizzbuzz 3  == "Fizz")
+check "5 -> Buzz"     (Solution.fizzbuzz 5  == "Buzz")
+check "15 -> FizzBuzz" (Solution.fizzbuzz 15 == "FizzBuzz")
+check "7 -> 7"        (Solution.fizzbuzz 7  == "7")
+check "1 -> 1"        (Solution.fizzbuzz 1  == "1")
+println "ALL PASS"
