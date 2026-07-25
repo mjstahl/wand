@@ -1,6 +1,6 @@
 import JSON
 
-let extract_name : String -> Result String = fun input ->
+let extract_name : String -> Result String String = fun input ->
   match JSON.parse input with
   | Error e -> Error "invalid JSON: ${e}"
   | Ok j ->

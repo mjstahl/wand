@@ -20,6 +20,7 @@ type t =
   (* Identifiers *)
   | Ident of string    (* lowercase — values, functions *)
   | Upper of string    (* uppercase — modules, types, constructors *)
+  | TypeVar of string  (* 'a, 'b — type variables in generic declarations/annotations *)
   | Hole               (* ? *)
   (* Keywords *)
   | Let
@@ -116,6 +117,7 @@ let pp ppf tok =
     | Size s     -> Printf.sprintf "Size(%s)" s
     | Ident s    -> Printf.sprintf "Ident(%s)" s
     | Upper s    -> Printf.sprintf "Upper(%s)" s
+    | TypeVar s  -> Printf.sprintf "'%s" s
     | Hole       -> "Hole"
     | Let        -> "let"    | LetStar    -> "let*"
     | In         -> "in"     | Match      -> "match"

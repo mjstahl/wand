@@ -1,0 +1,26 @@
+(** A value that may or may not be present. *)
+type Option 'a = None | Some 'a
+
+(** Return true if the option holds a value. *)
+let is_some? o = match o with | Some _ -> true  | None -> false
+
+(** Return true if the option is empty. *)
+let is_none? o = match o with | Some _ -> false | None -> true
+
+(** Apply a function to the contained value, if any. *)
+let map f o = match o with | Some v -> Some (f v) | None -> None
+
+(** Chain an option-returning function onto the contained value, if any. *)
+let and_then f o = match o with | Some v -> f v | None -> None
+
+(** Substitute a fallback (computed lazily) if empty. *)
+let or_else f o = match o with | Some _ -> o | None -> f ()
+
+(** Return the contained value, or a default if empty. *)
+let default d o = match o with | Some v -> v | None -> d
+
+(** Return the contained value. Raises if empty. *)
+let get! o = match o with | Some v -> v | None -> option_get_exn ()
+
+(** Convert to a Result, using the given error value if empty. *)
+let to_result e o = match o with | Some v -> Ok v | None -> Error e

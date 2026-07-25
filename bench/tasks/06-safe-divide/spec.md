@@ -1,4 +1,4 @@
-Write a wand function `safe_divide : Int -> Int -> Result Int` that
+Write a wand function `safe_divide : Int -> Int -> Result String Int` that
 divides the first argument by the second, returning `Error "..."` (with
 any descriptive message) if the divisor is `0`, and `Ok result` otherwise.
 

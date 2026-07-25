@@ -1,5 +1,5 @@
 Write a wand function
-`find_first : (Int -> Bool) -> List Int -> Result Int`
+`find_first : (Int -> Bool) -> List Int -> Result String Int`
 that returns the first element of the list satisfying the predicate as
 `Ok value`, or `Error "..."` (any descriptive message) if no element
 satisfies it. Use recursion (no stdlib `List` import).

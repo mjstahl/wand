@@ -225,7 +225,7 @@ let test_annot_syntax () =
   ok_prog "map annot matches inference"
     "let m : Map Int = [x = 1, y = 2]; m" "Map Int";
   ok_prog "result annot matches inference"
-    "let r : Result Int = Ok 1; r" "Result Int";
+    "let r : Result String Int = Ok 1; r" "Result String Int";
   ok_prog "function annot"
     "let f : Int -> Int = fn x -> x + 1; f 1" "Int";
   ok_prog "left-nested function annot"

@@ -544,6 +544,17 @@ let next_token s =
     | '~'  ->
       ret (if peek s = '/' then (ignore (advance s); read_path_body s "~/")
            else raise (LexError "unexpected '~'"))
+    | '\'' ->
+      if is_at_end s || not (is_lower (peek s)) then
+        raise (LexError "expected lowercase letter after '''")
+      else begin
+        let buf = Buffer.create 8 in
+        Buffer.add_char buf (advance s);
+        while not (is_at_end s) && is_alnum_or_under (peek s) do
+          Buffer.add_char buf (advance s)
+        done;
+        ret (TypeVar (Buffer.contents buf))
+      end
     | c when is_digit c -> ret (read_numeric s c)
     | c when is_alpha c || c = '_' -> ret (read_ident s c)
     | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))

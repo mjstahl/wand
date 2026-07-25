@@ -430,6 +430,50 @@ let area c =
 
 ---
 
+## Generics
+
+Type definitions can take type parameters, written with a leading quote
+(`'a`, `'b`) — matching the syntax `:t` already uses to print inferred
+polymorphic types:
+
+```
+type Option 'a = None | Some 'a
+
+let describe o = match o with
+| Some v -> "got a value"
+| None   -> "empty"
+```
+
+Multiple parameters are space-separated, matching how positional
+constructor fields already work:
+
+```
+type Pair 'a 'b = Pair 'a 'b
+```
+
+Type variables can also appear in ordinary annotations:
+
+```
+let identity : 'a -> 'a = fn x -> x
+```
+
+`Option` ships in the standard library — see "Imports" below. `Result`'s
+error type is a real type parameter too, not fixed to `String` — the
+common case (`Error "message"`) still infers as `Result String T`
+automatically, but custom error types work the same way:
+
+```
+type ParseError = UnexpectedToken String | UnexpectedEof
+
+let parse s : Result ParseError Int =
+  if s == "" then Error UnexpectedEof
+  else match String.to_int s with
+  | Ok n    -> Ok n
+  | Error _ -> Error (UnexpectedToken s)
+```
+
+---
+
 ## Type inference and unification
 
 wand uses Hindley-Milner type inference — types are inferred without
@@ -655,7 +699,7 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 
 Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV.  Fields may be
 quoted with `""`; embedded quotes are doubled (`"say ""hi"""`).  `read_file`
-returns `Result (List (List String))`; `read_file!` raises on error.
+returns `Result String (List (List String))`; `read_file!` raises on error.
 
 ```
 import CSV
@@ -680,7 +724,7 @@ match CSV.read_file ./data.csv with
 `is_null`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
 `get_object`, `field`, `field!`
 
-`JSON` is an opaque type.  `parse` / `read_file` return `Result JSON`;
+`JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
 the `!` variants raise on error.  Typed extractors each return `Result`.
 
 ```
@@ -735,6 +779,14 @@ match TOML.read_file ./config.toml with
 
 `zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,
 `format`, `to_ms`
+
+### `Option`
+
+`is_some?`, `is_none?`, `map`, `and_then`, `or_else`, `default`, `get!`,
+`to_result`
+
+`Option 'a` is a generic type (`type Option 'a = None | Some 'a`) — see
+"Generics" above.
 
 ---
 

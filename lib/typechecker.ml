@@ -2,7 +2,7 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV" ]
+    "JSON"; "TOML"; "CSV"; "Option" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -14,8 +14,9 @@ type typ =
   | TFun    of typ * typ
   | TTuple  of typ list
   | TList   of typ
-  | TResult of typ
+  | TResult of typ * typ  (* error type, value type *)
   | TMap    of typ
+  | TApp    of typ * typ  (* user-defined generic type application *)
   | TRegex
   | TJson
   | TToml
@@ -80,22 +81,28 @@ let string_of_typ t =
       "(" ^ String.concat ", " (List.map go ts) ^ ")"
     | TList t ->
       let s = match repr t with
-        | TFun _ | TList _ | TResult _ -> "(" ^ go t ^ ")"
+        | TFun _ | TList _ | TResult _ | TApp _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "List " ^ s
-    | TResult t ->
-      let s = match repr t with
-        | TFun _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
-        | _ -> go t
+    | TResult (e, t) ->
+      let wrap x = match repr x with
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
+        | _ -> go x
       in
-      "Result " ^ s
+      "Result " ^ wrap e ^ " " ^ wrap t
     | TMap t ->
       let s = match repr t with
-        | TFun _ | TList _ | TResult _ | TMap _ -> "(" ^ go t ^ ")"
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
         | _ -> go t
       in
       "Map " ^ s
+    | TApp (f, a) ->
+      let sa = match repr a with
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go a ^ ")"
+        | _ -> go a
+      in
+      go f ^ " " ^ sa
   in
   go t
 
@@ -107,8 +114,9 @@ let rec occurs (tv : tv) t =
   | TFun (a, b) -> occurs tv a || occurs tv b
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
-  | TResult t   -> occurs tv t
+  | TResult (e, t) -> occurs tv e || occurs tv t
   | TMap t      -> occurs tv t
+  | TApp (f, a) -> occurs tv f || occurs tv a
   | _           -> false
 
 (* ── Unification ──────────────────────────────────────────────────────────── *)
@@ -136,8 +144,9 @@ let rec unify t1 t2 =
   | TTuple ts1, TTuple ts2 when List.length ts1 = List.length ts2 ->
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
-  | TResult t1, TResult t2 -> unify t1 t2
+  | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
   | TMap t1,    TMap t2    -> unify t1 t2
+  | TApp (f1, a1), TApp (f2, a2) -> unify f1 f2; unify a1 a2
   | t1, t2 ->
     raise (TypeError (Printf.sprintf "cannot unify %s with %s"
       (string_of_typ t1) (string_of_typ t2)))
@@ -166,8 +175,9 @@ let rec free_tvars t =
   | TFun (a, b) -> free_tvars a @ free_tvars b
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
-  | TResult t   -> free_tvars t
+  | TResult (e, t) -> free_tvars e @ free_tvars t
   | TMap t      -> free_tvars t
+  | TApp (f, a) -> free_tvars f @ free_tvars a
   | _           -> []
 
 let free_tvars_scheme = function
@@ -203,8 +213,9 @@ let instantiate = function
       | TFun (a, b) -> TFun (inst a, inst b)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
-      | TResult t   -> TResult (inst t)
+      | TResult (e, t) -> TResult (inst e, inst t)
       | TMap t      -> TMap (inst t)
+      | TApp (f, a) -> TApp (inst f, inst a)
       | t           -> t
     in
     inst t
@@ -213,44 +224,69 @@ let instantiate = function
 
 type typedef_env = (string * type_def) list
 
-let rec type_of_te : type_expr -> typ = function
-  | TEName name ->
-    (match name with
-     | "Int"      -> TInt      | "Float"    -> TFloat
-     | "String"   -> TString   | "Bool"     -> TBool
-     | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
-     | "Date"     -> TDate     | "Time"     -> TTime
-     | "DateTime" -> TDateTime | "Duration" -> TDuration
-     | "Url"      -> TUrl      | "IPv4"     -> TIPv4
-     | "CIDR"     -> TCIDR     | "Port"     -> TPort
-     | "Version"  -> TVersion  | "Size"     -> TSize
-     | "JSON"     -> TJson
-     | "TOML"     -> TToml
-     | n          -> TName n)
-  | TEFun (a, b) -> TFun (type_of_te a, type_of_te b)
-  | TETuple ts    -> TTuple (List.map type_of_te ts)
-  | TEApp (TEName "List", arg)   -> TList   (type_of_te arg)
-  | TEApp (TEName "Result", arg) -> TResult (type_of_te arg)
-  | TEApp (TEName "Map", arg)    -> TMap    (type_of_te arg)
-  | TEApp (TEName head, _) ->
-    raise (TypeError (Printf.sprintf
-      "generic type '%s' is not supported (only List, Result, Map are)" head))
-  | TEApp (_, _) -> raise (TypeError "invalid type application")
+let type_of_te (te : type_expr) : typ =
+  let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
+  let rec go = function
+    | TEName name ->
+      (match name with
+       | "Int"      -> TInt      | "Float"    -> TFloat
+       | "String"   -> TString   | "Bool"     -> TBool
+       | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
+       | "Date"     -> TDate     | "Time"     -> TTime
+       | "DateTime" -> TDateTime | "Duration" -> TDuration
+       | "Url"      -> TUrl      | "IPv4"     -> TIPv4
+       | "CIDR"     -> TCIDR     | "Port"     -> TPort
+       | "Version"  -> TVersion  | "Size"     -> TSize
+       | "JSON"     -> TJson
+       | "TOML"     -> TToml
+       | n          -> TName n)
+    | TEVar name ->
+      (match Hashtbl.find_opt vars name with
+       | Some t -> t
+       | None -> let t = fresh () in Hashtbl.add vars name t; t)
+    | TEFun (a, b) -> TFun (go a, go b)
+    | TETuple ts    -> TTuple (List.map go ts)
+    | TEApp (TEName "List", arg)   -> TList   (go arg)
+    | TEApp (TEApp (TEName "Result", e), a) -> TResult (go e, go a)
+    | TEApp (TEName "Result", _) ->
+      raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
+    | TEApp (TEName "Map", arg)    -> TMap    (go arg)
+    | TEApp (f, arg) -> TApp (go f, go arg)
+  in go te
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
   match tdef with
-  | Variants (tname, ctors) ->
+  | Variants (tname, params, ctors) ->
+    let var_table = List.map (fun p -> (p, fresh ())) params in
+    let result =
+      List.fold_left (fun acc (_, v) -> TApp (acc, v)) (TName tname) var_table
+    in
+    let rec conv = function
+      | TEVar name ->
+        (match List.assoc_opt name var_table with
+         | Some v -> v
+         | None -> raise (TypeError (Printf.sprintf
+             "type variable ''%s' is not declared as a parameter of type '%s'"
+             name tname)))
+      | TEName _ as te -> type_of_te te
+      | TEFun (a, b) -> TFun (conv a, conv b)
+      | TETuple ts -> TTuple (List.map conv ts)
+      | TEApp (TEName "List", arg)   -> TList   (conv arg)
+      | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
+      | TEApp (TEName "Result", _) ->
+        raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
+      | TEApp (TEName "Map", arg)    -> TMap    (conv arg)
+      | TEApp (f, arg) -> TApp (conv f, conv arg)
+    in
     List.map (fun ctor ->
-      let result = TName tname in
-      let t = List.fold_right (fun (_, te) acc -> TFun (type_of_te te, acc))
-                ctor.fields result in
-      (ctor.name, Mono t)
+      let t = List.fold_right (fun (_, te) acc -> TFun (conv te, acc)) ctor.fields result in
+      (ctor.name, generalize [] t)
     ) ctors
 
 let find_ctor_in_tenv tenv name =
   List.find_map (fun (tname, tdef) ->
     match tdef with
-    | Variants (_, ctors) ->
+    | Variants (_, _, ctors) ->
       (match List.find_opt (fun c -> c.name = name) ctors with
        | Some c -> Some (tname, c)
        | None -> None)
@@ -323,8 +359,8 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | PConstr (name, pats) ->
     let ctor_env = tenv_to_ctor_env tenv in
     let builtin_result_ctor = match name with
-      | "Ok"    -> let t = fresh () in Some (Mono (TFun (t, TResult t)))
-      | "Error" -> let t = fresh () in Some (Mono (TFun (TString, TResult t)))
+      | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (TFun (t, TResult (e, t))))
+      | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (TFun (e, TResult (e, t))))
       | _       -> None
     in
     (match Option.fold ~none:(List.assoc_opt name ctor_env) ~some:Option.some builtin_result_ctor with
@@ -397,8 +433,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | Some s -> instantiate s
      | None   ->
        (match name with
-        | "Ok"    -> let t = fresh () in TFun (t, TResult t)
-        | "Error" -> let t = fresh () in TFun (TString, TResult t)
+        | "Ok"    -> let e = fresh () in let t = fresh () in TFun (t, TResult (e, t))
+        | "Error" -> let e = fresh () in let t = fresh () in TFun (e, TResult (e, t))
         | _ when List.mem name stdlib_module_names ->
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
@@ -502,7 +538,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        (match repr (infer tenv env e) with
         | TName tname ->
           (match List.assoc_opt tname tenv with
-           | Some (Variants (_, ctors)) ->
+           | Some (Variants (_, _, ctors)) ->
              let all_named = List.concat_map (fun c ->
                List.filter_map (fun (fname, te) ->
                  match fname with Some n -> Some (n, te) | None -> None)
@@ -556,7 +592,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       unify (infer tenv (("result", Mono body_t) :: env) e) TBool
     ) ens;
     body_t
-  | Try e -> TResult (infer tenv env e)
+  | Try e -> TResult (TString, infer tenv env e)
   | Annot (te, e) ->
     let t = type_of_te te in
     unify t (infer tenv env e);
@@ -620,6 +656,7 @@ let stdlib_type_env : env = [
   ("print",      let a = fresh () in generalize [] (TFun (a, TUnit)));
   ("println",    let a = fresh () in generalize [] (TFun (a, TUnit)));
   ("exit",       let a = fresh () in generalize [] (TFun (TInt, a)));
+  ("option_get_exn", let a = fresh () in generalize [] (TFun (TUnit, a)));
   ("read_file",  Mono (TFun (TString, TString)));
   ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
   (* String primitives *)
@@ -639,27 +676,27 @@ let stdlib_type_env : env = [
   ("str_reverse",    Mono (TFun (TString, TString)));
   ("str_chars",      Mono (TFun (TString, TList TString)));
   ("int_to_str",       Mono (TFun (TInt,    TString)));
-  ("str_to_int",       Mono (TFun (TString, TResult TInt)));
-  ("str_to_float",     Mono (TFun (TString, TResult TFloat)));
-  ("str_to_bool",      Mono (TFun (TString, TResult TBool)));
+  ("str_to_int",       Mono (TFun (TString, TResult (TString, TInt))));
+  ("str_to_float",     Mono (TFun (TString, TResult (TString, TFloat))));
+  ("str_to_bool",      Mono (TFun (TString, TResult (TString, TBool))));
   ("str_to_path",      Mono (TFun (TString, TPath)));
-  ("str_to_url",       Mono (TFun (TString, TResult TUrl)));
-  ("str_to_ipv4",      Mono (TFun (TString, TResult TIPv4)));
-  ("str_to_cidr",      Mono (TFun (TString, TResult TCIDR)));
-  ("str_to_port",      Mono (TFun (TString, TResult TPort)));
-  ("str_to_version",   Mono (TFun (TString, TResult TVersion)));
-  ("str_to_size",      Mono (TFun (TString, TResult TSize)));
-  ("str_to_date",      Mono (TFun (TString, TResult TDate)));
-  ("str_to_time",      Mono (TFun (TString, TResult TTime)));
-  ("str_to_datetime",  Mono (TFun (TString, TResult TDateTime)));
-  ("str_to_duration",  Mono (TFun (TString, TResult TDuration)));
+  ("str_to_url",       Mono (TFun (TString, TResult (TString, TUrl))));
+  ("str_to_ipv4",      Mono (TFun (TString, TResult (TString, TIPv4))));
+  ("str_to_cidr",      Mono (TFun (TString, TResult (TString, TCIDR))));
+  ("str_to_port",      Mono (TFun (TString, TResult (TString, TPort))));
+  ("str_to_version",   Mono (TFun (TString, TResult (TString, TVersion))));
+  ("str_to_size",      Mono (TFun (TString, TResult (TString, TSize))));
+  ("str_to_date",      Mono (TFun (TString, TResult (TString, TDate))));
+  ("str_to_time",      Mono (TFun (TString, TResult (TString, TTime))));
+  ("str_to_datetime",  Mono (TFun (TString, TResult (TString, TDateTime))));
+  ("str_to_duration",  Mono (TFun (TString, TResult (TString, TDuration))));
   (* Regex primitives *)
   ("regex_match",       Mono (TFun (TRegex, TFun (TString, TBool))));
   ("regex_capture",     Mono (TFun (TRegex, TFun (TString, TList TString))));
   ("regex_replace",     Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
   ("regex_replace_all", Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
   ("regex_split",       Mono (TFun (TRegex, TFun (TString, TList TString))));
-  ("regex_compile",     Mono (TFun (TString, TResult TRegex)));
+  ("regex_compile",     Mono (TFun (TString, TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
   ("dur_seconds", Mono (TFun (TInt, TDuration)));
@@ -717,14 +754,14 @@ let stdlib_type_env : env = [
   (* CSV primitives *)
   ("csv_parse",         Mono (TFun (TString, TFun (TString, TList (TList TString)))));
   ("csv_stringify",     Mono (TFun (TString, TFun (TList (TList TString), TString))));
-  ("csv_read_file",     Mono (TFun (TPath, TResult (TList (TList TString)))));
+  ("csv_read_file",     Mono (TFun (TPath, TResult (TString, (TList (TList TString))))));
   ("csv_read_file_exn", Mono (TFun (TPath, TList (TList TString))));
   (* JSON primitives *)
-  ("json_parse",         Mono (TFun (TString, TResult TJson)));
+  ("json_parse",         Mono (TFun (TString, TResult (TString, TJson))));
   ("json_parse_exn",     Mono (TFun (TString, TJson)));
   ("json_stringify",     Mono (TFun (TJson, TString)));
   ("json_stringify_pretty", Mono (TFun (TJson, TString)));
-  ("json_read_file",     Mono (TFun (TPath, TResult TJson)));
+  ("json_read_file",     Mono (TFun (TPath, TResult (TString, TJson))));
   ("json_read_file_exn", Mono (TFun (TPath, TJson)));
   ("json_field_exn",     Mono (TFun (TString, TFun (TJson, TJson))));
   ("json_null",         Mono TJson);
@@ -735,28 +772,28 @@ let stdlib_type_env : env = [
   ("json_of_list",      Mono (TFun (TList TJson, TJson)));
   ("json_of_map",       Mono (TFun (TMap TJson, TJson)));
   ("json_is_null",      Mono (TFun (TJson, TBool)));
-  ("json_get_bool",     Mono (TFun (TJson, TResult TBool)));
-  ("json_get_int",      Mono (TFun (TJson, TResult TInt)));
-  ("json_get_float",    Mono (TFun (TJson, TResult TFloat)));
-  ("json_get_string",   Mono (TFun (TJson, TResult TString)));
-  ("json_get_array",    Mono (TFun (TJson, TResult (TList TJson))));
-  ("json_get_object",   Mono (TFun (TJson, TResult (TMap TJson))));
-  ("json_field",        Mono (TFun (TString, TFun (TJson, TResult TJson))));
+  ("json_get_bool",     Mono (TFun (TJson, TResult (TString, TBool))));
+  ("json_get_int",      Mono (TFun (TJson, TResult (TString, TInt))));
+  ("json_get_float",    Mono (TFun (TJson, TResult (TString, TFloat))));
+  ("json_get_string",   Mono (TFun (TJson, TResult (TString, TString))));
+  ("json_get_array",    Mono (TFun (TJson, TResult (TString, (TList TJson)))));
+  ("json_get_object",   Mono (TFun (TJson, TResult (TString, (TMap TJson)))));
+  ("json_field",        Mono (TFun (TString, TFun (TJson, TResult (TString, TJson)))));
   (* TOML primitives *)
-  ("toml_parse",        Mono (TFun (TString, TResult TToml)));
+  ("toml_parse",        Mono (TFun (TString, TResult (TString, TToml))));
   ("toml_parse_exn",    Mono (TFun (TString, TToml)));
-  ("toml_read_file",    Mono (TFun (TPath, TResult TToml)));
+  ("toml_read_file",    Mono (TFun (TPath, TResult (TString, TToml))));
   ("toml_read_file_exn",Mono (TFun (TPath, TToml)));
   ("toml_stringify",    Mono (TFun (TToml, TString)));
   ("toml_is_table",     Mono (TFun (TToml, TBool)));
   ("toml_is_array",     Mono (TFun (TToml, TBool)));
-  ("toml_get_bool",     Mono (TFun (TToml, TResult TBool)));
-  ("toml_get_int",      Mono (TFun (TToml, TResult TInt)));
-  ("toml_get_float",    Mono (TFun (TToml, TResult TFloat)));
-  ("toml_get_string",   Mono (TFun (TToml, TResult TString)));
-  ("toml_get_array",    Mono (TFun (TToml, TResult (TList TToml))));
-  ("toml_get_table",    Mono (TFun (TToml, TResult (TMap TToml))));
-  ("toml_field",        Mono (TFun (TString, TFun (TToml, TResult TToml))));
+  ("toml_get_bool",     Mono (TFun (TToml, TResult (TString, TBool))));
+  ("toml_get_int",      Mono (TFun (TToml, TResult (TString, TInt))));
+  ("toml_get_float",    Mono (TFun (TToml, TResult (TString, TFloat))));
+  ("toml_get_string",   Mono (TFun (TToml, TResult (TString, TString))));
+  ("toml_get_array",    Mono (TFun (TToml, TResult (TString, (TList TToml)))));
+  ("toml_get_table",    Mono (TFun (TToml, TResult (TString, (TMap TToml)))));
+  ("toml_field",        Mono (TFun (TString, TFun (TToml, TResult (TString, TToml)))));
   ("toml_field_exn",    Mono (TFun (TString, TFun (TToml, TToml))));
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
@@ -767,7 +804,7 @@ let stdlib_type_env : env = [
   ("env_home",    Mono (TFun (TUnit,   TPath)));
   ("env_user",    Mono (TFun (TUnit,   TString)));
   (* List primitives *)
-  ("list_get",     let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, TResult a))));
+  ("list_get",     let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, TResult (TString, a)))));
   ("list_get_exn", let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, a))));
   ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
@@ -778,7 +815,7 @@ let stdlib_type_env : env = [
   ("list_concat",  let a = fresh () in generalize [] (TFun (TList a, TFun (TList a, TList a))));
   (* Map builtins *)
   ("map_empty",    let a = fresh () in generalize [] (TMap a));
-  ("map_get",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TResult a))));
+  ("map_get",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TResult (TString, a)))));
   ("map_get_exn",  let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, a))));
   ("map_set",      let a = fresh () in generalize [] (TFun (TString, TFun (a, TFun (TMap a, TMap a)))));
   ("map_delete",   let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TMap a))));
@@ -796,7 +833,7 @@ let stdlib_type_env : env = [
 
 (* Built-in type definitions always available *)
 let shell_result_tdef : type_def =
-  Variants ("ShellResult", [{
+  Variants ("ShellResult", [], [{
     name   = "ShellResult";
     fields = [ (Some "stdout", TEName "String");
                (Some "stderr", TEName "String");
@@ -820,7 +857,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   next_id := 0;
   holes := [];
   let local_tenv = List.filter_map (function
-    | TLType (Variants (n, _) as tdef) -> Some (n, tdef)
+    | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in

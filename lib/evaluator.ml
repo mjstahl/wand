@@ -774,6 +774,9 @@ let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
   ("exit",       VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("option_get_exn", VBuiltin (function
+    | VUnit -> raise (EvalError "Option.get!: called on None")
+    | _ -> raise (EvalError "option_get_exn: expected Unit")));
   ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("read_file",  v))));
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->

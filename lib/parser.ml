@@ -301,13 +301,14 @@ let builtin_types = [
 ]
 
 let is_type_atom_start = function
-  | Token.Upper _ | Token.LParen -> true
+  | Token.Upper _ | Token.LParen | Token.TypeVar _ -> true
   | _ -> false
 
 let rec parse_type_atom s =
   let loc = loc_prefix s in
   match advance s with
   | Token.Upper name -> Ast.TEName name
+  | Token.TypeVar name -> Ast.TEVar name
   | Token.LParen ->
     let first = parse_type_expr s in
     if peek s = Token.Comma then begin
@@ -774,13 +775,19 @@ let parse_type_def s =
     | Token.Upper n -> n
     | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
   in
+  let params = ref [] in
+  while (match peek s with Token.TypeVar _ -> true | _ -> false) do
+    (match advance s with
+     | Token.TypeVar n -> params := !params @ [n]
+     | _ -> assert false)
+  done;
   let parse_ctor_fields () =
     (* Peek: Upper -> space-separated positional type atoms, no parens.
        LParen + Ident -> named-field record shorthand: (ident : Type, ...).
        LParen + other -> single field needing grouping/tupling: (List Int),
          (Int, Int). *)
     match peek s with
-    | Token.Upper _ ->
+    | Token.Upper _ | Token.TypeVar _ ->
       let fields = ref [(None, parse_type_atom s)] in
       while is_type_atom_start (peek s) && not (has_newline_before_next s) do
         fields := !fields @ [(None, parse_type_atom s)]
@@ -814,7 +821,7 @@ let parse_type_def s =
   if peek s = Token.LParen then begin
     let fields = parse_ctor_fields () in
     Hashtbl.replace s.ctor_field_count type_name (List.length fields);
-    Ast.Variants (type_name, [{ Ast.name = type_name; fields }])
+    Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields }])
   end else begin
     expect s Token.Eq;
     let parse_ctor () =
@@ -833,7 +840,7 @@ let parse_type_def s =
       ignore (advance s);
       ctors := !ctors @ [parse_ctor ()]
     done;
-    Ast.Variants (type_name, !ctors)
+    Ast.Variants (type_name, !params, !ctors)
   end
 
 let parse_program tokens =
@@ -945,7 +952,7 @@ let parse_program tokens =
     | Token.Type ->
       ignore (advance s);
       let tdef = parse_type_def s in
-      (match tdef with Ast.Variants (name, _) -> attach_doc name);
+      (match tdef with Ast.Variants (name, _, _) -> attach_doc name);
       items := !items @ [Ast.TLType tdef]
     | _ ->
       let loc = peek_loc s in

@@ -1,5 +1,6 @@
 type type_expr =
   | TEName  of string
+  | TEVar   of string                    (* 'a — type variable *)
   | TEApp   of type_expr * type_expr    (* List Int, Result Int *)
   | TETuple of type_expr list            (* (Int, Int), 2+ elements *)
   | TEFun   of type_expr * type_expr     (* Int -> Int *)
@@ -210,7 +211,8 @@ type ctor_def = {
 }
 
 type type_def =
-  | Variants of string * ctor_def list
+  | Variants of string * string list * ctor_def list
+      (* name, type parameters (e.g. ["a"] for Option 'a), constructors *)
 
 type top_item =
   | TLLet    of string * pat list * expr

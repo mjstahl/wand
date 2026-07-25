@@ -1,10 +1,10 @@
-This task has no `reference.wand` — as specified (generic over element
-type, not hardcoded to `Int`, not just `List` directly), it cannot be
-solved correctly before `.claude/plans/generics.md` lands: `type Stack a =
-...` fails to parse (`type_def` has no type-parameter slot). This is
-deliberate — the point of this task is to measure the pre-generics failure
-mode directly, then re-check once generics ships.
+This task was the sharpest pre-generics gap probe in the corpus: before
+generics landed, `type Stack 'a = ...` (or the pre-decision bare-`a` form)
+failed to parse, since `type_def` had no type-parameter slot at all.
 
-`cases.wand`'s non-generic parts (nested match, tuple-pattern destructuring
-in `pop`, `&&`) were validated against a temporary Int-hardcoded stand-in,
-which passed everything except the "works for strings" case, as expected.
+`reference.wand` was added once generics shipped (see git history around
+2026-07-25) and confirms the loop closed — `bench/run.sh` now scores this
+task PASS. `cases.wand` was validated pre-generics against a temporary
+Int-hardcoded stand-in (nested match, tuple-pattern destructuring in
+`pop`, `&&`), which passed everything except the "works for strings" case,
+as expected at the time.

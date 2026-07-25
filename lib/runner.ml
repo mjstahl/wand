@@ -300,7 +300,7 @@ let merge_import_env a b = {
 
 let local_tenv_of prog =
   List.filter_map (function
-    | Ast.TLType (Ast.Variants (n, _) as tdef) -> Some (n, tdef)
+    | Ast.TLType (Ast.Variants (n, _, _) as tdef) -> Some (n, tdef)
     | _ -> None) prog.Ast.items
 
 let is_private name = String.length name > 0 && name.[0] = '_'
@@ -370,7 +370,7 @@ let run_item env item =
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
-  | Ast.TLType (Ast.Variants (_, ctors)) ->
+  | Ast.TLType (Ast.Variants (_, _, ctors)) ->
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
       Hashtbl.replace Evaluator.constr_fields ctor.Ast.name field_names;
@@ -658,7 +658,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat pat (eval !env_ref e) !env_ref
-            | Ast.TLType (Ast.Variants (_, ctors)) ->
+            | Ast.TLType (Ast.Variants (_, _, ctors)) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
                 env_ref := (ctor.Ast.name,
@@ -697,7 +697,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
              | Some s -> RBind (name, Typechecker.string_of_scheme s)
              | None   -> RBind (name, "?"))
           | Some (Ast.TLLetPat _) -> RSilent
-          | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) ->
             (match last_v with
              | VUnit -> RSilent
@@ -733,7 +733,7 @@ let typecheck_session (sess : session) (src : string) : (repl_result, string) re
             (match List.assoc_opt name full_type_env with
              | Some s -> RBind (name, Typechecker.string_of_scheme s)
              | None   -> RBind (name, "?"))
-          | Some (Ast.TLType (Ast.Variants (name, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
           | Some _ -> RSilent
         in
