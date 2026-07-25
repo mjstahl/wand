@@ -52,7 +52,21 @@ f (-5)|}
     "3";
   ok_after_format "cons pattern"
     "let f [h : t] = h\nf [1, 2, 3]"
-    "1"
+    "1";
+  (* A match nested (unparenthesized in source) inside an outer match's
+     case body: match arms only terminate at a non-`|` token, so an
+     unparenthesized nested match here would swallow the outer match's
+     remaining `| ...` arms into itself, changing the program's meaning. *)
+  ok_after_format "match nested in match case body"
+    {|let f x =
+  match x with
+  | Ok xs ->
+    (match xs with
+     | 1 -> "one"
+     | _ -> "many")
+  | Error _ -> "err"
+f (Ok 1)|}
+    "one"
 
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
@@ -80,6 +94,39 @@ let test_comments_preserved () =
   let src3 = "(** a doc comment *)\nlet x = 1\nx" in
   assert_contains "doc comment" (fmt src3) "a doc comment"
 
+(* A comment inside an item's own span (between multi-equation clauses,
+   or inside a function body) must stay where it was, not get silently
+   relocated to after the whole item -- verified by checking the comment
+   still precedes the text that followed it in the original source. *)
+let assert_appears_before label out needle_before needle_after =
+  let find s =
+    let n = String.length out and m = String.length s in
+    let pos = ref (-1) in
+    (try
+       for i = 0 to n - m do
+         if String.sub out i m = s then (pos := i; raise Exit)
+       done
+     with Exit -> ());
+    !pos
+  in
+  let before_pos = find needle_before and after_pos = find needle_after in
+  if before_pos < 0 then Alcotest.failf "%s: %S not found in output:\n%s" label needle_before out;
+  if after_pos < 0 then Alcotest.failf "%s: %S not found in output:\n%s" label needle_after out;
+  if not (before_pos < after_pos) then
+    Alcotest.failf "%s: expected %S before %S, got:\n%s" label needle_before needle_after out
+
+let test_interior_comment_position () =
+  let src = "let f 0 = \"zero\"\n(* second clause *)\nlet f n = \"other\"\nf 3" in
+  let out = fmt src in
+  assert_contains "comment between multi-equation clauses" out "second clause";
+  assert_appears_before "comment stays between clauses, not after both"
+    out "second clause" "let f n";
+  let src2 = "let f x =\n  (* explain this *)\n  x + 1\nf 5" in
+  let out2 = fmt src2 in
+  assert_contains "comment inside function body" out2 "explain this";
+  assert_appears_before "comment stays inside body, not after the function"
+    out2 "explain this" "f 5"
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -100,6 +147,7 @@ let () =
     ];
     "comments", [
       Alcotest.test_case "preserved"  `Quick test_comments_preserved;
+      Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
     ];
   ]

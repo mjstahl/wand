@@ -255,9 +255,9 @@ and emit_expr_inner indent e =
   | Handle (body, arms) ->
     let emit_arm = function
       | EffectArm (op, p, k, b) ->
-        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_expr indent b)
+        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_arm_body indent b)
       | ReturnArm (p, b) ->
-        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_expr indent b)
+        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_arm_body indent b)
     in
     "handle " ^ emit_expr indent body ^ " with\n"
     ^ String.make indent ' ' ^ String.concat ("\n" ^ String.make indent ' ')
@@ -344,6 +344,24 @@ and emit_if indent c t el =
     let ind = String.make indent ' ' in
     Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
 
+(* A `match`/`handle` arm body ends only where the next `|`-prefixed arm
+   begins -- there's no other terminator. So an unparenthesized Match or
+   Handle used as an arm's *own* body would greedily swallow every
+   following `| ...` meant for the *outer* match/handle, silently
+   producing a different (and often ill-typed) program. Always wrap. *)
+and emit_arm_body indent body =
+  match strip_located body with
+  | Match _ | Handle _ -> "(" ^ emit_expr indent body ^ ")"
+  | _ -> emit_expr indent body
+
+(* The scrutinee shares its own "with" keyword with any enclosing match's
+   "with", so an unparenthesized nested Match there is fragile even when
+   it happens to parse back correctly -- always wrap for clarity/safety. *)
+and emit_scrutinee indent scr =
+  match strip_located scr with
+  | Match _ -> "(" ^ emit_expr indent scr ^ ")"
+  | _ -> emit_expr indent scr
+
 and emit_match indent scr cases =
   let ind = String.make indent ' ' in
   let emit_case (p, guard, body) =
@@ -351,9 +369,9 @@ and emit_match indent scr cases =
       | None -> ""
       | Some g -> " when " ^ emit_expr indent g
     in
-    ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " ^ emit_expr indent body
+    ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " ^ emit_arm_body indent body
   in
-  "match " ^ emit_expr indent scr ^ " with\n"
+  "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)
 
 let emit_one_equation head_kw pats body =
@@ -437,50 +455,63 @@ type piece = {
   is_comment : bool;
 }
 
-let comment_pieces src tokens =
+type comment_tok = { c_offset : int; c_start_line : int; c_end_line : int; c_text : string }
+
+let all_comments tokens : comment_tok list =
   List.filter_map (fun (tok, (loc : Token.loc)) ->
     match tok with
     | Token.Comment text ->
       let rendered = "(*" ^ text ^ "*)" in
       let nlines = List.length (String.split_on_char '\n' text) in
-      ignore src;
-      Some { start_line = loc.line; end_line = loc.line + nlines - 1; text = rendered; is_comment = true }
+      Some { c_offset = loc.offset; c_start_line = loc.line;
+             c_end_line = loc.line + nlines - 1; c_text = rendered }
     | Token.DocComment text ->
       let rendered = "(** " ^ text ^ " *)" in
       let nlines = List.length (String.split_on_char '\n' text) in
-      Some { start_line = loc.line; end_line = loc.line + nlines - 1; text = rendered; is_comment = true }
+      Some { c_offset = loc.offset; c_start_line = loc.line;
+             c_end_line = loc.line + nlines - 1; c_text = rendered }
     | _ -> None
   ) tokens
 
-let item_pieces src (prog : program) (item_locs : (Token.loc * Token.loc) list) =
+(* Trim trailing whitespace/newlines only -- leading indentation and
+   interior formatting are preserved exactly (verbatim rendering). *)
+let rstrip_ws raw =
+  let len = String.length raw in
+  let j = ref len in
+  while !j > 0 && (raw.[!j - 1] = ' ' || raw.[!j - 1] = '\t'
+                   || raw.[!j - 1] = '\n' || raw.[!j - 1] = '\r') do decr j done;
+  String.sub raw 0 !j
+
+(* For each item, decide its rendered text and its [start_offset, stop)
+   span. An item falls back to an exact verbatim source slice whenever it
+   contains a follow-up-tier construct (Contract/Handle/RunCmd/RunQuery/
+   Try/RegexLit -- no dedicated formatting rule yet) OR contains a comment
+   inside its own span (multi-equation clauses, or a comment inside a
+   function body): pretty-printing would otherwise have to either drop
+   that comment or relocate it outside the item, so the safe fallback is
+   to leave the whole item exactly as written. *)
+let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.loc) list)
+    (comments : comment_tok list) =
   let items = Array.of_list prog.items in
   let locs  = Array.of_list item_locs in
   let n = Array.length items in
-  let next_start_offset i =
-    if i + 1 < n then Some (fst locs.(i + 1)).Token.offset else None
+  let stop_offset i =
+    if i + 1 < n then (fst locs.(i + 1)).Token.offset else String.length src
   in
   List.init n (fun i ->
     let item = items.(i) in
     let (start_loc, end_loc) : Token.loc * Token.loc = locs.(i) in
-    let text =
-      if top_item_has_followup item then
-        let stop = match next_start_offset i with
-          | Some off -> off
-          | None -> String.length src
-        in
-        let raw = String.sub src start_loc.offset (stop - start_loc.offset) in
-        (* trim trailing whitespace/newlines only -- leading indentation and
-           interior formatting are preserved exactly (verbatim fallback). *)
-        let len = String.length raw in
-        let j = ref len in
-        while !j > 0 && (raw.[!j - 1] = ' ' || raw.[!j - 1] = '\t'
-                         || raw.[!j - 1] = '\n' || raw.[!j - 1] = '\r') do decr j done;
-        String.sub raw 0 !j
-      else
-        emit_top_item_pretty item
+    let stop = stop_offset i in
+    let has_interior_comment =
+      List.exists (fun c -> c.c_offset > start_loc.offset && c.c_offset < end_loc.offset) comments
     in
-    { start_line = start_loc.line; end_line = end_loc.line; text; is_comment = false }
-  )
+    let is_verbatim = top_item_has_followup item || has_interior_comment in
+    let text =
+      if is_verbatim then rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
+      else emit_top_item_pretty item
+    in
+    let piece = { start_line = start_loc.line; end_line = end_loc.line; text; is_comment = false } in
+    (is_verbatim, start_loc.offset, stop, piece))
 
 let assemble pieces =
   let sorted = List.sort (fun a b -> compare a.start_line b.start_line) pieces in
@@ -505,5 +536,13 @@ let assemble pieces =
 let format_source src =
   let tokens = Lexer.tokenize src in
   let (prog, item_locs) = Parser.parse_program_with_locs tokens in
-  let pieces = comment_pieces src tokens @ item_pieces src prog item_locs in
-  assemble pieces
+  let comments = all_comments tokens in
+  let items = item_pieces src prog item_locs comments in
+  let verbatim_spans = List.filter_map (fun (v, s, e, _) -> if v then Some (s, e) else None) items in
+  let in_any_span off = List.exists (fun (s, e) -> off > s && off < e) verbatim_spans in
+  let comment_pcs = List.filter_map (fun c ->
+    if in_any_span c.c_offset then None
+    else Some { start_line = c.c_start_line; end_line = c.c_end_line; text = c.c_text; is_comment = true }
+  ) comments in
+  let item_pcs = List.map (fun (_, _, _, p) -> p) items in
+  assemble (comment_pcs @ item_pcs)
