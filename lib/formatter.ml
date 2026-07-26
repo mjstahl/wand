@@ -28,6 +28,16 @@ let escape_string_body str =
   ) str;
   Buffer.contents buf
 
+(* `%g` drops a trailing `.0` for integral floats (`42.0` -> `"42"`), which
+   then re-lexes as an Int literal, not a Float -- silently changing the
+   program. Force the printed form to always look like a float. *)
+let string_of_wand_float f =
+  let s = Printf.sprintf "%g" f in
+  if String.contains s '.' || String.contains s 'e' || String.contains s 'E'
+     || s = "nan" || s = "inf" || s = "-inf"
+  then s
+  else s ^ ".0"
+
 (* ── Follow-up-tier detection (verbatim-fallback trigger) ───────────────────
    Contract/Handle/RunCmd/RunQuery/Try/RegexLit are rare in practice (see
    plan) and aren't given a real formatting rule in v1 -- any top-item that
@@ -89,7 +99,7 @@ and emit_type_atom te = match te with
 
 let rec emit_pat (p : pat) : string = match p with
   | Int n      -> string_of_int n
-  | Float f    -> Printf.sprintf "%g" f
+  | Float f    -> string_of_wand_float f
   | String s   -> "\"" ^ escape_string_body s ^ "\""
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
@@ -200,7 +210,7 @@ and emit_atom indent e =
 and emit_expr_inner indent e =
   match e with
   | Int n      -> string_of_int n
-  | Float f    -> Printf.sprintf "%g" f
+  | Float f    -> string_of_wand_float f
   | String s   -> "\"" ^ escape_string_body s ^ "\""
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
@@ -301,11 +311,21 @@ and emit_binop indent op a b =
   Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b)
 
 and emit_let indent p e1 e2 =
-  match strip_located e1 with
-  | Fn (params, fbody) when (match try_multi_equation params fbody with Some _ -> true | None -> false) ->
-    let clauses = Option.get (try_multi_equation params fbody) in
+  match e1 with
+  | Fn (params, fbody) ->
+    (* A *raw* (non-`Located`) `Fn` as a `let` RHS only ever comes from the
+       shorthand `let name params = body` parse (parser.ml:705) -- the one
+       form the typechecker treats as recursive (typechecker.ml:658-659,
+       matches literal `Fn _`, not `Located (_, Fn _)`). Reprinting it as
+       `let name = fn params -> body` would silently make it non-recursive,
+       so it must always come back out as shorthand syntax, single-clause or
+       multi-equation alike. *)
     let name = match p with PVar n -> n | _ -> "_" in
     let ind = String.make indent ' ' in
+    let clauses = match try_multi_equation params fbody with
+      | Some cs -> cs
+      | None    -> [(params, fbody)]
+    in
     let lines = List.mapi (fun i (pats, body) ->
       let kw = if i = 0 then "let " ^ name else name in
       let head = kw ^ " " ^ String.concat " " (List.map emit_pat pats) in
