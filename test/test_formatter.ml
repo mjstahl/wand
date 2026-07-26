@@ -10,8 +10,10 @@ let assert_idempotent label src =
   Alcotest.(check string) label once twice
 
 let test_idempotent_stdlib () =
-  let dir = "../../../stdlib" in
-  if Sys.file_exists dir then
+  let dir = "../stdlib" in
+  if not (Sys.file_exists dir) then
+    Alcotest.failf "stdlib not found at %s (relative to test sandbox)" dir
+  else
     Array.iter (fun name ->
       if Filename.check_suffix name ".wand" then
         let path = Filename.concat dir name in

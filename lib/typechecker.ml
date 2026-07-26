@@ -633,10 +633,27 @@ let rec infer tenv (env : env) (e : expr) : typ =
     List.fold_right (fun t acc -> TFun (t, acc)) param_ts body_t
   | App (f, x) ->
     let tf = infer tenv env f in
-    let tx = infer tenv env x in
-    let tr = fresh () in
-    unify tf (TFun (tx, tr));
-    tr
+    (match (let rec strip = function Located (_, e) -> strip e | e -> e in strip x) with
+     | Fn (params, body) ->
+       (* Propagate f's expected argument type into a literal lambda
+          argument's params before inferring its body, so the body can
+          see a concrete (not fresh/unresolved) param type -- needed for
+          e.g. field access on the param when its type is otherwise only
+          known from how this call site uses it. *)
+       let param_ts = List.map (fun _ -> fresh ()) params in
+       let body_result_t = fresh () in
+       let fn_arg_t = List.fold_right (fun t acc -> TFun (t, acc)) param_ts body_result_t in
+       let tr = fresh () in
+       unify tf (TFun (fn_arg_t, tr));
+       let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
+       let body_t = infer tenv env' body in
+       unify body_t body_result_t;
+       tr
+     | _ ->
+       let tx = infer tenv env x in
+       let tr = fresh () in
+       unify tf (TFun (tx, tr));
+       tr)
   | Let (p, e1, e2) ->
     (match p, e1 with
      | PVar name, Fn _ ->

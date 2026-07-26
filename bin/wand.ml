@@ -11,6 +11,7 @@ let usage () =
   print_endline "  d, doc  <name>   Print the doc string for a name";
   print_endline "  env              List all names and modules in scope";
   print_endline "  fmt, format <file>  Print a formatted version of a .wand file";
+  print_endline "  test <file>...   Run one or more .wand test files";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
@@ -54,6 +55,12 @@ let usage_for sub =
     print_endline "Comments are preserved; constructs without a dedicated";
     print_endline "formatting rule yet (requires/ensures, handle, $()/$?(), try,";
     print_endline "regex literals) are re-emitted verbatim."
+  | "test" ->
+    print_endline "Usage: wand test <file.wand>...";
+    print_endline "";
+    print_endline "Run one or more .wand test files (import Test; test \"label\"";
+    print_endline "(fn t -> t.ok/t.eq/t.raises ...)) and report pass/fail.";
+    print_endline "Exits nonzero if any test failed or any file errored."
   | "h" | "help" ->
     print_endline "Usage: wand h [command]";
     print_endline "";
@@ -188,6 +195,28 @@ let () =
                 had_error := true; Printf.eprintf "Error: %s: parse error: %s\n" path m)
          ) paths;
          if !had_error then exit 1)
+    | "test" ->
+      (match rest with
+       | [] ->
+         Printf.eprintf "Error: expected one or more files\nRun 'wand h test' for usage.\n"; exit 1
+       | paths ->
+         let multi = List.length paths > 1 in
+         let had_error = ref false in
+         let passed = ref 0 and failed = ref 0 in
+         List.iter (fun path ->
+           if multi then Printf.printf "=== %s ===\n" path;
+           match Wand.Runner.run_test_file path with
+           | Error m -> had_error := true; Printf.eprintf "Error loading '%s': %s\n" path m
+           | Ok outcomes ->
+             List.iter (fun outcome ->
+               match outcome with
+               | Wand.Runner.TPass label -> incr passed; Printf.printf "ok   %s\n" label
+               | Wand.Runner.TFail msg   -> incr failed; Printf.printf "FAIL %s\n" msg
+               | Wand.Runner.TError msg  -> incr failed; Printf.printf "FAIL %s\n" msg
+             ) outcomes
+         ) paths;
+         Printf.printf "%d passed, %d failed\n" !passed !failed;
+         if !had_error || !failed > 0 then exit 1)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       Wand.Evaluator.exe_args_ref := rest;

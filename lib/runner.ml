@@ -555,6 +555,67 @@ let run_file path =
   | EvalError msg         -> Error ("eval error: " ^ msg)
   | Failure msg           -> Error (msg)
 
+(* ── `wand test` ──────────────────────────────────────────────────────────── *)
+
+(* A test file's top-level expressions are the `stdlib/Test.wand` module's
+   `Pass`/`Fail` constructors (see Test.wand's `test` function); a raised
+   runtime error is reported the same way a deliberate Fail would be, just
+   without a caller-chosen message. Any other top-level expression's value
+   is simply not a test outcome and is ignored (still executed normally,
+   e.g. ordinary setup code/side effects). Only lex/parse/type errors for
+   the whole file are fatal -- each TLExpr's *evaluation* is isolated so
+   one failing/raising test doesn't stop the rest of the file. *)
+type test_outcome = TPass of string | TFail of string | TError of string
+
+let run_test_program ~base_dir prog : (test_outcome list, string) result =
+  let cache = Hashtbl.create 8 in
+  let loading = ref [] in
+  let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+  match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+  | Error msg -> Error ("type error: " ^ msg)
+  | Ok _ ->
+    let outcomes = ref [] in
+    ignore (run_with_default_handler (fun () ->
+      ignore (List.fold_left (fun env item ->
+        match item with
+        | Ast.TLExpr e ->
+          let result =
+            try Ok (eval env e)
+            with
+            | EvalError msg -> Error msg
+            | Failure msg   -> Error msg
+          in
+          (match result with
+           | Ok (VConstr ("Pass", [VString label])) -> outcomes := !outcomes @ [TPass label]
+           | Ok (VConstr ("Fail", [VString msg]))   -> outcomes := !outcomes @ [TFail msg]
+           | Ok _    -> ()
+           | Error m -> outcomes := !outcomes @ [TError m]);
+          env
+        | _ -> run_item env item
+      ) (base_eval_env @ imp.eval_env) prog.Ast.items);
+      VUnit
+    ));
+    Ok !outcomes
+
+let run_test_file path : (test_outcome list, string) result =
+  let full =
+    if Filename.is_relative path
+    then Filename.concat (Sys.getcwd ()) (add_ext path)
+    else add_ext path
+  in
+  try
+    let src      = In_channel.with_open_text full In_channel.input_all in
+    let tokens   = Lexer.tokenize src in
+    let prog     = Parser.parse_program tokens in
+    let base_dir = Filename.dirname full in
+    run_test_program ~base_dir prog
+  with
+  | Sys_error msg         -> Error ("cannot open file: " ^ msg)
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | EvalError msg         -> Error ("eval error: " ^ msg)
+  | Failure msg           -> Error (msg)
+
 (* ── REPL session ─────────────────────────────────────────────────────────── *)
 
 type repl_result =

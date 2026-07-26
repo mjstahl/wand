@@ -1,0 +1,97 @@
+import Test
+import List
+import String
+
+(* ── sort ──────────────────────────────────────────────────────────────── *)
+
+test "sort ints" (fn t -> t.eq (List.sort [3, 1, 2]) [1, 2, 3])
+test "sort strings" (fn t -> t.eq (List.sort ["banana", "apple", "cherry"]) ["apple", "banana", "cherry"])
+test "sort empty" (fn t ->
+  let empty : List Int = []
+  in t.eq (List.sort empty) [])
+
+(* ── sort_by ───────────────────────────────────────────────────────────── *)
+
+test "sort_by string length" (fn t ->
+  t.eq (List.sort_by String.length ["banana", "kiwi", "fig"]) ["fig", "kiwi", "banana"])
+test "sort_by negate (descending)" (fn t ->
+  t.eq (List.sort_by (fn x -> 0 - x) [3, 1, 4, 1, 5]) [5, 4, 3, 1, 1])
+
+(* ── unique ────────────────────────────────────────────────────────────── *)
+
+test "unique ints" (fn t -> t.eq (List.unique [1, 2, 1, 3, 2]) [1, 2, 3])
+test "unique preserves order" (fn t -> t.eq (List.unique ["c", "a", "b", "a", "c"]) ["c", "a", "b"])
+test "unique empty" (fn t ->
+  let empty : List Int = []
+  in t.eq (List.unique empty) [])
+
+(* ── range ─────────────────────────────────────────────────────────────── *)
+
+test "range basic" (fn t -> t.eq (List.range 1 5) [1, 2, 3, 4, 5])
+test "range single" (fn t -> t.eq (List.range 3 3) [3])
+test "range empty (hi < lo)" (fn t -> t.eq (List.range 5 1) [])
+
+(* ── flatten ───────────────────────────────────────────────────────────── *)
+
+test "flatten basic" (fn t -> t.eq (List.flatten [[1, 2], [3], [4, 5]]) [1, 2, 3, 4, 5])
+test "flatten empty lists" (fn t ->
+  let empty : List Int = []
+  in t.eq (List.flatten [empty, [1], []]) [1])
+test "flatten empty" (fn t ->
+  let empty : List (List Int) = []
+  in t.eq (List.flatten empty) [])
+
+(* ── concat ────────────────────────────────────────────────────────────── *)
+
+test "concat basic" (fn t -> t.eq (List.concat [1, 2] [3, 4]) [1, 2, 3, 4])
+test "concat with empty" (fn t ->
+  let empty : List Int = []
+  in t.eq (List.concat empty [1, 2]) [1, 2])
+test "concat both empty" (fn t ->
+  let empty : List Int = []
+  in t.eq (List.concat empty empty) [])
+
+(* ── pipeline ──────────────────────────────────────────────────────────── *)
+
+test "range |> filter |> sort_by" (fn t ->
+  let got =
+    List.range 1 10
+    |> List.filter (fn x -> x % 2 == 0)
+    |> List.sort_by (fn x -> 0 - x)
+  in t.eq got [10, 8, 6, 4, 2])
+test "flatten after map" (fn t ->
+  let got =
+    List.range 1 3
+    |> List.map (fn x -> [x, x * 2])
+    |> List.flatten
+  in t.eq got [1, 2, 2, 4, 3, 6])
+
+(* ── get / get! ────────────────────────────────────────────────────────── *)
+
+test "get 0" (fn t ->
+  t.eq (match List.get 0 ["a", "b", "c"] with | Ok v -> v | Error _ -> "") "a")
+test "get 2" (fn t ->
+  t.eq (match List.get 2 ["a", "b", "c"] with | Ok v -> v | Error _ -> "") "c")
+test "get out of bounds returns Error" (fn t ->
+  t.eq (match List.get 5 ["a", "b"] with | Ok _ -> "ok" | Error _ -> "error") "error")
+test "get negative returns Error" (fn t ->
+  t.eq (match List.get (-1) ["a"] with | Ok _ -> "ok" | Error _ -> "error") "error")
+
+test "get! 1" (fn t -> t.eq (List.get! 1 [10, 20, 30]) 20)
+test "get! works on nested lists" (fn t ->
+  t.eq (List.get! 0 (List.get! 1 [[1, 2], [3, 4]])) 3)
+test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
+
+(* ── take_while / drop_while ──────────────────────────────────────────── *)
+
+test "take_while stops at first miss" (fn t ->
+  t.eq (List.take_while (fn x -> x < 3) [1, 2, 3, 4, 1]) [1, 2])
+test "take_while empty list" (fn t -> t.eq (List.take_while (fn x -> x < 3) []) [])
+test "take_while all match" (fn t -> t.eq (List.take_while (fn x -> x < 10) [1, 2]) [1, 2])
+test "take_while no match" (fn t -> t.eq (List.take_while (fn x -> x < 0) [1, 2]) [])
+
+test "drop_while drops through first miss" (fn t ->
+  t.eq (List.drop_while (fn x -> x < 3) [1, 2, 3, 4, 1]) [3, 4, 1])
+test "drop_while empty list" (fn t -> t.eq (List.drop_while (fn x -> x < 3) []) [])
+test "drop_while all match" (fn t -> t.eq (List.drop_while (fn x -> x < 10) [1, 2]) [])
+test "drop_while no match" (fn t -> t.eq (List.drop_while (fn x -> x < 0) [1, 2]) [1, 2])

@@ -1,0 +1,26 @@
+(** The outcome of a single assertion: Pass carries the test's label,
+    Fail carries a message that already includes the label. *)
+type TestOutcome = Pass String | Fail String
+
+(** A handle passed into a test block, exposing assertion helpers. *)
+type Testing 'a 'b = Testing(
+  ok: (Bool -> TestOutcome),
+  eq: ('a -> 'a -> TestOutcome),
+  raises: ((Unit -> 'b) -> TestOutcome)
+)
+
+(** Run a named test block, calling `f` with a handle whose `ok`/`eq`/
+    `raises` return a TestOutcome tagged with the given label. *)
+let test label f =
+  let t = Testing(
+    ok = fn cond ->
+      if cond then Pass label else Fail "${label}: assertion failed",
+    eq = fn expected actual ->
+      if expected == actual then Pass label
+      else Fail "${label}: expected ${expected}, got ${actual}",
+    raises = fn thunk ->
+      match try (thunk ()) with
+      | Ok _    -> Fail "${label}: expected to raise, but completed normally"
+      | Error _ -> Pass label
+  )
+  in f t

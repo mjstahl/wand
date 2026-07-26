@@ -79,7 +79,8 @@
  (libraries wand alcotest unix))
 
 (test
- (name test_list_stdlib)
+ (name test_wand_list)
+ (deps wand/list_test.wand)
  (libraries wand alcotest))
 
 (test
@@ -124,4 +125,9 @@
 
 (test
  (name test_formatter)
+ (deps (source_tree ../stdlib))
+ (libraries wand alcotest))
+
+(test
+ (name test_test_runner)
  (libraries wand alcotest))

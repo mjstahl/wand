@@ -848,6 +848,44 @@ match TOML.read_file ./config.toml with
 
 ---
 
+## Testing
+
+The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
+`raises`:
+
+```
+import Test
+
+test "add" (fn t -> t.eq (2 + 2) 4)
+test "is_some" (fn t -> t.ok (Option.is_some? (Some 1)))
+test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
+```
+
+- `t.eq expected actual` — pass if `expected == actual`.
+- `t.ok cond` — pass if `cond` is `true`.
+- `t.raises thunk` — pass if calling `thunk ()` raises. `thunk` must be a
+  zero-argument function (`fn () -> ...`), not the expression directly —
+  wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)` would
+  raise while evaluating the argument itself, before `t.raises` ever runs.
+
+Each `test` call needs explicit parens around its `fn` argument
+(`test "x" (fn t -> ...)`) — wand doesn't currently allow a bare `fn` as
+a trailing application argument.
+
+Run one or more test files with `wand test`:
+
+```
+wand test my_test.wand
+wand test test/*.wand
+```
+
+Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
+test whose body raises outside of `t.raises` is reported as a failure
+without stopping the rest of the file. `wand test` exits nonzero if any
+test failed or any file had a lex/parse/type error.
+
+---
+
 ## Comments
 
 Block comments, nestable:
@@ -926,6 +964,7 @@ wand d "List.map"                     # show doc string
 wand env                              # list all names and modules in scope
 wand fmt script.wand                  # format a file in place
 wand fmt stdlib/*.wand                # format multiple files in place
+wand test my_test.wand                # run one or more test files
 wand h                                # show all commands
 wand h e                              # help for a specific command
 ```
