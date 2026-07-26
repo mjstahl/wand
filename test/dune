@@ -69,7 +69,7 @@
 
 (test
  (name test_fs)
- (libraries wand alcotest unix))
+ (libraries wand alcotest))
 
 (test
  (name test_wand_list)
@@ -90,7 +90,7 @@
 
 (test
  (name test_wand_stdlib)
- (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand)
+ (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand)
  (libraries wand alcotest))
 
 (test

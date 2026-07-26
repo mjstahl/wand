@@ -1,0 +1,137 @@
+import Test
+import FS
+import Path
+import List
+import String
+
+(* Real filesystem operations, self-contained: this file creates its own
+   scratch directory (via FS.temp_file, so it can't collide with another
+   run) and cleans up after itself, using FS.write_file/read_file as the
+   trusted foundation (verified separately in test_fs.ml against an
+   OCaml-managed temp file). *)
+
+let scratch_marker = FS.temp_file "wand_fs_test_" ""
+let scratch = Path.to_string scratch_marker
+let () = FS.delete scratch_marker
+let () = FS.mkdir (Path.of_string scratch)
+
+test "temp_file creates a unique, existing file" (fn t ->
+  let a = FS.temp_file "wand_" ".txt"
+  let b = FS.temp_file "wand_" ".txt"
+  let both_exist = (FS.exists? a, FS.exists? b)
+  let unique = a != b
+  let () = FS.delete a
+  let () = FS.delete b
+  in t.eq (both_exist, unique) ((true, true), true))
+
+test "mkdir creates nested directories" (fn t ->
+  let dir = Path.of_string "${scratch}/mkdir_case/nested/deep"
+  let () = FS.mkdir dir
+  let is_dir = FS.is_dir? dir
+  let () = FS.delete dir
+  let () = FS.delete (Path.of_string "${scratch}/mkdir_case/nested")
+  let () = FS.delete (Path.of_string "${scratch}/mkdir_case")
+  in t.ok is_dir)
+
+test "create_file makes an empty file" (fn t ->
+  let p = Path.of_string "${scratch}/create_file_case.txt"
+  let () = FS.create_file p
+  let contents = FS.read_file (Path.to_string p)
+  let () = FS.delete p
+  in t.eq contents "")
+
+test "append writes to a real file on disk" (fn t ->
+  let p = Path.of_string "${scratch}/append_case.txt"
+  let () = FS.write_file (Path.to_string p) "hello"
+  let () = FS.append p " world"
+  let contents = FS.read_file (Path.to_string p)
+  let () = FS.delete p
+  in t.eq contents "hello world")
+
+test "rename moves a file" (fn t ->
+  let src = Path.of_string "${scratch}/rename_src.txt"
+  let dst = Path.of_string "${scratch}/rename_dst.txt"
+  let () = FS.write_file (Path.to_string src) "data"
+  let () = FS.rename src dst
+  let contents = FS.read_file (Path.to_string dst)
+  let () = FS.delete dst
+  in t.eq contents "data")
+
+test "copy duplicates a file" (fn t ->
+  let src = Path.of_string "${scratch}/copy_src.txt"
+  let dst = Path.of_string "${scratch}/copy_dst.txt"
+  let () = FS.write_file (Path.to_string src) "copied"
+  let () = FS.copy src dst
+  let contents = FS.read_file (Path.to_string dst)
+  let () = FS.delete src
+  let () = FS.delete dst
+  in t.eq contents "copied")
+
+test "exists?/is_file?/is_dir?" (fn t ->
+  let p = Path.of_string "${scratch}/exists_case.txt"
+  let () = FS.write_file (Path.to_string p) "x"
+  let outcome = (FS.exists? p, FS.is_file? p, FS.is_dir? p)
+  let () = FS.delete p
+  in t.eq outcome (true, true, false))
+
+test "size returns byte length" (fn t ->
+  let p = Path.of_string "${scratch}/size_case.txt"
+  let () = FS.write_file (Path.to_string p) "12345"
+  let sz = FS.size p
+  let () = FS.delete p
+  in t.eq sz 5)
+
+test "list_dir lists immediate children" (fn t ->
+  let dir = Path.of_string "${scratch}/list_dir_case"
+  let () = FS.mkdir dir
+  let () = FS.write_file "${scratch}/list_dir_case/a.txt" "a"
+  let () = FS.write_file "${scratch}/list_dir_case/b.txt" "b"
+  let entries = FS.list_dir dir
+  let names = List.sort (List.map Path.basename entries)
+  let () = FS.delete (Path.of_string "${scratch}/list_dir_case/a.txt")
+  let () = FS.delete (Path.of_string "${scratch}/list_dir_case/b.txt")
+  let () = FS.delete dir
+  in t.eq names ["a.txt", "b.txt"])
+
+test "walk recurses into subdirectories" (fn t ->
+  let base = "${scratch}/walk_case"
+  let () = FS.mkdir (Path.of_string "${base}/sub")
+  let () = FS.write_file "${base}/a.txt" "a"
+  let () = FS.write_file "${base}/sub/b.txt" "b"
+  let entries = FS.walk (Path.of_string base)
+  let strip p =
+    let s = Path.to_string p
+    in String.slice (String.length base + 1) (String.length s) s
+  let names = List.sort (List.map strip entries)
+  let () = FS.delete (Path.of_string "${base}/a.txt")
+  let () = FS.delete (Path.of_string "${base}/sub/b.txt")
+  let () = FS.delete (Path.of_string "${base}/sub")
+  let () = FS.delete (Path.of_string base)
+  in t.eq names ["a.txt", "sub/b.txt"])
+
+test "delete removes a file" (fn t ->
+  let p = Path.of_string "${scratch}/delete_case.txt"
+  let () = FS.write_file (Path.to_string p) "x"
+  let () = FS.delete p
+  in t.eq (FS.exists? p) false)
+
+test "cwd returns an existing directory" (fn t -> t.ok (FS.is_dir? (FS.cwd ())))
+
+test "cleanup scratch directory" (fn t ->
+  let () = FS.delete (Path.of_string scratch)
+  in t.ok true)
+
+(* ── effect handler mocking ────────────────────────────────────────────── *)
+
+(* FS.append performs an fs_append effect rather than touching the
+   filesystem directly; a handler installed here intercepts it and
+   resumes without ever writing to disk. *)
+test "mock append does not touch real filesystem" (fn t ->
+  let outcome =
+    handle
+      let () = FS.append (Path.of_string "/dev/null") "data" in
+      "done"
+    with
+    | fs_append _ k -> k ()
+    | return s -> s
+  in t.eq outcome "done")

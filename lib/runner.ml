@@ -183,6 +183,12 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("create_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("fs_temp_file", VTuple [VString prefix; VString suffix]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (Filename.temp_file prefix suffix)
+                     with Sys_error m -> Error ("temp_file: " ^ m)) with
+              | Ok path -> Effect.Deep.continue    k (VPath path)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("fs_rename", VTuple [VPath old_; VPath new_]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Unix.rename old_ new_; Ok ()

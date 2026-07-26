@@ -10,6 +10,11 @@ let append      path s   = fs_append path s
 (** Create an empty file at the given path. *)
 let create_file path     = fs_create path
 
+(** Create a new, uniquely-named empty file in the OS temp directory
+    and return its path. `prefix`/`suffix` are added to the generated
+    name (e.g. `temp_file "wand_" ".txt"`). *)
+let temp_file prefix suffix = fs_temp_file prefix suffix
+
 (** Return true if the path exists. *)
 let exists?     path     = fs_exists path
 
