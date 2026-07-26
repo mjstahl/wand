@@ -51,10 +51,6 @@
  (libraries wand alcotest))
 
 (test
- (name test_file_io)
- (libraries wand alcotest))
-
-(test
  (name test_list_patterns)
  (libraries wand alcotest))
 

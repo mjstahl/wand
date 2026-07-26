@@ -115,6 +115,16 @@ test "delete removes a file" (fn t ->
   let () = FS.delete p
   in t.eq (FS.exists? p) false)
 
+test "read/write roundtrip" (fn t ->
+  let p = Path.of_string "${scratch}/roundtrip_case.txt"
+  let () = FS.write_file (Path.to_string p) "round trip"
+  let contents = FS.read_file (Path.to_string p)
+  let () = FS.delete p
+  in t.eq contents "round trip")
+
+test "read nonexistent file raises" (fn t ->
+  t.raises (fn () -> FS.read_file "/no/such/path/wand_test_xyz"))
+
 test "cwd returns an existing directory" (fn t -> t.ok (FS.is_dir? (FS.cwd ())))
 
 test "cleanup scratch directory" (fn t ->
@@ -135,3 +145,33 @@ test "mock append does not touch real filesystem" (fn t ->
     | fs_append _ k -> k ()
     | return s -> s
   in t.eq outcome "done")
+
+(* read_file/write_file perform bare `read_file`/`write_file` effects
+   (no fs_ prefix, unlike the mutating ops above) -- mocking them the
+   same way lets a test substitute fake file content/paths without
+   touching disk at all. *)
+test "mock read_file returns substituted content" (fn t ->
+  let outcome =
+    handle FS.read_file "/nonexistent" with
+    | read_file _ k -> k "mocked content"
+  in t.eq outcome "mocked content")
+
+test "mock write_file resumes without touching disk" (fn t ->
+  let outcome =
+    handle
+      let () = FS.write_file "/nonexistent" "data" in
+      "done"
+    with
+    | write_file _ k -> k ()
+    | return s -> s
+  in t.eq outcome "done")
+
+test "mock write_file can capture the path/content argument" (fn t ->
+  let outcome =
+    handle
+      let () = FS.write_file "/tmp/foo.txt" "hello" in
+      "wrote"
+    with
+    | write_file (path, _) k -> path ++ ": ok" ++ k ()
+    | return s -> s
+  in t.eq outcome "/tmp/foo.txt: okwrote")
