@@ -59,7 +59,8 @@
  (libraries wand alcotest))
 
 (test
- (name test_string_stdlib)
+ (name test_wand_string)
+ (deps wand/string_test.wand)
  (libraries wand alcotest))
 
 (test

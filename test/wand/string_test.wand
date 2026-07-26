@@ -1,0 +1,143 @@
+import Test
+import String
+
+(* ── length / is_empty? ───────────────────────────────────────────────── *)
+
+test "length empty" (fn t -> t.eq (String.length "") 0)
+test "length hello" (fn t -> t.eq (String.length "hello") 5)
+test "is_empty? true" (fn t -> t.ok (String.is_empty? ""))
+test "is_empty? false" (fn t -> t.eq (String.is_empty? "x") false)
+
+(* ── upper / lower ─────────────────────────────────────────────────────── *)
+
+test "upper" (fn t -> t.eq (String.upper "hello") "HELLO")
+test "lower" (fn t -> t.eq (String.lower "WORLD") "world")
+test "case round trip" (fn t -> t.eq (String.lower (String.upper "Hello")) "hello")
+
+(* ── trim ──────────────────────────────────────────────────────────────── *)
+
+test "trim spaces" (fn t -> t.eq (String.trim "  hello  ") "hello")
+test "trim newlines" (fn t -> t.eq (String.trim "\n  hi\n") "hi")
+test "trim clean" (fn t -> t.eq (String.trim "clean") "clean")
+test "trim_left" (fn t -> t.eq (String.trim_left "  hi  ") "hi  ")
+test "trim_right" (fn t -> t.eq (String.trim_right "  hi  ") "  hi")
+
+(* ── slice ─────────────────────────────────────────────────────────────── *)
+
+test "slice full" (fn t -> t.eq (String.slice 0 5 "hello") "hello")
+test "slice prefix" (fn t -> t.eq (String.slice 0 3 "hello") "hel")
+test "slice suffix" (fn t -> t.eq (String.slice 2 5 "hello") "llo")
+test "slice empty" (fn t -> t.eq (String.slice 2 2 "hello") "")
+test "slice clamp" (fn t -> t.eq (String.slice 0 100 "hi") "hi")
+
+(* ── split ─────────────────────────────────────────────────────────────── *)
+
+test "split csv" (fn t -> t.eq (String.split "," "a,b,c") ["a", "b", "c"])
+test "split no match" (fn t -> t.eq (String.split "," "abc") ["abc"])
+test "split words" (fn t -> t.eq (String.split " " "hello world") ["hello", "world"])
+
+(* ── contains? / starts_with? / ends_with? ────────────────────────────── *)
+
+test "contains? yes" (fn t -> t.ok (String.contains? "ll" "hello"))
+test "contains? no" (fn t -> t.eq (String.contains? "xy" "hello") false)
+test "starts_with? yes" (fn t -> t.ok (String.starts_with? "he" "hello"))
+test "starts_with? no" (fn t -> t.eq (String.starts_with? "lo" "hello") false)
+test "ends_with? yes" (fn t -> t.ok (String.ends_with? "lo" "hello"))
+test "ends_with? no" (fn t -> t.eq (String.ends_with? "he" "hello") false)
+
+(* ── replace ───────────────────────────────────────────────────────────── *)
+
+test "replace basic" (fn t -> t.eq (String.replace "o" "0" "hello world") "hell0 w0rld")
+test "replace no match" (fn t -> t.eq (String.replace "x" "y" "hello") "hello")
+test "replace prefix" (fn t -> t.eq (String.replace "he" "HE" "hello") "HEllo")
+
+(* ── repeat / reverse ──────────────────────────────────────────────────── *)
+
+test "repeat 3" (fn t -> t.eq (String.repeat 3 "ab") "ababab")
+test "repeat 0" (fn t -> t.eq (String.repeat 0 "ab") "")
+test "repeat 1" (fn t -> t.eq (String.repeat 1 "x") "x")
+test "reverse" (fn t -> t.eq (String.reverse "hello") "olleh")
+test "reverse empty" (fn t -> t.eq (String.reverse "") "")
+
+(* ── chars ─────────────────────────────────────────────────────────────── *)
+
+test "chars" (fn t -> t.eq (String.chars "abc") ["a", "b", "c"])
+test "chars empty" (fn t -> t.eq (String.chars "") [])
+
+(* ── of_int / to_int / to_float ───────────────────────────────────────── *)
+
+test "of_int" (fn t -> t.eq (String.of_int 42) "42")
+test "to_int ok" (fn t -> t.eq (String.to_int "123") (Ok 123))
+test "of_int negative" (fn t -> t.eq (String.of_int (-7)) "-7")
+test "to_float ok" (fn t -> t.eq (String.to_float "3.14") (Ok 3.14))
+test "to_float int-like" (fn t -> t.eq (String.to_float "42") (Ok 42.0))
+test "to_int err" (fn t ->
+  match String.to_int "abc" with
+  | Ok _    -> t.ok false
+  | Error _ -> t.ok true)
+test "to_float err" (fn t ->
+  match String.to_float "abc" with
+  | Ok _    -> t.ok false
+  | Error _ -> t.ok true)
+
+(* ── join ──────────────────────────────────────────────────────────────── *)
+
+test "join csv" (fn t -> t.eq (String.join ", " ["a", "b", "c"]) "a, b, c")
+test "join empty" (fn t -> t.eq (String.join ", " []) "")
+test "join single" (fn t -> t.eq (String.join ", " ["only"]) "only")
+
+(* ── lines / words ─────────────────────────────────────────────────────── *)
+
+test "lines" (fn t -> t.eq (String.lines "a\nb\nc") ["a", "b", "c"])
+test "words" (fn t -> t.eq (String.words "one two three") ["one", "two", "three"])
+
+(* ── pipeline ──────────────────────────────────────────────────────────── *)
+
+test "pipe" (fn t ->
+  let s = "  Hello, World!  "
+  in t.eq (s |> String.trim |> String.lower) "hello, world!")
+
+(* ── to_bool / to_path ────────────────────────────────────────────────── *)
+
+test "to_bool true" (fn t -> t.eq (String.to_bool "true") (Ok true))
+test "to_bool false" (fn t -> t.eq (String.to_bool "False") (Ok false))
+test "to_bool err" (fn t ->
+  match String.to_bool "yes" with
+  | Ok _    -> t.ok false
+  | Error _ -> t.ok true)
+test "to_path" (fn t -> t.eq (String.to_path "/tmp/foo") /tmp/foo)
+
+(* ── domain type parsers ───────────────────────────────────────────────── *)
+
+test "to_url ok" (fn t ->
+  match String.to_url "https://example.com" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_url err" (fn t ->
+  match String.to_url "not-a-url" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_ipv4 ok" (fn t ->
+  match String.to_ipv4 "192.168.1.1" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_ipv4 err" (fn t ->
+  match String.to_ipv4 "999.0.0.1" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_cidr ok" (fn t ->
+  match String.to_cidr "10.0.0.0/8" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_port ok" (fn t ->
+  match String.to_port ":8080" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_port err" (fn t ->
+  match String.to_port "8080" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_version ok" (fn t ->
+  match String.to_version "1.2.3" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_size ok" (fn t ->
+  match String.to_size "10MB" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_size err" (fn t ->
+  match String.to_size "abc" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_date ok" (fn t ->
+  match String.to_date "2024-01-15" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_date err" (fn t ->
+  match String.to_date "01/15/2024" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_time ok" (fn t ->
+  match String.to_time "14:30:00" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_datetime ok" (fn t ->
+  match String.to_datetime "2024-01-15T14:30:00Z" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_duration ok" (fn t ->
+  match String.to_duration "5min" with | Ok _ -> t.ok true | Error _ -> t.ok false)
+test "to_duration err" (fn t ->
+  match String.to_duration "abc" with | Ok _ -> t.ok false | Error _ -> t.ok true)
