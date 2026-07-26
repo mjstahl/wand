@@ -84,7 +84,42 @@ f (Ok 1)|}
      as a fresh nested binding, this would stack-overflow (no base case). *)
   ok_after_format "local multi-equation with repeated let stays merged after formatting"
     "let f = fn t -> let fact 0 = 1\nlet fact n = n * fact (n - 1)\nin fact t\nf 5"
-    "120"
+    "120";
+  (* `let x : T = e` reformatted via inline `e : T` syntax re-parses as
+     "cons e onto T" (the parser's infix `:` in expression position always
+     means cons, never ascription) rather than an annotated binding --
+     `List Int` used as a bare expression additionally requires an import
+     it never needed as a type, so this failed outright, not just silently. *)
+  ok_after_format "value annotation survives formatting"
+    "import List\nlet empty : List Int = []\nList.length empty"
+    "0";
+  (* Same ambiguity, at a function's return-type annotation
+     (`let f x : T = body`) rather than a plain value binding. *)
+  ok_after_format "function return-type annotation survives formatting"
+    "let double x : Int = x * 2\ndouble 3"
+    "6";
+  (* A `match` nested inside another match's arm is unambiguous only because
+     it's parenthesized -- but the danger isn't limited to the arm body being
+     *directly* a Match: a `let ... in <tail match>` inside an arm has the
+     same "bare match at the end" shape once printed, since emit_let's
+     fallback renders its tail completely unguarded. *)
+  ok_after_format "match nested in a let's tail, inside another match's arm"
+    {|let f x =
+  match x with
+  | Ok xs ->
+    let n = xs
+    in (match n with
+      | 1 -> "one"
+      | _ -> "many")
+  | Error _ -> "err"
+f (Ok 1)|}
+    "one";
+  (* A constructor pattern used as a function parameter (`let f (Some n) = ..`)
+     needs its parens kept -- printed bare, `Some n` reads as two separate
+     parameters instead of one destructured one. *)
+  ok_after_format "constructor pattern as a function parameter"
+    "type Opt = None | Some Int\nlet f None = 0\nlet f (Some n) = n\nf (Some 42)"
+    "42"
 
 (* `Ok 42.0` reformatting to `Ok 42` runs fine and *displays* the same (both
    show as "42"), so a `ok_after_format`-style behavior check can't catch it --

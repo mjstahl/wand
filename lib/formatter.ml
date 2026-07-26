@@ -223,7 +223,7 @@ and emit_expr_inner indent e =
   | Hole       -> "?"
   | App _      -> emit_app indent e
   | Fn (ps, body) ->
-    "fn " ^ String.concat " " (List.map emit_pat ps) ^ " -> " ^ emit_expr indent body
+    "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " -> " ^ emit_expr indent body
   | Let (p, e1, e2) -> emit_let indent p e1 e2
   | LetRec (bindings, e2) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if indent c t el
@@ -310,6 +310,16 @@ and emit_binop indent op a b =
   in
   Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b)
 
+(* If `body` is `Annot (te, real_body)` -- a return-type annotation on a
+   function clause (`let f x : T = body`) -- return the ": T" to append to
+   the clause head and the real body to print after `=`. Printed after `=`
+   instead, `: T` is ambiguous with the cons operator (same hazard as
+   emit_let's own Annot case below), so it must move before it. *)
+and split_clause_annot body =
+  match strip_located body with
+  | Annot (te, real_body) -> (" : " ^ emit_type_expr te, real_body)
+  | _ -> ("", body)
+
 and emit_let indent p e1 e2 =
   match e1 with
   | Fn (params, fbody) ->
@@ -328,12 +338,28 @@ and emit_let indent p e1 e2 =
     in
     let lines = List.mapi (fun i (pats, body) ->
       let kw = if i = 0 then "let " ^ name else name in
-      let head = kw ^ " " ^ String.concat " " (List.map emit_pat pats) in
+      let (annot_s, body) = split_clause_annot body in
+      let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
       let oneline = head ^ " = " ^ emit_expr indent body in
       if fits indent oneline then oneline
       else head ^ " =\n" ^ ind ^ "  " ^ emit_expr (indent + 2) body
     ) clauses in
     String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
+  | Annot (te, body) ->
+    (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
+       be genuinely ambiguous: the parser's infix `:` in expression position
+       always means cons (list prepend), never ascription, so
+       `let x = e : T in ...` re-parses as "cons e onto T", not "e annotated
+       with type T". Must go back out through the dedicated
+       `let name : T = e` syntax (parser.ml:707-717) instead. *)
+    let name = emit_pat p in
+    let bodys = emit_expr indent body and e2s = emit_expr indent e2 in
+    let head = "let " ^ name ^ " : " ^ emit_type_expr te in
+    let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
+    if fits indent oneline then oneline
+    else
+      let ind = String.make indent ' ' in
+      Printf.sprintf "%s = %s in\n%s%s" head bodys ind e2s
   | _ ->
   let e1s = emit_expr indent e1 and e2s = emit_expr indent e2 in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
@@ -344,9 +370,10 @@ and emit_let indent p e1 e2 =
 
 and emit_letrec indent bindings e2 =
   let emit_binding kw (name, params, body) =
+    let (annot_s, body) = split_clause_annot body in
     kw ^ " " ^ name
-    ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat params))
-    ^ " = " ^ emit_expr indent body
+    ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat_atom params))
+    ^ annot_s ^ " = " ^ emit_expr indent body
   in
   let ind = String.make indent ' ' in
   let lines = match bindings with
@@ -368,9 +395,21 @@ and emit_if indent c t el =
    begins -- there's no other terminator. So an unparenthesized Match or
    Handle used as an arm's *own* body would greedily swallow every
    following `| ...` meant for the *outer* match/handle, silently
-   producing a different (and often ill-typed) program. Always wrap. *)
+   producing a different (and often ill-typed) program. Always wrap.
+
+   The danger isn't limited to the arm body being *directly* a Match/Handle:
+   `let x = e in <tail>` prints its tail expression completely unguarded
+   (see emit_let's fallback), so `let db = ... in match ... with | ... `
+   as an arm body has the exact same "bare match at the end" shape once
+   rendered, even though the immediate AST node is a Let. Follow the chain
+   of Let/LetRec tails to find what actually ends up printed last. *)
+and arm_body_tail e = match strip_located e with
+  | Let (_, _, e2)    -> arm_body_tail e2
+  | LetRec (_, e2)     -> arm_body_tail e2
+  | e -> e
+
 and emit_arm_body indent body =
-  match strip_located body with
+  match arm_body_tail body with
   | Match _ | Handle _ -> "(" ^ emit_expr indent body ^ ")"
   | _ -> emit_expr indent body
 
@@ -395,7 +434,8 @@ and emit_match indent scr cases =
   ^ String.concat "\n" (List.map emit_case cases)
 
 let emit_one_equation head_kw pats body =
-  let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat pats) in
+  let (annot_s, body) = split_clause_annot body in
+  let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
   let oneline = head ^ " = " ^ emit_expr 0 body in
   if fits 0 oneline then oneline
   else head ^ " =\n  " ^ emit_expr 2 body
@@ -428,6 +468,15 @@ let emit_top_item_pretty = function
     let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in
     if fits 0 oneline then oneline
     else Printf.sprintf "let %s =\n  %s" (emit_pat p) (emit_expr 2 e)
+  | TLLet (name, [], Annot (te, body)) ->
+    (* Same ambiguity as the local-`let` case: reprinting via inline
+       `expr : Type` would re-parse as cons, not ascription -- keep the
+       dedicated `let name : T = e` syntax. *)
+    let bodys = emit_expr 0 body in
+    let head = "let " ^ name ^ " : " ^ emit_type_expr te in
+    let oneline = head ^ " = " ^ bodys in
+    if fits 0 oneline then oneline
+    else head ^ " =\n  " ^ emit_expr 2 body
   | TLLet (name, [], e) ->
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" name body in
@@ -439,14 +488,17 @@ let emit_top_item_pretty = function
        String.concat "\n" (List.map (fun (pats, body) ->
          emit_one_equation ("let " ^ name) pats body) clauses)
      | None ->
-       let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat params) in
+       let (annot_s, e) = split_clause_annot e in
+       let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        let oneline = head ^ " = " ^ emit_expr 0 e in
        if fits 0 oneline then oneline
        else head ^ " =\n  " ^ emit_expr 2 e)
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
+      let (annot_s, body) = split_clause_annot body in
       let head = kw ^ " " ^ name
-        ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat params)) in
+        ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat_atom params))
+        ^ annot_s in
       let oneline = head ^ " = " ^ emit_expr 0 body in
       if fits 0 oneline then oneline
       else head ^ " =\n  " ^ emit_expr 2 body
