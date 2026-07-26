@@ -1,0 +1,50 @@
+import Test
+import Duration
+
+(* ── constructors ──────────────────────────────────────────────────────── *)
+
+test "zero" (fn t -> t.eq Duration.zero 0s)
+test "seconds" (fn t -> t.eq (Duration.seconds 30) 30s)
+test "minutes" (fn t -> t.eq (Duration.minutes 5) 5m)
+test "hours" (fn t -> t.eq (Duration.hours 2) 2h)
+test "days" (fn t -> t.eq (Duration.days 3) 3d)
+test "weeks" (fn t -> t.eq (Duration.weeks 1) 1w)
+
+(* ── literals round-trip via format ───────────────────────────────────── *)
+
+test "format simple" (fn t -> t.eq (Duration.format 5min) "5m")
+test "format compound" (fn t -> t.eq (Duration.format 1h30m) "1h30m")
+test "format millis" (fn t -> t.eq (Duration.format 500ms) "500ms")
+test "format complex" (fn t -> t.eq (Duration.format 2d12h30m) "2d12h30m")
+
+(* ── to_ms ─────────────────────────────────────────────────────────────── *)
+
+test "to_ms 1s" (fn t -> t.eq (Duration.to_ms 1s) 1000)
+test "to_ms 1min" (fn t -> t.eq (Duration.to_ms 1min) 60000)
+test "to_ms 1h" (fn t -> t.eq (Duration.to_ms 1h) 3600000)
+test "to_ms 500ms" (fn t -> t.eq (Duration.to_ms 500ms) 500)
+
+(* ── add ───────────────────────────────────────────────────────────────── *)
+
+test "add hours + minutes" (fn t ->
+  t.eq (Duration.format (Duration.add (Duration.hours 1) (Duration.minutes 30))) "1h30m")
+test "add seconds + seconds" (fn t ->
+  t.eq (Duration.format (Duration.add (Duration.seconds 30) (Duration.seconds 45))) "1m15s")
+test "add zero" (fn t -> t.eq (Duration.format (Duration.add 5min Duration.zero)) "5m")
+
+(* ── sub ───────────────────────────────────────────────────────────────── *)
+
+test "sub hours - minutes" (fn t ->
+  t.eq (Duration.format (Duration.sub (Duration.hours 2) (Duration.minutes 30))) "1h30m")
+test "sub clamp to zero" (fn t ->
+  t.eq (Duration.format (Duration.sub (Duration.minutes 1) (Duration.hours 1))) "0s")
+
+(* ── scale ─────────────────────────────────────────────────────────────── *)
+
+test "scale double" (fn t -> t.eq (Duration.format (Duration.scale 2 (Duration.hours 1))) "2h")
+test "scale triple" (fn t -> t.eq (Duration.format (Duration.scale 3 30s)) "1m30s")
+test "scale zero" (fn t -> t.eq (Duration.format (Duration.scale 0 1h)) "0s")
+
+(* ── pipeline ──────────────────────────────────────────────────────────── *)
+
+test "pipe" (fn t -> t.eq (Duration.seconds 90 |> Duration.format) "1m30s")

@@ -1,0 +1,90 @@
+import Test
+import String
+import List
+import Regex
+
+(* ── Literals ──────────────────────────────────────────────────────────── *)
+
+test "regex has type Regex" (fn t ->
+  let re = r/\d+/
+  in t.ok (Regex.match? re "abc123"))
+test "regex literal inline" (fn t -> t.ok (String.match? r/hello/ "say hello"))
+
+(* ── String.match? ─────────────────────────────────────────────────────── *)
+
+test "match found" (fn t -> t.ok (String.match? r/\d+/ "abc123"))
+test "match not found" (fn t -> t.eq (String.match? r/\d+/ "abc") false)
+test "match partial" (fn t -> t.ok (String.match? r/b/ "abc"))
+test "match anchored" (fn t -> t.ok (String.match? r/^\d+$/ "123"))
+test "match anchored fail" (fn t -> t.eq (String.match? r/^\d+$/ "1a") false)
+
+(* ── Flags ─────────────────────────────────────────────────────────────── *)
+
+test "flags case-insensitive i" (fn t -> t.ok (String.match? r/hello/i "HELLO"))
+test "flags case-insensitive miss without flag" (fn t ->
+  t.eq (String.match? r/hello/ "HELLO") false)
+test "flags multiline m - ^ matches line start" (fn t ->
+  t.ok (String.match? r/^world/m "hello\nworld"))
+test "flags dotall s - . matches newline" (fn t -> t.ok (String.match? r/a.b/s "a\nb"))
+test "flags dotall off by default" (fn t -> t.eq (String.match? r/a.b/ "a\nb") false)
+
+(* ── String.capture ────────────────────────────────────────────────────── *)
+
+test "capture no match returns empty list" (fn t ->
+  t.eq (List.length (String.capture r/\d+/ "abc")) 0)
+test "capture full match at index 0" (fn t ->
+  t.eq (List.head (String.capture r/\d+/ "abc123")) "123")
+test "capture groups" (fn t ->
+  t.eq (String.capture r/(\w+)@(\w+)/ "user@host") ["user@host", "user", "host"])
+test "capture two groups" (fn t ->
+  t.eq (String.capture r/^(\d+)-(\d+)$/ "2026-05") ["2026-05", "2026", "05"])
+test "capture pattern match on result" (fn t ->
+  match String.capture r/^(\S+)\s+(\d+)/ "foo 42" with
+  | [] -> t.eq "no match" "foo:42"
+  | [_, name, num] -> t.eq "${name}:${num}" "foo:42"
+  | _ -> t.eq "other" "foo:42")
+
+(* ── String.replace_re ─────────────────────────────────────────────────── *)
+
+test "replace first match" (fn t -> t.eq (String.replace_re r/\d+/ "X" "a1b2c3") "aXb2c3")
+test "replace no match returns original" (fn t -> t.eq (String.replace_re r/\d+/ "X" "abc") "abc")
+
+(* ── String.replace_all_re ─────────────────────────────────────────────── *)
+
+test "replace_all matches" (fn t -> t.eq (String.replace_all_re r/\d+/ "X" "a1b2c3") "aXbXcX")
+test "replace_all no match returns original" (fn t ->
+  t.eq (String.replace_all_re r/\d+/ "X" "abc") "abc")
+test "replace_all with empty string" (fn t ->
+  t.eq (String.replace_all_re r/\s+/ "" "a b  c") "abc")
+
+(* ── String.split_re ───────────────────────────────────────────────────── *)
+
+test "split_re on whitespace" (fn t -> t.eq (String.split_re r/\s+/ "a  b   c") ["a", "b", "c"])
+test "split_re on delimiter" (fn t -> t.eq (String.split_re r/,\s*/ "a, b,c") ["a", "b", "c"])
+
+(* ── String.match_all ──────────────────────────────────────────────────── *)
+
+test "match_all digit runs" (fn t -> t.eq (String.match_all r/\d+/ "a1b22c333") ["1", "22", "333"])
+test "match_all no matches" (fn t -> t.eq (String.match_all r/\d+/ "abc") [])
+test "match_all tokenizer-style alternation" (fn t ->
+  let got = String.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ "block{x=\"1\"}"
+  in t.eq got ["block", "{", "x", "=", "\"1\"", "}"])
+
+(* ── Regex module ──────────────────────────────────────────────────────── *)
+
+test "Regex.match?" (fn t -> t.ok (Regex.match? r/\d+/ "abc123"))
+test "Regex.capture" (fn t -> t.eq (Regex.capture r/(\d+)/ "abc123") ["123", "123"])
+test "Regex.replace" (fn t -> t.eq (Regex.replace r/\d+/ "X" "a1b2") "aXb2")
+test "Regex.replace_all" (fn t -> t.eq (Regex.replace_all r/\d+/ "X" "a1b2") "aXbX")
+test "Regex.split" (fn t -> t.eq (Regex.split r/,/ "a,b,c") ["a", "b", "c"])
+
+(* ── Regex.compile ─────────────────────────────────────────────────────── *)
+
+test "compile valid pattern" (fn t ->
+  match Regex.compile "\\d+" with
+  | Ok re   -> t.eq (Regex.match? re "abc123") true
+  | Error _ -> t.ok false)
+test "compile invalid pattern returns Error" (fn t ->
+  match Regex.compile "[invalid" with
+  | Ok _    -> t.ok false
+  | Error _ -> t.ok true)
