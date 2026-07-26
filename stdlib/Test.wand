@@ -5,19 +5,26 @@ type TestOutcome = Pass String | Fail String
 (** A handle passed into a test block, exposing assertion helpers. *)
 type Testing 'a 'b = Testing(
   ok: (Bool -> TestOutcome),
+  not_ok: (Bool -> TestOutcome),
   eq: ('a -> 'a -> TestOutcome),
+  not_eq: ('a -> 'a -> TestOutcome),
   raises: ((Unit -> 'b) -> TestOutcome)
 )
 
-(** Run a named test block, calling `f` with a handle whose `ok`/`eq`/
-    `raises` return a TestOutcome tagged with the given label. *)
+(** Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/
+    `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label. *)
 let test label f =
   let t = Testing(
     ok = fn cond ->
       if cond then Pass label else Fail "${label}: assertion failed",
+    not_ok = fn cond ->
+      if cond then Fail "${label}: expected assertion to fail" else Pass label,
     eq = fn expected actual ->
       if expected == actual then Pass label
       else Fail "${label}: expected ${expected}, got ${actual}",
+    not_eq = fn expected actual ->
+      if expected != actual then Pass label
+      else Fail "${label}: expected ${expected} to differ from ${actual}",
     raises = fn thunk ->
       match try (thunk ()) with
       | Ok _    -> Fail "${label}: expected to raise, but completed normally"

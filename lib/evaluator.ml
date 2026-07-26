@@ -891,6 +891,42 @@ let stdlib_eval_env : env = [
        | "false" -> VConstr ("Ok",    [VBool false])
        | _       -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Bool" s)]))
     | _ -> raise (EvalError "str_to_bool: expected String")));
+  ("types_check_expr", VBuiltin (function
+    | VString s ->
+      (match
+         Lexer.tokenize s
+         |> Parser.parse_expr
+         |> Typechecker.infer_expr
+         |> Result.map Typechecker.string_of_typ
+       with
+       | Ok t    -> VConstr ("Ok",    [VString t])
+       | Error e -> VConstr ("Error", [VString e])
+       | exception (Lexer.LexError e | Parser.ParseError e) -> VConstr ("Error", [VString e]))
+    | _ -> raise (EvalError "types_check_expr: expected String")));
+  ("types_check_program", VBuiltin (function
+    | VString s ->
+      (match
+         Lexer.tokenize s
+         |> Parser.parse_program
+         |> Typechecker.infer_program
+         |> Result.map Typechecker.string_of_typ
+       with
+       | Ok t    -> VConstr ("Ok",    [VString t])
+       | Error e -> VConstr ("Error", [VString e])
+       | exception (Lexer.LexError e | Parser.ParseError e) -> VConstr ("Error", [VString e]))
+    | _ -> raise (EvalError "types_check_program: expected String")));
+  ("types_holes", VBuiltin (function
+    | VString s ->
+      (match
+         Lexer.tokenize s
+         |> Parser.parse_program
+         |> Typechecker.infer_program_full_with_own
+       with
+       | Ok (_, _, _, holes) ->
+         VConstr ("Ok", [VList (List.map (fun t -> VString (Typechecker.string_of_typ t)) holes)])
+       | Error e -> VConstr ("Error", [VString e])
+       | exception (Lexer.LexError e | Parser.ParseError e) -> VConstr ("Error", [VString e]))
+    | _ -> raise (EvalError "types_holes: expected String")));
   ("str_to_path", VBuiltin (function
     | VString s -> VPath s
     | _ -> raise (EvalError "str_to_path: expected String")));

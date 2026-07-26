@@ -15,10 +15,6 @@
  (libraries wand alcotest))
 
 (test
- (name test_typechecker)
- (libraries wand alcotest))
-
-(test
  (name test_eval)
  (libraries wand alcotest))
 
@@ -86,7 +82,7 @@
 
 (test
  (name test_wand_stdlib)
- (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand)
+ (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand wand/types_test.wand)
  (libraries wand alcotest))
 
 (test

@@ -885,6 +885,9 @@ let stdlib_type_env : env = [
   ("str_to_int",       Mono (TFun (TString, TResult (TString, TInt))));
   ("str_to_float",     Mono (TFun (TString, TResult (TString, TFloat))));
   ("str_to_bool",      Mono (TFun (TString, TResult (TString, TBool))));
+  ("types_check_expr",    Mono (TFun (TString, TResult (TString, TString))));
+  ("types_check_program", Mono (TFun (TString, TResult (TString, TString))));
+  ("types_holes",          Mono (TFun (TString, TResult (TString, TList TString))));
   ("str_to_path",      Mono (TFun (TString, TPath)));
   ("str_to_url",       Mono (TFun (TString, TResult (TString, TUrl))));
   ("str_to_ipv4",      Mono (TFun (TString, TResult (TString, TIPv4))));

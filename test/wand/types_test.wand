@@ -1,0 +1,167 @@
+import Test
+import Types
+
+(* ── Primitive literals ───────────────────────────────────────────────── *)
+
+test "int"    (fn t -> t.eq (Types.check "42") (Ok "Int"))
+test "float"  (fn t -> t.eq (Types.check "3.14") (Ok "Float"))
+test "string" (fn t -> t.eq (Types.check "\"hello\"") (Ok "String"))
+test "true"   (fn t -> t.eq (Types.check "true") (Ok "Bool"))
+test "false"  (fn t -> t.eq (Types.check "false") (Ok "Bool"))
+test "unit"   (fn t -> t.eq (Types.check "()") (Ok "Unit"))
+
+(* ── Domain literals ──────────────────────────────────────────────────── *)
+
+test "path"     (fn t -> t.eq (Types.check "/etc/foo") (Ok "Path"))
+test "date"     (fn t -> t.eq (Types.check "2024-01-15") (Ok "Date"))
+test "time"     (fn t -> t.eq (Types.check "14:30:00") (Ok "Time"))
+test "duration" (fn t -> t.eq (Types.check "5min") (Ok "Duration"))
+test "url"      (fn t -> t.eq (Types.check "https://example.com") (Ok "Url"))
+test "ipv4"     (fn t -> t.eq (Types.check "192.168.1.1") (Ok "IPv4"))
+test "cidr"     (fn t -> t.eq (Types.check "10.0.0.0/24") (Ok "CIDR"))
+test "port"     (fn t -> t.eq (Types.check ":8080") (Ok "Port"))
+test "version"  (fn t -> t.eq (Types.check "1.2.3") (Ok "Version"))
+test "size"     (fn t -> t.eq (Types.check "10MB") (Ok "Size"))
+
+(* ── Variables ─────────────────────────────────────────────────────────── *)
+
+test "int var"    (fn t -> t.eq (Types.check "let x = 1 in x") (Ok "Int"))
+test "bool var"   (fn t -> t.eq (Types.check "let x = true in x") (Ok "Bool"))
+test "string var" (fn t -> t.eq (Types.check "let x = \"hi\" in x") (Ok "String"))
+test "shadow"     (fn t -> t.eq (Types.check "let x = 1 in let x = true in x") (Ok "Bool"))
+
+(* ── Arithmetic & comparison ──────────────────────────────────────────── *)
+
+test "add" (fn t -> t.eq (Types.check "1 + 2") (Ok "Int"))
+test "sub" (fn t -> t.eq (Types.check "1 - 2") (Ok "Int"))
+test "mul" (fn t -> t.eq (Types.check "2 * 3") (Ok "Int"))
+test "div" (fn t -> t.eq (Types.check "6 / 2") (Ok "Int"))
+
+test "eq int"    (fn t -> t.eq (Types.check "1 == 1") (Ok "Bool"))
+test "eq string" (fn t -> t.eq (Types.check "\"a\" == \"b\"") (Ok "Bool"))
+test "neq"       (fn t -> t.eq (Types.check "1 != 2") (Ok "Bool"))
+test "lt"        (fn t -> t.eq (Types.check "1 < 2") (Ok "Bool"))
+test "gt"        (fn t -> t.eq (Types.check "1 > 2") (Ok "Bool"))
+test "lte"       (fn t -> t.eq (Types.check "1 <= 2") (Ok "Bool"))
+test "gte"       (fn t -> t.eq (Types.check "1 >= 2") (Ok "Bool"))
+
+test "and" (fn t -> t.eq (Types.check "true && false") (Ok "Bool"))
+test "or"  (fn t -> t.eq (Types.check "true || false") (Ok "Bool"))
+
+test "not" (fn t -> t.eq (Types.check "!true") (Ok "Bool"))
+test "neg" (fn t -> t.eq (Types.check "-1") (Ok "Int"))
+
+(* ── If ────────────────────────────────────────────────────────────────── *)
+
+test "int branches"    (fn t -> t.eq (Types.check "if true then 1 else 0") (Ok "Int"))
+test "string branches" (fn t -> t.eq (Types.check "if true then \"a\" else \"b\"") (Ok "String"))
+test "nested"           (fn t -> t.eq (Types.check "if true then if false then 1 else 2 else 3") (Ok "Int"))
+
+(* ── Let ───────────────────────────────────────────────────────────────── *)
+
+test "body arith"   (fn t -> t.eq (Types.check "let x = 1 in x + 1") (Ok "Int"))
+test "fn in let"    (fn t -> t.eq (Types.check "let f = fn x -> x + 1 in f 5") (Ok "Int"))
+test "fn shorthand" (fn t -> t.eq (Types.check "let f x = x + 1 in f 5") (Ok "Int"))
+test "recursive"    (fn t -> t.eq (Types.check "let fact n = if n <= 0 then 1 else n * fact (n - 1) in fact 5") (Ok "Int"))
+test "poly id"      (fn t -> t.eq (Types.check "let id x = x in id 1") (Ok "Int"))
+
+(* ── Functions ─────────────────────────────────────────────────────────── *)
+
+test "identity" (fn t -> t.eq (Types.check "fn x -> x") (Ok "'a -> 'a"))
+test "add one"   (fn t -> t.eq (Types.check "fn x -> x + 1") (Ok "Int -> Int"))
+test "const"     (fn t -> t.eq (Types.check "fn x -> fn y -> x") (Ok "'a -> 'b -> 'a"))
+test "flip"      (fn t -> t.eq (Types.check "fn x -> fn y -> y") (Ok "'a -> 'b -> 'b"))
+test "compose"   (fn t -> t.eq (Types.check "fn f -> fn x -> f x") (Ok "('a -> 'b) -> 'a -> 'b"))
+
+(* ── Application ───────────────────────────────────────────────────────── *)
+
+test "int result"  (fn t -> t.eq (Types.check "(fn x -> x + 1) 5") (Ok "Int"))
+test "bool result" (fn t -> t.eq (Types.check "(fn x -> x) true") (Ok "Bool"))
+test "two args"     (fn t -> t.eq (Types.check "(fn x -> fn y -> x) 1 true") (Ok "Int"))
+
+(* ── Let polymorphism ─────────────────────────────────────────────────── *)
+
+test "id int"    (fn t -> t.eq (Types.check "let id = fn x -> x in id 1") (Ok "Int"))
+test "id bool"   (fn t -> t.eq (Types.check "let id = fn x -> x in id true") (Ok "Bool"))
+test "id string" (fn t -> t.eq (Types.check "let id = fn x -> x in id \"hi\"") (Ok "String"))
+
+(* ── Tuples ────────────────────────────────────────────────────────────── *)
+
+test "pair"   (fn t -> t.eq (Types.check "(1, true)") (Ok "(Int, Bool)"))
+test "triple" (fn t -> t.eq (Types.check "(1, 2, 3)") (Ok "(Int, Int, Int)"))
+test "nested" (fn t -> t.eq (Types.check "((1, 2), true)") (Ok "((Int, Int), Bool)"))
+
+(* ── Lists ─────────────────────────────────────────────────────────────── *)
+
+test "empty"   (fn t -> t.eq (Types.check "[]") (Ok "List 'a"))
+test "ints"    (fn t -> t.eq (Types.check "[1, 2, 3]") (Ok "List Int"))
+test "strings" (fn t -> t.eq (Types.check "[\"a\", \"b\"]") (Ok "List String"))
+
+(* ── Match ─────────────────────────────────────────────────────────────── *)
+
+test "bool scrutinee" (fn t -> t.eq (Types.check "match true with\n| true -> 1\n| false -> 0") (Ok "Int"))
+test "wildcard arm"   (fn t -> t.eq (Types.check "match 1 with\n| 1 -> true\n| _ -> false") (Ok "Bool"))
+test "guard"           (fn t -> t.eq (Types.check "fn n -> match n with\n| x when x > 0 -> true\n| _ -> false") (Ok "Int -> Bool"))
+
+(* ── Pipeline ──────────────────────────────────────────────────────────── *)
+
+test "pipeline"    (fn t -> t.eq (Types.check "1 |> fn x -> x + 1") (Ok "Int"))
+test "double pipe" (fn t -> t.eq (Types.check "1 |> fn x -> x + 1 |> fn x -> x * 2") (Ok "Int"))
+
+(* ── Type errors ───────────────────────────────────────────────────────── *)
+
+test "add bool"        (fn t -> t.ok (Types.fails? "1 + true"))
+test "if not bool"     (fn t -> t.ok (Types.fails? "if 1 then 2 else 3"))
+test "branch mismatch" (fn t -> t.ok (Types.fails? "if true then 1 else true"))
+test "apply non-fn"    (fn t -> t.ok (Types.fails? "1 2"))
+test "list mismatch"   (fn t -> t.ok (Types.fails? "[1, true]"))
+
+(* ── Program-level inference: enum types ──────────────────────────────── *)
+
+test "nullary" (fn t -> t.eq (Types.check_program "type Color = Red | Green; Red") (Ok "Color"))
+test "second"  (fn t -> t.eq (Types.check_program "type Color = Red | Green; Green") (Ok "Color"))
+
+(* ── Program-level inference: payload types ───────────────────────────── *)
+
+test "single arg" (fn t -> t.eq (Types.check_program "type Wrap = Wrap Int; Wrap 42") (Ok "Wrap"))
+test "two args"    (fn t -> t.eq (Types.check_program "type Pair = Pair Int Int; Pair 3 4") (Ok "Pair"))
+
+(* ── Program-level inference: match on constructors ───────────────────── *)
+
+test "nullary arms" (fn t -> t.eq (Types.check_program "type Color = Red | Green\nlet f c = match c with\n| Red   -> 1\n| Green -> 2\nf Red") (Ok "Int"))
+
+test "payload arm" (fn t -> t.eq (Types.check_program "type Wrap = Wrap Int\nlet unwrap w = match w with\n| Wrap n -> n\nunwrap (Wrap 42)") (Ok "Int"))
+
+(* ── Program-level inference: named field typedef ─────────────────────── *)
+
+test "field access" (fn t -> t.eq (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.x") (Ok "Int"))
+
+test "second field" (fn t -> t.eq (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.y") (Ok "Int"))
+
+(* ── Program-level inference: constructor errors ──────────────────────── *)
+
+test "unknown ctor"   (fn t -> t.ok (Types.fails? "Bogus"))
+test "wrong arg type" (fn t -> t.ok (Types.fails? "type Wrap = Wrap Int; Wrap true"))
+
+(* ── Type annotations ─────────────────────────────────────────────────── *)
+
+test "value annot"     (fn t -> t.eq (Types.check_program "let x : Int = 42; x") (Ok "Int"))
+test "fn return annot" (fn t -> t.eq (Types.check_program "let double x : Int = x * 2; double 3") (Ok "Int"))
+test "annot mismatch"  (fn t -> t.ok (Types.fails? "let x : Bool = 42"))
+
+(* ── Type annotation syntax ───────────────────────────────────────────── *)
+
+test "tuple annot" (fn t -> t.eq (Types.check_program "let x : (Int, Int) = (1, 2); x") (Ok "(Int, Int)"))
+test "list annot matches inference" (fn t -> t.eq (Types.check_program "let xs : List Int = [1, 2, 3]; xs") (Ok "List Int"))
+test "map annot matches inference" (fn t -> t.eq (Types.check_program "let m : Map Int = [x = 1, y = 2]; m") (Ok "Map Int"))
+test "result annot matches inference" (fn t -> t.eq (Types.check_program "let r : Result String Int = Ok 1; r") (Ok "Result String Int"))
+test "function annot" (fn t -> t.eq (Types.check_program "let f : Int -> Int = fn x -> x + 1; f 1") (Ok "Int"))
+test "left-nested function annot" (fn t -> t.eq (Types.check_program "let g : (Int -> Int) -> Int = fn f -> f 1; g (fn x -> x + 1)") (Ok "Int"))
+test "list of tuples annot" (fn t -> t.eq (Types.check_program "let xs : List (Int, Int) = [(1, 2)]; xs") (Ok "List (Int, Int)"))
+test "unsupported generic head" (fn t -> t.ok (Types.fails? "let x : Option Int = 1"))
+
+(* ── Constructor field grouping ───────────────────────────────────────── *)
+
+test "single field grouped application" (fn t -> t.eq (Types.check_program "type Wrap = Wrap (List Int); let w = Wrap [1, 2, 3]; w") (Ok "Wrap"))
+test "single field grouped tuple" (fn t -> t.eq (Types.check_program "type Pair = Pair (Int, Int); let p = Pair (1, 2); p") (Ok "Pair"))
+test "named field with colon" (fn t -> t.eq (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.x") (Ok "Int"))
