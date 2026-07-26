@@ -250,45 +250,18 @@ let run_with_default_handler (thunk : unit -> value) : value =
 
 (* ── Import resolution ────────────────────────────────────────────────────── *)
 
-let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
-
-let find_stdlib_dir () =
-  match Sys.getenv_opt "WAND_STDLIB" with
-  | Some dir -> dir
-  | None ->
-    (* Walk up from CWD until we find a stdlib/ directory *)
-    let rec ascend dir =
-      let candidate = Filename.concat dir "stdlib" in
-      if Sys.file_exists candidate then candidate
-      else
-        let parent = Filename.dirname dir in
-        if parent = dir then Filename.concat (Sys.getcwd ()) "stdlib"
-        else ascend parent
-    in
-    ascend (Sys.getcwd ())
-
-let resolve_stdlib name =
-  let stdlib_dir = find_stdlib_dir () in
-  let exact = Filename.concat stdlib_dir (name ^ ".wand") in
-  if Sys.file_exists exact then exact
-  else
-    let lower = Filename.concat stdlib_dir (String.lowercase_ascii name ^ ".wand") in
-    if Sys.file_exists lower then lower
-    else exact
-
-let resolve_import base_dir = function
-  | Ast.StdlibModule name -> resolve_stdlib name
-  | Ast.UserPath path ->
-    if Filename.is_relative path
-    then Filename.concat base_dir (add_ext path)
-    else add_ext path
-
-let namespace_name_of = function
-  | Ast.StdlibModule name -> name
-  | Ast.UserPath path ->
-    let base = Filename.basename (Filename.remove_extension path) in
-    if String.length base = 0 then "Module"
-    else String.make 1 (Char.uppercase_ascii base.[0]) ^ String.sub base 1 (String.length base - 1)
+(* Path resolution, `import`-expression matching, and other purely
+   type/AST-level pieces of this live in `Module_types` (shared with
+   `Evaluator`'s `Types` primitives, which typecheck imports without
+   evaluating them). Only the parts that need `Evaluator.value`/`eval` stay
+   here. *)
+let add_ext          = Module_types.add_ext
+let resolve_import    = Module_types.resolve_import
+let namespace_name_of = Module_types.namespace_name_of
+let local_tenv_of     = Module_types.local_tenv_of
+let is_private        = Module_types.is_private
+let strip_located     = Module_types.strip_located
+let import_kind_of    = Module_types.import_kind_of
 
 type import_env = {
   tenv     : (string * Ast.type_def) list;
@@ -303,21 +276,6 @@ let merge_import_env a b = {
   type_env = b.type_env @ a.type_env;
   eval_env = b.eval_env @ a.eval_env;
 }
-
-let local_tenv_of prog =
-  List.filter_map (function
-    | Ast.TLType (Ast.Variants (n, _, _) as tdef) -> Some (n, tdef)
-    | _ -> None) prog.Ast.items
-
-let is_private name = String.length name > 0 && name.[0] = '_'
-
-let rec strip_located = function
-  | Ast.Located (_, e) -> strip_located e
-  | e -> e
-
-let import_kind_of e = match strip_located e with
-  | Ast.ImportExpr k -> Some k
-  | _ -> None
 
 (* ── Multi-clause merging ─────────────────────────────────────────────────── *)
 

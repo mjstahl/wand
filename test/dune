@@ -82,7 +82,9 @@
 
 (test
  (name test_wand_stdlib)
- (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand wand/types_test.wand)
+ (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand
+       wand/types_test.wand wand/csv_test.wand wand/json_test.wand wand/toml_test.wand
+       wand/glob_test.wand wand/imports_test.wand wand/imports_fixture.wand)
  (libraries wand alcotest))
 
 (test
@@ -91,19 +93,7 @@
 
 (test
  (name test_glob)
- (libraries wand alcotest unix))
-
-(test
- (name test_csv)
- (libraries wand alcotest unix))
-
-(test
- (name test_json)
- (libraries wand alcotest unix))
-
-(test
- (name test_toml)
- (libraries wand alcotest unix))
+ (libraries wand alcotest))
 
 (test
  (name test_exhaustiveness)

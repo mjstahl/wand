@@ -3,6 +3,7 @@ import FS
 import Path
 import List
 import String
+import Types
 
 (* Real filesystem operations, self-contained: this file creates its own
    scratch directory (via FS.temp_file, so it can't collide with another
@@ -130,6 +131,14 @@ test "cwd returns an existing directory" (fn t -> t.ok (FS.is_dir? (FS.cwd ())))
 test "cleanup scratch directory" (fn t ->
   let () = FS.delete (Path.of_string scratch)
   in t.ok true)
+
+(* ── type errors ───────────────────────────────────────────────────────── *)
+
+test "read_file rejects a non-string argument" (fn t ->
+  t.ok (Types.fails? "import FS\nFS.read_file 42"))
+
+test "write_file rejects a non-string path argument" (fn t ->
+  t.ok (Types.fails? "import FS\nFS.write_file 42 \"content\""))
 
 (* ── effect handler mocking ────────────────────────────────────────────── *)
 

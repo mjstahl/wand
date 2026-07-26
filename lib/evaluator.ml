@@ -782,6 +782,25 @@ let try_lex_single s =
   | _ -> None
   | exception Lexer.LexError _ -> None
 
+(* Parse a program and resolve its `import`s to real inferred types (via
+   `Module_types.infer_imports_for`, which typechecks but never evaluates an
+   imported module) before handing it to `f`. Used by `types_check_program`/
+   `types_holes` so a snippet like "import FS\nFS.read_file 42" is checked
+   against FS's real signature instead of silently treating the import as a
+   no-op. Only resolves stdlib imports meaningfully -- a relative `import
+   ./x` is resolved against the process's cwd, which has no reliable
+   relationship to any particular wand source file. *)
+let infer_program_with_imports s f =
+  match
+    let prog = Lexer.tokenize s |> Parser.parse_program in
+    let cache = Hashtbl.create 8 in
+    let loading = ref [] in
+    let imported = Module_types.infer_imports_for ~base_dir:(Sys.getcwd ()) ~cache ~loading prog in
+    f ~init_tenv:imported.Module_types.tenv ~init_env:imported.Module_types.type_env prog
+  with
+  | result -> result
+  | exception (Lexer.LexError e | Parser.ParseError e | Failure e) -> Error e
+
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
@@ -906,26 +925,22 @@ let stdlib_eval_env : env = [
   ("types_check_program", VBuiltin (function
     | VString s ->
       (match
-         Lexer.tokenize s
-         |> Parser.parse_program
-         |> Typechecker.infer_program
-         |> Result.map Typechecker.string_of_typ
+         infer_program_with_imports s (fun ~init_tenv ~init_env prog ->
+           Typechecker.infer_program_full_with_own ~init_tenv ~init_env prog
+           |> Result.map (fun (_, _, last_t, _) -> Typechecker.string_of_typ last_t))
        with
        | Ok t    -> VConstr ("Ok",    [VString t])
-       | Error e -> VConstr ("Error", [VString e])
-       | exception (Lexer.LexError e | Parser.ParseError e) -> VConstr ("Error", [VString e]))
+       | Error e -> VConstr ("Error", [VString e]))
     | _ -> raise (EvalError "types_check_program: expected String")));
   ("types_holes", VBuiltin (function
     | VString s ->
       (match
-         Lexer.tokenize s
-         |> Parser.parse_program
-         |> Typechecker.infer_program_full_with_own
+         infer_program_with_imports s (fun ~init_tenv ~init_env prog ->
+           Typechecker.infer_program_full_with_own ~init_tenv ~init_env prog
+           |> Result.map (fun (_, _, _, holes) -> List.map Typechecker.string_of_typ holes))
        with
-       | Ok (_, _, _, holes) ->
-         VConstr ("Ok", [VList (List.map (fun t -> VString (Typechecker.string_of_typ t)) holes)])
-       | Error e -> VConstr ("Error", [VString e])
-       | exception (Lexer.LexError e | Parser.ParseError e) -> VConstr ("Error", [VString e]))
+       | Ok holes -> VConstr ("Ok", [VList (List.map (fun t -> VString t) holes)])
+       | Error e  -> VConstr ("Error", [VString e]))
     | _ -> raise (EvalError "types_holes: expected String")));
   ("str_to_path", VBuiltin (function
     | VString s -> VPath s

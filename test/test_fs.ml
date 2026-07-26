@@ -5,11 +5,6 @@ let run s = Runner.run_string s
 let ok label input expected =
   Alcotest.(check (result string string)) label (Ok expected) (run input)
 
-let err label input =
-  match run input with
-  | Error _ -> ()
-  | Ok v -> Alcotest.failf "%s: expected error but got: %s" label v
-
 (* Trust anchor for test/wand/fs_test.wand: verifies FS.write_file/
    read_file round-trip against a real, OCaml-managed temp file. Every
    other FS.wand fixture test builds on this to create/read its own
@@ -25,24 +20,11 @@ FS.read_file "%s"|} tmp tmp in
    with e -> (try Sys.remove tmp with _ -> ()); raise e);
   (try Sys.remove tmp with _ -> ())
 
-(* These are type errors, so the whole file fails to typecheck before any
-   test runs -- they can't be expressed as wand-native Test.wand cases,
-   which only isolate runtime failures within an otherwise well-typed
-   file. *)
-let test_type_errors () =
-  err "read_file non-string"      {|import FS
-FS.read_file 42|};
-  err "write_file non-string arg" {|import FS
-FS.write_file 42 "content"|}
-
 (* ── Suite ─────────────────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run "FS" [
     "real", [
       Alcotest.test_case "read/write round trip" `Quick test_read_write_round_trip;
-    ];
-    "errors", [
-      Alcotest.test_case "type errors" `Quick test_type_errors;
     ];
   ]
