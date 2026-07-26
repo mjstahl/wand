@@ -9,6 +9,9 @@ let expr = Alcotest.(testable Ast.pp Ast.equal)
 let e label input expected =
   Alcotest.(check expr) label expected (parse input)
 
+let parse_program s =
+  Lexer.tokenize s |> Parser.parse_program
+
 (* ── Literals ────────────────────────────────────────────────────────────── *)
 
 let test_lits () =
@@ -83,7 +86,29 @@ let test_app () =
   e "unit arg"  "f ()"   (App (Var "f", Unit));
   e "app then op"
     "f x + 1"
-    (BinOp ("+", App (Var "f", Var "x"), Int 1))
+    (BinOp ("+", App (Var "f", Var "x"), Int 1));
+  (* A newline inside an open paren doesn't end the argument list -- it's
+     still one call, not a parse error and not two unrelated expressions. *)
+  e "multi-line args inside parens"
+    "f (1, 2,\n   3, 4)"
+    (App (Var "f", Tuple [Int 1; Int 2; Int 3; Int 4]));
+  e "newline before an argument's own open paren"
+    "f (g x,\n   (h y))"
+    (App (Var "f", Tuple [App (Var "g", Var "x"); App (Var "h", Var "y")]))
+
+(* A newline inside an open paren must never cause a multi-line call to be
+   silently read as two separate top-level statements (the original bug: a
+   truncated application not nested in any pending close-bracket consumer
+   just let a fresh top-level expression start on the next line, with no
+   error at all). *)
+let test_program_newlines () =
+  let prog = parse_program "f (1, 2,\n   3, 4)" in
+  Alcotest.(check int) "single top-level item" 1 (List.length prog.items);
+  (match prog.items with
+   | [TLExpr e] ->
+     Alcotest.(check expr) "single App top-level item"
+       (App (Var "f", Tuple [Int 1; Int 2; Int 3; Int 4])) e
+   | _ -> Alcotest.fail "expected a single TLExpr top-level item")
 
 (* ── Tuples ──────────────────────────────────────────────────────────────── *)
 
@@ -113,7 +138,15 @@ let test_constr_app () =
 
 let test_field () =
   e "field"  "r.name"  (Field (Var "r", "name"));
-  e "chain"  "r.a.b"   (Field (Field (Var "r", "a"), "b"))
+  e "chain"  "r.a.b"   (Field (Field (Var "r", "a"), "b"));
+  (* `.field` binds to the immediately preceding atom, not the whole
+     application chain: `f x.y` is `f (x.y)`, not `(f x).y`. *)
+  e "field on argument"
+    "f x.y"
+    (App (Var "f", Field (Var "x", "y")));
+  e "chained field on argument"
+    "f x.a.b"
+    (App (Var "f", Field (Field (Var "x", "a"), "b")))
 
 (* ── Let ─────────────────────────────────────────────────────────────────── *)
 
@@ -212,6 +245,7 @@ let () =
       Alcotest.test_case "logical"      `Quick test_logical;
       Alcotest.test_case "parens"       `Quick test_parens;
       Alcotest.test_case "application"  `Quick test_app;
+      Alcotest.test_case "program newlines" `Quick test_program_newlines;
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
       Alcotest.test_case "constr app"    `Quick test_constr_app;

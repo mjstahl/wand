@@ -6,6 +6,9 @@ type state = {
   tokens : (Token.t * Token.loc) array;
   mutable pos : int;
   mutable in_contract : bool;
+  mutable paren_depth : int;
+    (* depth of unclosed (/[/{ -- lets newline-significance checks tell "end
+       of statement" apart from "still inside an open bracket" *)
   ctor_field_count : (string, int) Hashtbl.t;
     (* constructor name -> number of declared fields, recorded while parsing
        `type` definitions so `Ctor (e1, ..., en)` call sites can tell apart
@@ -20,7 +23,7 @@ let make tokens =
   Hashtbl.replace ctor_field_count "Ok" 1;
   Hashtbl.replace ctor_field_count "Error" 1;
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
-    ctor_field_count }
+    paren_depth = 0; ctor_field_count }
 
 (* Plain `Comment _` tokens are invisible to the real parser, exactly like
    `Newline` -- only `DocComment` is left unfiltered (parse_program's
@@ -53,6 +56,14 @@ let has_newline_before_next s =
   done;
   !seen_break
 
+(* A newline only ends a statement/application chain outside of any open
+   bracket -- inside one (still-open call args, list/tuple elements, ...) it's
+   just formatting, and the enclosing bracket's own `expect ... RParen`-style
+   check is what will catch a genuinely malformed program. Without this,
+   an unclosed application spanning a newline could silently be read as two
+   unrelated statements instead of either parsing correctly or erroring. *)
+let newline_breaks_expr s = has_newline_before_next s && s.paren_depth = 0
+
 let peek s =
   let i = ref s.pos in
   while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
@@ -68,7 +79,12 @@ let advance s =
   if s.pos >= Array.length s.tokens then Token.EOF
   else begin
     let t = fst s.tokens.(s.pos) in
-    s.pos <- s.pos + 1; t
+    s.pos <- s.pos + 1;
+    (match t with
+     | Token.LParen | Token.LBracket | Token.LBrace -> s.paren_depth <- s.paren_depth + 1
+     | Token.RParen | Token.RBracket | Token.RBrace -> s.paren_depth <- max 0 (s.paren_depth - 1)
+     | _ -> ());
+    t
   end
 
 let advance_loc s =
@@ -357,7 +373,7 @@ let rec parse_type_atom s =
 
 and parse_type_app s =
   let left = ref (parse_type_atom s) in
-  while is_type_atom_start (peek s) && not (has_newline_before_next s) do
+  while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
     left := Ast.TEApp (!left, parse_type_atom s)
   done;
   !left
@@ -374,7 +390,7 @@ let rec expr_ bp s =
   let left = ref (atom_ s) in
   let continue_ = ref true in
   while !continue_ do
-    let had_newline = has_newline_before_next s in
+    let had_newline = newline_breaks_expr s in
     let t = peek s in
     let bp' = lbp t in
     if bp' > bp then begin
@@ -409,7 +425,7 @@ and infix_ left op s =
   | Token.Dot       -> Field (left, expect_ident s)
   | t -> raise (ParseError (Format.asprintf "unexpected infix: %a" Token.pp t))
 
-and atom_ s =
+and atom_base_ s =
   let loc = loc_prefix s in
   match advance s with
   | Token.Int n      -> (Int n : expr)
@@ -430,15 +446,7 @@ and atom_ s =
   | Token.Size sz    -> Size sz
   | Token.Ident name  -> Var name
   | Token.Upper name  ->
-    if peek s = Token.Dot then begin
-      (* Eagerly consume dot-chains so Ns.f is one atom *)
-      let e = ref (Constr name) in
-      while peek s = Token.Dot do
-        ignore (advance s);
-        e := Field (!e, expect_ident s)
-      done;
-      !e
-    end else if peek_named_args s then begin
+    if peek_named_args s then begin
       ignore (advance s); (* consume LParen *)
       let fields = ref [] in
       if peek s <> Token.RParen then begin
@@ -535,6 +543,21 @@ and atom_ s =
   | Token.Try    -> Ast.Try (expr_ 0 s)
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
+
+(* `.field` binds tightly to the atom it immediately follows -- applied right
+   after every atom_base_ call so `f x.y` parses as `f (x.y)`, not `(f x).y`
+   (which is what plain infix-operator precedence would give, since by the
+   time the Pratt loop in expr_ reaches `.`, `left` already has the whole
+   application chain accumulated). *)
+and postfix_field_ s e =
+  let e = ref e in
+  while peek s = Token.Dot do
+    ignore (advance s);
+    e := Field (!e, expect_ident s)
+  done;
+  !e
+
+and atom_ s = postfix_field_ s (atom_base_ s)
 
 and list_ s =
   (* [ already consumed *)
@@ -902,7 +925,7 @@ let parse_type_def s =
     match peek s with
     | Token.Upper _ | Token.TypeVar _ ->
       let fields = ref [(None, parse_type_atom s)] in
-      while is_type_atom_start (peek s) && not (has_newline_before_next s) do
+      while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
         fields := !fields @ [(None, parse_type_atom s)]
       done;
       !fields
