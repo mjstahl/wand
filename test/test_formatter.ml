@@ -76,6 +76,14 @@ f (Ok 1)|}
      regression guard for exactly that bug. *)
   ok_after_format "recursive local let stays recursive after formatting"
     "let f = fn t -> let fact n = if n <= 0 then 1 else n * fact (n - 1) in fact t\nf 5"
+    "120";
+  (* Local multi-equation clauses can repeat `let` (matching top-level
+     syntax, parser.ml's `parse_fn_binding`) -- both clauses only give the
+     right answer (120, via real 0/n dispatch) if genuinely merged into one
+     recursive function; if the second `let fact` instead shadowed the first
+     as a fresh nested binding, this would stack-overflow (no base case). *)
+  ok_after_format "local multi-equation with repeated let stays merged after formatting"
+    "let f = fn t -> let fact 0 = 1\nlet fact n = n * fact (n - 1)\nin fact t\nf 5"
     "120"
 
 (* `Ok 42.0` reformatting to `Ok 42` runs fine and *displays* the same (both

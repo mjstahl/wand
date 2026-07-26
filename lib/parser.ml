@@ -642,6 +642,10 @@ and parse_fn_binding s name =
   while !more do
     let saved = s.pos in
     (try
+      (* A continuation clause may optionally repeat `let` (matching the
+         top-level `let f 0 = .. / let f n = ..` syntax) or omit it (the
+         original local shorthand) -- both are accepted. *)
+      (match peek s with Token.Let -> ignore (advance s) | _ -> ());
       (match peek s with
        | Token.Ident n when n = name -> ignore (advance s)
        | _ -> raise Exit);

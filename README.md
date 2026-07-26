@@ -128,6 +128,16 @@ let fib 1 = 1
 let fib n = fib (n - 1) + fib (n - 2)
 ```
 
+Works locally too, with `in` — repeating `let` on each clause or not:
+
+```
+let answer =
+  let fib 0 = 0
+  let fib 1 = 1
+  let fib n = fib (n - 1) + fib (n - 2)
+  in fib 10
+```
+
 Mutually-recursive functions — chain definitions with `and`:
 
 ```

@@ -161,6 +161,17 @@ let test_let () =
     "let (a, b) = p in a"
     (Let (PTuple [PVar "a"; PVar "b"], Var "p", Var "a"))
 
+(* Local multi-equation continuation clauses accept either a bare repeated
+   name or a repeated `let` (matching the top-level `let f 0 = .. / let
+   f n = ..` syntax) -- both must parse to the identical merged AST. *)
+let test_local_multi_equation () =
+  let bare = parse "let f 0 = 1\nf n = n * f (n - 1)\nin f 5" in
+  let with_let = parse "let f 0 = 1\nlet f n = n * f (n - 1)\nin f 5" in
+  Alcotest.(check expr) "let-prefixed matches bare form" bare with_let;
+  (match bare with
+   | Let (PVar "f", Fn ([PVar "_p0"], Match (Var "_p0", [(Int 0, None, _); (PVar "n", None, _)])), _) -> ()
+   | _ -> Alcotest.fail "expected a merged multi-equation Fn/Match")
+
 (* ── If / then / else ────────────────────────────────────────────────────── *)
 
 let test_if () =
@@ -253,6 +264,7 @@ let () =
     ];
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
+      Alcotest.test_case "local multi-equation" `Quick test_local_multi_equation;
       Alcotest.test_case "if"           `Quick test_if;
       Alcotest.test_case "match"        `Quick test_match;
       Alcotest.test_case "constr pats"       `Quick test_constr_pats;
