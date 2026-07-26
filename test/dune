@@ -15,48 +15,8 @@
  (libraries wand alcotest))
 
 (test
- (name test_eval)
- (libraries wand alcotest))
-
-(test
- (name test_script)
- (libraries wand alcotest))
-
-(test
- (name test_typedef)
- (libraries wand alcotest))
-
-(test
- (name test_generics)
- (libraries wand alcotest))
-
-(test
- (name test_contracts)
- (libraries wand alcotest))
-
-(test
- (name test_process)
- (libraries wand alcotest))
-
-(test
- (name test_strings)
- (libraries wand alcotest))
-
-(test
- (name test_effects)
- (libraries wand alcotest))
-
-(test
- (name test_list_patterns)
- (libraries wand alcotest))
-
-(test
  (name test_wand_string)
  (deps wand/string_test.wand)
- (libraries wand alcotest))
-
-(test
- (name test_io)
  (libraries wand alcotest))
 
 (test
@@ -69,14 +29,6 @@
  (libraries wand alcotest))
 
 (test
- (name test_process_module)
- (libraries wand alcotest))
-
-(test
- (name test_env)
- (libraries wand alcotest unix))
-
-(test
  (name test_cli)
  (libraries wand alcotest))
 
@@ -84,7 +36,10 @@
  (name test_wand_stdlib)
  (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand
        wand/types_test.wand wand/csv_test.wand wand/json_test.wand wand/toml_test.wand
-       wand/glob_test.wand wand/imports_test.wand wand/imports_fixture.wand)
+       wand/glob_test.wand wand/imports_test.wand wand/imports_fixture.wand
+       wand/eval_test.wand wand/script_test.wand wand/typedef_test.wand wand/generics_test.wand
+       wand/contracts_test.wand wand/process_test.wand wand/strings_test.wand wand/effects_test.wand
+       wand/list_patterns_test.wand wand/io_test.wand wand/env_test.wand)
  (libraries wand alcotest))
 
 (test

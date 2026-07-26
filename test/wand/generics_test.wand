@@ -1,0 +1,82 @@
+import Test
+import Types
+import Option
+import String
+
+(* ── Parsing generic type declarations ────────────────────────────────── *)
+
+type Box 'a = Box 'a
+type GPair 'a 'b = GPair 'a 'b
+
+test "single param" (fn t -> t.ok true)
+test "multi param" (fn t -> t.ok true)
+
+(* ── Construction and pattern matching ────────────────────────────────── *)
+
+type Opt 'a = ONone | OSome 'a
+
+let is_some o = match o with | OSome _ -> true | ONone -> false
+test "construct Some" (fn t -> t.eq (is_some (OSome 3)) true)
+test "construct None" (fn t -> t.eq (is_some ONone) false)
+
+let get_or d o = match o with | OSome v -> v | ONone -> d
+test "extract value" (fn t -> t.eq (get_or 0 (OSome 42)) 42)
+
+(* ── No cross-instantiation collision ─────────────────────────────────── *)
+
+let unbox (Box x) = x
+test "same generic type at two different type args" (fn t ->
+  t.eq (unbox (Box 1), unbox (Box "s")) (1, "s"))
+
+(* ── Negative cases ────────────────────────────────────────────────────── *)
+
+test "undeclared type variable" (fn t -> t.eq (Types.check_program "type Foo 'a = Bar 'b; 1") (Error "type variable ''b' is not declared as a parameter of type 'Foo'"))
+
+test "wrong type at use site" (fn t -> t.ok (Types.fails? "type Option 'a = None | Some 'a\nlet f (x : Int) = x\nf (Some 1)"))
+
+test "arity mismatch" (fn t -> t.ok (Types.fails? "type Box 'a = Box 'a\nmatch Box 1 with | Box a b -> a"))
+
+(* ── Option module ─────────────────────────────────────────────────────── *)
+
+test "map" (fn t -> t.eq (match Option.map (fn x -> x + 1) (Some 1) with
+  | Some v -> v
+  | None   -> 0) 2)
+
+test "and_then" (fn t ->
+  let half x = if x % 2 == 0 then Some (x / 2) else None
+  in t.eq (match Option.and_then half (Some 4) with
+    | Some v -> v
+    | None   -> -1) 2)
+
+test "default" (fn t -> t.eq (Option.default 0 None) 0)
+
+test "to_result ok" (fn t -> t.eq (match Option.to_result "missing" (Some 5) with
+  | Ok v    -> v
+  | Error _ -> 0) 5)
+
+test "to_result error" (fn t -> t.eq (match Option.to_result "missing" None with
+  | Ok _    -> ""
+  | Error e -> e) "missing")
+
+test "get! present" (fn t -> t.eq (Option.get! (Some 7)) 7)
+test "get! absent raises" (fn t -> t.raises (fn () -> Option.get! None))
+
+(* ── Result generalization ─────────────────────────────────────────────── *)
+
+type ParseError = UnexpectedToken String | UnexpectedEof
+
+let gparse s : Result ParseError Int =
+  if s == "" then Error UnexpectedEof
+  else match String.to_int s with
+  | Ok n    -> Ok n
+  | Error _ -> Error (UnexpectedToken s)
+
+test "custom error type" (fn t -> t.eq (match gparse "abc" with
+  | Ok n                      -> "ok"
+  | Error (UnexpectedToken tk) -> "bad: ${tk}"
+  | Error UnexpectedEof        -> "eof") "bad: abc")
+
+let plain_result : Result String Int = Ok 1
+test "plain string error still works" (fn t -> t.eq (match plain_result with
+  | Ok n    -> n
+  | Error _ -> 0) 1)

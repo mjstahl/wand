@@ -1,0 +1,151 @@
+import Test
+import Types
+import String
+import List
+import Env
+
+(* Program-level "what value does a whole file evaluate to, with no
+   trailing expression" semantics (test_value_let/test_start's "no start"
+   cases) are a CLI/Runner-level artifact, not something a Test.wand
+   assertion can observe -- every .wand file in this suite already
+   demonstrates ordinary top-level `let` bindings work by virtue of
+   running at all, so those specific sub-cases aren't ported. *)
+
+(* ── Value bindings ────────────────────────────────────────────────────── *)
+
+let single_binding = 42
+test "single binding" (fn t -> t.eq single_binding 42)
+
+let double_val x = x * 2
+test "fn shorthand" (fn t -> t.eq (double_val 5) 10)
+
+let add_two x y = x + y
+test "two params" (fn t -> t.eq (add_two 3 4) 7)
+
+let quad x = double_val (double_val x)
+test "chained" (fn t -> t.eq (quad 3) 12)
+
+(* ── Imports ───────────────────────────────────────────────────────────── *)
+
+let Lib = import ./imports_fixture
+
+test "import binding" (fn t -> t.eq (Lib.answer) 42)
+test "import function" (fn t -> t.eq (Lib.double 21) 42)
+test "import multiple bindings" (fn t -> t.eq (Lib.shout Lib.greeting) "hello!")
+
+(* ── Stdlib imports ────────────────────────────────────────────────────── *)
+
+test "List.map" (fn t -> t.eq (List.map (fn x -> x * 2) [1, 2, 3]) [2, 4, 6])
+test "List.filter" (fn t -> t.eq (List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]) [3, 4, 5])
+test "List.length" (fn t -> t.eq (List.length [1, 2, 3, 4, 5]) 5)
+test "List.reverse" (fn t -> t.eq (List.reverse [1, 2, 3]) [3, 2, 1])
+test "List.fold_left sum" (fn t -> t.eq (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]) 15)
+
+(* ── Recursive top-level functions ────────────────────────────────────── *)
+
+let script_fact n = if n <= 0 then 1 else n * script_fact (n - 1)
+test "factorial" (fn t -> t.eq (script_fact 5) 120)
+
+let script_fib n = if n <= 1 then n else script_fib (n - 1) + script_fib (n - 2)
+test "fibonacci" (fn t -> t.eq (script_fib 10) 55)
+
+(* ── Mutually-recursive top-level functions (`and`) ───────────────────── *)
+
+let is_even n = if n == 0 then true else is_odd (n - 1)
+and is_odd n = if n == 0 then false else is_even (n - 1)
+test "even/odd, top-level" (fn t -> t.eq (is_even 10) true)
+
+let mr_f 0 = 1
+let mr_f n = n * mr_g (n - 1)
+and mr_g n = mr_f n
+test "multi-equation clause plus and-group" (fn t -> t.eq (mr_f 4) 24)
+
+test "local let ... and ... in" (fn t ->
+  let x =
+    let is_even n = if n == 0 then true else is_odd (n - 1)
+    and is_odd n = if n == 0 then false else is_even (n - 1)
+    in is_even 7
+  in t.eq x false)
+
+test "and-bound member must be a function" (fn t ->
+  t.ok (Types.fails? "let f n = n\nand g = 5\nf 1"))
+
+(* ── "Did you mean?" suggestions ───────────────────────────────────────── *)
+
+let check_error_contains src needle = match Types.check_program src with
+  | Ok _    -> false
+  | Error m -> String.contains? needle m
+
+test "var typo" (fn t -> t.ok (check_error_contains "let name = 1; naem" "name"))
+test "ctor typo" (fn t -> t.ok (check_error_contains "type Color = Red | Green; Gren" "Green"))
+test "field typo" (fn t -> t.ok (check_error_contains "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.xy" "x"))
+test "parse keyword typo" (fn t -> t.ok (check_error_contains "lte x = 1; x" "let"))
+test "missing stdlib import" (fn t -> t.ok (check_error_contains "List.map (fn x -> x + 1) [1, 2, 3]" "forget to import the standard library List"))
+
+(* ── Source locations in parse errors ─────────────────────────────────── *)
+
+test "line number" (fn t -> t.ok (check_error_contains "let x = 1\n= bad\nx" "2:"))
+test "column number" (fn t -> t.ok (check_error_contains "let x = 1\n= bad\nx" ":1"))
+
+(* ── Source locations in type errors ──────────────────────────────────── *)
+
+test "type error line" (fn t -> t.ok (check_error_contains "let y = 1 + true\ny" "1:"))
+test "type error column" (fn t -> t.ok (check_error_contains "let y = 1 + true\ny" ":9"))
+test "type error line 2" (fn t -> t.ok (check_error_contains "let x = 1\nlet y = x + true\ny" "2:"))
+test "if branch line" (fn t -> t.ok (check_error_contains "let x =\n  if true then\n    1 + true\n  else 0\nx" "3:"))
+test "match arm line" (fn t -> t.ok (check_error_contains "let f n =\n  match n with\n  | 0 -> 1 + true\n  | _ -> 0\nf 1" "3:"))
+
+(* ── Source locations in exhaustiveness errors ────────────────────────── *)
+
+(* Non-exhaustive match is now caught at typecheck time (see the
+   Exhaustiveness suite), so this is a type-error location like the
+   others above, not a separate eval-error path. *)
+
+let exhaustiveness_src = "type C = A | B\nlet x = A\nlet y = match x with | B -> 1\ny"
+test "exhaustiveness error line" (fn t -> t.ok (check_error_contains exhaustiveness_src "3:"))
+test "exhaustiveness error column" (fn t -> t.ok (check_error_contains exhaustiveness_src ":9"))
+
+(* ── Multi-equation functions ─────────────────────────────────────────── *)
+
+let mfact 0 = 1
+let mfact n = n * mfact (n - 1)
+test "multi-equation factorial" (fn t -> t.eq (mfact 5) 120)
+
+let madd 0 y = y
+let madd x 0 = x
+let madd x y = x + y
+test "multi-equation two args" (fn t -> t.eq "${madd 3 4}, ${madd 0 9}, ${madd 5 0}" "7, 9, 5")
+
+type Opt = None | Some Int
+let show_opt None     = "nothing"
+let show_opt (Some n) = "just ${n}"
+test "constructor patterns" (fn t -> t.eq "${show_opt None}, ${show_opt (Some 42)}" "nothing, just 42")
+
+let label 1 = "one"
+let label 2 = "two"
+let label _ = "other"
+test "wildcard catch-all" (fn t -> t.eq "${label 1}, ${label 2}, ${label 99}" "one, two, other")
+
+(* ── Environment variables ────────────────────────────────────────────── *)
+
+test "basic" (fn t -> t.eq $HOME (Env.get! "HOME"))
+test "in let" (fn t -> let d = $HOME in t.eq d (Env.get! "HOME"))
+test "concatenation" (fn t -> t.eq ($HOME ++ "/bin") ((Env.get! "HOME") ++ "/bin"))
+test "interpolation" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ (Env.get! "HOME")))
+test "string shorthand" (fn t -> t.eq "home: $HOME" ("home: " ++ (Env.get! "HOME")))
+test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
+
+(* ── Type annotations ─────────────────────────────────────────────────── *)
+
+let value_annot : Int = 42
+test "value annot" (fn t -> t.eq value_annot 42)
+
+let annot_double x : Int = x * 2
+test "fn return annot" (fn t -> t.eq (annot_double 3) 6)
+
+test "annot mismatch" (fn t -> t.ok (Types.fails? "let x : Bool = 42; x"))
+
+(* ── Errors ────────────────────────────────────────────────────────────── *)
+
+test "unbound in start" (fn t -> t.ok (Types.fails? "x"))
+test "unbound in let" (fn t -> t.ok (Types.fails? "let x = y; x"))

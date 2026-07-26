@@ -1,0 +1,57 @@
+import Test
+import Types
+import String
+
+let try_msg thunk = match try (thunk ()) with
+  | Ok _    -> ""
+  | Error e -> e
+
+(* ── requires ──────────────────────────────────────────────────────────── *)
+
+let abs_req x =
+  requires x >= 0
+  x
+test "requires passes" (fn t -> t.eq (abs_req 5) 5)
+test "requires fails" (fn t -> t.ok (String.contains? "precondition failed" (try_msg (fn () -> abs_req (-1)))))
+test "requires shows condition" (fn t -> t.ok (String.contains? "x >= 0" (try_msg (fn () -> abs_req (-1)))))
+
+(* ── multiple requires ─────────────────────────────────────────────────── *)
+
+let clamp_req lo hi x =
+  requires lo <= hi
+  requires x >= 0
+  if x < lo then lo else if x > hi then hi else x
+test "all requires pass" (fn t -> t.eq (clamp_req 0 10 5) 5)
+test "first requires fails" (fn t -> t.ok (String.contains? "precondition failed" (try_msg (fn () -> clamp_req 10 0 5))))
+
+(* ── ensures ───────────────────────────────────────────────────────────── *)
+
+let abs_ens x =
+  ensures result >= 0
+  if x < 0 then 0 - x else x
+test "ensures passes" (fn t -> t.eq (abs_ens (-5)) 5)
+
+let broken x =
+  ensures result > 100
+  x
+test "ensures fails" (fn t -> t.ok (String.contains? "postcondition failed" (try_msg (fn () -> broken 5))))
+test "ensures shows condition" (fn t -> t.ok (String.contains? "result > 100" (try_msg (fn () -> broken 5))))
+
+(* ── requires + ensures ────────────────────────────────────────────────── *)
+
+let clamp_both lo hi x =
+  requires lo <= hi
+  ensures result >= lo
+  ensures result <= hi
+  if x < lo then lo else if x > hi then hi else x
+test "clamp with contracts" (fn t -> t.eq (clamp_both 0 10 15) 10)
+
+let double_ens x =
+  ensures result == x * 2
+  x * 2
+test "result equals expected" (fn t -> t.eq (double_ens 7) 14)
+
+(* ── type errors ───────────────────────────────────────────────────────── *)
+
+test "requires must be bool" (fn t -> t.ok (Types.fails? "let f x =\n  requires x + 1\n  x\nf 1"))
+test "ensures must be bool" (fn t -> t.ok (Types.fails? "let f x =\n  ensures result + 1\n  x\nf 1"))

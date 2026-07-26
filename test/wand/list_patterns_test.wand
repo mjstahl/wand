@@ -1,0 +1,72 @@
+import Test
+import Types
+
+(* ── Cons operator (expressions) ──────────────────────────────────────── *)
+
+test "prepend one" (fn t -> t.eq (1 : [2, 3]) [1, 2, 3])
+test "chain cons" (fn t -> t.eq (1 : 2 : 3 : []) [1, 2, 3])
+test "cons onto empty" (fn t -> t.eq (42 : []) [42])
+test "string cons" (fn t -> t.eq ("a" : ["b", "c"]) ["a", "b", "c"])
+
+(* ── List patterns ─────────────────────────────────────────────────────── *)
+
+test "match empty" (fn t -> t.eq (match [] with | [] -> "empty" | _ -> "non-empty") "empty")
+test "match non-empty" (fn t -> t.eq (match [1] with | [] -> "empty" | _ -> "non-empty") "non-empty")
+
+test "exact one element" (fn t -> t.eq (match [42] with | [x] -> x | _ -> 0) 42)
+test "exact two elements" (fn t -> t.eq (match [3, 4] with | [x, y] -> x + y | _ -> 0) 7)
+
+test "cons pattern head" (fn t -> t.eq (match [1, 2, 3] with | [h : _] -> h | [] -> 0) 1)
+test "cons pattern tail" (fn t -> t.eq (match [1, 2, 3] with | [_ : tl] -> tl | [] -> []) [2, 3])
+test "cons pattern no match on empty" (fn t -> t.eq (match [] with | [_ : _] -> "yes" | [] -> "no") "no")
+
+test "three-way chain, binds head/mid/tail" (fn t -> t.eq (match [1, 2, 3, 4] with
+  | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+  | _                -> "no match") "1,2,3,[4]")
+
+test "chain exactly consuming the list" (fn t -> t.eq (match [1, 2, 3] with
+  | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+  | _                -> "no match") "1,2,3,[]")
+
+test "chain falls through on too-short list" (fn t -> t.eq (match [1, 2] with
+  | [a : b : c : tl] -> "matched"
+  | _                -> "too short") "too short")
+
+let lp_third [_ : _ : x : _] = x
+test "chain in a function multi-equation" (fn t -> t.eq (lp_third [10, 20, 30, 40]) 30)
+
+(* ── Recursive functions over lists ───────────────────────────────────── *)
+
+let lp_len []       = 0
+let lp_len [_ : tl] = 1 + lp_len tl
+test "length" (fn t -> t.eq (lp_len [1, 2, 3, 4, 5]) 5)
+test "length empty" (fn t -> t.eq (lp_len []) 0)
+
+let lp_sum []       = 0
+let lp_sum [h : tl] = h + lp_sum tl
+test "sum" (fn t -> t.eq (lp_sum [1, 2, 3, 4, 5]) 15)
+
+let lp_map _ []       = []
+let lp_map f [h : tl] = f h : lp_map f tl
+test "map double" (fn t -> t.eq (lp_map (fn x -> x * 2) [1, 2, 3]) [2, 4, 6])
+test "map to string" (fn t -> t.eq (lp_map (fn x -> x ++ "!") ["a", "b", "c"]) ["a!", "b!", "c!"])
+
+let lp_filter _ []       = []
+let lp_filter p [h : tl] =
+  if p h then h : lp_filter p tl
+  else lp_filter p tl
+test "filter gt 2" (fn t -> t.eq (lp_filter (fn x -> x > 2) [1, 2, 3, 4, 5]) [3, 4, 5])
+
+let lp_append []       ys = ys
+let lp_append [h : tl] ys = h : lp_append tl ys
+test "append" (fn t -> t.eq (lp_append [1, 2] [3, 4]) [1, 2, 3, 4])
+
+let lp_rev_acc []       acc = acc
+let lp_rev_acc [h : tl] acc = lp_rev_acc tl (h : acc)
+let lp_reverse xs = lp_rev_acc xs []
+test "reverse" (fn t -> t.eq (lp_reverse [1, 2, 3, 4, 5]) [5, 4, 3, 2, 1])
+
+(* ── Type errors ───────────────────────────────────────────────────────── *)
+
+test "cons non-list rhs" (fn t -> t.ok (Types.fails? "1 : 2"))
+test "cons type mismatch" (fn t -> t.ok (Types.fails? "1 : [\"a\", \"b\"]"))

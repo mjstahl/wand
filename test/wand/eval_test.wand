@@ -1,0 +1,141 @@
+import Test
+import Types
+
+(* ── Literals ──────────────────────────────────────────────────────────── *)
+
+test "int" (fn t -> t.eq 42 42)
+test "float" (fn t -> t.eq 3.14 3.14)
+test "string" (fn t -> t.eq "hello" "hello")
+test "true" (fn t -> t.eq true true)
+test "false" (fn t -> t.eq false false)
+test "unit" (fn t -> t.eq () ())
+
+test "path" (fn t -> t.eq "${/etc/foo}" "/etc/foo")
+test "date" (fn t -> t.eq "${2024-01-15}" "2024-01-15")
+test "time" (fn t -> t.eq "${14:30:00}" "14:30:00")
+test "duration" (fn t -> t.eq "${5min}" "5min")
+test "url" (fn t -> t.eq "${https://example.com}" "https://example.com")
+test "ipv4" (fn t -> t.eq "${192.168.1.1}" "192.168.1.1")
+test "version" (fn t -> t.eq "${1.2.3}" "1.2.3")
+test "size" (fn t -> t.eq "${10MB}" "10MB")
+
+(* ── Arithmetic ────────────────────────────────────────────────────────── *)
+
+test "add" (fn t -> t.eq (1 + 2) 3)
+test "sub" (fn t -> t.eq (5 - 3) 2)
+test "mul" (fn t -> t.eq (3 * 4) 12)
+test "div" (fn t -> t.eq (10 / 2) 5)
+test "neg" (fn t -> t.eq (-7) (-7))
+test "prec" (fn t -> t.eq (2 + 3 * 4) 14)
+
+test "eq true" (fn t -> t.eq (1 == 1) true)
+test "eq false" (fn t -> t.eq (1 == 2) false)
+test "neq" (fn t -> t.eq (1 != 2) true)
+test "lt true" (fn t -> t.eq (1 < 2) true)
+test "lt false" (fn t -> t.eq (2 < 1) false)
+test "gt" (fn t -> t.eq (3 > 2) true)
+test "lte" (fn t -> t.eq (2 <= 2) true)
+test "gte" (fn t -> t.eq (3 >= 4) false)
+
+test "and tt" (fn t -> t.eq (true && true) true)
+test "and tf" (fn t -> t.eq (true && false) false)
+test "or tf" (fn t -> t.eq (true || false) true)
+test "or ff" (fn t -> t.eq (false || false) false)
+test "not t" (fn t -> t.eq (!true) false)
+test "not f" (fn t -> t.eq (!false) true)
+
+(* ── If ────────────────────────────────────────────────────────────────── *)
+
+test "true branch" (fn t -> t.eq (if true then 1 else 0) 1)
+test "false branch" (fn t -> t.eq (if false then 1 else 0) 0)
+test "nested" (fn t -> t.eq (if true then if false then 1 else 2 else 3) 2)
+test "cond expr" (fn t -> t.eq (if 1 == 1 then "yes" else "no") "yes")
+
+(* ── Let ───────────────────────────────────────────────────────────────── *)
+
+test "simple" (fn t -> t.eq (let x = 42 in x) 42)
+test "arith" (fn t -> t.eq (let x = 10 in x + 5) 15)
+test "shadow" (fn t -> t.eq (let x = 1 in let x = 2 in x) 2)
+test "wildcard" (fn t -> t.eq (let _ = 1 in 99) 99)
+test "tuple pat" (fn t -> t.eq (let (a, b) = (3, 4) in a + b) 7)
+
+(* ── Functions ─────────────────────────────────────────────────────────── *)
+
+test "identity" (fn t -> t.eq ((fn x -> x) 42) 42)
+test "add one" (fn t -> t.eq ((fn x -> x + 1) 5) 6)
+test "two args" (fn t -> t.eq ((fn x -> fn y -> x + y) 3 4) 7)
+test "wildcard fn" (fn t -> t.eq ((fn _ -> 99) true) 99)
+test "closure" (fn t -> t.eq (let n = 10 in (fn x -> x + n) 5) 15)
+
+(* ── Higher-order ──────────────────────────────────────────────────────── *)
+
+test "apply" (fn t -> let apply = fn f -> fn x -> f x in t.eq (apply (fn x -> x * 2) 5) 10)
+
+test "compose" (fn t -> let f = fn x -> x + 1 in let g = fn x -> x * 2 in t.eq (f (g 3)) 7)
+
+(* ── Match ─────────────────────────────────────────────────────────────── *)
+
+test "first arm" (fn t -> t.eq (match 1 with
+| 1 -> true
+| _ -> false) true)
+
+test "wildcard arm" (fn t -> t.eq (match 2 with
+| 1 -> true
+| _ -> false) false)
+
+test "bool match" (fn t -> t.eq (match true with
+| true -> 1
+| false -> 0) 1)
+
+test "guard pass" (fn t -> t.eq (match 5 with
+| x when x > 3 -> true
+| _ -> false) true)
+
+test "guard fail" (fn t -> t.eq (match 2 with
+| x when x > 3 -> true
+| _ -> false) false)
+
+(* ── Tuples ────────────────────────────────────────────────────────────── *)
+
+test "pair" (fn t -> t.eq (1, 2) (1, 2))
+test "triple" (fn t -> t.eq (1, 2, 3) (1, 2, 3))
+test "mixed" (fn t -> t.eq (1, true) (1, true))
+test "nested tuple" (fn t -> t.eq ((1, 2), 3) ((1, 2), 3))
+
+(* ── Lists ─────────────────────────────────────────────────────────────── *)
+
+test "empty" (fn t -> t.eq [] [])
+test "ints" (fn t -> t.eq [1, 2, 3] [1, 2, 3])
+test "strings" (fn t -> t.eq ["a", "b"] ["a", "b"])
+test "computed" (fn t -> t.eq [1 + 1, 2 + 2] [2, 4])
+
+(* ── Pipeline ──────────────────────────────────────────────────────────── *)
+
+test "pipeline" (fn t -> t.eq (5 |> fn x -> x + 1) 6)
+test "double pipe" (fn t -> t.eq (5 |> fn x -> x + 1 |> fn x -> x * 2) 12)
+test "with let" (fn t -> let double = fn x -> x * 2 in t.eq (3 |> double) 6)
+
+(* ── Recursive let ─────────────────────────────────────────────────────── *)
+
+test "factorial" (fn t ->
+  let fact n = if n <= 0 then 1 else n * fact (n - 1)
+  in t.eq (fact 5) 120)
+
+test "fibonacci" (fn t ->
+  let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
+  in t.eq (fib 10) 55)
+
+test "countdown" (fn t ->
+  let count n = if n == 0 then 0 else count (n - 1)
+  in t.eq (count 100) 0)
+
+(* ── Errors ────────────────────────────────────────────────────────────── *)
+
+(* All three are caught at typecheck time in the real pipeline (unbound
+   variable, non-exhaustive match, applying a non-function), so they're
+   expressed as strings through Types.fails? rather than as literal
+   top-level source, which would fail the whole file. *)
+
+test "unbound var" (fn t -> t.ok (Types.fails? "x"))
+test "no match" (fn t -> t.ok (Types.fails? "match 5 with\n| 1 -> true"))
+test "apply non-fn" (fn t -> t.ok (Types.fails? "1 2"))

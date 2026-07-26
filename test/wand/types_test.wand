@@ -128,15 +128,23 @@ test "two args"    (fn t -> t.eq (Types.check_program "type Pair = Pair Int Int;
 
 (* ── Program-level inference: match on constructors ───────────────────── *)
 
-test "nullary arms" (fn t -> t.eq (Types.check_program "type Color = Red | Green\nlet f c = match c with\n| Red   -> 1\n| Green -> 2\nf Red") (Ok "Int"))
+test "nullary arms" (fn t -> t.eq
+  (Types.check_program "type Color = Red | Green\nlet f c = match c with\n| Red   -> 1\n| Green -> 2\nf Red")
+  (Ok "Int"))
 
-test "payload arm" (fn t -> t.eq (Types.check_program "type Wrap = Wrap Int\nlet unwrap w = match w with\n| Wrap n -> n\nunwrap (Wrap 42)") (Ok "Int"))
+test "payload arm" (fn t -> t.eq
+  (Types.check_program "type Wrap = Wrap Int\nlet unwrap w = match w with\n| Wrap n -> n\nunwrap (Wrap 42)")
+  (Ok "Int"))
 
 (* ── Program-level inference: named field typedef ─────────────────────── *)
 
-test "field access" (fn t -> t.eq (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.x") (Ok "Int"))
+test "field access" (fn t -> t.eq
+  (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.x")
+  (Ok "Int"))
 
-test "second field" (fn t -> t.eq (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.y") (Ok "Int"))
+test "second field" (fn t -> t.eq
+  (Types.check_program "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.y")
+  (Ok "Int"))
 
 (* ── Program-level inference: constructor errors ──────────────────────── *)
 

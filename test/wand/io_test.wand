@@ -1,0 +1,53 @@
+import Test
+import IO
+import Types
+
+test "IO.print_err" (fn t ->
+  let outcome =
+    handle
+      let () = IO.print_err "error message" in
+      "ok"
+    with
+    | io_print_err _ k -> k ()
+    | return s         -> s
+  in t.eq outcome "ok")
+
+test "IO.println_err" (fn t ->
+  let outcome =
+    handle
+      let () = IO.println_err "error message" in
+      "ok"
+    with
+    | io_println_err _ k -> k ()
+    | return s            -> s
+  in t.eq outcome "ok")
+
+test "IO.read_line mock" (fn t ->
+  let outcome = handle IO.read_line () with
+    | io_read_line _ k -> k "mocked line"
+  in t.eq outcome "mocked line")
+
+test "IO.read_all mock" (fn t ->
+  let outcome = handle IO.read_all () with
+    | io_read_all _ k -> k "all of stdin"
+  in t.eq outcome "all of stdin")
+
+test "IO.flush mock" (fn t ->
+  let outcome =
+    handle
+      let () = IO.flush () in
+      "flushed"
+    with
+    | io_flush _ k -> k ()
+    | return s     -> s
+  in t.eq outcome "flushed")
+
+(* ── exit (global) ─────────────────────────────────────────────────────── *)
+
+let exit_poly_test () : Int = if true then 1 else exit 1
+test "exit is polymorphic in return type" (fn t -> t.eq (exit_poly_test ()) 1)
+
+(* ── Type errors ───────────────────────────────────────────────────────── *)
+
+test "IO.print_err non-string" (fn t -> t.ok (Types.fails? "import IO\nIO.print_err 42"))
+test "exit non-int" (fn t -> t.ok (Types.fails? "exit \"bye\""))

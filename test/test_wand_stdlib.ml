@@ -33,4 +33,17 @@ let () =
       Alcotest.test_case "Glob"     `Quick (check_fixture "wand/glob_test.wand");
       Alcotest.test_case "Imports"  `Quick (check_fixture "wand/imports_test.wand");
     ];
+    "language", [
+      Alcotest.test_case "Eval"          `Quick (check_fixture "wand/eval_test.wand");
+      Alcotest.test_case "Script"        `Quick (check_fixture "wand/script_test.wand");
+      Alcotest.test_case "Typedef"       `Quick (check_fixture "wand/typedef_test.wand");
+      Alcotest.test_case "Generics"      `Quick (check_fixture "wand/generics_test.wand");
+      Alcotest.test_case "Contracts"     `Quick (check_fixture "wand/contracts_test.wand");
+      Alcotest.test_case "Process"       `Quick (check_fixture "wand/process_test.wand");
+      Alcotest.test_case "Strings"       `Quick (check_fixture "wand/strings_test.wand");
+      Alcotest.test_case "Effects"       `Quick (check_fixture "wand/effects_test.wand");
+      Alcotest.test_case "List patterns" `Quick (check_fixture "wand/list_patterns_test.wand");
+      Alcotest.test_case "IO"            `Quick (check_fixture "wand/io_test.wand");
+      Alcotest.test_case "Env"           `Quick (check_fixture "wand/env_test.wand");
+    ];
   ]

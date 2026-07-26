@@ -1,0 +1,67 @@
+import Test
+import String
+
+let try_msg thunk = match try (thunk ()) with
+  | Ok _    -> ""
+  | Error e -> e
+
+(* ── Basic execution ($()) ─────────────────────────────────────────────── *)
+
+test "captures stdout" (fn t -> t.eq $(echo hello) "hello")
+test "strips trailing newline" (fn t -> t.eq $(printf hello) "hello")
+
+test "dynamic cmd via interpolation" (fn t ->
+  let cmd = "echo world"
+  in t.eq $(${cmd}) "world")
+
+test "result in binding" (fn t ->
+  let out = $(echo hello)
+  in t.eq out "hello")
+
+test "result in expression" (fn t ->
+  let out = $(echo 3)
+  in t.eq (out == "3") true)
+
+test "interpolated command" (fn t ->
+  let word = "hello"
+  in t.eq $(echo ${word}) "hello")
+
+(* ── Error handling ────────────────────────────────────────────────────── *)
+
+test "raises on nonzero exit" (fn t -> t.raises (fn () -> $(exit 1)))
+test "error shows exit code" (fn t -> t.ok (String.contains? "42" (try_msg (fn () -> $(sh -c "exit 42")))))
+
+(* ── $?() ──────────────────────────────────────────────────────────────── *)
+
+test "stdout field" (fn t ->
+  let r = $?(echo hello)
+  in t.eq r.stdout "hello")
+
+test "code zero" (fn t ->
+  let r = $?(true)
+  in t.eq r.code 0)
+
+test "code non-zero" (fn t ->
+  let r = $?(false)
+  in t.eq r.code 1)
+
+test "never raises" (fn t ->
+  let r = $?(exit 42)
+  in t.eq (r.code == 42) true)
+
+(* ── stdin via |> ──────────────────────────────────────────────────────── *)
+
+test "pipe into cat" (fn t -> t.eq ("hello" |> $(cat)) "hello")
+test "pipe into wc -w" (fn t -> t.eq ("hello world" |> $(wc -w | tr -d " ")) "2")
+
+test "pipe into $?()" (fn t ->
+  let r = "hello" |> $?(cat)
+  in t.eq r.stdout "hello")
+
+(* ── mock handlers ─────────────────────────────────────────────────────── *)
+
+test "mock process_run" (fn t ->
+  let outcome =
+    handle $(echo hello) with
+    | process_run _ k -> k "mocked"
+  in t.eq outcome "mocked")

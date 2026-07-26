@@ -9,13 +9,13 @@ import Test
 
 let mylib = import ./imports_fixture
 
-test "whole module bound to name" (fn t -> t.eq (mylib.answer) 42)
+test "whole module bound to name" (fn t -> t.eq mylib.answer 42)
 test "function call via bound name" (fn t -> t.eq (mylib.double 21) 42)
 test "multiple fields accessible" (fn t -> t.eq (mylib.x + mylib.y) 3)
 
 let Mylib = import ./imports_fixture
 
-test "capital name works" (fn t -> t.eq (Mylib.greet) "hello")
+test "capital name works" (fn t -> t.eq Mylib.greet "hello")
 
 let L = import List
 let Strs = import String
