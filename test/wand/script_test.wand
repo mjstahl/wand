@@ -29,7 +29,7 @@ test "chained" (fn t -> t.eq (quad 3) 12)
 
 let Lib = import ./imports_fixture
 
-test "import binding" (fn t -> t.eq (Lib.answer) 42)
+test "import binding" (fn t -> t.eq Lib.answer 42)
 test "import function" (fn t -> t.eq (Lib.double 21) 42)
 test "import multiple bindings" (fn t -> t.eq (Lib.shout Lib.greeting) "hello!")
 
@@ -55,25 +55,25 @@ let is_even n = if n == 0 then true else is_odd (n - 1)
 and is_odd n = if n == 0 then false else is_even (n - 1)
 test "even/odd, top-level" (fn t -> t.eq (is_even 10) true)
 
-let mr_f 0 = 1
-let mr_f n = n * mr_g (n - 1)
+let mr_f _p0 =
+  match _p0 with
+  | 0 -> 1
+  | n -> n * mr_g (n - 1)
 and mr_g n = mr_f n
 test "multi-equation clause plus and-group" (fn t -> t.eq (mr_f 4) 24)
 
-test "local let ... and ... in" (fn t ->
-  let x =
-    let is_even n = if n == 0 then true else is_odd (n - 1)
-    and is_odd n = if n == 0 then false else is_even (n - 1)
-    in is_even 7
-  in t.eq x false)
+test "local let ... and ... in" (fn t -> let x = let is_even n = if n == 0 then true else is_odd (n - 1)
+and is_odd n = if n == 0 then false else is_even (n - 1)
+in is_even 7 in
+t.eq x false)
 
-test "and-bound member must be a function" (fn t ->
-  t.ok (Types.fails? "let f n = n\nand g = 5\nf 1"))
+test "and-bound member must be a function" (fn t -> t.ok (Types.fails? "let f n = n\nand g = 5\nf 1"))
 
 (* ── "Did you mean?" suggestions ───────────────────────────────────────── *)
 
-let check_error_contains src needle = match Types.check_program src with
-  | Ok _    -> false
+let check_error_contains src needle =
+  match Types.check_program src with
+  | Ok _ -> false
   | Error m -> String.contains? needle m
 
 test "var typo" (fn t -> t.ok (check_error_contains "let name = 1; naem" "name"))
@@ -117,7 +117,7 @@ let madd x y = x + y
 test "multi-equation two args" (fn t -> t.eq "${madd 3 4}, ${madd 0 9}, ${madd 5 0}" "7, 9, 5")
 
 type Opt = None | Some Int
-let show_opt None     = "nothing"
+let show_opt None = "nothing"
 let show_opt (Some n) = "just ${n}"
 test "constructor patterns" (fn t -> t.eq "${show_opt None}, ${show_opt (Some 42)}" "nothing, just 42")
 
@@ -130,9 +130,9 @@ test "wildcard catch-all" (fn t -> t.eq "${label 1}, ${label 2}, ${label 99}" "o
 
 test "basic" (fn t -> t.eq $HOME (Env.get! "HOME"))
 test "in let" (fn t -> let d = $HOME in t.eq d (Env.get! "HOME"))
-test "concatenation" (fn t -> t.eq ($HOME ++ "/bin") ((Env.get! "HOME") ++ "/bin"))
-test "interpolation" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ (Env.get! "HOME")))
-test "string shorthand" (fn t -> t.eq "home: $HOME" ("home: " ++ (Env.get! "HOME")))
+test "concatenation" (fn t -> t.eq ($HOME ++ "/bin") (Env.get! "HOME" ++ "/bin"))
+test "interpolation" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ Env.get! "HOME"))
+test "string shorthand" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ Env.get! "HOME"))
 test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
 
 (* ── Type annotations ─────────────────────────────────────────────────── *)

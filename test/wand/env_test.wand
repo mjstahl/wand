@@ -21,23 +21,17 @@ test "get! missing raises" (fn t -> t.raises (fn () -> Env.get! "WAND_TEST_NONEX
 
 (* ── set ───────────────────────────────────────────────────────────────── *)
 
-test "set then get" (fn t ->
-  let () = Env.set "WAND_TEST_SET" "value"
-  in t.eq (Env.get "WAND_TEST_SET") "value")
+test "set then get" (fn t -> let () = Env.set "WAND_TEST_SET" "value" in t.eq (Env.get "WAND_TEST_SET") "value")
 
 (* ── unset ─────────────────────────────────────────────────────────────── *)
 
 let () = Env.set "WAND_TEST_UNSET" "before"
-test "unset clears value" (fn t ->
-  let () = Env.unset "WAND_TEST_UNSET"
-  in t.eq (Env.get "WAND_TEST_UNSET") "")
+test "unset clears value" (fn t -> let () = Env.unset "WAND_TEST_UNSET" in t.eq (Env.get "WAND_TEST_UNSET") "")
 
 (* ── all ───────────────────────────────────────────────────────────────── *)
 
 let () = Env.set "WAND_TEST_ALL" "present"
-test "all contains set var" (fn t ->
-  let pairs = Env.all ()
-  in t.ok (List.any (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
+test "all contains set var" (fn t -> let pairs = Env.all () in t.ok (List.any (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
 
 (* ── args ──────────────────────────────────────────────────────────────── *)
 
@@ -53,27 +47,21 @@ test "user returns non-empty string" (fn t -> t.ok (String.length (Env.user ()) 
 
 (* ── Env.read / Env.load ──────────────────────────────────────────────── *)
 
-test "basic key=value" (fn t ->
-  let p = FS.temp_file "wand_env_rd_" ".env"
-  let () = FS.write_file (Path.to_string p) "FOO=bar\nBAZ=qux\n"
-  let m = Env.read p
-  let () = FS.delete p
-  in t.eq (Map.get! "FOO" m) "bar")
+test "basic key=value" (fn t -> let p = FS.temp_file "wand_env_rd_" ".env" in
+let () = FS.write_file (Path.to_string p) "FOO=bar\nBAZ=qux\n" in
+let m = Env.read p in let () = FS.delete p in t.eq (Map.get! "FOO" m) "bar")
 
-let dotenv_fmt = "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n"
+let dotenv_fmt =
+  "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n"
 
-test "dotenv formats" (fn t ->
-  let p = FS.temp_file "wand_env_fmt_" ".env"
-  let () = FS.write_file (Path.to_string p) dotenv_fmt
-  let m = Env.read p
-  let () = FS.delete p
-  in t.eq (Map.get! "KEY1" m, Map.get! "KEY2" m, Map.get! "KEY3" m, Map.get! "KEY4" m, Map.get! "KEY5" m)
-          ("hello", "quoted", "single", "exported", "has=equals"))
+test "dotenv formats" (fn t -> let p = FS.temp_file "wand_env_fmt_" ".env" in
+let () = FS.write_file (Path.to_string p) dotenv_fmt in
+let m = Env.read p in
+let () = FS.delete p in
+t.eq (Map.get! "KEY1" m, Map.get! "KEY2" m, Map.get! "KEY3" m, Map.get! "KEY4" m, Map.get! "KEY5" m) ("hello", "quoted", "single", "exported", "has=equals"))
 
-test "load sets env var" (fn t ->
-  let p = FS.temp_file "wand_load_" ".env"
-  let () = FS.write_file (Path.to_string p) "WAND_LOAD_TEST=loaded_value\n"
-  let () = Env.load p
-  let outcome = Env.get "WAND_LOAD_TEST"
-  let () = FS.delete p
-  in t.eq outcome "loaded_value")
+test "load sets env var" (fn t -> let p = FS.temp_file "wand_load_" ".env" in
+let () = FS.write_file (Path.to_string p) "WAND_LOAD_TEST=loaded_value\n" in
+let () = Env.load p in
+let outcome = Env.get "WAND_LOAD_TEST" in
+let () = FS.delete p in t.eq outcome "loaded_value")

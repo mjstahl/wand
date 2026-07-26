@@ -80,11 +80,9 @@ test "Regex.split" (fn t -> t.eq (Regex.split r/,/ "a,b,c") ["a", "b", "c"])
 
 (* ── Regex.compile ─────────────────────────────────────────────────────── *)
 
-test "compile valid pattern" (fn t ->
-  match Regex.compile "\\d+" with
-  | Ok re   -> t.eq (Regex.match? re "abc123") true
-  | Error _ -> t.ok false)
-test "compile invalid pattern returns Error" (fn t ->
-  match Regex.compile "[invalid" with
-  | Ok _    -> t.ok false
-  | Error _ -> t.ok true)
+test "compile valid pattern" (fn t -> match Regex.compile "\\d+" with
+| Ok re -> t.eq (Regex.match? re "abc123") true
+| Error _ -> t.ok false)
+test "compile invalid pattern returns Error" (fn t -> match Regex.compile "[invalid" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)

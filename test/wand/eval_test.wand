@@ -117,17 +117,14 @@ test "with let" (fn t -> let double = fn x -> x * 2 in t.eq (3 |> double) 6)
 
 (* ── Recursive let ─────────────────────────────────────────────────────── *)
 
-test "factorial" (fn t ->
-  let fact n = if n <= 0 then 1 else n * fact (n - 1)
-  in t.eq (fact 5) 120)
+test "factorial" (fn t -> let fact n = if n <= 0 then 1 else n * fact (n - 1)
+in t.eq (fact 5) 120)
 
-test "fibonacci" (fn t ->
-  let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
-  in t.eq (fib 10) 55)
+test "fibonacci" (fn t -> let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
+in t.eq (fib 10) 55)
 
-test "countdown" (fn t ->
-  let count n = if n == 0 then 0 else count (n - 1)
-  in t.eq (count 100) 0)
+test "countdown" (fn t -> let count n = if n == 0 then 0 else count (n - 1)
+in t.eq (count 100) 0)
 
 (* ── Errors ────────────────────────────────────────────────────────────── *)
 

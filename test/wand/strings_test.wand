@@ -5,9 +5,7 @@ import Types
 
 test "simple concat" (fn t -> t.eq ("hello" ++ " world") "hello world")
 
-test "concat with var" (fn t ->
-  let name = "Alice"
-  in t.eq ("Hello, " ++ name ++ "!") "Hello, Alice!")
+test "concat with var" (fn t -> let name = "Alice" in t.eq ("Hello, " ++ name ++ "!") "Hello, Alice!")
 
 test "concat empty" (fn t -> t.eq ("" ++ "abc") "abc")
 
@@ -16,17 +14,12 @@ test "string ++ int is a type error" (fn t -> t.ok (Types.fails? "\"a\" ++ 1"))
 
 (* ── String interpolation ──────────────────────────────────────────────── *)
 
-test "simple interp" (fn t ->
-  let name = "World"
-  in t.eq "Hello, ${name}!" "Hello, World!")
+test "simple interp" (fn t -> let name = "World" in t.eq "Hello, ${name}!" "Hello, World!")
 
 test "interp arithmetic" (fn t -> t.eq "1 + 2 = ${1 + 2}" "1 + 2 = 3")
 test "interp bool" (fn t -> t.eq "flag: ${true}" "flag: true")
 test "no interp" (fn t -> t.eq "plain string" "plain string")
 
-test "multiple interps" (fn t ->
-  let x = "a"
-  let y = "b"
-  in t.eq "${x} and ${y}" "a and b")
+test "multiple interps" (fn t -> let x = "a" in let y = "b" in t.eq "${x} and ${y}" "a and b")
 
 test "bad expr in interp is a type error" (fn t -> t.ok (Types.fails? "\"\${1 + true}\""))

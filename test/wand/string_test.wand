@@ -71,14 +71,12 @@ test "to_int ok" (fn t -> t.eq (String.to_int "123") (Ok 123))
 test "of_int negative" (fn t -> t.eq (String.of_int (-7)) "-7")
 test "to_float ok" (fn t -> t.eq (String.to_float "3.14") (Ok 3.14))
 test "to_float int-like" (fn t -> t.eq (String.to_float "42") (Ok 42.0))
-test "to_int err" (fn t ->
-  match String.to_int "abc" with
-  | Ok _    -> t.ok false
-  | Error _ -> t.ok true)
-test "to_float err" (fn t ->
-  match String.to_float "abc" with
-  | Ok _    -> t.ok false
-  | Error _ -> t.ok true)
+test "to_int err" (fn t -> match String.to_int "abc" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_float err" (fn t -> match String.to_float "abc" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
 
 (* ── join ──────────────────────────────────────────────────────────────── *)
 
@@ -93,51 +91,64 @@ test "words" (fn t -> t.eq (String.words "one two three") ["one", "two", "three"
 
 (* ── pipeline ──────────────────────────────────────────────────────────── *)
 
-test "pipe" (fn t ->
-  let s = "  Hello, World!  "
-  in t.eq (s |> String.trim |> String.lower) "hello, world!")
+test "pipe" (fn t -> let s = "  Hello, World!  " in t.eq (s |> String.trim |> String.lower) "hello, world!")
 
 (* ── to_bool / to_path ────────────────────────────────────────────────── *)
 
 test "to_bool true" (fn t -> t.eq (String.to_bool "true") (Ok true))
 test "to_bool false" (fn t -> t.eq (String.to_bool "False") (Ok false))
-test "to_bool err" (fn t ->
-  match String.to_bool "yes" with
-  | Ok _    -> t.ok false
-  | Error _ -> t.ok true)
+test "to_bool err" (fn t -> match String.to_bool "yes" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
 test "to_path" (fn t -> t.eq (String.to_path "/tmp/foo") /tmp/foo)
 
 (* ── domain type parsers ───────────────────────────────────────────────── *)
 
-test "to_url ok" (fn t ->
-  match String.to_url "https://example.com" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_url err" (fn t ->
-  match String.to_url "not-a-url" with | Ok _ -> t.ok false | Error _ -> t.ok true)
-test "to_ipv4 ok" (fn t ->
-  match String.to_ipv4 "192.168.1.1" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_ipv4 err" (fn t ->
-  match String.to_ipv4 "999.0.0.1" with | Ok _ -> t.ok false | Error _ -> t.ok true)
-test "to_cidr ok" (fn t ->
-  match String.to_cidr "10.0.0.0/8" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_port ok" (fn t ->
-  match String.to_port ":8080" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_port err" (fn t ->
-  match String.to_port "8080" with | Ok _ -> t.ok false | Error _ -> t.ok true)
-test "to_version ok" (fn t ->
-  match String.to_version "1.2.3" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_size ok" (fn t ->
-  match String.to_size "10MB" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_size err" (fn t ->
-  match String.to_size "abc" with | Ok _ -> t.ok false | Error _ -> t.ok true)
-test "to_date ok" (fn t ->
-  match String.to_date "2024-01-15" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_date err" (fn t ->
-  match String.to_date "01/15/2024" with | Ok _ -> t.ok false | Error _ -> t.ok true)
-test "to_time ok" (fn t ->
-  match String.to_time "14:30:00" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_datetime ok" (fn t ->
-  match String.to_datetime "2024-01-15T14:30:00Z" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_duration ok" (fn t ->
-  match String.to_duration "5min" with | Ok _ -> t.ok true | Error _ -> t.ok false)
-test "to_duration err" (fn t ->
-  match String.to_duration "abc" with | Ok _ -> t.ok false | Error _ -> t.ok true)
+test "to_url ok" (fn t -> match String.to_url "https://example.com" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_url err" (fn t -> match String.to_url "not-a-url" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_ipv4 ok" (fn t -> match String.to_ipv4 "192.168.1.1" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_ipv4 err" (fn t -> match String.to_ipv4 "999.0.0.1" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_cidr ok" (fn t -> match String.to_cidr "10.0.0.0/8" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_port ok" (fn t -> match String.to_port ":8080" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_port err" (fn t -> match String.to_port "8080" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_version ok" (fn t -> match String.to_version "1.2.3" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_size ok" (fn t -> match String.to_size "10MB" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_size err" (fn t -> match String.to_size "abc" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_date ok" (fn t -> match String.to_date "2024-01-15" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_date err" (fn t -> match String.to_date "01/15/2024" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
+test "to_time ok" (fn t -> match String.to_time "14:30:00" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_datetime ok" (fn t -> match String.to_datetime "2024-01-15T14:30:00Z" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_duration ok" (fn t -> match String.to_duration "5min" with
+| Ok _ -> t.ok true
+| Error _ -> t.ok false)
+test "to_duration err" (fn t -> match String.to_duration "abc" with
+| Ok _ -> t.ok false
+| Error _ -> t.ok true)
