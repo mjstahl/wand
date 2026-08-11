@@ -1005,8 +1005,8 @@ misformatting it.
 ## Building
 
 ```bash
-# Install dependencies
-opam install . --deps-only
+# Install dependencies (including test deps like alcotest)
+opam install . --deps-only --with-test
 
 # Build
 dune build
@@ -1015,7 +1015,7 @@ dune build
 dune test
 
 # Create a local wand symlink for development
-ln -sf _build/default/bin/main.exe wand
+ln -sf _build/install/default/bin/wand wand
 ```
 
 Requires OCaml 5.x and opam. Dependencies managed via `wand.opam`.
