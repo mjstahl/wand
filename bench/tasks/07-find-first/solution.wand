@@ -1,2 +1,0 @@
-let find_first pred []      = Error "no element satisfies predicate"
-let find_first pred [h : t] = if pred h then Ok h else find_first pred t

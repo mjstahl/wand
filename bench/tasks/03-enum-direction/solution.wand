@@ -1,7 +1,0 @@
-type Direction = North | South | East | West
-
-let opposite d = match d with
-| North -> South
-| South -> North
-| East  -> West
-| West  -> East

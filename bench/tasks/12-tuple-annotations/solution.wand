@@ -1,6 +1,0 @@
-let origin : (Int, Int) = (0, 0)
-
-let translate p1 p2 : (Int, Int) =
-  let (x1, y1) = p1
-  let (x2, y2) = p2
-  (x1 + x2, y1 + y2)
