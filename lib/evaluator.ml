@@ -1031,7 +1031,6 @@ let stdlib_eval_env : env = [
   ("fs_copy",    VBuiltin (fun src ->
     VBuiltin (fun dst ->
       Effect.perform (WandEffect ("fs_copy", VTuple [src; dst])))));
-  ("fs_cd",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_cd",      v))));
   ("fs_cwd",     VBuiltin (function
     | VUnit -> VPath (Sys.getcwd ())
     | _ -> raise (EvalError "fs_cwd: expected Unit")));

@@ -206,13 +206,6 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("copy: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_cd", VPath path) ->
-            Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Unix.chdir path; Ok ()
-                     with Unix.Unix_error (e, _, _) ->
-                       Error ("cd: " ^ Unix.error_message e)) with
-              | Ok ()   -> Effect.Deep.continue    k VUnit
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("fs_remove", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rm () =

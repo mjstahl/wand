@@ -943,7 +943,6 @@ let stdlib_type_env : env = [
   ("fs_temp_file", Mono (TFun (TString, TFun (TString, TPath))));
   ("fs_rename",  Mono (TFun (TPath, TFun (TPath, TUnit))));
   ("fs_copy",    Mono (TFun (TPath, TFun (TPath, TUnit))));
-  ("fs_cd",      Mono (TFun (TPath, TUnit)));
   ("fs_cwd",     Mono (TFun (TUnit, TPath)));
   ("fs_mtime",   Mono (TFun (TPath, TDateTime)));
   ("fs_size",    Mono (TFun (TPath, TInt)));
