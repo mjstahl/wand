@@ -37,6 +37,34 @@ The mutations are the problem. A dry run that still changes the environment is w
 | Manifest enforcement | Inferred ⊄ declared is a **type error**. A file without a manifest is unconstrained, so casual scripts pay nothing. |
 | Honesty caveat | Documented, not hidden: reads see pre-mutation state, so a dry run can diverge from the real one. It cannot drift like a hand-rolled `$DRY` flag, but it cannot rehearse reads-of-writes. |
 
+## Open question — settle before this phase closes
+
+**What should handler operations be called?** A handler arm names the
+operation it intercepts, and those names are currently the internal builtin
+names. They form a third vocabulary, agreeing with neither the effect labels
+nor the public API:
+
+- prefixes drift inside a family — `read_file` and `write_file` are bare
+  while `fs_append` and `fs_copy` are not; `print` is bare while
+  `io_print_err` is not
+- names are stale — `fs_is_file` keeps the `is_` that the API dropped, and
+  `fs_ls`, `fs_remove`, `fs_mkdir_p` disagree with `list_dir`, `delete`,
+  `mkdir`
+- implementations leak — mocking `Env.get` requires knowing it is built on
+  `env_get_exn`
+- families do not match the effect labels — the effect is `Shell` but the
+  operations are `process_*`; the effect is `Proc` but they are `io_*` plus a
+  bare `print`
+
+Three options: realign everything as `<family>_<verb>` with families matching
+the effect labels; fix only the names that break their own pattern; or leave
+them and document the vocabulary.
+
+**This couples to `--trace` and `--dry-run`, which print operation names.**
+Until it is settled, those modes route every name through one presentation
+function, so applying a decision later is a single edit rather than a sweep
+through output, tests and demos.
+
 ## Working rules
 
 1. Each tranche lands green.
