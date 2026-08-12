@@ -392,8 +392,8 @@ let rec eval (env : env) (e : expr) : value =
       { Effect.Deep.
           retc = (fun v -> VConstr ("Ok", [v]));
           exnc = (function
-            | EvalError msg -> VConstr ("Error", [VString msg])
-            | Failure  msg  -> VConstr ("Error", [VString msg])
+            | EvalError msg -> VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+            | Failure  msg  -> VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
             | exn           -> raise exn);
           effc = fun (type a) (_ : a Effect.t) ->
             (None : ((a, value) Effect.Deep.continuation -> value) option) }

@@ -31,3 +31,23 @@ let has_loc_prefix msg =
   let i = ref 0 in
   while !i < n && msg.[!i] >= '0' && msg.[!i] <= '9' do incr i done;
   !i > 0 && !i < n && msg.[!i] = ':'
+
+(* Drop a leading "line:col: " stamp. An error that becomes a value -- the
+   payload of a `try` -- describes what went wrong, not where: the position
+   belongs to whichever frame raised, which for a stdlib call is a line
+   inside the stdlib and means nothing to the caller holding the Result. *)
+let strip_loc_prefix msg =
+  let n = String.length msg in
+  let i = ref 0 in
+  while !i < n && msg.[!i] >= '0' && msg.[!i] <= '9' do incr i done;
+  if !i = 0 || !i >= n || msg.[!i] <> ':' then msg
+  else begin
+    let j = ref (!i + 1) in
+    while !j < n && msg.[!j] >= '0' && msg.[!j] <= '9' do incr j done;
+    if !j = !i + 1 || !j >= n || msg.[!j] <> ':' then msg
+    else begin
+      let k = ref (!j + 1) in
+      while !k < n && msg.[!k] = ' ' do incr k done;
+      String.sub msg !k (n - !k)
+    end
+  end

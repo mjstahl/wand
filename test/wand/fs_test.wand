@@ -158,3 +158,17 @@ test "mock write_file can capture the path/content argument" (fn t ->
     | write_file (path, _) k -> path ++ ": ok" ++ k ()
     | return s -> s
   in t.eq outcome "/tmp/foo.txt: okwrote")
+
+(* ── Result payloads carry no source position ──────────────────────────── *)
+
+(* The failing frame is inside FS.wand, so stamping its line/col onto the
+   message would report a stdlib position to a caller holding the Result. *)
+test "read_file error names the file, not a stdlib line" (fn t ->
+  match FS.read_file "/no/such/path/wand_test_xyz" with
+  | Ok _    -> t.ok false
+  | Error e -> t.ok (String.starts_with? "read_file:" e))
+
+test "size error carries no position" (fn t ->
+  match FS.size (Path.of_string "/no/such/path/wand_test_xyz") with
+  | Ok _    -> t.ok false
+  | Error e -> t.ok (String.starts_with? "size:" e))
