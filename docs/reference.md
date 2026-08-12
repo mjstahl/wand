@@ -674,7 +674,7 @@ another file imports and calls it.
 ```
 $ wand t --file deploy.wand
 Error: type error: 'publish' performs Shell, which the manifest does not allow.
-       The manifest should be:  uses {Shell, FS.Write}
+       The manifest should be:  "uses {Shell, FS.Write}"
 ```
 
 The error names the binding that introduced the effect and the line to
@@ -684,7 +684,7 @@ write, so the fix is a copy rather than a derivation.
 
 ```
 warning: 1:1: A-USES1: the manifest permits Shell, which this file does not
-         use; it could be uses {FS.Write}
+         use; it could be "uses {FS.Write}"
 ```
 
 Permitting more than you need is the safe direction, and a build that failed
@@ -695,7 +695,7 @@ alone.
 
 ```
 warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
-         so; it could declare uses {Shell, FS.Write}
+         so; it could declare "uses {Shell, FS.Write}"
 ```
 
 A file without a manifest is legal and always will be — a casual script

@@ -1,3 +1,5 @@
+uses {Shell, FS.Write}
+
 import FS
 
 -- The real thing: pushes to production and rewrites a system config.

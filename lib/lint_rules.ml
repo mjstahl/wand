@@ -127,7 +127,7 @@ let bang2 ~name =
 
 let uses1 ~unused ~corrected =
   Printf.sprintf
-    "the manifest permits %s, which this file does not use; it could be %s"
+    "the manifest permits %s, which this file does not use; it could be \"%s\""
     unused corrected
 
 (* Advisory rather than a violation, and deliberately so: a file without a
@@ -138,7 +138,7 @@ let uses1 ~unused ~corrected =
    line, since the effects are already inferred. *)
 let uses2 ~performs ~corrected =
   Printf.sprintf
-    "this file performs %s and does not say so; it could declare %s"
+    "this file performs %s and does not say so; it could declare \"%s\""
     performs corrected
 
 let shell1 ~stages =

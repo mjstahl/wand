@@ -1518,7 +1518,7 @@ let check_manifest (prog : program) (own_env : env) =
         | None -> ""
       in
       raise (TypeError (Printf.sprintf
-        "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  %s"
+        "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  \"%s\""
         where
         (String.concat ", "
           (List.map Effect_row.name_of (Effect_row.EffSet.elements missing)))

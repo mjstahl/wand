@@ -1,3 +1,5 @@
+uses {Shell, FS.Write, Env}
+
 import FS
 import Path
 import Env
