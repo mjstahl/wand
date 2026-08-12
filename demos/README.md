@@ -62,17 +62,18 @@ The same task — count log lines by level — written four ways. Measured on
 
 | implementation | median | |
 |---|---|---|
-| bash pipelines | 36 ms | 1.0x |
-| python, one pass | 120 ms | 3.4x |
-| **wand, one pass** | **246 ms** | **6.9x** |
-| bash per-line loop | 23,078 ms | 648x |
+| bash pipelines | 33 ms | 1.0x |
+| python, one pass | 109 ms | 3.3x |
+| **wand, one pass** | **203 ms** | **6.2x** |
+| bash per-line loop | 22,131 ms | 670x |
 
 Two honest readings, and they point in opposite directions.
 
 **Against a tight pipeline, wand loses.** Handing a whole file to `grep` and
-`sort` is hard to beat, and wand is currently ~7x behind that and ~2x behind
-Python. The gap widens with input size — the evaluator is a tree walker with
-assoc-list environments, and it has not been optimised.
+`sort` is hard to beat, and wand is currently ~6x behind that and ~2x behind
+Python. The evaluator is a tree walker and has not been optimised for
+throughput; the gap holds roughly steady with input size (50,000 lines:
+Python 0.32 s, wand 2.29 s).
 
 **Against a loop that shells out per line, wand wins by two orders of
 magnitude** — and that is the idiom scripts actually grow into once the work
