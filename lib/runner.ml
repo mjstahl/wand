@@ -224,6 +224,44 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("copy: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* Read-only operations: performed so a trace can see them, and
+             carried out by the same implementations the builtins used. A
+             failure has to be delivered into the continuation rather than
+             raised here, or it escapes the handler instead of reaching the
+             `try` at the call site. *)
+          | WandEffect ("fs_cwd", v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match Evaluator.fs_cwd_impl v with
+              | result -> Effect.Deep.continue k result
+              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
+          | WandEffect ("fs_mtime", v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match Evaluator.fs_mtime_impl v with
+              | result -> Effect.Deep.continue k result
+              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
+          | WandEffect ("fs_size", v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match Evaluator.fs_size_impl v with
+              | result -> Effect.Deep.continue k result
+              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
+          | WandEffect ("fs_glob", VTuple [pattern; dir]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (match List.assoc "fs_glob_impl" Evaluator.stdlib_eval_env with
+                     | VBuiltin f ->
+                       (match f pattern with
+                        | VBuiltin g -> g dir
+                        | other -> other)
+                     | other -> other) with
+              | result -> Effect.Deep.continue k result
+              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
+          | WandEffect ("env_set", VTuple [VString name; VString value]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Unix.putenv name value;
+              Effect.Deep.continue k VUnit)
+          | WandEffect ("env_clear", VString name) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Unix.putenv name "";
+              Effect.Deep.continue k VUnit)
           | WandEffect ("fs_remove", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rm () =
@@ -256,6 +294,15 @@ let run_with_default_handler (thunk : unit -> value) : value =
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               flush stdout;
               Effect.Deep.continue k VUnit)
+          (* Anything else that was registered as performing: the default
+             behaviour is simply to run the implementation it was built
+             from. Failures go back through the continuation so a `try` at
+             the call site still sees them. *)
+          | WandEffect (name, v) when Hashtbl.mem Evaluator.direct_impl name ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (Hashtbl.find Evaluator.direct_impl name) v with
+              | result -> Effect.Deep.continue k result
+              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
           | _ -> None
     }
 

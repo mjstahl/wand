@@ -566,6 +566,45 @@ let eval_expr (e : expr) : (value, string) result =
   try Ok (eval [] e)
   with EvalError msg -> Error msg
 
+(* Builtins that reach outside the program perform an effect rather than
+   acting directly, so a handler can see, log, or replace what they do.
+   `performing` registers the real implementation and hands back a builtin
+   that performs in its place; the default handler looks the implementation
+   up again. Wrapping at registration keeps the two from drifting apart. *)
+let direct_impl : (string, value -> value) Hashtbl.t = Hashtbl.create 32
+
+let performing name f =
+  Hashtbl.replace direct_impl name f;
+  VBuiltin (fun v -> Effect.perform (WandEffect (name, v)))
+
+(* Read-only filesystem operations. They are named here and performed as
+   effects below, so a trace can report what a script looked at, not only
+   what it changed. *)
+
+let fs_cwd_impl = function
+  | VUnit -> VPath (Sys.getcwd ())
+  | _ -> raise (EvalError "fs_cwd: expected Unit")
+
+let fs_mtime_impl = function
+  | VString p | VPath p ->
+    (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
+      Error ("mtime: " ^ Unix.error_message e)) with
+     | Error m -> raise (EvalError m)
+     | Ok st ->
+       let tm = Unix.gmtime st.Unix.st_mtime in
+       VDateTime (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+         (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+         tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec))
+  | _ -> raise (EvalError "fs_mtime: expected Path")
+
+let fs_size_impl = function
+  | VString p | VPath p ->
+    (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
+      Error ("size: " ^ Unix.error_message e)) with
+     | Error m -> raise (EvalError m)
+     | Ok st   -> VInt st.Unix.st_size)
+  | _ -> raise (EvalError "fs_size: expected Path")
+
 (* ── String primitive helpers ─────────────────────────────────────────────── *)
 
 let str_split_impl delim str =
@@ -795,7 +834,7 @@ let try_lex_single s =
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
-  ("exit",       VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("exit",       performing "exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));
@@ -965,13 +1004,13 @@ let stdlib_eval_env : env = [
        | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Duration" s)]))
     | _ -> raise (EvalError "str_to_duration: expected String")));
   (* FS primitives *)
-  ("fs_exists",  VBuiltin (function
+  ("fs_exists",  performing "fs_exists" (function
     | VPath p -> VBool (Sys.file_exists p)
     | _ -> raise (EvalError "fs_exists: expected Path")));
-  ("fs_is_file", VBuiltin (function
+  ("fs_is_file", performing "fs_is_file" (function
     | VPath p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
     | _ -> raise (EvalError "fs_is_file: expected Path")));
-  ("fs_is_dir",  VBuiltin (function
+  ("fs_is_dir",  performing "fs_is_dir" (function
     | VPath p -> VBool (Sys.file_exists p && Sys.is_directory p)
     | _ -> raise (EvalError "fs_is_dir: expected Path")));
   ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
@@ -990,28 +1029,13 @@ let stdlib_eval_env : env = [
   ("fs_copy",    VBuiltin (fun src ->
     VBuiltin (fun dst ->
       Effect.perform (WandEffect ("fs_copy", VTuple [src; dst])))));
-  ("fs_cwd",     VBuiltin (function
-    | VUnit -> VPath (Sys.getcwd ())
-    | _ -> raise (EvalError "fs_cwd: expected Unit")));
-  ("fs_mtime",   VBuiltin (function
-    | VString p | VPath p ->
-      (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
-        Error ("mtime: " ^ Unix.error_message e)) with
-       | Error m -> raise (EvalError m)
-       | Ok st ->
-         let tm = Unix.gmtime st.Unix.st_mtime in
-         VDateTime (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
-           (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
-           tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec))
-    | _ -> raise (EvalError "fs_mtime: expected Path")));
-  ("fs_size",    VBuiltin (function
-    | VString p | VPath p ->
-      (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
-        Error ("size: " ^ Unix.error_message e)) with
-       | Error m -> raise (EvalError m)
-       | Ok st   -> VInt st.Unix.st_size)
-    | _ -> raise (EvalError "fs_size: expected Path")));
-  ("fs_glob",    VBuiltin (function
+  ("fs_cwd",     VBuiltin (fun v -> Effect.perform (WandEffect ("fs_cwd", v))));
+  ("fs_mtime",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mtime", v))));
+  ("fs_size",    VBuiltin (fun v -> Effect.perform (WandEffect ("fs_size", v))));
+  ("fs_glob",    VBuiltin (fun pattern ->
+    VBuiltin (fun dir ->
+      Effect.perform (WandEffect ("fs_glob", VTuple [pattern; dir])))));
+  ("fs_glob_impl", VBuiltin (function
     | VString pat | VGlob pat ->
       VBuiltin (function
         | VString base | VPath base ->
@@ -1184,7 +1208,7 @@ let stdlib_eval_env : env = [
   ("process_exit_code", VBuiltin (fun v ->
     Effect.perform (WandEffect ("process_exit_code", v))));
   (* Env primitives *)
-  ("env_read_dotenv", VBuiltin (function
+  ("env_read_dotenv", performing "env_read_dotenv" (function
     | VString src | VPath src ->
       let parse_dotenv s =
         List.filter_map (fun line ->
@@ -1216,13 +1240,12 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "env_read_dotenv: expected String or Path")));
   ("env_load_file", VBuiltin (function
     | VString path | VPath path ->
-      let src = try
-        let ic = open_in path in
-        let n = in_channel_length ic in
-        let s = Bytes.create n in
-        really_input ic s 0 n; close_in ic;
-        Bytes.to_string s
-      with Sys_error msg -> raise (EvalError ("env_load_file: " ^ msg))
+      (* Read through the same effect a plain read does, so a trace shows
+         the file and a mock can substitute it. *)
+      let src =
+        match Effect.perform (WandEffect ("read_file", VString path)) with
+        | VString s -> s
+        | _ -> raise (EvalError "env_load_file: expected file contents")
       in
       let pairs = List.filter_map (fun line ->
         let line = String.trim line in
@@ -1249,27 +1272,31 @@ let stdlib_eval_env : env = [
               Some (key, value))
         (String.split_on_char '\n' src)
       in
-      List.iter (fun (k, v) -> Unix.putenv k v) pairs;
+      (* One env_set per variable, so a rehearsal names each one rather than
+         reporting that a file was loaded. *)
+      List.iter (fun (k, v) ->
+        ignore (Effect.perform
+          (WandEffect ("env_set", VTuple [VString k; VString v])))) pairs;
       VUnit
     | _ -> raise (EvalError "env_load_file: expected Path")));
-  ("env_get", VBuiltin (function
+  ("env_get", performing "env_get" (function
     | VString name -> VString (Option.value ~default:"" (Sys.getenv_opt name))
     | _ -> raise (EvalError "env_get: expected String")));
-  ("env_get_exn", VBuiltin (function
+  ("env_get_exn", performing "env_get_exn" (function
     | VString name ->
       (match Sys.getenv_opt name with
        | Some v -> VString v
        | None   -> raise (EvalError ("env: variable not set: " ^ name)))
     | _ -> raise (EvalError "env_get_exn: expected String")));
-  ("env_set", VBuiltin (function
-    | VString name -> VBuiltin (function
-      | VString value -> Unix.putenv name value; VUnit
-      | _ -> raise (EvalError "env_set: expected String value"))
-    | _ -> raise (EvalError "env_set: expected String name")));
-  ("env_clear", VBuiltin (function
-    | VString name -> Unix.putenv name ""; VUnit
-    | _ -> raise (EvalError "env_clear: expected String")));
-  ("env_all", VBuiltin (function
+  (* Changing the environment is a mutation like any other, so it goes
+     through an interceptable effect rather than straight to putenv. A
+     rehearsal that still edited the environment would be worse than none. *)
+  ("env_set", VBuiltin (fun name ->
+    VBuiltin (fun value ->
+      Effect.perform (WandEffect ("env_set", VTuple [name; value])))));
+  ("env_clear", VBuiltin (fun name ->
+    Effect.perform (WandEffect ("env_clear", name))));
+  ("env_all", performing "env_all" (function
     | VUnit ->
       let pairs = Array.to_list (Unix.environment ()) |> List.filter_map (fun s ->
         match String.split_on_char '=' s with
@@ -1278,16 +1305,16 @@ let stdlib_eval_env : env = [
       in
       VList pairs
     | _ -> raise (EvalError "env_all: expected Unit")));
-  ("env_args", VBuiltin (function
+  ("env_args", performing "env_args" (function
     | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
     | _ -> raise (EvalError "env_args: expected Unit")));
-  ("env_home", VBuiltin (function
+  ("env_home", performing "env_home" (function
     | VUnit ->
       (match Sys.getenv_opt "HOME" with
        | Some h -> VPath h
        | None   -> raise (EvalError "env: HOME not set"))
     | _ -> raise (EvalError "env_home: expected Unit")));
-  ("env_user", VBuiltin (function
+  ("env_user", performing "env_user" (function
     | VUnit ->
       let user =
         match Sys.getenv_opt "USER" with
@@ -1696,7 +1723,7 @@ let stdlib_eval_env = stdlib_eval_env @ map_builtins
 let base_eval_env : env = [
   ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
   ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
-  ("exit",    VBuiltin (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("exit",    performing "exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
 ]
