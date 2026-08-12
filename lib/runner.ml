@@ -934,6 +934,37 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
   | EvalError msg         -> Error ("runtime error: " ^ msg)
   | Failure msg           -> Error msg
 
+(* Typecheck a file without running it, resolving its imports the same way
+   running it would. The editing loop and CI both want an answer that costs
+   nothing and changes nothing. *)
+let typecheck_file path : (string * string list * Lint.finding list, string) result =
+  let full =
+    if Filename.is_relative path
+    then Filename.concat (Sys.getcwd ()) (add_ext path)
+    else add_ext path
+  in
+  try
+    let src      = In_channel.with_open_text full In_channel.input_all in
+    let tokens   = Lexer.tokenize src in
+    let (prog, item_locs) = Parser.parse_program_with_locs tokens in
+    let base_dir = Filename.dirname full in
+    let cache = Hashtbl.create 8 in
+    let loading = ref [] in
+    let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+    match Typechecker.infer_program_full_with_own
+            ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+    | Error msg -> Error ("type error: " ^ msg)
+    | Ok (_, own_type_env, last_t, holes) ->
+      Ok (Typechecker.string_of_typ last_t,
+          List.map Typechecker.string_of_typ holes,
+          Lint.check prog item_locs own_type_env)
+  with
+  | Sys_error msg         -> Error ("cannot open file: " ^ msg)
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
+  | Failure msg           -> Error msg
+
 (* Lint a stdlib module's own source. Module bodies are inferred against the
    raw builtins rather than the user-visible globals, so they need the same
    base environment module loading uses -- without it, `toml_parse` and its

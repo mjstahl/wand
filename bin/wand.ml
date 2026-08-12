@@ -44,6 +44,7 @@ let usage_for sub =
     print_endline "Typecheck a wand expression without evaluating it.";
     print_endline "";
     print_endline "Options:";
+    print_endline "  --file <file>   Typecheck a .wand file instead of an expression";
     print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)";
     print_endline "  --strict        Treat mechanical lint findings as errors";
     print_endline "  --json          Emit lint findings as JSON instead of text";
@@ -206,6 +207,30 @@ let () =
          Printf.eprintf "Error: too many arguments\nRun 'wand h e' for usage.\n"; exit 1)
     | "t" | "type" ->
       let (strict, json, rest) = parse_lint_flags rest in
+      (* `wand t --file script.wand` checks a file; without it the argument is
+         an expression. Stated rather than guessed from the argument's shape,
+         since `deploy.wand` is itself a valid path expression. *)
+      let rec take_file acc = function
+        | "--file" :: path :: tl -> (Some path, List.rev_append acc tl)
+        | x :: tl -> take_file (x :: acc) tl
+        | [] -> (None, List.rev acc)
+      in
+      (match take_file [] rest with
+       | Some path, _ ->
+         (match Wand.Runner.typecheck_file path with
+          | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
+          | Ok (ty, holes, findings) ->
+            if not json then begin
+              if holes <> [] then
+                List.iter (fun h -> Printf.printf "Hole: %s\n" h) holes
+              else if ty <> "Unit" then print_endline ty
+            end;
+            if json then print_endline (Wand.Lint.to_json findings)
+            else List.iter (fun f ->
+              Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
+            if strict && not json && List.exists Wand.Lint.fails_strict findings
+            then exit 1)
+       | None, rest ->
       let (loads, rest') = parse_loads rest in
       (match rest' with
        | [] ->
@@ -219,7 +244,7 @@ let () =
             let code = report_lints ~strict ~json sess expr in
             if code <> 0 then exit code)
        | _ ->
-         Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1)
+         Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1))
     | "d" | "doc" ->
       let (loads, rest') = parse_loads rest in
       (match rest' with

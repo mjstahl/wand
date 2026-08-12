@@ -224,8 +224,58 @@ let test_repl_merges_clauses_and_announces () =
    | Ok (_, _) -> Alcotest.fail "general clause did not fire after merge"
    | Error m -> Alcotest.failf "f 5 failed: %s" m)
 
+(* Checking a file without running it: what an editing loop and CI both want,
+   and what a manifest violation will be reported through. The path is stated
+   with --file rather than guessed from the argument, since `deploy.wand` is
+   itself a valid path expression and would otherwise typecheck as one. *)
+
+let with_file name contents f =
+  let path = Filename.concat (Filename.get_temp_dir_name ()) name in
+  let oc = open_out path in
+  output_string oc contents; close_out oc;
+  let r = (try f path with e -> Sys.remove path; raise e) in
+  Sys.remove path; r
+
+let test_typecheck_file () =
+  with_file "wand_cli_ok.wand" "let double x = x * 2\ndouble 21" (fun path ->
+    match Runner.typecheck_file path with
+    | Ok (ty, holes, _) ->
+      Alcotest.(check string) "reports the file's type" "Int" ty;
+      Alcotest.(check int) "no holes" 0 (List.length holes)
+    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+
+let test_typecheck_file_reports_errors () =
+  with_file "wand_cli_bad.wand" "let x : Int = \"no\"\nx" (fun path ->
+    match Runner.typecheck_file path with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail "expected a type error")
+
+let test_typecheck_file_reports_holes () =
+  with_file "wand_cli_hole.wand" "import List\nList.fold_left ? 0 [1, 2, 3]" (fun path ->
+    match Runner.typecheck_file path with
+    | Ok (_, holes, _) ->
+      Alcotest.(check int) "one hole" 1 (List.length holes);
+      (* The row variable says the function filling the hole may perform
+         effects of its own -- fold_left passes through whatever it is given. *)
+      Alcotest.(check string) "with its inferred type" "Int -> Int -> Int ! 'e"
+        (List.hd holes)
+    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+
+let test_typecheck_file_lints () =
+  with_file "wand_cli_lint.wand" "let is_ready? x = x > 1\nis_ready? 2" (fun path ->
+    match Runner.typecheck_file path with
+    | Ok (_, _, findings) ->
+      Alcotest.(check bool) "a lint is reported" true (findings <> [])
+    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+
 let () =
   Alcotest.run "CLI" [
+    "typecheck a file", [
+      Alcotest.test_case "reports the type"   `Quick test_typecheck_file;
+      Alcotest.test_case "reports errors"     `Quick test_typecheck_file_reports_errors;
+      Alcotest.test_case "reports holes"      `Quick test_typecheck_file_reports_holes;
+      Alcotest.test_case "reports lints"      `Quick test_typecheck_file_lints;
+    ];
     "repl", [
       Alcotest.test_case "clause merge announced" `Quick test_repl_merges_clauses_and_announces;
     ];
