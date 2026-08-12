@@ -53,6 +53,21 @@ let test_uses1 () =
   silent "manifest matching what the file does"
     "uses {Shell}\nlet publish! () = $(rsync -a . host:/srv)\npublish!";
   silent "no manifest at all" "let x = 1\nx";
+  (* `uses {}` is not advice: a file that reaches outside itself for nothing
+     has nothing to declare, so the line should go rather than shrink. *)
+  (match findings "uses {Shell}\nlet x = 1\nx" with
+   | [f] ->
+     Alcotest.(check bool) "suggests removal, not an empty manifest" true
+       (let t = f.Lint.text in
+        (not (List.exists (fun sub ->
+           let n = String.length sub and m = String.length t in
+           let rec at i = i + n <= m && (String.sub t i n = sub || at (i + 1)) in
+           at 0) ["uses {}"]))
+        && (let sub = "removed" and m = String.length t in
+            let n = String.length sub in
+            let rec at i = i + n <= m && (String.sub t i n = sub || at (i + 1)) in
+            at 0))
+   | fs -> Alcotest.failf "expected one finding, got %d" (List.length fs));
   let over = findings "uses {Shell}\nlet x = 1\nx" in
   Alcotest.(check bool) "never fails --strict" false
     (List.exists Lint.fails_strict over)

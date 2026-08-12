@@ -1,3 +1,5 @@
+uses {Env, IO}
+
 import Env
 import FS
 import Path

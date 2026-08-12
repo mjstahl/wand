@@ -1,3 +1,5 @@
+uses {FS.Read, FS.Write, Env}
+
 let [test] = import Test
 import Env
 import List

@@ -125,10 +125,20 @@ let bang2 ~name =
     "'%s' cannot raise, so the `!` promises a risk that is not there; it is \
      '%s'" name bare
 
+(* `corrected` is None when the file reaches outside itself for nothing:
+   `uses {}` is not the advice there, since a file that does nothing outward
+   has nothing to declare and the line should go. *)
 let uses1 ~unused ~corrected =
-  Printf.sprintf
-    "the manifest permits %s, which this file does not use; it could be \"%s\""
-    unused corrected
+  match corrected with
+  | Some c ->
+    Printf.sprintf
+      "the manifest permits %s, which this file does not use; it could be \"%s\""
+      unused c
+  | None ->
+    Printf.sprintf
+      "the manifest permits %s, and this file reaches outside itself for \
+       nothing; it could be removed"
+      unused
 
 (* Advisory rather than a violation, and deliberately so: a file without a
    manifest is legal, and a rule that failed a build over one would make

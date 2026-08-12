@@ -1,3 +1,5 @@
+uses {IO}
+
 let [test] = import Test
 
 (* ── Default handler ───────────────────────────────────────────────────── *)

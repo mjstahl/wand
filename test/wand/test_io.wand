@@ -1,3 +1,5 @@
+uses {Proc}
+
 let [test] = import Test
 import IO
 

@@ -1,3 +1,5 @@
+uses {FS.Read, FS.Write}
+
 let [test] = import Test
 import FS
 import Path

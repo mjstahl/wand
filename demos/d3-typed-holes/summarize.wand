@@ -1,3 +1,5 @@
+uses {IO}
+
 import List
 import String
 import Map

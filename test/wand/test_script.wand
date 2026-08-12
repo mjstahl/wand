@@ -1,3 +1,5 @@
+uses {Env}
+
 import Test
 let [test] = import Test
 import String

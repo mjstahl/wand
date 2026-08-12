@@ -191,7 +191,8 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          (Lint_rules.uses1
             ~unused:(String.concat ", "
               (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
-            ~corrected:(Typechecker.render_manifest inferred))
+            ~corrected:(if Effect_row.EffSet.is_empty inferred then None
+                        else Some (Typechecker.render_manifest inferred)))
    | None ->
      (* No manifest at all. A file that reaches outside itself is told what
         it could declare; a file that does not has nothing to say. *)

@@ -1,3 +1,5 @@
+uses {Shell, FS.Read, FS.Write}
+
 import Test
 let [test] = import Test
 import Par

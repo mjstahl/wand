@@ -7,7 +7,7 @@ source "$(dirname "$0")/../assert.sh"
 D=demos/d3-typed-holes
 
 echo "== the sketch =="
-sed -n '6,10p' "$D/summarize.wand"
+sed -n '8,12p' "$D/summarize.wand"
 
 echo
 echo "== what belongs in the hole =="

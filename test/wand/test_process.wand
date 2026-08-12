@@ -1,3 +1,5 @@
+uses {Shell}
+
 let [test] = import Test
 import String
 

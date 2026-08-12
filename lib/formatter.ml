@@ -756,4 +756,18 @@ let format_source src =
                 end_line = c.c_end_line; text = c.c_text; is_comment = true }
   ) comments in
   let item_pcs = List.map (fun (_, _, _, p) -> p) items in
-  assemble (comment_pcs @ item_pcs)
+  (* A manifest is not a top-level item -- it is held apart on the program,
+     since it is a property of the file rather than something in it -- so it
+     has to be emitted here or the formatter would silently drop it, turning
+     a bounded file into an unbounded one. *)
+  let manifest_pcs =
+    match prog.Ast.manifest with
+    | None -> []
+    | Some (labels, loc) ->
+      [{ offset     = loc.Token.offset;
+         start_line = loc.Token.line;
+         end_line   = loc.Token.line;
+         text       = "uses {" ^ String.concat ", " labels ^ "}";
+         is_comment = false }]
+  in
+  assemble (manifest_pcs @ comment_pcs @ item_pcs)

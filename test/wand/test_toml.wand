@@ -1,3 +1,5 @@
+uses {FS.Write}
+
 let [test] = import Test
 import TOML
 import List
