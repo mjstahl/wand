@@ -12,7 +12,7 @@ let get  key m = match map_get key m with
 let get! key m = map_get_exn key m
 
 (** Set a key to a value, returning the updated map. *)
-let set  key val_ m = map_set key val_ m
+let set  key value m = map_set key value m
 
 (** Remove a key, returning the updated map. *)
 let delete key m = map_delete key m

@@ -760,6 +760,49 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
   | EvalError msg         -> Error ("runtime error: " ^ msg)
   | Failure msg           -> Error msg
 
+(* Lint a stdlib module's own source. Module bodies are inferred against the
+   raw builtins rather than the user-visible globals, so they need the same
+   base environment module loading uses -- without it, `toml_parse` and its
+   kind read as unbound. *)
+let lint_module_source (src : string) : (Lint.finding list, string) result =
+  try
+    let tokens = Lexer.tokenize src in
+    let (prog, item_locs) = Parser.parse_program_with_locs tokens in
+    let cache = Hashtbl.create 8 in
+    let loading = ref [] in
+    let base_dir = Module_types.find_stdlib_dir () in
+    let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+    match Typechecker.infer_program_env_with_own
+            ~init_tenv:(local_tenv_of prog @ imp.tenv)
+            ~init_env:imp.type_env prog with
+    | Error msg -> Error ("type error: " ^ msg)
+    | Ok (_, own_type_env) -> Ok (Lint.check prog item_locs own_type_env)
+  with
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
+  | Failure msg           -> Error msg
+
+(* Lints share the typecheck's parse and inference rather than repeating
+   them: they are reported by `wand t`, so they must cost it almost nothing. *)
+let lint_session (sess : session) (src : string) : (Lint.finding list, string) result =
+  try
+    let tokens = Lexer.tokenize src in
+    let (prog, item_locs) = Parser.parse_program_with_locs tokens in
+    let loading = ref [] in
+    let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
+    let merged_type_env = imp.type_env @ sess.s_type_env in
+    match Typechecker.infer_program_full_with_own
+            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+    | Error msg -> Error ("type error: " ^ msg)
+    | Ok (_, own_type_env, _, _) -> Ok (Lint.check prog item_locs own_type_env)
+  with
+  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
+  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
+  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
+  | Failure msg           -> Error msg
+
 let typecheck_session (sess : session) (src : string) : (repl_result, string) result =
   try
     let tokens = Lexer.tokenize src in

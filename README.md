@@ -985,6 +985,24 @@ wand h e                              # help for a specific command
 
 Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `fmt`/`format`, `h`/`help`.
 
+### Lints
+
+`wand t` reports lint findings alongside the type. Each carries a rule ID
+whose prefix says how it is treated: `M-` rules are mechanical, and `--strict`
+promotes them to errors; `H-` rules are heuristics and always stay warnings.
+
+| Rule | Fires when |
+|---|---|
+| `M-PRED1` | a `?`-named function returns something other than `Bool` |
+| `M-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
+| `M-NAME1` | a signature exposes a parameter whose name ends in `_` |
+| `H-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
+
+```
+wand t --strict "..."     # mechanical findings become errors (exit 1)
+wand t --json "..."       # findings as JSON, for tools
+```
+
 ### Formatter
 
 `wand fmt <file>...` formats one or more `.wand` files in place (each

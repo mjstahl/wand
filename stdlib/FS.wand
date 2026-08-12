@@ -59,10 +59,10 @@ let delete!     path     = fs_remove path
 let delete      path     = try (delete! path)
 
 (** Rename or move a file or directory. Raises on failure. *)
-let rename!     old_ new_ = fs_rename old_ new_
+let rename!     src dst  = fs_rename src dst
 
 (** Rename or move a file or directory. *)
-let rename      old_ new_ = try (rename! old_ new_)
+let rename      src dst  = try (rename! src dst)
 
 (** Copy a file to a new path. Raises on failure. *)
 let copy!       src dst  = fs_copy src dst

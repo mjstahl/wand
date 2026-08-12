@@ -39,7 +39,14 @@ let usage_for sub =
     print_endline "Typecheck a wand expression without evaluating it.";
     print_endline "";
     print_endline "Options:";
-    print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)"
+    print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)";
+    print_endline "  --strict        Treat mechanical lint findings as errors";
+    print_endline "  --json          Emit lint findings as JSON instead of text";
+    print_endline "";
+    print_endline "Lint findings are reported as warnings. Rule IDs carry";
+    print_endline "their classification: M- rules are mechanical and --strict";
+    print_endline "promotes them to errors; H- rules are heuristics and always";
+    print_endline "stay warnings."
   | "d" | "doc" ->
     print_endline "Usage: wand d [--load <file>]... <name>";
     print_endline "";
@@ -76,6 +83,32 @@ let parse_loads args =
     | []                       -> (loads, rest)
   in
   go [] [] args
+
+(* --strict promotes mechanical lints to errors; --json emits findings for a
+   tool to read rather than a person. *)
+let parse_lint_flags args =
+  let strict = ref false and json = ref false in
+  let rest = List.filter (fun a ->
+    match a with
+    | "--strict" -> strict := true; false
+    | "--json"   -> json := true; false
+    | _ -> true) args
+  in
+  (!strict, !json, rest)
+
+(* Returns the exit code: lints are warnings unless --strict promotes a
+   mechanical one. *)
+let report_lints ~strict ~json sess src =
+  match Wand.Runner.lint_session sess src with
+  | Error _ -> 0   (* the typecheck itself already reported this *)
+  | Ok [] -> if json then print_endline "[]"; 0
+  | Ok findings ->
+    if json then (print_endline (Wand.Lint.to_json findings); 0)
+    else begin
+      List.iter (fun f ->
+        Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
+      if strict && List.exists Wand.Lint.fails_strict findings then 1 else 0
+    end
 
 (* One-shot commands let an expression name a stdlib module without importing
    it. Importing all of them to provide that costs a disk read, lex, parse,
@@ -156,6 +189,7 @@ let () =
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h e' for usage.\n"; exit 1)
     | "t" | "type" ->
+      let (strict, json, rest) = parse_lint_flags rest in
       let (loads, rest') = parse_loads rest in
       (match rest' with
        | [] ->
@@ -164,7 +198,10 @@ let () =
          let sess = load_files ~sources:[expr] loads in
          (match Wand.Runner.typecheck_session sess expr with
           | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
-          | Ok r      -> Wand.Repl.print_result r)
+          | Ok r      ->
+            if not json then Wand.Repl.print_result r;
+            let code = report_lints ~strict ~json sess expr in
+            if code <> 0 then exit code)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1)
     | "d" | "doc" ->

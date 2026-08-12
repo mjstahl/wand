@@ -21,8 +21,8 @@ let trim_left  s           = str_trim_left s
 (** Strip trailing whitespace. *)
 let trim_right s           = str_trim_right s
 
-(** Return the substring from index from_ up to (not including) to_. *)
-let slice      from_ to_ s = str_slice from_ to_ s
+(** Return the substring from index `from` up to (not including) `to_end`. *)
+let slice      from to_end s = str_slice from to_end s
 
 (** Split a string on a delimiter, returning a list of substrings. *)
 let split      delim s     = str_split delim s
@@ -36,8 +36,8 @@ let starts_with? prefix s  = str_starts_with prefix s
 (** Return true if the string ends with the given suffix. *)
 let ends_with?   suffix s  = str_ends_with suffix s
 
-(** Replace all occurrences of old_ with new_ in the string. *)
-let replace    old_ new_ s = str_replace old_ new_ s
+(** Replace all occurrences of `old` with `new` in the string. *)
+let replace    old new s   = str_replace old new s
 
 (** Repeat a string n times. *)
 let repeat     n s         = str_repeat n s

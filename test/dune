@@ -59,6 +59,11 @@
  (libraries wand alcotest))
 
 (test
+ (name test_lint)
+ (deps (source_tree ../stdlib))
+ (libraries wand alcotest))
+
+(test
  (name test_formatter)
  (deps (source_tree ../stdlib))
  (libraries wand alcotest))

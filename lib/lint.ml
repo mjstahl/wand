@@ -1,0 +1,189 @@
+(* Lints run inside `wand t` rather than as a separate command: the typecheck
+   is the step an editing loop already repeats, and a rule that does not
+   surface there is a rule its audience never sees.
+
+   This module only finds violations and locates them. What each rule is
+   called, how it is classified, and what it says all live in `Lint_rules`. *)
+
+type finding = {
+  rule : Lint_rules.id;
+  line : int;
+  col  : int;
+  text : string;
+}
+
+let rec strip_located e =
+  match e with
+  | Ast.Located (_, x) -> strip_located x
+  | x -> x
+
+let ends_with s c = String.length s > 0 && s.[String.length s - 1] = c
+
+(* Types reach here with inference variables still standing in for what was
+   solved, so every read has to go through repr first. *)
+let rec result_type (t : Typechecker.typ) =
+  match Typechecker.repr t with
+  | Typechecker.TFun (_, r) -> result_type r
+  | t -> t
+
+let type_of_scheme (s : Typechecker.scheme) =
+  match s with
+  | Typechecker.Mono t -> Some t
+  | Typechecker.Poly (_, t) -> Some t
+  | Typechecker.Namespace _ -> None
+
+(* Any Result in the type whose error side carries nothing. *)
+let rec informationless_error (t : Typechecker.typ) =
+  match Typechecker.repr t with
+  | Typechecker.TResult (e, _) when Typechecker.repr e = Typechecker.TUnit -> true
+  | Typechecker.TResult (e, v) -> informationless_error e || informationless_error v
+  | Typechecker.TFun (a, b) | Typechecker.TApp (a, b) ->
+    informationless_error a || informationless_error b
+  | Typechecker.TList t | Typechecker.TMap t -> informationless_error t
+  | Typechecker.TTuple ts -> List.exists informationless_error ts
+  | _ -> false
+
+let rec pat_names (p : Ast.pat) =
+  match p with
+  | Ast.PVar n -> [n]
+  | Ast.PTuple ps | Ast.PList ps -> List.concat_map pat_names ps
+  | Ast.PCons (h, t) -> pat_names h @ pat_names t
+  | Ast.PConstr (_, ps) -> List.concat_map pat_names ps
+  | Ast.PConstrNamed (_, kvs) | Ast.PMap kvs ->
+    List.concat_map (fun (_, p) -> pat_names p) kvs
+  | _ -> []
+
+(* Shell-level structure in a command string. One stage is exactly what $()
+   is for; it is the accumulation of stages that hides work from the type
+   system and from --trace. *)
+let shell_operators cmd =
+  let n = String.length cmd in
+  let count = ref 0 and i = ref 0 in
+  while !i < n do
+    (match cmd.[!i] with
+     | '|' when !i + 1 < n && cmd.[!i + 1] = '|' -> incr count; incr i
+     | '&' when !i + 1 < n && cmd.[!i + 1] = '&' -> incr count; incr i
+     | '|' | '>' | '<' | ';' -> incr count
+     | _ -> ());
+    incr i
+  done;
+  !count
+
+let shell_threshold = 3
+
+(* ── Traversal ───────────────────────────────────────────────────────────── *)
+
+let walk_expr start_loc (e : Ast.expr) : finding list =
+  let acc = ref [] in
+  let here = ref start_loc in
+  let rec go (e : Ast.expr) =
+    match e with
+    | Ast.Located (l, inner) ->
+      let saved = !here in
+      here := l; go inner; here := saved
+    | Ast.RunCmd inner | Ast.RunQuery inner ->
+      (match strip_located inner with
+       | Ast.String cmd ->
+         let ops = shell_operators cmd in
+         if ops >= shell_threshold then
+           acc := { rule = Lint_rules.H_SHELL1;
+                    line = (!here).Token.line; col = (!here).Token.col;
+                    text = Lint_rules.shell1 ~stages:ops } :: !acc
+       | _ -> ());
+      go inner
+    | Ast.Interp (parts, _) -> List.iter (fun (_, e) -> go e) parts
+    | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> go a; go b
+    | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
+    | Ast.Field (a, _) | Ast.Try a -> go a
+    | Ast.Let (_, a, b) -> go a; go b
+    | Ast.LetRec (bs, b) -> List.iter (fun (_, _, x) -> go x) bs; go b
+    | Ast.If (c, t, f) -> go c; go t; go f
+    | Ast.Match (s, arms) ->
+      go s;
+      List.iter (fun (_, g, b) ->
+        (match g with Some g -> go g | None -> ()); go b) arms
+    | Ast.Tuple es | Ast.List es -> List.iter go es
+    | Ast.MapLit kvs -> List.iter (fun (_, v) -> go v) kvs
+    | Ast.ConstrApp (_, fields) -> List.iter (fun (_, v) -> go v) fields
+    | Ast.Handle (b, arms) ->
+      go b;
+      List.iter (function
+        | Ast.ReturnArm (_, x) -> go x
+        | Ast.EffectArm (_, _, _, x) -> go x) arms
+    | Ast.Contract (reqs, ens, body) ->
+      List.iter go reqs; List.iter go ens; go body
+    | _ -> ()
+  in
+  go e;
+  List.rev !acc
+
+(* `own_env` holds the program's own top-level bindings, already inferred, so
+   the type-directed rules read what the checker concluded rather than
+   re-deriving it. *)
+let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
+    (own_env : Typechecker.env) : finding list =
+  let locs = Array.of_list item_locs in
+  let no_loc = Token.{ line = 0; col = 0; offset = 0 } in
+  let findings = ref [] in
+  let add rule loc text =
+    findings := { rule; line = loc.Token.line; col = loc.Token.col; text } :: !findings
+  in
+  List.iteri (fun i (item : Ast.top_item) ->
+    let loc = if i < Array.length locs then fst locs.(i) else no_loc in
+    match item with
+    | Ast.TLLet (name, params, body) ->
+      (match Option.bind (List.assoc_opt name own_env) type_of_scheme with
+       | Some t ->
+         let res = result_type t in
+         if ends_with name '?' && res <> Typechecker.TBool then
+           add Lint_rules.M_PRED1 loc
+             (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));
+         if informationless_error t then
+           add Lint_rules.M_OR1 loc (Lint_rules.or1 ~name)
+       | None -> ());
+      (match List.concat_map pat_names params
+             |> List.filter (fun n -> String.length n > 1 && ends_with n '_') with
+       | [] -> ()
+       | ps -> add Lint_rules.M_NAME1 loc (Lint_rules.name1 ~name ~params:ps));
+      findings := List.rev_append (walk_expr loc body) !findings
+    | Ast.TLLetPat (_, body) | Ast.TLExpr body ->
+      findings := List.rev_append (walk_expr loc body) !findings
+    | Ast.TLLetRec bindings ->
+      List.iter (fun (_, _, b) ->
+        findings := List.rev_append (walk_expr loc b) !findings) bindings
+    | Ast.TLImport _ | Ast.TLType _ -> ()
+  ) prog.Ast.items;
+  List.stable_sort (fun a b ->
+    match compare a.line b.line with 0 -> compare a.col b.col | c -> c)
+    (List.rev !findings)
+
+(* ── Rendering ───────────────────────────────────────────────────────────── *)
+
+(* Only mechanical rules can fail a build. *)
+let fails_strict f = Lint_rules.kind f.rule = Lint_rules.Mechanical
+
+let to_text f =
+  Printf.sprintf "%d:%d: %s: %s" f.line f.col (Lint_rules.code f.rule) f.text
+
+let escape_json s =
+  let buf = Buffer.create (String.length s + 8) in
+  String.iter (fun c ->
+    match c with
+    | '"'  -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '\n' -> Buffer.add_string buf "\\n"
+    | '\t' -> Buffer.add_string buf "\\t"
+    | c when Char.code c < 0x20 ->
+      Buffer.add_string buf (Printf.sprintf "\\u%04x" (Char.code c))
+    | c -> Buffer.add_char buf c) s;
+  Buffer.contents buf
+
+let to_json fs =
+  "[" ^ String.concat ","
+    (List.map (fun f ->
+       Printf.sprintf
+         "{\"rule\":\"%s\",\"kind\":\"%s\",\"line\":%d,\"col\":%d,\"message\":\"%s\"}"
+         (Lint_rules.code f.rule)
+         (Lint_rules.kind_name (Lint_rules.kind f.rule))
+         f.line f.col (escape_json f.text)) fs)
+  ^ "]"
