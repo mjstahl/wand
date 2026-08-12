@@ -100,6 +100,17 @@ Requires OCaml 5.x and opam.
 
 ---
 
+## Demos
+
+Runnable, in [`demos/`](demos/):
+
+- **[The unset variable](demos/d1-unset-variable/)** — `rm -rf "${STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
+- **[Literals that know what they are](demos/d2-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
+- **[Ask the type system what to write](demos/d3-typed-holes/)** — leave `?`, get back the signature that belongs there
+- **[Where the time goes](demos/d9-fork-overhead/)** — the same task in bash, Python and wand, and what forking per line costs
+
+---
+
 ## Status
 
 Early. The language runs, the standard library is written in wand, and the

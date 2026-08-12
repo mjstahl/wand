@@ -40,6 +40,16 @@ jobs:
           "$WAND" examples/party.wand
           printf 'INFO a\nERROR b\n' | "$WAND" examples/log-summary.wand
 
+      # The demos are acceptance tests: if one stops making its point,
+      # something regressed. D9 is left out -- it deliberately runs a bash
+      # loop that takes half a minute.
+      - name: Run demos
+        run: |
+          set -euo pipefail
+          demos/d1-unset-variable/run.sh
+          demos/d2-domain-types/run.sh
+          demos/d3-typed-holes/run.sh
+
       # wand fmt is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.
       - name: Check the stdlib is formatted

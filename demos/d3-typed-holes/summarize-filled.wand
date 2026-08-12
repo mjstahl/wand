@@ -1,0 +1,19 @@
+import List
+import String
+import Map
+import IO
+
+-- The hole said: Map 'a -> String -> Map 'a
+-- so the reducer takes the tally so far and one line, and returns the tally.
+let count tally line =
+  let level = List.head (String.words line) in
+  match level with
+  | None   -> tally
+  | Some l ->
+    match Map.get l tally with
+    | None   -> Map.set l 1 tally
+    | Some n -> Map.set l (n + 1) tally
+
+let levels = List.fold_left count Map.empty (String.lines (String.trim_right (IO.read_all ())))
+
+levels

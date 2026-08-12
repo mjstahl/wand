@@ -1,0 +1,9 @@
+import Env
+import FS
+import Path
+
+-- Env.get returns Option String, because the variable may not be set.
+-- Using it as a Path without answering that question does not typecheck.
+let dir = Env.get "STAGING_DIR"
+
+FS.delete! (Path.of_string dir)
