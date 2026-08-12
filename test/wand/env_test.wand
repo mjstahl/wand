@@ -23,12 +23,10 @@ test "get! missing raises" (fn t -> t.raises (fn () -> Env.get! "WAND_TEST_NONEX
 
 test "set then get" (fn t -> let () = Env.set "WAND_TEST_SET" "value" in t.eq (Env.get "WAND_TEST_SET") (Some "value"))
 
-(* ── unset ─────────────────────────────────────────────────────────────── *)
+(* ── clear ─────────────────────────────────────────────────────────────── *)
 
-let () = Env.set "WAND_TEST_UNSET" "before"
-(* Env.unset sets the variable to the empty string: OCaml exposes putenv but
-   no unsetenv, so the name survives in the environment with an empty value. *)
-test "unset clears value" (fn t -> let () = Env.unset "WAND_TEST_UNSET" in t.eq (Env.get "WAND_TEST_UNSET") (Some ""))
+let () = Env.set "WAND_TEST_CLEAR" "before"
+test "clear empties value" (fn t -> let () = Env.clear "WAND_TEST_CLEAR" in t.eq (Env.get "WAND_TEST_CLEAR") (Some ""))
 
 (* ── all ───────────────────────────────────────────────────────────────── *)
 

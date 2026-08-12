@@ -1305,9 +1305,9 @@ let stdlib_eval_env : env = [
       | VString value -> Unix.putenv name value; VUnit
       | _ -> raise (EvalError "env_set: expected String value"))
     | _ -> raise (EvalError "env_set: expected String name")));
-  ("env_unset", VBuiltin (function
+  ("env_clear", VBuiltin (function
     | VString name -> Unix.putenv name ""; VUnit
-    | _ -> raise (EvalError "env_unset: expected String")));
+    | _ -> raise (EvalError "env_clear: expected String")));
   ("env_all", VBuiltin (function
     | VUnit ->
       let pairs = Array.to_list (Unix.environment ()) |> List.filter_map (fun s ->

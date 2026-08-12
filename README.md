@@ -741,7 +741,7 @@ sibling that raises instead of returning a `Result`.
 
 ### `Env`
 
-`get`, `get!`, `set`, `unset`, `all`, `args`, `home`, `user`, `read`, `load`
+`get`, `get!`, `set`, `clear`, `all`, `args`, `home`, `user`, `read`, `load`
 
 ### `CSV`
 

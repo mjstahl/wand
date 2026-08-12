@@ -1036,7 +1036,7 @@ let stdlib_type_env : env = [
   ("env_get",     Mono (TFun (TString, TString)));
   ("env_get_exn", Mono (TFun (TString, TString)));
   ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));
-  ("env_unset",   Mono (TFun (TString, TUnit)));
+  ("env_clear",   Mono (TFun (TString, TUnit)));
   ("env_all",     Mono (TFun (TUnit,   TList (TTuple [TString; TString]))));
   ("env_args",    Mono (TFun (TUnit,   TList TString)));
   ("env_home",    Mono (TFun (TUnit,   TPath)));
