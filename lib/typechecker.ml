@@ -11,7 +11,7 @@ type typ =
   | TPath | TGlob | TDate | TTime | TDateTime | TDuration
   | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TVar    of tv
-  | TFun    of typ * typ
+  | TFun    of typ * typ * Effect_row.row  (* arg, result, effects of calling *)
   | TTuple  of typ list
   | TList   of typ
   | TResult of typ * typ  (* error type, value type *)
@@ -26,6 +26,11 @@ and tv = {
   id  : int;
   mutable def : typ option;
 }
+
+(* Builtin signatures are written with `@->` so the tables stay readable.
+   Every builtin's *own* latent effect is filled in separately; the arrow
+   itself carries no effect until it is seeded. *)
+let ( @-> ) a b = TFun (a, b, Effect_row.pure)
 
 (* ── Fresh variable generation ────────────────────────────────────────────── *)
 
@@ -79,7 +84,7 @@ let string_of_typ t =
     | TToml     -> "TOML"
     | TName n   -> n
     | TVar tv   -> name_of tv.id
-    | TFun (a, b) ->
+    | TFun (a, b, _) ->
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
       sa ^ " -> " ^ go b
     | TTuple ts ->
@@ -116,7 +121,7 @@ let string_of_typ t =
 let rec occurs (tv : tv) t =
   match repr t with
   | TVar tv'    -> tv' == tv
-  | TFun (a, b) -> occurs tv a || occurs tv b
+  | TFun (a, b, _) -> occurs tv a || occurs tv b
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
   | TResult (e, t) -> occurs tv e || occurs tv t
@@ -144,8 +149,12 @@ let rec unify t1 t2 =
   | TVar tv, t | t, TVar tv ->
     if occurs tv t then raise (TypeError "infinite type")
     else tv.def <- Some t
-  | TFun (a1, r1), TFun (a2, r2) ->
-    unify a1 a2; unify r1 r2
+  | TFun (a1, res1, eff1), TFun (a2, res2, eff2) ->
+    unify a1 a2; unify res1 res2;
+    (* Two functions are the same only if calling them does the same. A
+       row conflict is a type error like any other. *)
+    (try Effect_row.unify eff1 eff2
+     with Effect_row.RowError msg -> raise (TypeError msg))
   | TTuple ts1, TTuple ts2 when List.length ts1 = List.length ts2 ->
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
@@ -177,7 +186,7 @@ let lookup name (env : env) =
 let rec free_tvars t =
   match repr t with
   | TVar tv     -> [tv.id]
-  | TFun (a, b) -> free_tvars a @ free_tvars b
+  | TFun (a, b, _) -> free_tvars a @ free_tvars b
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
   | TResult (e, t) -> free_tvars e @ free_tvars t
@@ -215,7 +224,7 @@ let instantiate = function
         (match List.assoc_opt tv.id subst with
          | Some t' -> t'
          | None    -> TVar tv)
-      | TFun (a, b) -> TFun (inst a, inst b)
+      | TFun (a, b, r) -> TFun (inst a, inst b, r)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
@@ -249,7 +258,7 @@ let type_of_te (te : type_expr) : typ =
       (match Hashtbl.find_opt vars name with
        | Some t -> t
        | None -> let t = fresh () in Hashtbl.add vars name t; t)
-    | TEFun (a, b) -> TFun (go a, go b)
+    | TEFun (a, b) -> TFun (go a, go b, Effect_row.fresh_row ())
     | TETuple ts    -> TTuple (List.map go ts)
     | TEApp (TEName "List", arg)   -> TList   (go arg)
     | TEApp (TEApp (TEName "Result", e), a) -> TResult (go e, go a)
@@ -274,7 +283,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
              "type variable ''%s' is not declared as a parameter of type '%s'"
              name tname)))
       | TEName _ as te -> type_of_te te
-      | TEFun (a, b) -> TFun (conv a, conv b)
+      | TEFun (a, b) -> TFun (conv a, conv b, Effect_row.fresh_row ())
       | TETuple ts -> TTuple (List.map conv ts)
       | TEApp (TEName "List", arg)   -> TList   (conv arg)
       | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
@@ -284,7 +293,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
       | TEApp (f, arg) -> TApp (conv f, conv arg)
     in
     List.map (fun ctor ->
-      let t = List.fold_right (fun (_, te) acc -> TFun (conv te, acc)) ctor.fields result in
+      let t = List.fold_right (fun (_, te) acc -> conv te @-> acc) ctor.fields result in
       (ctor.name, generalize [] t)
     ) ctors
 
@@ -304,7 +313,7 @@ let tenv_to_ctor_env (tenv : typedef_env) : env =
 
 let rec unwrap_ctor_type t =
   match repr t with
-  | TFun (arg, rest) ->
+  | TFun (arg, rest, _) ->
     let (args, result) = unwrap_ctor_type rest in
     (arg :: args, result)
   | _ -> ([], t)
@@ -375,8 +384,8 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | PConstr (name, pats) ->
     let ctor_env = tenv_to_ctor_env tenv in
     let builtin_result_ctor = match name with
-      | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (TFun (t, TResult (e, t))))
-      | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (TFun (e, TResult (e, t))))
+      | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (t @-> TResult (e, t)))
+      | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (e @-> TResult (e, t)))
       | _       -> None
     in
     (match Option.fold ~none:(List.assoc_opt name ctor_env) ~some:Option.some builtin_result_ctor with
@@ -428,8 +437,8 @@ let is_wild_pat = function
   | _ -> false
 
 let builtin_result_scheme = function
-  | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (TFun (t, TResult (e, t))))
-  | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (TFun (e, TResult (e, t))))
+  | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (t @-> TResult (e, t)))
+  | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (e @-> TResult (e, t)))
   | _ -> None
 
 (* A generic type like `Option 'a` instantiates to `TApp (TName "Option", arg)`;
@@ -655,8 +664,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | Some s -> instantiate s
      | None   ->
        (match name with
-        | "Ok"    -> let e = fresh () in let t = fresh () in TFun (t, TResult (e, t))
-        | "Error" -> let e = fresh () in let t = fresh () in TFun (e, TResult (e, t))
+        | "Ok"    -> let e = fresh () in let t = fresh () in t @-> TResult (e, t)
+        | "Error" -> let e = fresh () in let t = fresh () in e @-> TResult (e, t)
         | _ when List.mem name stdlib_module_names ->
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
@@ -680,7 +689,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
       ) ([], env) params
     in
     let body_t = infer tenv env' body in
-    List.fold_right (fun t acc -> TFun (t, acc)) param_ts body_t
+    let body_row = Effect_row.fresh_row () in
+    (* Only the innermost arrow carries the body's effects: supplying one
+       argument of a curried function does nothing until the last one
+       arrives. *)
+    let rec build = function
+      | []      -> body_t
+      | [t]     -> TFun (t, body_t, body_row)
+      | t :: tl -> TFun (t, build tl, Effect_row.pure)
+    in
+    build param_ts
   | App (f, x) ->
     let tf = infer tenv env f in
     (match (let rec strip = function Located (_, e) -> strip e | e -> e in strip x) with
@@ -692,9 +710,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
           known from how this call site uses it. *)
        let param_ts = List.map (fun _ -> fresh ()) params in
        let body_result_t = fresh () in
-       let fn_arg_t = List.fold_right (fun t acc -> TFun (t, acc)) param_ts body_result_t in
+       let fn_arg_t =
+         let rec build = function
+           | []      -> body_result_t
+           | [t]     -> TFun (t, body_result_t, Effect_row.fresh_row ())
+           | t :: tl -> TFun (t, build tl, Effect_row.pure)
+         in
+         build param_ts
+       in
        let tr = fresh () in
-       unify tf (TFun (fn_arg_t, tr));
+       unify tf (TFun (fn_arg_t, tr, Effect_row.fresh_row ()));
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
        let body_t = infer tenv env' body in
        unify body_t body_result_t;
@@ -702,7 +727,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | _ ->
        let tx = infer tenv env x in
        let tr = fresh () in
-       unify tf (TFun (tx, tr));
+       unify tf (TFun (tx, tr, Effect_row.fresh_row ()));
        tr)
   | Let (p, e1, e2) ->
     (match p, e1 with
@@ -871,7 +896,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
         let arg_t = fresh () in
         let env' = infer_pat tenv arg_pat arg_t env in
         let cont_arg_t = fresh () in
-        let cont_t = TFun (cont_arg_t, result_t) in
+        (* Resuming a handler's continuation runs the rest of the handled
+           expression, whose effects the handler is in the middle of
+           deciding, so its row is left to inference. *)
+        let cont_t = TFun (cont_arg_t, result_t, Effect_row.fresh_row ()) in
         let env'' = (cont_name, Mono cont_t) :: env' in
         unify result_t (infer tenv env'' arm_body)
     ) arms;
@@ -936,7 +964,7 @@ and infer_binop tenv (env : env) op a b : typ =
      | _ ->
        let tb = infer tenv env b in
        let tr = fresh () in
-       unify tb (TFun (ta, tr));
+       unify tb (TFun (ta, tr, Effect_row.fresh_row ()));
        tr)
   | op -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
 
@@ -948,182 +976,182 @@ let infer_expr (e : expr) : (typ, string) result =
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
-  ("print",      let a = fresh () in generalize [] (TFun (a, TUnit)));
-  ("println",    let a = fresh () in generalize [] (TFun (a, TUnit)));
-  ("exit",       let a = fresh () in generalize [] (TFun (TInt, a)));
-  ("option_get_exn", let a = fresh () in generalize [] (TFun (TUnit, a)));
-  ("read_file",  Mono (TFun (TString, TString)));
-  ("write_file", Mono (TFun (TString, TFun (TString, TUnit))));
+  ("print",      let a = fresh () in generalize [] ((a @-> TUnit)));
+  ("println",    let a = fresh () in generalize [] ((a @-> TUnit)));
+  ("exit",       let a = fresh () in generalize [] ((TInt @-> a)));
+  ("option_get_exn", let a = fresh () in generalize [] ((TUnit @-> a)));
+  ("read_file",  Mono ((TString @-> TString)));
+  ("write_file", Mono ((TString @-> (TString @-> TUnit))));
   (* String primitives *)
-  ("str_length",     Mono (TFun (TString, TInt)));
-  ("str_upper",      Mono (TFun (TString, TString)));
-  ("str_lower",      Mono (TFun (TString, TString)));
-  ("str_trim",       Mono (TFun (TString, TString)));
-  ("str_slice",      Mono (TFun (TInt, TFun (TInt, TFun (TString, TString)))));
-  ("str_split",      Mono (TFun (TString, TFun (TString, TList TString))));
-  ("str_contains",   Mono (TFun (TString, TFun (TString, TBool))));
-  ("str_starts_with",Mono (TFun (TString, TFun (TString, TBool))));
-  ("str_ends_with",  Mono (TFun (TString, TFun (TString, TBool))));
-  ("str_replace",    Mono (TFun (TString, TFun (TString, TFun (TString, TString)))));
-  ("str_trim_left",  Mono (TFun (TString, TString)));
-  ("str_trim_right", Mono (TFun (TString, TString)));
-  ("str_repeat",     Mono (TFun (TInt, TFun (TString, TString))));
-  ("str_reverse",    Mono (TFun (TString, TString)));
-  ("str_chars",      Mono (TFun (TString, TList TString)));
-  ("int_to_str",       Mono (TFun (TInt,    TString)));
-  ("str_to_int",       Mono (TFun (TString, TResult (TString, TInt))));
-  ("str_to_float",     Mono (TFun (TString, TResult (TString, TFloat))));
-  ("str_to_bool",      Mono (TFun (TString, TResult (TString, TBool))));
-  ("str_to_path",      Mono (TFun (TString, TPath)));
-  ("str_to_url",       Mono (TFun (TString, TResult (TString, TUrl))));
-  ("str_to_ipv4",      Mono (TFun (TString, TResult (TString, TIPv4))));
-  ("str_to_cidr",      Mono (TFun (TString, TResult (TString, TCIDR))));
-  ("str_to_port",      Mono (TFun (TString, TResult (TString, TPort))));
-  ("str_to_version",   Mono (TFun (TString, TResult (TString, TVersion))));
-  ("str_to_size",      Mono (TFun (TString, TResult (TString, TSize))));
-  ("str_to_date",      Mono (TFun (TString, TResult (TString, TDate))));
-  ("str_to_time",      Mono (TFun (TString, TResult (TString, TTime))));
-  ("str_to_datetime",  Mono (TFun (TString, TResult (TString, TDateTime))));
-  ("str_to_duration",  Mono (TFun (TString, TResult (TString, TDuration))));
+  ("str_length",     Mono ((TString @-> TInt)));
+  ("str_upper",      Mono ((TString @-> TString)));
+  ("str_lower",      Mono ((TString @-> TString)));
+  ("str_trim",       Mono ((TString @-> TString)));
+  ("str_slice",      Mono ((TInt @-> (TInt @-> (TString @-> TString)))));
+  ("str_split",      Mono ((TString @-> (TString @-> TList TString))));
+  ("str_contains",   Mono ((TString @-> (TString @-> TBool))));
+  ("str_starts_with",Mono ((TString @-> (TString @-> TBool))));
+  ("str_ends_with",  Mono ((TString @-> (TString @-> TBool))));
+  ("str_replace",    Mono ((TString @-> (TString @-> (TString @-> TString)))));
+  ("str_trim_left",  Mono ((TString @-> TString)));
+  ("str_trim_right", Mono ((TString @-> TString)));
+  ("str_repeat",     Mono ((TInt @-> (TString @-> TString))));
+  ("str_reverse",    Mono ((TString @-> TString)));
+  ("str_chars",      Mono ((TString @-> TList TString)));
+  ("int_to_str",       Mono ((TInt @-> TString)));
+  ("str_to_int",       Mono ((TString @-> TResult (TString, TInt))));
+  ("str_to_float",     Mono ((TString @-> TResult (TString, TFloat))));
+  ("str_to_bool",      Mono ((TString @-> TResult (TString, TBool))));
+  ("str_to_path",      Mono ((TString @-> TPath)));
+  ("str_to_url",       Mono ((TString @-> TResult (TString, TUrl))));
+  ("str_to_ipv4",      Mono ((TString @-> TResult (TString, TIPv4))));
+  ("str_to_cidr",      Mono ((TString @-> TResult (TString, TCIDR))));
+  ("str_to_port",      Mono ((TString @-> TResult (TString, TPort))));
+  ("str_to_version",   Mono ((TString @-> TResult (TString, TVersion))));
+  ("str_to_size",      Mono ((TString @-> TResult (TString, TSize))));
+  ("str_to_date",      Mono ((TString @-> TResult (TString, TDate))));
+  ("str_to_time",      Mono ((TString @-> TResult (TString, TTime))));
+  ("str_to_datetime",  Mono ((TString @-> TResult (TString, TDateTime))));
+  ("str_to_duration",  Mono ((TString @-> TResult (TString, TDuration))));
   (* Regex primitives *)
-  ("regex_match",       Mono (TFun (TRegex, TFun (TString, TBool))));
-  ("regex_capture",     Mono (TFun (TRegex, TFun (TString, TList TString))));
-  ("regex_replace",     Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
-  ("regex_replace_all", Mono (TFun (TRegex, TFun (TString, TFun (TString, TString)))));
-  ("regex_split",       Mono (TFun (TRegex, TFun (TString, TList TString))));
-  ("regex_find_all",    Mono (TFun (TRegex, TFun (TString, TList TString))));
-  ("regex_compile",     Mono (TFun (TString, TResult (TString, TRegex))));
+  ("regex_match",       Mono ((TRegex @-> (TString @-> TBool))));
+  ("regex_capture",     Mono ((TRegex @-> (TString @-> TList TString))));
+  ("regex_replace",     Mono ((TRegex @-> (TString @-> (TString @-> TString)))));
+  ("regex_replace_all", Mono ((TRegex @-> (TString @-> (TString @-> TString)))));
+  ("regex_split",       Mono ((TRegex @-> (TString @-> TList TString))));
+  ("regex_find_all",    Mono ((TRegex @-> (TString @-> TList TString))));
+  ("regex_compile",     Mono ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
-  ("dur_seconds", Mono (TFun (TInt, TDuration)));
-  ("dur_minutes", Mono (TFun (TInt, TDuration)));
-  ("dur_hours",   Mono (TFun (TInt, TDuration)));
-  ("dur_days",    Mono (TFun (TInt, TDuration)));
-  ("dur_weeks",   Mono (TFun (TInt, TDuration)));
-  ("dur_add",     Mono (TFun (TDuration, TFun (TDuration, TDuration))));
-  ("dur_sub",     Mono (TFun (TDuration, TFun (TDuration, TDuration))));
-  ("dur_scale",   Mono (TFun (TInt, TFun (TDuration, TDuration))));
-  ("dur_format",  Mono (TFun (TDuration, TString)));
-  ("dur_to_ms",   Mono (TFun (TDuration, TInt)));
+  ("dur_seconds", Mono ((TInt @-> TDuration)));
+  ("dur_minutes", Mono ((TInt @-> TDuration)));
+  ("dur_hours",   Mono ((TInt @-> TDuration)));
+  ("dur_days",    Mono ((TInt @-> TDuration)));
+  ("dur_weeks",   Mono ((TInt @-> TDuration)));
+  ("dur_add",     Mono ((TDuration @-> (TDuration @-> TDuration))));
+  ("dur_sub",     Mono ((TDuration @-> (TDuration @-> TDuration))));
+  ("dur_scale",   Mono ((TInt @-> (TDuration @-> TDuration))));
+  ("dur_format",  Mono ((TDuration @-> TString)));
+  ("dur_to_ms",   Mono ((TDuration @-> TInt)));
   (* Path primitives *)
-  ("path_join",           Mono (TFun (TPath, TFun (TPath, TPath))));
-  ("path_parent",         Mono (TFun (TPath, TPath)));
-  ("path_basename",       Mono (TFun (TPath, TString)));
-  ("path_extension",      Mono (TFun (TPath, TString)));
-  ("path_with_extension", Mono (TFun (TString, TFun (TPath, TPath))));
-  ("path_is_absolute",    Mono (TFun (TPath, TBool)));
-  ("path_is_relative",    Mono (TFun (TPath, TBool)));
-  ("path_normalize",      Mono (TFun (TPath, TPath)));
-  ("path_to_string",      Mono (TFun (TPath, TString)));
-  ("path_of_string",      Mono (TFun (TString, TPath)));
-  ("path_components",     Mono (TFun (TPath, TList TString)));
+  ("path_join",           Mono ((TPath @-> (TPath @-> TPath))));
+  ("path_parent",         Mono ((TPath @-> TPath)));
+  ("path_basename",       Mono ((TPath @-> TString)));
+  ("path_extension",      Mono ((TPath @-> TString)));
+  ("path_with_extension", Mono ((TString @-> (TPath @-> TPath))));
+  ("path_is_absolute",    Mono ((TPath @-> TBool)));
+  ("path_is_relative",    Mono ((TPath @-> TBool)));
+  ("path_normalize",      Mono ((TPath @-> TPath)));
+  ("path_to_string",      Mono ((TPath @-> TString)));
+  ("path_of_string",      Mono ((TString @-> TPath)));
+  ("path_components",     Mono ((TPath @-> TList TString)));
   (* FS primitives *)
-  ("fs_exists",  Mono (TFun (TPath, TBool)));
-  ("fs_is_file", Mono (TFun (TPath, TBool)));
-  ("fs_is_dir",  Mono (TFun (TPath, TBool)));
-  ("fs_mkdir",   Mono (TFun (TPath, TUnit)));
-  ("fs_ls",      Mono (TFun (TPath, TList TPath)));
-  ("fs_remove",  Mono (TFun (TPath, TUnit)));
-  ("fs_append",  Mono (TFun (TPath, TFun (TString, TUnit))));
-  ("fs_create",  Mono (TFun (TPath, TUnit)));
-  ("fs_temp_file", Mono (TFun (TString, TFun (TString, TPath))));
-  ("fs_rename",  Mono (TFun (TPath, TFun (TPath, TUnit))));
-  ("fs_copy",    Mono (TFun (TPath, TFun (TPath, TUnit))));
-  ("fs_cwd",     Mono (TFun (TUnit, TPath)));
-  ("fs_mtime",   Mono (TFun (TPath, TDateTime)));
-  ("fs_size",    Mono (TFun (TPath, TInt)));
-  ("fs_glob",    Mono (TFun (TGlob, TFun (TPath, TList TPath))));
+  ("fs_exists",  Mono ((TPath @-> TBool)));
+  ("fs_is_file", Mono ((TPath @-> TBool)));
+  ("fs_is_dir",  Mono ((TPath @-> TBool)));
+  ("fs_mkdir",   Mono ((TPath @-> TUnit)));
+  ("fs_ls",      Mono ((TPath @-> TList TPath)));
+  ("fs_remove",  Mono ((TPath @-> TUnit)));
+  ("fs_append",  Mono ((TPath @-> (TString @-> TUnit))));
+  ("fs_create",  Mono ((TPath @-> TUnit)));
+  ("fs_temp_file", Mono ((TString @-> (TString @-> TPath))));
+  ("fs_rename",  Mono ((TPath @-> (TPath @-> TUnit))));
+  ("fs_copy",    Mono ((TPath @-> (TPath @-> TUnit))));
+  ("fs_cwd",     Mono ((TUnit @-> TPath)));
+  ("fs_mtime",   Mono ((TPath @-> TDateTime)));
+  ("fs_size",    Mono ((TPath @-> TInt)));
+  ("fs_glob",    Mono ((TGlob @-> (TPath @-> TList TPath))));
   (* IO primitives *)
-  ("io_print_err",   Mono (TFun (TString, TUnit)));
-  ("io_println_err", Mono (TFun (TString, TUnit)));
-  ("io_read_line",   Mono (TFun (TUnit, TString)));
-  ("io_read_all",    Mono (TFun (TUnit, TString)));
-  ("io_flush",       Mono (TFun (TUnit, TUnit)));
+  ("io_print_err",   Mono ((TString @-> TUnit)));
+  ("io_println_err", Mono ((TString @-> TUnit)));
+  ("io_read_line",   Mono ((TUnit @-> TString)));
+  ("io_read_all",    Mono ((TUnit @-> TString)));
+  ("io_flush",       Mono ((TUnit @-> TUnit)));
   (* Process primitives *)
-  ("process_run",       Mono (TFun (TString, TString)));
-  ("process_run_quiet", Mono (TFun (TString, TUnit)));
-  ("process_exit_code", Mono (TFun (TString, TInt)));
+  ("process_run",       Mono ((TString @-> TString)));
+  ("process_run_quiet", Mono ((TString @-> TUnit)));
+  ("process_exit_code", Mono ((TString @-> TInt)));
   (* Env primitives *)
-  ("env_read_dotenv", Mono (TFun (TString, TList (TTuple [TString; TString]))));
-  ("env_load_file",   Mono (TFun (TPath, TUnit)));
+  ("env_read_dotenv", Mono ((TString @-> TList (TTuple [TString; TString]))));
+  ("env_load_file",   Mono ((TPath @-> TUnit)));
   (* CSV primitives *)
-  ("csv_parse",         Mono (TFun (TString, TFun (TString, TList (TList TString)))));
-  ("csv_stringify",     Mono (TFun (TString, TFun (TList (TList TString), TString))));
-  ("csv_read_file",     Mono (TFun (TPath, TResult (TString, (TList (TList TString))))));
-  ("csv_read_file_exn", Mono (TFun (TPath, TList (TList TString))));
+  ("csv_parse",         Mono ((TString @-> (TString @-> TList (TList TString)))));
+  ("csv_stringify",     Mono ((TString @-> (TList (TList TString) @-> TString))));
+  ("csv_read_file",     Mono ((TPath @-> TResult (TString, (TList (TList TString))))));
+  ("csv_read_file_exn", Mono ((TPath @-> TList (TList TString))));
   (* JSON primitives *)
-  ("json_parse",         Mono (TFun (TString, TResult (TString, TJson))));
-  ("json_parse_exn",     Mono (TFun (TString, TJson)));
-  ("json_stringify",     Mono (TFun (TJson, TString)));
-  ("json_stringify_pretty", Mono (TFun (TJson, TString)));
-  ("json_read_file",     Mono (TFun (TPath, TResult (TString, TJson))));
-  ("json_read_file_exn", Mono (TFun (TPath, TJson)));
-  ("json_field_exn",     Mono (TFun (TString, TFun (TJson, TJson))));
+  ("json_parse",         Mono ((TString @-> TResult (TString, TJson))));
+  ("json_parse_exn",     Mono ((TString @-> TJson)));
+  ("json_stringify",     Mono ((TJson @-> TString)));
+  ("json_stringify_pretty", Mono ((TJson @-> TString)));
+  ("json_read_file",     Mono ((TPath @-> TResult (TString, TJson))));
+  ("json_read_file_exn", Mono ((TPath @-> TJson)));
+  ("json_field_exn",     Mono ((TString @-> (TJson @-> TJson))));
   ("json_null",         Mono TJson);
-  ("json_of_bool",      Mono (TFun (TBool, TJson)));
-  ("json_of_int",       Mono (TFun (TInt, TJson)));
-  ("json_of_float",     Mono (TFun (TFloat, TJson)));
-  ("json_of_string",    Mono (TFun (TString, TJson)));
-  ("json_of_list",      Mono (TFun (TList TJson, TJson)));
-  ("json_of_map",       Mono (TFun (TMap TJson, TJson)));
-  ("json_is_null",      Mono (TFun (TJson, TBool)));
-  ("json_get_bool",     Mono (TFun (TJson, TResult (TString, TBool))));
-  ("json_get_int",      Mono (TFun (TJson, TResult (TString, TInt))));
-  ("json_get_float",    Mono (TFun (TJson, TResult (TString, TFloat))));
-  ("json_get_string",   Mono (TFun (TJson, TResult (TString, TString))));
-  ("json_get_array",    Mono (TFun (TJson, TResult (TString, (TList TJson)))));
-  ("json_get_object",   Mono (TFun (TJson, TResult (TString, (TMap TJson)))));
-  ("json_field",        Mono (TFun (TString, TFun (TJson, TResult (TString, TJson)))));
+  ("json_of_bool",      Mono ((TBool @-> TJson)));
+  ("json_of_int",       Mono ((TInt @-> TJson)));
+  ("json_of_float",     Mono ((TFloat @-> TJson)));
+  ("json_of_string",    Mono ((TString @-> TJson)));
+  ("json_of_list",      Mono ((TList TJson @-> TJson)));
+  ("json_of_map",       Mono ((TMap TJson @-> TJson)));
+  ("json_is_null",      Mono ((TJson @-> TBool)));
+  ("json_get_bool",     Mono ((TJson @-> TResult (TString, TBool))));
+  ("json_get_int",      Mono ((TJson @-> TResult (TString, TInt))));
+  ("json_get_float",    Mono ((TJson @-> TResult (TString, TFloat))));
+  ("json_get_string",   Mono ((TJson @-> TResult (TString, TString))));
+  ("json_get_array",    Mono ((TJson @-> TResult (TString, (TList TJson)))));
+  ("json_get_object",   Mono ((TJson @-> TResult (TString, (TMap TJson)))));
+  ("json_field",        Mono ((TString @-> (TJson @-> TResult (TString, TJson)))));
   (* TOML primitives *)
-  ("toml_parse",        Mono (TFun (TString, TResult (TString, TToml))));
-  ("toml_parse_exn",    Mono (TFun (TString, TToml)));
-  ("toml_read_file",    Mono (TFun (TPath, TResult (TString, TToml))));
-  ("toml_read_file_exn",Mono (TFun (TPath, TToml)));
-  ("toml_stringify",    Mono (TFun (TToml, TString)));
-  ("toml_is_table",     Mono (TFun (TToml, TBool)));
-  ("toml_is_array",     Mono (TFun (TToml, TBool)));
-  ("toml_get_bool",     Mono (TFun (TToml, TResult (TString, TBool))));
-  ("toml_get_int",      Mono (TFun (TToml, TResult (TString, TInt))));
-  ("toml_get_float",    Mono (TFun (TToml, TResult (TString, TFloat))));
-  ("toml_get_string",   Mono (TFun (TToml, TResult (TString, TString))));
-  ("toml_get_array",    Mono (TFun (TToml, TResult (TString, (TList TToml)))));
-  ("toml_get_table",    Mono (TFun (TToml, TResult (TString, (TMap TToml)))));
-  ("toml_field",        Mono (TFun (TString, TFun (TToml, TResult (TString, TToml)))));
-  ("toml_field_exn",    Mono (TFun (TString, TFun (TToml, TToml))));
-  ("env_get",     Mono (TFun (TString, TString)));
-  ("env_get_exn", Mono (TFun (TString, TString)));
-  ("env_set",     Mono (TFun (TString, TFun (TString, TUnit))));
-  ("env_clear",   Mono (TFun (TString, TUnit)));
-  ("env_all",     Mono (TFun (TUnit,   TList (TTuple [TString; TString]))));
-  ("env_args",    Mono (TFun (TUnit,   TList TString)));
-  ("env_home",    Mono (TFun (TUnit,   TPath)));
-  ("env_user",    Mono (TFun (TUnit,   TString)));
+  ("toml_parse",        Mono ((TString @-> TResult (TString, TToml))));
+  ("toml_parse_exn",    Mono ((TString @-> TToml)));
+  ("toml_read_file",    Mono ((TPath @-> TResult (TString, TToml))));
+  ("toml_read_file_exn",Mono ((TPath @-> TToml)));
+  ("toml_stringify",    Mono ((TToml @-> TString)));
+  ("toml_is_table",     Mono ((TToml @-> TBool)));
+  ("toml_is_array",     Mono ((TToml @-> TBool)));
+  ("toml_get_bool",     Mono ((TToml @-> TResult (TString, TBool))));
+  ("toml_get_int",      Mono ((TToml @-> TResult (TString, TInt))));
+  ("toml_get_float",    Mono ((TToml @-> TResult (TString, TFloat))));
+  ("toml_get_string",   Mono ((TToml @-> TResult (TString, TString))));
+  ("toml_get_array",    Mono ((TToml @-> TResult (TString, (TList TToml)))));
+  ("toml_get_table",    Mono ((TToml @-> TResult (TString, (TMap TToml)))));
+  ("toml_field",        Mono ((TString @-> (TToml @-> TResult (TString, TToml)))));
+  ("toml_field_exn",    Mono ((TString @-> (TToml @-> TToml))));
+  ("env_get",     Mono ((TString @-> TString)));
+  ("env_get_exn", Mono ((TString @-> TString)));
+  ("env_set",     Mono ((TString @-> (TString @-> TUnit))));
+  ("env_clear",   Mono ((TString @-> TUnit)));
+  ("env_all",     Mono ((TUnit @-> TList (TTuple [TString; TString]))));
+  ("env_args",    Mono ((TUnit @-> TList TString)));
+  ("env_home",    Mono ((TUnit @-> TPath)));
+  ("env_user",    Mono ((TUnit @-> TString)));
   (* List primitives *)
-  ("list_get",     let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, TResult (TString, a)))));
-  ("list_get_exn", let a = fresh () in generalize [] (TFun (TInt, TFun (TList a, a))));
-  ("list_sort",    let a = fresh () in generalize [] (TFun (TList a, TList a)));
+  ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TResult (TString, a)))));
+  ("list_get_exn", let a = fresh () in generalize [] ((TInt @-> (TList a @-> a))));
+  ("list_sort",    let a = fresh () in generalize [] ((TList a @-> TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
-                   generalize [] (TFun (TFun (a, b), TFun (TList a, TList a))));
-  ("list_unique",  let a = fresh () in generalize [] (TFun (TList a, TList a)));
-  ("list_range",   Mono (TFun (TInt, TFun (TInt, TList TInt))));
-  ("list_flatten", let a = fresh () in generalize [] (TFun (TList (TList a), TList a)));
-  ("list_concat",  let a = fresh () in generalize [] (TFun (TList a, TFun (TList a, TList a))));
+                   generalize [] (((a @-> b) @-> (TList a @-> TList a))));
+  ("list_unique",  let a = fresh () in generalize [] ((TList a @-> TList a)));
+  ("list_range",   Mono ((TInt @-> (TInt @-> TList TInt))));
+  ("list_flatten", let a = fresh () in generalize [] ((TList (TList a) @-> TList a)));
+  ("list_concat",  let a = fresh () in generalize [] ((TList a @-> (TList a @-> TList a))));
   (* Map builtins *)
   ("map_empty",    let a = fresh () in generalize [] (TMap a));
-  ("map_get",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TResult (TString, a)))));
-  ("map_get_exn",  let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, a))));
-  ("map_set",      let a = fresh () in generalize [] (TFun (TString, TFun (a, TFun (TMap a, TMap a)))));
-  ("map_delete",   let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TMap a))));
-  ("map_has",      let a = fresh () in generalize [] (TFun (TString, TFun (TMap a, TBool))));
-  ("map_keys",     let a = fresh () in generalize [] (TFun (TMap a, TList TString)));
-  ("map_values",   let a = fresh () in generalize [] (TFun (TMap a, TList a)));
-  ("map_size",     let a = fresh () in generalize [] (TFun (TMap a, TInt)));
-  ("map_to_list",  let a = fresh () in generalize [] (TFun (TMap a, TList (TTuple [TString; a]))));
-  ("map_from_list",let a = fresh () in generalize [] (TFun (TList (TTuple [TString; a]), TMap a)));
-  ("map_merge",    let a = fresh () in generalize [] (TFun (TMap a, TFun (TMap a, TMap a))));
+  ("map_get",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TResult (TString, a)))));
+  ("map_get_exn",  let a = fresh () in generalize [] ((TString @-> (TMap a @-> a))));
+  ("map_set",      let a = fresh () in generalize [] ((TString @-> (a @-> (TMap a @-> TMap a)))));
+  ("map_delete",   let a = fresh () in generalize [] ((TString @-> (TMap a @-> TMap a))));
+  ("map_has",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TBool))));
+  ("map_keys",     let a = fresh () in generalize [] ((TMap a @-> TList TString)));
+  ("map_values",   let a = fresh () in generalize [] ((TMap a @-> TList a)));
+  ("map_size",     let a = fresh () in generalize [] ((TMap a @-> TInt)));
+  ("map_to_list",  let a = fresh () in generalize [] ((TMap a @-> TList (TTuple [TString; a]))));
+  ("map_from_list",let a = fresh () in generalize [] ((TList (TTuple [TString; a]) @-> TMap a)));
+  ("map_merge",    let a = fresh () in generalize [] ((TMap a @-> (TMap a @-> TMap a))));
   ("map_map",      let a = fresh () in let b = fresh () in
-                   generalize [] (TFun (TFun (a, b), TFun (TMap a, TMap b))));
-  ("map_filter",   let a = fresh () in generalize [] (TFun (TFun (a, TBool), TFun (TMap a, TMap a))));
+                   generalize [] (((a @-> b) @-> (TMap a @-> TMap b))));
+  ("map_filter",   let a = fresh () in generalize [] (((a @-> TBool) @-> (TMap a @-> TMap a))));
 ]
 
 (* Built-in type definitions always available *)
@@ -1141,9 +1169,9 @@ let builtin_tenv : typedef_env = [
 
 (* User-visible globals — the only names available without an import *)
 let builtin_type_env : env = [
-  ("print",   let a = fresh () in generalize [] (TFun (a, TUnit)));
-  ("println", let a = fresh () in generalize [] (TFun (a, TUnit)));
-  ("exit",    let a = fresh () in generalize [] (TFun (TInt, a)));
+  ("print",   let a = fresh () in generalize [] ((a @-> TUnit)));
+  ("println", let a = fresh () in generalize [] ((a @-> TUnit)));
+  ("exit",    let a = fresh () in generalize [] ((TInt @-> a)));
 ]
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)

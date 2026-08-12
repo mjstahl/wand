@@ -23,7 +23,7 @@ let ends_with s c = String.length s > 0 && s.[String.length s - 1] = c
    solved, so every read has to go through repr first. *)
 let rec result_type (t : Typechecker.typ) =
   match Typechecker.repr t with
-  | Typechecker.TFun (_, r) -> result_type r
+  | Typechecker.TFun (_, r, _) -> result_type r
   | t -> t
 
 let type_of_scheme (s : Typechecker.scheme) =
@@ -37,8 +37,8 @@ let rec informationless_error (t : Typechecker.typ) =
   match Typechecker.repr t with
   | Typechecker.TResult (e, _) when Typechecker.repr e = Typechecker.TUnit -> true
   | Typechecker.TResult (e, v) -> informationless_error e || informationless_error v
-  | Typechecker.TFun (a, b) | Typechecker.TApp (a, b) ->
-    informationless_error a || informationless_error b
+  | Typechecker.TFun (a, b, _) -> informationless_error a || informationless_error b
+  | Typechecker.TApp (a, b) -> informationless_error a || informationless_error b
   | Typechecker.TList t | Typechecker.TMap t -> informationless_error t
   | Typechecker.TTuple ts -> List.exists informationless_error ts
   | _ -> false
