@@ -48,9 +48,8 @@ let size        path     = fs_size path
 (** Return the current working directory. *)
 let cwd         ()       = fs_cwd ()
 
-
 (** Return all paths matching a glob pattern, relative to the current directory. *)
-let glob  pattern     = fs_glob pattern (fs_cwd ())
+let glob    pattern     = fs_glob pattern (fs_cwd ())
 
 (** Return all paths matching a glob pattern relative to the given directory. *)
-let glob! pattern dir = fs_glob pattern dir
+let glob_in pattern dir = fs_glob pattern dir

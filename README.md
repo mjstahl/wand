@@ -363,11 +363,11 @@ Glob literals use `*`, `**`, or `?` wildcards:
 ```
 import FS
 
-FS.glob *.wand               -- List Path, relative to cwd
-FS.glob! ./**/*.ml ./src     -- List Path, relative to ./src
+FS.glob    *.wand            -- List Path, relative to cwd
+FS.glob_in ./**/*.ml ./src   -- List Path, relative to ./src
 ```
 
-`FS.glob` always returns a list (empty if nothing matches, never raises).
+Both always return a list (empty if nothing matches, never raises).
 Results are sorted lexicographically.
 
 ---
@@ -726,7 +726,7 @@ written there.)
 
 `read_file`, `write_file`, `append`, `create_file`, `temp_file`, `exists?`,
 `is_file?`, `is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`,
-`glob`, `glob!`, `mtime`, `size`, `cwd`
+`glob`, `glob_in`, `mtime`, `size`, `cwd`
 
 ### `Path`
 

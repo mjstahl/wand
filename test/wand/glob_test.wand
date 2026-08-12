@@ -7,7 +7,7 @@ import Types
 (* Glob literal syntax (`*.wand`, `**`, `./**/*.ml`, ...) is a distinct
    token/type from Path -- raw lexer-level assertions for that stay in
    test_glob.ml (no wand-source equivalent). This file covers the type
-   and the real FS.glob/FS.glob! behavior. *)
+   and the real FS.glob/FS.glob_in behavior. *)
 
 test "glob literal type" (fn t -> let g = *.wand in t.ok true)
 
@@ -26,7 +26,7 @@ test "*.wand matches" (fn t -> let dir = Path.of_string scratch in
 let () = FS.write_file "${scratch}/foo.wand" "" in
 let () = FS.write_file "${scratch}/bar.wand" "" in
 let () = FS.write_file "${scratch}/baz.ml" "" in
-let names = FS.glob! *.wand dir |> List.map Path.basename |> List.sort in
+let names = FS.glob_in *.wand dir |> List.map Path.basename |> List.sort in
 let () = FS.delete (Path.of_string "${scratch}/foo.wand") in
 let () = FS.delete (Path.of_string "${scratch}/bar.wand") in
 let () = FS.delete (Path.of_string "${scratch}/baz.ml") in
@@ -35,20 +35,20 @@ t.eq names ["bar.wand", "foo.wand"])
 test "*.ml matches" (fn t -> let dir = Path.of_string scratch in
 let () = FS.write_file "${scratch}/foo.wand" "" in
 let () = FS.write_file "${scratch}/baz.ml" "" in
-let names = FS.glob! *.ml dir |> List.map Path.basename |> List.sort in
+let names = FS.glob_in *.ml dir |> List.map Path.basename |> List.sort in
 let () = FS.delete (Path.of_string "${scratch}/foo.wand") in
 let () = FS.delete (Path.of_string "${scratch}/baz.ml") in t.eq names ["baz.ml"])
 
 test "no match" (fn t -> let dir = Path.of_string scratch in
 let () = FS.write_file "${scratch}/foo.wand" "" in
-let names = FS.glob! *.py dir |> List.map Path.basename |> List.sort in
+let names = FS.glob_in *.py dir |> List.map Path.basename |> List.sort in
 let () = FS.delete (Path.of_string "${scratch}/foo.wand") in t.eq names [])
 
 test "./* matches all" (fn t -> let dir = Path.of_string scratch in
 let () = FS.write_file "${scratch}/foo.wand" "" in
 let () = FS.write_file "${scratch}/bar.wand" "" in
 let () = FS.write_file "${scratch}/baz.ml" "" in
-let names = FS.glob! ./* dir |> List.map Path.basename |> List.sort in
+let names = FS.glob_in ./* dir |> List.map Path.basename |> List.sort in
 let () = FS.delete (Path.of_string "${scratch}/foo.wand") in
 let () = FS.delete (Path.of_string "${scratch}/bar.wand") in
 let () = FS.delete (Path.of_string "${scratch}/baz.ml") in
@@ -58,7 +58,7 @@ test "** recursive" (fn t -> let dir = Path.of_string scratch in
 let () = FS.mkdir (Path.of_string "${scratch}/sub") in
 let () = FS.write_file "${scratch}/a.wand" "" in
 let () = FS.write_file "${scratch}/sub/b.wand" "" in
-let names = FS.glob! **.wand dir |> List.map Path.basename |> List.sort in
+let names = FS.glob_in **.wand dir |> List.map Path.basename |> List.sort in
 let () = FS.delete (Path.of_string "${scratch}/a.wand") in
 let () = FS.delete (Path.of_string "${scratch}/sub/b.wand") in
 let () = FS.delete (Path.of_string "${scratch}/sub") in t.eq names ["a.wand", "b.wand"])
