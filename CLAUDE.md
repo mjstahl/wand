@@ -49,8 +49,10 @@ Key pipeline stages to expect: **Lexing → Parsing → Type inference → Evalu
 
 ## Writing wand code
 
-Read `README.md` for the wand language reference — syntax, types, functions,
-pattern matching, imports, and the standard library.
+Read `docs/reference.md` for the wand language reference — syntax, types,
+functions, pattern matching, shell execution, `try`, effect handlers,
+contracts, typed holes, imports, and the standard library. `README.md` is the
+project pitch, not the reference.
 
 When you need to explore or verify wand behaviour, use `Runner.run_string` in
 a test, or write a small `.wand` script and run it:
