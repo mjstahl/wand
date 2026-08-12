@@ -55,6 +55,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_typechecker)
+ (libraries wand alcotest))
+
+(test
  (name test_formatter)
  (deps (source_tree ../stdlib))
  (libraries wand alcotest))

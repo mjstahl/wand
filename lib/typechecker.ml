@@ -757,9 +757,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
                   tname label (Util.hint label names))))
            | _ -> raise (TypeError (Printf.sprintf
                "cannot access field '%s' on type '%s'" label tname)))
-        | TMap vt -> vt
+        (* Dot access is checked field access: `p.x` on a named type is
+           verified to exist. Key presence in a Map is a runtime question, so
+           the same syntax cannot carry the same guarantee -- Map.get returns
+           an Option and Map.get! raises, each saying so at the call site. *)
+        | TMap vt -> raise (TypeError (Printf.sprintf
+            "cannot use dot access on a Map (Map %s); use Map.get for an \
+             Option or Map.get! to raise on a missing key" (string_of_typ vt)))
         | t -> raise (TypeError (Printf.sprintf
-            "field access requires a named type or Map, got %s" (string_of_typ t)))))
+            "field access requires a named type, got %s" (string_of_typ t)))))
   | MapLit [] ->
     TMap (fresh ())
   | MapLit ((_, e0) :: rest) ->

@@ -278,11 +278,9 @@ let rec eval (env : env) (e : expr) : value =
   | MapLit kvs ->
     VMap (List.map (fun (k, e) -> (k, eval env e)) kvs)
   | Field (e, label) ->
+    (* No VMap arm: dot access on a Map is rejected by the typechecker.
+       VRecord is how imported module namespaces are reached (FS.cwd). *)
     (match eval env e with
-     | VMap kvs ->
-       (match List.assoc_opt label kvs with
-        | Some v -> v
-        | None   -> raise (EvalError (Printf.sprintf "map has no key '%s'" label)))
      | VRecord kvs ->
        (match List.assoc_opt label kvs with
         | Some v -> v

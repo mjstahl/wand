@@ -274,8 +274,6 @@ String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
 
 ```
 let m = [x = 1, y = 2, z = 3]   -- Map Int
-
-m.x                              -- 1
 ```
 
 Using the `Map` module:
@@ -300,7 +298,7 @@ Map patterns (partial — only name the keys you need):
 
 ```
 match m with
-| [x = a, y = b] -> a + b    -- binds a=m.x, b=m.y
+| [x = a, y = b] -> a + b    -- binds a to key x, b to key y
 
 let [x = a] = m in a         -- extract just x; other keys ignored
 ```
