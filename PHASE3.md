@@ -95,7 +95,7 @@ belongs with P3.1.
 
 ## P3.1 — Resource brackets
 
-`With of expr * pat * expr` in the AST; `Resource a` as an opaque stdlib type over an acquire/release pair; `Resource.make`. Release runs on success, on raise, and on abandonment per the open question above.
+`With of expr * pat * expr` in the AST; `Resource a` as an opaque stdlib type over an acquire/release pair; `Resource.make`. Release runs on success, on raise, and on abandonment, the last of these already settled above.
 
 Stdlib starters: `FS.temp_file` (exists — wrap it), `FS.temp_dir`, `FS.lock`, `FS.in_dir`.
 
