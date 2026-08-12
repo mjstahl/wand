@@ -2,6 +2,7 @@ let usage () =
   print_endline "wand — a typed language for human/AI pairing";
   print_endline "";
   print_endline "Usage: wand <command> [options] [args]";
+  print_endline "       wand [--dry-run|--trace] <file.wand> [args]";
   print_endline "       wand <file.wand> [args]";
   print_endline "";
   print_endline "Commands:";
@@ -10,9 +11,13 @@ let usage () =
   print_endline "  t, type <expr>   Typecheck an expression without evaluating";
   print_endline "  d, doc  <name>   Print the doc string for a name";
   print_endline "  env              List all names and modules in scope";
-  print_endline "  fmt, format <file>  Print a formatted version of a .wand file";
+  print_endline "  fmt, format <file>  Format a .wand file in place";
   print_endline "  test <file>...   Run one or more .wand test files";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
+  print_endline "";
+  print_endline "Running a script:";
+  print_endline "  --dry-run        Report what the script would change, without doing it";
+  print_endline "  --trace          Run it, reporting each effect as it happens";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
 
@@ -166,6 +171,17 @@ let () =
   let args = Array.to_list Sys.argv |> List.tl in
   match args with
   | [] | ["--help"] | ["-h"] -> usage ()
+  | sub :: rest when sub = "--dry-run" || sub = "--trace" ->
+    (* The mode can come first, which reads better: wand --dry-run deploy.wand *)
+    (match rest with
+     | path :: args ->
+       let mode = if sub = "--dry-run" then Wand.Runner.DryRun else Wand.Runner.Trace in
+       Wand.Evaluator.exe_args_ref := args;
+       (match Wand.Runner.run_file ~mode path with
+        | Ok v    -> if v <> "()" then print_endline v
+        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1)
+     | [] ->
+       Printf.eprintf "Error: expected a script after %s\n" sub; exit 1)
   | sub :: rest ->
     match sub with
     | "h" | "help" ->
@@ -291,7 +307,14 @@ let () =
          if !had_error || !failed > 0 then exit 1)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
+      let mode, rest =
+        let has f = List.mem f rest in
+        let strip = List.filter (fun a -> a <> "--dry-run" && a <> "--trace") rest in
+        if has "--dry-run" then (Wand.Runner.DryRun, strip)
+        else if has "--trace" then (Wand.Runner.Trace, strip)
+        else (Wand.Runner.Normal, strip)
+      in
       Wand.Evaluator.exe_args_ref := rest;
-      (match Wand.Runner.run_file path with
+      (match Wand.Runner.run_file ~mode path with
        | Ok v    -> if v <> "()" then print_endline v
        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1)

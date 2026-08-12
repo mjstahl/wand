@@ -105,6 +105,77 @@ let exec_command_full_stdin cmd stdin =
 let shell_result stdout stderr code =
   VConstr ("ShellResult", [VString stdout; VString stderr; VInt code])
 
+(* ── Rehearsal and tracing ────────────────────────────────────────────────── *)
+
+type mode = Normal | Trace | DryRun
+
+(* How an operation reads in a report. Every operation name a user sees comes
+   through here, so what they are called is one decision in one place rather
+   than a vocabulary spread through the output. *)
+let describe_operation name (v : value) =
+  (* A report is read to judge blast radius, so each operation shows the one
+     argument that decides it -- the command, the path, the variable -- and a
+     size where the content matters but its text does not. *)
+  let text = function
+    | VString s | VPath s -> s
+    | other -> show_value other
+  in
+  let first = function
+    | VTuple (a :: _) -> text a
+    | other -> text other
+  in
+  let with_size v = match v with
+    | VTuple [target; VString contents] ->
+      Printf.sprintf "%s (%d bytes)" (text target) (String.length contents)
+    | other -> text other
+  in
+  let pair = function
+    | VTuple [a; b] -> text a ^ " -> " ^ text b
+    | other -> text other
+  in
+  match name with
+  | "process_run" | "process_run_quiet" | "process_run_stdin"
+  | "process_run_full" | "process_run_full_stdin" | "process_exit_code" ->
+    Some ("run", first v)
+  | "write_file"   -> Some ("write", with_size v)
+  | "fs_append"    -> Some ("append to", with_size v)
+  | "fs_create"    -> Some ("create", text v)
+  | "fs_remove"    -> Some ("delete", text v)
+  | "fs_mkdir_p"   -> Some ("create directory", text v)
+  | "fs_rename"    -> Some ("rename", pair v)
+  | "fs_copy"      -> Some ("copy", pair v)
+  | "fs_temp_file" -> Some ("create temp file", first v)
+  | "env_set"      -> Some ("set", pair v)
+  | "env_clear"    -> Some ("clear", text v)
+  | "read_file"    -> Some ("read", text v)
+  | "fs_ls"        -> Some ("list", text v)
+  | "fs_glob"      -> Some ("glob", first v)
+  | "exit"         -> Some ("exit", text v)
+  | _              -> None
+
+(* Whether an operation changes anything outside the program. Reads run even
+   in a rehearsal, so that control flow follows the path a real run would
+   take; only changes are withheld. *)
+let is_mutation = function
+  | "process_run" | "process_run_quiet" | "process_run_stdin"
+  | "process_run_full" | "process_run_full_stdin" | "process_exit_code"
+  | "write_file" | "fs_append" | "fs_create" | "fs_remove" | "fs_mkdir_p"
+  | "fs_rename" | "fs_copy" | "fs_temp_file"
+  | "env_set" | "env_clear" -> true
+  | _ -> false
+
+(* What an operation hands back when it is reported instead of carried out.
+   Whatever this is steers the rest of the script, so a rehearsal says what it
+   substituted rather than letting the script appear to have real output. *)
+let substitute_for name =
+  match name with
+  | "process_run" | "process_run_stdin" -> Some (VString "", "\"\"")
+  | "process_run_full" | "process_run_full_stdin" ->
+    Some (shell_result "" "" 0, "exit 0, no output")
+  | "process_exit_code" -> Some (VInt 0, "0")
+  | "fs_temp_file"      -> Some (VPath "/tmp/wand-dry-run", "/tmp/wand-dry-run")
+  | _ -> None
+
 let run_with_default_handler (thunk : unit -> value) : value =
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
@@ -528,14 +599,57 @@ and load_module path ~cache ~loading =
 
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 
-let run_program ~base_dir prog =
+(* Wraps a program in the chosen mode. The mode handler sits inside the
+   default one, so an operation it decides to allow is simply performed
+   again and carried out as usual -- there is one implementation of each
+   operation, and a rehearsal cannot drift from a real run by reimplementing
+   them. *)
+let run_in_mode mode (thunk : unit -> value) : value =
+  match mode with
+  | Normal -> run_with_default_handler thunk
+  | Trace | DryRun ->
+    run_with_default_handler (fun () ->
+      Effect.Deep.match_with thunk ()
+        { Effect.Deep.
+            retc = (fun v -> v);
+            exnc = raise;
+            effc = fun (type a) (eff : a Effect.t) ->
+              match eff with
+              | WandEffect (name, v) ->
+                Some (fun (k : (a, value) Effect.Deep.continuation) ->
+                  let described = describe_operation name v in
+                  let withhold = mode = DryRun && is_mutation name in
+                  (match described with
+                   | Some (verb, what) ->
+                     if withhold then
+                       (match substitute_for name with
+                        | Some (_, shown) ->
+                          Printf.eprintf "would %s: %s -> %s\n%!" verb what shown
+                        | None -> Printf.eprintf "would %s: %s\n%!" verb what)
+                     else Printf.eprintf "%s: %s\n%!" verb what
+                   | None -> ());
+                  if withhold then
+                    match substitute_for name with
+                    | Some (v, _) -> Effect.Deep.continue k v
+                    | None        -> Effect.Deep.continue k VUnit
+                  else
+                    (* Hand it to the default handler, which owns the real
+                       behaviour. *)
+                    match (try Ok (Effect.perform (WandEffect (name, v)))
+                           with EvalError m -> Error m) with
+                    | Ok result -> Effect.Deep.continue    k result
+                    | Error m   -> Effect.Deep.discontinue k (EvalError m))
+              | _ -> None
+        })
+
+let run_program ?(mode = Normal) ~base_dir prog =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
   let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
   (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
-     let result = run_with_default_handler (fun () ->
+     let result = run_in_mode mode (fun () ->
        let (_, last) = List.fold_left (fun (env, last) item ->
          match item with
          | Ast.TLExpr e -> (env, eval env e)
@@ -558,7 +672,7 @@ let run_string src =
   | EvalError msg         -> Error ("eval error: " ^ msg)
   | Failure msg           -> Error (msg)
 
-let run_file path =
+let run_file ?(mode = Normal) path =
   let full =
     if Filename.is_relative path
     then Filename.concat (Sys.getcwd ()) (add_ext path)
@@ -569,7 +683,7 @@ let run_file path =
     let tokens   = Lexer.tokenize src in
     let prog     = Parser.parse_program tokens in
     let base_dir = Filename.dirname full in
-    run_program ~base_dir prog
+    run_program ~mode ~base_dir prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
   | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
