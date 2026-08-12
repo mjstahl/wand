@@ -3,6 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
+source "$(dirname "$0")/../assert.sh"
 D=demos/d5-rehearse
 TARGET=/tmp/wand-demo-deploy
 
@@ -29,4 +30,7 @@ echo "== and afterwards =="
 ls "$TARGET" | sed 's/^/  /'
 cat "$TARGET/config.toml" | sed 's/^/  /'
 rm -rf "$TARGET"
-exit 0
+
+# The point: the rehearsal reports the write and performs none of it.
+moment "would write" "$WAND" --dry-run "$D/deploy.wand"
+moment_absent "$TARGET"

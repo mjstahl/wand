@@ -3,6 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
+source "$(dirname "$0")/../assert.sh"
 D=demos/d6-unplugged
 
 echo "== the script under test =="
@@ -19,4 +20,7 @@ echo "== its test suite =="
 echo
 echo "== and the file it would have written =="
 if [ -e /etc/app/config.toml ]; then echo "  /etc/app/config.toml exists"; else echo "  /etc/app/config.toml does not exist"; fi
-exit 0
+
+# The point: the suite passes without the deploy ever touching production.
+moment "0 failed" "$WAND" test "$D"
+moment_absent /etc/app/config.toml

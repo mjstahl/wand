@@ -4,6 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
+source "$(dirname "$0")/../assert.sh"
 
 show() {  # show <label> <expr>
   printf '  %-34s ' "$2"
@@ -29,4 +30,5 @@ show "" 'Duration.add 1h 3'
 show "" 'FS.glob /etc/hosts'
 show "" 'Path.basename *.wand'
 
-exit 0
+# The point: a path is not a glob, and the type system says so.
+moment "cannot unify Glob with Path" "$WAND" e 'FS.glob /etc/hosts'

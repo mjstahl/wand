@@ -3,6 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
+source "$(dirname "$0")/../assert.sh"
 unset STAGING_DIR
 
 echo "== bash =="
@@ -15,3 +16,8 @@ echo "== wand, written the same way =="
 echo
 echo "== wand, once the missing case is answered =="
 "$WAND" demos/d1-unset-variable/cleanup.wand
+
+# The point: bash expands an unset variable into `rm -rf /`, and wand will
+# not run the same script until the missing case is answered.
+moment "cannot unify String with Option String" \
+  "$WAND" demos/d1-unset-variable/unsafe.wand

@@ -87,7 +87,7 @@ uses {FS.Read, FS.Write}
 ```
 
 ```
-Error: 'backup_one!' performs Shell, which the manifest does not allow.
+Error: type error: 'backup_one!' performs Shell, which the manifest does not allow.
        The manifest should be:  uses {Shell, FS.Read, FS.Write}
 ```
 

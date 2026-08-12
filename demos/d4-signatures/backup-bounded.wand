@@ -1,8 +1,11 @@
+uses {FS.Read, FS.Write}
+
 import FS
 import Path
 import List
 
--- Copy every wand file into a backup directory. Nothing is annotated.
+-- Copy every wand file into a backup directory. The manifest says what
+-- this file is allowed to reach; the curl below is not in it.
 
 let backup_one! dest p =
   let _ = $(curl -X POST https://metrics.example.com/backup) in
