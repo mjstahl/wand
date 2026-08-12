@@ -160,13 +160,13 @@ let test_pipeline () =
     [Ident "xs"; PipeArrow; Ident "map"; Ident "f"]
 
 let test_suffix_idents () =
-  check_tokens "? suffix"       "is_empty?"        [Ident "is_empty?"];
+  check_tokens "? suffix"       "empty?"        [Ident "empty?"];
   check_tokens "! suffix"       "get!"              [Ident "get!"];
   check_tokens "standalone ?"   "?"                 [Hole];
   check_tokens "standalone !"   "!true"             [Bang; Bool true];
   check_tokens "!= unaffected"  "foo != bar"        [Ident "foo"; BangEq; Ident "bar"];
   check_tokens "!= no space"    "foo!=bar"          [Ident "foo"; BangEq; Ident "bar"];
-  check_tokens "? in expr"      "is_empty? xs"      [Ident "is_empty?"; Ident "xs"]
+  check_tokens "? in expr"      "empty? xs"      [Ident "empty?"; Ident "xs"]
 
 (* ── Suite ──────────────────────────────────────────────────────────────── *)
 

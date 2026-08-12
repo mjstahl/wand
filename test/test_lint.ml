@@ -27,6 +27,13 @@ let test_pred1 () =
   (* The rule is one-directional: a Bool-returning function need not be `?`. *)
   silent "Bool without ?" "let positive n = n > 0\npositive 1"
 
+let test_pred2 () =
+  fires "is_ prefix on a ?-named function" "let is_ready? x = x > 1\nis_ready? 2"
+    "M-PRED2";
+  silent "the bare form" "let ready? x = x > 1\nready? 2";
+  (* `is_` on a name without `?` is not this rule's business. *)
+  silent "no ? suffix" "let is_ready x = x > 1\nis_ready 2"
+
 let test_or1 () =
   fires "Result with a Unit error" "let f x : Result Unit Int = Ok x\nf 1" "M-OR1";
   silent "Result with a reason" "let f x : Result String Int = Ok x\nf 1"
@@ -147,6 +154,7 @@ let () =
   Alcotest.run "Lint" [
     "rules", [
       Alcotest.test_case "M-PRED1"  `Quick test_pred1;
+      Alcotest.test_case "M-PRED2"  `Quick test_pred2;
       Alcotest.test_case "M-OR1"    `Quick test_or1;
       Alcotest.test_case "M-NAME1"  `Quick test_name1;
       Alcotest.test_case "H-SHELL1" `Quick test_shell1;

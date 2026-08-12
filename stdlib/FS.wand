@@ -41,10 +41,10 @@ let temp_file prefix suffix = try (temp_file! prefix suffix)
 let exists? path = fs_exists path
 
 (** Return true if the path is a regular file. *)
-let is_file? path = fs_is_file path
+let file? path = fs_is_file path
 
 (** Return true if the path is a directory. *)
-let is_dir? path = fs_is_dir path
+let dir? path = fs_is_dir path
 
 (** Create a directory and all missing parents. Raises on failure. *)
 let mkdir! path = fs_mkdir path

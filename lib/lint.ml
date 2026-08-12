@@ -135,6 +135,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
       (match Option.bind (List.assoc_opt name own_env) type_of_scheme with
        | Some t ->
          let res = result_type t in
+         if ends_with name '?' && String.length name > 4
+            && String.sub name 0 3 = "is_" then
+           add Lint_rules.M_PRED2 loc (Lint_rules.pred2 ~name);
          if ends_with name '?' && res <> Typechecker.TBool then
            add Lint_rules.M_PRED1 loc
              (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));

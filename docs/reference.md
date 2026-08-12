@@ -906,13 +906,13 @@ written there.)
 ### `List`
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head`, `head!`, `tail`, `tail!`, `is_empty?`, `any`, `all`, `find`, `zip`, `take`, `drop`,
+`head`, `head!`, `tail`, `tail!`, `empty?`, `any`, `all`, `find`, `zip`, `take`, `drop`,
 `take_while`, `drop_while`, `each`, `sort`, `sort_by`, `unique`, `range`,
 `flatten`, `concat`, `get`, `get!`
 
 ### `String`
 
-`length`, `is_empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
+`length`, `empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
 `slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
 `repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
 `to_float`, `to_bool`, `to_path`, `to_url`, `to_ipv4`, `to_cidr`, `to_port`,
@@ -932,12 +932,12 @@ written there.)
 `read_file`, `write_file`, `append`, `create_file`, `temp_file`, `mkdir`,
 `delete`, `rename`, `copy`, `list_dir`, `mtime`, `size` — each with a `!`
 sibling that raises instead of returning a `Result`.
-`exists?`, `is_file?`, `is_dir?`, `glob`, `glob_in`, `cwd`
+`exists?`, `file?`, `dir?`, `glob`, `glob_in`, `cwd`
 
 ### `Path`
 
 `join`, `parent`, `basename`, `dirname`, `extension`, `with_extension`,
-`is_absolute?`, `is_relative?`, `normalize`, `to_string`, `of_string`,
+`absolute?`, `relative?`, `normalize`, `to_string`, `of_string`,
 `components`
 
 ### `IO`
@@ -976,7 +976,7 @@ match CSV.read_file ./data.csv with
 
 `parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
 `null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
-`is_null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
+`null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
 `get_object`, `field`, `field!`
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
@@ -1003,7 +1003,7 @@ match JSON.read_file ./config.json with
 ### `TOML`
 
 `parse`, `parse!`, `stringify`, `read_file`, `read_file!`,
-`is_table?`, `is_array?`, `get_bool`, `get_int`, `get_float`, `get_string`,
+`table?`, `array?`, `get_bool`, `get_int`, `get_float`, `get_string`,
 `get_array`, `get_table`, `field`, `field!`
 
 `TOML` is an opaque type representing any TOML value (table, string, int,
@@ -1037,7 +1037,7 @@ match TOML.read_file ./config.toml with
 
 ### `Option`
 
-`is_some?`, `is_none?`, `map`, `and_then`, `or_else`, `default`, `get!`,
+`some?`, `none?`, `map`, `and_then`, `or_else`, `default`, `get!`,
 `to_result`
 
 `Option 'a` is a generic type (`type Option 'a = None | Some 'a`) — see
@@ -1054,7 +1054,7 @@ The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
 import Test
 
 test "add" (fn t -> t.eq (2 + 2) 4)
-test "is_some" (fn t -> t.ok (Option.is_some? (Some 1)))
+test "some" (fn t -> t.ok (Option.some? (Some 1)))
 test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
 ```
 
@@ -1198,6 +1198,7 @@ promotes them to errors; `H-` rules are heuristics and always stay warnings.
 | `M-PRED1` | a `?`-named function returns something other than `Bool` |
 | `M-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
 | `M-NAME1` | a signature exposes a parameter whose name ends in `_` |
+| `M-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
 | `H-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 
 ```

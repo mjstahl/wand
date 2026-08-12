@@ -12,6 +12,7 @@ type id =
   | M_PRED1    (* `?` names a predicate, so it must return Bool *)
   | M_OR1      (* an error that carries no information is a misfiled Option *)
   | M_NAME1    (* keyword-collision escapes should not reach a caller *)
+  | M_PRED2    (* `?` already says predicate; `is_` says it twice *)
   | H_SHELL1   (* a shell blob hides work the type system could see *)
 
 (* The prefix carries the classification, so a rule ID printed in a terminal
@@ -43,6 +44,9 @@ let all = [
     kind = Mechanical };
   { id = M_NAME1;  code = "M-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
+    kind = Mechanical };
+  { id = M_PRED2;  code = "M-PRED2";
+    summary = "a `?`-named function also carries a redundant `is_` prefix";
     kind = Mechanical };
   { id = H_SHELL1; code = "H-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
@@ -85,6 +89,12 @@ let name1 ~name ~params =
     name
     (if List.length params = 1 then "" else "s")
     (String.concat ", " (List.map (fun p -> "'" ^ p ^ "'") params))
+
+let pred2 ~name =
+  let bare = String.sub name 3 (String.length name - 3) in
+  Printf.sprintf
+    "'%s' says it is a predicate twice; `?` already carries that, so this is \
+     '%s'" name bare
 
 let shell1 ~stages =
   Printf.sprintf

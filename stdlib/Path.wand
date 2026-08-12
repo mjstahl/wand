@@ -17,10 +17,10 @@ let extension p = path_extension p
 let with_extension ext p = path_with_extension ext p
 
 (** Return true if the path is absolute. *)
-let is_absolute? p = path_is_absolute p
+let absolute? p = path_is_absolute p
 
 (** Return true if the path is relative. *)
-let is_relative? p = path_is_relative p
+let relative? p = path_is_relative p
 
 (** Resolve . and .. components in a path. *)
 let normalize p = path_normalize p

@@ -1,12 +1,12 @@
 import Test
 import String
 
-(* ── length / is_empty? ───────────────────────────────────────────────── *)
+(* ── length / empty? ───────────────────────────────────────────────── *)
 
 test "length empty" (fn t -> t.eq (String.length "") 0)
 test "length hello" (fn t -> t.eq (String.length "hello") 5)
-test "is_empty? true" (fn t -> t.ok (String.is_empty? ""))
-test "is_empty? false" (fn t -> t.eq (String.is_empty? "x") false)
+test "empty? true" (fn t -> t.ok (String.empty? ""))
+test "empty? false" (fn t -> t.eq (String.empty? "x") false)
 
 (* ── upper / lower ─────────────────────────────────────────────────────── *)
 

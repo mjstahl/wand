@@ -15,7 +15,7 @@ test "invalid TOML returns Error" (fn t -> t.eq (match TOML.parse "not = = toml"
 | Ok _ -> "ok"
 | Error _ -> "error") "error")
 
-test "parse! valid" (fn t -> let tm = TOML.parse! "x = 1\n" in t.eq (TOML.is_table? tm) true)
+test "parse! valid" (fn t -> let tm = TOML.parse! "x = 1\n" in t.eq (TOML.table? tm) true)
 
 test "parse! invalid raises" (fn t -> t.raises (fn () -> TOML.parse! "bad = = toml"))
 

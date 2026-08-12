@@ -24,7 +24,7 @@ let () = FS.delete! b in t.eq (both_exist, unique) ((true, true), true))
 
 test "mkdir creates nested directories" (fn t -> let dir = Path.of_string "${scratch}/mkdir_case/nested/deep" in
 let () = FS.mkdir! dir in
-let is_dir = FS.is_dir? dir in
+let is_dir = FS.dir? dir in
 let () = FS.delete! dir in
 let () = FS.delete! (Path.of_string "${scratch}/mkdir_case/nested") in
 let () = FS.delete! (Path.of_string "${scratch}/mkdir_case") in t.ok is_dir)
@@ -53,9 +53,9 @@ let () = FS.copy! src dst in
 let contents = FS.read_file! (Path.to_string dst) in
 let () = FS.delete! src in let () = FS.delete! dst in t.eq contents "copied")
 
-test "exists?/is_file?/is_dir?" (fn t -> let p = Path.of_string "${scratch}/exists_case.txt" in
+test "exists?/file?/dir?" (fn t -> let p = Path.of_string "${scratch}/exists_case.txt" in
 let () = FS.write_file! (Path.to_string p) "x" in
-let outcome = (FS.exists? p, FS.is_file? p, FS.is_dir? p) in
+let outcome = (FS.exists? p, FS.file? p, FS.dir? p) in
 let () = FS.delete! p in t.eq outcome (true, true, false))
 
 test "size returns byte length" (fn t -> let p = Path.of_string "${scratch}/size_case.txt" in
@@ -102,7 +102,7 @@ let () = FS.delete! p in t.eq contents "round trip")
 
 test "read nonexistent file raises" (fn t -> t.raises (fn () -> FS.read_file! "/no/such/path/wand_test_xyz"))
 
-test "cwd returns an existing directory" (fn t -> t.ok (FS.is_dir? (FS.cwd ())))
+test "cwd returns an existing directory" (fn t -> t.ok (FS.dir? (FS.cwd ())))
 
 test "cleanup scratch directory" (fn t -> let () = FS.delete! (Path.of_string scratch) in t.ok true)
 

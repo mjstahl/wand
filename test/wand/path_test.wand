@@ -25,12 +25,12 @@ test "extension none" (fn t -> t.eq (Path.extension /foo/bar) "")
 test "with_extension add" (fn t -> t.eq (Path.with_extension ".ml" /foo/bar) /foo/bar.ml)
 test "with_extension replace" (fn t -> t.eq (Path.with_extension ".ml" /foo/bar.wand) /foo/bar.ml)
 
-(* ── is_absolute? / is_relative? ───────────────────────────────────────── *)
+(* ── absolute? / relative? ───────────────────────────────────────── *)
 
-test "is_absolute? /" (fn t -> t.ok (Path.is_absolute? /etc/hosts))
-test "is_absolute? ./" (fn t -> t.eq (Path.is_absolute? ./foo) false)
-test "is_relative? ./" (fn t -> t.ok (Path.is_relative? ./foo))
-test "is_relative? /" (fn t -> t.eq (Path.is_relative? /usr) false)
+test "absolute? /" (fn t -> t.ok (Path.absolute? /etc/hosts))
+test "absolute? ./" (fn t -> t.eq (Path.absolute? ./foo) false)
+test "relative? ./" (fn t -> t.ok (Path.relative? ./foo))
+test "relative? /" (fn t -> t.eq (Path.relative? /usr) false)
 
 (* ── normalize ─────────────────────────────────────────────────────────── *)
 

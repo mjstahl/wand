@@ -4,7 +4,7 @@ import List
 let length s = str_length s
 
 (** Return true if the string is empty. *)
-let is_empty? s = str_length s == 0
+let empty? s = str_length s == 0
 
 (** Convert a string to uppercase. *)
 let upper s = str_upper s

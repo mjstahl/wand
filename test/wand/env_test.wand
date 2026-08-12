@@ -34,11 +34,11 @@ test "all contains set var" (fn t -> let pairs = Env.all () in t.ok (List.any (f
 
 (* ── args ──────────────────────────────────────────────────────────────── *)
 
-test "args returns list" (fn t -> t.ok (List.is_empty? (Env.args ()) == false || true))
+test "args returns list" (fn t -> t.ok (List.empty? (Env.args ()) == false || true))
 
 (* ── home ──────────────────────────────────────────────────────────────── *)
 
-test "home returns path" (fn t -> t.ok (Path.is_absolute? (Env.home ())))
+test "home returns path" (fn t -> t.ok (Path.absolute? (Env.home ())))
 
 (* ── user ──────────────────────────────────────────────────────────────── *)
 

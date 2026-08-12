@@ -2,13 +2,13 @@
 type Option 'a = None | Some 'a
 
 (** Return true if the option holds a value. *)
-let is_some? o =
+let some? o =
   match o with
   | Some _ -> true
   | None -> false
 
 (** Return true if the option is empty. *)
-let is_none? o =
+let none? o =
   match o with
   | Some _ -> false
   | None -> true

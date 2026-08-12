@@ -14,10 +14,10 @@ let read_file path = toml_read_file path
 let read_file! path = toml_read_file_exn path
 
 (** True if the value is a TOML table. *)
-let is_table? t = toml_is_table t
+let table? t = toml_is_table t
 
 (** True if the value is a TOML array. *)
-let is_array? t = toml_is_array t
+let array? t = toml_is_array t
 
 (** Extract typed values.  Each returns Ok v or Error message. *)
 let get_bool t = toml_get_bool t
