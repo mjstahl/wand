@@ -7,6 +7,9 @@ acceptance tests: if one stops making its point, something regressed.
 demos/d1-unset-variable/run.sh
 demos/d2-domain-types/run.sh
 demos/d3-typed-holes/run.sh
+demos/d4-signatures/run.sh
+demos/d5-rehearse/run.sh
+demos/d6-unplugged/run.sh
 demos/d9-fork-overhead/run.sh      # slower: it runs a deliberately bad bash loop
 ```
 
@@ -54,6 +57,83 @@ Hole: Map 'a -> String -> Map 'a
 
 That is the signature of the function to write, derived from how the hole is
 used. `summarize-filled.wand` is the same script with the hole filled in.
+
+## D4 — The signature that cannot lie
+
+A backup script, nothing annotated:
+
+```
+backup_all! : String -> Unit ! {FS.Read, FS.Write, Raise}
+```
+
+Someone adds one line, three helpers deep:
+
+```
+let _ = $(curl -X POST https://metrics.example.com/backup) in
+```
+
+```
+backup_all! : String -> Unit ! {Shell, FS.Read, FS.Write, Raise}
+```
+
+The signature changed on its own. Nothing was annotated, and the diff that
+caused it was a single line inside a helper.
+
+Adding one line at the top of the file turns that from something you have to
+notice into something that cannot compile:
+
+```
+uses {FS.Read, FS.Write}
+```
+
+```
+Error: 'backup_one!' performs Shell, which the manifest does not allow.
+       The manifest should be:  uses {Shell, FS.Read, FS.Write}
+```
+
+## D5 — Rehearse the deploy
+
+A deploy that builds, writes a config, syncs and purges a cache. Run it with
+`--dry-run` and it reports what it would do:
+
+```
+would run: git describe --tags --always -> ""
+would create directory: /tmp/wand-demo-deploy
+would write: /tmp/wand-demo-deploy/config.toml (13 bytes)
+would set: DEPLOYED_VERSION ->
+would run: echo rsync -a ./build/ web@host:/srv/app
+would write: /tmp/wand-demo-deploy/cache.idx (6 bytes)
+would delete: /tmp/wand-demo-deploy/cache.idx
+```
+
+Afterwards the directory does not exist and the variable is unset. Run it for
+real with `--trace` and the same seven operations happen, in the same order.
+
+The two differ in one visible way: the rehearsal writes 13 bytes where the
+real run writes 20, because a withheld command returned `""` and that steered
+the contents. A rehearsal says what it substituted rather than pretending the
+values were real — it cannot rehearse a read of something it did not write.
+
+## D6 — Unit-test a deploy with the network unplugged
+
+```
+deploy! : Unit -> String ! {Shell, FS.Write, Raise}
+```
+
+It runs `git push` and rewrites `/etc/app/config.toml`. Nothing about it is
+written for testability. Its suite:
+
+```
+ok   it runs, on a plane
+ok   it pushes exactly once
+ok   and nothing before the push touches prod
+ok   it would write exactly one file
+ok   which was never written
+```
+
+The assertions are about what the script *attempted*, not only what it
+returned — the commands it would run, in order, and the paths it would write.
+The last line checks the file is still absent.
 
 ## D9 — Where the time goes
 

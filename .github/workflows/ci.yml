@@ -49,6 +49,9 @@ jobs:
           demos/d1-unset-variable/run.sh
           demos/d2-domain-types/run.sh
           demos/d3-typed-holes/run.sh
+          demos/d4-signatures/run.sh
+          demos/d5-rehearse/run.sh
+          demos/d6-unplugged/run.sh
 
       # wand fmt is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.

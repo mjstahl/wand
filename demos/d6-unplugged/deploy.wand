@@ -1,0 +1,9 @@
+import FS
+
+-- The real thing: pushes to production and rewrites a system config.
+-- Nothing in this file is written for testability.
+
+let deploy! () =
+  let version = $(git describe --tags) in
+  let () = FS.write_file! "/etc/app/config.toml" "version = \"${version}\"\n" in
+  let _ = $(git push origin main) in "deployed ${version}"

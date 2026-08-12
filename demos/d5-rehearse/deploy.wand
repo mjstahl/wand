@@ -1,0 +1,21 @@
+import FS
+import Path
+import Env
+
+-- A deploy that builds, writes a config, syncs, and purges a cache.
+-- The target is a directory under /tmp so the demo can run it for real.
+
+let target = "/tmp/wand-demo-deploy"
+
+let version! () = $(git describe --tags --always)
+
+let deploy! () =
+  let v = version! () in
+  let () = FS.mkdir! (Path.of_string target) in
+  let () = FS.write_file! "${target}/config.toml" "version = \"${v}\"\n" in
+  let () = Env.set "DEPLOYED_VERSION" v in
+  let _ = $(echo rsync -a ./build/ web@host:/srv/app) in
+  let () = FS.write_file! "${target}/cache.idx" "stale\n" in
+  let () = FS.delete! (Path.of_string "${target}/cache.idx") in "deployed ${v}"
+
+deploy! ()
