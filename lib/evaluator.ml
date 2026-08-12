@@ -120,6 +120,18 @@ let rec same_length ps vs =
   | _ :: ps, _ :: vs -> same_length ps vs
   | _                -> false
 
+(* How many observers are watching effects: user handlers currently in scope,
+   plus one while a rehearsal or trace is running. Par consults this to decide
+   whether a worker may perform its own effects. *)
+let observers = Atomic.make 0
+
+let observed f =
+  ignore (Atomic.fetch_and_add observers 1);
+  Fun.protect ~finally:(fun () -> ignore (Atomic.fetch_and_add observers (-1))) f
+
+(* Installs the runtime's own handlers. Set by the runner, which owns them. *)
+let with_default_handler : ((unit -> value) -> value) ref = ref (fun f -> f ())
+
 let rec try_match (p : pat) v (env : env) : env option =
   match p, v with
   | PVar name, v          -> Some ((name, v) :: env)
@@ -350,6 +362,7 @@ let rec eval (env : env) (e : expr) : value =
       | Some (Ast.ReturnArm (p, b)) -> eval (bind_pat p v env) b
       | Some (Ast.EffectArm _) -> assert false
     in
+    observed (fun () ->
     Effect.Deep.match_with (fun () -> eval env body_expr) ()
       { Effect.Deep.
           retc = apply_return;
@@ -371,7 +384,7 @@ let rec eval (env : env) (e : expr) : value =
               in
               try_arms effect_arms
             | _ -> None
-      }
+      })
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e) ->
@@ -831,6 +844,144 @@ let try_lex_single s =
   | exception Lexer.LexError _ -> None
 
 
+
+(* ── Par ─────────────────────────────────────────────────────────────────── *)
+
+(* Fork-join, and nothing else. Workers never outlive the call, there is no
+   handle to a running one, and these two functions are the only way to start
+   any -- so there is no unstructured concurrency to build out of them.
+
+   A worker does not handle its own effects. An effect performed on one
+   domain cannot reach a handler on another, and a handler is not a value
+   that can be copied there, so a worker hands each effect back to the
+   calling domain and waits while it is performed there, inside whatever
+   handlers the program already installed. Mocks, rehearsals and traces
+   therefore reach into a worker exactly as they do anywhere else, and
+   effects happen one at a time rather than racing.
+
+   This runs where it is called rather than through an effect of its own: an
+   effect would be caught by the outermost handler, and performing from
+   inside that handler is outside the very handlers the work should see. *)
+let par_run limit f items ~collect =
+  let items = Array.of_list items in
+  let n = Array.length items in
+  let results = Array.make (max n 1) VUnit in
+  let next = Atomic.make 0 in
+  let live = Atomic.make 0 in
+  let m = Mutex.create () in
+  let ready = Condition.create () in
+  let pending : (string * value) option ref = ref None in
+  let reply : (value, exn) result option ref = ref None in
+
+  let forward name arg =
+    Mutex.lock m;
+    while !pending <> None do Condition.wait ready m done;
+    pending := Some (name, arg);
+    Condition.broadcast ready;
+    while !reply = None do Condition.wait ready m done;
+    let r = Option.get !reply in
+    reply := None;
+    Condition.broadcast ready;
+    Mutex.unlock m;
+    match r with Ok v -> v | Error e -> raise e
+  in
+
+  let record i outcome = results.(i) <- outcome in
+  let finish () =
+    Mutex.lock m;
+    ignore (Atomic.fetch_and_add live (-1));
+    Condition.broadcast ready;
+    Mutex.unlock m
+  in
+  let outcome_of run =
+    match run () with
+    | v -> if collect then VConstr ("Ok", [v]) else VUnit
+    | exception EvalError msg ->
+      (* A failure becomes a value, so it says what went wrong rather than
+         where, exactly as `try` does. *)
+      if collect then VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+      else VUnit
+  in
+  (* Effects go back to the calling domain, where the handlers are. *)
+  let worker_forwarding () =
+    let rec loop () =
+      let i = Atomic.fetch_and_add next 1 in
+      if i < n then begin
+        let run () =
+          Effect.Deep.match_with (fun () -> apply f items.(i)) ()
+            { Effect.Deep.
+                retc = (fun v -> v);
+                exnc = raise;
+                effc = fun (type a) (eff : a Effect.t) ->
+                  match eff with
+                  | WandEffect (name, arg) ->
+                    Some (fun (k : (a, value) Effect.Deep.continuation) ->
+                      match forward name arg with
+                      | v -> Effect.Deep.continue k v
+                      | exception (EvalError _ as e) ->
+                        Effect.Deep.discontinue k e)
+                  | _ -> None }
+        in
+        record i (outcome_of run);
+        loop ()
+      end
+    in
+    loop ();
+    finish ()
+  in
+  (* Nothing is watching: the worker performs its own effects. *)
+  let worker_direct () =
+    let rec loop () =
+      let i = Atomic.fetch_and_add next 1 in
+      if i < n then begin
+        record i (outcome_of (fun () -> apply f items.(i)));
+        loop ()
+      end
+    in
+    loop ();
+    finish ()
+  in
+
+  (* When nothing is watching, a worker performs its own effects on its own
+     domain and the work genuinely overlaps. When a handler is in scope -- a
+     mock, a rehearsal, a trace -- effects come back here instead, because a
+     handler cannot be reached from another domain. That costs the overlap,
+     and buys the guarantee that moving work into Par cannot escape whoever
+     is watching. Nobody rehearses for speed. *)
+  let watched = Atomic.get observers > 0 in
+  let worker () =
+    if watched then worker_forwarding ()
+    else ignore (!with_default_handler (fun () -> worker_direct (); VUnit))
+  in
+  if n = 0 then (if collect then VList [] else VUnit)
+  else begin
+    let count = max 1 (min limit n) in
+    Atomic.set live count;
+    let domains = List.init count (fun _ -> Domain.spawn worker) in
+    let rec pump () =
+      Mutex.lock m;
+      while !pending = None && Atomic.get live > 0 do Condition.wait ready m done;
+      match !pending with
+      | None -> Mutex.unlock m
+      | Some (name, arg) ->
+        pending := None;
+        Mutex.unlock m;
+        let answer =
+          match Effect.perform (WandEffect (name, arg)) with
+          | v -> Ok v
+          | exception (EvalError _ as e) -> Error e
+        in
+        Mutex.lock m;
+        reply := Some answer;
+        Condition.broadcast ready;
+        Mutex.unlock m;
+        pump ()
+    in
+    pump ();
+    List.iter Domain.join domains;
+    if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
+  end
+
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
@@ -1200,6 +1351,19 @@ let stdlib_eval_env : env = [
   ("io_read_line",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!read_line",   v))));
   ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!read_all",    v))));
   ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("IO!flush",       v))));
+  (* Par primitives. *)
+  ("par_map", VBuiltin (fun limit ->
+    VBuiltin (fun f ->
+      VBuiltin (fun xs ->
+        match limit, xs with
+        | VInt n, VList items -> par_run n f items ~collect:true
+        | _ -> raise (EvalError "par_map: expected a limit and a list")))));
+  ("par_each", VBuiltin (fun limit ->
+    VBuiltin (fun f ->
+      VBuiltin (fun xs ->
+        match limit, xs with
+        | VInt n, VList items -> par_run n f items ~collect:false
+        | _ -> raise (EvalError "par_each: expected a limit and a list")))));
   (* Process primitives *)
   ("process_run", VBuiltin (fun v ->
     Effect.perform (WandEffect ("Shell!run", v))));

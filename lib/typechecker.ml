@@ -2,7 +2,7 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option" ]
+    "JSON"; "TOML"; "CSV"; "Option"; "Par" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -1330,6 +1330,18 @@ let stdlib_type_env : env = [
   ("json_get_array",    generalize [] ((TJson @-> TResult (TString, (TList TJson)))));
   ("json_get_object",   generalize [] ((TJson @-> TResult (TString, (TMap TJson)))));
   ("json_field",        generalize [] ((TString @-> (TJson @-> TResult (TString, TJson)))));
+  (* Par primitives. The row on the last arrow is the same variable as the
+     one on the supplied function, so calling par_map performs exactly what
+     that function performs -- the work happens inside, where inference
+     cannot otherwise see it. *)
+  ("par_map",  let a = fresh () in let b = fresh () in
+               let e = Effect_row.fresh_row () in
+               generalize [] (TInt @-> (TFun (a, b, e)
+                 @-> TFun (TList a, TList (TResult (TString, b)), e))));
+  ("par_each", let a = fresh () in
+               let e = Effect_row.fresh_row () in
+               generalize [] (TInt @-> (TFun (a, TUnit, e)
+                 @-> TFun (TList a, TUnit, e))));
   (* TOML primitives *)
   ("toml_parse",        generalize [] ((TString @-> TResult (TString, TToml))));
   ("toml_parse_exn",    generalize [] (effs [Effect_row.Raise] (TString) (TToml)));

@@ -40,7 +40,7 @@
        wand/eval_test.wand wand/script_test.wand wand/typedef_test.wand wand/generics_test.wand
        wand/contracts_test.wand wand/process_test.wand wand/strings_test.wand wand/effects_test.wand
        wand/list_patterns_test.wand wand/io_test.wand wand/env_test.wand
-       wand/hermetic_test.wand)
+       wand/hermetic_test.wand wand/par_test.wand)
  (libraries wand alcotest))
 
 (test

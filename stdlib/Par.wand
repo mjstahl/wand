@@ -1,0 +1,27 @@
+(* Fork-join parallelism, and nothing else.
+
+   Both functions take the most workers to run at once as their first
+   argument, stated rather than inferred: how much a script may do at the
+   same time is a decision about the machine it runs on.
+
+   Workers never outlive the call. There is no handle to a running one, no
+   way to start one outside these two functions, and nothing to await -- so
+   there is no unstructured concurrency to build out of them, and no
+   function needs a different colour for being called from one.
+
+   A worker is never outside a handler's reach. With nothing watching it
+   performs its own effects on its own domain, so twenty slow commands
+   really do overlap. With a handler in scope -- a mock, `--dry-run`,
+   `--trace` -- effects are carried back to the calling domain and taken one
+   at a time, because an effect cannot reach a handler on another domain.
+   So a test can never be bypassed by moving work into `Par`: being watched
+   costs the overlap, and nothing rehearses for speed. *)
+
+(** Apply `f` to every element, at most `limit` at a time, and collect the
+    results in the list's own order. An element whose work raises comes back
+    as an `Error` in its place rather than failing the others. *)
+let map limit f xs = par_map limit f xs
+
+(** Apply `f` to every element for its effects, at most `limit` at a time.
+    A failure raises once the work is done. *)
+let each limit f xs = par_each limit f xs

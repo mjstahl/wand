@@ -34,7 +34,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -1219,6 +1219,42 @@ match TOML.read_file ./config.toml with
 
 `zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,
 `format`, `to_ms`
+
+### `Par`
+
+`map`, `each`
+
+Fork-join parallelism, and nothing else:
+
+```
+Par.map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
+Par.each : Int -> ('a -> Unit ! 'e) -> List 'a -> Unit ! 'e
+```
+
+The first argument is the most workers to run at once — stated, because how
+much a script may do at the same time is a decision about the machine it runs
+on. Results come back in the list's order, not the order they finished, and
+an element whose work raises comes back as an `Error` in its place rather
+than failing the others.
+
+```
+Par.map 4 (fn x -> x * 2) [1, 2, 3]        -- [Ok 2, Ok 4, Ok 6]
+Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty]
+                                           -- [Ok 1, Error "map key not found: k"]
+```
+
+Workers never outlive the call, there is no handle to a running one, and
+these two functions are the only way to start any — so there is nothing to
+await and no function needs a different colour for being called from one.
+
+**A worker is never outside a handler's reach.** When nothing is watching, a
+worker performs its own effects and twenty slow commands really do overlap.
+When a handler is in scope — a mock, a `--dry-run`, a `--trace` — effects are
+carried out on the calling side instead, one at a time, because that is where
+the handler lives. So moving work into `Par` can never quietly escape a test:
+being watched costs the overlap, and nothing rehearses for speed.
+
+---
 
 ### `Option`
 

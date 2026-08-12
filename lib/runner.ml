@@ -109,6 +109,23 @@ let shell_result stdout stderr code =
 
 type mode = Normal | Trace | DryRun
 
+(* The mode a program is running under. Workers spawned by Par install the
+   same handlers on their own domain: an effect performed on one domain does
+   not reach a handler on another, so a worker without them would either
+   escape a rehearsal or fail outright. *)
+let current_mode = ref Normal
+
+(* Reports come from several domains at once, so a line is written whole
+   rather than interleaved with another worker's. *)
+let report_lock = Mutex.create ()
+
+let report fmt =
+  Printf.ksprintf (fun line ->
+    Mutex.lock report_lock;
+    prerr_string line;
+    flush stderr;
+    Mutex.unlock report_lock) fmt
+
 (* How an operation reads in a report. Every operation name a user sees comes
    through here, so what they are called is one decision in one place rather
    than a vocabulary spread through the output. *)
@@ -600,9 +617,13 @@ and load_module path ~cache ~loading =
    operation, and a rehearsal cannot drift from a real run by reimplementing
    them. *)
 let run_in_mode mode (thunk : unit -> value) : value =
+  current_mode := mode;
   match mode with
   | Normal -> run_with_default_handler thunk
   | Trace | DryRun ->
+    (* A rehearsal or trace is an observer, so Par sends its workers' effects
+       back here to be reported rather than letting them run on their own. *)
+    Evaluator.observed (fun () ->
     run_with_default_handler (fun () ->
       Effect.Deep.match_with thunk ()
         { Effect.Deep.
@@ -619,9 +640,9 @@ let run_in_mode mode (thunk : unit -> value) : value =
                      if withhold then
                        (match substitute_for name with
                         | Some (_, shown) ->
-                          Printf.eprintf "would %s: %s -> %s\n%!" verb what shown
-                        | None -> Printf.eprintf "would %s: %s\n%!" verb what)
-                     else Printf.eprintf "%s: %s\n%!" verb what
+                          report "would %s: %s -> %s\n" verb what shown
+                        | None -> report "would %s: %s\n" verb what)
+                     else report "%s: %s\n" verb what
                    | None -> ());
                   if withhold then
                     match substitute_for name with
@@ -635,7 +656,23 @@ let run_in_mode mode (thunk : unit -> value) : value =
                     | Ok result -> Effect.Deep.continue    k result
                     | Error m   -> Effect.Deep.discontinue k (EvalError m))
               | _ -> None
-        })
+        }))
+
+(* ── Par ─────────────────────────────────────────────────────────────────── *)
+
+(* Fork-join, and nothing else. Workers never outlive the call, there is no
+   handle to a running one, and the only way to start any is these two
+   functions -- so a script cannot build unstructured concurrency out of
+   them.
+
+   Each worker installs the program's handlers on its own domain, because an
+   effect performed on one domain does not reach a handler on another. A
+   worker without them would escape a rehearsal, which is the one thing a
+   rehearsal must not permit.
+
+   A failure is a value: one item raising does not cancel its siblings or
+   fail the call, it comes back as an Error in that item's place. *)
+let () = Evaluator.with_default_handler := run_with_default_handler
 
 let run_program ?(mode = Normal) ~base_dir prog =
   let cache = Hashtbl.create 8 in

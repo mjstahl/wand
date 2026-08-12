@@ -45,5 +45,6 @@ let () =
       Alcotest.test_case "IO"            `Quick (check_fixture "wand/io_test.wand");
       Alcotest.test_case "Env"           `Quick (check_fixture "wand/env_test.wand");
       Alcotest.test_case "Hermetic"      `Quick (check_fixture "wand/hermetic_test.wand");
+      Alcotest.test_case "Par"           `Quick (check_fixture "wand/par_test.wand");
     ];
   ]

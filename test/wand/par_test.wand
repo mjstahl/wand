@@ -1,0 +1,61 @@
+import Test
+import Par
+import List
+import Map
+import FS
+import Path
+import String
+
+(* ── Results keep the list's order ─────────────────────────────────────── *)
+
+test "results come back in order, not completion order" (fn t ->
+  t.eq (Par.map 4 (fn x -> x * 2) [1, 2, 3, 4, 5]) [Ok 2, Ok 4, Ok 6, Ok 8, Ok 10])
+
+test "an empty list is fine" (fn t -> t.eq (Par.map 4 (fn x -> x) []) [])
+
+test "a limit larger than the work is fine" (fn t ->
+  t.eq (Par.map 99 (fn x -> x + 1) [1, 2]) [Ok 2, Ok 3])
+
+test "a limit of one still works" (fn t ->
+  t.eq (Par.map 1 (fn x -> x + 1) [1, 2, 3]) [Ok 2, Ok 3, Ok 4])
+
+(* ── A failure is a value ──────────────────────────────────────────────── *)
+
+(* One item raising does not cancel its siblings or fail the call: it comes
+   back as an Error where its result would have been. *)
+test "a failure lands in its own position" (fn t ->
+  t.eq
+    (Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty, [k = 3]])
+    [Ok 1, Error "map key not found: k", Ok 3])
+
+test "and the error carries no source position" (fn t ->
+  let results = Par.map 2 (fn m -> Map.get! "k" m) [Map.empty] in
+  match List.head results with
+  | Some (Error e) -> t.ok (String.starts_with? "map key not found" e)
+  | _ -> t.ok false)
+
+(* ── each runs for effects ─────────────────────────────────────────────── *)
+
+test "each visits every element" (fn t ->
+  let dir = "${FS.temp_file! "wand_par_" ""}_d" in
+  let () = FS.mkdir! (Path.of_string dir) in
+  let () = Par.each 3 (fn n -> FS.write_file! "${dir}/${n}.txt" "x") [1, 2, 3] in
+  let made = List.length (FS.glob_in *.txt (Path.of_string dir)) in
+  let () = Par.each 3 (fn n -> FS.delete! (Path.of_string "${dir}/${n}.txt")) [1, 2, 3] in
+  let () = FS.delete! (Path.of_string dir) in t.eq made 3)
+
+(* ── Effects performed inside a worker are still interceptable ─────────── *)
+
+(* Each worker installs the program's handlers on its own domain. Without
+   that an effect performed in a worker would escape a rehearsal, which is
+   the one thing a rehearsal must not allow. *)
+test "a worker's commands are seen by a handler" (fn t ->
+  let cmds = Test.shell_calls (fn () -> Par.each 3 (fn n -> let _ = $(echo hi) in ()) [1, 2]) in
+  t.eq (List.length cmds) 2)
+
+(* Watching costs the overlap, so it is only paid when someone is watching:
+   with no handler in scope a worker performs its own effects on its own
+   domain, and the work really does run at the same time. *)
+test "a mock still answers a worker's commands" (fn t ->
+  let out = Test.with_shell [("echo", "mocked")] (fn () -> Par.map 3 (fn n -> $(echo hi)) [1, 2]) in
+  t.eq out [Ok "mocked", Ok "mocked"])
