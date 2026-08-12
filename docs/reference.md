@@ -599,8 +599,13 @@ what makes a script testable without letting it touch anything:
 
 ```
 fn () -> handle $(git push) with
-         | process_run _ k -> k "ok"     -- Shell is gone
+         | process_run _ k -> k "ok"     -- Unit -> 'a ! {Raise}
 ```
+
+`Shell` is gone. `Raise` stays: a row records which effects occurred, not
+which operation caused them, so the raise `$()` performs on a non-zero exit
+cannot be told apart from one a raising call elsewhere in the body would
+perform. Removing it would drop that one too.
 
 ### Effect variables
 

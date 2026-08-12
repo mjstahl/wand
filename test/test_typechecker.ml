@@ -422,10 +422,56 @@ let test_error_locations () =
   says exhaustive "3:";
   says exhaustive ":9"
 
+
+(* ── What handlers discharge ─────────────────────────────────────────────── *)
+
+(* Resolves imports, so a case can use a stdlib function. *)
+let type_of label src =
+  match
+    (try
+       let prog = Lexer.tokenize src |> Parser.parse_program in
+       let cache = Hashtbl.create 8 in
+       let loading = ref [] in
+       let (imp, _) =
+         Runner.load_imports_for ~base_dir:(Sys.getcwd ()) ~cache ~loading prog in
+       (match Typechecker.infer_program_full_with_own
+                ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+        | Ok (_, _, t, _) -> Ok (Typechecker.string_of_typ t)
+        | Error e -> Error e)
+     with
+     | Lexer.LexError e | Parser.ParseError e | Typechecker.TypeError e -> Error e
+     | Failure e -> Error e)
+  with
+  | Ok t -> t
+  | Error e -> Alcotest.failf "%s: %s" label e
+
+(* A handler removes the effect of the operation it intercepts. *)
+let test_handler_discharges_its_operation () =
+  Alcotest.(check string) "Shell is gone once process_run is handled"
+    "Unit -> 'a ! {Raise}"
+    (type_of "handled shell"
+       "fn () -> handle $(git push) with\n| process_run _ k -> k \"ok\"")
+
+(* The Raise that survives above is $()'s own check on a non-zero exit, which
+   a handler supplying the output does prevent -- but a row records which
+   effects occurred, not which operation caused them, and the same Raise is
+   indistinguishable from one a raising call inside the body performed.
+   Discharging it would therefore drop that one too, so it stays. Keeping an
+   effect that cannot happen is imprecise; dropping one that can is a lie. *)
+let test_handler_keeps_raises_it_cannot_account_for () =
+  Alcotest.(check string) "a raise from elsewhere in the body survives"
+    "Map 'a -> 'b ! {Raise}"
+    (type_of "raise from elsewhere"
+       "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| process_run _ k -> k \"ok\"")
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run "Typechecker" [
+    "effects", [
+      Alcotest.test_case "handler discharges its operation" `Quick test_handler_discharges_its_operation;
+      Alcotest.test_case "handler keeps other raises"       `Quick test_handler_keeps_raises_it_cannot_account_for;
+    ];
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;
       Alcotest.test_case "unbound names"       `Quick test_unbound_names;
