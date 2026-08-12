@@ -109,6 +109,17 @@ type _ Effect.t += WandEffect : string * value -> value Effect.t
 
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
+(* Whether a pattern list and a value list have the same length, decided by
+   walking them together rather than measuring each. Measuring meant that
+   testing `[]` against a list looked at every element of it, so each step of
+   a recursive list function cost the length of what remained and traversing
+   a list of n elements cost O(n^2). *)
+let rec same_length ps vs =
+  match ps, vs with
+  | [], []           -> true
+  | _ :: ps, _ :: vs -> same_length ps vs
+  | _                -> false
+
 let rec try_match (p : pat) v (env : env) : env option =
   match p, v with
   | PVar name, v          -> Some ((name, v) :: env)
@@ -118,13 +129,13 @@ let rec try_match (p : pat) v (env : env) : env option =
   | String s, VString t   when s = t -> Some env
   | Bool b,   VBool c     when b = c -> Some env
   | Unit,     VUnit                  -> Some env
-  | PTuple ps, VTuple vs when List.length ps = List.length vs ->
+  | PTuple ps, VTuple vs when same_length ps vs ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) ps vs
-  | PList ps, VList vs when List.length ps = List.length vs ->
+  | PList ps, VList vs when same_length ps vs ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
@@ -136,14 +147,14 @@ let rec try_match (p : pat) v (env : env) : env option =
      | None      -> None
      | Some env' -> try_match tp (VList vs) env')
   | PCons _, VList [] -> None
-  | PTuple ps, VConstr (_, vals) when List.length ps = List.length vals ->
+  | PTuple ps, VConstr (_, vals) when same_length ps vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
         | Some env -> try_match p v env)
       (Some env) ps vals
   | PConstr (name, pats), VConstr (vname, vals)
-    when name = vname && List.length pats = List.length vals ->
+    when name = vname && same_length pats vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
