@@ -219,6 +219,50 @@ let test_trailing_comment_stays_on_line () =
   assert_appears_before "a comment written before an item still precedes it"
     out3 "lead" "let x = 1"
 
+(* A doc comment's continuation lines are indented under the opening
+   delimiter. The lexer strips their indentation so `wand d` prints clean
+   prose, which means the formatter has to put it back. *)
+let test_doc_comment_continuation_indent () =
+  let out = fmt "(** first line\n    second line *)\nlet x = 1\nx" in
+  assert_contains "doc text preserved" out "second line";
+  Alcotest.(check bool) "continuation is indented, not flush left" true
+    (List.exists (fun l -> l = "    second line *)")
+       (String.split_on_char '\n' out))
+
+(* A verbatim item's slice runs to the next item, absorbing any comment
+   between them; if its recorded extent ignores that, a blank line gets
+   inserted between a doc comment and the binding it documents. `try` is one
+   of the constructs that triggers the verbatim path. *)
+let test_no_blank_between_doc_and_binding () =
+  let out =
+    fmt "let a =\n  match try (f ()) with\n  | Ok v -> v\n  | Error _ -> 0\n\n         (** doc *)\nlet b = 2\nb"
+  in
+  let lines = String.split_on_char '\n' out in
+  let rec check = function
+    | a :: b :: tl ->
+      if contains a "(** doc *)" && String.trim b = "" then
+        Alcotest.failf "blank line separates the doc comment from its binding:\n%s" out
+      else check (b :: tl)
+    | _ -> ()
+  in
+  check lines
+
+(* A record-shaped type too wide for one line widens down the page instead of
+   running past the margin. *)
+let test_wide_type_definition_wraps () =
+  let src =
+    "type Testing 'a 'b = Testing(ok: (Bool -> Int), not_ok: (Bool -> Int),      eq: ('a -> 'a -> Int), not_eq: ('a -> 'a -> Int), raises: ((Unit -> 'b) -> Int))\n     let f x = x\nf 1"
+  in
+  let out = fmt src in
+  List.iter (fun l ->
+    if String.length l > 92 then
+      Alcotest.failf "formatted line exceeds the 92-column margin (%d):\n%s"
+        (String.length l) l)
+    (String.split_on_char '\n' out);
+  assert_contains "fields kept" out "raises:";
+  (* And the result still parses back to the same shape. *)
+  assert_idempotent "wrapped type definition" src
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -243,5 +287,8 @@ let () =
       Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
       Alcotest.test_case "trailing stays on line" `Quick test_trailing_comment_stays_on_line;
+      Alcotest.test_case "doc continuation indent" `Quick test_doc_comment_continuation_indent;
+      Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;
+      Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
     ];
   ]

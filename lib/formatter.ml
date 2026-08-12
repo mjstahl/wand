@@ -451,11 +451,39 @@ let emit_ctor_fields fields =
     | _ ->
       " " ^ String.concat " " (List.map (fun (_, t) -> emit_type_atom t) fields)
 
+(* Named fields, one per line, for a constructor too wide to fit. Positional
+   fields are left alone: they are type atoms, so a long positional
+   constructor is long because its types are, and breaking it up does not
+   help. *)
+let emit_ctor_fields_wrapped name fields =
+  match fields with
+  | (Some _, _) :: _ ->
+    name ^ "(\n"
+    ^ String.concat ",\n"
+        (List.map (fun (n, t) ->
+           "  " ^ Option.get n ^ ": " ^ emit_type_atom t) fields)
+    ^ "\n)"
+  | _ -> name ^ emit_ctor_fields fields
+
 let emit_type_def (Variants (name, params, ctors)) =
-  "type " ^ name
-  ^ (if params = [] then "" else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) params))
-  ^ " = "
-  ^ String.concat " | " (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
+  let head =
+    "type " ^ name
+    ^ (if params = [] then "" else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) params))
+    ^ " = "
+  in
+  let oneline =
+    head ^ String.concat " | " (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
+  in
+  if fits 0 oneline then oneline
+  else match ctors with
+    (* A single constructor with named fields is a record: widen it down the
+       page rather than past the margin. Several constructors wrap at the
+       alternatives instead, which is where a reader looks first. *)
+    | [c] -> head ^ emit_ctor_fields_wrapped c.name c.fields
+    | _ ->
+      head ^ "\n  "
+      ^ String.concat "\n  | "
+          (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
 
 (* ── Top-level items ──────────────────────────────────────────────────────── *)
 
@@ -544,7 +572,14 @@ let all_comments tokens : comment_tok list =
       Some { c_offset = loc.offset; c_start_line = loc.line;
              c_end_line = loc.line; c_text = "--" ^ text }
     | Token.DocComment text ->
-      let rendered = "(** " ^ text ^ " *)" in
+      (* The lexer strips each line's indentation and star prefix, so that
+         `wand d` prints clean prose. Re-indent continuation lines under the
+         opening delimiter rather than emitting them flush left. *)
+      let rendered =
+        "(** "
+        ^ String.concat "\n    " (String.split_on_char '\n' text)
+        ^ " *)"
+      in
       let nlines = List.length (String.split_on_char '\n' text) in
       Some { c_offset = loc.offset; c_start_line = loc.line;
              c_end_line = loc.line + nlines - 1; c_text = rendered }
@@ -588,8 +623,18 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
       if is_verbatim then rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
       else emit_top_item_pretty item
     in
+    (* A verbatim slice runs to the next item's offset, so it absorbs any
+       comment sitting between the two. Its text therefore ends later than
+       the AST's end_loc says, and trusting that would leave an apparent gap
+       for `assemble` to fill with a blank line -- separating a doc comment
+       from the binding it documents. Count the lines actually emitted. *)
+    let end_line =
+      if is_verbatim then
+        start_loc.line + List.length (String.split_on_char '\n' text) - 1
+      else end_loc.line
+    in
     let piece = { offset = start_loc.offset; start_line = start_loc.line;
-                  end_line = end_loc.line; text; is_comment = false } in
+                  end_line; text; is_comment = false } in
     (is_verbatim, start_loc.offset, stop, piece))
 
 let assemble pieces =
