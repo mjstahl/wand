@@ -339,7 +339,7 @@ Combined with regex:
 ```
 $(git log --oneline)
   |> String.lines
-  |> List.filter (String.match? r/fix|bug/i)
+  |> List.filter (Regex.match? r/fix|bug/i)
 ```
 
 ---
@@ -383,19 +383,19 @@ r/^\w+/m        -- match at start of each line
 ```
 
 ```
-String.match?       r/\d+/ "abc123"           -- true
-String.capture      r/(\w+)@(\w+)/ "a@b"     -- ["a@b", "a", "b"]
-String.replace_re   r/\d+/ "X" "a1b2"        -- "aXb2"
-String.replace_all_re r/\d+/ "X" "a1b2"      -- "aXbX"
-String.split_re     r/\s+/ "a  b   c"        -- ["a", "b", "c"]
-String.match_all    r/\d+/ "a1b22c333"       -- ["1", "22", "333"]
+Regex.match?      r/\d+/ "abc123"          -- true
+Regex.capture     r/(\w+)@(\w+)/ "a@b"     -- ["a@b", "a", "b"]
+Regex.replace     r/\d+/ "X" "a1b2"        -- "aXb2"
+Regex.replace_all r/\d+/ "X" "a1b2"        -- "aXbX"
+Regex.split       r/\s+/ "a  b   c"        -- ["a", "b", "c"]
+Regex.match_all   r/\d+/ "a1b22c333"       -- ["1", "22", "333"]
 ```
 
 `match_all` returns every non-overlapping match in order — useful for
 simple tokenizing with an alternation pattern:
 
 ```
-String.match_all r/[a-zA-Z_]\w*|[{}=,]|"[^"]*"|\d+/ "block{x=\"1\"}"
+Regex.match_all r/[a-zA-Z_]\w*|[{}=,]|"[^"]*"|\d+/ "block{x=\"1\"}"
 -- ["block", "{", "x", "=", "\"1\"", "}"]
 ```
 
@@ -403,7 +403,7 @@ Compile a pattern at runtime (e.g. from user input):
 
 ```
 match Regex.compile pattern with
-| Ok re  -> String.match? re input
+| Ok re  -> Regex.match? re input
 | Error e -> false
 ```
 
@@ -711,12 +711,11 @@ written there.)
 `slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
 `repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
 `to_float`, `to_bool`, `to_path`, `to_url`, `to_ipv4`, `to_cidr`, `to_port`,
-`to_version`, `to_size`, `to_date`, `to_time`, `to_datetime`, `to_duration`,
-`match?`, `capture`, `replace_re`, `replace_all_re`, `split_re`
+`to_version`, `to_size`, `to_date`, `to_time`, `to_datetime`, `to_duration`
 
 ### `Regex`
 
-`compile`, `match?`, `capture`, `replace`, `replace_all`, `split`
+`compile`, `match?`, `capture`, `replace`, `replace_all`, `split`, `match_all`
 
 ### `Map`
 
