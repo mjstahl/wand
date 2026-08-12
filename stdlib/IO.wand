@@ -1,20 +1,20 @@
 (** Print a value without a trailing newline. *)
-let print     = print
+let print = print
 
 (** Print a value followed by a newline. *)
-let println   = println
+let println = println
 
 (** Print a value to stderr without a trailing newline. *)
-let print_err   s = io_print_err s
+let print_err s = io_print_err s
 
 (** Print a value to stderr followed by a newline. *)
 let println_err s = io_println_err s
 
 (** Read a line from stdin, returning the string without the newline. *)
-let read_line ()  = io_read_line ()
+let read_line () = io_read_line ()
 
 (** Read all remaining input from stdin as a single string. *)
-let read_all  ()  = io_read_all ()
+let read_all () = io_read_all ()
 
 (** Flush stdout, ensuring all buffered output is written. *)
-let flush     ()  = io_flush ()
+let flush () = io_flush ()

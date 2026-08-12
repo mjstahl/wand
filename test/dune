@@ -60,7 +60,12 @@
 
 (test
  (name test_lint)
- (deps (source_tree ../stdlib))
+ (deps (source_tree ../stdlib) ../docs/reference.md)
+ (libraries wand alcotest))
+
+(test
+ (name test_examples)
+ (deps (source_tree ../examples) (source_tree ../stdlib))
  (libraries wand alcotest))
 
 (test

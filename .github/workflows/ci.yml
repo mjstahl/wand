@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.x"
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test
+
+      - name: Build
+        run: opam exec -- dune build
+
+      # Covers the test suites, the examples (typechecked, and the hermetic
+      # ones executed), the stdlib linting clean, and the reference documenting
+      # exactly the rules that exist.
+      - name: Test
+        run: opam exec -- dune test
+
+      # The shell-dependent examples are only typechecked by the suite, since
+      # the test sandbox is not a git repository. Here the checkout is one, so
+      # they can be run for real.
+      - name: Run shell-dependent examples
+        run: |
+          set -euo pipefail
+          WAND=_build/default/bin/wand.exe
+          git config --global --add safe.directory "$PWD"
+          "$WAND" examples/sysinfo.wand
+          "$WAND" examples/repo-status.wand
+          "$WAND" examples/party.wand
+          printf 'INFO a\nERROR b\n' | "$WAND" examples/log-summary.wand
+
+      # wand fmt is the canonical form: running it on a formatted tree changes
+      # nothing. Checked on a copy so a failure reports rather than rewrites.
+      - name: Check the stdlib is formatted
+        run: |
+          set -euo pipefail
+          WAND="$PWD/_build/default/bin/wand.exe"
+          rm -rf /tmp/stdlib-check
+          cp -r stdlib /tmp/stdlib-check
+          (cd /tmp/stdlib-check && "$WAND" fmt ./*.wand)
+          diff -r stdlib /tmp/stdlib-check

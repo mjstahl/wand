@@ -1,93 +1,94 @@
 import List
 
 (** Return the number of characters in a string. *)
-let length     s           = str_length s
+let length s = str_length s
 
 (** Return true if the string is empty. *)
-let is_empty?  s           = str_length s == 0
+let is_empty? s = str_length s == 0
 
 (** Convert a string to uppercase. *)
-let upper      s           = str_upper s
+let upper s = str_upper s
 
 (** Convert a string to lowercase. *)
-let lower      s           = str_lower s
+let lower s = str_lower s
 
 (** Strip leading and trailing whitespace. *)
-let trim       s           = str_trim s
+let trim s = str_trim s
 
 (** Strip leading whitespace. *)
-let trim_left  s           = str_trim_left s
+let trim_left s = str_trim_left s
 
 (** Strip trailing whitespace. *)
-let trim_right s           = str_trim_right s
+let trim_right s = str_trim_right s
 
 (** Return the substring from index `from` up to (not including) `to_end`. *)
-let slice      from to_end s = str_slice from to_end s
+let slice from to_end s = str_slice from to_end s
 
 (** Split a string on a delimiter, returning a list of substrings. *)
-let split      delim s     = str_split delim s
+let split delim s = str_split delim s
 
 (** Return true if the string contains the given substring. *)
-let contains?  needle s    = str_contains needle s
+let contains? needle s = str_contains needle s
 
 (** Return true if the string starts with the given prefix. *)
-let starts_with? prefix s  = str_starts_with prefix s
+let starts_with? prefix s = str_starts_with prefix s
 
 (** Return true if the string ends with the given suffix. *)
-let ends_with?   suffix s  = str_ends_with suffix s
+let ends_with? suffix s = str_ends_with suffix s
 
 (** Replace all occurrences of `old` with `new` in the string. *)
-let replace    old new s   = str_replace old new s
+let replace old new s = str_replace old new s
 
 (** Repeat a string n times. *)
-let repeat     n s         = str_repeat n s
+let repeat n s = str_repeat n s
 
 (** Reverse a string. *)
-let reverse    s           = str_reverse s
+let reverse s = str_reverse s
 
 (** Return a list of single-character strings. *)
-let chars      s           = str_chars s
+let chars s = str_chars s
 
 (** Convert an integer to its string representation. *)
-let of_int     n           = int_to_str n
+let of_int n = int_to_str n
 
 (** Parse a string as an integer. Returns Ok n or Error msg. *)
-let to_int     s = str_to_int s
+let to_int s = str_to_int s
 
 (** Parse a string as a float. Returns Ok f or Error msg. *)
-let to_float   s = str_to_float s
+let to_float s = str_to_float s
 
 (** Parse "true" or "false" (case-insensitive). Returns Ok b or Error msg. *)
-let to_bool    s = str_to_bool s
+let to_bool s = str_to_bool s
 
 (** Convert a string to a Path value. Always succeeds. *)
-let to_path    s = str_to_path s
+let to_path s = str_to_path s
 
 (** Parse a URL string. Returns Ok url or Error msg. *)
-let to_url     s = str_to_url s
+let to_url s = str_to_url s
 
 (** Parse an IPv4 address string. Returns Ok ipv4 or Error msg. *)
-let to_ipv4    s = str_to_ipv4 s
+let to_ipv4 s = str_to_ipv4 s
 
 (** Parse a CIDR string (e.g. "192.168.0.0/24"). Returns Ok cidr or Error msg. *)
-let to_cidr    s = str_to_cidr s
+let to_cidr s = str_to_cidr s
 
 (** Parse a port string (e.g. ":8080"). Returns Ok port or Error msg. *)
-let to_port    s = str_to_port s
+let to_port s = str_to_port s
 
 (** Parse a version string (e.g. "1.2.3"). Returns Ok version or Error msg. *)
 let to_version s = str_to_version s
 
 (** Parse a size string (e.g. "10MB"). Returns Ok size or Error msg. *)
-let to_size    s = str_to_size s
+let to_size s = str_to_size s
 
 (** Parse a date string (e.g. "2024-01-15"). Returns Ok date or Error msg. *)
-let to_date    s = str_to_date s
+let to_date s = str_to_date s
 
 (** Parse a time string (e.g. "14:30:00"). Returns Ok time or Error msg. *)
-let to_time    s = str_to_time s
+let to_time s = str_to_time s
 
-(** Parse a datetime string (e.g. "2024-01-15T14:30:00Z"). Returns Ok datetime or Error msg. *)
+(** Parse a datetime string (e.g. "2024-01-15T14:30:00Z").
+    Returns Ok datetime or Error msg. *)
 let to_datetime s = str_to_datetime s
 
 (** Parse a duration string (e.g. "5min", "1h30m"). Returns Ok duration or Error msg. *)
@@ -102,4 +103,3 @@ let lines s = str_split "\n" s
 
 (** Split a string on spaces. *)
 let words s = str_split " " s
-

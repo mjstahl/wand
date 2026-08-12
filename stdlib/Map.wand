@@ -1,18 +1,20 @@
 import Option
 
-(** An empty map. Use Map.empty or the literal [] syntax — but note [] is an empty list; prefer Map.empty for clarity. *)
+(** An empty map. Use Map.empty or the literal [] syntax — but note [] is an
+    empty list; prefer Map.empty for clarity. *)
 let empty = map_empty
 
 (** Look up a key, returning None if it is absent. *)
-let get  key m = match map_get key m with
-  | Ok v    -> Some v
+let get key m =
+  match map_get key m with
+  | Ok v -> Some v
   | Error _ -> None
 
 (** Look up a key, raising a runtime error if not found. *)
 let get! key m = map_get_exn key m
 
 (** Set a key to a value, returning the updated map. *)
-let set  key value m = map_set key value m
+let set key value m = map_set key value m
 
 (** Remove a key, returning the updated map. *)
 let delete key m = map_delete key m

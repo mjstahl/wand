@@ -20,12 +20,12 @@ let is_table? t = toml_is_table t
 let is_array? t = toml_is_array t
 
 (** Extract typed values.  Each returns Ok v or Error message. *)
-let get_bool   t = toml_get_bool t
-let get_int    t = toml_get_int t
-let get_float  t = toml_get_float t
+let get_bool t = toml_get_bool t
+let get_int t = toml_get_int t
+let get_float t = toml_get_float t
 let get_string t = toml_get_string t
-let get_array  t = toml_get_array t
-let get_table  t = toml_get_table t
+let get_array t = toml_get_array t
+let get_table t = toml_get_table t
 
 (** Look up a key in a TOML table.  Returns Ok TOML or Error message. *)
 let field key t = toml_field key t
