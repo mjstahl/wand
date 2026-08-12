@@ -53,15 +53,15 @@ let test_shell1 () =
 
 (* ── Classification ──────────────────────────────────────────────────────── *)
 
-(* Only mechanical rules may fail a build: a heuristic that fires on correct
-   code would teach its audience to ignore every rule beside it. *)
+(* Only must-fix rules may fail a build. An advisory one that could fail it
+   would teach its audience to ignore every rule beside it. *)
 let test_kinds () =
-  Alcotest.(check bool) "W-PRED1 is mechanical" true
-    (Lint_rules.kind Lint_rules.M_PRED1 = Lint_rules.Mechanical);
-  Alcotest.(check bool) "W-SHELL1 is heuristic" true
-    (Lint_rules.kind Lint_rules.H_SHELL1 = Lint_rules.Heuristic);
+  Alcotest.(check bool) "M-PRED1 must be fixed" true
+    (Lint_rules.kind Lint_rules.M_PRED1 = Lint_rules.MustFix);
+  Alcotest.(check bool) "H-SHELL1 is advisory" true
+    (Lint_rules.kind Lint_rules.H_SHELL1 = Lint_rules.Advisory);
   let shell = findings "let c = $(a | b | c | d)\nc" in
-  Alcotest.(check bool) "a heuristic finding never fails --strict" false
+  Alcotest.(check bool) "an advisory finding never fails --strict" false
     (List.exists Lint.fails_strict shell)
 
 (* Every rule in the catalog has a distinct code, so a message can always be

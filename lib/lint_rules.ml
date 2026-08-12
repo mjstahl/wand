@@ -17,18 +17,20 @@ type id =
   | M_BANG2    (* the name says it raises, and it cannot *)
   | H_SHELL1   (* a shell blob hides work the type system could see *)
 
-(* The prefix carries the classification, so a rule ID printed in a terminal
-   says on its own whether --strict can fail on it -- the same reason a
-   raising function is spelled with a `!`.
+(* The prefix says what a finding will do to you, so a rule ID printed in a
+   terminal answers that on its own -- the same reason a raising function is
+   spelled with a `!`.
 
-   M- rules are mechanical: decidable, so a finding is always a real
-   violation and --strict may promote it to an error. H- rules are
-   heuristics that stay warnings forever, because a lint that fires on
-   correct code teaches its audience to ignore lints. Reclassifying a rule
-   therefore renames it. *)
+   M- rules must be fixed: --strict promotes them to errors. H- rules are
+   advisory and stay warnings however the build is run.
+
+   Being decidable is what qualifies a rule to be must-fix, but it does not
+   oblige it: a rule can be perfectly decidable and still belong in the
+   advisory column, because failing a build over it would punish the safer
+   choice. Reclassifying a rule therefore renames it. *)
 type kind =
-  | Mechanical
-  | Heuristic
+  | MustFix
+  | Advisory
 
 type rule = {
   id      : id;
@@ -40,25 +42,25 @@ type rule = {
 let all = [
   { id = M_PRED1;  code = "M-PRED1";
     summary = "a `?`-named function returns Bool";
-    kind = Mechanical };
+    kind = MustFix };
   { id = M_PRED2;  code = "M-PRED2";
     summary = "a `?`-named function also carries a redundant `is_` prefix";
-    kind = Mechanical };
+    kind = MustFix };
   { id = M_BANG1;  code = "M-BANG1";
     summary = "a function that can raise is not named with `!`";
-    kind = Mechanical };
+    kind = MustFix };
   { id = M_BANG2;  code = "M-BANG2";
     summary = "a `!`-named function cannot raise";
-    kind = Mechanical };
+    kind = MustFix };
   { id = M_OR1;    code = "M-OR1";
     summary = "an informationless error (`Result Unit _`) is a misfiled Option";
-    kind = Mechanical };
+    kind = MustFix };
   { id = M_NAME1;  code = "M-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
-    kind = Mechanical };
+    kind = MustFix };
   { id = H_SHELL1; code = "H-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
-    kind = Heuristic };
+    kind = Advisory };
 ]
 
 let rule id = List.find (fun r -> r.id = id) all
@@ -71,8 +73,8 @@ let of_code c =
   | None   -> None
 
 let kind_name = function
-  | Mechanical -> "mechanical"
-  | Heuristic  -> "heuristic"
+  | MustFix  -> "must-fix"
+  | Advisory -> "advisory"
 
 (* ── Messages ────────────────────────────────────────────────────────────── *)
 

@@ -1335,8 +1335,13 @@ Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`
 ### Lints
 
 `wand t` reports lint findings alongside the type. Each carries a rule ID
-whose prefix says how it is treated: `M-` rules are mechanical, and `--strict`
-promotes them to errors; `H-` rules are heuristics and always stay warnings.
+whose prefix says what it will do to your build: `M-` rules must be fixed,
+and `--strict` promotes them to errors; `H-` rules are advisory and stay
+warnings however wand is run.
+
+A rule has to be decidable to be must-fix, but being decidable does not make
+it one — a rule can be exact and still be advisory, when failing a build over
+it would punish the safer choice.
 
 | Rule | Fires when |
 |---|---|

@@ -186,8 +186,8 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
 
 (* ── Rendering ───────────────────────────────────────────────────────────── *)
 
-(* Only mechanical rules can fail a build. *)
-let fails_strict f = Lint_rules.kind f.rule = Lint_rules.Mechanical
+(* Only must-fix rules can fail a build. *)
+let fails_strict f = Lint_rules.kind f.rule = Lint_rules.MustFix
 
 let to_text f =
   Printf.sprintf "%d:%d: %s: %s" f.line f.col (Lint_rules.code f.rule) f.text
