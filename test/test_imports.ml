@@ -34,6 +34,34 @@ let test_destructure_missing_field () =
       (Printf.sprintf {|let [bar = x] = import %s
 x|} path))
 
+(* ── User-path imports must state their binding ──────────────────────────── *)
+
+(* A bare `import ./utils` used to bind `Utils`, a name derived by
+   capitalising the filename. The two explicit forms below say what they
+   bind, so they must keep working; the bare form must not. *)
+
+let test_bare_user_import_rejected () =
+  with_named "utils" {|let public = 1|} (fun path ->
+    err "bare user-path import does not bind"
+      (Printf.sprintf {|import %s
+Utils.public|} path))
+
+let test_explicit_binding_works () =
+  with_named "utils" {|let public = 1|} (fun path ->
+    Alcotest.(check (result string string))
+      "let-bound import resolves"
+      (Ok "1")
+      (run (Printf.sprintf {|let utils = import %s
+utils.public|} path)))
+
+let test_destructured_binding_works () =
+  with_named "utils" {|let public = 1|} (fun path ->
+    Alcotest.(check (result string string))
+      "destructured import resolves"
+      (Ok "1")
+      (run (Printf.sprintf {|let [public] = import %s
+public|} path)))
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -43,5 +71,10 @@ let () =
     ];
     "errors", [
       Alcotest.test_case "missing field"   `Quick test_destructure_missing_field;
+    ];
+    "user paths", [
+      Alcotest.test_case "bare import rejected"   `Quick test_bare_user_import_rejected;
+      Alcotest.test_case "let binding works"      `Quick test_explicit_binding_works;
+      Alcotest.test_case "destructuring works"    `Quick test_destructured_binding_works;
     ];
   ]

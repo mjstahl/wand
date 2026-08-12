@@ -40,12 +40,17 @@ let resolve_import base_dir = function
     then Filename.concat base_dir (add_ext path)
     else add_ext path
 
+(* Only stdlib imports bind a namespace implicitly, and there the name is
+   written at the import site: `import FS` binds `FS`. A user-path import
+   must state its binding -- `let utils = import ./utils` or a destructuring
+   pattern -- so the name a module arrives under is greppable, rather than
+   being derived by capitalising a filename. *)
 let namespace_name_of = function
   | Ast.StdlibModule name -> name
   | Ast.UserPath path ->
-    let base = Filename.basename (Filename.remove_extension path) in
-    if String.length base = 0 then "Module"
-    else String.make 1 (Char.uppercase_ascii base.[0]) ^ String.sub base 1 (String.length base - 1)
+    failwith (Printf.sprintf
+      "bare `import %s` does not bind a name; write `let name = import %s` \
+       or destructure it: `let [foo, bar] = import %s`" path path path)
 
 let rec strip_located = function
   | Ast.Located (_, e) -> strip_located e

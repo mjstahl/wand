@@ -703,14 +703,11 @@ utils.double 5       -- 10
 utils._helper 5      -- type error: _helper not found in module
 ```
 
-### Bare import (still supported)
-
-```
-import ./utils
-```
-
-Binds the module under the capitalised filename (`Utils`). Equivalent to
-`let Utils = import ./utils`.
+A user-path import must state the name it binds. `import ./utils` on its own
+is an error — use `let utils = import ./utils` or a destructuring pattern, so
+the name a module arrives under is written at the import site and greppable.
+(`import FS` and other stdlib imports are unaffected: the name is already
+written there.)
 
 ---
 
