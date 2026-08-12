@@ -32,6 +32,11 @@ and tv = {
 let next_id = ref 0
 let holes : typ list ref = ref []
 
+(* Name of the top-level function whose body is being inferred, so a match
+   that came from a multi-equation definition can report failures in terms
+   of that definition rather than the desugared match it became. *)
+let current_fn : string option ref = ref None
+
 let fresh () =
   let id = !next_id in
   incr next_id;
@@ -518,6 +523,28 @@ and render_witness_arg (Witness (name, args) as w : witness) : string =
   | [] -> name
   | _  -> "(" ^ render_witness w ^ ")"
 
+(* A multi-equation definition desugars to a match over synthetic `_p0.._pN`
+   parameters (parser.ml's collapse_multi_equation). That exact shape is what
+   distinguishes it from a match the author actually wrote, and it decides
+   both how failures are phrased and whether unreachable arms are rejected --
+   an unreachable arm in a hand-written match can be deliberate, but a dead
+   equation is always a mistake, since nothing about the definition hints
+   that an earlier line already answered for it. *)
+let rec strip_loc_expr e = match e with
+  | Located (_, x) -> strip_loc_expr x
+  | x -> x
+
+let is_equation_group (scrutinee : expr) (arity : int) =
+  let synthetic i = Printf.sprintf "_p%d" i in
+  match strip_loc_expr scrutinee with
+  | Var v when arity = 1 -> v = synthetic 0
+  | Tuple vs ->
+    List.length vs = arity &&
+    List.for_all2 (fun v i -> match strip_loc_expr v with
+      | Var name -> name = synthetic i
+      | _ -> false) vs (List.init arity (fun i -> i))
+  | _ -> false
+
 (* Returns None if exhaustive, or Some human-readable witness pattern
    naming one uncovered case. *)
 let check_exhaustive tenv (scrutinee_t : typ) (pats : pat list) : string option =
@@ -716,11 +743,44 @@ let rec infer tenv (env : env) (e : expr) : typ =
     ) cases;
     let unguarded_pats = List.filter_map (fun (p, guard, _) ->
       match guard with None -> Some p | Some _ -> None) cases in
+    (* Phrase failures as equations when this match is a desugared
+       multi-equation definition -- `_p0` means nothing to its author. *)
+    let arity = match strip_loc_expr scrutinee with
+      | Tuple vs -> List.length vs
+      | _ -> 1
+    in
+    let as_equations = is_equation_group scrutinee arity in
+    let fn_desc = match !current_fn with
+      | Some n -> Printf.sprintf " for '%s'" n
+      | None   -> ""
+    in
+    if as_equations then begin
+      (* An equation that no value can reach is dead code the author cannot
+         see: source order decides, so an earlier equation already answered
+         for everything this one names. *)
+      let n = List.length unguarded_pats in
+      let rec find_dead i =
+        if i >= n then None
+        else
+          let prefix = List.filteri (fun j _ -> j < i) unguarded_pats in
+          if prefix <> [] && check_exhaustive tenv ts prefix = None then Some i
+          else find_dead (i + 1)
+      in
+      (match find_dead 1 with
+       | Some i ->
+         raise (TypeError (Printf.sprintf
+           "equation %d%s is unreachable — an earlier equation already \
+            matches every remaining case" (i + 1) fn_desc))
+       | None -> ())
+    end;
     (match check_exhaustive tenv ts unguarded_pats with
      | None -> ()
      | Some witness ->
-       raise (TypeError (Printf.sprintf
-         "non-exhaustive match: missing case, e.g. %s" witness)));
+       raise (TypeError (
+         if as_equations then Printf.sprintf
+           "the equations%s do not cover every case, e.g. %s" fn_desc witness
+         else Printf.sprintf
+           "non-exhaustive match: missing case, e.g. %s" witness)));
     result_t
   | Tuple es -> TTuple (List.map (infer tenv env) es)
   | List []        -> TList (fresh ())
@@ -1110,7 +1170,11 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | TLLet (name, params, body) ->
       let placeholder = fresh () in
       let env_rec = (name, Mono placeholder) :: env in
-      let t = infer tenv env_rec (Fn (params, body)) in
+      let saved_fn = !current_fn in
+      current_fn := Some name;
+      let t = (try infer tenv env_rec (Fn (params, body))
+               with e -> current_fn := saved_fn; raise e) in
+      current_fn := saved_fn;
       unify placeholder t;
       ((name, generalize env t) :: env, last_t)
     | TLLetRec bindings ->

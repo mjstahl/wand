@@ -188,8 +188,47 @@ let test_incremental_pattern_match () =
   Alcotest.(check string) "fact 1 after incremental" "1" (run_val sess "fact 1");
   Alcotest.(check string) "fact 3 after incremental" "3" (run_val sess "fact 3")
 
+(* The REPL edits definitions; files declare them. Adding a clause for an
+   existing function merges into it here rather than erroring as a file
+   would, and the merge is announced so the reordering is visible. *)
+
+let test_repl_merges_clauses_and_announces () =
+  let sess = Runner.make_session () in
+  let sess = match Runner.run_session sess "let f 0 = 0" with
+    | Ok (s, Runner.RBind ("f", _)) -> s
+    | Ok (_, _) -> Alcotest.fail "expected a binding for the first clause"
+    | Error m -> Alcotest.failf "first clause failed: %s" m
+  in
+  let sess = match Runner.run_session sess "let f n = n * 2" with
+    | Ok (s, Runner.RBind ("f", ty)) ->
+      let contains hay nee =
+        let hn = String.length hay and nn = String.length nee in
+        let found = ref false in
+        for i = 0 to hn - nn do
+          if nn <= hn && String.sub hay i nn = nee then found := true
+        done; !found
+      in
+      if not (contains ty "2 equations")
+      then Alcotest.failf "expected the merge to be announced, got: %s" ty
+      else s
+    | Ok (_, _) -> Alcotest.fail "expected a binding for the merged clause"
+    | Error m -> Alcotest.failf "merged clause failed: %s" m
+  in
+  (* Both clauses are live: the specific one still fires after the merge. *)
+  (match Runner.run_session sess "f 0" with
+   | Ok (_, Runner.RVal ("0", _)) -> ()
+   | Ok (_, _) -> Alcotest.fail "specific clause did not fire after merge"
+   | Error m -> Alcotest.failf "f 0 failed: %s" m);
+  (match Runner.run_session sess "f 5" with
+   | Ok (_, Runner.RVal ("10", _)) -> ()
+   | Ok (_, _) -> Alcotest.fail "general clause did not fire after merge"
+   | Error m -> Alcotest.failf "f 5 failed: %s" m)
+
 let () =
   Alcotest.run "CLI" [
+    "repl", [
+      Alcotest.test_case "clause merge announced" `Quick test_repl_merges_clauses_and_announces;
+    ];
     "eval", [
       Alcotest.test_case "eval expressions" `Quick test_eval;
       Alcotest.test_case "eval holes"       `Quick test_eval_holes;

@@ -128,6 +128,21 @@ let fib 1 = 1
 let fib n = fib (n - 1) + fib (n - 2)
 ```
 
+Equations are one definition, so they must be written consecutively and take
+the same number of parameters. They are tried in the order written; an
+equation an earlier one already covers is an error:
+
+```
+let f _ = 0
+let f 1 = 1     -- error: equation 2 for 'f' is unreachable
+```
+
+The equations must also cover every case together, checked the same way a
+`match` is.
+
+In the REPL a later `let` for an existing function adds a clause to it
+instead, and the result is reported as `f : Int -> Int, 2 equations`.
+
 Works locally too, with `in` — repeating `let` on each clause or not:
 
 ```

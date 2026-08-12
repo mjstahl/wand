@@ -13,6 +13,10 @@ type state = {
     (* constructor name -> number of declared fields, recorded while parsing
        `type` definitions so `Ctor (e1, ..., en)` call sites can tell apart
        "n curried positional args" from "one tuple-typed argument" *)
+  top_fns : (string, int) Hashtbl.t;
+    (* function name -> arity, for top-level definitions already completed.
+       A function's equations are parsed as one contiguous group, so seeing
+       a name here again means a later `let` for it after a gap. *)
 }
 
 let make tokens =
@@ -23,7 +27,7 @@ let make tokens =
   Hashtbl.replace ctor_field_count "Ok" 1;
   Hashtbl.replace ctor_field_count "Error" 1;
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
-    paren_depth = 0; ctor_field_count }
+    paren_depth = 0; ctor_field_count; top_fns = Hashtbl.create 16 }
 
 (* Plain `Comment _` tokens are invisible to the real parser, exactly like
    `Newline` -- only `DocComment` is left unfiltered (parse_program's
@@ -858,6 +862,24 @@ let build_multi_equation name arity eqs =
   let (p, b) = collapse_multi_equation arity eqs in
   Ast.TLLet (name, p, b)
 
+(* Record a completed top-level function, rejecting a second definition of a
+   name already defined. A function's equations are parsed as one contiguous
+   group, so reaching this a second time means another `let` for the same
+   name appeared after something else came between -- which used to either
+   merge into the earlier definition or silently shadow it, depending on
+   arity, with nothing at the definition site to say which. *)
+let note_top_fn s loc name arity =
+  match Hashtbl.find_opt s.top_fns name with
+  | Some prev_arity ->
+    raise (ParseError (Printf.sprintf
+      "%s'%s' is already defined above%s. Equations for a function must be \
+       consecutive — move this one up beside the others, or rename it"
+      loc name
+      (if prev_arity = arity then ""
+       else Printf.sprintf " (taking %d parameter%s)" prev_arity
+              (if prev_arity = 1 then "" else "s"))))
+  | None -> Hashtbl.replace s.top_fns name arity
+
 (* Parses `params (: T)? = body` plus any `let name ...` multi-equation
    continuations, for a NEW name introduced by `and` in a top-level
    mutually-recursive group. Requires at least one parameter — plain-value
@@ -1033,6 +1055,7 @@ let parse_program_generic ~on_item tokens =
          end else
            items := !items @ [Ast.TLLetPat (p, body)]
        | Token.Ident _ | Token.Upper _ ->
+         let name_loc = loc_prefix s in
          let name = match advance s with
            | Token.Ident n -> n
            | Token.Upper n -> n
@@ -1077,9 +1100,21 @@ let parse_program_generic ~on_item tokens =
                (match peek s with
                 | Token.Ident n when n = name -> ignore (advance s)
                 | _ -> raise Exit);
+               (* Past this point the name is confirmed, so anything wrong is
+                  a mistake in this equation rather than the start of an
+                  unrelated binding: report it instead of backtracking into
+                  a silent shadow. *)
+               let eq_loc = loc_prefix s in
                let ps = ref [] in
                while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
-               if List.length !ps <> arity then raise Exit;
+               if List.length !ps <> arity then
+                 raise (ParseError (Printf.sprintf
+                   "%sequation %d of '%s' takes %d parameter%s, but its first \
+                    equation takes %d — every equation of a function must \
+                    take the same number"
+                   eq_loc (List.length !eqs + 1) name
+                   (List.length !ps) (if List.length !ps = 1 then "" else "s")
+                   arity));
                (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
                let b_loc = peek_loc s in
                let b = Ast.Located (b_loc, parse_contract_body s) in
@@ -1106,10 +1141,15 @@ let parse_program_generic ~on_item tokens =
                let loc = peek_loc s in
                let e = Ast.Located (loc, expr_ 0 s) in
                items := !items @ [Ast.TLExpr e]
-             end else
+             end else begin
+               List.iter (fun (n, ps, _) ->
+                 note_top_fn s name_loc n (List.length ps)) !bindings;
                items := !items @ [Ast.TLLetRec !bindings]
-           end else
+             end
+           end else begin
+             note_top_fn s name_loc name arity;
              items := !items @ [build_multi_equation name arity !eqs]
+           end
          end
          end  (* close the outer begin from peek s = Token.In check *)
        | _ ->

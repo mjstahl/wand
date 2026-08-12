@@ -715,12 +715,35 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
         } in
+        (* The REPL edits definitions; files declare them. A new clause for an
+           existing function merges into it here (merge_clause above), which
+           is only safe to do silently if the result is visible -- so report
+           how many equations the function now has. *)
+        let equation_count name =
+          match List.assoc_opt name new_eval_env with
+          | Some (VFix (_, _, params, body)) ->
+            let arity = List.length params in
+            let synthetic = List.mapi (fun i p -> match p with
+              | Ast.PVar v -> v = Printf.sprintf "_p%d" i
+              | _ -> false) params
+            in
+            if arity > 0 && List.for_all (fun b -> b) synthetic then
+              (match strip_located body with
+               | Ast.Match (_, arms) when List.length arms > 1 -> Some (List.length arms)
+               | _ -> None)
+            else None
+          | _ -> None
+        in
         let display = match last_non_import prog with
           | None -> RSilent
           | Some (Ast.TLLet (name, _, _)) ->
-            (match List.assoc_opt name full_type_env with
-             | Some s -> RBind (name, Typechecker.string_of_scheme s)
-             | None   -> RBind (name, "?"))
+            let ty = match List.assoc_opt name full_type_env with
+              | Some s -> Typechecker.string_of_scheme s
+              | None   -> "?"
+            in
+            (match equation_count name with
+             | Some n -> RBind (name, Printf.sprintf "%s, %d equations" ty n)
+             | None   -> RBind (name, ty))
           | Some (Ast.TLLetPat _) -> RSilent
           | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) ->

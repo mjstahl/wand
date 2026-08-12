@@ -241,6 +241,47 @@ let test_fn () =
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
+(* Equations for one function are a single definition, so they must be
+   written together and agree on arity. Both used to be accepted silently:
+   a later `let f` after a gap shadowed or merged depending on arity, and a
+   differing arity started a fresh binding that shadowed the first. *)
+
+let parse_error label src needle =
+  match (try Ok (parse_program src) with
+         | Parser.ParseError m -> Error m
+         | Failure m -> Error m) with
+  | Ok _ -> Alcotest.failf "%s: expected a parse error" label
+  | Error m ->
+    let contains hay nee =
+      let hn = String.length hay and nn = String.length nee in
+      let found = ref false in
+      for i = 0 to hn - nn do
+        if nn <= hn && String.sub hay i nn = nee then found := true
+      done; !found
+    in
+    if not (contains m needle) then
+      Alcotest.failf "%s: expected %S in error, got: %s" label needle m
+
+let test_equation_contiguity () =
+  parse_error "later equation after an intervening binding"
+    "let f 0 = 0\nlet x = 1\nlet f 1 = 1\nf 0"
+    "already defined above";
+  parse_error "redefinition with a different arity"
+    "let f 0 = 0\nlet x = 1\nlet f 1 2 = 3\nf 0"
+    "already defined above";
+  (* Consecutive equations remain one definition. *)
+  ignore (parse_program "let fib 0 = 0\nlet fib 1 = 1\nlet fib n = n\nfib 3");
+  (* Value bindings may still be rebound. *)
+  ignore (parse_program "let x = 1\nlet x = 2\nx")
+
+let test_equation_arity () =
+  parse_error "arity differs inside a contiguous group"
+    "let f 0 = 0\nlet f 1 2 = 3\nf 0"
+    "every equation of a function must take the same number";
+  parse_error "zero-parameter clause after a function clause"
+    "let f 0 = 0\nlet f = 3\nf 0"
+    "every equation of a function must take the same number"
+
 let () =
   Alcotest.run "Parser" [
     "literals", [
@@ -261,6 +302,10 @@ let () =
       Alcotest.test_case "list"         `Quick test_list;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "field"        `Quick test_field;
+    ];
+    "multi-equation", [
+      Alcotest.test_case "contiguity"   `Quick test_equation_contiguity;
+      Alcotest.test_case "arity"        `Quick test_equation_arity;
     ];
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
