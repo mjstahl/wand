@@ -521,6 +521,7 @@ let emit_top_item_pretty = function
    instead of starting a new line ("trailing same-line" comments). *)
 
 type piece = {
+  offset     : int;   (* source offset: pieces are emitted in source order *)
   start_line : int;
   end_line   : int;
   text       : string;
@@ -587,11 +588,15 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
       if is_verbatim then rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
       else emit_top_item_pretty item
     in
-    let piece = { start_line = start_loc.line; end_line = end_loc.line; text; is_comment = false } in
+    let piece = { offset = start_loc.offset; start_line = start_loc.line;
+                  end_line = end_loc.line; text; is_comment = false } in
     (is_verbatim, start_loc.offset, stop, piece))
 
 let assemble pieces =
-  let sorted = List.sort (fun a b -> compare a.start_line b.start_line) pieces in
+  (* Source order, not line order: an item and a comment can start on the
+     same line, and which came first decides whether the comment trails the
+     item or introduces it. *)
+  let sorted = List.sort (fun a b -> compare a.offset b.offset) pieces in
   let buf = Buffer.create 1024 in
   let prev_end = ref None in
   List.iter (fun p ->
@@ -619,7 +624,8 @@ let format_source src =
   let in_any_span off = List.exists (fun (s, e) -> off > s && off < e) verbatim_spans in
   let comment_pcs = List.filter_map (fun c ->
     if in_any_span c.c_offset then None
-    else Some { start_line = c.c_start_line; end_line = c.c_end_line; text = c.c_text; is_comment = true }
+    else Some { offset = c.c_offset; start_line = c.c_start_line;
+                end_line = c.c_end_line; text = c.c_text; is_comment = true }
   ) comments in
   let item_pcs = List.map (fun (_, _, _, p) -> p) items in
   assemble (comment_pcs @ item_pcs)

@@ -200,6 +200,25 @@ let test_interior_comment_position () =
   assert_appears_before "comment stays inside body, not after the function"
     out2 "explain this" "f 5"
 
+(* A comment that follows an item on the same source line stays on that
+   line. Pieces are ordered by source offset, so a comment before an item
+   on the same line still introduces it. *)
+let test_trailing_comment_stays_on_line () =
+  let out = fmt "let x = 1  -- trailing\nlet y = 2\nx" in
+  assert_contains "line comment kept" out "-- trailing";
+  Alcotest.(check bool) "line comment stays on the binding's line" true
+    (List.exists (fun l ->
+       contains l "let x = 1" && contains l "-- trailing")
+     (String.split_on_char '\n' out));
+  let out2 = fmt "let x = 1  (* trailing *)\nlet y = 2\nx" in
+  Alcotest.(check bool) "block comment stays on the binding's line" true
+    (List.exists (fun l ->
+       contains l "let x = 1" && contains l "(* trailing *)")
+     (String.split_on_char '\n' out2));
+  let out3 = fmt "(* lead *) let x = 1\nx" in
+  assert_appears_before "a comment written before an item still precedes it"
+    out3 "lead" "let x = 1"
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -223,5 +242,6 @@ let () =
       Alcotest.test_case "preserved"  `Quick test_comments_preserved;
       Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
+      Alcotest.test_case "trailing stays on line" `Quick test_trailing_comment_stays_on_line;
     ];
   ]
