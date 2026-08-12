@@ -46,13 +46,13 @@ let usage_for sub =
     print_endline "Options:";
     print_endline "  --file <file>   Typecheck a .wand file instead of an expression";
     print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)";
-    print_endline "  --strict        Treat mechanical lint findings as errors";
+    print_endline "  --strict        Treat violation lint findings as errors";
     print_endline "  --json          Emit lint findings as JSON instead of text";
     print_endline "";
     print_endline "Lint findings are reported as warnings. Rule IDs carry";
-    print_endline "their classification: M- rules are mechanical and --strict";
-    print_endline "promotes them to errors; H- rules are heuristics and always";
-    print_endline "stay warnings."
+    print_endline "what they do to a build: V- rules report a violation and";
+    print_endline "--strict promotes them to errors; A- rules are advisory and";
+    print_endline "always stay warnings."
   | "d" | "doc" ->
     print_endline "Usage: wand d [--load <file>]... <name>";
     print_endline "";
@@ -90,7 +90,7 @@ let parse_loads args =
   in
   go [] [] args
 
-(* --strict promotes mechanical lints to errors; --json emits findings for a
+(* --strict promotes violations to errors; --json emits findings for a
    tool to read rather than a person. *)
 let parse_lint_flags args =
   let strict = ref false and json = ref false in
@@ -103,7 +103,7 @@ let parse_lint_flags args =
   (!strict, !json, rest)
 
 (* Returns the exit code: lints are warnings unless --strict promotes a
-   mechanical one. *)
+   violation. *)
 let report_lints ~strict ~json sess src =
   match Wand.Runner.lint_session sess src with
   | Error _ -> 0   (* the typecheck itself already reported this *)

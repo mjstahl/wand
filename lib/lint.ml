@@ -101,7 +101,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
        | Ast.String cmd ->
          let ops = shell_operators cmd in
          if ops >= shell_threshold then
-           acc := { rule = Lint_rules.H_SHELL1;
+           acc := { rule = Lint_rules.A_SHELL1;
                     line = (!here).Token.line; col = (!here).Token.col;
                     text = Lint_rules.shell1 ~stages:ops } :: !acc
        | _ -> ());
@@ -152,26 +152,26 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          let res = result_type t in
          if ends_with name '?' && String.length name > 4
             && String.sub name 0 3 = "is_" then
-           add Lint_rules.M_PRED2 loc (Lint_rules.pred2 ~name);
+           add Lint_rules.V_PRED2 loc (Lint_rules.pred2 ~name);
          if ends_with name '?' && res <> Typechecker.TBool then
-           add Lint_rules.M_PRED1 loc
+           add Lint_rules.V_PRED1 loc
              (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));
          if informationless_error t then
-           add Lint_rules.M_OR1 loc (Lint_rules.or1 ~name);
+           add Lint_rules.V_OR1 loc (Lint_rules.or1 ~name);
          (* The `!` convention, checked in both directions now that a
             signature says whether a function can raise. *)
          if is_function t then begin
            let raises = type_raises t in
            if raises && not (ends_with name '!') then
-             add Lint_rules.M_BANG1 loc (Lint_rules.bang1 ~name);
+             add Lint_rules.V_BANG1 loc (Lint_rules.bang1 ~name);
            if (not raises) && ends_with name '!' then
-             add Lint_rules.M_BANG2 loc (Lint_rules.bang2 ~name)
+             add Lint_rules.V_BANG2 loc (Lint_rules.bang2 ~name)
          end
        | None -> ());
       (match List.concat_map pat_names params
              |> List.filter (fun n -> String.length n > 1 && ends_with n '_') with
        | [] -> ()
-       | ps -> add Lint_rules.M_NAME1 loc (Lint_rules.name1 ~name ~params:ps));
+       | ps -> add Lint_rules.V_NAME1 loc (Lint_rules.name1 ~name ~params:ps));
       findings := List.rev_append (walk_expr loc body) !findings
     | Ast.TLLetPat (_, body) | Ast.TLExpr body ->
       findings := List.rev_append (walk_expr loc body) !findings
@@ -187,7 +187,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
 (* ── Rendering ───────────────────────────────────────────────────────────── *)
 
 (* Only must-fix rules can fail a build. *)
-let fails_strict f = Lint_rules.kind f.rule = Lint_rules.MustFix
+let fails_strict f = Lint_rules.kind f.rule = Lint_rules.Violation
 
 let to_text f =
   Printf.sprintf "%d:%d: %s: %s" f.line f.col (Lint_rules.code f.rule) f.text

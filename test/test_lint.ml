@@ -22,32 +22,32 @@ let silent label src =
 (* ── Individual rules ────────────────────────────────────────────────────── *)
 
 let test_pred1 () =
-  fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "M-PRED1";
+  fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
   silent "Bool predicate" "let big? n = n > 2\nbig? 3";
   (* The rule is one-directional: a Bool-returning function need not be `?`. *)
   silent "Bool without ?" "let positive n = n > 0\npositive 1"
 
 let test_pred2 () =
   fires "is_ prefix on a ?-named function" "let is_ready? x = x > 1\nis_ready? 2"
-    "M-PRED2";
+    "V-PRED2";
   silent "the bare form" "let ready? x = x > 1\nready? 2";
   (* `is_` on a name without `?` is not this rule's business. *)
   silent "no ? suffix" "let is_ready x = x > 1\nis_ready 2"
 
 let test_or1 () =
-  fires "Result with a Unit error" "let f x : Result Unit Int = Ok x\nf 1" "M-OR1";
+  fires "Result with a Unit error" "let f x : Result Unit Int = Ok x\nf 1" "V-OR1";
   silent "Result with a reason" "let f x : Result String Int = Ok x\nf 1"
 
 let test_name1 () =
   fires "trailing-underscore parameter" "let rename old_ new_ = old_ ++ new_\nrename \"a\" \"b\""
-    "M-NAME1";
+    "V-NAME1";
   silent "ordinary parameters" "let rename src dst = src ++ dst\nrename \"a\" \"b\"";
   (* A bare `_` is a wildcard, not an escaped name. *)
   silent "wildcard parameter" "let f _ = 1\nf 2"
 
 let test_shell1 () =
   fires "multi-stage pipeline"
-    "let c = $(git log --oneline | grep fix | wc -l | tr -d \" \")\nc" "H-SHELL1";
+    "let c = $(git log --oneline | grep fix | wc -l | tr -d \" \")\nc" "A-SHELL1";
   silent "single command" "let c = $(git status)\nc";
   silent "one pipe" "let c = $(ls | wc -l)\nc"
 
@@ -56,10 +56,10 @@ let test_shell1 () =
 (* Only must-fix rules may fail a build. An advisory one that could fail it
    would teach its audience to ignore every rule beside it. *)
 let test_kinds () =
-  Alcotest.(check bool) "M-PRED1 must be fixed" true
-    (Lint_rules.kind Lint_rules.M_PRED1 = Lint_rules.MustFix);
-  Alcotest.(check bool) "H-SHELL1 is advisory" true
-    (Lint_rules.kind Lint_rules.H_SHELL1 = Lint_rules.Advisory);
+  Alcotest.(check bool) "V-PRED1 must be fixed" true
+    (Lint_rules.kind Lint_rules.V_PRED1 = Lint_rules.Violation);
+  Alcotest.(check bool) "A-SHELL1 is advisory" true
+    (Lint_rules.kind Lint_rules.A_SHELL1 = Lint_rules.Advisory);
   let shell = findings "let c = $(a | b | c | d)\nc" in
   Alcotest.(check bool) "an advisory finding never fails --strict" false
     (List.exists Lint.fails_strict shell)
@@ -153,11 +153,11 @@ let test_every_documented_id_exists () =
 let () =
   Alcotest.run "Lint" [
     "rules", [
-      Alcotest.test_case "M-PRED1"  `Quick test_pred1;
-      Alcotest.test_case "M-PRED2"  `Quick test_pred2;
-      Alcotest.test_case "M-OR1"    `Quick test_or1;
-      Alcotest.test_case "M-NAME1"  `Quick test_name1;
-      Alcotest.test_case "H-SHELL1" `Quick test_shell1;
+      Alcotest.test_case "V-PRED1"  `Quick test_pred1;
+      Alcotest.test_case "V-PRED2"  `Quick test_pred2;
+      Alcotest.test_case "V-OR1"    `Quick test_or1;
+      Alcotest.test_case "V-NAME1"  `Quick test_name1;
+      Alcotest.test_case "A-SHELL1" `Quick test_shell1;
     ];
     "catalog", [
       Alcotest.test_case "kinds"        `Quick test_kinds;

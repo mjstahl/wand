@@ -1345,16 +1345,16 @@ it would punish the safer choice.
 
 | Rule | Fires when |
 |---|---|
-| `M-PRED1` | a `?`-named function returns something other than `Bool` |
-| `M-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
-| `M-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
-| `M-BANG1` | a function that can raise is not named with `!` |
-| `M-BANG2` | a `!`-named function cannot raise |
-| `M-NAME1` | a signature exposes a parameter whose name ends in `_` |
-| `H-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
+| `V-PRED1` | a `?`-named function returns something other than `Bool` |
+| `V-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
+| `V-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
+| `V-BANG1` | a function that can raise is not named with `!` |
+| `V-BANG2` | a `!`-named function cannot raise |
+| `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
+| `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 
 ```
-wand t --strict "..."     # mechanical findings become errors (exit 1)
+wand t --strict "..."     # violations become errors (exit 1)
 wand t --json "..."       # findings as JSON, for tools
 ```
 

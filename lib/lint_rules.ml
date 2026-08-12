@@ -9,28 +9,28 @@
    IDs, so prose and enforcement can be checked against each other. *)
 
 type id =
-  | M_PRED1    (* `?` names a predicate, so it must return Bool *)
-  | M_OR1      (* an error that carries no information is a misfiled Option *)
-  | M_NAME1    (* keyword-collision escapes should not reach a caller *)
-  | M_PRED2    (* `?` already says predicate; `is_` says it twice *)
-  | M_BANG1    (* it can raise, and the name does not say so *)
-  | M_BANG2    (* the name says it raises, and it cannot *)
-  | H_SHELL1   (* a shell blob hides work the type system could see *)
+  | V_PRED1    (* `?` names a predicate, so it must return Bool *)
+  | V_OR1      (* an error that carries no information is a misfiled Option *)
+  | V_NAME1    (* keyword-collision escapes should not reach a caller *)
+  | V_PRED2    (* `?` already says predicate; `is_` says it twice *)
+  | V_BANG1    (* it can raise, and the name does not say so *)
+  | V_BANG2    (* the name says it raises, and it cannot *)
+  | A_SHELL1   (* a shell blob hides work the type system could see *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
    spelled with a `!`.
 
-   M- rules must be fixed: --strict promotes them to errors. H- rules are
-   advisory and stay warnings however the build is run.
+   V- rules report a violation: something is wrong, and --strict promotes it
+   to an error. A- rules are advisory and stay warnings however wand is run.
 
-   Being decidable is what qualifies a rule to be must-fix, but it does not
-   oblige it: a rule can be perfectly decidable and still belong in the
-   advisory column, because failing a build over it would punish the safer
-   choice. Reclassifying a rule therefore renames it. *)
+   Being decidable is what qualifies a rule to report a violation, but it
+   does not oblige it: a rule can be perfectly decidable and still be
+   advisory, because failing a build over it would punish the safer choice.
+   Reclassifying a rule therefore renames it. *)
 type kind =
-  | MustFix
-  | Advisory
+  | Violation   (* --strict makes it an error *)
+  | Advisory    (* always a warning *)
 
 type rule = {
   id      : id;
@@ -40,25 +40,25 @@ type rule = {
 }
 
 let all = [
-  { id = M_PRED1;  code = "M-PRED1";
+  { id = V_PRED1;  code = "V-PRED1";
     summary = "a `?`-named function returns Bool";
-    kind = MustFix };
-  { id = M_PRED2;  code = "M-PRED2";
+    kind = Violation };
+  { id = V_PRED2;  code = "V-PRED2";
     summary = "a `?`-named function also carries a redundant `is_` prefix";
-    kind = MustFix };
-  { id = M_BANG1;  code = "M-BANG1";
+    kind = Violation };
+  { id = V_BANG1;  code = "V-BANG1";
     summary = "a function that can raise is not named with `!`";
-    kind = MustFix };
-  { id = M_BANG2;  code = "M-BANG2";
+    kind = Violation };
+  { id = V_BANG2;  code = "V-BANG2";
     summary = "a `!`-named function cannot raise";
-    kind = MustFix };
-  { id = M_OR1;    code = "M-OR1";
+    kind = Violation };
+  { id = V_OR1;    code = "V-OR1";
     summary = "an informationless error (`Result Unit _`) is a misfiled Option";
-    kind = MustFix };
-  { id = M_NAME1;  code = "M-NAME1";
+    kind = Violation };
+  { id = V_NAME1;  code = "V-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
-    kind = MustFix };
-  { id = H_SHELL1; code = "H-SHELL1";
+    kind = Violation };
+  { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
 ]
@@ -73,7 +73,7 @@ let of_code c =
   | None   -> None
 
 let kind_name = function
-  | MustFix  -> "must-fix"
+  | Violation  -> "violation"
   | Advisory -> "advisory"
 
 (* ── Messages ────────────────────────────────────────────────────────────── *)
