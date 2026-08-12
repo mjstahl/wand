@@ -1196,9 +1196,9 @@ promotes them to errors; `H-` rules are heuristics and always stay warnings.
 | Rule | Fires when |
 |---|---|
 | `M-PRED1` | a `?`-named function returns something other than `Bool` |
+| `M-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
 | `M-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
 | `M-NAME1` | a signature exposes a parameter whose name ends in `_` |
-| `M-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
 | `H-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 
 ```

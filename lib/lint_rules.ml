@@ -39,14 +39,14 @@ let all = [
   { id = M_PRED1;  code = "M-PRED1";
     summary = "a `?`-named function returns Bool";
     kind = Mechanical };
+  { id = M_PRED2;  code = "M-PRED2";
+    summary = "a `?`-named function also carries a redundant `is_` prefix";
+    kind = Mechanical };
   { id = M_OR1;    code = "M-OR1";
     summary = "an informationless error (`Result Unit _`) is a misfiled Option";
     kind = Mechanical };
   { id = M_NAME1;  code = "M-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
-    kind = Mechanical };
-  { id = M_PRED2;  code = "M-PRED2";
-    summary = "a `?`-named function also carries a redundant `is_` prefix";
     kind = Mechanical };
   { id = H_SHELL1; code = "H-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
