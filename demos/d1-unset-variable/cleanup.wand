@@ -4,6 +4,6 @@ import Path
 
 -- The None case has to go somewhere. Here it is refusing to do anything.
 match Env.get "STAGING_DIR" with
-| None      -> println "STAGING_DIR is not set; nothing to clean"
-| Some ""   -> println "STAGING_DIR is empty; refusing to delete"
+| None -> println "STAGING_DIR is not set; nothing to clean"
+| Some "" -> println "STAGING_DIR is empty; refusing to delete"
 | Some path -> println "would delete ${path}/"

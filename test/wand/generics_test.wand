@@ -34,9 +34,6 @@ test "same generic type at two different type args" (fn t -> t.eq (unbox (Box 1)
 
 (* ── Negative cases ────────────────────────────────────────────────────── *)
 
-
-
-
 (* ── Option module ─────────────────────────────────────────────────────── *)
 
 test "map" (fn t -> t.eq (match Option.map (fn x -> x + 1) (Some 1) with

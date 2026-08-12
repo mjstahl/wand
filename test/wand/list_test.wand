@@ -48,10 +48,10 @@ t.eq got [1, 2, 2, 4, 3, 6])
 
 test "get 0" (fn t -> t.eq (match List.get 0 ["a", "b", "c"] with
 | Some v -> v
-| None   -> "") "a")
+| None -> "") "a")
 test "get 2" (fn t -> t.eq (match List.get 2 ["a", "b", "c"] with
 | Some v -> v
-| None   -> "") "c")
+| None -> "") "c")
 test "get out of bounds returns None" (fn t -> t.eq (List.get 5 ["a", "b"]) None)
 test "get negative returns None" (fn t -> t.eq (List.get (-1) ["a"]) None)
 

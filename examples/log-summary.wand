@@ -1,15 +1,14 @@
-#!/usr/bin/env wand
 import IO
 import String
 import List
 
 (* Input normally ends in a newline, which would otherwise split into a
    trailing empty line; empty input is zero lines, not one. *)
-let input  = String.trim_right (IO.read_all! ())
-let lines  = if input == "" then [] else String.lines input
+let input = String.trim_right (IO.read_all! ())
+let lines = if input == "" then [] else String.lines input
 let errors = List.filter (fn l -> String.contains? "ERROR" l) lines
-let warns  = List.filter (fn l -> String.contains? "WARN"  l) lines
-let infos  = List.filter (fn l -> String.contains? "INFO"  l) lines
+let warns = List.filter (fn l -> String.contains? "WARN" l) lines
+let infos = List.filter (fn l -> String.contains? "INFO" l) lines
 
 println "Log Summary"
 println "-----------"
@@ -17,7 +16,5 @@ println "Total lines : ${List.length lines}"
 println "Errors      : ${List.length errors}"
 println "Warnings    : ${List.length warns}"
 println "Info        : ${List.length infos}"
-if List.length errors > 0 then
-  println "First error : ${List.head! errors}"
-else
-  println "No errors found."
+if List.length errors > 0 then println "First error : ${List.head! errors}"
+else println "No errors found."

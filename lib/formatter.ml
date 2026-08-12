@@ -44,7 +44,16 @@ let string_of_wand_float f =
    contains one anywhere is re-emitted as a verbatim source slice instead. *)
 let rec expr_has_followup e =
   match strip_located e with
-  | Contract _ | Handle _ | RunCmd _ | RunQuery _ | Try _ | RegexLit _ -> true
+  | Contract (reqs, ens, body) ->
+    List.exists expr_has_followup reqs || List.exists expr_has_followup ens
+    || expr_has_followup body
+  | Handle (body, arms) ->
+    expr_has_followup body ||
+    List.exists (function
+      | Ast.ReturnArm (_, b) -> expr_has_followup b
+      | Ast.EffectArm (_, _, _, b) -> expr_has_followup b) arms
+  | RunCmd e | RunQuery e | Try e -> expr_has_followup e
+  | RegexLit _ -> false
   | Int _ | Float _ | String _ | Bool _ | Unit | Path _ | Glob _ | Date _
   | Time _ | DateTime _ | Duration _ | Url _ | IPv4 _ | CIDR _ | Port _
   | Version _ | Size _ | Var _ | Constr _ | EnvVar _ | Hole
@@ -233,20 +242,38 @@ and emit_expr_inner indent e =
   | Tuple es -> "(" ^ String.concat ", " (List.map (emit_expr indent) es) ^ ")"
   | List es  -> "[" ^ String.concat ", " (List.map (emit_expr indent) es) ^ "]"
   | ConstrApp (name, kvs) ->
-    name ^ "(" ^ String.concat ", " (List.map (fun (k, v) ->
-      (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v) kvs) ^ ")"
+    let field (k, v) =
+      (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
+    let oneline = name ^ "(" ^ String.concat ", " (List.map field kvs) ^ ")" in
+    if fits indent oneline then oneline
+    else
+      (* Too wide for a line: one field per line, as a record reads. *)
+      let ind = String.make indent ' ' in
+      let inner = String.make (indent + 2) ' ' in
+      name ^ "(\n" ^ inner
+      ^ String.concat (",\n" ^ inner)
+          (List.map (fun (k, v) ->
+             (match k with Some n -> n ^ " = " | None -> "")
+             ^ emit_expr (indent + 2) v) kvs)
+      ^ "\n" ^ ind ^ ")"
   | Field (e, l) -> emit_field indent e l
   | Seq (a, b) ->
     let ind = String.make indent ' ' in
     emit_expr indent a ^ "\n" ^ ind ^ emit_expr indent b
   | Located (_, e) -> emit_expr_inner indent e
   | Contract (reqs, ens, body) ->
+    (* Each clause sits on its own line at the body's indent; the first is
+       already placed by whatever emitted the binding. *)
+    let ind = String.make indent ' ' in
     let clause kw e = kw ^ " " ^ emit_expr indent e in
-    String.concat "\n" (List.map (clause "requires") reqs @ List.map (clause "ensures") ens)
-    ^ (if reqs = [] && ens = [] then "" else "\n" ^ String.make indent ' ')
+    String.concat ("\n" ^ ind)
+      (List.map (clause "requires") reqs @ List.map (clause "ensures") ens)
+    ^ (if reqs = [] && ens = [] then "" else "\n" ^ ind)
     ^ emit_expr indent body
-  | RunCmd e   -> "$(" ^ emit_expr indent e ^ ")"
-  | RunQuery e -> "$?(" ^ emit_expr indent e ^ ")"
+  (* The text inside $() is a command, not a string literal: quoting it
+     would hand the whole thing to the shell as one word. *)
+  | RunCmd e   -> "$(" ^ emit_command indent e ^ ")"
+  | RunQuery e -> "$?(" ^ emit_command indent e ^ ")"
   | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
   | ImportExpr (StdlibModule n) -> "import " ^ n
   | ImportExpr (UserPath p)     -> "import " ^ p
@@ -255,6 +282,10 @@ and emit_expr_inner indent e =
     Buffer.add_char buf '"';
     List.iter (fun (lit, e) ->
       Buffer.add_string buf (escape_string_body lit);
+      (* `$NAME` is already an interpolation; wrapping it gives ${$NAME}. *)
+      match strip_located e with
+      | EnvVar name -> Buffer.add_string buf ("$" ^ name)
+      | e ->
       Buffer.add_string buf "${";
       Buffer.add_string buf (emit_expr indent e);
       Buffer.add_char buf '}'
@@ -286,6 +317,21 @@ and emit_app indent e =
   if args = [] then emit_expr indent head
   else emit_atom indent head ^ " " ^ String.concat " " (List.map (emit_atom indent) args)
 
+(* A command's text, with interpolations left as ${...} and nothing quoted. *)
+and emit_command indent e =
+  match strip_located e with
+  | String s -> s
+  | Interp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, ex) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf "${";
+      Buffer.add_string buf (emit_expr indent ex);
+      Buffer.add_char buf '}') parts;
+    Buffer.add_string buf tail;
+    Buffer.contents buf
+  | other -> emit_expr indent other
+
 and emit_field indent e l =
   let e' = strip_located e in
   let target = match e' with
@@ -306,6 +352,11 @@ and emit_binop indent op a b =
         | `Left -> assoc = `Left | `Right -> assoc = `Right)) in
       let inner = emit_binop indent op2 a2 b2 in
       if ok then inner else "(" ^ inner ^ ")"
+    (* These extend as far to the right as they can, so an operand needs
+       parentheses or the operator is swallowed into it: `(try e) == x`
+       printed bare re-parses as `try (e == x)`. *)
+    | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
+      | Let _ | LetRec _) as inner -> "(" ^ emit_expr indent inner ^ ")"
     | _ -> emit_expr indent e
   in
   Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b)

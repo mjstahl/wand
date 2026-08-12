@@ -94,8 +94,8 @@ test "wildcard catch-all" (fn t -> t.eq "${label 1}, ${label 2}, ${label 99}" "o
 test "basic" (fn t -> t.eq $HOME (Env.get! "HOME"))
 test "in let" (fn t -> let d = $HOME in t.eq d (Env.get! "HOME"))
 test "concatenation" (fn t -> t.eq ($HOME ++ "/bin") (Env.get! "HOME" ++ "/bin"))
-test "interpolation" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ Env.get! "HOME"))
-test "string shorthand" (fn t -> t.eq "home: ${$HOME}" ("home: " ++ Env.get! "HOME"))
+test "interpolation" (fn t -> t.eq "home: $HOME" ("home: " ++ Env.get! "HOME"))
+test "string shorthand" (fn t -> t.eq "home: $HOME" ("home: " ++ Env.get! "HOME"))
 test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
 
 (* ── Type annotations ─────────────────────────────────────────────────── *)
@@ -107,4 +107,3 @@ let annot_double x : Int = x * 2
 test "fn return annot" (fn t -> t.eq (annot_double 3) 6)
 
 (* ── Errors ────────────────────────────────────────────────────────────── *)
-

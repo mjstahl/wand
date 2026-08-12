@@ -8,25 +8,25 @@
 let read_file! path = read_file path
 
 (** Read the entire contents of a file as a string. *)
-let read_file   path     = try (read_file! path)
+let read_file path = try read_file! path
 
 (** Write a string to a file, replacing existing contents. Raises on failure. *)
 let write_file! path s = write_file path s
 
 (** Write a string to a file, replacing existing contents. *)
-let write_file  path s   = try (write_file! path s)
+let write_file path s = try write_file! path s
 
 (** Append a string to a file, creating it if it does not exist. Raises on failure. *)
 let append! path s = fs_append path s
 
 (** Append a string to a file, creating it if it does not exist. *)
-let append      path s   = try (append! path s)
+let append path s = try append! path s
 
 (** Create an empty file at the given path. Raises on failure. *)
 let create_file! path = fs_create path
 
 (** Create an empty file at the given path. *)
-let create_file path     = try (create_file! path)
+let create_file path = try create_file! path
 
 (** Create a new, uniquely-named empty file in the OS temp directory
     and return its path. `prefix`/`suffix` are added to the generated
@@ -35,7 +35,7 @@ let temp_file! prefix suffix = fs_temp_file prefix suffix
 
 (** Create a new, uniquely-named empty file in the OS temp directory
     and return its path. *)
-let temp_file prefix suffix = try (temp_file! prefix suffix)
+let temp_file prefix suffix = try temp_file! prefix suffix
 
 (** Return true if the path exists. *)
 let exists? path = fs_exists path
@@ -50,43 +50,43 @@ let dir? path = fs_is_dir path
 let mkdir! path = fs_mkdir path
 
 (** Create a directory and all missing parents. *)
-let mkdir       path     = try (mkdir! path)
+let mkdir path = try mkdir! path
 
 (** Delete a file or empty directory. Raises on failure. *)
 let delete! path = fs_remove path
 
 (** Delete a file or empty directory. *)
-let delete      path     = try (delete! path)
+let delete path = try delete! path
 
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst
 
 (** Rename or move a file or directory. *)
-let rename      src dst  = try (rename! src dst)
+let rename src dst = try rename! src dst
 
 (** Copy a file to a new path. Raises on failure. *)
 let copy! src dst = fs_copy src dst
 
 (** Copy a file to a new path. *)
-let copy        src dst  = try (copy! src dst)
+let copy src dst = try copy! src dst
 
 (** Return a list of paths for the immediate children of a directory. Raises on failure. *)
 let list_dir! path = fs_ls path
 
 (** Return a list of paths for the immediate children of a directory. *)
-let list_dir    path     = try (list_dir! path)
+let list_dir path = try list_dir! path
 
 (** Return the last-modified time of a file as a DateTime. Raises on failure. *)
 let mtime! path = fs_mtime path
 
 (** Return the last-modified time of a file as a DateTime. *)
-let mtime       path     = try (mtime! path)
+let mtime path = try mtime! path
 
 (** Return the size of a file in bytes. Raises on failure. *)
 let size! path = fs_size path
 
 (** Return the size of a file in bytes. *)
-let size        path     = try (size! path)
+let size path = try size! path
 
 (** Return the current working directory. *)
 let cwd () = fs_cwd ()

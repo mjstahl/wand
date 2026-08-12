@@ -6,35 +6,32 @@ import Env
 
 -- Idiomatic wand: one pass in-process, no subprocesses at all.
 
-let path = match List.head (Env.args ()) with
+let path =
+  match List.head (Env.args ()) with
   | Some p -> p
-  | None   -> "/tmp/wand-demo.log"
+  | None -> "/tmp/wand-demo.log"
 
 let tally acc line =
   match String.words line with
-  | [_ : level : component : _] ->
-    let seen = match Map.get level acc with
-      | Some n -> n
-      | None   -> 0
-    in
-    let acc = Map.set level (seen + 1) acc in
-    if level == "ERROR" then Map.set "c:${component}" 1 acc else acc
+  | [_ : level : component : _] -> let seen = match Map.get level acc with
+  | Some n -> n
+  | None -> 0 in
+  let acc = Map.set level (seen + 1) acc in
+  if level == "ERROR" then Map.set "c:${component}" 1 acc else acc
   | _ -> acc
 
 let counts =
-  FS.read_file! path
-    |> String.trim_right
-    |> String.lines
-    |> List.fold_left tally Map.empty
+  FS.read_file! path |> String.trim_right |> String.lines |> List.fold_left tally Map.empty
 
-let count k = match Map.get k counts with
+let count k =
+  match Map.get k counts with
   | Some n -> n
-  | None   -> 0
+  | None -> 0
 
 let components =
   List.length (List.filter (fn k -> String.starts_with? "c:" k) (Map.keys counts))
 
-println "ERROR ${count "ERROR"}";
-println "WARN ${count "WARN"}";
-println "INFO ${count "INFO"}";
+println "ERROR ${count "ERROR"}"
+println "WARN ${count "WARN"}"
+println "INFO ${count "INFO"}"
 println "components-with-errors ${components}"

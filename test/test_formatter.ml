@@ -270,6 +270,58 @@ let test_blank_lines () =
   if contains out "\n\n\n" then
     Alcotest.failf "expected blank-line run to collapse to one, got:\n%s" out
 
+
+(* ── The constructs that used to be copied verbatim ──────────────────────── *)
+
+(* $(), $?(), try, contracts, handle and regex literals were re-emitted as
+   source slices because they had no formatting rule. They have rules now,
+   and these are the ways those rules can silently change a program. *)
+
+let test_command_text_is_not_quoted () =
+  (* $() holds a command, not a string. Quoting it hands the whole thing to
+     the shell as one word, which is a working script turned broken. *)
+  ok_after_format "a command survives formatting"
+    "let out = $(echo hi)\nout"
+    "hi";
+  assert_contains "and is still written bare" (fmt "let x = $(git status)\nx")
+    "$(git status)";
+  ok_after_format "including its interpolations"
+    "let n = 1\nlet out = $(echo ${n})\nout"
+    "1"
+
+let test_try_is_parenthesised_as_an_operand () =
+  (* `try` reaches as far right as it can, so an operand printed bare
+     swallows the operator: `(try e) == x` would become `try (e == x)`. *)
+  ok_after_format "try on the left of a comparison"
+    "let f () = 1\nlet r = (try (f ())) == Ok 1\nr"
+    "true"
+
+let test_contract_clauses_keep_their_indent () =
+  let out = fmt "let half n =\n  requires n % 2 == 0\n  ensures result * 2 == n\n  n / 2\nhalf 10" in
+  List.iter (fun needle ->
+    Alcotest.(check bool)
+      (Printf.sprintf "%S sits at the body's indent" needle) true
+      (List.exists (fun l -> l = needle) (String.split_on_char '\n' out)))
+    ["  requires n % 2 == 0"; "  ensures result * 2 == n"];
+  ok_after_format "and the contract still holds" 
+    "let half n =\n  requires n % 2 == 0\n  n / 2\nhalf 10"
+    "5"
+
+let test_handle_and_regex_round_trip () =
+  ok_after_format "a handler"
+    "let m () = handle $(git push) with\n| Shell!run c k -> k \"ok\"\nm ()"
+    "ok";
+  ok_after_format "a regex literal"
+    "import Regex\nRegex.match? r/fix|bug/i \"FIXED\""
+    "true"
+
+(* An environment variable is already an interpolation, so re-wrapping it
+   gives ${$USER}. *)
+let test_env_var_interpolation () =
+  assert_contains "left as written" (fmt "\"user=$USER\"") "$USER";
+  Alcotest.(check bool) "not double-wrapped" false
+    (contains (fmt "\"user=$USER\"") "${$USER}")
+
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -281,6 +333,13 @@ let () =
     "behavior preserved", [
       Alcotest.test_case "behavior" `Quick test_behavior_preserved;
       Alcotest.test_case "float literal type" `Quick test_float_literal_type_preserved;
+    ];
+    "formerly verbatim", [
+      Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;
+      Alcotest.test_case "try as operand"   `Quick test_try_is_parenthesised_as_an_operand;
+      Alcotest.test_case "contract indent"  `Quick test_contract_clauses_keep_their_indent;
+      Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
+      Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
     ];
     "comments", [
       Alcotest.test_case "preserved"  `Quick test_comments_preserved;

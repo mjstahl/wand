@@ -1,8 +1,9 @@
 import Test
 import String
 
-let try_msg thunk = match try (thunk ()) with
-  | Ok _    -> ""
+let try_msg thunk =
+  match try thunk () with
+  | Ok _ -> ""
   | Error e -> e
 
 (* ── requires ──────────────────────────────────────────────────────────── *)
@@ -51,4 +52,3 @@ let double_ens x =
 test "result equals expected" (fn t -> t.eq (double_ens 7) 14)
 
 (* ── type errors ───────────────────────────────────────────────────────── *)
-

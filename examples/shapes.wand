@@ -1,10 +1,12 @@
 type Shape = Circle Int | Rect Int Int
 
-let area s = match s with
-  | Circle r   -> r * r * 3
-  | Rect w h   -> w * h
+let area s =
+  match s with
+  | Circle r -> r * r * 3
+  | Rect w h -> w * h
 
-let describe s = match s with
+let describe s =
+  match s with
   | Circle r -> "circle(r=${r})"
   | Rect w h -> "rect(${w}x${h})"
 

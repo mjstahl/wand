@@ -8,7 +8,6 @@ test "concat with var" (fn t -> let name = "Alice" in t.eq ("Hello, " ++ name ++
 
 test "concat empty" (fn t -> t.eq ("" ++ "abc") "abc")
 
-
 (* ── String interpolation ──────────────────────────────────────────────── *)
 
 test "simple interp" (fn t -> let name = "World" in t.eq "Hello, ${name}!" "Hello, World!")
@@ -18,4 +17,3 @@ test "interp bool" (fn t -> t.eq "flag: ${true}" "flag: true")
 test "no interp" (fn t -> t.eq "plain string" "plain string")
 
 test "multiple interps" (fn t -> let x = "a" in let y = "b" in t.eq "${x} and ${y}" "a and b")
-

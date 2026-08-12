@@ -18,22 +18,17 @@ type Testing 'a 'b = Testing(
     `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label. *)
 let test label f =
   let t = Testing(
-    ok = fn cond ->
-      if cond then Pass label else Fail "${label}: assertion failed",
-    not_ok = fn cond ->
-      if cond then Fail "${label}: expected assertion to fail" else Pass label,
-    eq = fn expected actual ->
-      if expected == actual then Pass label
-      else Fail "${label}: expected ${expected}, got ${actual}",
-    not_eq = fn expected actual ->
-      if expected != actual then Pass label
-      else Fail "${label}: expected ${expected} to differ from ${actual}",
-    raises = fn thunk ->
-      match try (thunk ()) with
-      | Ok _    -> Fail "${label}: expected to raise, but completed normally"
-      | Error _ -> Pass label
-  )
-  in f t
+    ok = fn cond -> if cond then Pass label else Fail "${label}: assertion failed",
+    not_ok = fn cond -> if cond then Fail "${label}: expected assertion to fail" else Pass label,
+    eq = fn expected actual -> if expected == actual then Pass label
+    else Fail "${label}: expected ${expected}, got ${actual}",
+    not_eq = fn expected actual -> if expected != actual then Pass label
+    else Fail "${label}: expected ${expected} to differ from ${actual}",
+    raises = fn thunk -> match try thunk () with
+    | Ok _ -> Fail "${label}: expected to raise, but completed normally"
+    | Error _ -> Pass label
+  ) in
+  f t
 
 (* ── Testing effectful code ─────────────────────────────────────────────
    A script's risky parts are the ones that reach outside it, which is
@@ -46,17 +41,16 @@ let test label f =
     returns "". *)
 let with_shell mocks thunk =
   handle thunk () with
-  | Shell!run cmd k ->
-    match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
-    | Some (_, out) -> k out
-    | None          -> k ""
+  | Shell!run cmd k -> (match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
+  | Some (_, out) -> k out
+  | None -> k "")
 
 (** Return the commands `thunk` would run, in order, without running any of
     them. Every command answers with "". *)
 let shell_calls thunk =
   handle thunk () with
   | Shell!run cmd k -> let rest = k "" in cmd : rest
-  | return _        -> []
+  | return _ -> []
 
 (** Run `thunk` with writes swallowed, returning what it returned. Handlers
     compose, so this nests inside `with_shell` to hold back both. *)
@@ -68,7 +62,5 @@ let without_writes thunk =
     anything. *)
 let writes thunk =
   handle thunk () with
-  | FS!write_file arg k ->
-    let (path, _) = arg in
-    let rest = k () in path : rest
+  | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path : rest
   | return _ -> []

@@ -78,4 +78,3 @@ let lp_reverse xs = lp_rev_acc xs []
 test "reverse" (fn t -> t.eq (lp_reverse [1, 2, 3, 4, 5]) [5, 4, 3, 2, 1])
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)
-
