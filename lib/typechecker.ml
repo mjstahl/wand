@@ -857,6 +857,26 @@ let rec infer tenv (env : env) (e : expr) : typ =
     in
     build param_ts
   | App (f, x) ->
+    (* `Rect (3, 4)` reads naturally but means "apply Rect to a tuple", and
+       Rect takes two arguments. The constructor's arity is known here even
+       when it was declared in another file, so say what to write. *)
+    (match (let rec strip = function Located (_, e) -> strip e | e -> e in
+            strip f, strip x) with
+     | Constr name, Tuple es when List.length es > 1 ->
+       (match find_ctor_in_tenv tenv name with
+        | Some (_, ctor)
+          when List.length ctor.fields = List.length es
+            && List.for_all (fun (n, _) -> n = None) ctor.fields ->
+          raise (TypeError (Printf.sprintf
+            "'%s' takes %d arguments, so write `%s %s` rather than `%s (%s)`"
+            name (List.length ctor.fields) name
+            (String.concat " " (List.init (List.length es)
+               (fun i -> Printf.sprintf "a%d" (i + 1))))
+            name
+            (String.concat ", " (List.init (List.length es)
+               (fun i -> Printf.sprintf "a%d" (i + 1))))))
+        | _ -> ())
+     | _ -> ());
     let tf = infer tenv env f in
     (match (let rec strip = function Located (_, e) -> strip e | e -> e in strip x) with
      | Fn (params, body) ->

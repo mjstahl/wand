@@ -824,6 +824,10 @@ Positional fields are space-separated type atoms — `Rect Int Int` is two
 (`f x y`). Parentheses are reserved for grouping a single field's type when
 it needs its own structure, not for listing multiple fields:
 
+Parentheses group a tuple, and several arguments are written by
+juxtaposition — `Rect 3 4`, not `Rect (3, 4)`. So `Some (1, 2)` is `Some`
+applied to one pair, whatever file the type was declared in.
+
 ```
 type Wrap = Wrap (List Int)     -- one field, type List Int
 type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)

@@ -516,10 +516,50 @@ let test_manifest_rejects_unknown_labels () =
     "uses {Bogus}\nlet x = 1\nx"
     "is not an effect"
 
+
+(* ── Parentheses group a tuple ───────────────────────────────────────────── *)
+
+(* `Ctor (a, b)` used to mean two arguments or one tuple depending on whether
+   the constructor's type was declared in the same file, since that is all
+   the parser could see. Now it always means one tuple, and several arguments
+   are written by juxtaposition. *)
+
+let test_imported_constructor_takes_a_tuple () =
+  match type_of_program_with_imports
+          "import Option\nmatch Some (1, 2) with | Some (a, b) -> a + b | None -> 0" with
+  | Ok () -> ()
+  | Error m -> Alcotest.failf "a tuple payload should work when imported: %s" m
+
+let test_local_constructor_takes_a_tuple () =
+  ok "declared in the same file"
+    "type P = P (Int, Int)\nmatch P (1, 2) with | P (a, b) -> a + b"
+    "3"
+
+let test_several_arguments_are_juxtaposed () =
+  ok "juxtaposition"
+    "type R = R Int Int\nmatch R 3 4 with | R a b -> a + b"
+    "7"
+
+(* The natural mistake now has one meaning, so the error says what to write. *)
+let test_arity_hint () =
+  err_contains "a tuple where arguments were meant"
+    "type R = R Int Int\nR (3, 4)"
+    "write `R a1 a2`";
+  (* A named-field type has a different right answer, and keeps its own. *)
+  err_contains "named fields are unaffected"
+    "type P = P(x: Int, y: Int)\nP (1, 2)"
+    "has named fields"
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run "Typechecker" [
+    "constructor arguments", [
+      Alcotest.test_case "imported tuple payload" `Quick test_imported_constructor_takes_a_tuple;
+      Alcotest.test_case "local tuple payload"    `Quick test_local_constructor_takes_a_tuple;
+      Alcotest.test_case "juxtaposition"          `Quick test_several_arguments_are_juxtaposed;
+      Alcotest.test_case "arity hint"             `Quick test_arity_hint;
+    ];
     "manifests", [
       Alcotest.test_case "too narrow is an error"  `Quick test_manifest_too_narrow;
       Alcotest.test_case "names the binding"       `Quick test_manifest_names_the_binding;

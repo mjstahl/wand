@@ -9,10 +9,6 @@ type state = {
   mutable paren_depth : int;
     (* depth of unclosed (/[/{ -- lets newline-significance checks tell "end
        of statement" apart from "still inside an open bracket" *)
-  ctor_field_count : (string, int) Hashtbl.t;
-    (* constructor name -> number of declared fields, recorded while parsing
-       `type` definitions so `Ctor (e1, ..., en)` call sites can tell apart
-       "n curried positional args" from "one tuple-typed argument" *)
   top_fns : (string, int) Hashtbl.t;
     (* function name -> arity, for top-level definitions already completed.
        A function's equations are parsed as one contiguous group, so seeing
@@ -20,14 +16,8 @@ type state = {
 }
 
 let make tokens =
-  let ctor_field_count = Hashtbl.create 16 in
-  (* Built-in constructors aren't seen via a `type` def in this parse, but
-     each takes exactly one field, so Ok (1, 2)/Error (1, 2) should mean one
-     tuple argument, same as any user-defined single-field constructor. *)
-  Hashtbl.replace ctor_field_count "Ok" 1;
-  Hashtbl.replace ctor_field_count "Error" 1;
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
-    paren_depth = 0; ctor_field_count; top_fns = Hashtbl.create 16 }
+    paren_depth = 0; top_fns = Hashtbl.create 16 }
 
 (* Plain `Comment _` tokens are invisible to the real parser, exactly like
    `Newline` -- only `DocComment` is left unfiltered (parse_program's
@@ -240,12 +230,11 @@ let rec pat_ s =
           ignore (advance s); pats := !pats @ [pat_ s]
         done;
         expect s Token.RParen;
-        (* Mirror the expression-side rule: Ctor (p1, ..., pn) is one
-           tuple-pattern argument when the constructor has a single
-           declared field, else n positional pattern arguments. *)
-        match !pats, Hashtbl.find_opt s.ctor_field_count name with
-        | (_ :: _ :: _ as ps), Some 1 -> PConstr (name, [PTuple ps])
-        | pats, _ -> PConstr (name, pats)
+        (* Parentheses group a tuple; several arguments are written by
+           juxtaposition. Mirrors the expression side. *)
+        match !pats with
+        | (_ :: _ :: _ as ps) -> PConstr (name, [PTuple ps])
+        | pats -> PConstr (name, pats)
       end
     end else begin
       let args = ref [] in
@@ -476,15 +465,18 @@ and atom_base_ s =
           ignore (advance s); args := !args @ [expr_ 0 s]
         done;
         expect s Token.RParen;
-        (* Ctor (e1, ..., en): if the constructor has a single declared field
-           (e.g. a tuple-typed field, `type Pair = Pair (Int, Int)`), treat
-           the whole parenthesized list as one tuple argument rather than n
-           curried positional arguments. Unknown/built-in constructors (Ok,
-           Error, or anything not seen via a `type` def in this parse) keep
-           the existing curried-args behavior. *)
-        match !args, Hashtbl.find_opt s.ctor_field_count name with
-        | (_ :: _ :: _ as es), Some 1 -> App (Constr name, Tuple es)
-        | args, _ ->
+        (* `Ctor (a, b)` is the constructor applied to one tuple. Several
+           arguments are written by juxtaposition, `Ctor a b`, as everywhere
+           else in the language.
+
+           This used to depend on the constructor's declared arity, which the
+           parser only knew for types declared in the same file -- so the
+           same expression meant different things depending on where its type
+           lived, and `Some (a, b)` was read as two arguments in every file
+           but Option's own. *)
+        match !args with
+        | (_ :: _ :: _ as es) -> App (Constr name, Tuple es)
+        | args ->
           List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
       end
     end else
@@ -1001,7 +993,6 @@ let parse_type_def s =
   (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
   if peek s = Token.LParen then begin
     let fields = parse_ctor_fields () in
-    Hashtbl.replace s.ctor_field_count type_name (List.length fields);
     Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields }])
   end else begin
     expect s Token.Eq;
@@ -1013,7 +1004,6 @@ let parse_type_def s =
         | t -> raise (ParseError (Format.asprintf "%sexpected constructor name, got %a" loc Token.pp t))
       in
       let fields = parse_ctor_fields () in
-      Hashtbl.replace s.ctor_field_count name (List.length fields);
       { Ast.name; fields }
     in
     let ctors = ref [parse_ctor ()] in
