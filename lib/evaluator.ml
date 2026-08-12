@@ -107,6 +107,13 @@ exception EvalError of string
 
 type _ Effect.t += WandEffect : string * value -> value Effect.t
 
+(* Raised into a handled body that a handler arm answered without resuming,
+   so the body unwinds and releases whatever it was holding. Private, and
+   caught by the arm that raised it: it is a way of running cleanup, not a
+   failure anyone can see or catch. `try` re-raises what it does not
+   recognise, so an abandoned region cannot be caught mid-unwind. *)
+exception Abandoned
+
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
 (* Whether a pattern list and a value list have the same length, decided by
@@ -379,8 +386,33 @@ let rec eval (env : env) (e : expr) : value =
                     | None -> try_arms rest
                     | Some env' ->
                       Some (fun (k : (a, value) Effect.Deep.continuation) ->
-                        let cont = VBuiltin (fun v -> Effect.Deep.continue k v) in
-                        eval ((cont_name, cont) :: env') arm_body)
+                        (* An arm that answers without resuming ends the body
+                           it was handling. The body may be holding something
+                           that has to be given back -- a lock, a temp file --
+                           and a continuation that is simply dropped runs no
+                           cleanup at all, not even when it is collected. So
+                           the abandoned region is unwound deliberately.
+
+                           Cleanup runs here, inside this arm, which is what
+                           makes it visible: a release that performs an effect
+                           of its own reaches the same handlers the acquiring
+                           code saw, rather than whatever happens to be
+                           installed later. Discontinuing returns the value
+                           the unwinding produced; it is discarded, and the
+                           arm answers with its own. *)
+                        let resumed = ref false in
+                        let cont =
+                          VBuiltin (fun v ->
+                            resumed := true;
+                            Effect.Deep.continue k v)
+                        in
+                        let answer = eval ((cont_name, cont) :: env') arm_body in
+                        (* Resuming consumes the continuation, so only an arm
+                           that never did has one left to discontinue. *)
+                        if not !resumed then
+                          (try ignore (Effect.Deep.discontinue k Abandoned)
+                           with Abandoned -> ());
+                        answer)
               in
               try_arms effect_arms
             | _ -> None

@@ -36,19 +36,54 @@ Ordering is by what unblocks what. Brackets come first because two items already
 | Decoder effects | Pure. Decoding is a function from already-read data; reading it is `JSON.read_file`'s job and already carries `{FS.Read}`. |
 | `else ()` sugar | **Add it, but last, and as `if c then e` with a `Unit` branch** — not a `when` statement form, which would be a second conditional construct for a solved problem. Given one occurrence in the corpus, it is a papercut, not a phase item; if anything above runs long, this is what gets cut. |
 
-## Open question — settle before P3.1 lands
+## Settled — what happens when a handler arm abandons its continuation
 
-**What happens to a bracket when a handler abandons its continuation?**
+**Resolved: the runtime unwinds the abandoned region.** An arm that answers
+without resuming now discontinues its continuation with a private
+`Abandoned`, catches it, and returns its own value. Cleanup runs; nobody can
+see the exception.
 
-An effect arm receives `resume` and may simply never call it — `evaluator.ml:381` builds the continuation as a value and hands it to the arm body, so an arm that ignores it drops `k` on the floor. OCaml then collects that continuation without running anything, which means **a `with` inside the abandoned region never releases.** A mock that swallows an effect would leak every resource the mocked code had open, silently, and mocking is the flagship.
+The measurements that decided it, on OCaml's own behaviour:
 
-Three candidates:
+| Arm does | Cleanup runs? | Arm's value survives? |
+|---|---|---|
+| resumes (all 20 arms in the corpus) | yes | yes |
+| drops the continuation | **no — not even after a full GC** | yes |
+| discontinues | yes | no — unwinds past the arm |
+| **discontinues, catches** | **yes** | **yes** |
 
-1. **Discontinue on drop** — when an arm returns without resuming, discontinue `k` so the abandoned region unwinds and its brackets release. Correct, and it makes "the arm didn't resume" a normal unwinding path rather than a leak. Cost: the arm's return value and the discontinued unwinding have to be reconciled.
-2. **Track open brackets out of band** and release them when the handler frame exits, independent of the continuation.
-3. **Document it** as a known leak. Rejected in advance — this is the failure mode Phase 2 spent its whole budget arguing against, and it would land in the same construct that argument was made for.
+The last row is why this was cheaper than it looked. `discontinue` *returns*
+to the arm rather than transferring control away from it, so there is no
+reconciling to do: discard what the unwinding produced and answer normally.
 
-`try` is the easy sibling and is expected to be nearly free: it catches via `exnc`, so a raise unwinding through a `with` frame implemented with `Fun.protect` runs release before `try` ever sees the exception. That ordering wants a test, not a design.
+Two properties had to hold and both do. **Cleanup can perform effects of its
+own** — releasing a lock deletes a file, which is `FS!write_file` performed
+from inside a continuation being torn down — and it reaches the handlers that
+were in scope when the resource was taken, because the unwinding happens
+inside the arm rather than after the handler frame is gone. That is the same
+property the parallelism work turned on. And **`try` cannot catch the
+unwind**: it re-raises what it does not recognise, so an abandoned region
+cannot be caught halfway and resumed.
+
+Rejected: tracking open resources out of band and releasing them when the
+handler frame exits. Cleanup would run in the wrong dynamic context, reaching
+whatever handler happened to be installed later; it reimplements unwinding by
+hand; and innermost-first becomes an ordering to maintain rather than one you
+get. Also rejected: documenting the leak, which is the failure mode the
+effect work exists to prevent, in the construct that argument was made for.
+
+**What it costs.** An arm that stores its continuation and calls it after the
+arm body returns no longer works — the continuation is torn down at arm exit.
+That is deferred and multi-shot resumption, the raw material for coroutines
+and schedulers. Nothing in the corpus does it, and giving it up is consistent
+with no async/await, no futures, no channels; but the door closes quietly,
+and this is where that is written down.
+
+**Follow-up papercut.** An arm that does not resume must still name a
+continuation it will not use: `| Shell!run _ _ -> ...` is a parse error,
+because the continuation binder must be an identifier. Now that not resuming
+is a normal thing to write, `_` should be allowed there. Small parser change,
+belongs with P3.1.
 
 ## Working rules
 
@@ -63,6 +98,11 @@ Three candidates:
 `With of expr * pat * expr` in the AST; `Resource a` as an opaque stdlib type over an acquire/release pair; `Resource.make`. Release runs on success, on raise, and on abandonment per the open question above.
 
 Stdlib starters: `FS.temp_file` (exists — wrap it), `FS.temp_dir`, `FS.lock`, `FS.in_dir`.
+
+Abandonment is already handled by the runtime, with `test/test_abandonment.ml`
+standing in a cleanup construct of its own until `with` exists to be the real
+one. What remains for this tranche is the construct itself, and `_` as a
+continuation binder.
 
 *Accept:* a script that raises inside a bracket still releases, observably; a handler that never resumes still releases; nesting releases innermost-first; the formatter has a rule for `with`.
 
@@ -102,7 +142,7 @@ Then `else ()`, if there is room.
 
 ## Risks
 
-- **Abandonment is the one that bites.** It is invisible in every happy-path test, it only shows up under a mock, and mocking is what Phase 2 sold. Settle it before P3.1 lands, not after.
+- ~~Abandonment~~ — settled and implemented ahead of the tranche, with tests that fail without the change.
 - **Cancellation is harder than it was.** The observer split bought parallel I/O; it also means there are now two shapes of in-flight worker to cancel. Budget accordingly, and be willing to ship D8 watched-only if the unwatched case fights.
 - **The decoder API wants to grow.** Every combinator is defensible on its own and the total is a surface nobody can hold in their head. The listed set is the budget; additions need a call site that cannot be written without them.
 - **Derivation is a research-shaped task in a delivery-shaped phase.** Deriving at the definition keeps it small; if it still isn't, cut it — P3.3 stands alone.

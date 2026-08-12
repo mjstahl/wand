@@ -29,6 +29,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_abandonment)
+ (libraries wand alcotest))
+
+(test
  (name test_cli)
  (libraries wand alcotest unix))
 
