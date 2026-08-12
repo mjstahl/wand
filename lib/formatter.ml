@@ -537,6 +537,11 @@ let all_comments tokens : comment_tok list =
       let nlines = List.length (String.split_on_char '\n' text) in
       Some { c_offset = loc.offset; c_start_line = loc.line;
              c_end_line = loc.line + nlines - 1; c_text = rendered }
+    | Token.LineComment text ->
+      (* Rendered back as `--`: the formatter must not rewrite one comment
+         style into the other. A line comment is always exactly one line. *)
+      Some { c_offset = loc.offset; c_start_line = loc.line;
+             c_end_line = loc.line; c_text = "--" ^ text }
     | Token.DocComment text ->
       let rendered = "(** " ^ text ^ " *)" in
       let nlines = List.length (String.split_on_char '\n' text) in

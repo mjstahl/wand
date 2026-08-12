@@ -29,7 +29,7 @@ let make tokens =
    `Newline` -- only `DocComment` is left unfiltered (parse_program's
    dispatch relies on seeing it for doc-string attachment). *)
 let is_skippable = function
-  | Token.Newline | Token.Comment _ -> true
+  | Token.Newline | Token.Comment _ | Token.LineComment _ -> true
   | _ -> false
 
 let skip s =
@@ -52,6 +52,9 @@ let has_newline_before_next s =
      | Token.Comment text ->
        if String.contains text '\n' then seen_break := true;
        incr i
+     (* A line comment never contains its own newline -- the `Newline` token
+        that follows it supplies the break. *)
+     | Token.LineComment _ -> incr i
      | _ -> continue_ := false)
   done;
   !seen_break

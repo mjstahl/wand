@@ -125,6 +125,19 @@ let test_comments () =
   check_tokens "nested comment" "(* a (* b *) c *) true" [Comment " a (* b *) c "; Bool true];
   check_tokens "doc comment (double-star)" "(** actual doc *) true" [DocComment "actual doc"; Bool true]
 
+let test_line_comments () =
+  check_tokens "line comment to end of line" "-- ignored\n1"
+    [LineComment " ignored"; Int 1];
+  check_tokens "trailing line comment" "1 -- note\n2"
+    [Int 1; LineComment " note"; Int 2];
+  check_tokens "empty line comment" "--\n1" [LineComment ""; Int 1];
+  (* `--` must not swallow the constructs it sits next to. *)
+  check_tokens "subtraction unaffected"  "5 - 3"   [Int 5; Minus; Int 3];
+  check_tokens "spaced double minus"     "5 - -3"  [Int 5; Minus; Minus; Int 3];
+  check_tokens "arrow unaffected"        "x -> y"  [Ident "x"; Arrow; Ident "y"];
+  check_tokens "dashed path unaffected"  "./my-file"  [Path "./my-file"];
+  check_tokens "date literal unaffected" "2024-01-15" [Date "2024-01-15"]
+
 (* ── Whitespace ─────────────────────────────────────────────────────────── *)
 
 let test_whitespace () =
@@ -179,7 +192,8 @@ let () =
       Alcotest.test_case "delimiters" `Quick test_delimiters;
     ];
     "comments", [
-      Alcotest.test_case "comments"   `Quick test_comments;
+      Alcotest.test_case "comments"      `Quick test_comments;
+      Alcotest.test_case "line comments" `Quick test_line_comments;
       Alcotest.test_case "whitespace" `Quick test_whitespace;
     ];
     "sequences", [

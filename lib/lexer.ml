@@ -152,6 +152,17 @@ let read_run_cmd s =
    a doc-comment (extra leading star), so the caller can decide whether to
    run doc-comment formatting (strip `*` prefixes/blank lines) or keep the
    text verbatim. *)
+(* `--` runs to the end of the line. The newline itself is left unconsumed so
+   the following `Newline` token is still produced -- statement termination
+   must not depend on whether a line ends in a comment. *)
+let read_line_comment s =
+  ignore (advance s);  (* consume second '-' *)
+  let buf = Buffer.create 64 in
+  while not (is_at_end s) && peek s <> '\n' do
+    Buffer.add_char buf (advance s)
+  done;
+  Buffer.contents buf
+
 let read_comment s =
   ignore (advance s);  (* consume '*' after '(' *)
   let is_doc = peek s = '*' && peek2 s <> ')' in
@@ -517,7 +528,11 @@ let next_token s =
                | '>' -> ignore (advance s); PipeArrow
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
-    | '-'  -> ret (if peek s = '>' then (ignore (advance s); Arrow) else Minus)
+    | '-'  ->
+      ret (match peek s with
+       | '>' -> ignore (advance s); Arrow
+       | '-' -> LineComment (read_line_comment s)
+       | _   -> Minus)
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/'  ->
       ret (if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)

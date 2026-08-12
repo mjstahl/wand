@@ -880,6 +880,13 @@ test failed or any file had a lex/parse/type error.
 
 ## Comments
 
+Line comments run to the end of the line:
+
+```
+-- this is a comment
+let x = 1     -- so is this
+```
+
 Block comments, nestable:
 
 ```
@@ -970,8 +977,8 @@ file is overwritten with its formatted contents; a confirmation line is
 printed per file). Shell globs work as expected: `wand fmt stdlib/*.wand`
 reformats every file in `stdlib/`.
 
-Comments (both `(* ... *)` and doc `(** ... *)`) are always preserved —
-never silently dropped. Multi-equation function definitions
+Comments (`-- ...`, `(* ... *)`, and doc `(** ... *)`) are always preserved —
+never silently dropped, and never rewritten from one style into the other. Multi-equation function definitions
 (`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
 rather than left as the desugared `match`.
 
