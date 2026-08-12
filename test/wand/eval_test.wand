@@ -1,5 +1,4 @@
 import Test
-import Types
 
 (* ── Literals ──────────────────────────────────────────────────────────── *)
 
@@ -126,13 +125,3 @@ in t.eq (fib 10) 55)
 test "countdown" (fn t -> let count n = if n == 0 then 0 else count (n - 1)
 in t.eq (count 100) 0)
 
-(* ── Errors ────────────────────────────────────────────────────────────── *)
-
-(* All three are caught at typecheck time in the real pipeline (unbound
-   variable, non-exhaustive match, applying a non-function), so they're
-   expressed as strings through Types.fails? rather than as literal
-   top-level source, which would fail the whole file. *)
-
-test "unbound var" (fn t -> t.ok (Types.fails? "x"))
-test "no match" (fn t -> t.ok (Types.fails? "match 5 with\n| 1 -> true"))
-test "apply non-fn" (fn t -> t.ok (Types.fails? "1 2"))

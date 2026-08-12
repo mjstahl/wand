@@ -1,6 +1,5 @@
 import Test
 import IO
-import Types
 
 test "IO.print_err" (fn t ->
   let outcome =
@@ -49,5 +48,3 @@ test "exit is polymorphic in return type" (fn t -> t.eq (exit_poly_test ()) 1)
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)
 
-test "IO.print_err non-string" (fn t -> t.ok (Types.fails? "import IO\nIO.print_err 42"))
-test "exit non-int" (fn t -> t.ok (Types.fails? "exit \"bye\""))

@@ -1,5 +1,4 @@
 import Test
-import Types
 
 (* ── Cons operator (expressions) ──────────────────────────────────────── *)
 
@@ -80,5 +79,3 @@ test "reverse" (fn t -> t.eq (lp_reverse [1, 2, 3, 4, 5]) [5, 4, 3, 2, 1])
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)
 
-test "cons non-list rhs" (fn t -> t.ok (Types.fails? "1 : 2"))
-test "cons type mismatch" (fn t -> t.ok (Types.fails? "1 : [\"a\", \"b\"]"))

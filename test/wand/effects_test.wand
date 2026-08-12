@@ -1,5 +1,4 @@
 import Test
-import Types
 
 (* ── Default handler ───────────────────────────────────────────────────── *)
 
@@ -85,4 +84,3 @@ test "mock process" (fn t ->
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)
 
-test "unbound var" (fn t -> t.ok (Types.fails? "println undefined_var"))

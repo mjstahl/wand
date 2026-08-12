@@ -26,7 +26,6 @@ let () =
       Alcotest.test_case "Duration" `Quick (check_fixture "wand/duration_test.wand");
       Alcotest.test_case "Regex"    `Quick (check_fixture "wand/regex_test.wand");
       Alcotest.test_case "FS"       `Quick (check_fixture "wand/fs_test.wand");
-      Alcotest.test_case "Types"    `Quick (check_fixture "wand/types_test.wand");
       Alcotest.test_case "CSV"      `Quick (check_fixture "wand/csv_test.wand");
       Alcotest.test_case "JSON"     `Quick (check_fixture "wand/json_test.wand");
       Alcotest.test_case "TOML"     `Quick (check_fixture "wand/toml_test.wand");

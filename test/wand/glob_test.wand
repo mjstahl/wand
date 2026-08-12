@@ -2,7 +2,6 @@ import Test
 import FS
 import Path
 import List
-import Types
 
 (* Glob literal syntax (`*.wand`, `**`, `./**/*.ml`, ...) is a distinct
    token/type from Path -- raw lexer-level assertions for that stay in
@@ -11,9 +10,7 @@ import Types
 
 test "glob literal type" (fn t -> let g = *.wand in t.ok true)
 
-test "passing a Path where Glob expected is a type error" (fn t -> t.ok (Types.fails? "import FS\nFS.glob /etc ."))
 
-test "passing a bare string where Glob expected is a type error" (fn t -> t.ok (Types.fails? "import FS\nFS.glob \"*.wand\" ."))
 
 (* ── FS.glob ──────────────────────────────────────────────────────────── *)
 

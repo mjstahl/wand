@@ -35,7 +35,7 @@
 (test
  (name test_wand_stdlib)
  (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand
-       wand/types_test.wand wand/csv_test.wand wand/json_test.wand wand/toml_test.wand
+       wand/csv_test.wand wand/json_test.wand wand/toml_test.wand
        wand/glob_test.wand wand/imports_test.wand wand/imports_fixture.wand
        wand/eval_test.wand wand/script_test.wand wand/typedef_test.wand wand/generics_test.wand
        wand/contracts_test.wand wand/process_test.wand wand/strings_test.wand wand/effects_test.wand

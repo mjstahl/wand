@@ -1,5 +1,4 @@
 import Test
-import Types
 import Env
 import List
 import Path

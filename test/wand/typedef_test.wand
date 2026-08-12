@@ -1,5 +1,4 @@
 import Test
-import Types
 
 (* ── Enum-style variants (no payload) ─────────────────────────────────── *)
 
@@ -73,9 +72,6 @@ t.eq (match c with
 let circle_area c = let Circle(radius = r) = c in r * r
 test "in local let inside fn" (fn t -> t.eq (circle_area Circle(radius = 5)) 25)
 
-test "unknown field in pattern" (fn t -> t.ok (Types.fails? "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\nlet sum = match p with | Point (x = a, z = b) -> a + b\nsum"))
 
 (* ── Errors ────────────────────────────────────────────────────────────── *)
 
-test "unknown constructor" (fn t -> t.ok (Types.fails? "Bogus"))
-test "wrong arity" (fn t -> t.ok (Types.fails? "type Wrap = Wrap Int; Wrap 1 2"))

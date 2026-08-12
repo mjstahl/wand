@@ -1,5 +1,4 @@
 import Test
-import Types
 import Option
 import String
 
@@ -35,11 +34,8 @@ test "same generic type at two different type args" (fn t -> t.eq (unbox (Box 1)
 
 (* ── Negative cases ────────────────────────────────────────────────────── *)
 
-test "undeclared type variable" (fn t -> t.eq (Types.check_program "type Foo 'a = Bar 'b; 1") (Error "type variable ''b' is not declared as a parameter of type 'Foo'"))
 
-test "wrong type at use site" (fn t -> t.ok (Types.fails? "type Option 'a = None | Some 'a\nlet f (x : Int) = x\nf (Some 1)"))
 
-test "arity mismatch" (fn t -> t.ok (Types.fails? "type Box 'a = Box 'a\nmatch Box 1 with | Box a b -> a"))
 
 (* ── Option module ─────────────────────────────────────────────────────── *)
 

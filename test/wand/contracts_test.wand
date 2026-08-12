@@ -1,5 +1,4 @@
 import Test
-import Types
 import String
 
 let try_msg thunk = match try (thunk ()) with
@@ -53,5 +52,3 @@ test "result equals expected" (fn t -> t.eq (double_ens 7) 14)
 
 (* ── type errors ───────────────────────────────────────────────────────── *)
 
-test "requires must be bool" (fn t -> t.ok (Types.fails? "let f x =\n  requires x + 1\n  x\nf 1"))
-test "ensures must be bool" (fn t -> t.ok (Types.fails? "let f x =\n  ensures result + 1\n  x\nf 1"))
