@@ -42,6 +42,20 @@ let effs es a b = TFun (a, b, Effect_row.of_list es)
 let next_id = ref 0
 let holes : typ list ref = ref []
 
+(* Which effect an intercepted operation accounts for. A handler arm names
+   the builtin operation it catches, and catching it is what removes the
+   corresponding effect from the handled expression. *)
+let effect_of_operation = function
+  | "process_run" | "process_run_quiet" | "process_run_stdin"
+  | "process_exit_code" -> Some Effect_row.Shell
+  | "read_file"         -> Some Effect_row.FsRead
+  | "write_file" | "fs_append" | "fs_remove" | "fs_create"
+  | "fs_rename" | "fs_copy" | "fs_mkdir" -> Some Effect_row.FsWrite
+  | "io_print_err" | "io_println_err" | "io_read_line" | "io_read_all"
+  | "io_flush" | "print" | "println" -> Some Effect_row.Proc
+  | "env_get" | "env_set" | "env_clear" -> Some Effect_row.Env
+  | _ -> None
+
 (* Effects performed by whatever is currently being inferred.
 
    Evaluation is strict and left to right, so the effects of an expression
@@ -964,7 +978,21 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | RegexLit  _       -> TRegex
   | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
   | Handle (body_expr, arms) ->
-    let body_t = infer tenv env body_expr in
+    let (body_t, body_row) = scoped_eff (fun () -> infer tenv env body_expr) in
+    (* An arm intercepts an operation, so the handled expression no longer
+       performs it: handling process_run is what makes a deploy script
+       testable with the network unplugged, and the signature should say so. *)
+    let discharged =
+      List.fold_left (fun row arm ->
+        match arm with
+        | Ast.EffectArm (op, _, _, _) ->
+          (match effect_of_operation op with
+           | Some e -> Effect_row.remove e row
+           | None   -> row)
+        | Ast.ReturnArm _ -> row
+      ) body_row arms
+    in
+    performs discharged;
     let result_t = fresh () in
     List.iter (fun arm ->
       match arm with
@@ -994,7 +1022,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
       unify (infer tenv (("result", Mono body_t) :: env) e) TBool
     ) ens;
     body_t
-  | Try e -> TResult (TString, infer tenv env e)
+  | Try e ->
+    (* try turns a raise into a Result, so Raise does not escape it.
+       Subtracting from an open row can only remove what is already known:
+       if the body's effects are still undetermined here, a Raise that
+       surfaces later stays in the row. That over-reports rather than
+       hiding an effect, which is the direction that keeps a signature
+       trustworthy. *)
+    let (t, row) = scoped_eff (fun () -> infer tenv env e) in
+    performs (Effect_row.remove Effect_row.Raise row);
+    TResult (TString, t)
   | Annot (te, e) ->
     let t = type_of_te te in
     unify t (infer tenv env e);
