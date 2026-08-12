@@ -73,18 +73,24 @@ let () = FS.delete (Path.of_string "${scratch}/list_dir_case/a.txt") in
 let () = FS.delete (Path.of_string "${scratch}/list_dir_case/b.txt") in
 let () = FS.delete dir in t.eq names ["a.txt", "b.txt"])
 
-test "walk recurses into subdirectories" (fn t -> let base = "${scratch}/walk_case" in
+(* `**` is the replacement for the removed FS.walk: it crosses directory
+   separators and matches names without a dot, so `plain` below is included.
+   `**.*` would silently drop it -- that is why the migration uses `**`. *)
+test "glob ** recurses into subdirectories" (fn t -> let base = "${scratch}/walk_case" in
 let () = FS.mkdir (Path.of_string "${base}/sub") in
 let () = FS.write_file "${base}/a.txt" "a" in
 let () = FS.write_file "${base}/sub/b.txt" "b" in
-let entries = FS.walk (Path.of_string base) in
+let () = FS.write_file "${base}/sub/plain" "p" in
+let entries = FS.glob! ** (Path.of_string base) in
 let strip p =
   let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s
 in let names = List.sort (List.map strip entries) in
 let () = FS.delete (Path.of_string "${base}/a.txt") in
 let () = FS.delete (Path.of_string "${base}/sub/b.txt") in
+let () = FS.delete (Path.of_string "${base}/sub/plain") in
 let () = FS.delete (Path.of_string "${base}/sub") in
-let () = FS.delete (Path.of_string base) in t.eq names ["a.txt", "sub/b.txt"])
+let () = FS.delete (Path.of_string base) in
+t.eq names ["a.txt", "sub/b.txt", "sub/plain"])
 
 test "delete removes a file" (fn t -> let p = Path.of_string "${scratch}/delete_case.txt" in
 let () = FS.write_file (Path.to_string p) "x" in

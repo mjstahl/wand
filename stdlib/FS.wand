@@ -39,9 +39,6 @@ let copy        src dst  = fs_copy src dst
 (** Return a list of paths for the immediate children of a directory. *)
 let list_dir    path     = fs_ls path
 
-(** Recursively walk a directory tree, returning all file paths. *)
-let walk        path     = fs_walk path
-
 (** Return the last-modified time of a file as a DateTime. *)
 let mtime       path     = fs_mtime path
 

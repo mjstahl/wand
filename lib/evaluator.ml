@@ -1052,20 +1052,6 @@ let stdlib_eval_env : env = [
        | Error m -> raise (EvalError m)
        | Ok st   -> VInt st.Unix.st_size)
     | _ -> raise (EvalError "fs_size: expected Path")));
-  ("fs_walk",    VBuiltin (function
-    | VString p | VPath p ->
-      let rec collect path acc =
-        if not (Sys.file_exists path) then acc
-        else if Sys.is_directory path then
-          let entries = Sys.readdir path in
-          Array.sort String.compare entries;
-          Array.fold_left
-            (fun a name -> collect (Filename.concat path name) a)
-            acc entries
-        else VPath path :: acc
-      in
-      VList (List.rev (collect p []))
-    | _ -> raise (EvalError "fs_walk: expected Path")));
   ("fs_glob",    VBuiltin (function
     | VString pat | VGlob pat ->
       VBuiltin (function

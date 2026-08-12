@@ -946,7 +946,6 @@ let stdlib_type_env : env = [
   ("fs_cwd",     Mono (TFun (TUnit, TPath)));
   ("fs_mtime",   Mono (TFun (TPath, TDateTime)));
   ("fs_size",    Mono (TFun (TPath, TInt)));
-  ("fs_walk",    Mono (TFun (TPath, TList TPath)));
   ("fs_glob",    Mono (TFun (TGlob, TFun (TPath, TList TPath))));
   (* IO primitives *)
   ("io_print_err",   Mono (TFun (TString, TUnit)));

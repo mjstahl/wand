@@ -745,7 +745,7 @@ Binds the module under the capitalised filename (`Utils`). Equivalent to
 
 `read_file`, `write_file`, `append`, `create_file`, `temp_file`, `exists?`,
 `is_file?`, `is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`,
-`walk`, `glob`, `glob!`, `mtime`, `size`, `cwd`
+`glob`, `glob!`, `mtime`, `size`, `cwd`
 
 ### `Path`
 
