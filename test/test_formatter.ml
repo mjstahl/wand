@@ -324,6 +324,22 @@ let test_env_var_interpolation () =
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
+
+(* A wide application breaks rather than running past the margin. The common
+   shape is a trailing lambda -- `test "..." (fn t -> ...)` -- which reads
+   best with its body on the next line, where a person would have put it. *)
+let test_wide_application_breaks () =
+  let out = fmt "import Test\ntest \"a label long enough to push this line past the margin\" (fn t -> t.eq (f (g x)) [1, 2, 3])" in
+  List.iter (fun l ->
+    if String.length l > 92 then
+      Alcotest.failf "line runs past the margin (%d):\n%s" (String.length l) l)
+    (String.split_on_char '\n' out);
+  assert_contains "the lambda opens on the first line" out "(fn t ->";
+  (* And the meaning survives the break. *)
+  ok_after_format "a broken application still runs"
+    "let apply f x = f x\nlet add a b = a + b\napply (fn n -> add n 1) 41"
+    "42"
+
 let () =
   Alcotest.run "Formatter" [
     "idempotency", [
@@ -340,6 +356,7 @@ let () =
       Alcotest.test_case "contract indent"  `Quick test_contract_clauses_keep_their_indent;
       Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
+      Alcotest.test_case "wide application"  `Quick test_wide_application_breaks;
     ];
     "comments", [
       Alcotest.test_case "preserved"  `Quick test_comments_preserved;

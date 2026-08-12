@@ -38,7 +38,8 @@ test "List.map" (fn t -> t.eq (List.map (fn x -> x * 2) [1, 2, 3]) [2, 4, 6])
 test "List.filter" (fn t -> t.eq (List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]) [3, 4, 5])
 test "List.length" (fn t -> t.eq (List.length [1, 2, 3, 4, 5]) 5)
 test "List.reverse" (fn t -> t.eq (List.reverse [1, 2, 3]) [3, 2, 1])
-test "List.fold_left sum" (fn t -> t.eq (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]) 15)
+test "List.fold_left sum" (fn t ->
+  t.eq (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]) 15)
 
 (* ── Recursive top-level functions ────────────────────────────────────── *)
 
@@ -61,10 +62,11 @@ let mr_f _p0 =
 and mr_g n = mr_f n
 test "multi-equation clause plus and-group" (fn t -> t.eq (mr_f 4) 24)
 
-test "local let ... and ... in" (fn t -> let x = let is_even n = if n == 0 then true else is_odd (n - 1)
-and is_odd n = if n == 0 then false else is_even (n - 1)
-in is_even 7 in
-t.eq x false)
+test "local let ... and ... in" (fn t ->
+  let x = let is_even n = if n == 0 then true else is_odd (n - 1)
+  and is_odd n = if n == 0 then false else is_even (n - 1)
+  in is_even 7 in
+  t.eq x false)
 
 (* ── Source locations in type errors ──────────────────────────────────── *)
 
@@ -77,17 +79,20 @@ test "multi-equation factorial" (fn t -> t.eq (mfact 5) 120)
 let madd 0 y = y
 let madd x 0 = x
 let madd x y = x + y
-test "multi-equation two args" (fn t -> t.eq "${madd 3 4}, ${madd 0 9}, ${madd 5 0}" "7, 9, 5")
+test "multi-equation two args" (fn t ->
+  t.eq "${madd 3 4}, ${madd 0 9}, ${madd 5 0}" "7, 9, 5")
 
 type Opt = None | Some Int
 let show_opt None = "nothing"
 let show_opt (Some n) = "just ${n}"
-test "constructor patterns" (fn t -> t.eq "${show_opt None}, ${show_opt (Some 42)}" "nothing, just 42")
+test "constructor patterns" (fn t ->
+  t.eq "${show_opt None}, ${show_opt (Some 42)}" "nothing, just 42")
 
 let label 1 = "one"
 let label 2 = "two"
 let label _ = "other"
-test "wildcard catch-all" (fn t -> t.eq "${label 1}, ${label 2}, ${label 99}" "one, two, other")
+test "wildcard catch-all" (fn t ->
+  t.eq "${label 1}, ${label 2}, ${label 99}" "one, two, other")
 
 (* ── Environment variables ────────────────────────────────────────────── *)
 

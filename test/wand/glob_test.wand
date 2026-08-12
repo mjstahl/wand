@@ -17,45 +17,51 @@ let scratch = Path.to_string scratch_marker
 let () = FS.delete! scratch_marker
 let () = FS.mkdir! (Path.of_string scratch)
 
-test "*.wand matches" (fn t -> let dir = Path.of_string scratch in
-let () = FS.write_file! "${scratch}/foo.wand" "" in
-let () = FS.write_file! "${scratch}/bar.wand" "" in
-let () = FS.write_file! "${scratch}/baz.ml" "" in
-let names = FS.glob_in *.wand dir |> List.map Path.basename |> List.sort in
-let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
-t.eq names ["bar.wand", "foo.wand"])
+test "*.wand matches" (fn t ->
+  let dir = Path.of_string scratch in
+  let () = FS.write_file! "${scratch}/foo.wand" "" in
+  let () = FS.write_file! "${scratch}/bar.wand" "" in
+  let () = FS.write_file! "${scratch}/baz.ml" "" in
+  let names = FS.glob_in *.wand dir |> List.map Path.basename |> List.sort in
+  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
+  t.eq names ["bar.wand", "foo.wand"])
 
-test "*.ml matches" (fn t -> let dir = Path.of_string scratch in
-let () = FS.write_file! "${scratch}/foo.wand" "" in
-let () = FS.write_file! "${scratch}/baz.ml" "" in
-let names = FS.glob_in *.ml dir |> List.map Path.basename |> List.sort in
-let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in t.eq names ["baz.ml"])
+test "*.ml matches" (fn t ->
+  let dir = Path.of_string scratch in
+  let () = FS.write_file! "${scratch}/foo.wand" "" in
+  let () = FS.write_file! "${scratch}/baz.ml" "" in
+  let names = FS.glob_in *.ml dir |> List.map Path.basename |> List.sort in
+  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in t.eq names ["baz.ml"])
 
-test "no match" (fn t -> let dir = Path.of_string scratch in
-let () = FS.write_file! "${scratch}/foo.wand" "" in
-let names = FS.glob_in *.py dir |> List.map Path.basename |> List.sort in
-let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in t.eq names [])
+test "no match" (fn t ->
+  let dir = Path.of_string scratch in
+  let () = FS.write_file! "${scratch}/foo.wand" "" in
+  let names = FS.glob_in *.py dir |> List.map Path.basename |> List.sort in
+  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in t.eq names [])
 
-test "./* matches all" (fn t -> let dir = Path.of_string scratch in
-let () = FS.write_file! "${scratch}/foo.wand" "" in
-let () = FS.write_file! "${scratch}/bar.wand" "" in
-let () = FS.write_file! "${scratch}/baz.ml" "" in
-let names = FS.glob_in ./* dir |> List.map Path.basename |> List.sort in
-let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
-t.eq names ["bar.wand", "baz.ml", "foo.wand"])
+test "./* matches all" (fn t ->
+  let dir = Path.of_string scratch in
+  let () = FS.write_file! "${scratch}/foo.wand" "" in
+  let () = FS.write_file! "${scratch}/bar.wand" "" in
+  let () = FS.write_file! "${scratch}/baz.ml" "" in
+  let names = FS.glob_in ./* dir |> List.map Path.basename |> List.sort in
+  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
+  t.eq names ["bar.wand", "baz.ml", "foo.wand"])
 
-test "** recursive" (fn t -> let dir = Path.of_string scratch in
-let () = FS.mkdir! (Path.of_string "${scratch}/sub") in
-let () = FS.write_file! "${scratch}/a.wand" "" in
-let () = FS.write_file! "${scratch}/sub/b.wand" "" in
-let names = FS.glob_in **.wand dir |> List.map Path.basename |> List.sort in
-let () = FS.delete! (Path.of_string "${scratch}/a.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/sub/b.wand") in
-let () = FS.delete! (Path.of_string "${scratch}/sub") in t.eq names ["a.wand", "b.wand"])
+test "** recursive" (fn t ->
+  let dir = Path.of_string scratch in
+  let () = FS.mkdir! (Path.of_string "${scratch}/sub") in
+  let () = FS.write_file! "${scratch}/a.wand" "" in
+  let () = FS.write_file! "${scratch}/sub/b.wand" "" in
+  let names = FS.glob_in **.wand dir |> List.map Path.basename |> List.sort in
+  let () = FS.delete! (Path.of_string "${scratch}/a.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/sub/b.wand") in
+  let () = FS.delete! (Path.of_string "${scratch}/sub") in t.eq names ["a.wand", "b.wand"])
 
-test "cleanup scratch directory" (fn t -> let () = FS.delete! (Path.of_string scratch) in t.ok true)
+test "cleanup scratch directory" (fn t ->
+  let () = FS.delete! (Path.of_string scratch) in t.ok true)

@@ -74,25 +74,40 @@ test "compose" (fn t -> let f = fn x -> x + 1 in let g = fn x -> x * 2 in t.eq (
 
 (* ── Match ─────────────────────────────────────────────────────────────── *)
 
-test "first arm" (fn t -> t.eq (match 1 with
-| 1 -> true
-| _ -> false) true)
+test "first arm" (fn t ->
+  t.eq
+    (match 1 with
+    | 1 -> true
+    | _ -> false)
+    true)
 
-test "wildcard arm" (fn t -> t.eq (match 2 with
-| 1 -> true
-| _ -> false) false)
+test "wildcard arm" (fn t ->
+  t.eq
+    (match 2 with
+    | 1 -> true
+    | _ -> false)
+    false)
 
-test "bool match" (fn t -> t.eq (match true with
-| true -> 1
-| false -> 0) 1)
+test "bool match" (fn t ->
+  t.eq
+    (match true with
+    | true -> 1
+    | false -> 0)
+    1)
 
-test "guard pass" (fn t -> t.eq (match 5 with
-| x when x > 3 -> true
-| _ -> false) true)
+test "guard pass" (fn t ->
+  t.eq
+    (match 5 with
+    | x when x > 3 -> true
+    | _ -> false)
+    true)
 
-test "guard fail" (fn t -> t.eq (match 2 with
-| x when x > 3 -> true
-| _ -> false) false)
+test "guard fail" (fn t ->
+  t.eq
+    (match 2 with
+    | x when x > 3 -> true
+    | _ -> false)
+    false)
 
 (* ── Tuples ────────────────────────────────────────────────────────────── *)
 
@@ -116,11 +131,14 @@ test "with let" (fn t -> let double = fn x -> x * 2 in t.eq (3 |> double) 6)
 
 (* ── Recursive let ─────────────────────────────────────────────────────── *)
 
-test "factorial" (fn t -> let fact n = if n <= 0 then 1 else n * fact (n - 1)
-in t.eq (fact 5) 120)
+test "factorial" (fn t ->
+  let fact n = if n <= 0 then 1 else n * fact (n - 1)
+  in t.eq (fact 5) 120)
 
-test "fibonacci" (fn t -> let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
-in t.eq (fib 10) 55)
+test "fibonacci" (fn t ->
+  let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
+  in t.eq (fib 10) 55)
 
-test "countdown" (fn t -> let count n = if n == 0 then 0 else count (n - 1)
-in t.eq (count 100) 0)
+test "countdown" (fn t ->
+  let count n = if n == 0 then 0 else count (n - 1)
+  in t.eq (count 100) 0)

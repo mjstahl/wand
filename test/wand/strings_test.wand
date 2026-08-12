@@ -4,7 +4,8 @@ import Test
 
 test "simple concat" (fn t -> t.eq ("hello" ++ " world") "hello world")
 
-test "concat with var" (fn t -> let name = "Alice" in t.eq ("Hello, " ++ name ++ "!") "Hello, Alice!")
+test "concat with var" (fn t ->
+  let name = "Alice" in t.eq ("Hello, " ++ name ++ "!") "Hello, Alice!")
 
 test "concat empty" (fn t -> t.eq ("" ++ "abc") "abc")
 
@@ -16,4 +17,5 @@ test "interp arithmetic" (fn t -> t.eq "1 + 2 = ${1 + 2}" "1 + 2 = 3")
 test "interp bool" (fn t -> t.eq "flag: ${true}" "flag: true")
 test "no interp" (fn t -> t.eq "plain string" "plain string")
 
-test "multiple interps" (fn t -> let x = "a" in let y = "b" in t.eq "${x} and ${y}" "a and b")
+test "multiple interps" (fn t ->
+  let x = "a" in let y = "b" in t.eq "${x} and ${y}" "a and b")

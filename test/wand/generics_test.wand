@@ -30,30 +30,43 @@ test "extract value" (fn t -> t.eq (get_or 0 (OSome 42)) 42)
 (* ── No cross-instantiation collision ─────────────────────────────────── *)
 
 let unbox (Box x) = x
-test "same generic type at two different type args" (fn t -> t.eq (unbox (Box 1), unbox (Box "s")) (1, "s"))
+test "same generic type at two different type args" (fn t ->
+  t.eq (unbox (Box 1), unbox (Box "s")) (1, "s"))
 
 (* ── Negative cases ────────────────────────────────────────────────────── *)
 
 (* ── Option module ─────────────────────────────────────────────────────── *)
 
-test "map" (fn t -> t.eq (match Option.map (fn x -> x + 1) (Some 1) with
-| Some v -> v
-| None -> 0) 2)
+test "map" (fn t ->
+  t.eq
+    (match Option.map (fn x -> x + 1) (Some 1) with
+    | Some v -> v
+    | None -> 0)
+    2)
 
-test "and_then" (fn t -> let half x = if x % 2 == 0 then Some (x / 2) else None
-in t.eq (match Option.and_then half (Some 4) with
-| Some v -> v
-| None -> -1) 2)
+test "and_then" (fn t ->
+  let half x = if x % 2 == 0 then Some (x / 2) else None
+  in t.eq
+    (match Option.and_then half (Some 4) with
+    | Some v -> v
+    | None -> -1)
+    2)
 
 test "default" (fn t -> t.eq (Option.default 0 None) 0)
 
-test "to_result ok" (fn t -> t.eq (match Option.to_result "missing" (Some 5) with
-| Ok v -> v
-| Error _ -> 0) 5)
+test "to_result ok" (fn t ->
+  t.eq
+    (match Option.to_result "missing" (Some 5) with
+    | Ok v -> v
+    | Error _ -> 0)
+    5)
 
-test "to_result error" (fn t -> t.eq (match Option.to_result "missing" None with
-| Ok _ -> ""
-| Error e -> e) "missing")
+test "to_result error" (fn t ->
+  t.eq
+    (match Option.to_result "missing" None with
+    | Ok _ -> ""
+    | Error e -> e)
+    "missing")
 
 test "get! present" (fn t -> t.eq (Option.get! (Some 7)) 7)
 test "get! absent raises" (fn t -> t.raises (fn () -> Option.get! None))
@@ -68,12 +81,18 @@ let gparse s : Result ParseError Int =
   | Ok n -> Ok n
   | Error _ -> Error (UnexpectedToken s)
 
-test "custom error type" (fn t -> t.eq (match gparse "abc" with
-| Ok n -> "ok"
-| Error (UnexpectedToken tk) -> "bad: ${tk}"
-| Error UnexpectedEof -> "eof") "bad: abc")
+test "custom error type" (fn t ->
+  t.eq
+    (match gparse "abc" with
+    | Ok n -> "ok"
+    | Error (UnexpectedToken tk) -> "bad: ${tk}"
+    | Error UnexpectedEof -> "eof")
+    "bad: abc")
 
 let plain_result : Result String Int = Ok 1
-test "plain string error still works" (fn t -> t.eq (match plain_result with
-| Ok n -> n
-| Error _ -> 0) 1)
+test "plain string error still works" (fn t ->
+  t.eq
+    (match plain_result with
+    | Ok n -> n
+    | Error _ -> 0)
+    1)

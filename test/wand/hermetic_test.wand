@@ -19,19 +19,27 @@ let sealed thunk =
 
 (* ── It runs, against canned output ────────────────────────────────────── *)
 
-test "runs to completion without the network" (fn t -> t.eq (sealed deploy) "deployed v2.1.0")
+test "runs to completion without the network" (fn t ->
+  t.eq (sealed deploy) "deployed v2.1.0")
 
-test "a command matching nothing answers empty" (fn t -> t.eq (Test.with_shell [] (fn () -> Test.without_writes deploy)) "deployed ")
+test "a command matching nothing answers empty" (fn t ->
+  t.eq (Test.with_shell [] (fn () -> Test.without_writes deploy)) "deployed ")
 
 (* ── What it attempted ─────────────────────────────────────────────────── *)
 
-test "reports every command, in order" (fn t -> t.eq (Test.shell_calls (fn () -> Test.without_writes deploy)) ["git describe --tags", "rsync -a ./build/ web@host:/srv/app"])
+test "reports every command, in order" (fn t ->
+  t.eq
+    (Test.shell_calls (fn () -> Test.without_writes deploy))
+    ["git describe --tags", "rsync -a ./build/ web@host:/srv/app"])
 
-test "pushes exactly once" (fn t -> let cmds = Test.shell_calls (fn () -> Test.without_writes deploy) in
-t.eq (List.length (List.filter (fn c -> String.contains? "rsync" c) cmds)) 1)
+test "pushes exactly once" (fn t ->
+  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy) in
+  t.eq (List.length (List.filter (fn c -> String.contains? "rsync" c) cmds)) 1)
 
-test "reports what it would write" (fn t -> t.eq (Test.with_shell [] (fn () -> Test.writes deploy)) ["/etc/app/config.toml"])
+test "reports what it would write" (fn t ->
+  t.eq (Test.with_shell [] (fn () -> Test.writes deploy)) ["/etc/app/config.toml"])
 
 (* ── And nothing actually happened ─────────────────────────────────────── *)
 
-test "the config was never written" (fn t -> let _ = sealed deploy in t.eq (FS.exists? (Path.of_string "/etc/app/config.toml")) false)
+test "the config was never written" (fn t ->
+  let _ = sealed deploy in t.eq (FS.exists? (Path.of_string "/etc/app/config.toml")) false)

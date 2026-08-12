@@ -9,41 +9,71 @@ test "string cons" (fn t -> t.eq ("a" : ["b", "c"]) ["a", "b", "c"])
 
 (* ── List patterns ─────────────────────────────────────────────────────── *)
 
-test "match empty" (fn t -> t.eq (match [] with
-| [] -> "empty"
-| _ -> "non-empty") "empty")
-test "match non-empty" (fn t -> t.eq (match [1] with
-| [] -> "empty"
-| _ -> "non-empty") "non-empty")
+test "match empty" (fn t ->
+  t.eq
+    (match [] with
+    | [] -> "empty"
+    | _ -> "non-empty")
+    "empty")
+test "match non-empty" (fn t ->
+  t.eq
+    (match [1] with
+    | [] -> "empty"
+    | _ -> "non-empty")
+    "non-empty")
 
-test "exact one element" (fn t -> t.eq (match [42] with
-| [x] -> x
-| _ -> 0) 42)
-test "exact two elements" (fn t -> t.eq (match [3, 4] with
-| [x, y] -> x + y
-| _ -> 0) 7)
+test "exact one element" (fn t ->
+  t.eq
+    (match [42] with
+    | [x] -> x
+    | _ -> 0)
+    42)
+test "exact two elements" (fn t ->
+  t.eq
+    (match [3, 4] with
+    | [x, y] -> x + y
+    | _ -> 0)
+    7)
 
-test "cons pattern head" (fn t -> t.eq (match [1, 2, 3] with
-| [h : _] -> h
-| [] -> 0) 1)
-test "cons pattern tail" (fn t -> t.eq (match [1, 2, 3] with
-| [_ : tl] -> tl
-| [] -> []) [2, 3])
-test "cons pattern no match on empty" (fn t -> t.eq (match [] with
-| [_ : _] -> "yes"
-| [] -> "no") "no")
+test "cons pattern head" (fn t ->
+  t.eq
+    (match [1, 2, 3] with
+    | [h : _] -> h
+    | [] -> 0)
+    1)
+test "cons pattern tail" (fn t ->
+  t.eq
+    (match [1, 2, 3] with
+    | [_ : tl] -> tl
+    | [] -> [])
+    [2, 3])
+test "cons pattern no match on empty" (fn t ->
+  t.eq
+    (match [] with
+    | [_ : _] -> "yes"
+    | [] -> "no")
+    "no")
 
-test "three-way chain, binds head/mid/tail" (fn t -> t.eq (match [1, 2, 3, 4] with
-| [a : b : c : tl] -> "${a},${b},${c},${tl}"
-| _ -> "no match") "1,2,3,[4]")
+test "three-way chain, binds head/mid/tail" (fn t ->
+  t.eq
+    (match [1, 2, 3, 4] with
+    | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+    | _ -> "no match")
+    "1,2,3,[4]")
 
-test "chain exactly consuming the list" (fn t -> t.eq (match [1, 2, 3] with
-| [a : b : c : tl] -> "${a},${b},${c},${tl}"
-| _ -> "no match") "1,2,3,[]")
+test "chain exactly consuming the list" (fn t ->
+  t.eq
+    (match [1, 2, 3] with
+    | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+    | _ -> "no match")
+    "1,2,3,[]")
 
-test "chain falls through on too-short list" (fn t -> t.eq (match [1, 2] with
-| [a : b : c : tl] -> "matched"
-| _ -> "too short") "too short")
+test "chain falls through on too-short list" (fn t ->
+  t.eq
+    (match [1, 2] with
+    | [a : b : c : tl] -> "matched"
+    | _ -> "too short")
+    "too short")
 
 let lp_third [_ : _ : x : _] = x
 test "chain in a function multi-equation" (fn t -> t.eq (lp_third [10, 20, 30, 40]) 30)
@@ -62,7 +92,8 @@ test "sum" (fn t -> t.eq (lp_sum [1, 2, 3, 4, 5]) 15)
 let lp_map _ [] = []
 let lp_map f [h : tl] = f h : lp_map f tl
 test "map double" (fn t -> t.eq (lp_map (fn x -> x * 2) [1, 2, 3]) [2, 4, 6])
-test "map to string" (fn t -> t.eq (lp_map (fn x -> x ++ "!") ["a", "b", "c"]) ["a!", "b!", "c!"])
+test "map to string" (fn t ->
+  t.eq (lp_map (fn x -> x ++ "!") ["a", "b", "c"]) ["a!", "b!", "c!"])
 
 let lp_filter _ [] = []
 let lp_filter p [h : tl] = if p h then h : lp_filter p tl else lp_filter p tl

@@ -26,18 +26,23 @@ test "to_ms 500ms" (fn t -> t.eq (Duration.to_ms 500ms) 500)
 
 (* ── add ───────────────────────────────────────────────────────────────── *)
 
-test "add hours + minutes" (fn t -> t.eq (Duration.format (Duration.add (Duration.hours 1) (Duration.minutes 30))) "1h30m")
-test "add seconds + seconds" (fn t -> t.eq (Duration.format (Duration.add (Duration.seconds 30) (Duration.seconds 45))) "1m15s")
+test "add hours + minutes" (fn t ->
+  t.eq (Duration.format (Duration.add (Duration.hours 1) (Duration.minutes 30))) "1h30m")
+test "add seconds + seconds" (fn t ->
+  t.eq (Duration.format (Duration.add (Duration.seconds 30) (Duration.seconds 45))) "1m15s")
 test "add zero" (fn t -> t.eq (Duration.format (Duration.add 5min Duration.zero)) "5m")
 
 (* ── sub ───────────────────────────────────────────────────────────────── *)
 
-test "sub hours - minutes" (fn t -> t.eq (Duration.format (Duration.sub (Duration.hours 2) (Duration.minutes 30))) "1h30m")
-test "sub clamp to zero" (fn t -> t.eq (Duration.format (Duration.sub (Duration.minutes 1) (Duration.hours 1))) "0s")
+test "sub hours - minutes" (fn t ->
+  t.eq (Duration.format (Duration.sub (Duration.hours 2) (Duration.minutes 30))) "1h30m")
+test "sub clamp to zero" (fn t ->
+  t.eq (Duration.format (Duration.sub (Duration.minutes 1) (Duration.hours 1))) "0s")
 
 (* ── scale ─────────────────────────────────────────────────────────────── *)
 
-test "scale double" (fn t -> t.eq (Duration.format (Duration.scale 2 (Duration.hours 1))) "2h")
+test "scale double" (fn t ->
+  t.eq (Duration.format (Duration.scale 2 (Duration.hours 1))) "2h")
 test "scale triple" (fn t -> t.eq (Duration.format (Duration.scale 3 30s)) "1m30s")
 test "scale zero" (fn t -> t.eq (Duration.format (Duration.scale 0 1h)) "0s")
 

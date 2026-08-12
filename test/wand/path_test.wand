@@ -23,7 +23,8 @@ test "basename file" (fn t -> t.eq (Path.basename /etc/hosts) "hosts")
 test "extension dot txt" (fn t -> t.eq (Path.extension /foo/bar.txt) ".txt")
 test "extension none" (fn t -> t.eq (Path.extension /foo/bar) "")
 test "with_extension add" (fn t -> t.eq (Path.with_extension ".ml" /foo/bar) /foo/bar.ml)
-test "with_extension replace" (fn t -> t.eq (Path.with_extension ".ml" /foo/bar.wand) /foo/bar.ml)
+test "with_extension replace" (fn t ->
+  t.eq (Path.with_extension ".ml" /foo/bar.wand) /foo/bar.ml)
 
 (* ── absolute? / relative? ───────────────────────────────────────── *)
 
@@ -45,5 +46,6 @@ test "of_string" (fn t -> t.eq (Path.to_string (Path.of_string "/etc/hosts")) "/
 
 (* ── components ────────────────────────────────────────────────────────── *)
 
-test "components absolute" (fn t -> t.eq (Path.components /usr/local/bin) ["usr", "local", "bin"])
+test "components absolute" (fn t ->
+  t.eq (Path.components /usr/local/bin) ["usr", "local", "bin"])
 test "components relative" (fn t -> t.eq (Path.components ./foo/bar) [".", "foo", "bar"])

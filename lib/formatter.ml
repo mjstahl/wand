@@ -315,7 +315,39 @@ and emit_app indent e =
   in
   let (head, args) = flatten e in
   if args = [] then emit_expr indent head
-  else emit_atom indent head ^ " " ^ String.concat " " (List.map (emit_atom indent) args)
+  else
+    let oneline =
+      emit_atom indent head ^ " " ^ String.concat " " (List.map (emit_atom indent) args)
+    in
+    if fits indent oneline then oneline
+    else
+      (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
+         -> ...)` -- and reads best with its body on the next line, the way
+         it would have been written by hand. *)
+      let ind = String.make indent ' ' in
+      let inner = String.make (indent + 2) ' ' in
+      let rec split_last acc = function
+        | [x]     -> (List.rev acc, Some x)
+        | x :: tl -> split_last (x :: acc) tl
+        | []      -> (List.rev acc, None)
+      in
+      (match split_last [] args with
+       | before, Some last ->
+         (match strip_located last with
+          | Fn (ps, body) ->
+            let prefix =
+              String.concat " "
+                (emit_atom indent head :: List.map (emit_atom indent) before)
+            in
+            prefix ^ " (fn " ^ String.concat " " (List.map emit_pat_atom ps)
+            ^ " ->\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
+          | _ ->
+            (* Otherwise one argument per line, under the head. *)
+            emit_atom indent head ^ "\n" ^ inner
+            ^ String.concat ("\n" ^ inner)
+                (List.map (emit_atom (indent + 2)) args)
+            ^ (if ind = "" then "" else ""))
+       | _, None -> oneline)
 
 (* A command's text, with interpolations left as ${...} and nothing quoted. *)
 and emit_command indent e =

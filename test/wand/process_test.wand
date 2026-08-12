@@ -11,7 +11,8 @@ let try_msg thunk =
 test "captures stdout" (fn t -> t.eq $(echo hello) "hello")
 test "strips trailing newline" (fn t -> t.eq $(printf hello) "hello")
 
-test "dynamic cmd via interpolation" (fn t -> let cmd = "echo world" in t.eq $(${cmd}) "world")
+test "dynamic cmd via interpolation" (fn t ->
+  let cmd = "echo world" in t.eq $(${cmd}) "world")
 
 test "result in binding" (fn t -> let out = $(echo hello) in t.eq out "hello")
 
@@ -22,7 +23,8 @@ test "interpolated command" (fn t -> let word = "hello" in t.eq $(echo ${word}) 
 (* ── Error handling ────────────────────────────────────────────────────── *)
 
 test "raises on nonzero exit" (fn t -> t.raises (fn () -> $(exit 1)))
-test "error shows exit code" (fn t -> t.ok (String.contains? "42" (try_msg (fn () -> $(sh -c "exit 42")))))
+test "error shows exit code" (fn t ->
+  t.ok (String.contains? "42" (try_msg (fn () -> $(sh -c "exit 42")))))
 
 (* ── $?() ──────────────────────────────────────────────────────────────── *)
 
@@ -43,6 +45,7 @@ test "pipe into $?()" (fn t -> let r = "hello" |> $?(cat) in t.eq r.stdout "hell
 
 (* ── mock handlers ─────────────────────────────────────────────────────── *)
 
-test "mock process_run" (fn t -> let outcome = handle $(echo hello) with
-| Shell!run _ k -> k "mocked" in
-t.eq outcome "mocked")
+test "mock process_run" (fn t ->
+  let outcome = handle $(echo hello) with
+  | Shell!run _ k -> k "mocked" in
+  t.eq outcome "mocked")
