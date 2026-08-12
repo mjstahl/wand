@@ -191,6 +191,14 @@ Explicit max-concurrency first argument; children never outlive the call; failur
 
 **Placement:** a new `stdlib/Par.wand` following the existing pattern (thin wand wrappers + doc strings over OCaml builtins, as in `FS.wand`), but with all real work in the OCaml layer — a `par_map` builtin over OCaml 5 domains enforcing the guarantees above. This weight distribution is the design: parallelism enters wand *only* through this module's two functions, with no user-accessible spawn/thread/channel primitive to build unstructured concurrency from; the module boundary is the constraint. Implementation caution: workers perform effects on their own domains, so `--dry-run`/`--trace` handlers must be installed per-domain or effects escape the interpreter. Add `Par` to the reference module list and REPL preloads — and note the README's current preload list names a `Process` module that has no `stdlib/` file (one more §2.2-style drift item for the Phase 0 sync).
 
+**Shipped**, as `stdlib/Par.wand` over a `par_map`/`par_each` builtin, with the signatures above modulo the failure type — an element that raises comes back as `Error String` (the raise message), so `Par.map` returns `List (Result String b)`. Explicit limit, results in the input's order, failures collected rather than fatal, no handle to a worker and no way to start one outside these two functions. `Par` is in the reference and the REPL preloads; `test/wand/par_test.wand` covers the guarantees.
+
+The implementation caution above turned out to be the whole problem, and per-domain handler installation is only half an answer: it makes a worker's effects *run*, but a user handler — a mock, a `--dry-run` — lives on the calling domain and cannot be reached from another one, so installing per-domain means a mocked test silently executes for real. Serializing effects back to the caller fixes that and costs all the parallelism for I/O, which is most of what a script does.
+
+Resolved by deciding per call rather than once: the evaluator counts observers (user handlers in scope, plus one while a rehearsal or trace runs). Unwatched, a worker installs the default handler on its own domain and the work overlaps — four `sleep 0.4`s in 0.59s against 1.84s serial. Watched, effects are forwarded to the calling domain and taken one at a time, so `handle`, `--dry-run` and `--trace` see inside a worker exactly as they see anything else. The cost is paid only when it buys correctness: **nothing rehearses for speed.**
+
+Not done: Ctrl-C cancellation, which needs the resource brackets of §4.6 to have anything to release, and D8, which is a demo of exactly that.
+
 ### 4.8 Distribution (not a language feature; adoption-gating)
 
 - **Static binary:** small (~10MB target) musl-linked `wand`, one-line install, vendorable into repos and base images.
@@ -425,7 +433,7 @@ D1–D3 and D9 cost nothing but writing and belong in the repo now — they are 
 
 **Phase 0.5 — Interpreter performance (pulled out of Phase 4; depends on nothing):** the throughput drags D9 measured — assoc-list environments making variable lookup O(scope size), and process output read one byte at a time — plus the cross-invocation compile cache (`~/.cache/wand`, content-hash keyed). Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
 
-**Phase 4 — Reach:** `Par` (§4.7) with **demo D8**; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
+**Phase 4 — Reach:** ~~`Par` (§4.7)~~ **done** — cancellation and **demo D8** remain, both blocked on §4.6 brackets; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
 
 ---
 
