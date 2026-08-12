@@ -2,13 +2,34 @@ open Evaluator
 
 (* ── Default effect handlers ──────────────────────────────────────────────── *)
 
+(* Drain a channel in blocks. Reading one byte at a time costs a call per
+   byte, which is invisible on a line of output and very much not on a
+   megabyte of it. *)
+let drain_channel ic =
+  let buf = Buffer.create 65536 in
+  let chunk = Bytes.create 65536 in
+  let rec loop () =
+    let n = input ic chunk 0 (Bytes.length chunk) in
+    if n > 0 then begin
+      Buffer.add_subbytes buf chunk 0 n;
+      loop ()
+    end
+  in
+  (try loop () with End_of_file -> ());
+  Buffer.contents buf
+
+let discard_channel ic =
+  let chunk = Bytes.create 65536 in
+  let rec loop () =
+    let n = input ic chunk 0 (Bytes.length chunk) in
+    if n > 0 then loop ()
+  in
+  (try loop () with End_of_file -> ())
+
 let exec_command cmd =
   let ic = Unix.open_process_in cmd in
-  let buf = Buffer.create 64 in
-  (try while true do Buffer.add_channel buf ic 1 done
-   with End_of_file -> ());
+  let output = drain_channel ic in
   let status = Unix.close_process_in ic in
-  let output = Buffer.contents buf in
   let output =
     let n = String.length output in
     let i = ref n in
@@ -23,7 +44,7 @@ let exec_command cmd =
 
 let exec_command_quiet cmd =
   let ic = Unix.open_process_in cmd in
-  (try while true do ignore (input_char ic) done with End_of_file -> ());
+  discard_channel ic;
   match Unix.close_process_in ic with
   | Unix.WEXITED 0   -> ()
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
@@ -32,16 +53,13 @@ let exec_command_quiet cmd =
 
 let exec_command_exit_code cmd =
   let ic = Unix.open_process_in cmd in
-  (try while true do ignore (input_char ic) done with End_of_file -> ());
+  discard_channel ic;
   match Unix.close_process_in ic with
   | Unix.WEXITED n   -> n
   | Unix.WSIGNALED _ -> 128
   | Unix.WSTOPPED  _ -> 128
 
-let read_all ic =
-  let buf = Buffer.create 64 in
-  (try while true do Buffer.add_channel buf ic 1 done with End_of_file -> ());
-  Buffer.contents buf
+let read_all ic = drain_channel ic
 
 let strip_trailing_newline s =
   let n = String.length s in
