@@ -14,7 +14,7 @@ printf '  deploy! : '
 
 echo
 echo "== its test suite =="
-"$WAND" test "$D/deploy_test.wand" 2>&1 | sed 's/^/  /'
+"$WAND" test "$D" 2>&1 | sed 's/^/  /'
 
 echo
 echo "== and the file it would have written =="

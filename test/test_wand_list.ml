@@ -1,7 +1,7 @@
 open Wand
 
 (* Proof-of-concept migration of test_list_stdlib.ml to a real .wand test
-   file (test/wand/list_test.wand) using the Test/wand test framework,
+   file (test/wand/test_list.wand) using the Test/wand test framework,
    run here via Runner.run_test_file so `dune test` still gates on it
    like every other suite. The file check must happen lazily inside the
    Alcotest test case (not at module-load time) -- Alcotest's working
@@ -9,7 +9,7 @@ open Wand
    resolve, matching the pattern already proven in
    test_formatter.ml's test_idempotent_stdlib. *)
 
-let path = "wand/list_test.wand"
+let path = "wand/test_list.wand"
 
 let test_list_wand () =
   if not (Sys.file_exists path) then
@@ -28,5 +28,5 @@ let test_list_wand () =
 
 let () =
   Alcotest.run "List (wand)" [
-    "cases", [ Alcotest.test_case "test/wand/list_test.wand" `Quick test_list_wand ];
+    "cases", [ Alcotest.test_case "test/wand/test_list.wand" `Quick test_list_wand ];
   ]

@@ -12,7 +12,7 @@ let usage () =
   print_endline "  d, doc  <name>   Print the doc string for a name";
   print_endline "  env              List all names and modules in scope";
   print_endline "  fmt, format <file>  Format a .wand file in place";
-  print_endline "  test <file>...   Run one or more .wand test files";
+  print_endline "  test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
   print_endline "";
   print_endline "Running a script:";
@@ -69,10 +69,16 @@ let usage_for sub =
     print_endline "formatting rule yet (requires/ensures, handle, $()/$?(), try,";
     print_endline "regex literals) are re-emitted verbatim."
   | "test" ->
-    print_endline "Usage: wand test <file.wand>...";
+    print_endline "Usage: wand test [<file.wand>|<dir>]...";
     print_endline "";
-    print_endline "Run one or more .wand test files (import Test; test \"label\"";
+    print_endline "Run .wand test files (import Test; test \"label\"";
     print_endline "(fn t -> t.ok/t.eq/t.raises ...)) and report pass/fail.";
+    print_endline "";
+    print_endline "With no argument, searches the current directory and everything";
+    print_endline "below it for files named test_*.wand — so a script's tests are";
+    print_endline "found beside the script. A directory argument is searched the";
+    print_endline "same way; a named file is run whatever it is called.";
+    print_endline "_build, _opam, .git and node_modules are not searched.";
     print_endline "Exits nonzero if any test failed or any file errored."
   | "h" | "help" ->
     print_endline "Usage: wand h [command]";
@@ -309,9 +315,27 @@ let () =
          ) paths;
          if !had_error then exit 1)
     | "test" ->
-      (match rest with
+      (* No argument means the directory you are standing in, which is what
+         you want after editing a script: run its tests without naming them.
+         A directory argument searches it the same way; a file is run as
+         given, whatever it is called. *)
+      let roots = match rest with [] -> ["."] | paths -> paths in
+      let missing = List.filter (fun p -> not (Sys.file_exists p)) roots in
+      if missing <> [] then begin
+        List.iter (fun p -> Printf.eprintf "Error: no such file or directory: %s\n" p) missing;
+        exit 1
+      end;
+      let paths = List.concat_map Wand.Runner.find_test_files roots in
+      (match paths with
        | [] ->
-         Printf.eprintf "Error: expected one or more files\nRun 'wand h test' for usage.\n"; exit 1
+         (match rest with
+          | [] ->
+            Printf.eprintf
+              "No test files found under '.' — a test file is named test_*.wand.\n";
+          | _ ->
+            Printf.eprintf "No test files found in %s — a test file is named test_*.wand.\n"
+              (String.concat ", " roots));
+         exit 1
        | paths ->
          let multi = List.length paths > 1 in
          let had_error = ref false in

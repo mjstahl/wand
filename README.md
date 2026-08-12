@@ -92,7 +92,7 @@ wand e "1 + 2"          # evaluate an expression
 wand t "1 + 2"          # typecheck, report holes, and lint
 wand d "List.map"       # show a doc string
 wand fmt script.wand    # format in place
-wand test my_test.wand  # run test files
+wand test               # run every test_*.wand from here down
 wand h                  # help
 ```
 

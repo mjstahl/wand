@@ -1305,12 +1305,21 @@ Each `test` call needs explicit parens around its `fn` argument
 (`test "x" (fn t -> ...)`) — wand doesn't currently allow a bare `fn` as
 a trailing application argument.
 
-Run one or more test files with `wand test`:
+Run test files with `wand test`:
 
 ```
-wand test my_test.wand
-wand test test/*.wand
+wand test                    # every test_*.wand at or below the current directory
+wand test scripts/           # every test_*.wand under scripts/
+wand test test_deploy.wand   # just this one
 ```
+
+A test file is named `test_*.wand`, and a script's tests belong beside the
+script — `deploy.wand` and `test_deploy.wand` in one directory, where the
+prefix sorts every test together and away from the things being tested.
+With no argument `wand test` searches from where you are standing, so
+editing a script and running its tests takes no path. `_build`, `_opam`,
+`.git` and `node_modules` are not searched. A file named on the command
+line runs whatever it is called.
 
 Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
 test whose body raises outside of `t.raises` is reported as a failure
@@ -1461,7 +1470,8 @@ wand d "List.map"                     # show doc string
 wand env                              # list all names and modules in scope
 wand fmt script.wand                  # format a file in place
 wand fmt stdlib/*.wand                # format multiple files in place
-wand test my_test.wand                # run one or more test files
+wand test                             # run every test_*.wand from here down
+wand test test_deploy.wand            # run named test files
 wand h                                # show all commands
 wand h e                              # help for a specific command
 ```

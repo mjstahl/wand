@@ -16,7 +16,7 @@
 
 (test
  (name test_wand_string)
- (deps wand/string_test.wand)
+ (deps wand/test_string.wand)
  (libraries wand alcotest))
 
 (test
@@ -25,22 +25,22 @@
 
 (test
  (name test_wand_list)
- (deps wand/list_test.wand)
+ (deps wand/test_list.wand)
  (libraries wand alcotest))
 
 (test
  (name test_cli)
- (libraries wand alcotest))
+ (libraries wand alcotest unix))
 
 (test
  (name test_wand_stdlib)
- (deps wand/path_test.wand wand/duration_test.wand wand/regex_test.wand wand/fs_test.wand
-       wand/csv_test.wand wand/json_test.wand wand/toml_test.wand
-       wand/glob_test.wand wand/imports_test.wand wand/imports_fixture.wand
-       wand/eval_test.wand wand/script_test.wand wand/typedef_test.wand wand/generics_test.wand
-       wand/contracts_test.wand wand/process_test.wand wand/strings_test.wand wand/effects_test.wand
-       wand/list_patterns_test.wand wand/io_test.wand wand/env_test.wand
-       wand/hermetic_test.wand wand/par_test.wand)
+ (deps wand/test_path.wand wand/test_duration.wand wand/test_regex.wand wand/test_fs.wand
+       wand/test_csv.wand wand/test_json.wand wand/test_toml.wand
+       wand/test_glob.wand wand/test_imports.wand wand/imports_fixture.wand
+       wand/test_eval.wand wand/test_script.wand wand/test_typedef.wand wand/test_generics.wand
+       wand/test_contracts.wand wand/test_process.wand wand/test_strings.wand wand/test_effects.wand
+       wand/test_list_patterns.wand wand/test_io.wand wand/test_env.wand
+       wand/test_hermetic.wand wand/test_par.wand)
  (libraries wand alcotest))
 
 (test

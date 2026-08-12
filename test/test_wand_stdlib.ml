@@ -22,29 +22,29 @@ let check_fixture path () =
 let () =
   Alcotest.run "Stdlib (wand)" [
     "modules", [
-      Alcotest.test_case "Path"     `Quick (check_fixture "wand/path_test.wand");
-      Alcotest.test_case "Duration" `Quick (check_fixture "wand/duration_test.wand");
-      Alcotest.test_case "Regex"    `Quick (check_fixture "wand/regex_test.wand");
-      Alcotest.test_case "FS"       `Quick (check_fixture "wand/fs_test.wand");
-      Alcotest.test_case "CSV"      `Quick (check_fixture "wand/csv_test.wand");
-      Alcotest.test_case "JSON"     `Quick (check_fixture "wand/json_test.wand");
-      Alcotest.test_case "TOML"     `Quick (check_fixture "wand/toml_test.wand");
-      Alcotest.test_case "Glob"     `Quick (check_fixture "wand/glob_test.wand");
-      Alcotest.test_case "Imports"  `Quick (check_fixture "wand/imports_test.wand");
+      Alcotest.test_case "Path"     `Quick (check_fixture "wand/test_path.wand");
+      Alcotest.test_case "Duration" `Quick (check_fixture "wand/test_duration.wand");
+      Alcotest.test_case "Regex"    `Quick (check_fixture "wand/test_regex.wand");
+      Alcotest.test_case "FS"       `Quick (check_fixture "wand/test_fs.wand");
+      Alcotest.test_case "CSV"      `Quick (check_fixture "wand/test_csv.wand");
+      Alcotest.test_case "JSON"     `Quick (check_fixture "wand/test_json.wand");
+      Alcotest.test_case "TOML"     `Quick (check_fixture "wand/test_toml.wand");
+      Alcotest.test_case "Glob"     `Quick (check_fixture "wand/test_glob.wand");
+      Alcotest.test_case "Imports"  `Quick (check_fixture "wand/test_imports.wand");
     ];
     "language", [
-      Alcotest.test_case "Eval"          `Quick (check_fixture "wand/eval_test.wand");
-      Alcotest.test_case "Script"        `Quick (check_fixture "wand/script_test.wand");
-      Alcotest.test_case "Typedef"       `Quick (check_fixture "wand/typedef_test.wand");
-      Alcotest.test_case "Generics"      `Quick (check_fixture "wand/generics_test.wand");
-      Alcotest.test_case "Contracts"     `Quick (check_fixture "wand/contracts_test.wand");
-      Alcotest.test_case "Process"       `Quick (check_fixture "wand/process_test.wand");
-      Alcotest.test_case "Strings"       `Quick (check_fixture "wand/strings_test.wand");
-      Alcotest.test_case "Effects"       `Quick (check_fixture "wand/effects_test.wand");
-      Alcotest.test_case "List patterns" `Quick (check_fixture "wand/list_patterns_test.wand");
-      Alcotest.test_case "IO"            `Quick (check_fixture "wand/io_test.wand");
-      Alcotest.test_case "Env"           `Quick (check_fixture "wand/env_test.wand");
-      Alcotest.test_case "Hermetic"      `Quick (check_fixture "wand/hermetic_test.wand");
-      Alcotest.test_case "Par"           `Quick (check_fixture "wand/par_test.wand");
+      Alcotest.test_case "Eval"          `Quick (check_fixture "wand/test_eval.wand");
+      Alcotest.test_case "Script"        `Quick (check_fixture "wand/test_script.wand");
+      Alcotest.test_case "Typedef"       `Quick (check_fixture "wand/test_typedef.wand");
+      Alcotest.test_case "Generics"      `Quick (check_fixture "wand/test_generics.wand");
+      Alcotest.test_case "Contracts"     `Quick (check_fixture "wand/test_contracts.wand");
+      Alcotest.test_case "Process"       `Quick (check_fixture "wand/test_process.wand");
+      Alcotest.test_case "Strings"       `Quick (check_fixture "wand/test_strings.wand");
+      Alcotest.test_case "Effects"       `Quick (check_fixture "wand/test_effects.wand");
+      Alcotest.test_case "List patterns" `Quick (check_fixture "wand/test_list_patterns.wand");
+      Alcotest.test_case "IO"            `Quick (check_fixture "wand/test_io.wand");
+      Alcotest.test_case "Env"           `Quick (check_fixture "wand/test_env.wand");
+      Alcotest.test_case "Hermetic"      `Quick (check_fixture "wand/test_hermetic.wand");
+      Alcotest.test_case "Par"           `Quick (check_fixture "wand/test_par.wand");
     ];
   ]

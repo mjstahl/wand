@@ -765,6 +765,45 @@ let run_test_program ~base_dir prog : (test_outcome list, string) result =
     ));
     Ok !outcomes
 
+(* A test file is one named `test_*.wand`. The prefix rather than a suffix,
+   because a script's tests live beside the script: `deploy.wand` and
+   `test_deploy.wand` in one directory, where the prefix sorts every test
+   together and away from the things being tested. *)
+let is_test_file name =
+  let prefix = "test_" and ext = ".wand" in
+  Filename.check_suffix name ext
+  && String.length name > String.length prefix + String.length ext
+  && String.sub name 0 (String.length prefix) = prefix
+
+(* Every test file at or below `root`, in a stable order so a run's output
+   is comparable to the last one. Directories a script has no business
+   descending into are skipped: `_build` holds dune's copies of these very
+   files, and finding each test twice under two paths is worse than useless. *)
+let skipped_dir name =
+  name = "_build" || name = "_opam" || name = ".git" || name = "node_modules"
+
+(* A broken symlink answers neither question, so it is not a directory and
+   not a test: stepping around it beats crashing a test run over it. *)
+let is_dir path = try Sys.is_directory path with Sys_error _ -> false
+
+let find_test_files root =
+  let found = ref [] in
+  let rec walk dir =
+    match Sys.readdir dir with
+    | exception Sys_error _ -> ()  (* unreadable: not this command's problem *)
+    | entries ->
+      Array.sort compare entries;
+      Array.iter (fun name ->
+        let path = Filename.concat dir name in
+        if is_dir path then begin
+          if not (skipped_dir name) then walk path
+        end else if is_test_file name then found := path :: !found
+      ) entries
+  in
+  if is_dir root then walk root
+  else if Sys.file_exists root then found := [root];
+  List.rev !found
+
 let run_test_file path : (test_outcome list, string) result =
   let full =
     if Filename.is_relative path

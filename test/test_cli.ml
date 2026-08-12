@@ -268,6 +268,73 @@ let test_typecheck_file_lints () =
       Alcotest.(check bool) "a lint is reported" true (findings <> [])
     | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
 
+(* ── wand test: finding the files ────────────────────────────────────────── *)
+
+(* A script's tests live beside the script, so discovery is by prefix and
+   the answer has to be the tests and nothing else -- not the script, not a
+   fixture, and not dune's copy of the same tree under _build. *)
+
+let write path contents =
+  Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc contents)
+
+let with_tree f =
+  let root = Filename.temp_file "wand_tests" "" in
+  Sys.remove root;
+  Sys.mkdir root 0o755;
+  Fun.protect
+    ~finally:(fun () -> ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote root))))
+    (fun () -> f root)
+
+let test_finds_tests_beside_scripts () =
+  with_tree (fun root ->
+    let at p = Filename.concat root p in
+    write (at "deploy.wand") "let deploy = 1";
+    write (at "test_deploy.wand") "";
+    (* A nested script directory is searched too. *)
+    Sys.mkdir (at "scripts") 0o755;
+    write (at "scripts/test_backup.wand") "";
+    write (at "scripts/backup.wand") "";
+    (* Things that are not test files, by each of the ways they can fail
+       to be one. *)
+    write (at "fixture.wand") "";
+    write (at "test_notes.txt") "";
+    write (at "test_.wand") "";
+    let found =
+      Runner.find_test_files root
+      |> List.map Filename.basename
+    in
+    Alcotest.(check (list string)) "the test files, in a stable order"
+      ["test_backup.wand"; "test_deploy.wand"] found)
+
+(* dune copies the source tree into _build, so a search that descends into
+   it reports every test twice under two different paths. *)
+let test_skips_build_directories () =
+  with_tree (fun root ->
+    let at p = Filename.concat root p in
+    write (at "test_real.wand") "";
+    List.iter (fun d ->
+      Sys.mkdir (at d) 0o755;
+      write (at (Filename.concat d "test_copy.wand")) "")
+      ["_build"; "_opam"; ".git"; "node_modules"];
+    let found = Runner.find_test_files root |> List.map Filename.basename in
+    Alcotest.(check (list string)) "only the real one" ["test_real.wand"] found)
+
+(* A file named outright runs whatever it is called: the prefix is how
+   files are found, not a rule about what may be run. *)
+let test_a_named_file_is_taken_as_given () =
+  with_tree (fun root ->
+    let path = Filename.concat root "anything.wand" in
+    write path "";
+    Alcotest.(check (list string)) "the file itself" [path]
+      (Runner.find_test_files path))
+
+let test_a_dangling_symlink_is_stepped_over () =
+  with_tree (fun root ->
+    write (Filename.concat root "test_real.wand") "";
+    Unix.symlink (Filename.concat root "gone") (Filename.concat root "link");
+    let found = Runner.find_test_files root |> List.map Filename.basename in
+    Alcotest.(check (list string)) "still finds the test" ["test_real.wand"] found)
+
 let () =
   Alcotest.run "CLI" [
     "typecheck a file", [
@@ -275,6 +342,12 @@ let () =
       Alcotest.test_case "reports errors"     `Quick test_typecheck_file_reports_errors;
       Alcotest.test_case "reports holes"      `Quick test_typecheck_file_reports_holes;
       Alcotest.test_case "reports lints"      `Quick test_typecheck_file_lints;
+    ];
+    "test discovery", [
+      Alcotest.test_case "finds tests beside scripts" `Quick test_finds_tests_beside_scripts;
+      Alcotest.test_case "skips build directories"    `Quick test_skips_build_directories;
+      Alcotest.test_case "a named file as given"      `Quick test_a_named_file_is_taken_as_given;
+      Alcotest.test_case "steps over a broken link"   `Quick test_a_dangling_symlink_is_stepped_over;
     ];
     "repl", [
       Alcotest.test_case "clause merge announced" `Quick test_repl_merges_clauses_and_announces;

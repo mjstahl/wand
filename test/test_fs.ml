@@ -5,7 +5,7 @@ let run s = Runner.run_string s
 let ok label input expected =
   Alcotest.(check (result string string)) label (Ok expected) (run input)
 
-(* Trust anchor for test/wand/fs_test.wand: verifies FS.write_file/
+(* Trust anchor for test/wand/test_fs.wand: verifies FS.write_file/
    read_file round-trip against a real, OCaml-managed temp file. Every
    other FS.wand fixture test builds on this to create/read its own
    scratch files without needing OCaml-side scaffolding. *)
