@@ -59,6 +59,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_effect_row)
+ (libraries wand alcotest))
+
+(test
  (name test_lint)
  (deps (source_tree ../stdlib) ../docs/reference.md)
  (libraries wand alcotest))
