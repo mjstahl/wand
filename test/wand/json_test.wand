@@ -99,12 +99,12 @@ t.eq (match JSON.parse s with
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
-test "read_file ok" (fn t -> let p = FS.temp_file "wand_json_rd_" ".json" in
-let () = FS.write_file (Path.to_string p) "{\"greeting\":\"hello\"}" in
+test "read_file ok" (fn t -> let p = FS.temp_file! "wand_json_rd_" ".json" in
+let () = FS.write_file! (Path.to_string p) "{\"greeting\":\"hello\"}" in
 let outcome = match JSON.read_file p with
 | Ok j -> JSON.stringify (JSON.field! "greeting" j)
 | Error _ -> "" in
-let () = FS.delete p in t.eq outcome "\"hello\"")
+let () = FS.delete! p in t.eq outcome "\"hello\"")
 
 test "read_file missing file returns Error" (fn t -> t.eq (match JSON.read_file (Path.of_string "/nonexistent/wand_missing.json") with
 | Ok _ -> "ok"

@@ -1,8 +1,12 @@
+import Option
+
 (** An empty map. Use Map.empty or the literal [] syntax — but note [] is an empty list; prefer Map.empty for clarity. *)
 let empty = map_empty
 
-(** Look up a key, returning Ok value or Error message. *)
-let get  key m = map_get key m
+(** Look up a key, returning None if it is absent. *)
+let get  key m = match map_get key m with
+  | Ok v    -> Some v
+  | Error _ -> None
 
 (** Look up a key, raising a runtime error if not found. *)
 let get! key m = map_get_exn key m

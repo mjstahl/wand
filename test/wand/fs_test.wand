@@ -11,117 +11,117 @@ import Types
    trusted foundation (verified separately in test_fs.ml against an
    OCaml-managed temp file). *)
 
-let scratch_marker = FS.temp_file "wand_fs_test_" ""
+let scratch_marker = FS.temp_file! "wand_fs_test_" ""
 let scratch = Path.to_string scratch_marker
-let () = FS.delete scratch_marker
-let () = FS.mkdir (Path.of_string scratch)
+let () = FS.delete! scratch_marker
+let () = FS.mkdir! (Path.of_string scratch)
 
-test "temp_file creates a unique, existing file" (fn t -> let a = FS.temp_file "wand_" ".txt" in
-let b = FS.temp_file "wand_" ".txt" in
+test "temp_file creates a unique, existing file" (fn t -> let a = FS.temp_file! "wand_" ".txt" in
+let b = FS.temp_file! "wand_" ".txt" in
 let both_exist = (FS.exists? a, FS.exists? b) in
 let unique = a != b in
-let () = FS.delete a in
-let () = FS.delete b in t.eq (both_exist, unique) ((true, true), true))
+let () = FS.delete! a in
+let () = FS.delete! b in t.eq (both_exist, unique) ((true, true), true))
 
 test "mkdir creates nested directories" (fn t -> let dir = Path.of_string "${scratch}/mkdir_case/nested/deep" in
-let () = FS.mkdir dir in
+let () = FS.mkdir! dir in
 let is_dir = FS.is_dir? dir in
-let () = FS.delete dir in
-let () = FS.delete (Path.of_string "${scratch}/mkdir_case/nested") in
-let () = FS.delete (Path.of_string "${scratch}/mkdir_case") in t.ok is_dir)
+let () = FS.delete! dir in
+let () = FS.delete! (Path.of_string "${scratch}/mkdir_case/nested") in
+let () = FS.delete! (Path.of_string "${scratch}/mkdir_case") in t.ok is_dir)
 
 test "create_file makes an empty file" (fn t -> let p = Path.of_string "${scratch}/create_file_case.txt" in
-let () = FS.create_file p in
-let contents = FS.read_file (Path.to_string p) in let () = FS.delete p in t.eq contents "")
+let () = FS.create_file! p in
+let contents = FS.read_file! (Path.to_string p) in let () = FS.delete! p in t.eq contents "")
 
 test "append writes to a real file on disk" (fn t -> let p = Path.of_string "${scratch}/append_case.txt" in
-let () = FS.write_file (Path.to_string p) "hello" in
-let () = FS.append p " world" in
-let contents = FS.read_file (Path.to_string p) in
-let () = FS.delete p in t.eq contents "hello world")
+let () = FS.write_file! (Path.to_string p) "hello" in
+let () = FS.append! p " world" in
+let contents = FS.read_file! (Path.to_string p) in
+let () = FS.delete! p in t.eq contents "hello world")
 
 test "rename moves a file" (fn t -> let src = Path.of_string "${scratch}/rename_src.txt" in
 let dst = Path.of_string "${scratch}/rename_dst.txt" in
-let () = FS.write_file (Path.to_string src) "data" in
-let () = FS.rename src dst in
-let contents = FS.read_file (Path.to_string dst) in
-let () = FS.delete dst in t.eq contents "data")
+let () = FS.write_file! (Path.to_string src) "data" in
+let () = FS.rename! src dst in
+let contents = FS.read_file! (Path.to_string dst) in
+let () = FS.delete! dst in t.eq contents "data")
 
 test "copy duplicates a file" (fn t -> let src = Path.of_string "${scratch}/copy_src.txt" in
 let dst = Path.of_string "${scratch}/copy_dst.txt" in
-let () = FS.write_file (Path.to_string src) "copied" in
-let () = FS.copy src dst in
-let contents = FS.read_file (Path.to_string dst) in
-let () = FS.delete src in let () = FS.delete dst in t.eq contents "copied")
+let () = FS.write_file! (Path.to_string src) "copied" in
+let () = FS.copy! src dst in
+let contents = FS.read_file! (Path.to_string dst) in
+let () = FS.delete! src in let () = FS.delete! dst in t.eq contents "copied")
 
 test "exists?/is_file?/is_dir?" (fn t -> let p = Path.of_string "${scratch}/exists_case.txt" in
-let () = FS.write_file (Path.to_string p) "x" in
+let () = FS.write_file! (Path.to_string p) "x" in
 let outcome = (FS.exists? p, FS.is_file? p, FS.is_dir? p) in
-let () = FS.delete p in t.eq outcome (true, true, false))
+let () = FS.delete! p in t.eq outcome (true, true, false))
 
 test "size returns byte length" (fn t -> let p = Path.of_string "${scratch}/size_case.txt" in
-let () = FS.write_file (Path.to_string p) "12345" in
-let sz = FS.size p in let () = FS.delete p in t.eq sz 5)
+let () = FS.write_file! (Path.to_string p) "12345" in
+let sz = FS.size! p in let () = FS.delete! p in t.eq sz 5)
 
 test "list_dir lists immediate children" (fn t -> let dir = Path.of_string "${scratch}/list_dir_case" in
-let () = FS.mkdir dir in
-let () = FS.write_file "${scratch}/list_dir_case/a.txt" "a" in
-let () = FS.write_file "${scratch}/list_dir_case/b.txt" "b" in
-let entries = FS.list_dir dir in
+let () = FS.mkdir! dir in
+let () = FS.write_file! "${scratch}/list_dir_case/a.txt" "a" in
+let () = FS.write_file! "${scratch}/list_dir_case/b.txt" "b" in
+let entries = FS.list_dir! dir in
 let names = List.sort (List.map Path.basename entries) in
-let () = FS.delete (Path.of_string "${scratch}/list_dir_case/a.txt") in
-let () = FS.delete (Path.of_string "${scratch}/list_dir_case/b.txt") in
-let () = FS.delete dir in t.eq names ["a.txt", "b.txt"])
+let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/a.txt") in
+let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/b.txt") in
+let () = FS.delete! dir in t.eq names ["a.txt", "b.txt"])
 
 (* `**` is the replacement for the removed FS.walk: it crosses directory
    separators and matches names without a dot, so `plain` below is included.
    `**.*` would silently drop it -- that is why the migration uses `**`. *)
 test "glob ** recurses into subdirectories" (fn t -> let base = "${scratch}/walk_case" in
-let () = FS.mkdir (Path.of_string "${base}/sub") in
-let () = FS.write_file "${base}/a.txt" "a" in
-let () = FS.write_file "${base}/sub/b.txt" "b" in
-let () = FS.write_file "${base}/sub/plain" "p" in
+let () = FS.mkdir! (Path.of_string "${base}/sub") in
+let () = FS.write_file! "${base}/a.txt" "a" in
+let () = FS.write_file! "${base}/sub/b.txt" "b" in
+let () = FS.write_file! "${base}/sub/plain" "p" in
 let entries = FS.glob_in ** (Path.of_string base) in
 let strip p =
   let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s
 in let names = List.sort (List.map strip entries) in
-let () = FS.delete (Path.of_string "${base}/a.txt") in
-let () = FS.delete (Path.of_string "${base}/sub/b.txt") in
-let () = FS.delete (Path.of_string "${base}/sub/plain") in
-let () = FS.delete (Path.of_string "${base}/sub") in
-let () = FS.delete (Path.of_string base) in
+let () = FS.delete! (Path.of_string "${base}/a.txt") in
+let () = FS.delete! (Path.of_string "${base}/sub/b.txt") in
+let () = FS.delete! (Path.of_string "${base}/sub/plain") in
+let () = FS.delete! (Path.of_string "${base}/sub") in
+let () = FS.delete! (Path.of_string base) in
 t.eq names ["a.txt", "sub/b.txt", "sub/plain"])
 
 test "delete removes a file" (fn t -> let p = Path.of_string "${scratch}/delete_case.txt" in
-let () = FS.write_file (Path.to_string p) "x" in
-let () = FS.delete p in t.eq (FS.exists? p) false)
+let () = FS.write_file! (Path.to_string p) "x" in
+let () = FS.delete! p in t.eq (FS.exists? p) false)
 
 test "read/write roundtrip" (fn t -> let p = Path.of_string "${scratch}/roundtrip_case.txt" in
-let () = FS.write_file (Path.to_string p) "round trip" in
-let contents = FS.read_file (Path.to_string p) in
-let () = FS.delete p in t.eq contents "round trip")
+let () = FS.write_file! (Path.to_string p) "round trip" in
+let contents = FS.read_file! (Path.to_string p) in
+let () = FS.delete! p in t.eq contents "round trip")
 
-test "read nonexistent file raises" (fn t -> t.raises (fn () -> FS.read_file "/no/such/path/wand_test_xyz"))
+test "read nonexistent file raises" (fn t -> t.raises (fn () -> FS.read_file! "/no/such/path/wand_test_xyz"))
 
 test "cwd returns an existing directory" (fn t -> t.ok (FS.is_dir? (FS.cwd ())))
 
-test "cleanup scratch directory" (fn t -> let () = FS.delete (Path.of_string scratch) in t.ok true)
+test "cleanup scratch directory" (fn t -> let () = FS.delete! (Path.of_string scratch) in t.ok true)
 
 (* ── type errors ───────────────────────────────────────────────────────── *)
 
-test "read_file rejects a non-string argument" (fn t -> t.ok (Types.fails? "import FS\nFS.read_file 42"))
+test "read_file rejects a non-string argument" (fn t -> t.ok (Types.fails? "import FS\nFS.read_file! 42"))
 
-test "write_file rejects a non-string path argument" (fn t -> t.ok (Types.fails? "import FS\nFS.write_file 42 \"content\""))
+test "write_file rejects a non-string path argument" (fn t -> t.ok (Types.fails? "import FS\nFS.write_file! 42 \"content\""))
 
 (* ── effect handler mocking ────────────────────────────────────────────── *)
 
-(* FS.append performs an fs_append effect rather than touching the
+(* FS.append! performs an fs_append effect rather than touching the
    filesystem directly; a handler installed here intercepts it and
    resumes without ever writing to disk. *)
 test "mock append does not touch real filesystem" (fn t ->
   let outcome =
     handle
-      let () = FS.append (Path.of_string "/dev/null") "data" in
+      let () = FS.append! (Path.of_string "/dev/null") "data" in
       "done"
     with
     | fs_append _ k -> k ()
@@ -135,14 +135,14 @@ test "mock append does not touch real filesystem" (fn t ->
 
 test "mock read_file returns substituted content" (fn t ->
   let outcome =
-    handle FS.read_file "/nonexistent" with
+    handle FS.read_file! "/nonexistent" with
     | read_file _ k -> k "mocked content"
   in t.eq outcome "mocked content")
 
 test "mock write_file resumes without touching disk" (fn t ->
   let outcome =
     handle
-      let () = FS.write_file "/nonexistent" "data" in
+      let () = FS.write_file! "/nonexistent" "data" in
       "done"
     with
     | write_file _ k -> k ()
@@ -152,7 +152,7 @@ test "mock write_file resumes without touching disk" (fn t ->
 test "mock write_file can capture the path/content argument" (fn t ->
   let outcome =
     handle
-      let () = FS.write_file "/tmp/foo.txt" "hello" in
+      let () = FS.write_file! "/tmp/foo.txt" "hello" in
       "wrote"
     with
     | write_file (path, _) k -> path ++ ": ok" ++ k ()

@@ -10,8 +10,8 @@ import FS
 (* ── get ───────────────────────────────────────────────────────────────── *)
 
 let () = Env.set "WAND_TEST_VAR" "hello"
-test "get existing" (fn t -> t.eq (Env.get "WAND_TEST_VAR") "hello")
-test "get missing returns empty" (fn t -> t.eq (Env.get "WAND_TEST_NONEXISTENT_XYZ") "")
+test "get existing" (fn t -> t.eq (Env.get "WAND_TEST_VAR") (Some "hello"))
+test "get missing returns None" (fn t -> t.eq (Env.get "WAND_TEST_NONEXISTENT_XYZ") None)
 
 (* ── get! ──────────────────────────────────────────────────────────────── *)
 
@@ -21,12 +21,14 @@ test "get! missing raises" (fn t -> t.raises (fn () -> Env.get! "WAND_TEST_NONEX
 
 (* ── set ───────────────────────────────────────────────────────────────── *)
 
-test "set then get" (fn t -> let () = Env.set "WAND_TEST_SET" "value" in t.eq (Env.get "WAND_TEST_SET") "value")
+test "set then get" (fn t -> let () = Env.set "WAND_TEST_SET" "value" in t.eq (Env.get "WAND_TEST_SET") (Some "value"))
 
 (* ── unset ─────────────────────────────────────────────────────────────── *)
 
 let () = Env.set "WAND_TEST_UNSET" "before"
-test "unset clears value" (fn t -> let () = Env.unset "WAND_TEST_UNSET" in t.eq (Env.get "WAND_TEST_UNSET") "")
+(* Env.unset sets the variable to the empty string: OCaml exposes putenv but
+   no unsetenv, so the name survives in the environment with an empty value. *)
+test "unset clears value" (fn t -> let () = Env.unset "WAND_TEST_UNSET" in t.eq (Env.get "WAND_TEST_UNSET") (Some ""))
 
 (* ── all ───────────────────────────────────────────────────────────────── *)
 
@@ -47,21 +49,21 @@ test "user returns non-empty string" (fn t -> t.ok (String.length (Env.user ()) 
 
 (* ── Env.read / Env.load ──────────────────────────────────────────────── *)
 
-test "basic key=value" (fn t -> let p = FS.temp_file "wand_env_rd_" ".env" in
-let () = FS.write_file (Path.to_string p) "FOO=bar\nBAZ=qux\n" in
-let m = Env.read p in let () = FS.delete p in t.eq (Map.get! "FOO" m) "bar")
+test "basic key=value" (fn t -> let p = FS.temp_file! "wand_env_rd_" ".env" in
+let () = FS.write_file! (Path.to_string p) "FOO=bar\nBAZ=qux\n" in
+let m = Env.read p in let () = FS.delete! p in t.eq (Map.get! "FOO" m) "bar")
 
 let dotenv_fmt =
   "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n"
 
-test "dotenv formats" (fn t -> let p = FS.temp_file "wand_env_fmt_" ".env" in
-let () = FS.write_file (Path.to_string p) dotenv_fmt in
+test "dotenv formats" (fn t -> let p = FS.temp_file! "wand_env_fmt_" ".env" in
+let () = FS.write_file! (Path.to_string p) dotenv_fmt in
 let m = Env.read p in
-let () = FS.delete p in
+let () = FS.delete! p in
 t.eq (Map.get! "KEY1" m, Map.get! "KEY2" m, Map.get! "KEY3" m, Map.get! "KEY4" m, Map.get! "KEY5" m) ("hello", "quoted", "single", "exported", "has=equals"))
 
-test "load sets env var" (fn t -> let p = FS.temp_file "wand_load_" ".env" in
-let () = FS.write_file (Path.to_string p) "WAND_LOAD_TEST=loaded_value\n" in
+test "load sets env var" (fn t -> let p = FS.temp_file! "wand_load_" ".env" in
+let () = FS.write_file! (Path.to_string p) "WAND_LOAD_TEST=loaded_value\n" in
 let () = Env.load p in
 let outcome = Env.get "WAND_LOAD_TEST" in
-let () = FS.delete p in t.eq outcome "loaded_value")
+let () = FS.delete! p in t.eq outcome (Some "loaded_value"))

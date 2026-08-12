@@ -95,15 +95,15 @@ t.eq (match TOML.get_table tm with
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
-test "read_file ok" (fn t -> let p = FS.temp_file "wand_toml_rd_" ".toml" in
-let () = FS.write_file (Path.to_string p) "[db]\nname = \"mydb\"\n" in
+test "read_file ok" (fn t -> let p = FS.temp_file! "wand_toml_rd_" ".toml" in
+let () = FS.write_file! (Path.to_string p) "[db]\nname = \"mydb\"\n" in
 let outcome = match TOML.read_file p with
 | Ok tm -> (let db = TOML.field! "db" tm in
 match TOML.get_string (TOML.field! "name" db) with
 | Ok s -> s
 | Error _ -> "")
 | Error _ -> "" in
-let () = FS.delete p in t.eq outcome "mydb")
+let () = FS.delete! p in t.eq outcome "mydb")
 
 test "read_file missing file returns Error" (fn t -> t.eq (match TOML.read_file (Path.of_string "/nonexistent/wand_missing.toml") with
 | Ok _ -> "ok"

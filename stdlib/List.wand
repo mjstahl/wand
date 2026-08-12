@@ -1,3 +1,5 @@
+import Option
+
 (** Apply a function to every element of a list, returning a new list. *)
 let map _ []       = []
 let map f [h : t] = f h : map f t
@@ -27,8 +29,16 @@ let append [h : t] ys = h : append t ys
 (** Reverse a list. *)
 let reverse xs = fold_left (fn acc x -> x : acc) [] xs
 
+(** Return the first element of a list, or None if it is empty. *)
+let head []      = None
+let head [h : _] = Some h
+
 (** Return the first element of a list. Raises on empty list. *)
 let head! [h : _] = h
+
+(** Return all elements after the first, or None if the list is empty. *)
+let tail []      = None
+let tail [_ : t] = Some t
 
 (** Return all elements after the first. Raises on empty list. *)
 let tail! [_ : t] = t
@@ -44,6 +54,10 @@ let any p [h : t] = if p h then true else any p t
 (** Return true if all elements satisfy the predicate. *)
 let all _ []       = true
 let all p [h : t] = if p h then all p t else false
+
+(** Return the first element satisfying the predicate, or None. *)
+let find _ []      = None
+let find p [h : t] = if p h then Some h else find p t
 
 (** Pair up elements from two lists. Stops at the shorter list. *)
 let zip []       _        = []
@@ -78,8 +92,10 @@ let each f xs =
       go i [h : t] = let () = f (i, h) in go (i + 1) t
   in go 0 xs
 
-(** Return the element at index n.  Returns Ok v or Error message. *)
-let get  n xs = list_get n xs
+(** Return the element at index n, or None if out of bounds. *)
+let get  n xs = match list_get n xs with
+  | Ok v    -> Some v
+  | Error _ -> None
 
 (** Return the element at index n.  Raises if out of bounds. *)
 let get! n xs = list_get_exn n xs

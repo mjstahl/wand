@@ -279,7 +279,7 @@ let m = [x = 1, y = 2, z = 3]   -- Map Int
 Using the `Map` module:
 
 ```
-Map.get  "x" m     -- Ok(1)
+Map.get  "x" m     -- Some(1)
 Map.get! "x" m     -- 1  (raises on missing)
 Map.has? "x" m     -- true
 Map.set  "w" 4 m   -- [w = 4, x = 1, y = 2, z = 3]
@@ -701,7 +701,7 @@ written there.)
 ### `List`
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head!`, `tail!`, `is_empty?`, `any`, `all`, `zip`, `take`, `drop`,
+`head`, `head!`, `tail`, `tail!`, `is_empty?`, `any`, `all`, `find`, `zip`, `take`, `drop`,
 `take_while`, `drop_while`, `each`, `sort`, `sort_by`, `unique`, `range`,
 `flatten`, `concat`, `get`, `get!`
 
@@ -724,9 +724,10 @@ written there.)
 
 ### `FS`
 
-`read_file`, `write_file`, `append`, `create_file`, `temp_file`, `exists?`,
-`is_file?`, `is_dir?`, `mkdir`, `delete`, `rename`, `copy`, `list_dir`,
-`glob`, `glob_in`, `mtime`, `size`, `cwd`
+`read_file`, `write_file`, `append`, `create_file`, `temp_file`, `mkdir`,
+`delete`, `rename`, `copy`, `list_dir`, `mtime`, `size` — each with a `!`
+sibling that raises instead of returning a `Result`.
+`exists?`, `is_file?`, `is_dir?`, `glob`, `glob_in`, `cwd`
 
 ### `Path`
 
