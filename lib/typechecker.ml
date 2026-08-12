@@ -104,6 +104,19 @@ let rec repr t =
 
 (* ── string_of_typ ────────────────────────────────────────────────────────── *)
 
+(* Every row variable in `t`, with repeats, so display can tell a row that
+   links two places apart from one that is merely undetermined. *)
+let rec collect_rowvars t =
+  match repr t with
+  | TFun (a, b, r) ->
+    collect_rowvars a @ collect_rowvars b @ Effect_row.free_rowvars r
+  | TTuple ts   -> List.concat_map collect_rowvars ts
+  | TList t     -> collect_rowvars t
+  | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
+  | TMap t      -> collect_rowvars t
+  | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
+  | _           -> []
+
 let string_of_typ t =
   let counter = ref 0 in
   let names : (int, string) Hashtbl.t = Hashtbl.create 4 in
@@ -113,6 +126,17 @@ let string_of_typ t =
     | None   ->
       let n = Printf.sprintf "'%c" (Char.chr (Char.code 'a' + !counter)) in
       incr counter; Hashtbl.add names id n; n
+  in
+  let linking_rows = collect_rowvars t in
+  let row_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
+  let row_counter = ref 0 in
+  let row_name_of rid =
+    match Hashtbl.find_opt row_names rid with
+    | Some n -> n
+    | None   ->
+      let n = if !row_counter = 0 then "e"
+              else Printf.sprintf "e%d" !row_counter in
+      incr row_counter; Hashtbl.add row_names rid n; n
   in
   let rec go t =
     match repr t with
@@ -128,12 +152,27 @@ let string_of_typ t =
     | TName n   -> n
     | TVar tv   -> name_of tv.id
     | TFun (a, b, eff) ->
-      (* An empty row prints nothing, so a signature that does nothing to the
-         machine reads exactly as it always has. An unresolved row is also
-         silent: it means "not yet known", which is noise, not information. *)
+      (* A row prints when it says something. Known effects always do. A row
+         variable does only when it appears more than once, because then it
+         is linking argument to result -- `List.map`'s says the list is
+         processed with whatever effects the given function has. A variable
+         appearing once means "undetermined", which is not information. *)
+      let labels = Effect_row.labels_of eff in
+      let var_name =
+        match Effect_row.free_rowvars eff with
+        | [rid] when List.length (List.filter (( = ) rid) linking_rows) > 1 ->
+          Some (row_name_of rid)
+        | _ -> None
+      in
       let suffix =
-        if Effect_row.EffSet.is_empty (Effect_row.labels_of eff) then ""
-        else " ! " ^ Effect_row.string_of_row eff
+        match Effect_row.EffSet.is_empty labels, var_name with
+        | true,  None   -> ""
+        | true,  Some v -> " ! " ^ v
+        | false, None   -> " ! " ^ Effect_row.string_of_row eff
+        | false, Some v ->
+          " ! {" ^ String.concat ", "
+            (List.map Effect_row.name_of (Effect_row.EffSet.elements labels))
+          ^ " | " ^ v ^ "}"
       in
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
       sa ^ " -> " ^ go b ^ suffix
@@ -1287,9 +1326,9 @@ let builtin_tenv : typedef_env = [
 
 (* User-visible globals — the only names available without an import *)
 let builtin_type_env : env = [
-  ("print",   let a = fresh () in generalize [] ((a @-> TUnit)));
-  ("println", let a = fresh () in generalize [] ((a @-> TUnit)));
-  ("exit",    let a = fresh () in generalize [] ((TInt @-> a)));
+  ("print",   let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("println", let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("exit",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
 ]
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
