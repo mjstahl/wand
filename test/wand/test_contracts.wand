@@ -1,4 +1,4 @@
-import Test
+let [test] = import Test
 import String
 
 let try_msg thunk =

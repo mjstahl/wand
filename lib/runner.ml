@@ -490,6 +490,13 @@ let run_item env item =
     ) env ctors
   | Ast.TLExpr _ -> env
 
+(* The constructors of a set of type definitions, as evaluation bindings.
+   Type definitions cross an import boundary, so their constructors have to
+   as well: the typechecker learns them from the definition, and this is the
+   evaluator's half of the same fact. *)
+let ctor_bindings_of tenv =
+  List.fold_left (fun acc (_, tdef) -> run_item acc (Ast.TLType tdef)) [] tenv
+
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
 type module_result = import_env * (string * Typechecker.scheme) list * env * (string * string) list
@@ -518,10 +525,20 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
       in
       ((alias, t), (alias, v))
     in
+    (* An import brings in exactly what it names -- the namespace, or the
+       fields a destructuring pattern lists -- and nothing else. The module's
+       own environment is deliberately not spliced in: its functions are
+       closures that already carry the scope they were written in, so they do
+       not need the importer's, and splicing it would put every name in the
+       module into scope unqualified, whether or not the import asked for it.
+
+       Type definitions are the exception and do propagate, along with their
+       constructors, because a value of an imported type is matched by
+       constructor here. *)
     let add_import modul_import type_entries eval_entries mod_docs =
       ({ tenv     = modul_import.tenv @ acc.tenv;
-         type_env = type_entries @ modul_import.type_env @ acc.type_env;
-         eval_env = eval_entries @ modul_import.eval_env @ acc.eval_env },
+         type_env = type_entries @ acc.type_env;
+         eval_env = eval_entries @ ctor_bindings_of modul_import.tenv @ acc.eval_env },
        mod_docs @ acc_docs)
     in
     match item with

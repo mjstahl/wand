@@ -62,6 +62,46 @@ let test_destructured_binding_works () =
       (run (Printf.sprintf {|let [public] = import %s
 public|} path)))
 
+(* ── An import brings in what it names, and nothing else ─────────────────── *)
+
+(* Binding a module to a name used to put every name inside it into scope
+   unqualified as well, so `let m = import ./utils` quietly made `helper`
+   callable as `helper`. That defeats the point of saying what an import
+   binds: the name a reader greps for is not the name in the file. *)
+
+let test_module_names_do_not_leak () =
+  with_named "utils" {|let public = 1|} (fun path ->
+    err "a name behind the module prefix is not in scope bare"
+      (Printf.sprintf {|let utils = import %s
+public|} path))
+
+let test_destructuring_binds_only_what_it_names () =
+  with_named "utils" {|let foo = 1
+let bar = 2|} (fun path ->
+    err "an unnamed field is not in scope"
+      (Printf.sprintf {|let [foo] = import %s
+bar|} path))
+
+(* A module's own imports are its business. *)
+let test_transitive_imports_do_not_leak () =
+  with_named "utils" {|import List
+let public = List.length [1, 2]|} (fun path ->
+    err "the module's import does not become the importer's"
+      (Printf.sprintf {|let utils = import %s
+List.length [1]|} path))
+
+(* Type definitions are the deliberate exception: a value of an imported type
+   is matched by constructor here, so the constructors have to cross. *)
+let test_imported_constructors_cross () =
+  with_named "colors" {|type Color = Red | Green
+let pick = Red
+let name c = match c with | Red -> "red" | Green -> "green"|} (fun path ->
+    Alcotest.(check (result string string))
+      "a constructor of an imported type is usable"
+      (Ok "green")
+      (run (Printf.sprintf {|let colors = import %s
+colors.name Green|} path)))
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -76,5 +116,11 @@ let () =
       Alcotest.test_case "bare import rejected"   `Quick test_bare_user_import_rejected;
       Alcotest.test_case "let binding works"      `Quick test_explicit_binding_works;
       Alcotest.test_case "destructuring works"    `Quick test_destructured_binding_works;
+    ];
+    "scope", [
+      Alcotest.test_case "module names do not leak" `Quick test_module_names_do_not_leak;
+      Alcotest.test_case "only what is named"       `Quick test_destructuring_binds_only_what_it_names;
+      Alcotest.test_case "transitive do not leak"   `Quick test_transitive_imports_do_not_leak;
+      Alcotest.test_case "constructors cross"       `Quick test_imported_constructors_cross;
     ];
   ]

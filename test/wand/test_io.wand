@@ -1,4 +1,4 @@
-import Test
+let [test] = import Test
 import IO
 
 test "IO.print_err" (fn t ->

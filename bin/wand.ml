@@ -71,8 +71,9 @@ let usage_for sub =
   | "test" ->
     print_endline "Usage: wand test [<file.wand>|<dir>]...";
     print_endline "";
-    print_endline "Run .wand test files (import Test; test \"label\"";
-    print_endline "(fn t -> t.ok/t.eq/t.raises ...)) and report pass/fail.";
+    print_endline "Run .wand test files (let [test] = import Test;";
+    print_endline "test \"label\" (fn t -> t.ok/t.eq/t.raises ...)) and report";
+    print_endline "pass/fail.";
     print_endline "";
     print_endline "With no argument, searches the current directory and everything";
     print_endline "below it for files named test_*.wand — so a script's tests are";

@@ -1307,7 +1307,7 @@ The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
 `raises`:
 
 ```
-import Test
+let [test] = import Test
 
 test "add" (fn t -> t.eq (2 + 2) 4)
 test "some" (fn t -> t.ok (Option.some? (Some 1)))
@@ -1320,6 +1320,10 @@ test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 
   zero-argument function (`fn () -> ...`), not the expression directly —
   wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)` would
   raise while evaluating the argument itself, before `t.raises` ever runs.
+
+`let [test] = import Test` binds the one name the file uses unqualified;
+`import Test` alongside it gives the module's other helpers under `Test.`.
+Like every import, it brings in what it names and nothing more.
 
 Each `test` call needs explicit parens around its `fn` argument
 (`test "x" (fn t -> ...)`) — wand doesn't currently allow a bare `fn` as

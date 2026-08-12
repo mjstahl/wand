@@ -53,28 +53,28 @@ let check_error_contains label needle = function
 (* ── ok / eq ──────────────────────────────────────────────────────────────── *)
 
 let test_pass () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 test "add" (fn t -> t.eq (2 + 2) 4)|}
   with
   | [o] -> check_pass "add" o
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
 let test_ok_pass () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 test "truthy" (fn t -> t.ok (1 == 1))|}
   with
   | [o] -> check_pass "truthy" o
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
 let test_eq_fail_message () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 test "mismatch" (fn t -> t.eq 1 2)|}
   with
   | [o] -> check_fail_contains "mismatch" "expected 1, got 2" o
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
 let test_ok_fail () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 test "falsy" (fn t -> t.ok (1 == 2))|}
   with
   | [o] -> check_fail_contains "falsy" "assertion failed" o
@@ -83,7 +83,7 @@ test "falsy" (fn t -> t.ok (1 == 2))|}
 (* ── raises ───────────────────────────────────────────────────────────────── *)
 
 let test_raises_pass () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 import List
 test "oob raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))|}
   with
@@ -91,7 +91,7 @@ test "oob raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))|}
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
 let test_raises_fail_when_no_raise () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 import List
 test "valid index" (fn t -> t.raises (fn () -> List.get! 0 [1, 2, 3]))|}
   with
@@ -101,7 +101,7 @@ test "valid index" (fn t -> t.raises (fn () -> List.get! 0 [1, 2, 3]))|}
 (* ── isolation: a raise outside t.raises is caught and doesn't stop the file ── *)
 
 let test_raise_outside_raises_isolated () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 test "boom" (fn t -> t.eq (1 / 0) 0)
 test "after boom" (fn t -> t.eq 1 1)|}
   with
@@ -113,7 +113,7 @@ test "after boom" (fn t -> t.eq 1 1)|}
 (* ── non-test expressions are ignored, not counted ───────────────────────── *)
 
 let test_non_test_expression_ignored () =
-  match outcomes_of {|import Test
+  match outcomes_of {|let [test] = import Test
 1 + 2
 test "real test" (fn t -> t.eq 1 1)|}
   with
@@ -123,7 +123,7 @@ test "real test" (fn t -> t.eq 1 1)|}
 (* ── file-level errors ────────────────────────────────────────────────────── *)
 
 let test_type_error_is_file_level () =
-  let msg = file_error_of {|import Test
+  let msg = file_error_of {|let [test] = import Test
 test "bad" (fn t -> t.eq (1 + "oops") 2)|} in
   Alcotest.(check bool) "mentions type error" true (contains msg "type error")
 

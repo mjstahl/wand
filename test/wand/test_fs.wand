@@ -1,4 +1,4 @@
-import Test
+let [test] = import Test
 import FS
 import Path
 import List

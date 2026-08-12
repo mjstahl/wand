@@ -1,4 +1,4 @@
-import Test
+let [test] = import Test
 
 (* Private-symbol-access denial and missing-destructure-field errors both
    fail the whole file to typecheck before any test body runs, and both need

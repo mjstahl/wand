@@ -1,4 +1,4 @@
-import Test
+let [test] = import Test
 import Option
 import String
 
