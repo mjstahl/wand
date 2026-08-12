@@ -1031,22 +1031,73 @@ let parse_type_def s =
    list. `on_item` is invoked with (start loc, loc of the item's last
    consumed token) whenever that happens; `parse_program` passes a no-op,
    `parse_program_with_locs` records into a side list. *)
+(* `uses {Shell, FS.Write}` -- the file's declared bound. It is the first
+   item on purpose: a reviewer who has to search for it gains nothing over
+   having no manifest at all, so its position is part of the syntax rather
+   than a convention. Comments and a shebang may precede it. *)
+let parse_manifest s =
+  let loc = peek_loc s in
+  ignore (advance s);              (* uses *)
+  expect s Token.LBrace;
+  let labels = ref [] in
+  let read_label () =
+    let rec parts acc =
+      let part = match advance s with
+        | Token.Upper u -> u
+        | t -> raise (ParseError (Format.asprintf
+            "%sexpected an effect name in the manifest, got %a"
+            (loc_prefix s) Token.pp t))
+      in
+      let acc = acc @ [part] in
+      if peek s = Token.Dot then (ignore (advance s); parts acc) else acc
+    in
+    labels := !labels @ [String.concat "." (parts [])]
+  in
+  if peek s <> Token.RBrace then begin
+    read_label ();
+    while peek s = Token.Comma do ignore (advance s); read_label () done
+  end;
+  expect s Token.RBrace;
+  (!labels, loc)
+
+let looks_like_manifest s =
+  match peek s with
+  | Token.Ident "uses" ->
+    (* `uses` is an ordinary word elsewhere; only `uses {` starts a manifest,
+       and `{` begins nothing else in the language. *)
+    let saved = s.pos in
+    ignore (advance s);
+    let is_manifest = peek s = Token.LBrace in
+    s.pos <- saved;
+    is_manifest
+  | _ -> false
+
 let parse_program_generic ~on_item tokens =
   let s = make tokens in
   let items = ref [] in
   let docs  = ref [] in
+  let manifest = ref None in
   let pending_doc : string option ref = ref None in
   let attach_doc name =
     match !pending_doc with
     | None -> ()
     | Some d -> docs := (name, d) :: !docs; pending_doc := None
   in
+  (* Before anything else: the manifest, if the file has one. *)
+  if looks_like_manifest s then manifest := Some (parse_manifest s);
   let continue_ = ref true in
   while !continue_ do
     let start_loc = peek_loc s in
     let before_items = !items in
     (match peek s with
     | Token.EOF -> continue_ := false
+    | _ when looks_like_manifest s ->
+      let (_, loc) = parse_manifest s in
+      raise (ParseError (Printf.sprintf
+        "%d:%d: the manifest must be the first thing in the file, before \
+         everything but a shebang and comments%s"
+        loc.Token.line loc.Token.col
+        (if !manifest = None then "" else " (this file already has one)")))
     | Token.DocComment doc ->
       ignore (advance s);
       pending_doc := Some doc
@@ -1210,7 +1261,7 @@ let parse_program_generic ~on_item tokens =
       on_item start_loc last_loc
     end
   done;
-  { Ast.items = !items; docs = !docs }
+  { Ast.items = !items; docs = !docs; manifest = !manifest }
 
 let parse_program tokens = parse_program_generic ~on_item:(fun _ _ -> ()) tokens
 

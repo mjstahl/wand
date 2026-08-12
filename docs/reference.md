@@ -24,6 +24,7 @@ For what wand is and why, see the [README](../README.md).
 - [Regular expressions](#regular-expressions)
 - [Errors and `try`](#errors-and-try)
 - [Effects](#effects)
+- [Manifests](#manifests)
 - [Effect handlers](#effect-handlers)
 - [Contracts](#contracts)
 - [Typed holes](#typed-holes)
@@ -642,6 +643,56 @@ never omits one it does. Where two calls in one body both have undetermined
 effects, they share the scope's unknowns, so an effect proved for one is
 attributed to both. Erring in this direction is what makes a signature worth
 reading: a missing effect would be a lie, an extra one is only imprecise.
+
+---
+
+## Manifests
+
+A file may declare what it is allowed to do:
+
+```
+uses {Shell, FS.Write}
+```
+
+This is the one place a script author writes effect labels. It goes first,
+before everything but a shebang and comments, so a reader knows the bound
+without searching for it — a manifest that could be anywhere would be worth
+no more than none at all.
+
+A file without a manifest is unconstrained, so casual scripts pay nothing.
+
+### Doing more than you declared is an error
+
+The manifest is checked against everything the file defines, not only what
+running it performs — a function that shells out still shells out when
+another file imports and calls it.
+
+```
+$ wand t --file deploy.wand
+Error: type error: 'publish' performs Shell, which the manifest does not allow.
+       The manifest should be:  uses {Shell, FS.Write}
+```
+
+The error names the binding that introduced the effect and the line to
+write, so the fix is a copy rather than a derivation.
+
+### Declaring more than you use is a warning
+
+```
+warning: 1:1: A-USES1: the manifest permits Shell, which this file does not
+         use; it could be uses {FS.Write}
+```
+
+Permitting more than you need is the safe direction, and a build that failed
+over it would punish caution — so it is advisory, and `--strict` leaves it
+alone.
+
+### `Raise` is not part of a manifest
+
+A manifest bounds what a file can do to the machine. `Raise` is control
+flow: it is already visible in a `!` name and in every signature, and
+including it would put `Raise` in almost every manifest while saying nothing
+about blast radius.
 
 ---
 

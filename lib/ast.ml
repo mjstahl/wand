@@ -233,4 +233,7 @@ type top_item =
 type program = {
   items : top_item list;
   docs  : (string * string) list;  (* name -> doc string *)
+  (* `uses {Shell, FS.Write}`, when the file declares one. Syntactically the
+     first item, so a reader knows the bound without searching. *)
+  manifest : (string list * Token.loc) option;
 }

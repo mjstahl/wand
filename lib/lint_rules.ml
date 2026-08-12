@@ -16,6 +16,7 @@ type id =
   | V_BANG1    (* it can raise, and the name does not say so *)
   | V_BANG2    (* the name says it raises, and it cannot *)
   | A_SHELL1   (* a shell blob hides work the type system could see *)
+  | A_USES1    (* the manifest permits more than the file needs *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -58,6 +59,9 @@ let all = [
   { id = V_NAME1;  code = "V-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
     kind = Violation };
+  { id = A_USES1;  code = "A-USES1";
+    summary = "the manifest permits effects the file does not use";
+    kind = Advisory };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
@@ -116,6 +120,11 @@ let bang2 ~name =
   Printf.sprintf
     "'%s' cannot raise, so the `!` promises a risk that is not there; it is \
      '%s'" name bare
+
+let uses1 ~unused ~corrected =
+  Printf.sprintf
+    "the manifest permits %s, which this file does not use; it could be %s"
+    unused corrected
 
 let shell1 ~stages =
   Printf.sprintf

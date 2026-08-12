@@ -180,6 +180,19 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
         findings := List.rev_append (walk_expr loc b) !findings) bindings
     | Ast.TLImport _ | Ast.TLType _ -> ()
   ) prog.Ast.items;
+  (* A manifest that permits more than the file uses. Checked from what
+     inference concluded, so the rule cannot disagree with the type error
+     that covers the opposite case. *)
+  (match !Typechecker.last_manifest with
+   | Some (declared, inferred, loc) ->
+     let unused = Effect_row.EffSet.diff declared inferred in
+     if not (Effect_row.EffSet.is_empty unused) then
+       add Lint_rules.A_USES1 loc
+         (Lint_rules.uses1
+            ~unused:(String.concat ", "
+              (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
+            ~corrected:(Typechecker.render_manifest inferred))
+   | None -> ());
   List.stable_sort (fun a b ->
     match compare a.line b.line with 0 -> compare a.col b.col | c -> c)
     (List.rev !findings)

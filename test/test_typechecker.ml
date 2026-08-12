@@ -464,10 +464,70 @@ let test_handler_keeps_raises_it_cannot_account_for () =
     (type_of "raise from elsewhere"
        "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| Shell!run _ k -> k \"ok\"")
 
+
+(* ── Manifests ───────────────────────────────────────────────────────────── *)
+
+(* A manifest states what a file may do. It is checked against everything the
+   file defines rather than what running it performs, since a function that
+   shells out does so whenever something calls it. *)
+
+let manifest_error label src needle =
+  match type_of_program_with_imports src with
+  | Ok () -> Alcotest.failf "%s: expected the manifest to be rejected" label
+  | Error m ->
+    if not (contains m needle) then
+      Alcotest.failf "%s: expected %S in error, got: %s" label needle m
+
+let test_manifest_too_narrow () =
+  manifest_error "a shell call the manifest omits"
+    "uses {FS.Write}\nlet publish () = $(rsync -a . host:/srv)\npublish"
+    "which the manifest does not allow";
+  manifest_error "and it says what to write instead"
+    "uses {FS.Write}\nlet publish () = $(rsync -a . host:/srv)\npublish"
+    "uses {Shell}"
+
+let test_manifest_names_the_binding () =
+  manifest_error "the binding that introduced the effect"
+    "uses {}\nlet quiet x = x + 1\nlet noisy () = $(echo hi)\nnoisy"
+    "'noisy'"
+
+let test_manifest_accepts_an_exact_declaration () =
+  match type_of_program_with_imports
+          "uses {Shell}\nlet publish () = $(rsync -a . host:/srv)\npublish" with
+  | Ok () -> ()
+  | Error m -> Alcotest.failf "expected it to pass: %s" m
+
+let test_no_manifest_is_unconstrained () =
+  match type_of_program_with_imports
+          "let publish () = $(rsync -a . host:/srv)\npublish" with
+  | Ok () -> ()
+  | Error m -> Alcotest.failf "expected it to pass: %s" m
+
+(* Raise is control flow, already visible in a `!` name, so it never has to
+   be declared. *)
+let test_manifest_ignores_raise () =
+  match type_of_program_with_imports
+          "uses {}\nimport Map\nlet get m = Map.get! \"k\" m\nget" with
+  | Ok () -> ()
+  | Error m -> Alcotest.failf "Raise should not need declaring: %s" m
+
+let test_manifest_rejects_unknown_labels () =
+  manifest_error "a label that is not an effect"
+    "uses {Bogus}\nlet x = 1\nx"
+    "is not an effect"
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run "Typechecker" [
+    "manifests", [
+      Alcotest.test_case "too narrow is an error"  `Quick test_manifest_too_narrow;
+      Alcotest.test_case "names the binding"       `Quick test_manifest_names_the_binding;
+      Alcotest.test_case "exact passes"            `Quick test_manifest_accepts_an_exact_declaration;
+      Alcotest.test_case "absent is unconstrained" `Quick test_no_manifest_is_unconstrained;
+      Alcotest.test_case "Raise is not declared"   `Quick test_manifest_ignores_raise;
+      Alcotest.test_case "unknown label rejected"  `Quick test_manifest_rejects_unknown_labels;
+    ];
     "effects", [
       Alcotest.test_case "handler discharges its operation" `Quick test_handler_discharges_its_operation;
       Alcotest.test_case "handler keeps other raises"       `Quick test_handler_keeps_raises_it_cannot_account_for;

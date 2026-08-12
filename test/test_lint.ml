@@ -45,6 +45,18 @@ let test_name1 () =
   (* A bare `_` is a wildcard, not an escaped name. *)
   silent "wildcard parameter" "let f _ = 1\nf 2"
 
+(* Permitting more than the file uses is the safe direction, so it is
+   advisory: --strict must not fail a build over caution. *)
+let test_uses1 () =
+  fires "manifest permits an unused effect"
+    "uses {Shell, FS.Write}\nlet x = 1\nx" "A-USES1";
+  silent "manifest matching what the file does"
+    "uses {Shell}\nlet publish! () = $(rsync -a . host:/srv)\npublish!";
+  silent "no manifest at all" "let x = 1\nx";
+  let over = findings "uses {Shell}\nlet x = 1\nx" in
+  Alcotest.(check bool) "never fails --strict" false
+    (List.exists Lint.fails_strict over)
+
 let test_shell1 () =
   fires "multi-stage pipeline"
     "let c = $(git log --oneline | grep fix | wc -l | tr -d \" \")\nc" "A-SHELL1";
@@ -158,6 +170,7 @@ let () =
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
+      Alcotest.test_case "A-USES1"  `Quick test_uses1;
     ];
     "catalog", [
       Alcotest.test_case "kinds"        `Quick test_kinds;

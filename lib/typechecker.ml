@@ -1376,6 +1376,111 @@ let builtin_type_env : env = [
   ("exit",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
 ]
 
+(* ── Manifests ────────────────────────────────────────────────────────────── *)
+
+let eff_of_label = function
+  | "Shell"    -> Some Effect_row.Shell
+  | "FS.Read"  -> Some Effect_row.FsRead
+  | "FS.Write" -> Some Effect_row.FsWrite
+  | "Env"      -> Some Effect_row.Env
+  | "IO"       -> Some Effect_row.IO
+  | "Proc"     -> Some Effect_row.Proc
+  | "Raise"    -> Some Effect_row.Raise
+  | _          -> None
+
+(* Every effect anywhere in a type, including the arrows nested inside it: a
+   function that returns a function still performs what the inner one does
+   once it is called. *)
+let rec labels_of_typ t =
+  match repr t with
+  | TFun (a, b, r) ->
+    Effect_row.EffSet.union (Effect_row.labels_of r)
+      (Effect_row.EffSet.union (labels_of_typ a) (labels_of_typ b))
+  | TTuple ts -> List.fold_left (fun acc t ->
+      Effect_row.EffSet.union acc (labels_of_typ t)) Effect_row.EffSet.empty ts
+  | TList t | TMap t -> labels_of_typ t
+  | TResult (e, t) -> Effect_row.EffSet.union (labels_of_typ e) (labels_of_typ t)
+  | TApp (f, a) -> Effect_row.EffSet.union (labels_of_typ f) (labels_of_typ a)
+  | _ -> Effect_row.EffSet.empty
+
+(* A manifest bounds what a file can do to the machine. Raise is control
+   flow, not reach: it is already visible in a `!` name and in a signature,
+   and including it would put Raise in almost every manifest while saying
+   nothing about blast radius. *)
+let manifest_relevant labels = Effect_row.EffSet.remove Effect_row.Raise labels
+
+let render_manifest labels =
+  "uses {" ^ String.concat ", "
+    (List.map Effect_row.name_of (Effect_row.EffSet.elements labels)) ^ "}"
+
+(* A manifest bounds what the file can do, so it is checked against every
+   binding in it -- not only what running the file performs. A function that
+   shells out still shells out when something else imports and calls it. *)
+(* What the last manifest check concluded, for the linter: the declared set,
+   what the file actually uses, and where the manifest sits. Reported as a
+   warning rather than an error -- permitting more than you use is the safe
+   direction, and failing a build over it would punish caution. *)
+let last_manifest : (Effect_row.EffSet.t * Effect_row.EffSet.t * Token.loc) option ref =
+  ref None
+
+let check_manifest (prog : program) (own_env : env) =
+  last_manifest := None;
+  match prog.manifest with
+  | None -> ()
+  | Some (labels, loc) ->
+    let declared =
+      List.fold_left (fun acc name ->
+        match eff_of_label name with
+        | Some e -> Effect_row.EffSet.add e acc
+        | None ->
+          raise (TypeError (Printf.sprintf
+            "'%s' is not an effect. The effects are %s" name
+            (String.concat ", " (List.map Effect_row.name_of Effect_row.all))))
+      ) Effect_row.EffSet.empty labels
+    in
+    let per_binding =
+      List.filter_map (fun (name, scheme) ->
+        match scheme with
+        | Mono t | Poly (_, _, t) ->
+          let ls = manifest_relevant (labels_of_typ t) in
+          if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
+        | Namespace _ -> None
+      ) own_env
+    in
+    let inferred =
+      List.fold_left (fun acc (_, ls) -> Effect_row.EffSet.union acc ls)
+        (manifest_relevant (Effect_row.labels_of !current_eff)) per_binding
+    in
+    last_manifest := Some (declared, inferred, loc);
+    let missing = Effect_row.EffSet.diff inferred declared in
+    if not (Effect_row.EffSet.is_empty missing) then begin
+      (* Name a binding that needs one of the missing effects, so the reader
+         is pointed at the code rather than only told the total is wrong. *)
+      (* Name the binding that accounts for most of what is missing, rather
+         than the first that happens to share one effect with it. *)
+      let culprit =
+        List.fold_left (fun best (name, ls) ->
+          let overlap =
+            Effect_row.EffSet.cardinal (Effect_row.EffSet.inter ls missing) in
+          match best with
+          | Some (_, n) when n >= overlap -> best
+          | _ when overlap = 0 -> best
+          | _ -> Some (name, overlap)
+        ) None (List.rev per_binding)
+      in
+      let culprit = Option.map (fun (n, _) -> (n, ())) culprit in
+      let where = match culprit with
+        | Some (name, _) -> Printf.sprintf "'%s' " name
+        | None -> ""
+      in
+      raise (TypeError (Printf.sprintf
+        "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  %s"
+        where
+        (String.concat ", "
+          (List.map Effect_row.name_of (Effect_row.EffSet.elements missing)))
+        (render_manifest inferred)))
+    end
+
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
@@ -1428,6 +1533,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   in
   let n_own = List.length env - List.length base_env in
   let own_env = List.filteri (fun i _ -> i < n_own) env in
+  check_manifest prog own_env;
   (tenv, env, own_env, last_t)
 
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
