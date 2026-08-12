@@ -63,5 +63,5 @@ test "pipe into $?()" (fn t ->
 test "mock process_run" (fn t ->
   let outcome =
     handle $(echo hello) with
-    | process_run _ k -> k "mocked"
+    | Shell!run _ k -> k "mocked"
   in t.eq outcome "mocked")

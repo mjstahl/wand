@@ -14,7 +14,7 @@ test "newline sequences" (fn t ->
       let () = print "b" in
       print "c"
     with
-    | print s k -> s ++ k ()
+    | IO!print s k -> s ++ k ()
     | return _  -> ""
   in t.eq outcome "abc")
 
@@ -28,7 +28,7 @@ test "collect prints" (fn t ->
       let () = print "hello" in
       print " world"
     with
-    | print s k -> s ++ k ()
+    | IO!print s k -> s ++ k ()
     | return _  -> ""
   in t.eq outcome "hello world")
 
@@ -39,7 +39,7 @@ test "count prints" (fn t ->
       let () = print "b" in
       print "c"
     with
-    | print _ k -> 1 + k ()
+    | IO!print _ k -> 1 + k ()
     | return _  -> 0
   in t.eq outcome 3)
 
@@ -67,8 +67,8 @@ test "literal match on arg" (fn t ->
       let () = print "hello" in
       print "world"
     with
-    | print "hello" k -> "H" ++ k ()
-    | print s       k -> s ++ k ()
+    | IO!print "hello" k -> "H" ++ k ()
+    | IO!print s       k -> s ++ k ()
     | return _        -> ""
   in t.eq outcome "Hworld")
 
@@ -79,7 +79,7 @@ test "mock process" (fn t ->
     handle
       $("echo real")
     with
-    | process_run _ k -> k "mocked"
+    | Shell!run _ k -> k "mocked"
   in t.eq outcome "mocked")
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)

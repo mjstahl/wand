@@ -7,7 +7,7 @@ test "IO.print_err" (fn t ->
       let () = IO.print_err "error message" in
       "ok"
     with
-    | io_print_err _ k -> k ()
+    | IO!print_err _ k -> k ()
     | return s         -> s
   in t.eq outcome "ok")
 
@@ -17,18 +17,18 @@ test "IO.println_err" (fn t ->
       let () = IO.println_err "error message" in
       "ok"
     with
-    | io_println_err _ k -> k ()
+    | IO!println_err _ k -> k ()
     | return s            -> s
   in t.eq outcome "ok")
 
 test "IO.read_line mock" (fn t ->
   let outcome = handle IO.read_line! () with
-    | io_read_line _ k -> k "mocked line"
+    | IO!read_line _ k -> k "mocked line"
   in t.eq outcome "mocked line")
 
 test "IO.read_all mock" (fn t ->
   let outcome = handle IO.read_all! () with
-    | io_read_all _ k -> k "all of stdin"
+    | IO!read_all _ k -> k "all of stdin"
   in t.eq outcome "all of stdin")
 
 test "IO.flush mock" (fn t ->
@@ -37,7 +37,7 @@ test "IO.flush mock" (fn t ->
       let () = IO.flush () in
       "flushed"
     with
-    | io_flush _ k -> k ()
+    | IO!flush _ k -> k ()
     | return s     -> s
   in t.eq outcome "flushed")
 

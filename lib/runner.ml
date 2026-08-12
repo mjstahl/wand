@@ -134,34 +134,29 @@ let describe_operation name (v : value) =
     | other -> text other
   in
   match name with
-  | "process_run" | "process_run_quiet" | "process_run_stdin"
-  | "process_run_full" | "process_run_full_stdin" | "process_exit_code" ->
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code"->
     Some ("run", first v)
-  | "write_file"   -> Some ("write", with_size v)
-  | "fs_append"    -> Some ("append to", with_size v)
-  | "fs_create"    -> Some ("create", text v)
-  | "fs_remove"    -> Some ("delete", text v)
-  | "fs_mkdir_p"   -> Some ("create directory", text v)
-  | "fs_rename"    -> Some ("rename", pair v)
-  | "fs_copy"      -> Some ("copy", pair v)
-  | "fs_temp_file" -> Some ("create temp file", first v)
-  | "env_set"      -> Some ("set", pair v)
-  | "env_clear"    -> Some ("clear", text v)
-  | "read_file"    -> Some ("read", text v)
-  | "fs_ls"        -> Some ("list", text v)
-  | "fs_glob"      -> Some ("glob", first v)
-  | "exit"         -> Some ("exit", text v)
+  | "FS!write_file"   -> Some ("write", with_size v)
+  | "FS!append"    -> Some ("append to", with_size v)
+  | "FS!create_file"    -> Some ("create", text v)
+  | "FS!delete"    -> Some ("delete", text v)
+  | "FS!mkdir"   -> Some ("create directory", text v)
+  | "FS!rename"    -> Some ("rename", pair v)
+  | "FS!copy"      -> Some ("copy", pair v)
+  | "FS!temp_file" -> Some ("create temp file", first v)
+  | "Env!set"      -> Some ("set", pair v)
+  | "Env!clear"    -> Some ("clear", text v)
+  | "FS!read_file"    -> Some ("read", text v)
+  | "FS!list_dir"        -> Some ("list", text v)
+  | "FS!glob"      -> Some ("glob", first v)
+  | "Proc!exit"         -> Some ("exit", text v)
   | _              -> None
 
 (* Whether an operation changes anything outside the program. Reads run even
    in a rehearsal, so that control flow follows the path a real run would
    take; only changes are withheld. *)
 let is_mutation = function
-  | "process_run" | "process_run_quiet" | "process_run_stdin"
-  | "process_run_full" | "process_run_full_stdin" | "process_exit_code"
-  | "write_file" | "fs_append" | "fs_create" | "fs_remove" | "fs_mkdir_p"
-  | "fs_rename" | "fs_copy" | "fs_temp_file"
-  | "env_set" | "env_clear" -> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -169,11 +164,11 @@ let is_mutation = function
    substituted rather than letting the script appear to have real output. *)
 let substitute_for name =
   match name with
-  | "process_run" | "process_run_stdin" -> Some (VString "", "\"\"")
-  | "process_run_full" | "process_run_full_stdin" ->
+  | "Shell!run"-> Some (VString "", "\"\"")
+  | "Shell!capture"->
     Some (shell_result "" "" 0, "exit 0, no output")
-  | "process_exit_code" -> Some (VInt 0, "0")
-  | "fs_temp_file"      -> Some (VPath "/tmp/wand-dry-run", "/tmp/wand-dry-run")
+  | "Shell!exit_code" -> Some (VInt 0, "0")
+  | "FS!temp_file"      -> Some (VPath "/tmp/wand-dry-run", "/tmp/wand-dry-run")
   | _ -> None
 
 let run_with_default_handler (thunk : unit -> value) : value =
@@ -183,47 +178,47 @@ let run_with_default_handler (thunk : unit -> value) : value =
         exnc = raise;
         effc = fun (type a) (eff : a Effect.t) ->
           match eff with
-          | WandEffect ("print", v) ->
+          | WandEffect ("IO!print", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               print_string (show_value v);
               Effect.Deep.continue k VUnit)
-          | WandEffect ("println", v) ->
+          | WandEffect ("IO!println", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               print_endline (show_value v);
               Effect.Deep.continue k VUnit)
-          | WandEffect ("process_run", VString cmd) ->
+          | WandEffect ("Shell!run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (exec_command cmd) with EvalError m -> Error m) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("process_run_quiet", VString cmd) ->
+          | WandEffect ("Shell!run_quiet", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try exec_command_quiet cmd; Ok () with EvalError m -> Error m) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("process_exit_code", VString cmd) ->
+          | WandEffect ("Shell!exit_code", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
-          | WandEffect ("process_run_stdin", VTuple [VString cmd; VString stdin]) ->
+          | WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (exec_command_stdin cmd stdin) with EvalError m -> Error m) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("process_run_full", VString cmd) ->
+          | WandEffect ("Shell!capture", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let (stdout, stderr, code) = exec_command_full cmd in
               Effect.Deep.continue k (shell_result stdout stderr code))
-          | WandEffect ("process_run_full_stdin", VTuple [VString cmd; VString stdin]) ->
+          | WandEffect ("Shell!capture", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
               Effect.Deep.continue k (shell_result stdout stderr code))
-          | WandEffect ("read_file", VString path) ->
+          | WandEffect ("FS!read_file", VString path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)
                      with Sys_error m -> Error ("read_file: " ^ m)) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("write_file", VTuple [VString path; VString content]) ->
+          | WandEffect ("FS!write_file", VTuple [VString path; VString content]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Out_channel.with_open_text path
                            (fun oc -> Out_channel.output_string oc content); Ok ()
@@ -236,7 +231,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Unix.Unix_error (e, _, _) -> Error ("mkdir: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_mkdir_p", VPath path) ->
+          | WandEffect ("FS!mkdir", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rec mkdir_p p =
                 if Sys.file_exists p then ()
@@ -246,7 +241,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Unix.Unix_error (e, _, _) -> Error ("mkdir_p: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_ls", VPath path) ->
+          | WandEffect ("FS!list_dir", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try
                        let entries = Sys.readdir path in
@@ -256,7 +251,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("ls: " ^ m)) with
               | Ok vs   -> Effect.Deep.continue    k (VList vs)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_append", VTuple [VPath path; VString content]) ->
+          | WandEffect ("FS!append", VTuple [VPath path; VString content]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Out_channel.with_open_gen
                            [Open_wronly; Open_creat; Open_append] 0o644 path
@@ -264,7 +259,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("append: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_create", VPath path) ->
+          | WandEffect ("FS!create_file", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Out_channel.with_open_gen
                            [Open_wronly; Open_creat; Open_trunc] 0o644 path
@@ -272,20 +267,20 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("create_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_temp_file", VTuple [VString prefix; VString suffix]) ->
+          | WandEffect ("FS!temp_file", VTuple [VString prefix; VString suffix]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (Filename.temp_file prefix suffix)
                      with Sys_error m -> Error ("temp_file: " ^ m)) with
               | Ok path -> Effect.Deep.continue    k (VPath path)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_rename", VTuple [VPath old_; VPath new_]) ->
+          | WandEffect ("FS!rename", VTuple [VPath old_; VPath new_]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Unix.rename old_ new_; Ok ()
                      with Unix.Unix_error (e, _, _) ->
                        Error ("rename: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_copy", VTuple [VPath src; VPath dst]) ->
+          | WandEffect ("FS!copy", VTuple [VPath src; VPath dst]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try
                        let content = In_channel.with_open_bin src In_channel.input_all in
@@ -300,22 +295,22 @@ let run_with_default_handler (thunk : unit -> value) : value =
              failure has to be delivered into the continuation rather than
              raised here, or it escapes the handler instead of reaching the
              `try` at the call site. *)
-          | WandEffect ("fs_cwd", v) ->
+          | WandEffect ("FS!cwd", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match Evaluator.fs_cwd_impl v with
               | result -> Effect.Deep.continue k result
               | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
-          | WandEffect ("fs_mtime", v) ->
+          | WandEffect ("FS!mtime", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match Evaluator.fs_mtime_impl v with
               | result -> Effect.Deep.continue k result
               | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
-          | WandEffect ("fs_size", v) ->
+          | WandEffect ("FS!size", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match Evaluator.fs_size_impl v with
               | result -> Effect.Deep.continue k result
               | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
-          | WandEffect ("fs_glob", VTuple [pattern; dir]) ->
+          | WandEffect ("FS!glob", VTuple [pattern; dir]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (match List.assoc "fs_glob_impl" Evaluator.stdlib_eval_env with
                      | VBuiltin f ->
@@ -325,15 +320,15 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      | other -> other) with
               | result -> Effect.Deep.continue k result
               | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
-          | WandEffect ("env_set", VTuple [VString name; VString value]) ->
+          | WandEffect ("Env!set", VTuple [VString name; VString value]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Unix.putenv name value;
               Effect.Deep.continue k VUnit)
-          | WandEffect ("env_clear", VString name) ->
+          | WandEffect ("Env!clear", VString name) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Unix.putenv name "";
               Effect.Deep.continue k VUnit)
-          | WandEffect ("fs_remove", VPath path) ->
+          | WandEffect ("FS!delete", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rm () =
                 if Sys.file_exists path && Sys.is_directory path
@@ -358,10 +353,10 @@ let run_with_default_handler (thunk : unit -> value) : value =
               match (try Ok (input_line stdin) with End_of_file -> Error "end of input") with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("io_read_all", VUnit) ->
+          | WandEffect ("IO!read_all", VUnit) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VString (In_channel.input_all stdin)))
-          | WandEffect ("io_flush", VUnit) ->
+          | WandEffect ("IO!flush", VUnit) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               flush stdout;
               Effect.Deep.continue k VUnit)

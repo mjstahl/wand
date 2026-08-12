@@ -825,6 +825,22 @@ and parse_handle_ s =
           let b_loc = peek_loc s in
           let b = Located (b_loc, expr_ 0 s) in
           Ast.ReturnArm (p, b)
+        (* `FS!read_file` reaches here as the Upper token "FS!" followed by an
+           identifier, since `!` is a suffix character. Joining them gives the
+           operation name, which is the public call with a `!` where its dot
+           would be: you call FS.read_file, you intercept FS!read_file. *)
+        | Token.Upper family
+          when String.length family > 1
+            && family.[String.length family - 1] = '!' ->
+          ignore (advance s);
+          let verb = expect_ident s in
+          let op_name = family ^ verb in
+          let arg_pat = pat_atom_ s in
+          let cont_name = expect_ident s in
+          expect s Token.Arrow;
+          let b_loc = peek_loc s in
+          let b = Located (b_loc, expr_ 0 s) in
+          Ast.EffectArm (op_name, arg_pat, cont_name, b)
         | Token.Ident op_name ->
           ignore (advance s);
           let arg_pat = pat_atom_ s in

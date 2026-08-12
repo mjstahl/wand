@@ -121,7 +121,7 @@ test "mock append does not touch real filesystem" (fn t ->
       let () = FS.append! (Path.of_string "/dev/null") "data" in
       "done"
     with
-    | fs_append _ k -> k ()
+    | FS!append _ k -> k ()
     | return s -> s
   in t.eq outcome "done")
 
@@ -133,7 +133,7 @@ test "mock append does not touch real filesystem" (fn t ->
 test "mock read_file returns substituted content" (fn t ->
   let outcome =
     handle FS.read_file! "/nonexistent" with
-    | read_file _ k -> k "mocked content"
+    | FS!read_file _ k -> k "mocked content"
   in t.eq outcome "mocked content")
 
 test "mock write_file resumes without touching disk" (fn t ->
@@ -142,7 +142,7 @@ test "mock write_file resumes without touching disk" (fn t ->
       let () = FS.write_file! "/nonexistent" "data" in
       "done"
     with
-    | write_file _ k -> k ()
+    | FS!write_file _ k -> k ()
     | return s -> s
   in t.eq outcome "done")
 
@@ -152,7 +152,7 @@ test "mock write_file can capture the path/content argument" (fn t ->
       let () = FS.write_file! "/tmp/foo.txt" "hello" in
       "wrote"
     with
-    | write_file (path, _) k -> path ++ ": ok" ++ k ()
+    | FS!write_file (path, _) k -> path ++ ": ok" ++ k ()
     | return s -> s
   in t.eq outcome "/tmp/foo.txt: okwrote")
 

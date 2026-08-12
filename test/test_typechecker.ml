@@ -450,7 +450,7 @@ let test_handler_discharges_its_operation () =
   Alcotest.(check string) "Shell is gone once process_run is handled"
     "Unit -> 'a ! {Raise}"
     (type_of "handled shell"
-       "fn () -> handle $(git push) with\n| process_run _ k -> k \"ok\"")
+       "fn () -> handle $(git push) with\n| Shell!run _ k -> k \"ok\"")
 
 (* The Raise that survives above is $()'s own check on a non-zero exit, which
    a handler supplying the output does prevent -- but a row records which
@@ -462,7 +462,7 @@ let test_handler_keeps_raises_it_cannot_account_for () =
   Alcotest.(check string) "a raise from elsewhere in the body survives"
     "Map 'a -> 'b ! {Raise}"
     (type_of "raise from elsewhere"
-       "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| process_run _ k -> k \"ok\"")
+       "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| Shell!run _ k -> k \"ok\"")
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 

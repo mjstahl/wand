@@ -547,23 +547,35 @@ Map.get!        String -> Map 'a -> 'a ! {Raise}
 String.upper    String -> String
 ```
 
-`String.upper` shows nothing because it does nothing outside itself. A
-signature with no `!` performs no effects at all.
+### What you write, and what you only read
 
-There are six effects, and a script cannot define more:
-
-| Effect | Means |
+| | |
 |---|---|
-| `Shell` | runs a subprocess — including anything that reaches the network, since it does so through a command |
+| Effect labels — `{Shell, FS.Write}` | **Never written.** There is no syntax to annotate them; they are always inferred. Writing `let f : Unit -> String ! {Shell} = …` is a parse error. |
+| Operation names — `FS!read_file` | **Written only in a handler arm**, when intercepting that operation in a test. |
+| Everything else | Ordinary wand. Effects follow from the builtins your code reaches. |
+
+So writing a script means writing no effects at all. You read them back from
+`wand t`, `wand d`, and the interactive session.
+
+### The labels
+
+Seven, and a script cannot define more:
+
+| Label | Means |
+|---|---|
+| `Shell` | runs a subprocess — including anything reaching the network, since it does so through a command |
 | `FS.Read` | reads from the filesystem |
 | `FS.Write` | creates, changes or removes something on disk |
-| `Env` | reads or changes the process environment |
-| `Proc` | touches the process itself — stdio, exit |
+| `Env` | reads or changes environment variables |
+| `IO` | reads or writes the program's own streams |
+| `Proc` | ends the process; nothing catches this |
 | `Raise` | can raise instead of returning |
 
-### They are inferred, never written
+A label answers "what can this touch?", which is why it is coarse: it has to
+fit in a signature and be memorable in full.
 
-Effects come from the builtins a function reaches, however deep:
+### They are inferred, however deep
 
 ```
 let fetch () = $(curl https://example.com)
@@ -594,12 +606,11 @@ FS.read_file!   String -> String ! {FS.Read, Raise}
 FS.read_file    String -> Result String String ! {FS.Read}
 ```
 
-A handler arm removes the effect of the operation it intercepts, which is
-what makes a script testable without letting it touch anything:
+A handler arm removes the effect of the operation it intercepts:
 
 ```
 fn () -> handle $(git push) with
-         | process_run _ k -> k "ok"     -- Unit -> 'a ! {Raise}
+         | Shell!run _ k -> k "ok"     -- Unit -> 'a ! {Raise}
 ```
 
 `Shell` is gone. `Raise` stays: a row records which effects occurred, not
@@ -624,16 +635,6 @@ arithmetic yields nothing.
 A row can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
 turns out to be". The `|` separates what is known from the rest.
 
-### Where they show up
-
-`wand t`, `wand d`, and the interactive session all print them:
-
-```
-$ wand d "FS.read_file"
-FS.read_file : String -> Result String String ! {FS.Read}
-Read the entire contents of a file as a string.
-```
-
 ### What inference promises
 
 A signature may name an effect a function does not always perform, but it
@@ -654,11 +655,30 @@ out or writes files without letting it touch anything:
 test "deploy pushes once" (fn t ->
   let outcome =
     handle deploy () with
-    | process_run _ k -> k "mocked output"
+    | Shell!run _ k -> k "mocked output"
   in t.eq outcome "done")
 ```
 
-An arm names an effect operation, binds its argument, and binds a continuation
+An arm names the operation it intercepts. The name is the call you would
+otherwise make, with a `!` where its dot goes — you call `FS.read_file`, you
+intercept `FS!read_file`:
+
+```
+| FS!read_file path k   -> k "fake contents"
+| Shell!run cmd k       -> k "mocked output"
+| Env!get name k        -> k "value"
+| IO!println text k     -> k ()
+```
+
+The part before the `!` is the effect family, which is why `$()` is
+`Shell!run` even though there is no `Shell` module: families are the same
+words that appear in a signature's row.
+
+Several functions can share one operation. `FS.read_file` and
+`FS.read_file!` both perform `FS!read_file`, so a test mocks reading a file
+once rather than once per wrapper.
+
+An arm binds the operation's argument and a continuation
 (`k`) that resumes the intercepted code with a value you supply. A `return` arm
 transforms the result when the body finishes normally:
 
@@ -667,7 +687,7 @@ handle
   let () = FS.write_file! "/etc/hosts" "..." in
   "done"
 with
-| write_file (path, _) k -> k ()
+| FS!write_file (path, _) k -> k ()
 | return s -> s
 ```
 

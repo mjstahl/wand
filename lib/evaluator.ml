@@ -331,13 +331,13 @@ let rec eval (env : env) (e : expr) : value =
       | VString s -> s
       | _ -> raise (EvalError "$(…) requires a string")
     in
-    Effect.perform (WandEffect ("process_run", VString cmd))
+    Effect.perform (WandEffect ("Shell!run", VString cmd))
   | RunQuery e ->
     let cmd = match eval env e with
       | VString s -> s
       | _ -> raise (EvalError "$?(…) requires a string")
     in
-    Effect.perform (WandEffect ("process_run_full", VString cmd))
+    Effect.perform (WandEffect ("Shell!capture", VString cmd))
   | Handle (body_expr, arms) ->
     let effect_arms = List.filter_map (function
       | Ast.EffectArm (n, p, k, b) -> Some (n, p, k, b)
@@ -547,14 +547,14 @@ and eval_binop (env : env) op a b : value =
          | _ -> raise (EvalError "$(…) requires a string")
        in
        let stdin = show_value va in
-       Effect.perform (WandEffect ("process_run_stdin", VTuple [VString cmd; VString stdin]))
+       Effect.perform (WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]))
      | RunQuery e ->
        let cmd = match eval env e with
          | VString s -> s
          | _ -> raise (EvalError "$?(…) requires a string")
        in
        let stdin = show_value va in
-       Effect.perform (WandEffect ("process_run_full_stdin", VTuple [VString cmd; VString stdin]))
+       Effect.perform (WandEffect ("Shell!capture", VTuple [VString cmd; VString stdin]))
      | _ ->
        let vf = eval env b in
        apply vf va)
@@ -832,16 +832,16 @@ let try_lex_single s =
 
 
 let stdlib_eval_env : env = [
-  ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
-  ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
-  ("exit",       performing "exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
+  ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
+  ("exit",       performing "Proc!exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));
-  ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("read_file",  v))));
+  ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("FS!read_file",  v))));
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
-      Effect.perform (WandEffect ("write_file", VTuple [path; content])))));
+      Effect.perform (WandEffect ("FS!write_file", VTuple [path; content])))));
   (* Result constructors *)
   ("Ok",    VPartialConstr ("Ok",    1, []));
   ("Error", VPartialConstr ("Error", 1, []));
@@ -1004,37 +1004,37 @@ let stdlib_eval_env : env = [
        | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Duration" s)]))
     | _ -> raise (EvalError "str_to_duration: expected String")));
   (* FS primitives *)
-  ("fs_exists",  performing "fs_exists" (function
+  ("fs_exists",  performing "FS!exists" (function
     | VPath p -> VBool (Sys.file_exists p)
     | _ -> raise (EvalError "fs_exists: expected Path")));
-  ("fs_is_file", performing "fs_is_file" (function
+  ("fs_is_file", performing "FS!file" (function
     | VPath p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
     | _ -> raise (EvalError "fs_is_file: expected Path")));
-  ("fs_is_dir",  performing "fs_is_dir" (function
+  ("fs_is_dir",  performing "FS!dir" (function
     | VPath p -> VBool (Sys.file_exists p && Sys.is_directory p)
     | _ -> raise (EvalError "fs_is_dir: expected Path")));
-  ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mkdir_p", v))));
-  ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("fs_ls",      v))));
-  ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_remove",  v))));
+  ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("FS!mkdir", v))));
+  ("fs_ls",      VBuiltin (fun v -> Effect.perform (WandEffect ("FS!list_dir",      v))));
+  ("fs_remove",  VBuiltin (fun v -> Effect.perform (WandEffect ("FS!delete",  v))));
   ("fs_append",  VBuiltin (fun path ->
     VBuiltin (fun content ->
-      Effect.perform (WandEffect ("fs_append", VTuple [path; content])))));
-  ("fs_create",  VBuiltin (fun v -> Effect.perform (WandEffect ("fs_create",  v))));
+      Effect.perform (WandEffect ("FS!append", VTuple [path; content])))));
+  ("fs_create",  VBuiltin (fun v -> Effect.perform (WandEffect ("FS!create_file",  v))));
   ("fs_temp_file", VBuiltin (fun prefix ->
     VBuiltin (fun suffix ->
-      Effect.perform (WandEffect ("fs_temp_file", VTuple [prefix; suffix])))));
+      Effect.perform (WandEffect ("FS!temp_file", VTuple [prefix; suffix])))));
   ("fs_rename",  VBuiltin (fun old_ ->
     VBuiltin (fun new_ ->
-      Effect.perform (WandEffect ("fs_rename", VTuple [old_; new_])))));
+      Effect.perform (WandEffect ("FS!rename", VTuple [old_; new_])))));
   ("fs_copy",    VBuiltin (fun src ->
     VBuiltin (fun dst ->
-      Effect.perform (WandEffect ("fs_copy", VTuple [src; dst])))));
-  ("fs_cwd",     VBuiltin (fun v -> Effect.perform (WandEffect ("fs_cwd", v))));
-  ("fs_mtime",   VBuiltin (fun v -> Effect.perform (WandEffect ("fs_mtime", v))));
-  ("fs_size",    VBuiltin (fun v -> Effect.perform (WandEffect ("fs_size", v))));
+      Effect.perform (WandEffect ("FS!copy", VTuple [src; dst])))));
+  ("fs_cwd",     VBuiltin (fun v -> Effect.perform (WandEffect ("FS!cwd", v))));
+  ("fs_mtime",   VBuiltin (fun v -> Effect.perform (WandEffect ("FS!mtime", v))));
+  ("fs_size",    VBuiltin (fun v -> Effect.perform (WandEffect ("FS!size", v))));
   ("fs_glob",    VBuiltin (fun pattern ->
     VBuiltin (fun dir ->
-      Effect.perform (WandEffect ("fs_glob", VTuple [pattern; dir])))));
+      Effect.perform (WandEffect ("FS!glob", VTuple [pattern; dir])))));
   ("fs_glob_impl", VBuiltin (function
     | VString pat | VGlob pat ->
       VBuiltin (function
@@ -1195,20 +1195,20 @@ let stdlib_eval_env : env = [
       VList (List.map (fun p -> VString p) parts)
     | _ -> raise (EvalError "path_components: expected Path")));
   (* IO primitives *)
-  ("io_print_err",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_print_err",   v))));
-  ("io_println_err", VBuiltin (fun v -> Effect.perform (WandEffect ("io_println_err", v))));
-  ("io_read_line",   VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_line",   v))));
-  ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("io_read_all",    v))));
-  ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("io_flush",       v))));
+  ("io_print_err",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print_err",   v))));
+  ("io_println_err", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println_err", v))));
+  ("io_read_line",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!read_line",   v))));
+  ("io_read_all",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!read_all",    v))));
+  ("io_flush",       VBuiltin (fun v -> Effect.perform (WandEffect ("IO!flush",       v))));
   (* Process primitives *)
   ("process_run", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("process_run", v))));
+    Effect.perform (WandEffect ("Shell!run", v))));
   ("process_run_quiet", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("process_run_quiet", v))));
+    Effect.perform (WandEffect ("Shell!run_quiet", v))));
   ("process_exit_code", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("process_exit_code", v))));
+    Effect.perform (WandEffect ("Shell!exit_code", v))));
   (* Env primitives *)
-  ("env_read_dotenv", performing "env_read_dotenv" (function
+  ("env_read_dotenv", performing "Env!parse_dotenv" (function
     | VString src | VPath src ->
       let parse_dotenv s =
         List.filter_map (fun line ->
@@ -1243,7 +1243,7 @@ let stdlib_eval_env : env = [
       (* Read through the same effect a plain read does, so a trace shows
          the file and a mock can substitute it. *)
       let src =
-        match Effect.perform (WandEffect ("read_file", VString path)) with
+        match Effect.perform (WandEffect ("FS!read_file", VString path)) with
         | VString s -> s
         | _ -> raise (EvalError "env_load_file: expected file contents")
       in
@@ -1276,13 +1276,11 @@ let stdlib_eval_env : env = [
          reporting that a file was loaded. *)
       List.iter (fun (k, v) ->
         ignore (Effect.perform
-          (WandEffect ("env_set", VTuple [VString k; VString v])))) pairs;
+          (WandEffect ("Env!set", VTuple [VString k; VString v])))) pairs;
       VUnit
     | _ -> raise (EvalError "env_load_file: expected Path")));
-  ("env_get", performing "env_get" (function
-    | VString name -> VString (Option.value ~default:"" (Sys.getenv_opt name))
-    | _ -> raise (EvalError "env_get: expected String")));
-  ("env_get_exn", performing "env_get_exn" (function
+
+  ("env_get_exn", performing "Env!get" (function
     | VString name ->
       (match Sys.getenv_opt name with
        | Some v -> VString v
@@ -1293,10 +1291,10 @@ let stdlib_eval_env : env = [
      rehearsal that still edited the environment would be worse than none. *)
   ("env_set", VBuiltin (fun name ->
     VBuiltin (fun value ->
-      Effect.perform (WandEffect ("env_set", VTuple [name; value])))));
+      Effect.perform (WandEffect ("Env!set", VTuple [name; value])))));
   ("env_clear", VBuiltin (fun name ->
-    Effect.perform (WandEffect ("env_clear", name))));
-  ("env_all", performing "env_all" (function
+    Effect.perform (WandEffect ("Env!clear", name))));
+  ("env_all", performing "Env!all" (function
     | VUnit ->
       let pairs = Array.to_list (Unix.environment ()) |> List.filter_map (fun s ->
         match String.split_on_char '=' s with
@@ -1305,16 +1303,16 @@ let stdlib_eval_env : env = [
       in
       VList pairs
     | _ -> raise (EvalError "env_all: expected Unit")));
-  ("env_args", performing "env_args" (function
+  ("env_args", performing "Env!args" (function
     | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
     | _ -> raise (EvalError "env_args: expected Unit")));
-  ("env_home", performing "env_home" (function
+  ("env_home", performing "Env!home" (function
     | VUnit ->
       (match Sys.getenv_opt "HOME" with
        | Some h -> VPath h
        | None   -> raise (EvalError "env: HOME not set"))
     | _ -> raise (EvalError "env_home: expected Unit")));
-  ("env_user", performing "env_user" (function
+  ("env_user", performing "Env!user" (function
     | VUnit ->
       let user =
         match Sys.getenv_opt "USER" with
@@ -1721,9 +1719,9 @@ let stdlib_eval_env = stdlib_eval_env @ map_builtins
 
 (* User-visible globals — the only names available without an import *)
 let base_eval_env : env = [
-  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("print",   v))));
-  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("println", v))));
-  ("exit",    performing "exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
+  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
+  ("exit",    performing "Proc!exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
 ]

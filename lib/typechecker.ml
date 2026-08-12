@@ -60,14 +60,18 @@ let rec pat_is_refutable (p : pat) =
    the builtin operation it catches, and catching it is what removes the
    corresponding effect from the handled expression. *)
 let effect_of_operation = function
-  | "process_run" | "process_run_quiet" | "process_run_stdin"
-  | "process_exit_code" -> Some Effect_row.Shell
-  | "read_file"         -> Some Effect_row.FsRead
-  | "write_file" | "fs_append" | "fs_remove" | "fs_create"
-  | "fs_rename" | "fs_copy" | "fs_mkdir" -> Some Effect_row.FsWrite
-  | "io_print_err" | "io_println_err" | "io_read_line" | "io_read_all"
-  | "io_flush" | "print" | "println" -> Some Effect_row.Proc
-  | "env_get" | "env_set" | "env_clear" -> Some Effect_row.Env
+  | "Shell!run" | "Shell!run_quiet" | "Shell!exit_code" | "Shell!capture" ->
+    Some Effect_row.Shell
+  | "FS!read_file" | "FS!list_dir" | "FS!glob" | "FS!exists" | "FS!file"
+  | "FS!dir" | "FS!mtime" | "FS!size" | "FS!cwd" -> Some Effect_row.FsRead
+  | "FS!write_file" | "FS!append" | "FS!delete" | "FS!create_file"
+  | "FS!rename" | "FS!copy" | "FS!mkdir" | "FS!temp_file" ->
+    Some Effect_row.FsWrite
+  | "IO!print" | "IO!println" | "IO!print_err" | "IO!println_err"
+  | "IO!read_line" | "IO!read_all" | "IO!flush" -> Some Effect_row.IO
+  | "Env!get" | "Env!set" | "Env!clear" | "Env!all" | "Env!args"
+  | "Env!home" | "Env!user" | "Env!parse_dotenv" -> Some Effect_row.Env
+  | "Proc!exit" -> Some Effect_row.Proc
   | _ -> None
 
 (* Effects performed by whatever is currently being inferred.
@@ -1175,8 +1179,8 @@ let infer_expr (e : expr) : (typ, string) result =
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
-  ("print",      let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
-  ("println",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("print",      let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
+  ("println",    let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
   ("exit",       let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
   ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
@@ -1261,11 +1265,11 @@ let stdlib_type_env : env = [
   ("fs_size",    generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TInt)));
   ("fs_glob",    generalize [] (effs [Effect_row.FsRead] (TGlob) ((TPath @-> TList TPath))));
   (* IO primitives *)
-  ("io_print_err",   generalize [] (effs [Effect_row.Proc] (TString) (TUnit)));
-  ("io_println_err", generalize [] (effs [Effect_row.Proc] (TString) (TUnit)));
-  ("io_read_line",   generalize [] (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
-  ("io_read_all",    generalize [] (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
-  ("io_flush",       generalize [] (effs [Effect_row.Proc] (TUnit) (TUnit)));
+  ("io_print_err",   generalize [] (effs [Effect_row.IO] (TString) (TUnit)));
+  ("io_println_err", generalize [] (effs [Effect_row.IO] (TString) (TUnit)));
+  ("io_read_line",   generalize [] (effs [Effect_row.IO; Effect_row.Raise] (TUnit) (TString)));
+  ("io_read_all",    generalize [] (effs [Effect_row.IO; Effect_row.Raise] (TUnit) (TString)));
+  ("io_flush",       generalize [] (effs [Effect_row.IO] (TUnit) (TUnit)));
   (* Process primitives *)
   ("process_run",       generalize [] (effs [Effect_row.Shell; Effect_row.Raise] (TString) (TString)));
   ("process_run_quiet", generalize [] (effs [Effect_row.Shell] (TString) (TUnit)));
@@ -1317,7 +1321,6 @@ let stdlib_type_env : env = [
   ("toml_get_table",    generalize [] ((TToml @-> TResult (TString, (TMap TToml)))));
   ("toml_field",        generalize [] ((TString @-> (TToml @-> TResult (TString, TToml)))));
   ("toml_field_exn",    generalize [] (effs [Effect_row.Raise] (TString) ((TToml @-> TToml))));
-  ("env_get",     generalize [] (effs [Effect_row.Env] (TString) (TString)));
   ("env_get_exn", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TString)));
   ("env_set",     generalize [] (effs [Effect_row.Env] (TString) ((TString @-> TUnit))));
   ("env_clear",   generalize [] (effs [Effect_row.Env] (TString) (TUnit)));
@@ -1368,8 +1371,8 @@ let builtin_tenv : typedef_env = [
 
 (* User-visible globals — the only names available without an import *)
 let builtin_type_env : env = [
-  ("print",   let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
-  ("println", let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("print",   let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
+  ("println", let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
   ("exit",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
 ]
 
