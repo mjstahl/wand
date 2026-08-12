@@ -52,7 +52,7 @@ let levels = List.fold_left ? Map.empty (String.lines (IO.read_all! ()))
 
 ```
 $ wand t "$(cat summarize.wand)"
-Hole: Map 'a -> String -> Map 'a
+Hole: Map 'a -> String -> Map 'a ! 'e
 ```
 
 That is the signature of the function to write, derived from how the hole is

@@ -46,11 +46,15 @@ For what wand is and why, see the [README](../README.md).
 
 ```
 wand script.wand        # run a script
+wand --dry-run deploy.wand   # report what it would change, without doing it
+wand --trace deploy.wand     # run it, reporting each effect as it happens
 wand i                  # interactive session
 wand e "1 + 2"          # evaluate an expression
 wand t "1 + 2"          # typecheck without evaluating
 wand d "List.map"       # show doc string
 wand env                # list all names in scope
+wand fmt script.wand    # format a file in place
+wand test               # run every test_*.wand from here down
 wand h                  # help
 ```
 
@@ -742,10 +746,20 @@ with
 | return s -> s
 ```
 
-The interceptable operations are the builtins that touch the outside world:
-`process_run`, `process_run_stdin`, `read_file`, `write_file`, `fs_append`,
-`fs_remove`, and their siblings. There is no `perform` keyword — a script
-cannot define its own effect operations, only intercept the built-in ones.
+The interceptable operations are the builtins that touch the outside world.
+Each is named `Family!verb`, and the family is the same one that appears in
+an effect row:
+
+| Family | Operations |
+|---|---|
+| `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
+| `FS` | `read_file`, `write_file`, `append`, `create_file`, `delete`, `copy`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file` |
+| `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
+| `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush` |
+| `Proc` | `exit` |
+
+There is no `perform` keyword — a script cannot define its own effect
+operations, only intercept the built-in ones.
 
 Use `handle` to intercept at a boundary — mocking in tests, auditing what a
 third-party module attempts, retrying. Error handling belongs to `try` and
@@ -786,7 +800,7 @@ belongs there:
 
 ```
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
-Hole: Int -> Int -> Int
+Hole: Int -> Int -> Int ! 'e
 ```
 
 The hole is inferred from how it is used, so the type system answers with the
@@ -1006,9 +1020,9 @@ Scripts (run via `wand file.wand`) must `import` a stdlib module before
 using it — referencing `List.map` without `import List` fails with an
 unbound-name error, even though the module ships with wand. The
 interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
-exception: they preload `List`, `String`, `Path`, `FS`, `IO`, `Duration`,
-`Env`, `Map`, and `Regex` for convenience (but not `JSON`, `TOML`, `CSV`,
-or `Process` — those still need an explicit `import` everywhere).
+exception: they preload every stdlib module for convenience — `List`,
+`String`, `Path`, `FS`, `IO`, `Duration`, `Env`, `Map`, `Regex`, `JSON`,
+`TOML`, `CSV`, `Option` and `Par`.
 
 Imported names are available under the module prefix:
 
@@ -1045,15 +1059,21 @@ utils.greeting
 Import specific names from a module using map destructuring:
 
 ```
-let [foo = bar]     = import ./utils    -- bind utils.foo as bar
-let [f = foo, baz]  = import ./utils    -- rename foo as f, import baz as-is
+let [foo = bar]            = import ./utils   -- bind utils.foo as bar
+let [foo = a, bar = b]     = import ./utils   -- and utils.bar as b
 ```
 
-Or bind multiple names directly (shorthand for same key and alias):
+The name on the left of the `=` is the module's; the name on the right is
+what it is called here.
+
+Or bind names under their own names:
 
 ```
 let [foo, bar] = import ./utils         -- bind foo and bar
 ```
+
+One form or the other — renaming and plain names cannot be mixed in a
+single destructure.
 
 ### Stdlib bound to custom name
 

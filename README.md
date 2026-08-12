@@ -62,7 +62,7 @@ there, instead of only complaining about what doesn't.
 
 ```
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
-Hole: Int -> Int -> Int
+Hole: Int -> Int -> Int ! 'e
 ```
 
 ## Test a deploy script without deploying anything
@@ -73,7 +73,7 @@ exercised with the network unplugged.
 ```
 test "deploy pushes exactly once" (fn t ->
   handle deploy () with
-  | process_run _ k -> k "ok")
+  | Shell!run _ k -> k "ok")
 ```
 
 ---
