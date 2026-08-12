@@ -87,7 +87,7 @@ test "of_int" (fn t -> t.eq (JSON.stringify (JSON.of_int 7)) "7")
 test "of_float" (fn t -> t.eq (JSON.stringify (JSON.of_float 1.5)) "1.5")
 test "of_string" (fn t -> t.eq (JSON.stringify (JSON.of_string "hi")) "\"hi\"")
 test "of_list" (fn t -> t.eq (JSON.stringify (JSON.of_list [JSON.of_int 1, JSON.of_int 2])) "[1,2]")
-test "null and is_null" (fn t -> t.eq (JSON.is_null JSON.null) true)
+test "null and is_null" (fn t -> t.eq (JSON.is_null? JSON.null) true)
 
 (* ── stringify_pretty ──────────────────────────────────────────────────── *)
 

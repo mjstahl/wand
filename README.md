@@ -701,7 +701,7 @@ written there.)
 ### `List`
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head`, `tail`, `is_empty`, `any`, `all`, `find`, `zip`, `take`, `drop`,
+`head!`, `tail!`, `is_empty?`, `any`, `all`, `zip`, `take`, `drop`,
 `take_while`, `drop_while`, `each`, `sort`, `sort_by`, `unique`, `range`,
 `flatten`, `concat`, `get`, `get!`
 
@@ -770,7 +770,7 @@ match CSV.read_file ./data.csv with
 
 `parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
 `null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
-`is_null`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
+`is_null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
 `get_object`, `field`, `field!`
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
@@ -797,7 +797,7 @@ match JSON.read_file ./config.json with
 ### `TOML`
 
 `parse`, `parse!`, `stringify`, `read_file`, `read_file!`,
-`is_table`, `is_array`, `get_bool`, `get_int`, `get_float`, `get_string`,
+`is_table?`, `is_array?`, `get_bool`, `get_int`, `get_float`, `get_string`,
 `get_array`, `get_table`, `field`, `field!`
 
 `TOML` is an opaque type representing any TOML value (table, string, int,

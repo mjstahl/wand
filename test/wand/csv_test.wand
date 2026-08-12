@@ -7,18 +7,18 @@ import FS
 (* ── parse ─────────────────────────────────────────────────────────────── *)
 
 test "single row" (fn t -> t.eq (List.length (CSV.parse "a,b,c")) 1)
-test "field value" (fn t -> t.eq (List.head (List.head (CSV.parse "hello,world"))) "hello")
+test "field value" (fn t -> t.eq (List.head! (List.head! (CSV.parse "hello,world"))) "hello")
 test "multiple rows" (fn t -> t.eq (List.length (CSV.parse "a,b\nc,d")) 2)
-test "field count per row" (fn t -> t.eq (List.length (List.head (CSV.parse "a,b,c"))) 3)
+test "field count per row" (fn t -> t.eq (List.length (List.head! (CSV.parse "a,b,c"))) 3)
 
-test "quoted field with space" (fn t -> t.eq (List.head (List.head (CSV.parse "\"hello world\",b"))) "hello world")
-test "embedded comma" (fn t -> t.eq (List.head (List.head (CSV.parse "\"a,b\",c"))) "a,b")
-test "escaped quote" (fn t -> t.eq (List.head (List.head (CSV.parse "\"say \"\"hi\"\"\",b"))) "say \"hi\"")
+test "quoted field with space" (fn t -> t.eq (List.head! (List.head! (CSV.parse "\"hello world\",b"))) "hello world")
+test "embedded comma" (fn t -> t.eq (List.head! (List.head! (CSV.parse "\"a,b\",c"))) "a,b")
+test "escaped quote" (fn t -> t.eq (List.head! (List.head! (CSV.parse "\"say \"\"hi\"\"\",b"))) "say \"hi\"")
 
 (* ── parse_with ────────────────────────────────────────────────────────── *)
 
-test "tab separator field count" (fn t -> t.eq (List.length (List.head (CSV.parse_with "\t" "a\tb\tc"))) 3)
-test "pipe separator second field" (fn t -> t.eq (List.head (List.tail (List.head (CSV.parse_with "|" "x|y")))) "y")
+test "tab separator field count" (fn t -> t.eq (List.length (List.head! (CSV.parse_with "\t" "a\tb\tc"))) 3)
+test "pipe separator second field" (fn t -> t.eq (List.head! (List.tail! (List.head! (CSV.parse_with "|" "x|y")))) "y")
 
 (* ── stringify ─────────────────────────────────────────────────────────── *)
 
@@ -31,7 +31,7 @@ test "stringify_with custom separator" (fn t -> t.eq (CSV.stringify_with "|" [["
 test "read_file row count and header" (fn t -> let p = FS.temp_file "wand_csv_rd_" ".csv" in
 let () = FS.write_file (Path.to_string p) "name,age\nAlice,30\nBob,25\n" in
 let outcome = match CSV.read_file p with
-| Ok rows -> (List.length rows, List.head (List.head rows))
+| Ok rows -> (List.length rows, List.head! (List.head! rows))
 | Error _ -> (-1, "") in
 let () = FS.delete p in t.eq outcome (3, "name"))
 

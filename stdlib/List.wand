@@ -28,14 +28,14 @@ let append [h : t] ys = h : append t ys
 let reverse xs = fold_left (fn acc x -> x : acc) [] xs
 
 (** Return the first element of a list. Raises on empty list. *)
-let head [h : _] = h
+let head! [h : _] = h
 
 (** Return all elements after the first. Raises on empty list. *)
-let tail [_ : t] = t
+let tail! [_ : t] = t
 
 (** Return true if the list is empty. *)
-let is_empty []  = true
-let is_empty _   = false
+let is_empty? []  = true
+let is_empty? _   = false
 
 (** Return true if any element satisfies the predicate. *)
 let any _ []       = false
@@ -44,10 +44,6 @@ let any p [h : t] = if p h then true else any p t
 (** Return true if all elements satisfy the predicate. *)
 let all _ []       = true
 let all p [h : t] = if p h then all p t else false
-
-(** Return true if any element satisfies the predicate. Alias for any. *)
-let find _ []       = false
-let find p [h : t] = if p h then true else find p t
 
 (** Pair up elements from two lists. Stops at the shorter list. *)
 let zip []       _        = []

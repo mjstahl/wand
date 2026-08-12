@@ -28,7 +28,7 @@ let of_list   xs = json_of_list xs
 let of_map    m  = json_of_map m
 
 (** Test whether a JSON value is null. *)
-let is_null j = json_is_null j
+let is_null? j = json_is_null j
 
 (** Extract typed values.  Each returns Ok v or Error message. *)
 let get_bool   j = json_get_bool j

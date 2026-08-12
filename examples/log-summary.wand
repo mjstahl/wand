@@ -18,6 +18,6 @@ println "Errors      : ${List.length errors}"
 println "Warnings    : ${List.length warns}"
 println "Info        : ${List.length infos}"
 if List.length errors > 0 then
-  println "First error : ${List.head errors}"
+  println "First error : ${List.head! errors}"
 else
   println "No errors found."
