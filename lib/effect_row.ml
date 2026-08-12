@@ -182,6 +182,19 @@ let unify a b =
       bind vb (Row (EffSet.diff la lb, Some shared))
     end
 
+(* Rebuild `r` with its row variables replaced according to `subst`. A
+   polymorphic function's row variable must be freshened at each use, or
+   every caller shares one row and the first caller to perform an effect
+   attributes it to all of them. *)
+let subst_row subst r =
+  let (Row (labels, tail)) = repr r in
+  match tail with
+  | None -> Row (labels, None)
+  | Some v ->
+    (match List.assoc_opt v.rid subst with
+     | Some v' -> Row (labels, Some v')
+     | None    -> Row (labels, Some v))
+
 (* Every row variable reachable from `r`, so schemes can quantify them. *)
 let rec free_rowvars r =
   match tail_of r with

@@ -29,7 +29,7 @@ let rec result_type (t : Typechecker.typ) =
 let type_of_scheme (s : Typechecker.scheme) =
   match s with
   | Typechecker.Mono t -> Some t
-  | Typechecker.Poly (_, t) -> Some t
+  | Typechecker.Poly (_, _, t) -> Some t
   | Typechecker.Namespace _ -> None
 
 (* Any Result in the type whose error side carries nothing. *)

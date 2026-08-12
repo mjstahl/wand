@@ -32,10 +32,39 @@ and tv = {
    itself carries no effect until it is seeded. *)
 let ( @-> ) a b = TFun (a, b, Effect_row.pure)
 
+(* `a @! effs $ b` reads "a to b, performing effs". Only the arrow that is
+   actually applied last carries them: reading a file happens when the path
+   *and* the contents have arrived, not when the first argument does. *)
+let effs es a b = TFun (a, b, Effect_row.of_list es)
+
 (* ── Fresh variable generation ────────────────────────────────────────────── *)
 
 let next_id = ref 0
 let holes : typ list ref = ref []
+
+(* Effects performed by whatever is currently being inferred.
+
+   Evaluation is strict and left to right, so the effects of an expression
+   are just the union of everything evaluated along the way -- which an
+   accumulator expresses directly, rather than threading a row out of all
+   forty-nine cases of `infer` and unioning it back together by hand.
+
+   Only two places touch it: applying a function adds that function's latent
+   effects, and inferring a lambda's body scopes them, because defining a
+   function performs nothing. *)
+let current_eff : Effect_row.row ref = ref Effect_row.pure
+
+let performs r = current_eff := Effect_row.union !current_eff r
+
+(* Run `f` with a fresh effect accumulator, returning what it performed
+   alongside its result and leaving the enclosing accumulator untouched. *)
+let scoped_eff f =
+  let saved = !current_eff in
+  current_eff := Effect_row.pure;
+  let result = (try f () with e -> current_eff := saved; raise e) in
+  let inner = !current_eff in
+  current_eff := saved;
+  (result, inner)
 
 (* Name of the top-level function whose body is being inferred, so a match
    that came from a multi-equation definition can report failures in terms
@@ -84,9 +113,16 @@ let string_of_typ t =
     | TToml     -> "TOML"
     | TName n   -> n
     | TVar tv   -> name_of tv.id
-    | TFun (a, b, _) ->
+    | TFun (a, b, eff) ->
+      (* An empty row prints nothing, so a signature that does nothing to the
+         machine reads exactly as it always has. An unresolved row is also
+         silent: it means "not yet known", which is noise, not information. *)
+      let suffix =
+        if Effect_row.EffSet.is_empty (Effect_row.labels_of eff) then ""
+        else " ! " ^ Effect_row.string_of_row eff
+      in
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
-      sa ^ " -> " ^ go b
+      sa ^ " -> " ^ go b ^ suffix
     | TTuple ts ->
       "(" ^ String.concat ", " (List.map go ts) ^ ")"
     | TList t ->
@@ -169,7 +205,7 @@ let rec unify t1 t2 =
 
 type scheme =
   | Mono of typ
-  | Poly of int list * typ
+  | Poly of int list * int list * typ   (* type vars, row vars, body *)
   | Namespace of env
 
 and env = (string * scheme) list
@@ -194,13 +230,32 @@ let rec free_tvars t =
   | TApp (f, a) -> free_tvars f @ free_tvars a
   | _           -> []
 
+let rec free_rowvars_typ t =
+  match repr t with
+  | TFun (a, b, r) ->
+    free_rowvars_typ a @ free_rowvars_typ b @ Effect_row.free_rowvars r
+  | TTuple ts   -> List.concat_map free_rowvars_typ ts
+  | TList t     -> free_rowvars_typ t
+  | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
+  | TMap t      -> free_rowvars_typ t
+  | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
+  | _           -> []
+
 let free_tvars_scheme = function
-  | Mono t        -> free_tvars t
-  | Poly (ids, t) -> List.filter (fun id -> not (List.mem id ids)) (free_tvars t)
-  | Namespace _   -> []
+  | Mono t           -> free_tvars t
+  | Poly (ids, _, t) -> List.filter (fun id -> not (List.mem id ids)) (free_tvars t)
+  | Namespace _      -> []
+
+let free_rowvars_scheme = function
+  | Mono t            -> free_rowvars_typ t
+  | Poly (_, rids, t) -> List.filter (fun id -> not (List.mem id rids)) (free_rowvars_typ t)
+  | Namespace _       -> []
 
 let free_tvars_env (env : env) =
   List.concat_map (fun (_, s) -> free_tvars_scheme s) env
+
+let free_rowvars_env (env : env) =
+  List.concat_map (fun (_, s) -> free_rowvars_scheme s) env
 
 (* ── Generalization and instantiation ────────────────────────────────────── *)
 
@@ -211,20 +266,28 @@ let generalize (env : env) t =
     |> List.sort_uniq compare
     |> List.filter (fun id -> not (List.mem id env_free))
   in
-  if quantify = [] then Mono t else Poly (quantify, t)
+  let env_free_rows = free_rowvars_env env in
+  let quantify_rows =
+    free_rowvars_typ t
+    |> List.sort_uniq compare
+    |> List.filter (fun id -> not (List.mem id env_free_rows))
+  in
+  if quantify = [] && quantify_rows = [] then Mono t
+  else Poly (quantify, quantify_rows, t)
 
 let instantiate = function
   | Namespace _ -> TUnit
   | Mono t -> t
-  | Poly (ids, t) ->
+  | Poly (ids, rids, t) ->
     let subst = List.map (fun id -> (id, fresh ())) ids in
+    let rsubst = List.map (fun id -> (id, Effect_row.fresh_rowvar ())) rids in
     let rec inst t =
       match repr t with
       | TVar tv ->
         (match List.assoc_opt tv.id subst with
          | Some t' -> t'
          | None    -> TVar tv)
-      | TFun (a, b, r) -> TFun (inst a, inst b, r)
+      | TFun (a, b, r) -> TFun (inst a, inst b, Effect_row.subst_row rsubst r)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
@@ -672,7 +735,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
         | _ ->
           raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
             name (Util.hint name (List.map fst ctor_env))))))
-  | EnvVar _ -> TString
+  (* $NAME reads the environment. *)
+  | EnvVar _ -> performs (Effect_row.single Effect_row.Env); TString
   | Hole ->
     let t = fresh () in
     holes := t :: !holes;
@@ -688,8 +752,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
         (ts @ [t], infer_pat tenv p t env)
       ) ([], env) params
     in
-    let body_t = infer tenv env' body in
-    let body_row = Effect_row.fresh_row () in
+    let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
     (* Only the innermost arrow carries the body's effects: supplying one
        argument of a curried function does nothing until the last one
        arrives. *)
@@ -710,24 +773,31 @@ let rec infer tenv (env : env) (e : expr) : typ =
           known from how this call site uses it. *)
        let param_ts = List.map (fun _ -> fresh ()) params in
        let body_result_t = fresh () in
+       let arg_row = Effect_row.fresh_row () in
        let fn_arg_t =
          let rec build = function
            | []      -> body_result_t
-           | [t]     -> TFun (t, body_result_t, Effect_row.fresh_row ())
+           | [t]     -> TFun (t, body_result_t, arg_row)
            | t :: tl -> TFun (t, build tl, Effect_row.pure)
          in
          build param_ts
        in
        let tr = fresh () in
-       unify tf (TFun (fn_arg_t, tr, Effect_row.fresh_row ()));
+       let latent = Effect_row.fresh_row () in
+       unify tf (TFun (fn_arg_t, tr, latent));
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
-       let body_t = infer tenv env' body in
+       let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
        unify body_t body_result_t;
+       (try Effect_row.unify arg_row body_row
+        with Effect_row.RowError msg -> raise (TypeError msg));
+       performs latent;
        tr
      | _ ->
        let tx = infer tenv env x in
        let tr = fresh () in
-       unify tf (TFun (tx, tr, Effect_row.fresh_row ()));
+       let latent = Effect_row.fresh_row () in
+       unify tf (TFun (tx, tr, latent));
+       performs latent;
        tr)
   | Let (p, e1, e2) ->
     (match p, e1 with
@@ -880,8 +950,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let t = infer tenv env e0 in
     List.iter (fun (_, e) -> unify t (infer tenv env e)) rest;
     TMap t
-  | RunCmd    e       -> unify (infer tenv env e) TString; TString
-  | RunQuery  e       -> unify (infer tenv env e) TString; TName "ShellResult"
+  (* Shell execution is its own form rather than a call to a builtin, so it
+     records its effects here. $() raises on a non-zero exit; $?() hands back
+     a ShellResult instead, so it cannot. *)
+  | RunCmd    e       ->
+    unify (infer tenv env e) TString;
+    performs (Effect_row.of_list [Effect_row.Shell; Effect_row.Raise]);
+    TString
+  | RunQuery  e       ->
+    unify (infer tenv env e) TString;
+    performs (Effect_row.single Effect_row.Shell);
+    TName "ShellResult"
   | RegexLit  _       -> TRegex
   | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
   | Handle (body_expr, arms) ->
@@ -964,7 +1043,9 @@ and infer_binop tenv (env : env) op a b : typ =
      | _ ->
        let tb = infer tenv env b in
        let tr = fresh () in
-       unify tb (TFun (ta, tr, Effect_row.fresh_row ()));
+       let latent = Effect_row.fresh_row () in
+       unify tb (TFun (ta, tr, latent));
+       performs latent;
        tr)
   | op -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
 
@@ -976,12 +1057,12 @@ let infer_expr (e : expr) : (typ, string) result =
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
-  ("print",      let a = fresh () in generalize [] ((a @-> TUnit)));
-  ("println",    let a = fresh () in generalize [] ((a @-> TUnit)));
-  ("exit",       let a = fresh () in generalize [] ((TInt @-> a)));
-  ("option_get_exn", let a = fresh () in generalize [] ((TUnit @-> a)));
-  ("read_file",  Mono ((TString @-> TString)));
-  ("write_file", Mono ((TString @-> (TString @-> TUnit))));
+  ("print",      let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("println",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
+  ("exit",       let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
+  ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
+  ("read_file",  Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
+  ("write_file", Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TUnit))));
   (* String primitives *)
   ("str_length",     Mono ((TString @-> TInt)));
   ("str_upper",      Mono ((TString @-> TString)));
@@ -1046,47 +1127,47 @@ let stdlib_type_env : env = [
   ("path_of_string",      Mono ((TString @-> TPath)));
   ("path_components",     Mono ((TPath @-> TList TString)));
   (* FS primitives *)
-  ("fs_exists",  Mono ((TPath @-> TBool)));
-  ("fs_is_file", Mono ((TPath @-> TBool)));
-  ("fs_is_dir",  Mono ((TPath @-> TBool)));
-  ("fs_mkdir",   Mono ((TPath @-> TUnit)));
-  ("fs_ls",      Mono ((TPath @-> TList TPath)));
-  ("fs_remove",  Mono ((TPath @-> TUnit)));
-  ("fs_append",  Mono ((TPath @-> (TString @-> TUnit))));
-  ("fs_create",  Mono ((TPath @-> TUnit)));
-  ("fs_temp_file", Mono ((TString @-> (TString @-> TPath))));
-  ("fs_rename",  Mono ((TPath @-> (TPath @-> TUnit))));
-  ("fs_copy",    Mono ((TPath @-> (TPath @-> TUnit))));
-  ("fs_cwd",     Mono ((TUnit @-> TPath)));
-  ("fs_mtime",   Mono ((TPath @-> TDateTime)));
-  ("fs_size",    Mono ((TPath @-> TInt)));
-  ("fs_glob",    Mono ((TGlob @-> (TPath @-> TList TPath))));
+  ("fs_exists",  Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_is_file", Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_is_dir",  Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_mkdir",   Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_ls",      Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TList TPath)));
+  ("fs_remove",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_append",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
+  ("fs_create",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_temp_file", Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TPath))));
+  ("fs_rename",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_copy",    Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_cwd",     Mono (effs [Effect_row.FsRead] (TUnit) (TPath)));
+  ("fs_mtime",   Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TDateTime)));
+  ("fs_size",    Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TInt)));
+  ("fs_glob",    Mono (effs [Effect_row.FsRead] (TGlob) ((TPath @-> TList TPath))));
   (* IO primitives *)
-  ("io_print_err",   Mono ((TString @-> TUnit)));
-  ("io_println_err", Mono ((TString @-> TUnit)));
-  ("io_read_line",   Mono ((TUnit @-> TString)));
-  ("io_read_all",    Mono ((TUnit @-> TString)));
-  ("io_flush",       Mono ((TUnit @-> TUnit)));
+  ("io_print_err",   Mono (effs [Effect_row.Proc] (TString) (TUnit)));
+  ("io_println_err", Mono (effs [Effect_row.Proc] (TString) (TUnit)));
+  ("io_read_line",   Mono (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
+  ("io_read_all",    Mono (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
+  ("io_flush",       Mono (effs [Effect_row.Proc] (TUnit) (TUnit)));
   (* Process primitives *)
-  ("process_run",       Mono ((TString @-> TString)));
-  ("process_run_quiet", Mono ((TString @-> TUnit)));
-  ("process_exit_code", Mono ((TString @-> TInt)));
+  ("process_run",       Mono (effs [Effect_row.Shell; Effect_row.Raise] (TString) (TString)));
+  ("process_run_quiet", Mono (effs [Effect_row.Shell] (TString) (TUnit)));
+  ("process_exit_code", Mono (effs [Effect_row.Shell] (TString) (TInt)));
   (* Env primitives *)
-  ("env_read_dotenv", Mono ((TString @-> TList (TTuple [TString; TString]))));
-  ("env_load_file",   Mono ((TPath @-> TUnit)));
+  ("env_read_dotenv", Mono (effs [Effect_row.Env; Effect_row.Raise] (TString) (TList (TTuple [TString; TString]))));
+  ("env_load_file",   Mono (effs [Effect_row.Env; Effect_row.Raise] (TPath) (TUnit)));
   (* CSV primitives *)
   ("csv_parse",         Mono ((TString @-> (TString @-> TList (TList TString)))));
   ("csv_stringify",     Mono ((TString @-> (TList (TList TString) @-> TString))));
   ("csv_read_file",     Mono ((TPath @-> TResult (TString, (TList (TList TString))))));
-  ("csv_read_file_exn", Mono ((TPath @-> TList (TList TString))));
+  ("csv_read_file_exn", Mono (effs [Effect_row.Raise] (TPath) (TList (TList TString))));
   (* JSON primitives *)
   ("json_parse",         Mono ((TString @-> TResult (TString, TJson))));
-  ("json_parse_exn",     Mono ((TString @-> TJson)));
+  ("json_parse_exn",     Mono (effs [Effect_row.Raise] (TString) (TJson)));
   ("json_stringify",     Mono ((TJson @-> TString)));
   ("json_stringify_pretty", Mono ((TJson @-> TString)));
   ("json_read_file",     Mono ((TPath @-> TResult (TString, TJson))));
-  ("json_read_file_exn", Mono ((TPath @-> TJson)));
-  ("json_field_exn",     Mono ((TString @-> (TJson @-> TJson))));
+  ("json_read_file_exn", Mono (effs [Effect_row.Raise] (TPath) (TJson)));
+  ("json_field_exn",     Mono (effs [Effect_row.Raise] (TString) ((TJson @-> TJson))));
   ("json_null",         Mono TJson);
   ("json_of_bool",      Mono ((TBool @-> TJson)));
   ("json_of_int",       Mono ((TInt @-> TJson)));
@@ -1104,9 +1185,9 @@ let stdlib_type_env : env = [
   ("json_field",        Mono ((TString @-> (TJson @-> TResult (TString, TJson)))));
   (* TOML primitives *)
   ("toml_parse",        Mono ((TString @-> TResult (TString, TToml))));
-  ("toml_parse_exn",    Mono ((TString @-> TToml)));
+  ("toml_parse_exn",    Mono (effs [Effect_row.Raise] (TString) (TToml)));
   ("toml_read_file",    Mono ((TPath @-> TResult (TString, TToml))));
-  ("toml_read_file_exn",Mono ((TPath @-> TToml)));
+  ("toml_read_file_exn",Mono (effs [Effect_row.Raise] (TPath) (TToml)));
   ("toml_stringify",    Mono ((TToml @-> TString)));
   ("toml_is_table",     Mono ((TToml @-> TBool)));
   ("toml_is_array",     Mono ((TToml @-> TBool)));
@@ -1117,18 +1198,18 @@ let stdlib_type_env : env = [
   ("toml_get_array",    Mono ((TToml @-> TResult (TString, (TList TToml)))));
   ("toml_get_table",    Mono ((TToml @-> TResult (TString, (TMap TToml)))));
   ("toml_field",        Mono ((TString @-> (TToml @-> TResult (TString, TToml)))));
-  ("toml_field_exn",    Mono ((TString @-> (TToml @-> TToml))));
-  ("env_get",     Mono ((TString @-> TString)));
-  ("env_get_exn", Mono ((TString @-> TString)));
-  ("env_set",     Mono ((TString @-> (TString @-> TUnit))));
-  ("env_clear",   Mono ((TString @-> TUnit)));
-  ("env_all",     Mono ((TUnit @-> TList (TTuple [TString; TString]))));
-  ("env_args",    Mono ((TUnit @-> TList TString)));
-  ("env_home",    Mono ((TUnit @-> TPath)));
-  ("env_user",    Mono ((TUnit @-> TString)));
+  ("toml_field_exn",    Mono (effs [Effect_row.Raise] (TString) ((TToml @-> TToml))));
+  ("env_get",     Mono (effs [Effect_row.Env] (TString) (TString)));
+  ("env_get_exn", Mono (effs [Effect_row.Env; Effect_row.Raise] (TString) (TString)));
+  ("env_set",     Mono (effs [Effect_row.Env] (TString) ((TString @-> TUnit))));
+  ("env_clear",   Mono (effs [Effect_row.Env] (TString) (TUnit)));
+  ("env_all",     Mono (effs [Effect_row.Env] (TUnit) (TList (TTuple [TString; TString]))));
+  ("env_args",    Mono (effs [Effect_row.Env] (TUnit) (TList TString)));
+  ("env_home",    Mono (effs [Effect_row.Env] (TUnit) (TPath)));
+  ("env_user",    Mono (effs [Effect_row.Env] (TUnit) (TString)));
   (* List primitives *)
   ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TResult (TString, a)))));
-  ("list_get_exn", let a = fresh () in generalize [] ((TInt @-> (TList a @-> a))));
+  ("list_get_exn", let a = fresh () in generalize [] (TInt @-> effs [Effect_row.Raise] (TList a) (a)));
   ("list_sort",    let a = fresh () in generalize [] ((TList a @-> TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
                    generalize [] (((a @-> b) @-> (TList a @-> TList a))));
@@ -1139,7 +1220,7 @@ let stdlib_type_env : env = [
   (* Map builtins *)
   ("map_empty",    let a = fresh () in generalize [] (TMap a));
   ("map_get",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TResult (TString, a)))));
-  ("map_get_exn",  let a = fresh () in generalize [] ((TString @-> (TMap a @-> a))));
+  ("map_get_exn",  let a = fresh () in generalize [] (TString @-> effs [Effect_row.Raise] (TMap a) (a)));
   ("map_set",      let a = fresh () in generalize [] ((TString @-> (a @-> (TMap a @-> TMap a)))));
   ("map_delete",   let a = fresh () in generalize [] ((TString @-> (TMap a @-> TMap a))));
   ("map_has",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TBool))));
@@ -1178,6 +1259,7 @@ let builtin_type_env : env = [
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
+  current_eff := Effect_row.pure;
   holes := [];
   let local_tenv = List.filter_map (function
     | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)
@@ -1250,7 +1332,7 @@ let infer_program_env ?(init_tenv=[]) ?(init_env=[]) (prog : program)
   Result.map fst (infer_program_full ~init_tenv ~init_env prog)
 
 let string_of_scheme = function
-  | Mono t | Poly (_, t) -> string_of_typ t
+  | Mono t | Poly (_, _, t) -> string_of_typ t
   | Namespace _           -> "<namespace>"
 
 let infer_program_full_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
