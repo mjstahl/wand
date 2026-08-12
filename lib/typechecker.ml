@@ -325,13 +325,24 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | Version _  -> unify t TVersion;  env
   | Size _     -> unify t TSize;     env
   | PTuple ps  ->
-    (* If the expected type is a single-constructor ADT with matching arity, unwrap it *)
+    (* Tuple syntax destructures tuples only. It used to also unwrap a
+       single-constructor named type, so `let (w, h) = rect` bound fields by
+       position -- silently wrong on reorder, and invisible at the binding
+       site. Named-field types are destructured by naming their fields. *)
     (match repr t with
      | TName tname ->
        (match find_ctor_in_tenv tenv tname with
         | Some (_, ctor) when List.length ctor.fields = List.length ps ->
-          let arg_ts = List.map (fun (_, te) -> type_of_te te) ctor.fields in
-          List.fold_left2 (fun env p at -> infer_pat tenv p at env) env ps arg_ts
+          let named = List.filter_map (fun (fname, _) -> fname) ctor.fields in
+          if named <> [] then
+            raise (TypeError (Printf.sprintf
+              "cannot destructure '%s' with tuple syntax; match its fields by \
+               name, as in %s(%s)" tname tname
+              (String.concat ", " (List.map (fun n -> n ^ " = " ^ n) named))))
+          else begin
+            let arg_ts = List.map (fun (_, te) -> type_of_te te) ctor.fields in
+            List.fold_left2 (fun env p at -> infer_pat tenv p at env) env ps arg_ts
+          end
         | _ ->
           let ts = List.map (fun _ -> fresh ()) ps in
           unify t (TTuple ts);
@@ -601,6 +612,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Var name   -> instantiate (lookup name env)
   | Constr name ->
     let ctor_env = tenv_to_ctor_env tenv in
+    (* A constructor with named fields is built by naming them. Supplying its
+       fields positionally is silently wrong whenever two of them share a
+       type, since reordering still typechecks. *)
+    (match find_ctor_in_tenv tenv name with
+     | Some (_, ctor)
+       when List.exists (fun (fname, _) -> Option.is_some fname) ctor.fields ->
+       let names = List.filter_map (fun (fname, _) -> fname) ctor.fields in
+       raise (TypeError (Printf.sprintf
+         "constructor '%s' has named fields; construct it as %s(%s)"
+         name name
+         (String.concat ", " (List.map (fun n -> n ^ " = ...") names))))
+     | _ -> ());
     (match List.assoc_opt name ctor_env with
      | Some s -> instantiate s
      | None   ->

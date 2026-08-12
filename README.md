@@ -461,17 +461,11 @@ c.radius   -- 5
 
 #### Construction
 
-Named (any order):
+Fields are named, in any order:
 
 ```
 Point (x = 1, y = 2)
 Point (y = 2, x = 1)    -- same thing
-```
-
-Positional (declaration order):
-
-```
-Point (1, 2)
 ```
 
 #### Pattern matching on named fields
@@ -480,16 +474,9 @@ Point (1, 2)
 let magnitude p =
   match p with
   | Point (x = a, y = b) -> a * a + b * b
-```
-
-#### Shorthand destructuring (single-constructor types only)
-
-```
-let (x, y) = p     -- binds x and y positionally from Point fields
-let (r)    = c     -- binds r from Circle's single field
 
 let area c =
-  let (r) = c in
+  let Circle (radius = r) = c in
   r * r
 ```
 
