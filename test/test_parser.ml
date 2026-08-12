@@ -134,6 +134,64 @@ let test_constr_app () =
     "Circle (radius = 5)"
     (ConstrApp ("Circle", [Some "radius", Int 5]))
 
+
+(* ── Constructor application (positional) ────────────────────────────────── *)
+
+(* Parentheses group a tuple; several arguments are juxtaposed. This used to
+   depend on the constructor's declared arity, which the parser only knew for
+   types declared in the file being parsed -- so `Some (1, 2)` parsed one way
+   inside Option and another way everywhere else. These assert the parse
+   itself, not merely that a program using it typechecks. *)
+
+let test_constr_positional () =
+  e "parenthesised arguments are one tuple"
+    "Some (1, 2)"
+    (App (Constr "Some", Tuple [Int 1; Int 2]));
+  e "regardless of the constructor"
+    "Whatever (1, 2)"
+    (App (Constr "Whatever", Tuple [Int 1; Int 2]));
+  e "several arguments are juxtaposed"
+    "R 3 4"
+    (App (App (Constr "R", Int 3), Int 4));
+  e "a single parenthesised argument is just that argument"
+    "Some (1)"
+    (App (Constr "Some", Int 1));
+  e "no arguments"
+    "Some ()"
+    (App (Constr "Some", Unit))
+
+let test_constr_positional_patterns () =
+  e "a tuple pattern under a constructor"
+    "match v with\n| Some (a, b) -> a"
+    (Match (Var "v", [
+      (PConstr ("Some", [PTuple [PVar "a"; PVar "b"]]), None, Var "a");
+    ]));
+  e "juxtaposed sub-patterns"
+    "match v with\n| R a b -> a"
+    (Match (Var "v", [
+      (PConstr ("R", [PVar "a"; PVar "b"]), None, Var "a");
+    ]))
+
+(* ── Handler arms ────────────────────────────────────────────────────────── *)
+
+(* An operation is the call it stands for with a `!` where its dot goes. The
+   lexer hands back `FS!` as one Upper token and `read_file` as an
+   identifier, so the arm parser has to join them. *)
+
+let test_handler_arm_operations () =
+  e "a family-qualified operation"
+    "handle body with\n| FS!read_file p k -> p"
+    (Handle (Var "body", [
+      Ast.EffectArm ("FS!read_file", PVar "p", "k", Var "p");
+    ]));
+  e "several arms, including a return"
+    "handle body with\n| Shell!run c k -> c\n| return r -> r"
+    (Handle (Var "body", [
+      Ast.EffectArm ("Shell!run", PVar "c", "k", Var "c");
+      Ast.ReturnArm (PVar "r", Var "r");
+    ]))
+
+
 (* ── Field access ────────────────────────────────────────────────────────── *)
 
 let test_field () =
@@ -262,6 +320,45 @@ let parse_error label src needle =
     if not (contains m needle) then
       Alcotest.failf "%s: expected %S in error, got: %s" label needle m
 
+(* ── Manifests ───────────────────────────────────────────────────────────── *)
+
+(* Position is part of the grammar: a manifest a reader has to search for is
+   worth no more than none, so it is the first item rather than an item that
+   happens to come first by convention. *)
+
+let test_manifest_parses () =
+  let prog = parse_program "uses {Shell, FS.Write}\nlet x = 1\nx" in
+  (match prog.Ast.manifest with
+   | Some (labels, _) ->
+     Alcotest.(check (list string)) "the declared effects"
+       ["Shell"; "FS.Write"] labels
+   | None -> Alcotest.fail "expected a manifest");
+  (* An empty one is a claim in its own right: this file touches nothing. *)
+  (match (parse_program "uses {}\nlet x = 1\nx").Ast.manifest with
+   | Some ([], _) -> ()
+   | _ -> Alcotest.fail "expected an empty manifest")
+
+let test_manifest_is_optional () =
+  match (parse_program "let x = 1\nx").Ast.manifest with
+  | None -> ()
+  | Some _ -> Alcotest.fail "a file without one should have none"
+
+let test_manifest_must_come_first () =
+  parse_error "after another item"
+    "let x = 1\nuses {Shell}\nx"
+    "must be the first thing in the file";
+  parse_error "a second manifest"
+    "uses {Shell}\nlet x = 1\nuses {FS.Read}\nx"
+    "already has one"
+
+(* Comments and a shebang may precede it -- a note explaining why a script
+   needs an effect belongs directly above the line granting it. *)
+let test_manifest_may_follow_comments () =
+  let prog = parse_program "-- deploys to prod\nuses {Shell}\nlet x = 1\nx" in
+  match prog.Ast.manifest with
+  | Some (["Shell"], _) -> ()
+  | _ -> Alcotest.fail "a comment above the manifest should be allowed"
+
 let test_equation_contiguity () =
   parse_error "later equation after an intervening binding"
     "let f 0 = 0\nlet x = 1\nlet f 1 = 1\nf 0"
@@ -301,7 +398,16 @@ let () =
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
+      Alcotest.test_case "constr positional" `Quick test_constr_positional;
+      Alcotest.test_case "constr positional patterns" `Quick test_constr_positional_patterns;
+      Alcotest.test_case "handler arms"  `Quick test_handler_arm_operations;
       Alcotest.test_case "field"        `Quick test_field;
+    ];
+    "manifests", [
+      Alcotest.test_case "parses"          `Quick test_manifest_parses;
+      Alcotest.test_case "optional"        `Quick test_manifest_is_optional;
+      Alcotest.test_case "must come first" `Quick test_manifest_must_come_first;
+      Alcotest.test_case "after comments"  `Quick test_manifest_may_follow_comments;
     ];
     "multi-equation", [
       Alcotest.test_case "contiguity"   `Quick test_equation_contiguity;
