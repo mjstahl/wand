@@ -65,9 +65,9 @@ let usage_for sub =
     print_endline "";
     print_endline "Format one or more .wand files in place (each file is";
     print_endline "overwritten with its formatted contents).";
-    print_endline "Comments are preserved; constructs without a dedicated";
-    print_endline "formatting rule yet (requires/ensures, handle, $()/$?(), try,";
-    print_endline "regex literals) are re-emitted verbatim."
+    print_endline "Comments are preserved. An item with a comment inside it is";
+    print_endline "left exactly as written, since moving a comment to the wrong";
+    print_endline "expression is worse than leaving it where its author put it."
   | "test" ->
     print_endline "Usage: wand test [<file.wand>|<dir>]...";
     print_endline "";

@@ -38,54 +38,14 @@ let string_of_wand_float f =
   then s
   else s ^ ".0"
 
-(* ── Follow-up-tier detection (verbatim-fallback trigger) ───────────────────
-   Contract/Handle/RunCmd/RunQuery/Try/RegexLit are rare in practice (see
-   plan) and aren't given a real formatting rule in v1 -- any top-item that
-   contains one anywhere is re-emitted as a verbatim source slice instead. *)
-let rec expr_has_followup e =
-  match strip_located e with
-  | Contract (reqs, ens, body) ->
-    List.exists expr_has_followup reqs || List.exists expr_has_followup ens
-    || expr_has_followup body
-  | Handle (body, arms) ->
-    expr_has_followup body ||
-    List.exists (function
-      | Ast.ReturnArm (_, b) -> expr_has_followup b
-      | Ast.EffectArm (_, _, _, b) -> expr_has_followup b) arms
-  | RunCmd e | RunQuery e | Try e -> expr_has_followup e
-  | RegexLit _ -> false
-  | Int _ | Float _ | String _ | Bool _ | Unit | Path _ | Glob _ | Date _
-  | Time _ | DateTime _ | Duration _ | Url _ | IPv4 _ | CIDR _ | Port _
-  | Version _ | Size _ | Var _ | Constr _ | EnvVar _ | Hole
-  | ImportExpr _ -> false
-  | App (f, x) -> expr_has_followup f || expr_has_followup x
-  | Fn (_, b) -> expr_has_followup b
-  | Let (_, e1, e2) -> expr_has_followup e1 || expr_has_followup e2
-  | LetRec (bindings, e2) ->
-    List.exists (fun (_, _, b) -> expr_has_followup b) bindings || expr_has_followup e2
-  | If (c, t, e) -> expr_has_followup c || expr_has_followup t || expr_has_followup e
-  | Match (scr, cases) ->
-    expr_has_followup scr ||
-    List.exists (fun (_, g, b) ->
-      (match g with Some g -> expr_has_followup g | None -> false) || expr_has_followup b
-    ) cases
-  | BinOp (_, a, b) -> expr_has_followup a || expr_has_followup b
-  | UnOp (_, e) -> expr_has_followup e
-  | Tuple es | List es -> List.exists expr_has_followup es
-  | ConstrApp (_, kvs) -> List.exists (fun (_, v) -> expr_has_followup v) kvs
-  | Field (e, _) -> expr_has_followup e
-  | Seq (a, b) -> expr_has_followup a || expr_has_followup b
-  | Located _ -> false (* stripped above *)
-  | Interp (parts, _) -> List.exists (fun (_, e) -> expr_has_followup e) parts
-  | Annot (_, e) -> expr_has_followup e
-  | MapLit kvs -> List.exists (fun (_, v) -> expr_has_followup v) kvs
+(* ── Verbatim fallback ─────────────────────────────────────────────────────
+   An item whose interior holds a comment is re-emitted as an exact source
+   slice. Formatting it would mean deciding where the comment now belongs,
+   and a comment moved to the wrong expression is worse than one left where
+   its author put it.
 
-let top_item_has_followup = function
-  | TLLet (_, _, e) -> expr_has_followup e
-  | TLLetRec bindings -> List.exists (fun (_, _, b) -> expr_has_followup b) bindings
-  | TLLetPat (_, e) -> expr_has_followup e
-  | TLImport _ | TLType _ -> false
-  | TLExpr e -> expr_has_followup e
+   Nothing else falls back: contracts, `handle`, `$()`/`$?()`, `try` and
+   regex literals each have a formatting rule. *)
 
 (* ── Type expressions ────────────────────────────────────────────────────── *)
 
@@ -701,7 +661,7 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
     let has_interior_comment =
       List.exists (fun c -> c.c_offset > start_loc.offset && c.c_offset < end_loc.offset) comments
     in
-    let is_verbatim = top_item_has_followup item || has_interior_comment in
+    let is_verbatim = has_interior_comment in
     let text =
       if is_verbatim then rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
       else emit_top_item_pretty item

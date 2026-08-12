@@ -1555,12 +1555,10 @@ never silently dropped, and never rewritten from one style into the other. Multi
 (`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
 rather than left as the desugared `match`.
 
-A handful of rarer constructs don't have a dedicated formatting rule yet
-and are re-emitted verbatim, unchanged, wherever they appear:
-`requires`/`ensures` contracts, `handle`, `$(...)`/`$?(...)` shell
-commands, `try`, and regex literals. This is a deliberate, safe
-degradation — such code is left exactly as written rather than risk
-misformatting it.
+An item with a comment inside it is re-emitted exactly as written.
+Formatting it would mean deciding which expression the comment now belongs
+to, and a comment moved to the wrong one is worse than a comment left where
+its author put it. Everything else has a formatting rule.
 
 ---
 
