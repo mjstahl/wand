@@ -1,5 +1,5 @@
-import "greetings"
+let [greet, shout] = import ./greetings
 
-let guest = $("whoami")
+let guest = $(whoami)
 
 shout (greet guest)
