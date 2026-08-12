@@ -23,6 +23,7 @@ For what wand is and why, see the [README](../README.md).
 - [Glob](#glob)
 - [Regular expressions](#regular-expressions)
 - [Errors and `try`](#errors-and-try)
+- [Effects](#effects)
 - [Effect handlers](#effect-handlers)
 - [Contracts](#contracts)
 - [Typed holes](#typed-holes)
@@ -531,6 +532,110 @@ it describes what went wrong, not where.
 
 `try` is the only construct for capturing a raise. It is a fixed handler over
 the same machinery `handle` exposes.
+
+---
+
+## Effects
+
+A signature says what a function does to the machine, not just what it does
+to its arguments. The effects appear after `!`:
+
+```
+FS.read_file!   String -> String ! {FS.Read, Raise}
+FS.exists?      Path -> Bool ! {FS.Read}
+Map.get!        String -> Map 'a -> 'a ! {Raise}
+String.upper    String -> String
+```
+
+`String.upper` shows nothing because it does nothing outside itself. A
+signature with no `!` performs no effects at all.
+
+There are six effects, and a script cannot define more:
+
+| Effect | Means |
+|---|---|
+| `Shell` | runs a subprocess — including anything that reaches the network, since it does so through a command |
+| `FS.Read` | reads from the filesystem |
+| `FS.Write` | creates, changes or removes something on disk |
+| `Env` | reads or changes the process environment |
+| `Proc` | touches the process itself — stdio, exit |
+| `Raise` | can raise instead of returning |
+
+### They are inferred, never written
+
+Effects come from the builtins a function reaches, however deep:
+
+```
+let fetch () = $(curl https://example.com)
+let sync ()  = fetch ()
+
+sync            -- Unit -> String ! {Shell, Raise}
+```
+
+Nothing above is annotated. `$()` runs a command and raises on a non-zero
+exit, so it carries `{Shell, Raise}`; `$?()` hands back a `ShellResult`
+instead and carries `{Shell}` alone. `$NAME` reads the environment, so it
+carries `{Env}`.
+
+### `try` and `handle` take effects away
+
+`try` converts a raise into a `Result`, so `Raise` does not escape it:
+
+```
+fn () -> $(git status)          -- Unit -> String ! {Shell, Raise}
+fn () -> try ($(git status))    -- Unit -> Result String String ! {Shell}
+```
+
+This is why each fallible operation and its `!` sibling differ by exactly
+one effect — the plain one is `try` over the raising one:
+
+```
+FS.read_file!   String -> String ! {FS.Read, Raise}
+FS.read_file    String -> Result String String ! {FS.Read}
+```
+
+A handler arm removes the effect of the operation it intercepts, which is
+what makes a script testable without letting it touch anything:
+
+```
+fn () -> handle $(git push) with
+         | process_run _ k -> k "ok"     -- Shell is gone
+```
+
+### Effect variables
+
+A function that passes effects through carries a variable rather than a
+fixed set, written `'e` — a variable ranging over effects, as `'a` ranges
+over types:
+
+```
+List.map   ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
+```
+
+`List.map` performs whatever the function it is given performs, and no more.
+Applying it to a shell command yields `{Shell, Raise}`; applying it to
+arithmetic yields nothing.
+
+A row can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
+turns out to be". The `|` separates what is known from the rest.
+
+### Where they show up
+
+`wand t`, `wand d`, and the interactive session all print them:
+
+```
+$ wand d "FS.read_file"
+FS.read_file : String -> Result String String ! {FS.Read}
+Read the entire contents of a file as a string.
+```
+
+### What inference promises
+
+A signature may name an effect a function does not always perform, but it
+never omits one it does. Where two calls in one body both have undetermined
+effects, they share the scope's unknowns, so an effect proved for one is
+attributed to both. Erring in this direction is what makes a signature worth
+reading: a missing effect would be a lie, an extra one is only imprecise.
 
 ---
 

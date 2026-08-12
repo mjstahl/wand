@@ -8,8 +8,10 @@
    given performs, so its row is a variable, not a fixed set.
 
    The label set is fixed and small on purpose. A script cannot define new
-   effects, so a row is always a subset of these seven, and a reader of a
-   signature has a finite vocabulary to learn.
+   effects, so a row is always a subset of these six, and a reader of a
+   signature has a finite vocabulary to learn. A label is added when
+   something can actually perform it: network access reaches the outside
+   world through a command today, and so reports as Shell.
 
    This module knows nothing about types; `Typechecker` puts a row on the
    arrow and unifies it alongside them. *)
@@ -18,18 +20,16 @@ type eff =
   | Shell     (* runs a subprocess *)
   | FsRead    (* reads from the filesystem *)
   | FsWrite   (* creates, changes or removes something on disk *)
-  | Net       (* talks to the network *)
   | Env       (* reads or changes process environment *)
   | Proc      (* touches the process itself: stdio, exit *)
   | Raise     (* can raise instead of returning *)
 
-let all = [Shell; FsRead; FsWrite; Net; Env; Proc; Raise]
+let all = [Shell; FsRead; FsWrite; Env; Proc; Raise]
 
 let name_of = function
   | Shell   -> "Shell"
   | FsRead  -> "FS.Read"
   | FsWrite -> "FS.Write"
-  | Net     -> "Net"
   | Env     -> "Env"
   | Proc    -> "Proc"
   | Raise   -> "Raise"

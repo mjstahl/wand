@@ -31,7 +31,7 @@ let test_display () =
 let test_closed_rows () =
   unifies "identical" (of_list [Shell; Raise]) (of_list [Raise; Shell]);
   unifies "both empty" pure pure;
-  conflicts "different labels" (single Shell) (single Net);
+  conflicts "different labels" (single Shell) (single Proc);
   conflicts "one has more" (of_list [Shell; Raise]) (single Shell);
   (* A closed row cannot grow, so a pure function is not silently accepted
      where an effectful one is required. *)
@@ -49,7 +49,7 @@ let test_open_takes_on_closed () =
   unifies "open with a known label" r2 (of_list [Raise; Shell]);
   shows "gains only what was missing" r2 "{Shell, Raise}";
   (* But it cannot claim something the closed side lacks. *)
-  let r3 = add Net (fresh_row ()) in
+  let r3 = add Proc (fresh_row ()) in
   conflicts "open claims an effect the closed side lacks" r3 (single Shell)
 
 (* ── Open against open ───────────────────────────────────────────────────── *)
@@ -86,10 +86,10 @@ let test_three_rows_in_a_chain () =
   let a = fresh_row () and b = fresh_row () and c = fresh_row () in
   unifies "a with b" a b;
   unifies "b with c" b c;
-  unifies "and c learns" c (single Net);
-  shows "a" a "{Net}";
-  shows "b" b "{Net}";
-  shows "c" c "{Net}"
+  unifies "and c learns" c (single Proc);
+  shows "a" a "{Proc}";
+  shows "b" b "{Proc}";
+  shows "c" c "{Proc}"
 
 let test_unifying_a_row_with_itself () =
   let r = add Shell (fresh_row ()) in
@@ -113,7 +113,7 @@ let test_add_remove_union () =
   shows "add" (add Shell pure) "{Shell}";
   shows "add is idempotent" (add Shell (single Shell)) "{Shell}";
   shows "remove" (remove Shell (of_list [Shell; Raise])) "{Raise}";
-  shows "remove what is absent" (remove Net (single Shell)) "{Shell}";
+  shows "remove what is absent" (remove Proc (single Shell)) "{Shell}";
   shows "union" (union (single Shell) (single FsRead)) "{Shell, FS.Read}";
   shows "union with pure" (union (single Shell) pure) "{Shell}";
   (* Union keeps the row open if either side is. *)
@@ -121,7 +121,7 @@ let test_add_remove_union () =
 
 let test_membership () =
   Alcotest.(check bool) "present" true (mem Shell (of_list [Shell; Raise]));
-  Alcotest.(check bool) "absent" false (mem Net (of_list [Shell; Raise]));
+  Alcotest.(check bool) "absent" false (mem Proc (of_list [Shell; Raise]));
   Alcotest.(check bool) "nothing is in a pure row" false (mem Shell pure)
 
 (* ── Free variables ──────────────────────────────────────────────────────── *)
