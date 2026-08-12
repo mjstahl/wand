@@ -1153,6 +1153,21 @@ match TOML.read_file ./config.toml with
 `Option 'a` is a generic type (`type Option 'a = None | Some 'a`) — see
 "Generics" above.
 
+`Option` says a value may be absent; `Result` says an operation was attempted
+and may have failed, and carries the reason. They do not mix: piping one into
+something expecting the other is a type error.
+
+```
+Map.get "k" m |> unwrap        -- cannot unify Result 'a Int with Option 'a
+```
+
+`Option.to_result` is the bridge, and writing it is how a script states that
+absence should now count as failure:
+
+```
+Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
+```
+
 ---
 
 ## Testing
