@@ -1,3 +1,6 @@
+import List
+import String
+
 (** The outcome of a single assertion: Pass carries the test's label,
     Fail carries a message that already includes the label. *)
 type TestOutcome = Pass String | Fail String
@@ -31,3 +34,41 @@ let test label f =
       | Error _ -> Pass label
   )
   in f t
+
+(* ── Testing effectful code ─────────────────────────────────────────────
+   A script's risky parts are the ones that reach outside it, which is
+   exactly what a handler can stand in for. These cover the common case so
+   a test does not have to write a handler by hand. *)
+
+(** Run `thunk` with shell commands answered from a table instead of
+    executed. Each entry is (fragment, output): the first fragment that
+    appears in a command supplies its output, and a command matching nothing
+    returns "". *)
+let with_shell mocks thunk =
+  handle thunk () with
+  | Shell!run cmd k ->
+    match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
+    | Some hit -> let (_, out) = hit in k out
+    | None     -> k ""
+
+(** Return the commands `thunk` would run, in order, without running any of
+    them. Every command answers with "". *)
+let shell_calls thunk =
+  handle thunk () with
+  | Shell!run cmd k -> let rest = k "" in cmd : rest
+  | return _        -> []
+
+(** Run `thunk` with writes swallowed, returning what it returned. Handlers
+    compose, so this nests inside `with_shell` to hold back both. *)
+let without_writes thunk =
+  handle thunk () with
+  | FS!write_file _ k -> k ()
+
+(** Return the paths `thunk` would write to, in order, without writing
+    anything. *)
+let writes thunk =
+  handle thunk () with
+  | FS!write_file arg k ->
+    let (path, _) = arg in
+    let rest = k () in path : rest
+  | return _ -> []

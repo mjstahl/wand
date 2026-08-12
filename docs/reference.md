@@ -611,7 +611,7 @@ A handler arm removes the effect of the operation it intercepts:
 
 ```
 fn () -> handle $(git push) with
-         | Shell!run _ k -> k "ok"     -- Unit -> 'a ! {Raise}
+         | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise}
 ```
 
 `Shell` is gone. `Raise` stays: a row records which effects occurred, not
@@ -1276,6 +1276,51 @@ Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
 test whose body raises outside of `t.raises` is reported as a failure
 without stopping the rest of the file. `wand test` exits nonzero if any
 test failed or any file had a lex/parse/type error.
+
+---
+
+### Testing code that touches the outside world
+
+The risky part of a script is what reaches outside it, which is exactly what
+a handler can stand in for. `Test` covers the common cases so a test does not
+have to write one by hand:
+
+```
+Test.with_shell [(fragment, output), ...] thunk   -- answer commands from a table
+Test.shell_calls thunk                            -- the commands it would run
+Test.without_writes thunk                         -- swallow writes, keep the result
+Test.writes thunk                                 -- the paths it would write
+```
+
+Given a deploy that pushes and rewrites a config:
+
+```
+let deploy () =
+  let version = $(git describe --tags) in
+  let () = FS.write_file! "/etc/app/config.toml" "version = \"${version}\"\n" in
+  let _ = $(rsync -a ./build/ web@host:/srv/app) in
+  "deployed ${version}"
+```
+
+Handlers compose, so a script touching two families needs both, nested:
+
+```
+let sealed thunk =
+  Test.with_shell [("git describe", "v2.1.0")] (fn () -> Test.without_writes thunk)
+
+test "runs to completion without the network" (fn t ->
+  t.eq (sealed deploy) "deployed v2.1.0")
+
+test "pushes exactly once" (fn t ->
+  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy) in
+  t.eq (List.length (List.filter (fn c -> String.contains? "rsync" c) cmds)) 1)
+
+test "the config was never written" (fn t ->
+  let _ = sealed deploy in
+  t.eq (FS.exists? (Path.of_string "/etc/app/config.toml")) false)
+```
+
+The last one is the point: the script ran, and nothing happened.
 
 ---
 

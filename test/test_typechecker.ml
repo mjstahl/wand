@@ -448,7 +448,7 @@ let type_of label src =
 (* A handler removes the effect of the operation it intercepts. *)
 let test_handler_discharges_its_operation () =
   Alcotest.(check string) "Shell is gone once process_run is handled"
-    "Unit -> 'a ! {Raise}"
+    "Unit -> String ! {Raise}"
     (type_of "handled shell"
        "fn () -> handle $(git push) with\n| Shell!run _ k -> k \"ok\"")
 
@@ -460,7 +460,7 @@ let test_handler_discharges_its_operation () =
    effect that cannot happen is imprecise; dropping one that can is a lie. *)
 let test_handler_keeps_raises_it_cannot_account_for () =
   Alcotest.(check string) "a raise from elsewhere in the body survives"
-    "Map 'a -> 'b ! {Raise}"
+    "Map 'a -> String ! {Raise}"
     (type_of "raise from elsewhere"
        "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| Shell!run _ k -> k \"ok\"")
 

@@ -1079,6 +1079,11 @@ let rec infer tenv (env : env) (e : expr) : typ =
     in
     performs discharged;
     let result_t = fresh () in
+    (* Without a `return` arm the handler returns what the body returned, so
+       the two types are the same. Leaving them apart lost the body's type
+       entirely. *)
+    if not (List.exists (function Ast.ReturnArm _ -> true | _ -> false) arms)
+    then unify result_t body_t;
     List.iter (fun arm ->
       match arm with
       | Ast.ReturnArm (p, b) ->
