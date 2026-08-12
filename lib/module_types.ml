@@ -9,7 +9,7 @@
 
 let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
 
-let find_stdlib_dir () =
+let find_stdlib_dir_uncached () =
   match Sys.getenv_opt "WAND_STDLIB" with
   | Some dir -> dir
   | None ->
@@ -23,6 +23,19 @@ let find_stdlib_dir () =
         else ascend parent
     in
     ascend (Sys.getcwd ())
+
+(* The directory does not move while the process runs, and the search above
+   walks the tree from CWD -- which every stdlib import would otherwise
+   repeat. *)
+let stdlib_dir_cache : string option ref = ref None
+
+let find_stdlib_dir () =
+  match !stdlib_dir_cache with
+  | Some dir -> dir
+  | None ->
+    let dir = find_stdlib_dir_uncached () in
+    stdlib_dir_cache := Some dir;
+    dir
 
 let resolve_stdlib name =
   let stdlib_dir = find_stdlib_dir () in

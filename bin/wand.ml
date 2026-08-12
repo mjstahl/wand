@@ -77,15 +77,45 @@ let parse_loads args =
   in
   go [] [] args
 
-let stdlib_prelude =
-  "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Env\nimport Map\nimport Regex"
+(* One-shot commands let an expression name a stdlib module without importing
+   it. Importing all of them to provide that costs a disk read, lex, parse,
+   full inference and eval per module, on every invocation -- paid in full by
+   `wand t "1 + 2"`, the command the generate/typecheck/fix loop runs most.
+   Import only the modules the input actually mentions instead. *)
+let stdlib_prelude_for sources =
+  let mentioned = Hashtbl.create 8 in
+  List.iter (fun src ->
+    match (try Some (Wand.Lexer.tokenize src) with _ -> None) with
+    | None -> ()
+    | Some toks ->
+      List.iter (fun (tok, _) ->
+        match tok with
+        | Wand.Token.Upper name
+          when List.mem name Wand.Typechecker.stdlib_module_names ->
+          Hashtbl.replace mentioned name ()
+        | _ -> ()) toks
+  ) sources;
+  Hashtbl.fold (fun name () acc -> ("import " ^ name) :: acc) mentioned []
+  |> String.concat "\n"
 
-let load_files loads =
+(* Source text mentioning every stdlib module, for the commands that must
+   load all of them. *)
+let all_stdlib_imports =
+  String.concat "\n"
+    (List.map (fun n -> "import " ^ n) Wand.Typechecker.stdlib_module_names)
+
+let load_files ?(sources = []) loads =
   let sess = Wand.Runner.make_session () in
-  let sess = match Wand.Runner.run_session sess stdlib_prelude with
-    | Ok (s, _) -> s
-    | Error _   -> sess
+  let file_sources = List.filter_map (fun path ->
+    try Some (In_channel.with_open_text path In_channel.input_all)
+    with Sys_error _ -> None) loads
+  in
+  let prelude = stdlib_prelude_for (sources @ file_sources) in
+  let sess =
+    if prelude = "" then sess
+    else match Wand.Runner.run_session sess prelude with
+      | Ok (s, _) -> s
+      | Error _   -> sess
   in
   List.fold_left (fun s path ->
     match (try Ok (In_channel.with_open_text path In_channel.input_all)
@@ -119,7 +149,7 @@ let () =
        | [] ->
          Printf.eprintf "Error: expected expression\nRun 'wand h e' for usage.\n"; exit 1
        | [expr] ->
-         let sess = load_files loads in
+         let sess = load_files ~sources:[expr] loads in
          (match Wand.Runner.run_session sess expr with
           | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
           | Ok (_, r) -> Wand.Repl.print_result r)
@@ -131,7 +161,7 @@ let () =
        | [] ->
          Printf.eprintf "Error: expected expression\nRun 'wand h t' for usage.\n"; exit 1
        | [expr] ->
-         let sess = load_files loads in
+         let sess = load_files ~sources:[expr] loads in
          (match Wand.Runner.typecheck_session sess expr with
           | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
           | Ok r      -> Wand.Repl.print_result r)
@@ -143,7 +173,7 @@ let () =
        | [] ->
          Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
        | [name] ->
-         let sess = load_files loads in
+         let sess = load_files ~sources:[name] loads in
          (match Wand.Runner.lookup_type sess name with
           | Some t -> Printf.printf "%s : %s\n" name t
           | None   -> ());
@@ -154,7 +184,12 @@ let () =
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
     | "env" ->
       let (loads, rest') = parse_loads rest in
-      let sess = load_files loads in
+      (* `wand env <module>` needs only that module; bare `wand env` lists
+         everything in scope, so it does load them all. *)
+      let sess = match rest' with
+        | [modname] -> load_files ~sources:[modname] loads
+        | _ -> load_files ~sources:[all_stdlib_imports] loads
+      in
       (match rest' with
        | [modname] ->
          (match List.assoc_opt modname sess.Wand.Runner.s_type_env with
