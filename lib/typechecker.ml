@@ -42,6 +42,20 @@ let effs es a b = TFun (a, b, Effect_row.of_list es)
 let next_id = ref 0
 let holes : typ list ref = ref []
 
+(* Whether a pattern can fail to match. A parameter with a refutable pattern
+   makes the function partial -- `let head! [h : _] = h` has nothing to do
+   with an empty list but raise -- and that raise comes from the binding
+   itself rather than from any call, so nothing else would record it. A
+   `match` is different: it is checked for exhaustiveness, so its arms
+   cannot all fail. *)
+let rec pat_is_refutable (p : pat) =
+  match p with
+  | PVar _ | Wild -> false
+  | Unit          -> false
+  | PTuple ps     -> List.exists pat_is_refutable ps
+  | PConstrNamed _ -> false   (* a single-constructor type cannot mismatch *)
+  | _             -> true
+
 (* Which effect an intercepted operation accounts for. A handler arm names
    the builtin operation it catches, and catching it is what removes the
    corresponding effect from the handled expression. *)
@@ -824,6 +838,11 @@ let rec infer tenv (env : env) (e : expr) : typ =
       ) ([], env) params
     in
     let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
+    let body_row =
+      if List.exists pat_is_refutable params
+      then Effect_row.add Effect_row.Raise body_row
+      else body_row
+    in
     (* Only the innermost arrow carries the body's effects: supplying one
        argument of a curried function does nothing until the last one
        arrives. *)
@@ -858,6 +877,11 @@ let rec infer tenv (env : env) (e : expr) : typ =
        unify tf (TFun (fn_arg_t, tr, latent));
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
        let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
+    let body_row =
+      if List.exists pat_is_refutable params
+      then Effect_row.add Effect_row.Raise body_row
+      else body_row
+    in
        unify body_t body_result_t;
        (try Effect_row.unify arg_row body_row
         with Effect_row.RowError msg -> raise (TypeError msg));

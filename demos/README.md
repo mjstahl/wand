@@ -44,7 +44,7 @@ Path.basename *.wand     cannot unify Path with Glob
 Leave `?` where you have not decided yet, and typecheck:
 
 ```
-let levels = List.fold_left ? Map.empty (String.lines (IO.read_all ()))
+let levels = List.fold_left ? Map.empty (String.lines (IO.read_all! ()))
 ```
 
 ```

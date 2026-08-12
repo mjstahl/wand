@@ -5,7 +5,7 @@ import List
 
 (* Input normally ends in a newline, which would otherwise split into a
    trailing empty line; empty input is zero lines, not one. *)
-let input  = String.trim_right (IO.read_all ())
+let input  = String.trim_right (IO.read_all! ())
 let lines  = if input == "" then [] else String.lines input
 let errors = List.filter (fn l -> String.contains? "ERROR" l) lines
 let warns  = List.filter (fn l -> String.contains? "WARN"  l) lines

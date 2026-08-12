@@ -14,6 +14,6 @@ let count tally line =
     | None   -> Map.set l 1 tally
     | Some n -> Map.set l (n + 1) tally
 
-let levels = List.fold_left count Map.empty (String.lines (String.trim_right (IO.read_all ())))
+let levels = List.fold_left count Map.empty (String.lines (String.trim_right (IO.read_all! ())))
 
 levels

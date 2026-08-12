@@ -13,6 +13,8 @@ type id =
   | M_OR1      (* an error that carries no information is a misfiled Option *)
   | M_NAME1    (* keyword-collision escapes should not reach a caller *)
   | M_PRED2    (* `?` already says predicate; `is_` says it twice *)
+  | M_BANG1    (* it can raise, and the name does not say so *)
+  | M_BANG2    (* the name says it raises, and it cannot *)
   | H_SHELL1   (* a shell blob hides work the type system could see *)
 
 (* The prefix carries the classification, so a rule ID printed in a terminal
@@ -41,6 +43,12 @@ let all = [
     kind = Mechanical };
   { id = M_PRED2;  code = "M-PRED2";
     summary = "a `?`-named function also carries a redundant `is_` prefix";
+    kind = Mechanical };
+  { id = M_BANG1;  code = "M-BANG1";
+    summary = "a function that can raise is not named with `!`";
+    kind = Mechanical };
+  { id = M_BANG2;  code = "M-BANG2";
+    summary = "a `!`-named function cannot raise";
     kind = Mechanical };
   { id = M_OR1;    code = "M-OR1";
     summary = "an informationless error (`Result Unit _`) is a misfiled Option";
@@ -94,6 +102,17 @@ let pred2 ~name =
   let bare = String.sub name 3 (String.length name - 3) in
   Printf.sprintf
     "'%s' says it is a predicate twice; `?` already carries that, so this is \
+     '%s'" name bare
+
+let bang1 ~name =
+  Printf.sprintf
+    "'%s' can raise, but its name does not say so; call it '%s!' and give the \
+     plain name to a version that returns a Result" name name
+
+let bang2 ~name =
+  let bare = String.sub name 0 (String.length name - 1) in
+  Printf.sprintf
+    "'%s' cannot raise, so the `!` promises a risk that is not there; it is \
      '%s'" name bare
 
 let shell1 ~stages =

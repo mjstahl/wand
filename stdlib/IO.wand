@@ -10,11 +10,19 @@ let print_err s = io_print_err s
 (** Print a value to stderr followed by a newline. *)
 let println_err s = io_println_err s
 
+(** Read a line from stdin, returning the string without the newline.
+    Raises at end of input. *)
+let read_line! () = io_read_line ()
+
 (** Read a line from stdin, returning the string without the newline. *)
-let read_line () = io_read_line ()
+let read_line () = try (read_line! ())
+
+(** Read all remaining input from stdin as a single string. Raises on a
+    read error. *)
+let read_all! () = io_read_all ()
 
 (** Read all remaining input from stdin as a single string. *)
-let read_all () = io_read_all ()
+let read_all () = try (read_all! ())
 
 (** Flush stdout, ensuring all buffered output is written. *)
 let flush () = io_flush ()

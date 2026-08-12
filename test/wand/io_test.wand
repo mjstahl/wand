@@ -22,12 +22,12 @@ test "IO.println_err" (fn t ->
   in t.eq outcome "ok")
 
 test "IO.read_line mock" (fn t ->
-  let outcome = handle IO.read_line () with
+  let outcome = handle IO.read_line! () with
     | io_read_line _ k -> k "mocked line"
   in t.eq outcome "mocked line")
 
 test "IO.read_all mock" (fn t ->
-  let outcome = handle IO.read_all () with
+  let outcome = handle IO.read_all! () with
     | io_read_all _ k -> k "all of stdin"
   in t.eq outcome "all of stdin")
 

@@ -7,6 +7,6 @@ import IO
 --
 -- The reducer is the part worth thinking about, so leave it as a hole (?)
 -- and ask the type system what belongs there before writing it.
-let levels = List.fold_left ? Map.empty (String.lines (IO.read_all ()))
+let levels = List.fold_left ? Map.empty (String.lines (IO.read_all! ()))
 
 levels

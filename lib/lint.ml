@@ -43,6 +43,21 @@ let rec informationless_error (t : Typechecker.typ) =
   | Typechecker.TTuple ts -> List.exists informationless_error ts
   | _ -> false
 
+(* Whether any arrow in the type can raise. A curried function's arrows share
+   one row, so it does not matter which is asked. *)
+let rec type_raises (t : Typechecker.typ) =
+  match Typechecker.repr t with
+  | Typechecker.TFun (a, b, r) ->
+    Effect_row.mem Effect_row.Raise r || type_raises a || type_raises b
+  | Typechecker.TTuple ts -> List.exists type_raises ts
+  | Typechecker.TList t | Typechecker.TMap t -> type_raises t
+  | Typechecker.TResult (e, t) -> type_raises e || type_raises t
+  | Typechecker.TApp (f, a) -> type_raises f || type_raises a
+  | _ -> false
+
+let is_function (t : Typechecker.typ) =
+  match Typechecker.repr t with Typechecker.TFun _ -> true | _ -> false
+
 let rec pat_names (p : Ast.pat) =
   match p with
   | Ast.PVar n -> [n]
@@ -142,7 +157,16 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
            add Lint_rules.M_PRED1 loc
              (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));
          if informationless_error t then
-           add Lint_rules.M_OR1 loc (Lint_rules.or1 ~name)
+           add Lint_rules.M_OR1 loc (Lint_rules.or1 ~name);
+         (* The `!` convention, checked in both directions now that a
+            signature says whether a function can raise. *)
+         if is_function t then begin
+           let raises = type_raises t in
+           if raises && not (ends_with name '!') then
+             add Lint_rules.M_BANG1 loc (Lint_rules.bang1 ~name);
+           if (not raises) && ends_with name '!' then
+             add Lint_rules.M_BANG2 loc (Lint_rules.bang2 ~name)
+         end
        | None -> ());
       (match List.concat_map pat_names params
              |> List.filter (fun n -> String.length n > 1 && ends_with n '_') with
