@@ -1,3 +1,5 @@
+uses {IO}
+
 (** Print a value without a trailing newline. *)
 let print = print
 

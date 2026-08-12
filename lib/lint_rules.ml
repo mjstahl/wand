@@ -17,6 +17,7 @@ type id =
   | V_BANG2    (* the name says it raises, and it cannot *)
   | A_SHELL1   (* a shell blob hides work the type system could see *)
   | A_USES1    (* the manifest permits more than the file needs *)
+  | A_USES2    (* the file reaches outside itself and does not say so *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -61,6 +62,9 @@ let all = [
     kind = Violation };
   { id = A_USES1;  code = "A-USES1";
     summary = "the manifest permits effects the file does not use";
+    kind = Advisory };
+  { id = A_USES2;  code = "A-USES2";
+    summary = "the file performs effects and declares no manifest";
     kind = Advisory };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
@@ -125,6 +129,17 @@ let uses1 ~unused ~corrected =
   Printf.sprintf
     "the manifest permits %s, which this file does not use; it could be %s"
     unused corrected
+
+(* Advisory rather than a violation, and deliberately so: a file without a
+   manifest is legal, and a rule that failed a build over one would make
+   every casual script pay for a feature it did not ask for. But a manifest
+   is only worth having if it makes code better, so the linter is where the
+   file is told what better looks like -- and it can hand over the exact
+   line, since the effects are already inferred. *)
+let uses2 ~performs ~corrected =
+  Printf.sprintf
+    "this file performs %s and does not say so; it could declare %s"
+    performs corrected
 
 let shell1 ~stages =
   Printf.sprintf

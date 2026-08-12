@@ -192,7 +192,16 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
             ~unused:(String.concat ", "
               (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
             ~corrected:(Typechecker.render_manifest inferred))
-   | None -> ());
+   | None ->
+     (* No manifest at all. A file that reaches outside itself is told what
+        it could declare; a file that does not has nothing to say. *)
+     let performs = !Typechecker.last_file_effects in
+     if not (Effect_row.EffSet.is_empty performs) then
+       add Lint_rules.A_USES2 { Token.line = 1; col = 1; offset = 0 }
+         (Lint_rules.uses2
+            ~performs:(String.concat ", "
+              (List.map Effect_row.name_of (Effect_row.EffSet.elements performs)))
+            ~corrected:(Typechecker.render_manifest performs)));
   List.stable_sort (fun a b ->
     match compare a.line b.line with 0 -> compare a.col b.col | c -> c)
     (List.rev !findings)

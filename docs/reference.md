@@ -691,6 +691,19 @@ Permitting more than you need is the safe direction, and a build that failed
 over it would punish caution — so it is advisory, and `--strict` leaves it
 alone.
 
+### Performing effects without saying so is a warning
+
+```
+warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
+         so; it could declare uses {Shell, FS.Write}
+```
+
+A file without a manifest is legal and always will be — a casual script
+should not have to pay for a feature it did not ask for, so this never
+fails a build. But a manifest is only worth writing if it makes the file
+better to read, and the effects have already been inferred, so the linter
+hands over the exact line rather than only noting its absence.
+
 ### `Raise` is not part of a manifest
 
 A manifest bounds what a file can do to the machine. `Raise` is control
@@ -1522,6 +1535,8 @@ it would punish the safer choice.
 | `V-BANG2` | a `!`-named function cannot raise |
 | `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
+| `A-USES1` | a manifest permits an effect the file does not use |
+| `A-USES2` | a file performs effects and declares no manifest |
 
 ```
 wand t --strict "..."     # violations become errors (exit 1)

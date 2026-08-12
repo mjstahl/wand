@@ -1,3 +1,5 @@
+uses {Shell, IO}
+
 import String
 import List
 

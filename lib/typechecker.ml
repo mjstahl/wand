@@ -1460,8 +1460,28 @@ let render_manifest labels =
 let last_manifest : (Effect_row.EffSet.t * Effect_row.EffSet.t * Token.loc) option ref =
   ref None
 
+(* What the file reaches outside itself to do, whether or not it says so.
+   Recorded for every file, because the linter's question about a file with
+   no manifest is exactly this set: a file that does nothing outward has
+   nothing to declare, and one that does should say what. *)
+let last_file_effects : Effect_row.EffSet.t ref = ref Effect_row.EffSet.empty
+
 let check_manifest (prog : program) (own_env : env) =
   last_manifest := None;
+  let per_binding =
+    List.filter_map (fun (name, scheme) ->
+      match scheme with
+      | Mono t | Poly (_, _, t) ->
+        let ls = manifest_relevant (labels_of_typ t) in
+        if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
+      | Namespace _ -> None
+    ) own_env
+  in
+  let inferred =
+    List.fold_left (fun acc (_, ls) -> Effect_row.EffSet.union acc ls)
+      (manifest_relevant (Effect_row.labels_of !current_eff)) per_binding
+  in
+  last_file_effects := inferred;
   match prog.manifest with
   | None -> ()
   | Some (labels, loc) ->
@@ -1474,19 +1494,6 @@ let check_manifest (prog : program) (own_env : env) =
             "'%s' is not an effect. The effects are %s" name
             (String.concat ", " (List.map Effect_row.name_of Effect_row.all))))
       ) Effect_row.EffSet.empty labels
-    in
-    let per_binding =
-      List.filter_map (fun (name, scheme) ->
-        match scheme with
-        | Mono t | Poly (_, _, t) ->
-          let ls = manifest_relevant (labels_of_typ t) in
-          if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
-        | Namespace _ -> None
-      ) own_env
-    in
-    let inferred =
-      List.fold_left (fun acc (_, ls) -> Effect_row.EffSet.union acc ls)
-        (manifest_relevant (Effect_row.labels_of !current_eff)) per_binding
     in
     last_manifest := Some (declared, inferred, loc);
     let missing = Effect_row.EffSet.diff inferred declared in

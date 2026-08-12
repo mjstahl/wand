@@ -57,11 +57,30 @@ let test_uses1 () =
   Alcotest.(check bool) "never fails --strict" false
     (List.exists Lint.fails_strict over)
 
+(* A file that reaches outside itself and says nothing about it. Advisory,
+   because a file without a manifest is legal -- but a manifest is only
+   worth having if it makes code better, so this is where a file is told
+   what better looks like. *)
+let test_uses2 () =
+  fires "effects and no manifest"
+    "let publish! () = $(rsync -a . host:/srv)\npublish!" "A-USES2";
+  (* Saying so is the whole point, so having said it ends the matter. *)
+  silent "the same file, declared"
+    "uses {Shell}\nlet publish! () = $(rsync -a . host:/srv)\npublish!";
+  silent "a file that reaches outside nothing" "let x = 1\nx";
+  (* Raise is not a capability and never appears in a manifest, so a file
+     that only raises has nothing it could declare. *)
+  silent "raising alone"
+    "import List\nlet head! xs = List.get! 0 xs\nhead! [1]";
+  let undeclared = findings "let publish! () = $(rsync -a . host:/srv)\npublish!" in
+  Alcotest.(check bool) "never fails --strict" false
+    (List.exists Lint.fails_strict undeclared)
+
 let test_shell1 () =
   fires "multi-stage pipeline"
     "let c = $(git log --oneline | grep fix | wc -l | tr -d \" \")\nc" "A-SHELL1";
-  silent "single command" "let c = $(git status)\nc";
-  silent "one pipe" "let c = $(ls | wc -l)\nc"
+  silent "single command" "uses {Shell}\nlet c = $(git status)\nc";
+  silent "one pipe" "uses {Shell}\nlet c = $(ls | wc -l)\nc"
 
 (* ── Classification ──────────────────────────────────────────────────────── *)
 
@@ -171,6 +190,7 @@ let () =
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
+      Alcotest.test_case "A-USES2"  `Quick test_uses2;
     ];
     "catalog", [
       Alcotest.test_case "kinds"        `Quick test_kinds;

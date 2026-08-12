@@ -1,3 +1,5 @@
+uses {IO}
+
 import IO
 import String
 import List

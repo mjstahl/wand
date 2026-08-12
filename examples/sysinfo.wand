@@ -1,3 +1,5 @@
+uses {Shell, Env}
+
 let hostname = $(hostname)
 let os = $(uname -s)
 let kernel = $(uname -r)

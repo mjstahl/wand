@@ -1,3 +1,5 @@
+uses {FS.Read, FS.Write}
+
 (* Every operation that touches the filesystem can fail for a reason the OS
    can state, so each one comes as a pair: the plain name returns a Result
    carrying that reason, and the `!` sibling raises instead. The `!` versions
