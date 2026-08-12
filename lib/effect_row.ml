@@ -182,6 +182,34 @@ let unify a b =
       bind vb (Row (EffSet.diff la lb, Some shared))
     end
 
+(* Record that `l` is performed inside a scope whose effects so far are
+   `ambient`, returning the extended ambient.
+
+   Two things happen. The labels `l` is known to carry are added, which is
+   the easy half. The harder half is `l`'s tail: if what the callee does is
+   still undetermined, whatever it turns out to do must also reach the
+   enclosing signature, so its tail becomes the ambient's tail. Joining the
+   two rows by set union instead would keep only one tail and silently drop
+   the other call's effects.
+
+   Tying the tails together over-approximates -- two different callees in
+   one body end up sharing the scope's unknown effects, so an effect proved
+   for one is attributed to both. That is the safe direction: a signature
+   may name an effect the function does not always perform, but it can never
+   omit one it does. *)
+let absorb ~ambient l =
+  let (Row (la, ta)) = repr ambient in
+  let (Row (ll, tl)) = repr l in
+  (match tl, ta with
+   | Some vl, Some va when vl.rid <> va.rid ->
+     bind vl (Row (EffSet.empty, Some va))
+   | Some vl, None ->
+     (* The scope's effects are already fixed, so the callee adds nothing
+        beyond what it is known to carry. *)
+     bind vl (Row (EffSet.empty, None))
+   | _ -> ());
+  Row (EffSet.union la ll, ta)
+
 (* Rebuild `r` with its row variables replaced according to `subst`. A
    polymorphic function's row variable must be freshened at each use, or
    every caller shares one row and the first caller to perform an effect

@@ -30,7 +30,7 @@ and tv = {
 (* Builtin signatures are written with `@->` so the tables stay readable.
    Every builtin's *own* latent effect is filled in separately; the arrow
    itself carries no effect until it is seeded. *)
-let ( @-> ) a b = TFun (a, b, Effect_row.pure)
+let ( @-> ) a b = TFun (a, b, Effect_row.fresh_row ())
 
 (* `a @! effs $ b` reads "a to b, performing effs". Only the arrow that is
    actually applied last carries them: reading a file happens when the path
@@ -66,15 +66,19 @@ let effect_of_operation = function
    Only two places touch it: applying a function adds that function's latent
    effects, and inferring a lambda's body scopes them, because defining a
    function performs nothing. *)
-let current_eff : Effect_row.row ref = ref Effect_row.pure
+(* A scope's effects start undetermined rather than empty: a function that
+   performs nothing of its own still passes on whatever its arguments do,
+   and an open row is what lets that be generalised into effect
+   polymorphism. *)
+let current_eff : Effect_row.row ref = ref (Effect_row.fresh_row ())
 
-let performs r = current_eff := Effect_row.union !current_eff r
+let performs r = current_eff := Effect_row.absorb ~ambient:!current_eff r
 
-(* Run `f` with a fresh effect accumulator, returning what it performed
+(* Run `f` with its own effect accumulator, returning what it performed
    alongside its result and leaving the enclosing accumulator untouched. *)
 let scoped_eff f =
   let saved = !current_eff in
-  current_eff := Effect_row.pure;
+  current_eff := Effect_row.fresh_row ();
   let result = (try f () with e -> current_eff := saved; raise e) in
   let inner = !current_eff in
   current_eff := saved;
@@ -134,8 +138,10 @@ let string_of_typ t =
     match Hashtbl.find_opt row_names rid with
     | Some n -> n
     | None   ->
-      let n = if !row_counter = 0 then "e"
-              else Printf.sprintf "e%d" !row_counter in
+      (* Written like a type variable, because that is what it is: one that
+         ranges over effects rather than types. *)
+      let n = if !row_counter = 0 then "'e"
+              else Printf.sprintf "'e%d" !row_counter in
       incr row_counter; Hashtbl.add row_names rid n; n
   in
   let rec go t =
@@ -164,18 +170,30 @@ let string_of_typ t =
           Some (row_name_of rid)
         | _ -> None
       in
+      let names =
+        String.concat ", "
+          (List.map Effect_row.name_of (Effect_row.EffSet.elements labels))
+      in
       let suffix =
         match Effect_row.EffSet.is_empty labels, var_name with
         | true,  None   -> ""
         | true,  Some v -> " ! " ^ v
-        | false, None   -> " ! " ^ Effect_row.string_of_row eff
-        | false, Some v ->
-          " ! {" ^ String.concat ", "
-            (List.map Effect_row.name_of (Effect_row.EffSet.elements labels))
-          ^ " | " ^ v ^ "}"
+        (* An unnamed tail is one that appears once: undetermined, and so
+           not worth printing beside the effects that are known. *)
+        | false, None   -> " ! {" ^ names ^ "}"
+        | false, Some v -> " ! {" ^ names ^ " | " ^ v ^ "}"
       in
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
-      sa ^ " -> " ^ go b ^ suffix
+      let rendered_b = go b in
+      (* Each arrow of a curried function has its own row, but partial
+         application ties them to the same one, so a chain would otherwise
+         repeat itself: `a -> b -> c ! e ! e`. Print it once. *)
+      let ends_with s suf =
+        let n = String.length s and m = String.length suf in
+        m <= n && String.sub s (n - m) m = suf
+      in
+      let suffix = if suffix <> "" && ends_with rendered_b suffix then "" else suffix in
+      sa ^ " -> " ^ rendered_b ^ suffix
     | TTuple ts ->
       "(" ^ String.concat ", " (List.map go ts) ^ ")"
     | TList t ->
@@ -812,7 +830,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let rec build = function
       | []      -> body_t
       | [t]     -> TFun (t, body_t, body_row)
-      | t :: tl -> TFun (t, build tl, Effect_row.pure)
+      | t :: tl -> TFun (t, build tl, Effect_row.fresh_row ())
     in
     build param_ts
   | App (f, x) ->
@@ -831,7 +849,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
          let rec build = function
            | []      -> body_result_t
            | [t]     -> TFun (t, body_result_t, arg_row)
-           | t :: tl -> TFun (t, build tl, Effect_row.pure)
+           | t :: tl -> TFun (t, build tl, Effect_row.fresh_row ())
          in
          build param_ts
        in
@@ -1137,152 +1155,152 @@ let stdlib_type_env : env = [
   ("println",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (a) (TUnit)));
   ("exit",       let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
-  ("read_file",  Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
-  ("write_file", Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TUnit))));
+  ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
+  ("write_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TUnit))));
   (* String primitives *)
-  ("str_length",     Mono ((TString @-> TInt)));
-  ("str_upper",      Mono ((TString @-> TString)));
-  ("str_lower",      Mono ((TString @-> TString)));
-  ("str_trim",       Mono ((TString @-> TString)));
-  ("str_slice",      Mono ((TInt @-> (TInt @-> (TString @-> TString)))));
-  ("str_split",      Mono ((TString @-> (TString @-> TList TString))));
-  ("str_contains",   Mono ((TString @-> (TString @-> TBool))));
-  ("str_starts_with",Mono ((TString @-> (TString @-> TBool))));
-  ("str_ends_with",  Mono ((TString @-> (TString @-> TBool))));
-  ("str_replace",    Mono ((TString @-> (TString @-> (TString @-> TString)))));
-  ("str_trim_left",  Mono ((TString @-> TString)));
-  ("str_trim_right", Mono ((TString @-> TString)));
-  ("str_repeat",     Mono ((TInt @-> (TString @-> TString))));
-  ("str_reverse",    Mono ((TString @-> TString)));
-  ("str_chars",      Mono ((TString @-> TList TString)));
-  ("int_to_str",       Mono ((TInt @-> TString)));
-  ("str_to_int",       Mono ((TString @-> TResult (TString, TInt))));
-  ("str_to_float",     Mono ((TString @-> TResult (TString, TFloat))));
-  ("str_to_bool",      Mono ((TString @-> TResult (TString, TBool))));
-  ("str_to_path",      Mono ((TString @-> TPath)));
-  ("str_to_url",       Mono ((TString @-> TResult (TString, TUrl))));
-  ("str_to_ipv4",      Mono ((TString @-> TResult (TString, TIPv4))));
-  ("str_to_cidr",      Mono ((TString @-> TResult (TString, TCIDR))));
-  ("str_to_port",      Mono ((TString @-> TResult (TString, TPort))));
-  ("str_to_version",   Mono ((TString @-> TResult (TString, TVersion))));
-  ("str_to_size",      Mono ((TString @-> TResult (TString, TSize))));
-  ("str_to_date",      Mono ((TString @-> TResult (TString, TDate))));
-  ("str_to_time",      Mono ((TString @-> TResult (TString, TTime))));
-  ("str_to_datetime",  Mono ((TString @-> TResult (TString, TDateTime))));
-  ("str_to_duration",  Mono ((TString @-> TResult (TString, TDuration))));
+  ("str_length",     generalize [] ((TString @-> TInt)));
+  ("str_upper",      generalize [] ((TString @-> TString)));
+  ("str_lower",      generalize [] ((TString @-> TString)));
+  ("str_trim",       generalize [] ((TString @-> TString)));
+  ("str_slice",      generalize [] ((TInt @-> (TInt @-> (TString @-> TString)))));
+  ("str_split",      generalize [] ((TString @-> (TString @-> TList TString))));
+  ("str_contains",   generalize [] ((TString @-> (TString @-> TBool))));
+  ("str_starts_with",generalize [] ((TString @-> (TString @-> TBool))));
+  ("str_ends_with",  generalize [] ((TString @-> (TString @-> TBool))));
+  ("str_replace",    generalize [] ((TString @-> (TString @-> (TString @-> TString)))));
+  ("str_trim_left",  generalize [] ((TString @-> TString)));
+  ("str_trim_right", generalize [] ((TString @-> TString)));
+  ("str_repeat",     generalize [] ((TInt @-> (TString @-> TString))));
+  ("str_reverse",    generalize [] ((TString @-> TString)));
+  ("str_chars",      generalize [] ((TString @-> TList TString)));
+  ("int_to_str",       generalize [] ((TInt @-> TString)));
+  ("str_to_int",       generalize [] ((TString @-> TResult (TString, TInt))));
+  ("str_to_float",     generalize [] ((TString @-> TResult (TString, TFloat))));
+  ("str_to_bool",      generalize [] ((TString @-> TResult (TString, TBool))));
+  ("str_to_path",      generalize [] ((TString @-> TPath)));
+  ("str_to_url",       generalize [] ((TString @-> TResult (TString, TUrl))));
+  ("str_to_ipv4",      generalize [] ((TString @-> TResult (TString, TIPv4))));
+  ("str_to_cidr",      generalize [] ((TString @-> TResult (TString, TCIDR))));
+  ("str_to_port",      generalize [] ((TString @-> TResult (TString, TPort))));
+  ("str_to_version",   generalize [] ((TString @-> TResult (TString, TVersion))));
+  ("str_to_size",      generalize [] ((TString @-> TResult (TString, TSize))));
+  ("str_to_date",      generalize [] ((TString @-> TResult (TString, TDate))));
+  ("str_to_time",      generalize [] ((TString @-> TResult (TString, TTime))));
+  ("str_to_datetime",  generalize [] ((TString @-> TResult (TString, TDateTime))));
+  ("str_to_duration",  generalize [] ((TString @-> TResult (TString, TDuration))));
   (* Regex primitives *)
-  ("regex_match",       Mono ((TRegex @-> (TString @-> TBool))));
-  ("regex_capture",     Mono ((TRegex @-> (TString @-> TList TString))));
-  ("regex_replace",     Mono ((TRegex @-> (TString @-> (TString @-> TString)))));
-  ("regex_replace_all", Mono ((TRegex @-> (TString @-> (TString @-> TString)))));
-  ("regex_split",       Mono ((TRegex @-> (TString @-> TList TString))));
-  ("regex_find_all",    Mono ((TRegex @-> (TString @-> TList TString))));
-  ("regex_compile",     Mono ((TString @-> TResult (TString, TRegex))));
+  ("regex_match",       generalize [] ((TRegex @-> (TString @-> TBool))));
+  ("regex_capture",     generalize [] ((TRegex @-> (TString @-> TList TString))));
+  ("regex_replace",     generalize [] ((TRegex @-> (TString @-> (TString @-> TString)))));
+  ("regex_replace_all", generalize [] ((TRegex @-> (TString @-> (TString @-> TString)))));
+  ("regex_split",       generalize [] ((TRegex @-> (TString @-> TList TString))));
+  ("regex_find_all",    generalize [] ((TRegex @-> (TString @-> TList TString))));
+  ("regex_compile",     generalize [] ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
-  ("dur_seconds", Mono ((TInt @-> TDuration)));
-  ("dur_minutes", Mono ((TInt @-> TDuration)));
-  ("dur_hours",   Mono ((TInt @-> TDuration)));
-  ("dur_days",    Mono ((TInt @-> TDuration)));
-  ("dur_weeks",   Mono ((TInt @-> TDuration)));
-  ("dur_add",     Mono ((TDuration @-> (TDuration @-> TDuration))));
-  ("dur_sub",     Mono ((TDuration @-> (TDuration @-> TDuration))));
-  ("dur_scale",   Mono ((TInt @-> (TDuration @-> TDuration))));
-  ("dur_format",  Mono ((TDuration @-> TString)));
-  ("dur_to_ms",   Mono ((TDuration @-> TInt)));
+  ("dur_seconds", generalize [] ((TInt @-> TDuration)));
+  ("dur_minutes", generalize [] ((TInt @-> TDuration)));
+  ("dur_hours",   generalize [] ((TInt @-> TDuration)));
+  ("dur_days",    generalize [] ((TInt @-> TDuration)));
+  ("dur_weeks",   generalize [] ((TInt @-> TDuration)));
+  ("dur_add",     generalize [] ((TDuration @-> (TDuration @-> TDuration))));
+  ("dur_sub",     generalize [] ((TDuration @-> (TDuration @-> TDuration))));
+  ("dur_scale",   generalize [] ((TInt @-> (TDuration @-> TDuration))));
+  ("dur_format",  generalize [] ((TDuration @-> TString)));
+  ("dur_to_ms",   generalize [] ((TDuration @-> TInt)));
   (* Path primitives *)
-  ("path_join",           Mono ((TPath @-> (TPath @-> TPath))));
-  ("path_parent",         Mono ((TPath @-> TPath)));
-  ("path_basename",       Mono ((TPath @-> TString)));
-  ("path_extension",      Mono ((TPath @-> TString)));
-  ("path_with_extension", Mono ((TString @-> (TPath @-> TPath))));
-  ("path_is_absolute",    Mono ((TPath @-> TBool)));
-  ("path_is_relative",    Mono ((TPath @-> TBool)));
-  ("path_normalize",      Mono ((TPath @-> TPath)));
-  ("path_to_string",      Mono ((TPath @-> TString)));
-  ("path_of_string",      Mono ((TString @-> TPath)));
-  ("path_components",     Mono ((TPath @-> TList TString)));
+  ("path_join",           generalize [] ((TPath @-> (TPath @-> TPath))));
+  ("path_parent",         generalize [] ((TPath @-> TPath)));
+  ("path_basename",       generalize [] ((TPath @-> TString)));
+  ("path_extension",      generalize [] ((TPath @-> TString)));
+  ("path_with_extension", generalize [] ((TString @-> (TPath @-> TPath))));
+  ("path_is_absolute",    generalize [] ((TPath @-> TBool)));
+  ("path_is_relative",    generalize [] ((TPath @-> TBool)));
+  ("path_normalize",      generalize [] ((TPath @-> TPath)));
+  ("path_to_string",      generalize [] ((TPath @-> TString)));
+  ("path_of_string",      generalize [] ((TString @-> TPath)));
+  ("path_components",     generalize [] ((TPath @-> TList TString)));
   (* FS primitives *)
-  ("fs_exists",  Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_is_file", Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_is_dir",  Mono (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_mkdir",   Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_ls",      Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TList TPath)));
-  ("fs_remove",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_append",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
-  ("fs_create",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_temp_file", Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TPath))));
-  ("fs_rename",  Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
-  ("fs_copy",    Mono (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
-  ("fs_cwd",     Mono (effs [Effect_row.FsRead] (TUnit) (TPath)));
-  ("fs_mtime",   Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TDateTime)));
-  ("fs_size",    Mono (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TInt)));
-  ("fs_glob",    Mono (effs [Effect_row.FsRead] (TGlob) ((TPath @-> TList TPath))));
+  ("fs_exists",  generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_is_file", generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_is_dir",  generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
+  ("fs_mkdir",   generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_ls",      generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TList TPath)));
+  ("fs_remove",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_append",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
+  ("fs_create",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
+  ("fs_temp_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TPath))));
+  ("fs_rename",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_copy",    generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_cwd",     generalize [] (effs [Effect_row.FsRead] (TUnit) (TPath)));
+  ("fs_mtime",   generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TDateTime)));
+  ("fs_size",    generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TInt)));
+  ("fs_glob",    generalize [] (effs [Effect_row.FsRead] (TGlob) ((TPath @-> TList TPath))));
   (* IO primitives *)
-  ("io_print_err",   Mono (effs [Effect_row.Proc] (TString) (TUnit)));
-  ("io_println_err", Mono (effs [Effect_row.Proc] (TString) (TUnit)));
-  ("io_read_line",   Mono (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
-  ("io_read_all",    Mono (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
-  ("io_flush",       Mono (effs [Effect_row.Proc] (TUnit) (TUnit)));
+  ("io_print_err",   generalize [] (effs [Effect_row.Proc] (TString) (TUnit)));
+  ("io_println_err", generalize [] (effs [Effect_row.Proc] (TString) (TUnit)));
+  ("io_read_line",   generalize [] (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
+  ("io_read_all",    generalize [] (effs [Effect_row.Proc; Effect_row.Raise] (TUnit) (TString)));
+  ("io_flush",       generalize [] (effs [Effect_row.Proc] (TUnit) (TUnit)));
   (* Process primitives *)
-  ("process_run",       Mono (effs [Effect_row.Shell; Effect_row.Raise] (TString) (TString)));
-  ("process_run_quiet", Mono (effs [Effect_row.Shell] (TString) (TUnit)));
-  ("process_exit_code", Mono (effs [Effect_row.Shell] (TString) (TInt)));
+  ("process_run",       generalize [] (effs [Effect_row.Shell; Effect_row.Raise] (TString) (TString)));
+  ("process_run_quiet", generalize [] (effs [Effect_row.Shell] (TString) (TUnit)));
+  ("process_exit_code", generalize [] (effs [Effect_row.Shell] (TString) (TInt)));
   (* Env primitives *)
-  ("env_read_dotenv", Mono (effs [Effect_row.Env; Effect_row.Raise] (TString) (TList (TTuple [TString; TString]))));
-  ("env_load_file",   Mono (effs [Effect_row.Env; Effect_row.Raise] (TPath) (TUnit)));
+  ("env_read_dotenv", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TList (TTuple [TString; TString]))));
+  ("env_load_file",   generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TPath) (TUnit)));
   (* CSV primitives *)
-  ("csv_parse",         Mono ((TString @-> (TString @-> TList (TList TString)))));
-  ("csv_stringify",     Mono ((TString @-> (TList (TList TString) @-> TString))));
-  ("csv_read_file",     Mono ((TPath @-> TResult (TString, (TList (TList TString))))));
-  ("csv_read_file_exn", Mono (effs [Effect_row.Raise] (TPath) (TList (TList TString))));
+  ("csv_parse",         generalize [] ((TString @-> (TString @-> TList (TList TString)))));
+  ("csv_stringify",     generalize [] ((TString @-> (TList (TList TString) @-> TString))));
+  ("csv_read_file",     generalize [] ((TPath @-> TResult (TString, (TList (TList TString))))));
+  ("csv_read_file_exn", generalize [] (effs [Effect_row.Raise] (TPath) (TList (TList TString))));
   (* JSON primitives *)
-  ("json_parse",         Mono ((TString @-> TResult (TString, TJson))));
-  ("json_parse_exn",     Mono (effs [Effect_row.Raise] (TString) (TJson)));
-  ("json_stringify",     Mono ((TJson @-> TString)));
-  ("json_stringify_pretty", Mono ((TJson @-> TString)));
-  ("json_read_file",     Mono ((TPath @-> TResult (TString, TJson))));
-  ("json_read_file_exn", Mono (effs [Effect_row.Raise] (TPath) (TJson)));
-  ("json_field_exn",     Mono (effs [Effect_row.Raise] (TString) ((TJson @-> TJson))));
+  ("json_parse",         generalize [] ((TString @-> TResult (TString, TJson))));
+  ("json_parse_exn",     generalize [] (effs [Effect_row.Raise] (TString) (TJson)));
+  ("json_stringify",     generalize [] ((TJson @-> TString)));
+  ("json_stringify_pretty", generalize [] ((TJson @-> TString)));
+  ("json_read_file",     generalize [] ((TPath @-> TResult (TString, TJson))));
+  ("json_read_file_exn", generalize [] (effs [Effect_row.Raise] (TPath) (TJson)));
+  ("json_field_exn",     generalize [] (effs [Effect_row.Raise] (TString) ((TJson @-> TJson))));
   ("json_null",         Mono TJson);
-  ("json_of_bool",      Mono ((TBool @-> TJson)));
-  ("json_of_int",       Mono ((TInt @-> TJson)));
-  ("json_of_float",     Mono ((TFloat @-> TJson)));
-  ("json_of_string",    Mono ((TString @-> TJson)));
-  ("json_of_list",      Mono ((TList TJson @-> TJson)));
-  ("json_of_map",       Mono ((TMap TJson @-> TJson)));
-  ("json_is_null",      Mono ((TJson @-> TBool)));
-  ("json_get_bool",     Mono ((TJson @-> TResult (TString, TBool))));
-  ("json_get_int",      Mono ((TJson @-> TResult (TString, TInt))));
-  ("json_get_float",    Mono ((TJson @-> TResult (TString, TFloat))));
-  ("json_get_string",   Mono ((TJson @-> TResult (TString, TString))));
-  ("json_get_array",    Mono ((TJson @-> TResult (TString, (TList TJson)))));
-  ("json_get_object",   Mono ((TJson @-> TResult (TString, (TMap TJson)))));
-  ("json_field",        Mono ((TString @-> (TJson @-> TResult (TString, TJson)))));
+  ("json_of_bool",      generalize [] ((TBool @-> TJson)));
+  ("json_of_int",       generalize [] ((TInt @-> TJson)));
+  ("json_of_float",     generalize [] ((TFloat @-> TJson)));
+  ("json_of_string",    generalize [] ((TString @-> TJson)));
+  ("json_of_list",      generalize [] ((TList TJson @-> TJson)));
+  ("json_of_map",       generalize [] ((TMap TJson @-> TJson)));
+  ("json_is_null",      generalize [] ((TJson @-> TBool)));
+  ("json_get_bool",     generalize [] ((TJson @-> TResult (TString, TBool))));
+  ("json_get_int",      generalize [] ((TJson @-> TResult (TString, TInt))));
+  ("json_get_float",    generalize [] ((TJson @-> TResult (TString, TFloat))));
+  ("json_get_string",   generalize [] ((TJson @-> TResult (TString, TString))));
+  ("json_get_array",    generalize [] ((TJson @-> TResult (TString, (TList TJson)))));
+  ("json_get_object",   generalize [] ((TJson @-> TResult (TString, (TMap TJson)))));
+  ("json_field",        generalize [] ((TString @-> (TJson @-> TResult (TString, TJson)))));
   (* TOML primitives *)
-  ("toml_parse",        Mono ((TString @-> TResult (TString, TToml))));
-  ("toml_parse_exn",    Mono (effs [Effect_row.Raise] (TString) (TToml)));
-  ("toml_read_file",    Mono ((TPath @-> TResult (TString, TToml))));
-  ("toml_read_file_exn",Mono (effs [Effect_row.Raise] (TPath) (TToml)));
-  ("toml_stringify",    Mono ((TToml @-> TString)));
-  ("toml_is_table",     Mono ((TToml @-> TBool)));
-  ("toml_is_array",     Mono ((TToml @-> TBool)));
-  ("toml_get_bool",     Mono ((TToml @-> TResult (TString, TBool))));
-  ("toml_get_int",      Mono ((TToml @-> TResult (TString, TInt))));
-  ("toml_get_float",    Mono ((TToml @-> TResult (TString, TFloat))));
-  ("toml_get_string",   Mono ((TToml @-> TResult (TString, TString))));
-  ("toml_get_array",    Mono ((TToml @-> TResult (TString, (TList TToml)))));
-  ("toml_get_table",    Mono ((TToml @-> TResult (TString, (TMap TToml)))));
-  ("toml_field",        Mono ((TString @-> (TToml @-> TResult (TString, TToml)))));
-  ("toml_field_exn",    Mono (effs [Effect_row.Raise] (TString) ((TToml @-> TToml))));
-  ("env_get",     Mono (effs [Effect_row.Env] (TString) (TString)));
-  ("env_get_exn", Mono (effs [Effect_row.Env; Effect_row.Raise] (TString) (TString)));
-  ("env_set",     Mono (effs [Effect_row.Env] (TString) ((TString @-> TUnit))));
-  ("env_clear",   Mono (effs [Effect_row.Env] (TString) (TUnit)));
-  ("env_all",     Mono (effs [Effect_row.Env] (TUnit) (TList (TTuple [TString; TString]))));
-  ("env_args",    Mono (effs [Effect_row.Env] (TUnit) (TList TString)));
-  ("env_home",    Mono (effs [Effect_row.Env] (TUnit) (TPath)));
-  ("env_user",    Mono (effs [Effect_row.Env] (TUnit) (TString)));
+  ("toml_parse",        generalize [] ((TString @-> TResult (TString, TToml))));
+  ("toml_parse_exn",    generalize [] (effs [Effect_row.Raise] (TString) (TToml)));
+  ("toml_read_file",    generalize [] ((TPath @-> TResult (TString, TToml))));
+  ("toml_read_file_exn",generalize [] (effs [Effect_row.Raise] (TPath) (TToml)));
+  ("toml_stringify",    generalize [] ((TToml @-> TString)));
+  ("toml_is_table",     generalize [] ((TToml @-> TBool)));
+  ("toml_is_array",     generalize [] ((TToml @-> TBool)));
+  ("toml_get_bool",     generalize [] ((TToml @-> TResult (TString, TBool))));
+  ("toml_get_int",      generalize [] ((TToml @-> TResult (TString, TInt))));
+  ("toml_get_float",    generalize [] ((TToml @-> TResult (TString, TFloat))));
+  ("toml_get_string",   generalize [] ((TToml @-> TResult (TString, TString))));
+  ("toml_get_array",    generalize [] ((TToml @-> TResult (TString, (TList TToml)))));
+  ("toml_get_table",    generalize [] ((TToml @-> TResult (TString, (TMap TToml)))));
+  ("toml_field",        generalize [] ((TString @-> (TToml @-> TResult (TString, TToml)))));
+  ("toml_field_exn",    generalize [] (effs [Effect_row.Raise] (TString) ((TToml @-> TToml))));
+  ("env_get",     generalize [] (effs [Effect_row.Env] (TString) (TString)));
+  ("env_get_exn", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TString)));
+  ("env_set",     generalize [] (effs [Effect_row.Env] (TString) ((TString @-> TUnit))));
+  ("env_clear",   generalize [] (effs [Effect_row.Env] (TString) (TUnit)));
+  ("env_all",     generalize [] (effs [Effect_row.Env] (TUnit) (TList (TTuple [TString; TString]))));
+  ("env_args",    generalize [] (effs [Effect_row.Env] (TUnit) (TList TString)));
+  ("env_home",    generalize [] (effs [Effect_row.Env] (TUnit) (TPath)));
+  ("env_user",    generalize [] (effs [Effect_row.Env] (TUnit) (TString)));
   (* List primitives *)
   ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TResult (TString, a)))));
   ("list_get_exn", let a = fresh () in generalize [] (TInt @-> effs [Effect_row.Raise] (TList a) (a)));
@@ -1290,7 +1308,7 @@ let stdlib_type_env : env = [
   ("list_sort_by", let a = fresh () in let b = fresh () in
                    generalize [] (((a @-> b) @-> (TList a @-> TList a))));
   ("list_unique",  let a = fresh () in generalize [] ((TList a @-> TList a)));
-  ("list_range",   Mono ((TInt @-> (TInt @-> TList TInt))));
+  ("list_range",   generalize [] ((TInt @-> (TInt @-> TList TInt))));
   ("list_flatten", let a = fresh () in generalize [] ((TList (TList a) @-> TList a)));
   ("list_concat",  let a = fresh () in generalize [] ((TList a @-> (TList a @-> TList a))));
   (* Map builtins *)
@@ -1335,7 +1353,7 @@ let builtin_type_env : env = [
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
-  current_eff := Effect_row.pure;
+  current_eff := Effect_row.fresh_row ();
   holes := [];
   let local_tenv = List.filter_map (function
     | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)

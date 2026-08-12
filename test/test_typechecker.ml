@@ -226,7 +226,7 @@ let test_functions () =
   expr_is "flip" "fn x -> fn y -> y" "'a -> 'b -> 'b";
   (* Applying a function performs whatever that function performs, so the
      row variable links the argument to the result. *)
-  expr_is "compose" "fn f -> fn x -> f x" "('a -> 'b ! e) -> 'a -> 'b ! e"
+  expr_is "compose" "fn f -> fn x -> f x" "('a -> 'b ! 'e) -> 'a -> 'b ! 'e"
 
 let test_application () =
   expr_is "int result" "(fn x -> x + 1) 5" "Int";
