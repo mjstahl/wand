@@ -87,6 +87,41 @@ let test_sigkill_cannot_release () =
   Alcotest.(check bool) "the directory is left behind, as it must be" true present;
   Alcotest.(check int) "killed, not stopped" (128 + Sys.sigkill) code
 
+(* Workers run on their own domains, so each has to see the request for
+   itself; and the calling domain must not unwind until they are joined, or
+   it would leave workers running and their brackets unreleased. *)
+let par_script marker =
+  Printf.sprintf
+    {|import FS
+import Path
+import Par
+with FS.temp_dir "wand_sig_" as outer ->
+  let () = FS.write_file! "%s" (Path.to_string outer) in
+  Par.each 4 (fn n ->
+    with FS.temp_dir "wand_sigw_" as d ->
+    let () = FS.write_file! "${Path.to_string outer}/${n}" (Path.to_string d) in
+    let _ = $(sleep 2) in ()) [1, 2, 3, 4]|}
+    marker
+
+let test_par_workers_release () =
+  let marker = Filename.temp_file "wand_sig_m" "" in
+  Sys.remove marker;
+  let (code, present) = interrupted_run ~signal:Sys.sigint ~marker (par_script marker) in
+  Alcotest.(check bool) "the caller's directory is gone" false present;
+  Alcotest.(check int) "exits 130" 130 code;
+  (* Each worker recorded its own directory in the caller's, which is gone
+     with them -- so what is checked here is that none survived it. *)
+  let leftovers =
+    Sys.readdir (Filename.get_temp_dir_name ())
+    |> Array.to_list
+    |> List.filter (fun n ->
+         String.length n > 10 && String.sub n 0 10 = "wand_sigw_")
+  in
+  List.iter (fun n ->
+    ignore (Sys.command (Printf.sprintf "rm -rf %s"
+      (Filename.quote (Filename.concat (Filename.get_temp_dir_name ()) n))))) leftovers;
+  Alcotest.(check int) "no worker left its directory behind" 0 (List.length leftovers)
+
 (* `exit` unwinds like anything else, and keeps its code. *)
 let exit_script marker code =
   Printf.sprintf
@@ -121,6 +156,7 @@ let () =
       Alcotest.test_case "SIGINT"  `Quick test_sigint_releases;
       Alcotest.test_case "SIGTERM" `Quick test_sigterm_releases;
       Alcotest.test_case "exit n"  `Quick test_exit_releases;
+      Alcotest.test_case "Par workers" `Quick test_par_workers_release;
     ];
     "the limit", [
       Alcotest.test_case "SIGKILL cannot" `Quick test_sigkill_cannot_release;

@@ -139,13 +139,34 @@ let interrupt_requested = Atomic.make 0
 
 let request_interrupt code = Atomic.set interrupt_requested code
 
-(* Taken once: cleanup runs as ordinary evaluation, and would re-raise on
-   its first step if the request were still standing. A second signal is
-   handled by the signal handler itself, which stops the process outright. *)
+(* The request stands until the process ends, because every domain has to
+   see it: a Par worker runs its own evaluation loop, and one that missed
+   the request would keep working while the rest of the program unwound.
+
+   Each domain raises it exactly once, recorded in domain-local state.
+   Raising once is what lets cleanup run: a release is ordinary evaluation,
+   and would re-raise on its first step against a request that still stood
+   for this domain. A second signal is dealt with by the signal handler
+   itself, which stops the process outright. *)
+let interrupt_taken = Domain.DLS.new_key (fun () -> ref false)
+
+(* Stretches where this domain must not unwind, however urgently the program
+   is stopping, because something else depends on it reaching the end. Par's
+   calling domain is the case: it is answering its workers' effects, and
+   unwinding out of that leaves them blocked on a reply that never comes and
+   never released. It takes the interrupt after they are joined. *)
+let interrupts_deferred = Domain.DLS.new_key (fun () -> ref 0)
+
+let defer_interrupts f =
+  let d = Domain.DLS.get interrupts_deferred in
+  incr d;
+  Fun.protect ~finally:(fun () -> decr d) f
+
 let check_interrupt () =
-  if Atomic.get interrupt_requested <> 0 then begin
-    let code = Atomic.exchange interrupt_requested 0 in
-    if code <> 0 then raise (Interrupted code)
+  let code = Atomic.get interrupt_requested in
+  if code <> 0 && !(Domain.DLS.get interrupts_deferred) = 0 then begin
+    let taken = Domain.DLS.get interrupt_taken in
+    if not !taken then begin taken := true; raise (Interrupted code) end
   end
 
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
@@ -497,7 +518,13 @@ let rec eval (env : env) (e : expr) : value =
      | VResource (acquire, release) ->
        let held = apply acquire VUnit in
        Fun.protect
-         ~finally:(fun () -> ignore (apply release held))
+         (* A release runs to the end even while the program is stopping.
+            It is ordinary evaluation, so without this the interrupt would
+            land in the middle of the cleanup it triggered and leave the
+            resource half-released -- which is worse than not having tried.
+            Someone who asks twice gets an immediate stop from the signal
+            handler; that is the way out of a release that hangs. *)
+         ~finally:(fun () -> defer_interrupts (fun () -> ignore (apply release held)))
          (fun () -> eval (bind_pat p held env) body)
      | other ->
        raise (EvalError (Printf.sprintf
@@ -954,16 +981,27 @@ let par_run limit f items ~collect =
   let pending : (string * value) option ref = ref None in
   let reply : (value, exn) result option ref = ref None in
 
+  (* One worker at a time may have a request outstanding. There is a single
+     request slot and a single reply slot, and a reply carries no idea of who
+     asked: with two workers waiting, either could take an answer meant for
+     the other, leaving the rightful one waiting for a reply that has already
+     been consumed. Held across the whole round trip, so a worker that has
+     asked is the only one that can be answered. *)
+  let speaking = Mutex.create () in
   let forward name arg =
-    Mutex.lock m;
-    while !pending <> None do Condition.wait ready m done;
-    pending := Some (name, arg);
-    Condition.broadcast ready;
-    while !reply = None do Condition.wait ready m done;
-    let r = Option.get !reply in
-    reply := None;
-    Condition.broadcast ready;
-    Mutex.unlock m;
+    Mutex.lock speaking;
+    let r =
+      Fun.protect ~finally:(fun () -> Mutex.unlock speaking) (fun () ->
+        Mutex.lock m;
+        pending := Some (name, arg);
+        Condition.broadcast ready;
+        while !reply = None do Condition.wait ready m done;
+        let answer = Option.get !reply in
+        reply := None;
+        Condition.broadcast ready;
+        Mutex.unlock m;
+        answer)
+    in
     match r with Ok v -> v | Error e -> raise e
   in
 
@@ -1007,8 +1045,7 @@ let par_run limit f items ~collect =
         loop ()
       end
     in
-    loop ();
-    finish ()
+    Fun.protect ~finally:finish loop
   in
   (* Nothing is watching: the worker performs its own effects. *)
   let worker_direct () =
@@ -1019,8 +1056,7 @@ let par_run limit f items ~collect =
         loop ()
       end
     in
-    loop ();
-    finish ()
+    Fun.protect ~finally:finish loop
   in
 
   (* When nothing is watching, a worker performs its own effects on its own
@@ -1058,8 +1094,19 @@ let par_run limit f items ~collect =
         Mutex.unlock m;
         pump ()
     in
+    (* Answering workers and joining them is one stretch that has to finish:
+       see `defer_interrupts`. *)
+    defer_interrupts (fun () ->
     pump ();
-    List.iter Domain.join domains;
+    (* Every worker is joined before this returns, interrupted or not:
+       workers never outlive the call, and an interrupt is not an excuse to
+       leave one running. A worker that stopped because the program is
+       stopping has already released what it held; the calling domain
+       raises on its own next step, from its own stack. *)
+    List.iter (fun d ->
+      match Domain.join d with
+      | () -> ()
+      | exception Interrupted _ -> ()) domains);
     if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
   end
 

@@ -748,6 +748,11 @@ let run_program ?(mode = Normal) ~base_dir prog =
        ) (base_eval_env @ imp.eval_env, VUnit) prog.Ast.items
        in last
      ) in
+     (* A request that arrived with nothing left to evaluate would otherwise
+        be dropped, and the script would report success after being asked to
+        stop. Whatever it was holding has already been released by the
+        unwinding above -- this is only about saying so. *)
+     Evaluator.check_interrupt ();
      Ok (show_value result))
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
