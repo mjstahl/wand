@@ -58,7 +58,7 @@ test "the outer one is still held inside the inner" (fn t ->
    code it stands in for had taken. *)
 test "released when a handler does not resume" (fn t ->
   let out = handle with tracked "j" as _ -> let c = $(echo hi) in c with
-  | Shell!run _ _k -> "mocked" in
+  | Shell!run _ _ -> "mocked" in
   t.eq (out, held? "j") ("mocked", false))
 
 test "released when a handler does resume" (fn t ->

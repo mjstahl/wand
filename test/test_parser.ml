@@ -379,8 +379,37 @@ let test_equation_arity () =
     "let f 0 = 0\nlet f = 3\nf 0"
     "every equation of a function must take the same number"
 
+(* A handler arm that does not resume still had to name a continuation it
+   would never use, which reads as an oversight rather than a decision. *)
+let test_handler_continuation_binder () =
+  let arm src = Lexer.tokenize src |> Parser.parse_program in
+  let ok label src =
+    match arm src with
+    | _ -> ()
+    | exception Parser.ParseError m -> Alcotest.failf "%s: %s" label m
+  in
+  ok "a named continuation" {|handle 1 with
+| Shell!run c k -> k "x"|};
+  ok "_ where the arm does not resume" {|handle 1 with
+| Shell!run c _ -> "x"|};
+  ok "_ for both the argument and the continuation" {|handle 1 with
+| Shell!run _ _ -> "x"|};
+  (* Anything else still has to be one or the other. *)
+  match arm {|handle 1 with
+| Shell!run _ 3 -> "x"|} with
+  | _ -> Alcotest.fail "expected a parse error for a literal continuation"
+  | exception Parser.ParseError m ->
+    Alcotest.(check bool) "the message says what is allowed" true
+      (let sub = "or _ if the arm does not resume" in
+       let n = String.length sub and t = String.length m in
+       let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
+       at 0)
+
 let () =
   Alcotest.run "Parser" [
+    "handler arms", [
+      Alcotest.test_case "continuation binder" `Quick test_handler_continuation_binder;
+    ];
     "literals", [
       Alcotest.test_case "literals"        `Quick test_lits;
       Alcotest.test_case "domain literals" `Quick test_domain_lits;

@@ -62,7 +62,7 @@ let test_abandoning_releases () =
   let answer =
     eval_wand
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
-        | Shell!run _ _k -> "answered without resuming"|}
+        | Shell!run _ _ -> "answered without resuming"|}
   in
   Alcotest.(check string) "the arm's value, not the body's"
     "answered without resuming" answer;
@@ -74,7 +74,7 @@ let test_nested_release_order () =
     (eval_wand
        {|handle (holding "outer" (fn () ->
            holding "inner" (fn () -> $(echo hi)))) with
-         | Shell!run _ _k -> "answered"|});
+         | Shell!run _ _ -> "answered"|});
   check_released "innermost first" ["inner"; "outer"]
 
 (* Cleanup that performs an effect of its own reaches the handlers that were
@@ -119,7 +119,7 @@ let test_try_cannot_catch_the_unwind () =
       {|handle (holding "r" (fn () ->
           let attempt = try $(echo hi) in
           "body continued")) with
-        | Shell!run _ _k -> "answered"|}
+        | Shell!run _ _ -> "answered"|}
   in
   Alcotest.(check string) "the arm's value" "answered" answer;
   check_released "released" ["r"]

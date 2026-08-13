@@ -138,6 +138,20 @@ let expect_ident s =
   | Token.Ident name -> name
   | t -> raise (ParseError (Format.asprintf "%sexpected identifier, got %a" loc Token.pp t))
 
+(* A handler arm's continuation binder. `_` is allowed and means the arm
+   does not resume -- a normal thing to write now that abandoning a
+   continuation releases what the abandoned code was holding. It binds a
+   name no expression can mention, so the intent is stated rather than
+   left to a reader noticing that some `k` is never used. *)
+let expect_cont_name s =
+  let loc = loc_prefix s in
+  match advance s with
+  | Token.Ident name -> name
+  | Token.Underscore -> "_"
+  | t -> raise (ParseError (Format.asprintf
+      "%sexpected a name for the continuation, or _ if the arm does not \
+       resume, got %a" loc Token.pp t))
+
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
 let lbp = function
@@ -844,7 +858,7 @@ and parse_handle_ s =
           let verb = expect_ident s in
           let op_name = family ^ verb in
           let arg_pat = pat_atom_ s in
-          let cont_name = expect_ident s in
+          let cont_name = expect_cont_name s in
           expect s Token.Arrow;
           let b_loc = peek_loc s in
           let b = Located (b_loc, expr_ 0 s) in

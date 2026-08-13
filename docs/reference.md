@@ -760,6 +760,17 @@ with
 | return s -> s
 ```
 
+An arm that answers on its own, without resuming, writes `_` for the
+continuation:
+
+```
+| Shell!run _ _ -> "mocked"
+```
+
+The intercepted code stops there, and whatever it was holding is released —
+a `with` inside it runs its cleanup on the way out, so a mock cannot leak
+the resources of the code it stands in for.
+
 The interceptable operations are the builtins that touch the outside world.
 Each is named `Family!verb`, and the family is the same one that appears in
 an effect row:
