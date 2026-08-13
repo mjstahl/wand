@@ -1225,6 +1225,10 @@ let stdlib_eval_env : env = [
   ("fs_temp_file", VBuiltin (fun prefix ->
     VBuiltin (fun suffix ->
       Effect.perform (WandEffect ("FS!temp_file", VTuple [prefix; suffix])))));
+  ("fs_temp_dir", VBuiltin (fun prefix ->
+    Effect.perform (WandEffect ("FS!temp_dir", prefix))));
+  ("fs_delete_tree", VBuiltin (fun v ->
+    Effect.perform (WandEffect ("FS!delete_tree", v))));
   ("fs_rename",  VBuiltin (fun old_ ->
     VBuiltin (fun new_ ->
       Effect.perform (WandEffect ("FS!rename", VTuple [old_; new_])))));

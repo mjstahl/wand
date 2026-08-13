@@ -143,7 +143,22 @@ is no longer one thing that can be reviewed as a unit.
 
 `With of expr * pat * expr` in the AST; `Resource` as an abstract builtin type over an acquire/release pair; `Resource.make` in wand over a builtin. Release runs on success, on raise, and on abandonment, the last of these already settled above.
 
-Stdlib starters: `FS.temp_file` (exists — wrap it), `FS.temp_dir`, `FS.lock`, `FS.in_dir`.
+Stdlib resources: `FS.temp_file` and `FS.temp_dir`.
+
+Two of the four the roadmap listed are cut:
+
+- **`FS.in_dir` — dropped.** `chdir` is per-*process* state. A bracket scopes
+  it in time but not in space: two `Par` workers each entering one race on
+  the same process-wide directory and one silently wins. That is the hazard
+  `FS.cd` was removed for, and a nicer wrapper does not fix it — it makes it
+  easier to reach for. Explicit path arguments already cover the need, as
+  `FS.glob_in` shows.
+- **`FS.lock` — deferred, not wrapped.** A lock's value is what happens
+  abnormally: a killed process leaves the file behind, so a usable lock needs
+  staleness detection — pid, host, timestamp — and a policy for breaking one.
+  That is a design, not a bracket. A lock that silently wedges a queue after
+  one crash is worse than no lock, so it waits for a real deploy story to
+  shape it.
 
 Abandonment is already handled by the runtime, with `test/test_abandonment.ml`
 standing in a cleanup construct of its own until `with` exists to be the real

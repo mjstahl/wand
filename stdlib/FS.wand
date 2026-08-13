@@ -67,6 +67,20 @@ let temp_file prefix suffix =
   let acquire = fn () -> fs_temp_file prefix suffix in
   let release = fn p -> if exists? p then delete! p else () in Resource.make acquire release
 
+(** A new, uniquely-named empty directory in the OS temp directory, removed
+    with everything in it when the `with` that holds it ends:
+    
+    with FS.temp_dir "build_" as dir ->
+    ...
+    
+    The body may leave files behind -- that is what a scratch directory is
+    for -- and release takes the tree with it. As with `temp_file`, release
+    tolerates the directory already being gone. *)
+let temp_dir prefix =
+  let acquire = fn () -> fs_temp_dir prefix in
+  let release = fn p -> if exists? p then fs_delete_tree p else () in
+  Resource.make acquire release
+
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst
 

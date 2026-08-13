@@ -40,12 +40,10 @@ test "and the error carries no source position" (fn t ->
 (* ── each runs for effects ─────────────────────────────────────────────── *)
 
 test "each visits every element" (fn t ->
-  let dir = with FS.temp_file "wand_par_" "" as p -> "${p}_d" in
-  let () = FS.mkdir! (Path.of_string dir) in
+  with FS.temp_dir "wand_par_" as d ->
+  let dir = Path.to_string d in
   let () = Par.each 3 (fn n -> FS.write_file! "${dir}/${n}.txt" "x") [1, 2, 3] in
-  let made = List.length (FS.glob_in *.txt (Path.of_string dir)) in
-  let () = Par.each 3 (fn n -> FS.delete! (Path.of_string "${dir}/${n}.txt")) [1, 2, 3] in
-  let () = FS.delete! (Path.of_string dir) in t.eq made 3)
+  t.eq (List.length (FS.glob_in *.txt (Path.of_string dir))) 3)
 
 (* ── Effects performed inside a worker are still interceptable ─────────── *)
 

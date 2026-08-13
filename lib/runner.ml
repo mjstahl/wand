@@ -161,6 +161,8 @@ let describe_operation name (v : value) =
   | "FS!rename"    -> Some ("rename", pair v)
   | "FS!copy"      -> Some ("copy", pair v)
   | "FS!temp_file" -> Some ("create temp file", first v)
+  | "FS!temp_dir"  -> Some ("create temp directory", text v)
+  | "FS!delete_tree" -> Some ("delete recursively", text v)
   | "Env!set"      -> Some ("set", pair v)
   | "Env!clear"    -> Some ("clear", text v)
   | "FS!read_file"    -> Some ("read", text v)
@@ -173,7 +175,7 @@ let describe_operation name (v : value) =
    in a rehearsal, so that control flow follows the path a real run would
    take; only changes are withheld. *)
 let is_mutation = function
-  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "Env!set" | "Env!clear"-> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -186,6 +188,7 @@ let substitute_for name =
     Some (shell_result "" "" 0, "exit 0, no output")
   | "Shell!exit_code" -> Some (VInt 0, "0")
   | "FS!temp_file"      -> Some (VPath "/tmp/wand-dry-run", "/tmp/wand-dry-run")
+  | "FS!temp_dir"       -> Some (VPath "/tmp/wand-dry-run-dir", "/tmp/wand-dry-run-dir")
   | _ -> None
 
 let run_with_default_handler (thunk : unit -> value) : value =
@@ -289,6 +292,40 @@ let run_with_default_handler (thunk : unit -> value) : value =
               match (try Ok (Filename.temp_file prefix suffix)
                      with Sys_error m -> Error ("temp_file: " ^ m)) with
               | Ok path -> Effect.Deep.continue    k (VPath path)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("FS!temp_dir", VString prefix) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              (* Filename.temp_file makes a unique name and reserves it; the
+                 file is replaced by a directory of the same name, so two
+                 callers cannot be handed the same path. *)
+              match (try
+                       let path = Filename.temp_file prefix "" in
+                       Sys.remove path;
+                       Unix.mkdir path 0o700;
+                       Ok path
+                     with Sys_error m -> Error ("temp_dir: " ^ m)
+                        | Unix.Unix_error (e, _, _) ->
+                          Error ("temp_dir: " ^ Unix.error_message e)) with
+              | Ok path -> Effect.Deep.continue    k (VPath path)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("FS!delete_tree", VPath path) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              (* Depth-first, and it does not follow symlinks out of the
+                 tree: a link is unlinked, never descended into. *)
+              let rec rm p =
+                match Unix.lstat p with
+                | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+                | st ->
+                  if st.Unix.st_kind = Unix.S_DIR then begin
+                    Array.iter (fun e -> rm (Filename.concat p e)) (Sys.readdir p);
+                    Unix.rmdir p
+                  end else Sys.remove p
+              in
+              match (try rm path; Ok ()
+                     with Sys_error m -> Error ("delete_tree: " ^ m)
+                        | Unix.Unix_error (e, _, _) ->
+                          Error ("delete_tree: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!rename", VTuple [VPath old_; VPath new_]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->

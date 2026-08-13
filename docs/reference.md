@@ -1229,6 +1229,17 @@ Release tolerates the file already being gone, so a body may rename it into
 place — how an atomic write publishes its result — without cleanup failing
 on the way out.
 
+`temp_dir prefix` is the same for a directory, and removes it with
+everything in it:
+
+```
+with FS.temp_dir "build_" as dir ->
+  ...
+```
+
+A scratch directory exists to be filled, so release takes the tree rather
+than requiring the body to empty it first.
+
 ### `Resource`
 
 `make`

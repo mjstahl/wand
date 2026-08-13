@@ -75,3 +75,38 @@ test "one resource used twice" (fn t ->
   let r = tracked "m" in
   let first = with r as x -> x in
   let second = with r as x -> x in t.eq [first, second] ["m", "m"])
+
+(* ── FS.temp_dir ───────────────────────────────────────────────────────── *)
+
+(* A scratch directory exists to be filled, so release has to take the tree
+   with it -- an empty-directory removal would fail on the first file the
+   body wrote, which is every real use. *)
+test "temp_dir removes a directory that is not empty" (fn t ->
+  let kept = with FS.temp_dir "wand_td_" as d ->
+  let dir = Path.to_string d in
+  let () = FS.write_file! "${dir}/a.txt" "x" in
+  let () = FS.mkdir! (Path.of_string "${dir}/sub") in
+  let () = FS.write_file! "${dir}/sub/b.txt" "y" in dir in
+  t.eq (FS.exists? (Path.of_string kept)) false)
+
+test "temp_dir is a directory that exists while it is held" (fn t ->
+  t.eq (with FS.temp_dir "wand_td_" as d -> (FS.exists? d, FS.dir? d)) (true, true))
+
+test "two temp_dirs do not collide" (fn t ->
+  let both = with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b in
+  t.eq both true)
+
+(* The tree goes even when the body leaves by raising. The directory's name
+   is written outside it first, so the check survives the body it came from. *)
+test "temp_dir cleans up when the body raises" (fn t ->
+  let note = marker "raise_case" in
+  let r = try with FS.temp_dir "wand_td_" as d ->
+  let dir = Path.to_string d in
+  let () = FS.write_file! note dir in
+  let () = FS.write_file! "${dir}/a.txt" "x" in List.get! 9 [1] in
+  let dir = FS.read_file! note in
+  let () = FS.delete! (Path.of_string note) in
+  let raised = match r with
+  | Error _ -> true
+  | Ok _ -> false in
+  t.eq (raised, FS.exists? (Path.of_string dir)) (true, false))

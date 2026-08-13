@@ -70,7 +70,8 @@ let effect_of_operation = function
   | "FS!read_file" | "FS!list_dir" | "FS!glob" | "FS!exists" | "FS!file"
   | "FS!dir" | "FS!mtime" | "FS!size" | "FS!cwd" -> Some Effect_row.FsRead
   | "FS!write_file" | "FS!append" | "FS!delete" | "FS!create_file"
-  | "FS!rename" | "FS!copy" | "FS!mkdir" | "FS!temp_file" ->
+  | "FS!rename" | "FS!copy" | "FS!mkdir" | "FS!temp_file"
+  | "FS!temp_dir" | "FS!delete_tree" ->
     Some Effect_row.FsWrite
   | "IO!print" | "IO!println" | "IO!print_err" | "IO!println_err"
   | "IO!read_line" | "IO!read_all" | "IO!flush" -> Some Effect_row.IO
@@ -1322,6 +1323,8 @@ let stdlib_type_env : env = [
   ("fs_append",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
   ("fs_create",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
   ("fs_temp_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TPath))));
+  ("fs_temp_dir",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) TPath));
+  ("fs_delete_tree", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) TUnit));
   ("fs_rename",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
   ("fs_copy",    generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
   ("fs_cwd",     generalize [] (effs [Effect_row.FsRead] (TUnit) (TPath)));
