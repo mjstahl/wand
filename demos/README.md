@@ -10,6 +10,7 @@ demos/d3-typed-holes/run.sh
 demos/d4-signatures/run.sh
 demos/d5-rehearse/run.sh
 demos/d6-unplugged/run.sh
+demos/d8-fan-out/run.sh
 demos/d9-fork-overhead/run.sh      # slower: it runs a deliberately bad bash loop
 ```
 
@@ -134,6 +135,59 @@ ok   which was never written
 The assertions are about what the script *attempted*, not only what it
 returned — the commands it would run, in order, and the paths it would write.
 The last line checks the file is still absent.
+
+## D8 — Fan out without fear
+
+Twenty hosts, checked eight at a time, three of them unreachable. Every check
+takes a lease before it starts and gives it back when it is done, so what the
+run is holding can be counted from outside it.
+
+```
+Par.map 8 check! hosts
+```
+
+A host that fails does not take the run down with it, and the answers come
+back in the order they were asked, not the order they arrived:
+
+```
+  ok    web-03  ok
+  FAIL  web-04  command exited with code 1: demos/d8-fan-out/probe.sh web-04
+  ok    web-05  ok
+
+17 reachable, 3 not, and none of it fatal
+leases still held: 0
+```
+
+Then the same run, interrupted halfway through:
+
+```
+  in flight: 8 leases, 8 probes
+  ^C
+  exit 130
+  leases still held: 0
+  probes still running: 0
+```
+
+Eight workers were mid-check on their own domains. Each released what it was
+holding, the commands they had started were stopped, and the script exited
+130 the way a shell reports an interrupt.
+
+The bash version is written the way this is written — `xargs -P 8` for the
+concurrency, a `trap` for the cleanup, a temp file to collect results — and
+its trap does run:
+
+```
+  in flight: 8 leases, 8 probes
+  ^C
+  exit 1
+  leases still held: 8
+```
+
+The trap removed the results file, because that is what the parent owns. The
+eight leases belong to eight other processes, and a trap here does not run
+there. That is the difference: not that bash forgot to clean up, but that the
+cleanup and the thing to be cleaned up are in different processes. A `with`
+puts them in the same one.
 
 ## D9 — Where the time goes
 

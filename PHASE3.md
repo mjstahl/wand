@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** P3.1 done, P3.2 done but for D8 · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1 done, P3.2 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -173,7 +173,7 @@ may rename it into place -- the one use the raw version had.
 
 ## P3.2 — `Par` cancellation and D8
 
-**Cancellation is done; D8 is not.**
+**Done**, cancellation and D8 both.
 
 The tranche grew a piece the plan did not have: nothing was released when a
 script was *stopped* at all, `Par` or no `Par`. `exit`, Ctrl-C and `kill`
@@ -201,12 +201,20 @@ pids, so stopping wand stops them. That is what makes stopping prompt --
 signalling wand alone while four workers sat in a command went from 23.0s to
 0.0s.
 
-**D8** — fan out over twenty hosts, three failing, Ctrl-C mid-run, and a
-clean "released" instead of orphaned processes. Everything it demonstrates
-exists and is tested; what is left is writing the demo, offline, with the
-`demos/assert.sh` moment check every other demo now has.
+**D8** runs offline against a probe script that stands in for a health check.
+Twenty hosts, eight at a time, three failing, interrupted halfway; then the
+same fan-out in bash for contrast.
 
-*Accept:* ~~Ctrl-C during `Par.each` releases every in-flight worker's brackets, in both the watched and unwatched cases~~ done, `test/test_signals.ml`; D8 runs offline.
+The contrast moved while the demo was being written. Signalling only the top
+process makes bash look better than it is by accident -- it defers a trap
+until the command it is waiting on returns, so the run finishes first and
+cleans up properly. The interrupt now goes to the process group, which is
+what Ctrl-C at a terminal does, and the difference that survives is the one
+worth showing: wand releases eight leases, bash leaves eight behind, because
+the workers holding them are separate processes and the parent's trap does
+not run there.
+
+*Accept:* ~~Ctrl-C during `Par.each` releases every in-flight worker's brackets, in both the watched and unwatched cases~~ done, `test/test_signals.ml`; ~~D8 runs offline~~ done, `demos/d8-fan-out/`.
 
 ## P3.3 — Decoders
 
@@ -236,9 +244,9 @@ Then `else ()`, if there is room.
 
 ## Picking this up
 
-**Where things stand.** P3.1 and P3.2's cancellation are done and committed;
-the tree is clean, 538 wand tests and the OCaml suite pass, seven demos pass,
-every `.wand` file is a fixed point of `wand fmt`. Next is D8, then P3.3.
+**Where things stand.** P3.1 and P3.2 are done and committed; the tree is
+clean, 538 wand tests and the OCaml suite pass, eight demos pass, every
+`.wand` file is a fixed point of `wand fmt`. Next is P3.3.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -290,7 +298,7 @@ silently stops, look here first.
 ## Exit criteria
 
 1. ~~`with` releases on success, raise, abandonment and cancellation~~ **done**, and on `exit`, `kill` and Ctrl-C besides.
-2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**.
+2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**, and D8 shows it.
 3. One decoder replaces the four scrapes in `examples/repo-status.wand`.
 4. A single-constructor named-field type gets its decoder for free.
 5. D7 and D8 land as runnable, offline demos.

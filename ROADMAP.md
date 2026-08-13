@@ -197,7 +197,7 @@ The implementation caution above turned out to be the whole problem, and per-dom
 
 Resolved by deciding per call rather than once: the evaluator counts observers (user handlers in scope, plus one while a rehearsal or trace runs). Unwatched, a worker installs the default handler on its own domain and the work overlaps — four `sleep 0.4`s in 0.59s against 1.84s serial. Watched, effects are forwarded to the calling domain and taken one at a time, so `handle`, `--dry-run` and `--trace` see inside a worker exactly as they see anything else. The cost is paid only when it buys correctness: **nothing rehearses for speed.**
 
-Not done: Ctrl-C cancellation, which needs the resource brackets of §4.6 to have anything to release, and D8, which is a demo of exactly that.
+Cancellation followed the brackets of §4.6, since it needed them to have anything to release: a stopped script — `exit`, Ctrl-C or a `kill` — releases what every worker was holding, and wand stops the commands it started. D8 is that, demonstrated.
 
 ### 4.8 Distribution (not a language feature; adoption-gating)
 
@@ -433,7 +433,7 @@ D1–D3 and D9 cost nothing but writing and belong in the repo now — they are 
 
 **Phase 0.5 — Interpreter performance (pulled out of Phase 4; depends on nothing):** the throughput drags D9 measured — assoc-list environments making variable lookup O(scope size), and process output read one byte at a time — plus the cross-invocation compile cache (`~/.cache/wand`, content-hash keyed). Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
 
-**Phase 4 — Reach:** ~~`Par` (§4.7)~~ **done** — cancellation and **demo D8** remain, both blocked on §4.6 brackets; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
+**Phase 4 — Reach:** ~~`Par` (§4.7), its cancellation, and **demo D8**~~ **done**, the last two in Phase 3 once §4.6 brackets gave them something to release; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
 
 ---
 

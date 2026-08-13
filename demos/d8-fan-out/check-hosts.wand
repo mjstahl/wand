@@ -1,0 +1,73 @@
+uses {Shell, FS.Read, FS.Write, IO}
+
+import FS
+import IO
+import List
+import Par
+import Path
+import Resource
+import String
+
+-- Twenty hosts, checked eight at a time. Three of them are unreachable.
+--
+-- Every check takes a lease before it starts and gives it back when it is
+-- done, so the leases directory is a running count of the work in flight --
+-- and, once the run is over, of what was left behind.
+
+let hosts =
+  [
+    "web-01",
+    "web-02",
+    "web-03",
+    "web-04",
+    "web-05",
+    "web-06",
+    "web-07",
+    "web-08",
+    "db-01",
+    "db-02",
+    "db-03",
+    "db-04",
+    "cache-01",
+    "cache-02",
+    "cache-03",
+    "cache-04",
+    "edge-01",
+    "edge-02",
+    "edge-03",
+    "edge-04"
+  ]
+
+let leases = "/tmp/wand-demo-d8-leases"
+
+let lease host =
+  let acquire = fn () -> let () = FS.write_file! "${leases}/${host}" "held" in host in
+  let release = fn h -> FS.delete! (Path.of_string "${leases}/${h}") in
+  Resource.make acquire release
+
+let check! host =
+  with lease host as h -> let out = $(demos/d8-fan-out/probe.sh ${h}) in String.trim out
+
+let failed? (Error _) = true
+let failed? (Ok _) = false
+
+let line checked =
+  match checked with
+  | (host, Ok out) -> "  ok    ${host}  ${out}"
+  | (host, Error why) -> "  FAIL  ${host}  ${why}"
+
+let results = Par.map 8 check! hosts
+
+let () = IO.println (String.join "\n" (List.map line (List.zip hosts results)))
+
+let failures = List.length (List.filter failed? results)
+
+let reachable = List.length results - failures
+
+let () = IO.println ""
+
+let () = IO.println "${reachable} reachable, ${failures} not, and none of it fatal"
+
+let held = FS.list_dir! (Path.of_string leases)
+
+IO.println "leases still held: ${List.length held}"
