@@ -56,9 +56,9 @@ f (-5)|}
     "let f [h : t] = h\nf [1, 2, 3]"
     "1";
   (* A match nested (unparenthesized in source) inside an outer match's
-     case body: match arms only terminate at a non-`|` token, so an
+     case body: match cases only terminate at a non-`|` token, so an
      unparenthesized nested match here would swallow the outer match's
-     remaining `| ...` arms into itself, changing the program's meaning. *)
+     remaining `| ...` cases into itself, changing the program's meaning. *)
   ok_after_format "match nested in match case body"
     {|let f x =
   match x with
@@ -98,12 +98,12 @@ f (Ok 1)|}
   ok_after_format "function return-type annotation survives formatting"
     "let double x : Int = x * 2\ndouble 3"
     "6";
-  (* A `match` nested inside another match's arm is unambiguous only because
-     it's parenthesized -- but the danger isn't limited to the arm body being
-     *directly* a Match: a `let ... in <tail match>` inside an arm has the
+  (* A `match` nested inside another match's case is unambiguous only because
+     it's parenthesized -- but the danger isn't limited to the case body being
+     *directly* a Match: a `let ... in <tail match>` inside an case has the
      same "bare match at the end" shape once printed, since emit_let's
      fallback renders its tail completely unguarded. *)
-  ok_after_format "match nested in a let's tail, inside another match's arm"
+  ok_after_format "match nested in a let's tail, inside another match's case"
     {|let f x =
   match x with
   | Ok xs ->

@@ -138,8 +138,8 @@ let expect_ident s =
   | Token.Ident name -> name
   | t -> raise (ParseError (Format.asprintf "%sexpected identifier, got %a" loc Token.pp t))
 
-(* A handler arm's continuation binder. `_` is allowed and means the arm
-   does not resume -- a normal thing to write now that abandoning a
+(* A handler case's continuation binder. `_` is allowed and means the case
+   answers without resuming -- a normal thing to write now that abandoning a
    continuation releases what the abandoned code was holding. It binds a
    name no expression can mention, so the intent is stated rather than
    left to a reader noticing that some `k` is never used. *)
@@ -149,8 +149,8 @@ let expect_cont_name s =
   | Token.Ident name -> name
   | Token.Underscore -> "_"
   | t -> raise (ParseError (Format.asprintf
-      "%sexpected a name for the continuation, or _ if the arm does not \
-       resume, got %a" loc Token.pp t))
+      "%sexpected a name for the continuation, or _ if it is not resumed, \
+       got %a" loc Token.pp t))
 
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
@@ -680,11 +680,11 @@ and parse_fn_binding s name =
       | [v] -> Var v
       | vs  -> Tuple (List.map (fun v -> Var v) vs)
     in
-    let arms = List.map (fun (pats, b) ->
+    let cases = List.map (fun (pats, b) ->
       let pat = match pats with [p] -> p | ps -> PTuple ps in
       (pat, None, b)
     ) eqs in
-    (List.map (fun v -> PVar v) fresh, Match (scrutinee, arms))
+    (List.map (fun v -> PVar v) fresh, Match (scrutinee, cases))
 
 and let_ s =
   (* let already consumed *)
@@ -756,7 +756,7 @@ and match_ s =
   (* match already consumed *)
   let scrutinee = expr_ 0 s in
   expect s Token.With;
-  let arms = ref [] in
+  let cases = ref [] in
   let continue_ = ref true in
   while !continue_ do
     if peek s = Token.Pipe then begin
@@ -772,11 +772,11 @@ and match_ s =
       expect s Token.Arrow;
       let body_loc = peek_loc s in
       let body = Located (body_loc, expr_ 0 s) in
-      arms := !arms @ [(p, guard, body)]
+      cases := !cases @ [(p, guard, body)]
     end else
       continue_ := false
   done;
-  Match (scrutinee, !arms)
+  Match (scrutinee, !cases)
 
 and contract_expr_ s =
   s.in_contract <- true;
@@ -834,19 +834,19 @@ and parse_handle_ s =
   (* handle already consumed *)
   let body = expr_ 0 s in
   expect s Token.With;
-  let arms = ref [] in
+  let cases = ref [] in
   let continue_ = ref true in
   while !continue_ do
     if peek s = Token.Pipe then begin
       ignore (advance s);
-      let arm = match peek s with
+      let case = match peek s with
         | Token.Return ->
           ignore (advance s);
           let p = pat_atom_ s in
           expect s Token.Arrow;
           let b_loc = peek_loc s in
           let b = Located (b_loc, expr_ 0 s) in
-          Ast.ReturnArm (p, b)
+          Ast.ReturnCase (p, b)
         (* `FS!read_file` reaches here as the Upper token "FS!" followed by an
            identifier, since `!` is a suffix character. Joining them gives the
            operation name, which is the public call with a `!` where its dot
@@ -862,7 +862,7 @@ and parse_handle_ s =
           expect s Token.Arrow;
           let b_loc = peek_loc s in
           let b = Located (b_loc, expr_ 0 s) in
-          Ast.EffectArm (op_name, arg_pat, cont_name, b)
+          Ast.EffectCase (op_name, arg_pat, cont_name, b)
         | Token.Ident op_name ->
           ignore (advance s);
           let arg_pat = pat_atom_ s in
@@ -870,16 +870,16 @@ and parse_handle_ s =
           expect s Token.Arrow;
           let b_loc = peek_loc s in
           let b = Located (b_loc, expr_ 0 s) in
-          Ast.EffectArm (op_name, arg_pat, cont_name, b)
+          Ast.EffectCase (op_name, arg_pat, cont_name, b)
         | t ->
-          raise (ParseError (Format.asprintf "%sunexpected token in handler arm: %a"
+          raise (ParseError (Format.asprintf "%sunexpected token in handler case: %a"
             (loc_prefix s) Token.pp t))
       in
-      arms := !arms @ [arm]
+      cases := !cases @ [case]
     end else
       continue_ := false
   done;
-  Ast.Handle (body, !arms)
+  Ast.Handle (body, !cases)
 
 let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
   match eqs with
@@ -890,11 +890,11 @@ let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
       | [v] -> Ast.Var v
       | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
     in
-    let arms = List.map (fun (pats, body) ->
+    let cases = List.map (fun (pats, body) ->
       let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
       (pat, None, body)
     ) eqs in
-    (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, arms))
+    (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
 let build_multi_equation name arity eqs =
   let (p, b) = collapse_multi_equation arity eqs in

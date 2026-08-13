@@ -74,14 +74,14 @@ test "compose" (fn t -> let f = fn x -> x + 1 in let g = fn x -> x * 2 in t.eq (
 
 (* ── Match ─────────────────────────────────────────────────────────────── *)
 
-test "first arm" (fn t ->
+test "first case" (fn t ->
   t.eq
     (match 1 with
     | 1 -> true
     | _ -> false)
     true)
 
-test "wildcard arm" (fn t ->
+test "wildcard case" (fn t ->
   t.eq
     (match 2 with
     | 1 -> true

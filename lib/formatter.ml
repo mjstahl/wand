@@ -102,7 +102,7 @@ and emit_cons_chain (h : pat) (t : pat) : string =
 (* ── Multi-equation reconstruction ────────────────────────────────────────────
    `let f p1 = e1 / let f p2 = e2` desugars (parser.ml's collapse/build_
    multi_equation) into one binding whose params are synthetic `_p0.._pN`
-   and whose body is a `Match` over those synthetic vars with one arm per
+   and whose body is a `Match` over those synthetic vars with one case per
    original clause (guard-free). That exact, deterministic shape is
    detected here and turned back into separate per-clause equations,
    rather than always rendering the desugared match form. *)
@@ -116,7 +116,7 @@ let try_multi_equation (params : pat list) (body : expr) : (pat list * expr) lis
   in
   if not params_match then None
   else match strip_located body with
-    | Match (scrutinee, arms) when List.length arms > 1 ->
+    | Match (scrutinee, cases) when List.length cases > 1 ->
       let scrutinee_ok = match n, scrutinee with
         | 1, Var v -> v = "_p0"
         | _, Tuple vs ->
@@ -126,14 +126,14 @@ let try_multi_equation (params : pat list) (body : expr) : (pat list * expr) lis
         | _ -> false
       in
       if not scrutinee_ok then None
-      else if not (List.for_all (fun (_, g, _) -> g = None) arms) then None
+      else if not (List.for_all (fun (_, g, _) -> g = None) cases) then None
       else
         let clauses = List.map (fun (p, _, b) ->
           match n, p with
           | 1, p -> Some ([p], b)
           | _, PTuple ps when List.length ps = n -> Some (ps, b)
           | _ -> None
-        ) arms in
+        ) cases in
         if List.exists (fun c -> c = None) clauses then None
         else Some (List.map (fun c -> Option.get c) clauses)
     | _ -> None
@@ -254,16 +254,16 @@ and emit_expr_inner indent e =
     Buffer.add_string buf (escape_string_body tail);
     Buffer.add_char buf '"';
     Buffer.contents buf
-  | Handle (body, arms) ->
+  | Handle (body, cases) ->
     let emit_arm = function
-      | EffectArm (op, p, k, b) ->
-        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_arm_body indent b)
-      | ReturnArm (p, b) ->
-        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_arm_body indent b)
+      | EffectCase (op, p, k, b) ->
+        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_case_body indent b)
+      | ReturnCase (p, b) ->
+        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_case_body indent b)
     in
     "handle " ^ emit_expr indent body ^ " with\n"
     ^ String.make indent ' ' ^ String.concat ("\n" ^ String.make indent ' ')
-        (List.map emit_arm arms)
+        (List.map emit_arm cases)
   | Try e -> "try " ^ emit_expr indent e
   (* The body stays at the bracket's own indentation rather than stepping in.
      Brackets nest -- a temp dir holding a lock holding a directory change --
@@ -444,25 +444,25 @@ and emit_if indent c t el =
     let ind = String.make indent ' ' in
     Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
 
-(* A `match`/`handle` arm body ends only where the next `|`-prefixed arm
+(* A `match`/`handle` case body ends only where the next `|`-prefixed case
    begins -- there's no other terminator. So an unparenthesized Match or
-   Handle used as an arm's *own* body would greedily swallow every
+   Handle used as an case's *own* body would greedily swallow every
    following `| ...` meant for the *outer* match/handle, silently
    producing a different (and often ill-typed) program. Always wrap.
 
-   The danger isn't limited to the arm body being *directly* a Match/Handle:
+   The danger isn't limited to the case body being *directly* a Match/Handle:
    `let x = e in <tail>` prints its tail expression completely unguarded
    (see emit_let's fallback), so `let db = ... in match ... with | ... `
-   as an arm body has the exact same "bare match at the end" shape once
+   as an case body has the exact same "bare match at the end" shape once
    rendered, even though the immediate AST node is a Let. Follow the chain
    of Let/LetRec tails to find what actually ends up printed last. *)
-and arm_body_tail e = match strip_located e with
-  | Let (_, _, e2)    -> arm_body_tail e2
-  | LetRec (_, e2)     -> arm_body_tail e2
+and case_body_tail e = match strip_located e with
+  | Let (_, _, e2)    -> case_body_tail e2
+  | LetRec (_, e2)     -> case_body_tail e2
   | e -> e
 
-and emit_arm_body indent body =
-  match arm_body_tail body with
+and emit_case_body indent body =
+  match case_body_tail body with
   | Match _ | Handle _ -> "(" ^ emit_expr indent body ^ ")"
   | _ -> emit_expr indent body
 
@@ -481,7 +481,7 @@ and emit_match indent scr cases =
       | None -> ""
       | Some g -> " when " ^ emit_expr indent g
     in
-    ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " ^ emit_arm_body indent body
+    ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " ^ emit_case_body indent body
   in
   "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)

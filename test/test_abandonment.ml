@@ -1,9 +1,9 @@
 open Wand
 
-(* What happens to something a script is holding when a handler arm answers
+(* What happens to something a script is holding when a handler case answers
    without resuming.
 
-   An arm that never calls its continuation ends the body it was handling.
+   An case that never calls its continuation ends the body it was handling.
    OCaml's own answer is to drop the continuation and collect it, running no
    cleanup whatsoever -- so a mock that swallows an effect would silently
    leak every lock and temp file the mocked code had open. Mocking is the
@@ -46,7 +46,7 @@ let eval_wand src =
 let check_released label expected =
   Alcotest.(check (list string)) label expected !released
 
-(* An arm that resumes is the ordinary case and always released. *)
+(* An case that resumes is the ordinary case and always released. *)
 let test_resuming_releases () =
   let answer =
     eval_wand
@@ -56,7 +56,7 @@ let test_resuming_releases () =
   Alcotest.(check string) "the body's own value" "mocked" answer;
   check_released "released" ["r"]
 
-(* The case that motivated this: the arm answers on its own, so the body
+(* The case that motivated this: the case answers on its own, so the body
    never continues -- and what the body was holding still comes back. *)
 let test_abandoning_releases () =
   let answer =
@@ -64,7 +64,7 @@ let test_abandoning_releases () =
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
         | Shell!run _ _ -> "answered without resuming"|}
   in
-  Alcotest.(check string) "the arm's value, not the body's"
+  Alcotest.(check string) "the case's value, not the body's"
     "answered without resuming" answer;
   check_released "released anyway" ["r"]
 
@@ -78,7 +78,7 @@ let test_nested_release_order () =
   check_released "innermost first" ["inner"; "outer"]
 
 (* Cleanup that performs an effect of its own reaches the handlers that were
-   in scope when the resource was taken -- it runs inside the arm, not after
+   in scope when the resource was taken -- it runs inside the case, not after
    the handler has gone. A release deleting a lock file is exactly this. *)
 let test_release_can_perform () =
   let answer =
@@ -92,7 +92,7 @@ let test_release_can_perform () =
   Alcotest.(check string) "unchanged by the release" "mocked" answer;
   check_released "released" ["r"]
 
-(* An arm that resumes has consumed its continuation; unwinding it a second
+(* An case that resumes has consumed its continuation; unwinding it a second
    time would raise. Resuming inside a branch and not in another is the
    shape that catches this. *)
 let test_conditional_resume () =
@@ -121,12 +121,12 @@ let test_try_cannot_catch_the_unwind () =
           "body continued")) with
         | Shell!run _ _ -> "answered"|}
   in
-  Alcotest.(check string) "the arm's value" "answered" answer;
+  Alcotest.(check string) "the case's value" "answered" answer;
   check_released "released" ["r"]
 
 let () =
   Alcotest.run "Abandonment" [
-    "a handler arm that does not resume", [
+    "a handler case that does not resume", [
       Alcotest.test_case "resuming releases"        `Quick test_resuming_releases;
       Alcotest.test_case "abandoning releases"      `Quick test_abandoning_releases;
       Alcotest.test_case "innermost first"          `Quick test_nested_release_order;

@@ -112,9 +112,9 @@ exception EvalError of string
 
 type _ Effect.t += WandEffect : string * value -> value Effect.t
 
-(* Raised into a handled body that a handler arm answered without resuming,
+(* Raised into a handled body that a handler case answered without resuming,
    so the body unwinds and releases whatever it was holding. Private, and
-   caught by the arm that raised it: it is a way of running cleanup, not a
+   caught by the case that raised it: it is a way of running cleanup, not a
    failure anyone can see or catch. `try` re-raises what it does not
    recognise, so an abandoned region cannot be caught mid-unwind. *)
 exception Abandoned
@@ -313,7 +313,7 @@ let rec eval (env : env) (e : expr) : value =
   | MapLit kvs ->
     VMap (List.map (fun (k, e) -> (k, eval env e)) kvs)
   | Field (e, label) ->
-    (* No VMap arm: dot access on a Map is rejected by the typechecker.
+    (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
     (match eval env e with
      | VRecord kvs ->
@@ -362,17 +362,17 @@ let rec eval (env : env) (e : expr) : value =
       | _ -> raise (EvalError "$?(…) requires a string")
     in
     Effect.perform (WandEffect ("Shell!capture", VString cmd))
-  | Handle (body_expr, arms) ->
-    let effect_arms = List.filter_map (function
-      | Ast.EffectArm (n, p, k, b) -> Some (n, p, k, b)
-      | _ -> None) arms in
-    let return_arm = List.find_opt (function
-      | Ast.ReturnArm _ -> true | _ -> false) arms in
+  | Handle (body_expr, cases) ->
+    let effect_cases = List.filter_map (function
+      | Ast.EffectCase (n, p, k, b) -> Some (n, p, k, b)
+      | _ -> None) cases in
+    let return_case = List.find_opt (function
+      | Ast.ReturnCase _ -> true | _ -> false) cases in
     let apply_return v =
-      match return_arm with
+      match return_case with
       | None -> v
-      | Some (Ast.ReturnArm (p, b)) -> eval (bind_pat p v env) b
-      | Some (Ast.EffectArm _) -> assert false
+      | Some (Ast.ReturnCase (p, b)) -> eval (bind_pat p v env) b
+      | Some (Ast.EffectCase _) -> assert false
     in
     observed (fun () ->
     Effect.Deep.match_with (fun () -> eval env body_expr) ()
@@ -382,44 +382,44 @@ let rec eval (env : env) (e : expr) : value =
           effc = fun (type a) (eff : a Effect.t) ->
             match eff with
             | WandEffect (op, arg) ->
-              let rec try_arms = function
+              let rec try_cases = function
                 | [] -> (None : ((a, value) Effect.Deep.continuation -> value) option)
-                | (name, arg_pat, cont_name, arm_body) :: rest ->
-                  if name <> op then try_arms rest
+                | (name, arg_pat, cont_name, case_body) :: rest ->
+                  if name <> op then try_cases rest
                   else
                     match try_match arg_pat arg env with
-                    | None -> try_arms rest
+                    | None -> try_cases rest
                     | Some env' ->
                       Some (fun (k : (a, value) Effect.Deep.continuation) ->
-                        (* An arm that answers without resuming ends the body
+                        (* An case that answers without resuming ends the body
                            it was handling. The body may be holding something
                            that has to be given back -- a lock, a temp file --
                            and a continuation that is simply dropped runs no
                            cleanup at all, not even when it is collected. So
                            the abandoned region is unwound deliberately.
 
-                           Cleanup runs here, inside this arm, which is what
+                           Cleanup runs here, inside this case, which is what
                            makes it visible: a release that performs an effect
                            of its own reaches the same handlers the acquiring
                            code saw, rather than whatever happens to be
                            installed later. Discontinuing returns the value
                            the unwinding produced; it is discarded, and the
-                           arm answers with its own. *)
+                           case answers with its own. *)
                         let resumed = ref false in
                         let cont =
                           VBuiltin (fun v ->
                             resumed := true;
                             Effect.Deep.continue k v)
                         in
-                        let answer = eval ((cont_name, cont) :: env') arm_body in
-                        (* Resuming consumes the continuation, so only an arm
+                        let answer = eval ((cont_name, cont) :: env') case_body in
+                        (* Resuming consumes the continuation, so only an case
                            that never did has one left to discontinue. *)
                         if not !resumed then
                           (try ignore (Effect.Deep.discontinue k Abandoned)
                            with Abandoned -> ());
                         answer)
               in
-              try_arms effect_arms
+              try_cases effect_cases
             | _ -> None
       })
   | Interp (parts, tail) ->

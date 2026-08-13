@@ -78,7 +78,7 @@ type expr =
   | RegexLit  of string * string
   | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
-  | Handle   of expr * handle_arm list
+  | Handle   of expr * handle_case list
   | Try      of expr
   (* `with r as p -> body`: acquire, bind, run, release. The resource is a
      description of how to get and give back, so it is an ordinary
@@ -89,9 +89,9 @@ type expr =
 
 and case = pat * expr option * expr
 
-and handle_arm =
-  | EffectArm of string * pat * string * expr  (* op, arg_pat, cont_name, body *)
-  | ReturnArm of pat * expr
+and handle_case =
+  | EffectCase of string * pat * string * expr  (* op, arg_pat, cont_name, body *)
+  | ReturnCase of pat * expr
 
 (* ── Pretty-print ─────────────────────────────────────────────────────────── *)
 
@@ -186,15 +186,15 @@ let rec show : expr -> string = function
     Buffer.add_string buf tail;
     Buffer.add_char buf '"';
     Buffer.contents buf
-  | Handle (body, arms) ->
-    let show_arm = function
-      | EffectArm (op, p, k, b) ->
+  | Handle (body, cases) ->
+    let show_handle_case = function
+      | EffectCase (op, p, k, b) ->
         Printf.sprintf "(| %s %s %s -> %s)" op (show_pat p) k (show b)
-      | ReturnArm (p, b) ->
+      | ReturnCase (p, b) ->
         Printf.sprintf "(| return %s -> %s)" (show_pat p) (show b)
     in
     Printf.sprintf "(handle %s with %s)" (show body)
-      (String.concat " " (List.map show_arm arms))
+      (String.concat " " (List.map show_handle_case cases))
   | Contract (reqs, ens, body) ->
     let clause kw e = Printf.sprintf "(%s %s)" kw (show e) in
     let rs = String.concat " " (List.map (clause "requires") reqs) in

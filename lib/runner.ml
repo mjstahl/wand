@@ -462,7 +462,7 @@ let is_catchall_pat = function
   | Ast.PVar _ | Ast.Wild -> true
   | _ -> false
 
-(* Extract the match arms from a previously merged VFix, or return a single arm. *)
+(* Extract the match cases from a previously merged VFix, or return a single case. *)
 let extract_arms arity existing_params existing_body =
   let fresh     = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
   let fresh_pats = List.map (fun v -> Ast.PVar v) fresh in
@@ -472,7 +472,7 @@ let extract_arms arity existing_params existing_body =
   in
   if existing_params = fresh_pats then
     match strip_located existing_body with
-    | Ast.Match (scrut, arms) when strip_located scrut = scrutinee -> arms
+    | Ast.Match (scrut, cases) when strip_located scrut = scrutinee -> cases
     | body ->
       let pat = match existing_params with [p] -> p | ps -> Ast.PTuple ps in
       [(pat, None, body)]
@@ -491,14 +491,14 @@ let merge_clause env name arity params body existing_params existing_body =
     | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
   in
   let new_pat  = match params with [p] -> p | ps -> Ast.PTuple ps in
-  let new_arm  = (new_pat, None, body) in
+  let new_case  = (new_pat, None, body) in
   let old_arms = extract_arms arity existing_params existing_body in
   let (new_sp, new_ca) =
-    if is_catchall_pat new_pat then ([], [new_arm]) else ([new_arm], []) in
+    if is_catchall_pat new_pat then ([], [new_case]) else ([new_case], []) in
   let (old_sp, old_ca) =
     List.partition (fun (p, _, _) -> not (is_catchall_pat p)) old_arms in
-  let arms = new_sp @ old_sp @ new_ca @ old_ca in
-  VFix (name, env, List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, arms))
+  let cases = new_sp @ old_sp @ new_ca @ old_ca in
+  VFix (name, env, List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
 (* Evaluate a single top-level item; imports already merged into env *)
 let run_item env item =
@@ -1033,7 +1033,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             in
             if arity > 0 && List.for_all (fun b -> b) synthetic then
               (match strip_located body with
-               | Ast.Match (_, arms) when List.length arms > 1 -> Some (List.length arms)
+               | Ast.Match (_, cases) when List.length cases > 1 -> Some (List.length cases)
                | _ -> None)
             else None
           | _ -> None

@@ -172,23 +172,23 @@ let test_constr_positional_patterns () =
       (PConstr ("R", [PVar "a"; PVar "b"]), None, Var "a");
     ]))
 
-(* ── Handler arms ────────────────────────────────────────────────────────── *)
+(* ── Handler cases ────────────────────────────────────────────────────────── *)
 
 (* An operation is the call it stands for with a `!` where its dot goes. The
    lexer hands back `FS!` as one Upper token and `read_file` as an
-   identifier, so the arm parser has to join them. *)
+   identifier, so the case parser has to join them. *)
 
 let test_handler_arm_operations () =
   e "a family-qualified operation"
     "handle body with\n| FS!read_file p k -> p"
     (Handle (Var "body", [
-      Ast.EffectArm ("FS!read_file", PVar "p", "k", Var "p");
+      Ast.EffectCase ("FS!read_file", PVar "p", "k", Var "p");
     ]));
-  e "several arms, including a return"
+  e "several cases, including a return"
     "handle body with\n| Shell!run c k -> c\n| return r -> r"
     (Handle (Var "body", [
-      Ast.EffectArm ("Shell!run", PVar "c", "k", Var "c");
-      Ast.ReturnArm (PVar "r", Var "r");
+      Ast.EffectCase ("Shell!run", PVar "c", "k", Var "c");
+      Ast.ReturnCase (PVar "r", Var "r");
     ]))
 
 
@@ -243,7 +243,7 @@ let test_if () =
 (* ── Match ───────────────────────────────────────────────────────────────── *)
 
 let test_match () =
-  e "two arms"
+  e "two cases"
     "match n with\n| 0 -> false\n| _ -> true"
     (Match (Var "n", [
       (Int 0, None, Bool false);
@@ -379,35 +379,35 @@ let test_equation_arity () =
     "let f 0 = 0\nlet f = 3\nf 0"
     "every equation of a function must take the same number"
 
-(* A handler arm that does not resume still had to name a continuation it
+(* A handler case that does not resume still had to name a continuation it
    would never use, which reads as an oversight rather than a decision. *)
 let test_handler_continuation_binder () =
-  let arm src = Lexer.tokenize src |> Parser.parse_program in
+  let case src = Lexer.tokenize src |> Parser.parse_program in
   let ok label src =
-    match arm src with
+    match case src with
     | _ -> ()
     | exception Parser.ParseError m -> Alcotest.failf "%s: %s" label m
   in
   ok "a named continuation" {|handle 1 with
 | Shell!run c k -> k "x"|};
-  ok "_ where the arm does not resume" {|handle 1 with
+  ok "_ where the case does not resume" {|handle 1 with
 | Shell!run c _ -> "x"|};
   ok "_ for both the argument and the continuation" {|handle 1 with
 | Shell!run _ _ -> "x"|};
   (* Anything else still has to be one or the other. *)
-  match arm {|handle 1 with
+  match case {|handle 1 with
 | Shell!run _ 3 -> "x"|} with
   | _ -> Alcotest.fail "expected a parse error for a literal continuation"
   | exception Parser.ParseError m ->
     Alcotest.(check bool) "the message says what is allowed" true
-      (let sub = "or _ if the arm does not resume" in
+      (let sub = "or _ if it is not resumed" in
        let n = String.length sub and t = String.length m in
        let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
        at 0)
 
 let () =
   Alcotest.run "Parser" [
-    "handler arms", [
+    "handler cases", [
       Alcotest.test_case "continuation binder" `Quick test_handler_continuation_binder;
     ];
     "literals", [
@@ -429,7 +429,7 @@ let () =
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "constr positional" `Quick test_constr_positional;
       Alcotest.test_case "constr positional patterns" `Quick test_constr_positional_patterns;
-      Alcotest.test_case "handler arms"  `Quick test_handler_arm_operations;
+      Alcotest.test_case "handler cases"  `Quick test_handler_arm_operations;
       Alcotest.test_case "field"        `Quick test_field;
     ];
     "manifests", [

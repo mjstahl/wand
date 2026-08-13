@@ -41,7 +41,7 @@ let test_infinite_domain () =
   err_contains "int without wildcard"
     {|let f x = match x with | 0 -> "zero"|}
     "non-exhaustive";
-  err_contains "guard-only arm doesn't count"
+  err_contains "guard-only case doesn't count"
     {|let f x = match x with | n when n > 0 -> "pos" | _ -> "" ; let g y = match y with | n when n > 0 -> "pos"|}
     "non-exhaustive"
 

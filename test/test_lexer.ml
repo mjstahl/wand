@@ -152,7 +152,7 @@ let test_let_binding () =
     [Token.Let; Ident "x"; Eq; Int 42]
 
 let test_function_arrow () =
-  check_tokens "match arm" "| 0 -> true"
+  check_tokens "match case" "| 0 -> true"
     [Pipe; Int 0; Arrow; Bool true]
 
 let test_pipeline () =

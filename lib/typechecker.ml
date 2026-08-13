@@ -51,7 +51,7 @@ let holes : typ list ref = ref []
    makes the function partial -- `let head! [h : _] = h` has nothing to do
    with an empty list but raise -- and that raise comes from the binding
    itself rather than from any call, so nothing else would record it. A
-   `match` is different: it is checked for exhaustiveness, so its arms
+   `match` is different: it is checked for exhaustiveness, so its cases
    cannot all fail. *)
 let rec pat_is_refutable (p : pat) =
   match p with
@@ -61,7 +61,7 @@ let rec pat_is_refutable (p : pat) =
   | PConstrNamed _ -> false   (* a single-constructor type cannot mismatch *)
   | _             -> true
 
-(* Which effect an intercepted operation accounts for. A handler arm names
+(* Which effect an intercepted operation accounts for. A handler case names
    the builtin operation it catches, and catching it is what removes the
    corresponding effect from the handled expression. *)
 let effect_of_operation = function
@@ -600,7 +600,7 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
    pattern rows and a parallel list of column types, checking that every
    constructor of the head column's type is either matched directly or
    covered by a wildcard, then recursing into each covered constructor's
-   sub-columns. Guards are excluded by the caller (a guarded arm might not
+   sub-columns. Guards are excluded by the caller (a guarded case might not
    fire, so it can't be relied on for exhaustiveness). *)
 
 let is_wild_pat = function
@@ -706,8 +706,8 @@ and render_witness_arg (Witness (name, args) as w : witness) : string =
 (* A multi-equation definition desugars to a match over synthetic `_p0.._pN`
    parameters (parser.ml's collapse_multi_equation). That exact shape is what
    distinguishes it from a match the author actually wrote, and it decides
-   both how failures are phrased and whether unreachable arms are rejected --
-   an unreachable arm in a hand-written match can be deliberate, but a dead
+   both how failures are phrased and whether unreachable cases are rejected --
+   an unreachable case in a hand-written match can be deliberate, but a dead
    equation is always a mistake, since nothing about the definition hints
    that an earlier line already answered for it. *)
 let rec strip_loc_expr e = match e with
@@ -1101,34 +1101,34 @@ let rec infer tenv (env : env) (e : expr) : typ =
     TName "ShellResult"
   | RegexLit  _       -> TRegex
   | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
-  | Handle (body_expr, arms) ->
+  | Handle (body_expr, cases) ->
     let (body_t, body_row) = scoped_eff (fun () -> infer tenv env body_expr) in
-    (* An arm intercepts an operation, so the handled expression no longer
+    (* An case intercepts an operation, so the handled expression no longer
        performs it: handling process_run is what makes a deploy script
        testable with the network unplugged, and the signature should say so. *)
     let discharged =
-      List.fold_left (fun row arm ->
-        match arm with
-        | Ast.EffectArm (op, _, _, _) ->
+      List.fold_left (fun row case ->
+        match case with
+        | Ast.EffectCase (op, _, _, _) ->
           (match effect_of_operation op with
            | Some e -> Effect_row.remove e row
            | None   -> row)
-        | Ast.ReturnArm _ -> row
-      ) body_row arms
+        | Ast.ReturnCase _ -> row
+      ) body_row cases
     in
     performs discharged;
     let result_t = fresh () in
-    (* Without a `return` arm the handler returns what the body returned, so
+    (* Without a `return` case the handler returns what the body returned, so
        the two types are the same. Leaving them apart lost the body's type
        entirely. *)
-    if not (List.exists (function Ast.ReturnArm _ -> true | _ -> false) arms)
+    if not (List.exists (function Ast.ReturnCase _ -> true | _ -> false) cases)
     then unify result_t body_t;
-    List.iter (fun arm ->
-      match arm with
-      | Ast.ReturnArm (p, b) ->
+    List.iter (fun case ->
+      match case with
+      | Ast.ReturnCase (p, b) ->
         let env' = infer_pat tenv p body_t env in
         unify result_t (infer tenv env' b)
-      | Ast.EffectArm (_, arg_pat, cont_name, arm_body) ->
+      | Ast.EffectCase (_, arg_pat, cont_name, case_body) ->
         let arg_t = fresh () in
         let env' = infer_pat tenv arg_pat arg_t env in
         let cont_arg_t = fresh () in
@@ -1137,8 +1137,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
            deciding, so its row is left to inference. *)
         let cont_t = TFun (cont_arg_t, result_t, Effect_row.fresh_row ()) in
         let env'' = (cont_name, Mono cont_t) :: env' in
-        unify result_t (infer tenv env'' arm_body)
-    ) arms;
+        unify result_t (infer tenv env'' case_body)
+    ) cases;
     result_t
   | Interp (parts, _) ->
     List.iter (fun (_, e) -> ignore (infer tenv env e)) parts;

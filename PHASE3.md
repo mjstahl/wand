@@ -36,9 +36,9 @@ Ordering is by what unblocks what. Brackets come first because two items already
 | Decoder effects | Pure. Decoding is a function from already-read data; reading it is `JSON.read_file`'s job and already carries `{FS.Read}`. |
 | `else ()` sugar | **Add it, but last, and as `if c then e` with a `Unit` branch** — not a `when` statement form, which would be a second conditional construct for a solved problem. Given one occurrence in the corpus, it is a papercut, not a phase item; if anything above runs long, this is what gets cut. |
 
-## Settled — what happens when a handler arm abandons its continuation
+## Settled — what happens when a handler case abandons its continuation
 
-**Resolved: the runtime unwinds the abandoned region.** An arm that answers
+**Resolved: the runtime unwinds the abandoned region.** A case that answers
 without resuming now discontinues its continuation with a private
 `Abandoned`, catches it, and returns its own value. Cleanup runs; nobody can
 see the exception.
@@ -47,20 +47,20 @@ The measurements that decided it, on OCaml's own behaviour:
 
 | Arm does | Cleanup runs? | Arm's value survives? |
 |---|---|---|
-| resumes (all 20 arms in the corpus) | yes | yes |
+| resumes (all 20 cases in the corpus) | yes | yes |
 | drops the continuation | **no — not even after a full GC** | yes |
-| discontinues | yes | no — unwinds past the arm |
+| discontinues | yes | no — unwinds past the case |
 | **discontinues, catches** | **yes** | **yes** |
 
 The last row is why this was cheaper than it looked. `discontinue` *returns*
-to the arm rather than transferring control away from it, so there is no
+to the case rather than transferring control away from it, so there is no
 reconciling to do: discard what the unwinding produced and answer normally.
 
 Two properties had to hold and both do. **Cleanup can perform effects of its
 own** — releasing a lock deletes a file, which is `FS!write_file` performed
 from inside a continuation being torn down — and it reaches the handlers that
 were in scope when the resource was taken, because the unwinding happens
-inside the arm rather than after the handler frame is gone. That is the same
+inside the case rather than after the handler frame is gone. That is the same
 property the parallelism work turned on. And **`try` cannot catch the
 unwind**: it re-raises what it does not recognise, so an abandoned region
 cannot be caught halfway and resumed.
@@ -72,14 +72,14 @@ hand; and innermost-first becomes an ordering to maintain rather than one you
 get. Also rejected: documenting the leak, which is the failure mode the
 effect work exists to prevent, in the construct that argument was made for.
 
-**What it costs.** An arm that stores its continuation and calls it after the
-arm body returns no longer works — the continuation is torn down at arm exit.
+**What it costs.** A case that stores its continuation and calls it after the
+case's body returns no longer works — the continuation is torn down when the case ends.
 That is deferred and multi-shot resumption, the raw material for coroutines
 and schedulers. Nothing in the corpus does it, and giving it up is consistent
 with no async/await, no futures, no channels; but the door closes quietly,
 and this is where that is written down.
 
-**Follow-up papercut.** An arm that does not resume must still name a
+**Follow-up papercut.** A case that does not resume must still name a
 continuation it will not use: `| Shell!run _ _ -> ...` is a parse error,
 because the continuation binder must be an identifier. Now that not resuming
 is a normal thing to write, `_` should be allowed there. Small parser change,

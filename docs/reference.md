@@ -322,9 +322,9 @@ let f x = match x with | 0 -> "zero"
 -- wand t: type error: non-exhaustive match: missing case, e.g. _
 ```
 
-Because guards (`when`) aren't guaranteed to fire, a guarded arm never
+Because guards (`when`) aren't guaranteed to fire, a guarded case never
 counts toward exhaustiveness on its own — it always needs a plain
-fallback arm alongside it. Infinite domains (`Int`, `Float`, `String`, and
+fallback case alongside it. Infinite domains (`Int`, `Float`, `String`, and
 the other lexical domain types) can only be covered by an explicit
 wildcard or variable pattern; `Bool`, tuples, lists, `Result`, and
 user-defined variant types (including generics like `Option`) are checked
@@ -558,7 +558,7 @@ String.upper    String -> String
 | | |
 |---|---|
 | Effect labels — `{Shell, FS.Write}` | **Never written.** There is no syntax to annotate them; they are always inferred. Writing `let f : Unit -> String ! {Shell} = …` is a parse error. |
-| Operation names — `FS!read_file` | **Written only in a handler arm**, when intercepting that operation in a test. |
+| Operation names — `FS!read_file` | **Written only in a handler case**, when intercepting that operation in a test. |
 | Everything else | Ordinary wand. Effects follow from the builtins your code reaches. |
 
 So writing a script means writing no effects at all. You read them back from
@@ -612,7 +612,7 @@ FS.read_file!   String -> String ! {FS.Read, Raise}
 FS.read_file    String -> Result String String ! {FS.Read}
 ```
 
-A handler arm removes the effect of the operation it intercepts:
+A handler case removes the effect of the operation it intercepts:
 
 ```
 fn () -> handle $(git push) with
@@ -728,7 +728,7 @@ test "deploy pushes once" (fn t ->
   in t.eq outcome "done")
 ```
 
-An arm names the operation it intercepts. The name is the call you would
+A case names the operation it intercepts. The name is the call you would
 otherwise make, with a `!` where its dot goes — you call `FS.read_file`, you
 intercept `FS!read_file`:
 
@@ -747,8 +747,8 @@ Several functions can share one operation. `FS.read_file` and
 `FS.read_file!` both perform `FS!read_file`, so a test mocks reading a file
 once rather than once per wrapper.
 
-An arm binds the operation's argument and a continuation
-(`k`) that resumes the intercepted code with a value you supply. A `return` arm
+A case binds the operation's argument and a continuation
+(`k`) that resumes the intercepted code with a value you supply. A `return` case
 transforms the result when the body finishes normally:
 
 ```
@@ -760,7 +760,7 @@ with
 | return s -> s
 ```
 
-An arm that answers on its own, without resuming, writes `_` for the
+A case that answers on its own, without resuming, writes `_` for the
 continuation:
 
 ```

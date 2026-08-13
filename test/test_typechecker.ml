@@ -92,7 +92,7 @@ match Circle 3.0 with | Circle r -> r | Square s -> s|}
 (* ── Multi-equation definitions ──────────────────────────────────────────── *)
 
 (* Equations are tried in source order, so an equation an earlier one already
-   answers for can never fire. In a hand-written match an unreachable arm can
+   answers for can never fire. In a hand-written match an unreachable case can
    be deliberate; a dead equation never is, since nothing at the definition
    site hints that an earlier line covered it. *)
 
@@ -123,8 +123,8 @@ let test_valid_equation_groups_accepted () =
   ok "list equations"
     "let sum [] = 0\nlet sum [h : t] = h + sum t\nsum [1,2,3]"
     "6";
-  (* An unreachable arm in a hand-written match stays legal. *)
-  ok "hand-written match may have a deliberate dead arm"
+  (* An unreachable case in a hand-written match stays legal. *)
+  ok "hand-written match may have a deliberate dead case"
     "match 3 with\n| _ -> \"a\"\n| 1 -> \"b\""
     "a"
 
@@ -250,7 +250,7 @@ let test_lists () =
 
 let test_match () =
   expr_is "bool scrutinee" "match true with\n| true -> 1\n| false -> 0" "Int";
-  expr_is "wildcard arm" "match 1 with\n| 1 -> true\n| _ -> false" "Bool";
+  expr_is "wildcard case" "match 1 with\n| 1 -> true\n| _ -> false" "Bool";
   expr_is "guard" "fn n -> match n with\n| x when x > 0 -> true\n| _ -> false" "Int -> Bool"
 
 let test_pipeline () =
@@ -273,8 +273,8 @@ let test_program_level_inference__payload_types () =
   prog_is "two args" "type Pair = Pair Int Int; Pair 3 4" "Pair"
 
 let test_program_level_inference__match_on_constructors () =
-  prog_is "nullary arms" "type Color = Red | Green\nlet f c = match c with\n| Red   -> 1\n| Green -> 2\nf Red" "Int";
-  prog_is "payload arm" "type Wrap = Wrap Int\nlet unwrap w = match w with\n| Wrap n -> n\nunwrap (Wrap 42)" "Int"
+  prog_is "nullary cases" "type Color = Red | Green\nlet f c = match c with\n| Red   -> 1\n| Green -> 2\nf Red" "Int";
+  prog_is "payload case" "type Wrap = Wrap Int\nlet unwrap w = match w with\n| Wrap n -> n\nunwrap (Wrap 42)" "Int"
 
 let test_program_level_inference__named_field_typedef () =
   prog_is "field access" "type Point (x : Int, y : Int)\nlet p = Point (x = 1, y = 2)\np.x" "Int";

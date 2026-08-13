@@ -50,7 +50,7 @@ type t =
   | And                (* and — keyword, not && *)
   | Or                 (* or — keyword, not || *)
   | Handle             (* handle *)
-  | Return             (* return — in effect handler arms *)
+  | Return             (* return — in effect handler cases *)
   | Try                (* try    *)
   (* Operators *)
   | Eq                 (* = *)

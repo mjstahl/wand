@@ -68,7 +68,7 @@ test "single field by name" (fn t ->
 test "multi field by name" (fn t ->
   let p = Point(x = 3, y = 4) in let Point(x = a, y = b) = p in t.eq "${a}, ${b}" "3, 4")
 
-test "match arm by name" (fn t ->
+test "match case by name" (fn t ->
   let c = Circle(radius = 9) in
   t.eq
     (match c with

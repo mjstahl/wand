@@ -113,18 +113,18 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.Let (_, a, b) -> go a; go b
     | Ast.LetRec (bs, b) -> List.iter (fun (_, _, x) -> go x) bs; go b
     | Ast.If (c, t, f) -> go c; go t; go f
-    | Ast.Match (s, arms) ->
+    | Ast.Match (s, cases) ->
       go s;
       List.iter (fun (_, g, b) ->
-        (match g with Some g -> go g | None -> ()); go b) arms
+        (match g with Some g -> go g | None -> ()); go b) cases
     | Ast.Tuple es | Ast.List es -> List.iter go es
     | Ast.MapLit kvs -> List.iter (fun (_, v) -> go v) kvs
     | Ast.ConstrApp (_, fields) -> List.iter (fun (_, v) -> go v) fields
-    | Ast.Handle (b, arms) ->
+    | Ast.Handle (b, cases) ->
       go b;
       List.iter (function
-        | Ast.ReturnArm (_, x) -> go x
-        | Ast.EffectArm (_, _, _, x) -> go x) arms
+        | Ast.ReturnCase (_, x) -> go x
+        | Ast.EffectCase (_, _, _, x) -> go x) cases
     | Ast.Contract (reqs, ens, body) ->
       List.iter go reqs; List.iter go ens; go body
     | _ -> ()
