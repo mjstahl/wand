@@ -119,6 +119,35 @@ type _ Effect.t += WandEffect : string * value -> value Effect.t
    recognise, so an abandoned region cannot be caught mid-unwind. *)
 exception Abandoned
 
+(* The script is stopping, carrying the code it will stop with. Raised by
+   `exit` and by a signal, so that stopping unwinds the stack like anything
+   else and every `with` on it releases what it holds.
+
+   Not an EvalError, deliberately: `try` re-raises what it does not
+   recognise, so a script cannot catch its own cancellation and carry on.
+   The only thing that skips cleanup is a process that is destroyed rather
+   than stopped -- SIGKILL, or the machine going away. *)
+exception Interrupted of int
+
+(* Set by a signal handler; read by the evaluator between steps. A signal
+   handler cannot raise usefully here -- it runs wherever the program
+   happens to be, which may be inside an effect handler carrying out a
+   command, and an exception raised there abandons the body instead of
+   unwinding it. Recording the request and raising from the evaluator's own
+   stack puts the unwinding where the `with` frames are. *)
+let interrupt_requested = Atomic.make 0
+
+let request_interrupt code = Atomic.set interrupt_requested code
+
+(* Taken once: cleanup runs as ordinary evaluation, and would re-raise on
+   its first step if the request were still standing. A second signal is
+   handled by the signal handler itself, which stops the process outright. *)
+let check_interrupt () =
+  if Atomic.get interrupt_requested <> 0 then begin
+    let code = Atomic.exchange interrupt_requested 0 in
+    if code <> 0 then raise (Interrupted code)
+  end
+
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
 (* Whether a pattern list and a value list have the same length, decided by
@@ -213,6 +242,7 @@ let rec try_match (p : pat) v (env : env) : env option =
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
 
 let rec eval (env : env) (e : expr) : value =
+  check_interrupt ();
   match e with
   | Int n      -> VInt n
   | Float f    -> VFloat f
@@ -1036,7 +1066,7 @@ let par_run limit f items ~collect =
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
-  ("exit",       performing "Proc!exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("exit",       performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));
@@ -1944,7 +1974,7 @@ let stdlib_eval_env = stdlib_eval_env @ map_builtins
 let base_eval_env : env = [
   ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
-  ("exit",    performing "Proc!exit" (function VInt n -> exit n | _ -> raise (EvalError "exit: expected Int")));
+  ("exit",    performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
 ]

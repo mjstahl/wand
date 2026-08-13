@@ -803,9 +803,17 @@ with FS.temp_file "build_" ".tar" as archive ->
   publish! archive
 ```
 
-Release runs however the body leaves — returning, raising, or being stopped
-by a handler that answers without resuming. There is no `defer`, no `trap`,
-and nothing to remember at each exit.
+**A `with` always releases, however the script ends** — returning, raising,
+`exit`, a handler that answers without resuming, Ctrl-C, or a `kill`. There
+is no `defer`, no `trap`, and nothing to remember at each exit.
+
+The one exception is a process that is destroyed rather than stopped:
+`kill -9` and a machine losing power take the program away without giving it
+the chance to run anything. Nothing can cover that.
+
+`exit n` still exits with `n` — it releases first, then stops. An interrupt
+exits 130 and a `kill` exits 143, as a shell reports them, so nothing
+downstream has to learn a wand-specific code.
 
 Brackets nest, and release innermost-first:
 

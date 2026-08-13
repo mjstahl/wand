@@ -422,7 +422,12 @@ let run_with_default_handler (thunk : unit -> value) : value =
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (Hashtbl.find Evaluator.direct_impl name) v with
               | result -> Effect.Deep.continue k result
-              | exception (EvalError _ as e) -> Effect.Deep.discontinue k e)
+              (* Back through the continuation, not raised beside it: an
+                 exception raised here would abandon the body rather than
+                 unwind it, and every `with` the body is holding would go
+                 unreleased. That is how `exit` skipped cleanup. *)
+              | exception ((EvalError _ | Interrupted _) as e) ->
+                Effect.Deep.discontinue k e)
           | _ -> None
     }
 
@@ -757,6 +762,31 @@ let run_string src =
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)
   | EvalError msg         -> Error ("eval error: " ^ msg)
   | Failure msg           -> Error (msg)
+
+(* ── Stopping ─────────────────────────────────────────────────────────────── *)
+
+(* A script that is stopped from outside should leave nothing behind, so a
+   signal becomes an exception and unwinds like anything else -- every `with`
+   on the stack releases on the way out.
+
+   Installing a handler also un-ignores the signal: a script started as a
+   background job inherits SIG_IGN for SIGINT, and would otherwise not stop
+   at all. *)
+let interrupting = Atomic.make false
+
+let install_signal_handlers () =
+  let stop code (_ : int) =
+    if Atomic.exchange interrupting true then
+      (* Asked twice. The first request is already unwinding, so a release
+         is either slow or stuck; stop now rather than make someone hold
+         Ctrl-C down. This skips the remaining cleanup, which is the point. *)
+      Unix._exit code
+    else Evaluator.request_interrupt code
+  in
+  (* 128 + the signal number, which is what a shell reports and what CI
+     reads, so nothing downstream has to learn a wand-specific code. *)
+  Sys.set_signal Sys.sigint  (Sys.Signal_handle (stop 130));
+  Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop 143))
 
 let run_file ?(mode = Normal) path =
   let full =

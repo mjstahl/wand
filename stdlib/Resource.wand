@@ -10,8 +10,9 @@
        with FS.temp_dir "build-" as tmp ->
          ...
 
-   Release runs however the body leaves: returning, raising, or being
-   stopped by a handler that answered without resuming. Nested brackets
+   Release runs however the script ends: returning, raising, `exit`, a
+   handler that answered without resuming, or a signal. Only a process
+   destroyed rather than stopped -- `kill -9` -- skips it. Nested brackets
    release innermost-first.
 
    What acquiring and releasing perform is part of the resource's type, so

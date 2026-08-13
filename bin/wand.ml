@@ -365,6 +365,11 @@ let () =
         else (Wand.Runner.Normal, strip)
       in
       Wand.Evaluator.exe_args_ref := rest;
+      (* A running script can be stopped by a signal or by `exit`. Both
+         unwind, so whatever the script is holding is released first, and
+         the code it stops with is the one the caller expects. *)
+      Wand.Runner.install_signal_handlers ();
       (match Wand.Runner.run_file ~mode path with
        | Ok v    -> if v <> "()" then print_endline v
-       | Error e -> Printf.eprintf "Error: %s\n" e; exit 1)
+       | Error e -> Printf.eprintf "Error: %s\n" e; exit 1
+       | exception Wand.Evaluator.Interrupted code -> exit code)
