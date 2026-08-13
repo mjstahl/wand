@@ -326,6 +326,9 @@ let () =
         List.iter (fun p -> Printf.eprintf "Error: no such file or directory: %s\n" p) missing;
         exit 1
       end;
+      (* A test that holds a resource should give it back when the run is
+         interrupted, the same as a script. *)
+      Wand.Runner.install_signal_handlers ();
       let paths = List.concat_map Wand.Runner.find_test_files roots in
       (match paths with
        | [] ->

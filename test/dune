@@ -30,6 +30,7 @@
 
 (test
  (name test_signals)
+ (deps %{exe:../bin/wand.exe})
  (libraries wand alcotest unix))
 
 (test

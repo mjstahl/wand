@@ -103,10 +103,46 @@ with FS.temp_dir "wand_sig_" as outer ->
     let _ = $(sleep 2) in ()) [1, 2, 3, 4]|}
     marker
 
+(* Run by starting the real binary rather than by forking this test: the
+   script spawns domains, and a forked child of a program that has already
+   used them is not sound ground to spawn more from. What is under test is
+   the interpreter a user runs, so run that. *)
+let wand_binary =
+  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
+  Filename.concat (Filename.concat dir "bin") "wand.exe"
+
+let run_script_until_signalled ~marker src =
+  let path = Filename.temp_file "wand_sig_script" ".wand" in
+  Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc src);
+  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0o644 in
+  let pid = Unix.create_process wand_binary [| wand_binary; path |]
+              Unix.stdin devnull devnull in
+  let rec await tries =
+    let held = try In_channel.with_open_text marker In_channel.input_all with _ -> "" in
+    if String.trim held <> "" then String.trim held
+    else if tries = 0 then ""
+    else begin ignore (Unix.select [] [] [] 0.05); await (tries - 1) end
+  in
+  let dir = await 200 in
+  Unix.kill pid Sys.sigint;
+  let (_, status) = Unix.waitpid [] pid in
+  Unix.close devnull;
+  (try Sys.remove path with _ -> ());
+  let code = match status with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
+  in
+  Alcotest.(check bool) "the script acquired before being signalled" true (dir <> "");
+  let present = dir <> "" && Sys.file_exists dir in
+  if present then ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)));
+  (code, present)
+
 let test_par_workers_release () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  let (code, present) = interrupted_run ~signal:Sys.sigint ~marker (par_script marker) in
+  if not (Sys.file_exists wand_binary) then
+    Alcotest.failf "wand binary not found at %s" wand_binary;
+  let (code, present) = run_script_until_signalled ~marker (par_script marker) in
   Alcotest.(check bool) "the caller's directory is gone" false present;
   Alcotest.(check int) "exits 130" 130 code;
   (* Each worker recorded its own directory in the caller's, which is gone

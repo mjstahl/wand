@@ -26,10 +26,98 @@ let discard_channel ic =
   in
   (try loop () with End_of_file -> ())
 
+(* ── Children ─────────────────────────────────────────────────────────────── *)
+
+(* Every process wand starts, so that stopping wand stops them too. A command
+   left running after the script that started it has gone is the bash failure
+   this language exists to avoid, and it is worse here: the script's own
+   cleanup may be waiting on a process nobody is watching any more.
+
+   Held in an atomic list rather than behind a mutex because the signal
+   handler reads it, and a handler that blocked on a lock the interrupted
+   code was already holding would never return. *)
+let children : int list Atomic.t = Atomic.make []
+
+let rec remember pid =
+  let old = Atomic.get children in
+  if not (Atomic.compare_and_set children old (pid :: old)) then remember pid
+
+let rec forget pid =
+  let old = Atomic.get children in
+  let now = List.filter (fun p -> p <> pid) old in
+  if not (Atomic.compare_and_set children old now) then forget pid
+
+(* Stop what we started. Failures are ignored on purpose: a child that has
+   already exited is exactly the case this is racing with. *)
+let stop_children signal =
+  List.iter (fun pid -> try Unix.kill pid signal with Unix.Unix_error _ -> ())
+    (Atomic.get children)
+
+let sh_argv cmd = [| "/bin/sh"; "-c"; cmd |]
+
+(* The ends wand keeps are close-on-exec, or one command's pipe would be
+   inherited by the next command's process: with several running at once,
+   a child would hold another's write end open and the reader would wait
+   for an end-of-file that never came. The ends handed to create_process
+   are duplicated onto the child's stdio, which clears the flag. *)
+let spawn_in cmd =
+  let (r, w) = Unix.pipe ~cloexec:true () in
+  let pid = Unix.create_process "/bin/sh" (sh_argv cmd) Unix.stdin w Unix.stderr in
+  Unix.close w;
+  remember pid;
+  (pid, Unix.in_channel_of_descr r)
+
+let spawn_full cmd =
+  let (out_r, out_w) = Unix.pipe ~cloexec:true () in
+  let (err_r, err_w) = Unix.pipe ~cloexec:true () in
+  let (in_r,  in_w)  = Unix.pipe ~cloexec:true () in
+  let pid = Unix.create_process "/bin/sh" (sh_argv cmd) in_r out_w err_w in
+  Unix.close out_w; Unix.close err_w; Unix.close in_r;
+  remember pid;
+  (pid,
+   Unix.in_channel_of_descr out_r,
+   Unix.out_channel_of_descr in_w,
+   Unix.in_channel_of_descr err_r)
+
+let reap pid channels =
+  List.iter (fun close -> try close () with Sys_error _ -> ()) channels;
+  let (_, status) = Unix.waitpid [] pid in
+  forget pid;
+  status
+
+(* OCaml numbers signals with its own negative constants, so the raw value
+   in a message means nothing to anyone reading it. *)
+let signal_name n =
+  if n = Sys.sigterm then "SIGTERM" else if n = Sys.sigint then "SIGINT"
+  else if n = Sys.sigkill then "SIGKILL" else if n = Sys.sigsegv then "SIGSEGV"
+  else if n = Sys.sighup then "SIGHUP" else if n = Sys.sigpipe then "SIGPIPE"
+  else if n = Sys.sigquit then "SIGQUIT" else if n = Sys.sigabrt then "SIGABRT"
+  else Printf.sprintf "signal %d" n
+
+(* A command that died because wand is stopping is not the script's failure
+   to report -- wand killed it on the way out. Surfacing it would put a
+   confusing error in front of the reason the script is ending. *)
+let died_from_our_own_stop () = Atomic.get Evaluator.interrupt_requested <> 0
+
+let command_signalled cmd n =
+  if died_from_our_own_stop () then
+    raise (Evaluator.Interrupted (Atomic.get Evaluator.interrupt_requested))
+  else
+    raise (EvalError (Printf.sprintf "command killed by %s: %s" (signal_name n) cmd))
+
+(* Running a command can end the program as well as fail it: wand kills its
+   children when it is stopping, and the command's death arrives here. Both
+   travel back through the continuation, so the body unwinds and releases
+   what it holds -- raising here instead would abandon it. *)
+let attempt f =
+  try Ok (f ()) with
+  | EvalError _ as e -> Error e
+  | Evaluator.Interrupted _ as e -> Error e
+
 let exec_command cmd =
-  let ic = Unix.open_process_in cmd in
+  let (pid, ic) = spawn_in cmd in
   let output = drain_channel ic in
-  let status = Unix.close_process_in ic in
+  let status = reap pid [(fun () -> close_in ic)] in
   let output =
     let n = String.length output in
     let i = ref n in
@@ -39,22 +127,22 @@ let exec_command cmd =
   match status with
   | Unix.WEXITED 0   -> output
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
-  | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
+  | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
 let exec_command_quiet cmd =
-  let ic = Unix.open_process_in cmd in
+  let (pid, ic) = spawn_in cmd in
   discard_channel ic;
-  match Unix.close_process_in ic with
+  match reap pid [(fun () -> close_in ic)] with
   | Unix.WEXITED 0   -> ()
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
-  | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
+  | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
 let exec_command_exit_code cmd =
-  let ic = Unix.open_process_in cmd in
+  let (pid, ic) = spawn_in cmd in
   discard_channel ic;
-  match Unix.close_process_in ic with
+  match reap pid [(fun () -> close_in ic)] with
   | Unix.WEXITED n   -> n
   | Unix.WSIGNALED _ -> 128
   | Unix.WSTOPPED  _ -> 128
@@ -68,22 +156,22 @@ let strip_trailing_newline s =
   String.sub s 0 !i
 
 let exec_command_stdin cmd stdin =
-  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  let (pid, ic, oc, ec) = spawn_full cmd in
   output_string oc stdin; close_out oc;
   let stdout = strip_trailing_newline (read_all ic) in
   let _stderr = read_all ec in
-  match Unix.close_process_full (ic, oc, ec) with
+  match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
   | Unix.WEXITED 0   -> stdout
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
-  | Unix.WSIGNALED n -> raise (EvalError (Printf.sprintf "command killed by signal %d: %s" n cmd))
+  | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
 let exec_command_full cmd =
-  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  let (pid, ic, oc, ec) = spawn_full cmd in
   close_out oc;
   let stdout = strip_trailing_newline (read_all ic) in
   let stderr = read_all ec in
-  let code = match Unix.close_process_full (ic, oc, ec) with
+  let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
     | Unix.WSTOPPED  _ -> 128
@@ -91,11 +179,11 @@ let exec_command_full cmd =
   (stdout, stderr, code)
 
 let exec_command_full_stdin cmd stdin =
-  let (ic, oc, ec) = Unix.open_process_full ("sh -c " ^ Filename.quote cmd) (Unix.environment ()) in
+  let (pid, ic, oc, ec) = spawn_full cmd in
   output_string oc stdin; close_out oc;
   let stdout = strip_trailing_newline (read_all ic) in
   let stderr = read_all ec in
-  let code = match Unix.close_process_full (ic, oc, ec) with
+  let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
     | Unix.WSTOPPED  _ -> 128
@@ -208,22 +296,22 @@ let run_with_default_handler (thunk : unit -> value) : value =
               Effect.Deep.continue k VUnit)
           | WandEffect ("Shell!run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Ok (exec_command cmd) with EvalError m -> Error m) with
+              match attempt (fun () -> exec_command cmd) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
+              | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!run_quiet", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try exec_command_quiet cmd; Ok () with EvalError m -> Error m) with
+              match attempt (fun () -> exec_command_quiet cmd) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
+              | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!exit_code", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
           | WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Ok (exec_command_stdin cmd stdin) with EvalError m -> Error m) with
+              match attempt (fun () -> exec_command_stdin cmd stdin) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
+              | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!capture", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let (stdout, stderr, code) = exec_command_full cmd in
@@ -794,13 +882,26 @@ let install_signal_handlers () =
        already running. *)
     if not (Atomic.exchange interrupting true) then begin
       Sys.set_signal signal Sys.Signal_default;
-      Evaluator.request_interrupt code
+      Evaluator.request_interrupt code;
+      (* Stop what we started. Until the commands wand is waiting on end, it
+         is inside a read and cannot act on the request at all -- so the
+         script's own cleanup is waiting on processes nobody is watching any
+         more. Terminated rather than interrupted, because a child signalled
+         alongside its parent has already had its chance to notice. *)
+      stop_children Sys.sigterm
     end
   in
   (* 128 + the signal number, which is what a shell reports and what CI
      reads, so nothing downstream has to learn a wand-specific code. *)
   Sys.set_signal Sys.sigint  (Sys.Signal_handle (stop Sys.sigint  130));
   Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop Sys.sigterm 143))
+
+(* For a session that survives an interrupt. A script stops at the first
+   one, so it never needs this; a prompt takes as many as it is given. *)
+let rearm_signal_handlers () =
+  Atomic.set interrupting false;
+  Evaluator.clear_interrupt ();
+  install_signal_handlers ()
 
 let run_file ?(mode = Normal) path =
   let full =

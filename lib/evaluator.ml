@@ -162,6 +162,14 @@ let defer_interrupts f =
   incr d;
   Fun.protect ~finally:(fun () -> decr d) f
 
+(* Forget a request that has been dealt with, for a session that carries on
+   afterwards -- including this domain's record of having taken it, or the
+   next request would be ignored here. A script has nothing to carry on to
+   and never calls this. *)
+let clear_interrupt () =
+  Atomic.set interrupt_requested 0;
+  Domain.DLS.get interrupt_taken := false
+
 let check_interrupt () =
   let code = Atomic.get interrupt_requested in
   if code <> 0 && !(Domain.DLS.get interrupts_deferred) = 0 then begin

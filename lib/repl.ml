@@ -296,6 +296,11 @@ and loop (sess : Runner.session) =
         loop (handle_command sess line)
       else begin
         let src = gather_lines line in
+        (* Ctrl-C abandons what is running and gives the prompt back, rather
+           than ending the session: at a prompt, stopping the thing you just
+           typed is what you meant, not stopping the session you are in the
+           middle of. The session carries on from the bindings it already
+           had -- the interrupted expression contributed none. *)
         match Runner.run_session sess src with
         | Error msg ->
           Printf.printf "Error: %s\n%!" msg;
@@ -303,6 +308,10 @@ and loop (sess : Runner.session) =
         | Ok (new_sess, result) ->
           print_result result;
           loop new_sess
+        | exception Evaluator.Interrupted _ ->
+          Runner.rearm_signal_handlers ();
+          Printf.printf "\ninterrupted\n%!";
+          loop sess
       end
     end
 
@@ -321,4 +330,5 @@ let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
     | Error _   -> sess
   in
   let sess = List.fold_left load_file sess loads in
+  Runner.install_signal_handlers ();
   loop sess
