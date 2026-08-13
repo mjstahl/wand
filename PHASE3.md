@@ -29,7 +29,7 @@ Ordering is by what unblocks what. Brackets come first because two items already
 | Question | Decision |
 |---|---|
 | Bracket syntax | `with <expr> as <pat> -> <body>`. No lexer work: `with` is already a keyword, and it is unambiguous here because the existing use is always preceded by `match`. |
-| What `with` takes | A `Resource a` value — an `acquire`/`release` pair, built by `Resource.make`, so a resource is a *description* that can be named, passed and used twice rather than a thing already open. Users define their own in wand; the stdlib just ships the common ones. |
+| What `with` takes | A `Resource 'e 'a` value — an `acquire`/`release` pair, built by `Resource.make`, so a resource is a *description* that can be named, passed and used twice rather than a thing already open. Abstract, and open: see below. |
 | Release order | Innermost first, by nesting. One construct, no `defer` list to reason about. |
 | Derivation | **Derive at the type definition, not at the use site.** A single-constructor named-field `type Pod = Pod { name : String, restarts : Int }` also binds `Pod.decoder`. No new expression form, no type-in-argument-position, no elaboration pass — the decoder is an ordinary value with an ordinary type that `wand d` can print and `git grep` can find. This is the "one way to do things" answer and it costs a fraction of `Decode.of T`. |
 | Decoder failure | `Result String a`, where the message names the field that failed and the path to it (`.items[3].metadata.name: expected String, got Int`). The named field *is* D7's moment; a decoder that fails without naming the field is not worth building. |
@@ -85,6 +85,52 @@ because the continuation binder must be an identifier. Now that not resuming
 is a normal thing to write, `_` should be allowed there. Small parser change,
 belongs with P3.1.
 
+## Settled — what a resource is
+
+**A resource carries its effects.** `Resource 'e 'a`, two parameters, and
+`with` passes the row through:
+
+```
+Resource.make : (Unit -> 'a ! 'e) -> ('a -> Unit ! 'e) -> Resource 'e 'a
+with          : Resource 'e 'a -> ('a -> 'b ! 'e) -> 'b ! 'e
+```
+
+The one-parameter version is the trap. If a resource hides what its acquire
+and release do, then `with FS.lock ./deploy.lock as _ -> ...` contributes no
+`FS.Write` to the enclosing signature, and a file can take a lock, delete it
+again, and report a row that mentions neither. That is a hole in the property
+the last two phases were built for, opened by the construct meant to make
+cleanup trustworthy. The row flows through `with` exactly as it flows through
+`List.map`.
+
+**The representation is hidden; the constructor is not.** `Resource` is an
+abstract builtin type, as `JSON` and `Regex` already are: the typechecker
+knows it, no wand code can see inside it, and `with` is its only eliminator.
+`Resource.make` is a thin wand wrapper over a builtin, like every other line
+in `FS.wand`.
+
+Making the type abstract but the constructor public is not a compromise, it
+is two different questions. Nothing needs to inspect a resource, so the
+representation stays closed. But two things need to *build* one:
+
+- the four stdlib resources are wand code, and hiding `make` would force
+  them into OCaml -- four more signatures hand-assigned rather than inferred,
+  in the layer where drift matters most;
+- a database transaction, a paused service, a mounted volume, a remote
+  session. A closed set would cover the filesystem and leave every other
+  resource to manual cleanup around a `try`, which is the footgun `with`
+  exists to remove.
+
+The type name appears in inferred output (`wand t` printing
+`Resource {FS.Write} Path`) but nobody has to write it, because wand infers.
+
+Rejected: dropping `Resource` and having `with` take the two functions
+directly, `with (fn () -> ...) (fn x -> ...) as x -> ...`. It adds no type at
+all, and the surface really would be just `with`. But a resource stops being
+a value: it cannot be named, returned from a function, or built once and used
+in three scripts, and the acquire/release pair -- which has to stay matched --
+is no longer one thing that can be reviewed as a unit.
+
 ## Working rules
 
 1. Each tranche lands green.
@@ -95,7 +141,7 @@ belongs with P3.1.
 
 ## P3.1 — Resource brackets
 
-`With of expr * pat * expr` in the AST; `Resource a` as an opaque stdlib type over an acquire/release pair; `Resource.make`. Release runs on success, on raise, and on abandonment, the last of these already settled above.
+`With of expr * pat * expr` in the AST; `Resource` as an abstract builtin type over an acquire/release pair; `Resource.make` in wand over a builtin. Release runs on success, on raise, and on abandonment, the last of these already settled above.
 
 Stdlib starters: `FS.temp_file` (exists — wrap it), `FS.temp_dir`, `FS.lock`, `FS.in_dir`.
 
