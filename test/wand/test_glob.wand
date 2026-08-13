@@ -14,9 +14,9 @@ test "glob literal type" (fn t -> let g = *.wand in t.ok true)
 
 (* ── FS.glob ──────────────────────────────────────────────────────────── *)
 
-let scratch_marker = FS.temp_file! "wand_glob_test_" ""
-let scratch = Path.to_string scratch_marker
-let () = FS.delete! scratch_marker
+(* A unique name, borrowed from a temp file that the bracket removes on
+   the way out -- so nothing is left behind and nothing has to remember. *)
+let scratch = with FS.temp_file "wand_glob_test_" "" as p -> Path.to_string p
 let () = FS.mkdir! (Path.of_string scratch)
 
 test "*.wand matches" (fn t ->

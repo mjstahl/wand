@@ -12,18 +12,26 @@ import String
    trusted foundation (verified separately in test_fs.ml against an
    OCaml-managed temp file). *)
 
-let scratch_marker = FS.temp_file! "wand_fs_test_" ""
-let scratch = Path.to_string scratch_marker
-let () = FS.delete! scratch_marker
+(* A unique name, borrowed from a temp file that the bracket removes on
+   the way out -- so nothing is left behind and nothing has to remember. *)
+let scratch = with FS.temp_file "wand_fs_test_" "" as p -> Path.to_string p
 let () = FS.mkdir! (Path.of_string scratch)
 
-test "temp_file creates a unique, existing file" (fn t ->
-  let a = FS.temp_file! "wand_" ".txt" in
-  let b = FS.temp_file! "wand_" ".txt" in
-  let both_exist = (FS.exists? a, FS.exists? b) in
-  let unique = a != b in
-  let () = FS.delete! a in
-  let () = FS.delete! b in t.eq (both_exist, unique) ((true, true), true))
+test "temp_file gives a unique file that exists while it is held" (fn t ->
+  let inner = with FS.temp_file "wand_" ".txt" as a ->
+  with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b) in
+  t.eq inner (true, true, true))
+
+(* The point of the bracket: nobody has to remember the delete. *)
+test "temp_file removes the file when the bracket ends" (fn t ->
+  let p = with FS.temp_file "wand_" ".txt" as p -> p in t.eq (FS.exists? p) false)
+
+(* A body may publish the file by renaming it; cleanup then has nothing to
+   do and must not fail on the way out. *)
+test "temp_file tolerates the file being renamed away" (fn t ->
+  let dst = Path.of_string "${scratch}/published.txt" in
+  let () = with FS.temp_file "wand_" ".txt" as p -> FS.rename! p dst in
+  let published = FS.exists? dst in let () = FS.delete! dst in t.eq published true)
 
 test "mkdir creates nested directories" (fn t ->
   let dir = Path.of_string "${scratch}/mkdir_case/nested/deep" in

@@ -1,5 +1,7 @@
 uses {FS.Read, FS.Write}
 
+import Resource
+
 (* Every operation that touches the filesystem can fail for a reason the OS
    can state, so each one comes as a pair: the plain name returns a Result
    carrying that reason, and the `!` sibling raises instead. The `!` versions
@@ -30,15 +32,6 @@ let create_file! path = fs_create path
 (** Create an empty file at the given path. *)
 let create_file path = try create_file! path
 
-(** Create a new, uniquely-named empty file in the OS temp directory
-    and return its path. `prefix`/`suffix` are added to the generated
-    name (e.g. `temp_file! "wand_" ".txt"`). Raises on failure. *)
-let temp_file! prefix suffix = fs_temp_file prefix suffix
-
-(** Create a new, uniquely-named empty file in the OS temp directory
-    and return its path. *)
-let temp_file prefix suffix = try temp_file! prefix suffix
-
 (** Return true if the path exists. *)
 let exists? path = fs_exists path
 
@@ -59,6 +52,20 @@ let delete! path = fs_remove path
 
 (** Delete a file or empty directory. *)
 let delete path = try delete! path
+
+(** A new, uniquely-named empty file in the OS temp directory, removed when
+    the `with` that holds it ends. `prefix`/`suffix` are added to the
+    generated name:
+    
+    with FS.temp_file "wand_" ".txt" as p ->
+    ...
+    
+    Release tolerates the file already being gone, so a body may rename it
+    into place -- the way an atomic write publishes its result -- without
+    the cleanup failing on the way out. *)
+let temp_file prefix suffix =
+  let acquire = fn () -> fs_temp_file prefix suffix in
+  let release = fn p -> if exists? p then delete! p else () in Resource.make acquire release
 
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst

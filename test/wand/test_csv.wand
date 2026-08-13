@@ -1,4 +1,4 @@
-uses {FS.Write}
+uses {FS.Read, FS.Write}
 
 let [test] = import Test
 import CSV
@@ -39,12 +39,12 @@ test "stringify_with custom separator" (fn t ->
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
 test "read_file row count and header" (fn t ->
-  let p = FS.temp_file! "wand_csv_rd_" ".csv" in
+  with FS.temp_file "wand_csv_rd_" ".csv" as p ->
   let () = FS.write_file! (Path.to_string p) "name,age\nAlice,30\nBob,25\n" in
   let outcome = match CSV.read_file p with
   | Ok rows -> (List.length rows, List.head! (List.head! rows))
   | Error _ -> (-1, "") in
-  let () = FS.delete! p in t.eq outcome (3, "name"))
+  t.eq outcome (3, "name"))
 
 test "read_file missing file gives Error" (fn t ->
   t.ok
@@ -53,9 +53,9 @@ test "read_file missing file gives Error" (fn t ->
     | Error _ -> true))
 
 test "read_file! row count" (fn t ->
-  let p = FS.temp_file! "wand_csv_exn_" ".csv" in
+  with FS.temp_file "wand_csv_exn_" ".csv" as p ->
   let () = FS.write_file! (Path.to_string p) "x,y\n1,2\n" in
-  let rows = CSV.read_file! p in let () = FS.delete! p in t.eq (List.length rows) 2)
+  let rows = CSV.read_file! p in t.eq (List.length rows) 2)
 
 test "read_file! raises on missing" (fn t ->
   t.raises (fn () -> CSV.read_file! (Path.of_string "/nonexistent/wand_missing.csv")))

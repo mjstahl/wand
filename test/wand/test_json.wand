@@ -1,4 +1,4 @@
-uses {FS.Write}
+uses {FS.Read, FS.Write}
 
 let [test] = import Test
 import JSON
@@ -153,12 +153,12 @@ test "pretty round-trips" (fn t ->
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
 test "read_file ok" (fn t ->
-  let p = FS.temp_file! "wand_json_rd_" ".json" in
+  with FS.temp_file "wand_json_rd_" ".json" as p ->
   let () = FS.write_file! (Path.to_string p) "{\"greeting\":\"hello\"}" in
   let outcome = match JSON.read_file p with
   | Ok j -> JSON.stringify (JSON.field! "greeting" j)
   | Error _ -> "" in
-  let () = FS.delete! p in t.eq outcome "\"hello\"")
+  t.eq outcome "\"hello\"")
 
 test "read_file missing file returns Error" (fn t ->
   t.eq

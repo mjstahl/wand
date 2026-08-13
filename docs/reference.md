@@ -26,6 +26,7 @@ For what wand is and why, see the [README](../README.md).
 - [Effects](#effects)
 - [Manifests](#manifests)
 - [Effect handlers](#effect-handlers)
+- [Resource brackets](#resource-brackets)
 - [Contracts](#contracts)
 - [Typed holes](#typed-holes)
 - [Type definitions](#type-definitions)
@@ -34,7 +35,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
+  - [List](#list) · [Resource](#resource) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -780,6 +781,70 @@ third-party module attempts, retrying. Error handling belongs to `try` and
 
 ---
 
+## Resource brackets
+
+Some things have to be given back: a temp file, a lock, a directory you
+changed into. `with` acquires one, binds it, runs a body, and releases it:
+
+```
+with FS.temp_file "build_" ".tar" as archive ->
+  let () = FS.write_file! (Path.to_string archive) contents in
+  publish! archive
+```
+
+Release runs however the body leaves — returning, raising, or being stopped
+by a handler that answers without resuming. There is no `defer`, no `trap`,
+and nothing to remember at each exit.
+
+Brackets nest, and release innermost-first:
+
+```
+with FS.temp_file "wand_" ".txt" as scratch ->
+with FS.temp_file "wand_" ".log" as log ->
+  ...
+```
+
+### A resource is a description
+
+`FS.temp_file "wand_" ".txt"` does not create a file. It describes how to
+create one and how to remove it, so it can be named, passed to a function,
+and used more than once — each `with` acquires again:
+
+```
+let scratch = FS.temp_file "wand_" ".txt"
+
+let first  = with scratch as p -> Path.to_string p
+let second = with scratch as p -> Path.to_string p   -- a different file
+```
+
+Build your own with `Resource.make`, giving the two halves in one place so
+they cannot drift apart:
+
+```
+import Resource
+
+let table name =
+  let acquire = fn () -> let () = create_table! name in name in
+  let release = fn n -> drop_table! n in
+  Resource.make acquire release
+```
+
+### A bracket does not hide what it costs
+
+The effects of acquiring and releasing are part of the resource's type, and
+`with` folds them into the enclosing signature. A body that does nothing
+still reports what holding the resource does:
+
+```
+let f () = with FS.temp_file "wand_" ".txt" as _ -> 1
+-- f : Unit -> Int ! {FS.Read, FS.Write, Raise}
+```
+
+A bracket guarantees the release runs. It does not make the file disappear
+from the signature.
+
+---
+
 ## Contracts
 
 A function body may state preconditions and postconditions. They are checked
@@ -1147,10 +1212,29 @@ written there.)
 
 ### `FS`
 
-`read_file`, `write_file`, `append`, `create_file`, `temp_file`, `mkdir`,
+`read_file`, `write_file`, `append`, `create_file`, `mkdir`,
 `delete`, `rename`, `copy`, `list_dir`, `mtime`, `size` — each with a `!`
 sibling that raises instead of returning a `Result`.
 `exists?`, `file?`, `dir?`, `glob`, `glob_in`, `cwd`
+
+`temp_file prefix suffix` is a resource rather than a plain call, so the
+file it creates is removed when the bracket holding it ends:
+
+```
+with FS.temp_file "wand_" ".txt" as p ->
+  FS.write_file! (Path.to_string p) contents
+```
+
+Release tolerates the file already being gone, so a body may rename it into
+place — how an atomic write publishes its result — without cleanup failing
+on the way out.
+
+### `Resource`
+
+`make`
+
+A resource pairs an acquire with a release, and `with` is the only thing
+that runs one. See [Resource brackets](#resource-brackets).
 
 ### `Path`
 

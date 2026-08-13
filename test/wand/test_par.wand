@@ -40,7 +40,7 @@ test "and the error carries no source position" (fn t ->
 (* ── each runs for effects ─────────────────────────────────────────────── *)
 
 test "each visits every element" (fn t ->
-  let dir = "${FS.temp_file! "wand_par_" ""}_d" in
+  let dir = with FS.temp_file "wand_par_" "" as p -> "${p}_d" in
   let () = FS.mkdir! (Path.of_string dir) in
   let () = Par.each 3 (fn n -> FS.write_file! "${dir}/${n}.txt" "x") [1, 2, 3] in
   let made = List.length (FS.glob_in *.txt (Path.of_string dir)) in

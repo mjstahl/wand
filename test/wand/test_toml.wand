@@ -1,4 +1,4 @@
-uses {FS.Write}
+uses {FS.Read, FS.Write}
 
 let [test] = import Test
 import TOML
@@ -141,7 +141,7 @@ test "get_table returns Map" (fn t ->
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
 test "read_file ok" (fn t ->
-  let p = FS.temp_file! "wand_toml_rd_" ".toml" in
+  with FS.temp_file "wand_toml_rd_" ".toml" as p ->
   let () = FS.write_file! (Path.to_string p) "[db]\nname = \"mydb\"\n" in
   let outcome = match TOML.read_file p with
   | Ok tm -> (let db = TOML.field! "db" tm in
@@ -149,7 +149,7 @@ test "read_file ok" (fn t ->
   | Ok s -> s
   | Error _ -> "")
   | Error _ -> "" in
-  let () = FS.delete! p in t.eq outcome "mydb")
+  t.eq outcome "mydb")
 
 test "read_file missing file returns Error" (fn t ->
   t.eq
