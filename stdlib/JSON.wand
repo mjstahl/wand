@@ -43,3 +43,7 @@ let field key j = json_field key j
 
 (** Look up a field, raising if absent or not an object. *)
 let field! key j = json_field_exn key j
+
+(** Read a typed value out of a JSON document. Failure names the field that
+    failed and the path to it. See `Decode`. *)
+let decode d j = json_decode d j

@@ -29,6 +29,7 @@ let () =
       Alcotest.test_case "CSV"      `Quick (check_fixture "wand/test_csv.wand");
       Alcotest.test_case "JSON"     `Quick (check_fixture "wand/test_json.wand");
       Alcotest.test_case "TOML"     `Quick (check_fixture "wand/test_toml.wand");
+      Alcotest.test_case "Decode"   `Quick (check_fixture "wand/test_decode.wand");
       Alcotest.test_case "Glob"     `Quick (check_fixture "wand/test_glob.wand");
       Alcotest.test_case "Imports"  `Quick (check_fixture "wand/test_imports.wand");
     ];

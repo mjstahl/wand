@@ -54,6 +54,12 @@ type value =
      something already open -- which is what lets one be named, passed, and
      used twice. `with` is the only thing that runs it. *)
   | VResource      of value * value
+  (* A decoder: how to read a value out of data that arrived untyped. It is
+     handed the data and the path it stands at, so a failure can name the
+     field that failed rather than only the type that did not fit. Every
+     backend presents its input in JSON's shape, so one set of combinators
+     serves all of them. *)
+  | VDecoder       of (Yojson.Basic.t -> string list -> (value, string) result)
 
 and env = (string * value) list
 
@@ -90,6 +96,7 @@ let rec show_value = function
      | Toml.Types.TDate _   -> "<toml-date>")
   | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
   | VResource _ -> "<resource>"
+  | VDecoder _  -> "<decoder>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
@@ -958,6 +965,74 @@ let try_lex_single s =
   | [tok; Token.EOF] -> Some tok
   | _ -> None
   | exception Lexer.LexError _ -> None
+
+(* ── Decoding ────────────────────────────────────────────────────────────── *)
+
+(* Reading data that arrived untyped. Every backend -- JSON, TOML, CSV rows,
+   the lines of a command's output -- presents what it read in JSON's shape,
+   so there is one set of combinators rather than one per format.
+
+   A decoder is handed the path it stands at, kept innermost-first, so a
+   failure deep inside a document can say where it happened:
+
+       .items[3].metadata.name: expected String, got Int
+
+   Naming the field is the whole point. A decoder that reported only the
+   type would leave the reader doing by hand what a scrape already made them
+   do -- find which of forty fields was wrong. *)
+
+let path_string segs =
+  match segs with [] -> "" | _ -> String.concat "" (List.rev segs)
+
+let decode_error path msg =
+  match path with
+  | [] -> Error msg
+  | _  -> Error (path_string path ^ ": " ^ msg)
+
+(* What to call a JSON value in a message: the wand type where there is one,
+   since the reader is looking for a wand type. *)
+let json_kind (j : Yojson.Basic.t) =
+  match j with
+  | `Null     -> "null"
+  | `Bool _   -> "Bool"
+  | `Int _    -> "Int"
+  | `Float _  -> "Float"
+  | `String _ -> "String"
+  | `List _   -> "a list"
+  | `Assoc _  -> "an object"
+
+let expected what path j =
+  match j with
+  (* A string that failed is worth quoting: the reader wants to see what was
+     there, not to be told a second time that it was text. *)
+  | `String s -> decode_error path (Printf.sprintf "expected %s, got %S" what s)
+  | _ -> decode_error path (Printf.sprintf "expected %s, got %s" what (json_kind j))
+
+(* A decoder reads a value out of text, and never the other way round.
+   Backends that carry types -- JSON, TOML -- hand over an Int as an Int;
+   backends that do not -- a CSV cell, a line of output -- hand over the
+   text, and `Decode.int` reads it exactly as `String.to_int` would. So one
+   decoder serves a document and a command's output both.
+
+   The reverse is not allowed: `Decode.string` does not accept a number and
+   stringify it. That direction would make `string` accept anything, which
+   is the scrape it exists to replace. *)
+let from_text parse (j : Yojson.Basic.t) =
+  match j with `String s -> parse (String.trim s) | _ -> None
+
+(* A domain literal decodes as itself: the string is lexed exactly as it
+   would be if it had been written in the source, so `"30s"` in a document
+   and `30s` in a script become the same Duration. *)
+let decode_lexed name build (j : Yojson.Basic.t) path =
+  match j with
+  | `String s ->
+    (match try_lex_single s with
+     | Some tok ->
+       (match build tok with
+        | Some v -> Ok v
+        | None -> decode_error path (Printf.sprintf "expected %s, got %S" name s))
+     | None -> decode_error path (Printf.sprintf "expected %s, got %S" name s))
+  | _ -> expected name path j
 
 
 
@@ -2023,7 +2098,136 @@ let map_builtins : env = [
       | _ -> raise (EvalError "map_filter: expected Map"))));
 ]
 
-let stdlib_eval_env = stdlib_eval_env @ map_builtins
+(* ── Decoder builtins ─────────────────────────────────────────────────────── *)
+
+let as_decoder who = function
+  | VDecoder d -> d
+  | _ -> raise (EvalError (who ^ ": expected a Decoder"))
+
+let decode_builtins : env = [
+  ("decode_int", VDecoder (fun j path ->
+    match j, from_text int_of_string_opt j with
+    | `Int n, _   -> Ok (VInt n)
+    | _, Some n   -> Ok (VInt n)
+    | _           -> expected "Int" path j));
+  ("decode_float", VDecoder (fun j path ->
+    match j, from_text float_of_string_opt j with
+    (* A whole number in a document is an Int to a parser and a Float to
+       whoever wrote it. Reading one as a Float is not a coercion the other
+       way round: nothing is lost. *)
+    | `Float f, _ -> Ok (VFloat f)
+    | `Int n, _   -> Ok (VFloat (float_of_int n))
+    | _, Some f   -> Ok (VFloat f)
+    | _           -> expected "Float" path j));
+  ("decode_string", VDecoder (fun j path ->
+    match j with `String s -> Ok (VString s) | _ -> expected "String" path j));
+  ("decode_bool", VDecoder (fun j path ->
+    let as_bool s = match String.lowercase_ascii s with
+      | "true"  -> Some true
+      | "false" -> Some false
+      | _       -> None
+    in
+    match j, from_text as_bool j with
+    | `Bool b, _ -> Ok (VBool b)
+    | _, Some b  -> Ok (VBool b)
+    | _          -> expected "Bool" path j));
+  (* The two ends of `and_then`: a decoder that reads nothing and answers,
+     and one that refuses. Without them `and_then` has nothing to return. *)
+  ("decode_succeed", VBuiltin (fun v -> VDecoder (fun _ _ -> Ok v)));
+  ("decode_fail", VBuiltin (function
+    | VString msg -> VDecoder (fun _ path -> decode_error path msg)
+    | _ -> raise (EvalError "decode_fail: expected String")));
+  ("decode_field", VBuiltin (function
+    | VString key -> VBuiltin (fun d ->
+      let inner = as_decoder "decode_field" d in
+      VDecoder (fun j path ->
+        match j with
+        | `Assoc kvs ->
+          let here = ("." ^ key) :: path in
+          (match List.assoc_opt key kvs with
+           | Some v -> inner v here
+           | None   -> decode_error here "no such field")
+        | _ -> expected "an object" path j))
+    | _ -> raise (EvalError "decode_field: key must be String")));
+  ("decode_list", VBuiltin (fun d ->
+    let inner = as_decoder "decode_list" d in
+    VDecoder (fun j path ->
+      match j with
+      | `List items ->
+        (* The first element that fails stops the list: a decoder answers
+           with a value or with the one thing that went wrong. *)
+        let rec go i acc = function
+          | [] -> Ok (VList (List.rev acc))
+          | x :: rest ->
+            (match inner x (Printf.sprintf "[%d]" i :: path) with
+             | Ok v      -> go (i + 1) (v :: acc) rest
+             | Error msg -> Error msg)
+        in
+        go 0 [] items
+      | _ -> expected "a list" path j)));
+  ("decode_map2", VBuiltin (fun f -> VBuiltin (fun da -> VBuiltin (fun db ->
+    let a = as_decoder "decode_map2" da in
+    let b = as_decoder "decode_map2" db in
+    VDecoder (fun j path ->
+      match a j path with
+      | Error msg -> Error msg
+      | Ok va ->
+        (match b j path with
+         | Error msg -> Error msg
+         | Ok vb -> Ok (apply (apply f va) vb)))))));
+  ("decode_and_then", VBuiltin (fun f -> VBuiltin (fun d ->
+    let inner = as_decoder "decode_and_then" d in
+    VDecoder (fun j path ->
+      match inner j path with
+      | Error msg -> Error msg
+      | Ok v -> (as_decoder "decode_and_then" (apply f v)) j path))));
+  ("decode_one_of", VBuiltin (function
+    | VList ds ->
+      let inners = List.map (as_decoder "decode_one_of") ds in
+      VDecoder (fun j path ->
+        (* Every alternative's complaint is kept. One of them is the reason
+           the data is not what was expected, and which one is not for the
+           decoder to guess. *)
+        let rec go tried = function
+          | [] ->
+            decode_error path
+              ("no alternative matched" ^
+               (match List.rev tried with
+                | [] -> ""
+                | msgs -> ": " ^ String.concat "; " msgs))
+          | d :: rest ->
+            (match d j path with
+             | Ok v      -> Ok v
+             | Error msg -> go (msg :: tried) rest)
+        in
+        go [] inners)
+    | _ -> raise (EvalError "decode_one_of: expected List")));
+  (* A domain literal decodes as itself: `"30s"` in a document lexes exactly
+     as `30s` in a script, so the boundary produces the same Duration the
+     rest of the program is written against. *)
+  ("decode_path", VDecoder (fun j path ->
+    match j with `String s -> Ok (VPath s) | _ -> expected "Path" path j));
+  ("decode_duration", VDecoder (decode_lexed "Duration"
+    (function Token.Duration v -> Some (VDuration v) | _ -> None)));
+  ("decode_url", VDecoder (decode_lexed "Url"
+    (function Token.Url v -> Some (VUrl v) | _ -> None)));
+  ("decode_size", VDecoder (decode_lexed "Size"
+    (function Token.Size v -> Some (VSize v) | _ -> None)));
+  ("decode_version", VDecoder (decode_lexed "Version"
+    (function Token.Version v -> Some (VVersion v) | _ -> None)));
+  ("decode_date", VDecoder (decode_lexed "Date"
+    (function Token.Date v -> Some (VDate v) | _ -> None)));
+  ("json_decode", VBuiltin (fun d ->
+    let inner = as_decoder "json_decode" d in
+    VBuiltin (function
+      | VJson j ->
+        (match inner j [] with
+         | Ok v      -> VConstr ("Ok", [v])
+         | Error msg -> VConstr ("Error", [VString msg]))
+      | _ -> raise (EvalError "json_decode: expected JSON"))));
+]
+
+let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins
 
 (* User-visible globals — the only names available without an import *)
 let base_eval_env : env = [

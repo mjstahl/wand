@@ -2,7 +2,7 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc" ]
+    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -23,6 +23,10 @@ type typ =
      that concealed its own effects would let a file take a lock and
      report a signature that never mentions it. *)
   | TResource of Effect_row.row * typ
+  (* How to read an 'a out of data that arrived untyped. No row: decoding is
+     a function from something already read, so a decoder that could perform
+     effects would be a second way to run a script's I/O. *)
+  | TDecoder of typ
   | TJson
   | TToml
   | TName of string
@@ -142,6 +146,7 @@ let rec collect_rowvars t =
   | TList t     -> collect_rowvars t
   | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
   | TResource (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
+  | TDecoder t  -> collect_rowvars t
   | TMap t      -> collect_rowvars t
   | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
   | _           -> []
@@ -239,6 +244,12 @@ let string_of_typ t =
         | _ -> go x
       in
       "Resource " ^ Effect_row.string_of_row r ^ " " ^ wrap t
+    | TDecoder t ->
+      let s = match repr t with
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
+        | _ -> go t
+      in
+      "Decoder " ^ s
     | TMap t ->
       let s = match repr t with
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
@@ -264,6 +275,7 @@ let rec occurs (tv : tv) t =
   | TList t     -> occurs tv t
   | TResult (e, t) -> occurs tv e || occurs tv t
   | TResource (_, t) -> occurs tv t
+  | TDecoder t  -> occurs tv t
   | TMap t      -> occurs tv t
   | TApp (f, a) -> occurs tv f || occurs tv a
   | _           -> false
@@ -300,6 +312,7 @@ let rec unify t1 t2 =
   | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
   | TResource (r1, t1), TResource (r2, t2) ->
     Effect_row.unify r1 r2; unify t1 t2
+  | TDecoder t1, TDecoder t2 -> unify t1 t2
   | TMap t1,    TMap t2    -> unify t1 t2
   | TApp (f1, a1), TApp (f2, a2) -> unify f1 f2; unify a1 a2
   | t1, t2 ->
@@ -332,6 +345,7 @@ let rec free_tvars t =
   | TList t     -> free_tvars t
   | TResult (e, t) -> free_tvars e @ free_tvars t
   | TResource (_, t) -> free_tvars t
+  | TDecoder t  -> free_tvars t
   | TMap t      -> free_tvars t
   | TApp (f, a) -> free_tvars f @ free_tvars a
   | _           -> []
@@ -344,6 +358,7 @@ let rec free_rowvars_typ t =
   | TList t     -> free_rowvars_typ t
   | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
   | TResource (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
+  | TDecoder t  -> free_rowvars_typ t
   | TMap t      -> free_rowvars_typ t
   | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
   | _           -> []
@@ -399,6 +414,7 @@ let instantiate = function
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
       | TResource (r, t) -> TResource (Effect_row.subst_row rsubst r, inst t)
+      | TDecoder t  -> TDecoder (inst t)
       | TMap t      -> TMap (inst t)
       | TApp (f, a) -> TApp (inst f, inst a)
       | t           -> t
@@ -432,6 +448,7 @@ let type_of_te (te : type_expr) : typ =
     | TEFun (a, b) -> TFun (go a, go b, Effect_row.fresh_row ())
     | TETuple ts    -> TTuple (List.map go ts)
     | TEApp (TEName "List", arg)   -> TList   (go arg)
+    | TEApp (TEName "Decoder", arg) -> TDecoder (go arg)
     | TEApp (TEApp (TEName "Result", e), a) -> TResult (go e, go a)
     | TEApp (TEName "Result", _) ->
       raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
@@ -661,7 +678,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TResource _ ->
+  | TRegex | TJson | TToml | TFun _ | TResource _ | TDecoder _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
 let is_infinite_domain t =
@@ -670,7 +687,7 @@ let is_infinite_domain t =
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ -> true
+  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TDecoder _ -> true
   | _ -> false
 
 (* Does pattern p match constructor `name` (of the given arity)? Returns
@@ -1375,6 +1392,40 @@ let stdlib_type_env : env = [
   ("json_get_array",    generalize [] ((TJson @-> TResult (TString, (TList TJson)))));
   ("json_get_object",   generalize [] ((TJson @-> TResult (TString, (TMap TJson)))));
   ("json_field",        generalize [] ((TString @-> (TJson @-> TResult (TString, TJson)))));
+  (* Decoder primitives.
+     Decoding is pure by construction: the functions a decoder is built from
+     carry the empty row, so a decoder cannot read a file or run a command on
+     the way past. Getting the data is the caller's job and already says so
+     in the caller's signature. *)
+  ("decode_int",      Mono (TDecoder TInt));
+  ("decode_float",    Mono (TDecoder TFloat));
+  ("decode_string",   Mono (TDecoder TString));
+  ("decode_bool",     Mono (TDecoder TBool));
+  ("decode_path",     Mono (TDecoder TPath));
+  ("decode_duration", Mono (TDecoder TDuration));
+  ("decode_url",      Mono (TDecoder TUrl));
+  ("decode_size",     Mono (TDecoder TSize));
+  ("decode_version",  Mono (TDecoder TVersion));
+  ("decode_date",     Mono (TDecoder TDate));
+  ("decode_succeed",  let a = fresh () in generalize [] (a @-> TDecoder a));
+  ("decode_fail",     let a = fresh () in generalize [] (TString @-> TDecoder a));
+  ("decode_field",    let a = fresh () in
+                      generalize [] (TString @-> (TDecoder a @-> TDecoder a)));
+  ("decode_list",     let a = fresh () in
+                      generalize [] (TDecoder a @-> TDecoder (TList a)));
+  ("decode_map2",     let a = fresh () in let b = fresh () in let c = fresh () in
+                      generalize []
+                        (TFun (a, TFun (b, c, Effect_row.pure), Effect_row.pure)
+                         @-> (TDecoder a @-> (TDecoder b @-> TDecoder c))));
+  ("decode_and_then", let a = fresh () in let b = fresh () in
+                      generalize []
+                        (TFun (a, TDecoder b, Effect_row.pure)
+                         @-> (TDecoder a @-> TDecoder b)));
+  ("decode_one_of",   let a = fresh () in
+                      generalize [] (TList (TDecoder a) @-> TDecoder a));
+  ("json_decode",     let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TJson @-> TResult (TString, a))));
   (* Par primitives. The row on the last arrow is the same variable as the
      one on the supplied function, so calling par_map performs exactly what
      that function performs -- the work happens inside, where inference
@@ -1483,6 +1534,7 @@ let rec labels_of_typ t =
   | TResult (e, t) -> Effect_row.EffSet.union (labels_of_typ e) (labels_of_typ t)
   | TResource (r, t) ->
     Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
+  | TDecoder t -> labels_of_typ t
   | TApp (f, a) -> Effect_row.EffSet.union (labels_of_typ f) (labels_of_typ a)
   | _ -> Effect_row.EffSet.empty
 

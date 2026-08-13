@@ -1,0 +1,86 @@
+(* Reading data that arrived untyped.
+
+   A `Decoder a` says how to read an `a` out of a document. It is a value:
+   it can be named, passed to a function, and used against three inputs.
+   Running one is a backend's job -- `JSON.decode`, `TOML.decode`,
+   `CSV.rows`, `Shell.lines` -- and every backend presents what it read in
+   the same shape, so these combinators serve all of them.
+
+       let pod =
+         Decode.map2 (fn n r -> Pod (name = n, restarts = r))
+           (Decode.field "name" Decode.string)
+           (Decode.field "restarts" Decode.int)
+
+       JSON.decode pod (JSON.parse! out)
+
+   Decoding fails with the field that failed and the path to it:
+
+       .items[3].metadata.name: expected String, got Int
+
+   That message is the reason to prefer this to poking at fields one at a
+   time. A scrape that reads the wrong field gets a null and carries on; a
+   decoder stops and says which field, where.
+
+   Decoding is pure. Reading the document is the caller's job, and already
+   says so in the caller's signature. *)
+
+(** Read a number. `int` requires a whole one; `float` accepts either, since
+    a whole number in a document is an Int to the parser and a Float to
+    whoever wrote it. *)
+let int = decode_int
+
+let float = decode_float
+
+(** Read a string, a boolean. *)
+let string = decode_string
+
+let bool = decode_bool
+
+(** Read a named field, and decode what is under it. Absence is a failure
+    naming the field: absence at a boundary means the document is not what
+    was expected, which is a reason, not a `None`. *)
+let field name inner = decode_field name inner
+
+(** Read every element of a list with the same decoder. The first element
+    that fails stops it. *)
+let list inner = decode_list inner
+
+(** Read two things from the same value and combine them. This is how a
+    record with two fields is built. *)
+let map2 f a b = decode_map2 f a b
+
+(** Read one thing, then choose the decoder for the rest from what it said.
+    Together with `succeed` this covers records of any width, and validation
+    that depends on what was read. *)
+let and_then f d = decode_and_then f d
+
+(** A decoder that reads nothing and answers, and one that refuses. They are
+    the two ends of `and_then`: without them it would have nothing to
+    return. *)
+let succeed v = decode_succeed v
+
+let fail msg = decode_fail msg
+
+(** Change what a decoder produced. *)
+let map f d = and_then (fn x -> succeed (f x)) d
+
+(** Try each decoder in turn and take the first that succeeds. If none does,
+    every alternative's complaint is reported, since which one is the real
+    reason is not the decoder's to guess. *)
+let one_of ds = decode_one_of ds
+
+(** Domain literals decode as themselves: `"30s"` in a document lexes as the
+    `30s` a script would have written, so the boundary produces the type the
+    rest of the program is written against rather than a String to convert
+    later. Any string is a `Path`. *)
+let path = decode_path
+
+let duration = decode_duration
+
+let url = decode_url
+
+let size = decode_size
+
+let version = decode_version
+
+let date = decode_date

@@ -27,6 +27,7 @@ For what wand is and why, see the [README](../README.md).
 - [Manifests](#manifests)
 - [Effect handlers](#effect-handlers)
 - [Resource brackets](#resource-brackets)
+- [Decoders](#decoders)
 - [Contracts](#contracts)
 - [Typed holes](#typed-holes)
 - [Type definitions](#type-definitions)
@@ -35,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
+  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Decode](#decode) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -865,6 +866,110 @@ from the signature.
 
 ---
 
+## Decoders
+
+Data that arrives from outside a script — a JSON document, a config file, a
+command's output — arrives untyped. A `Decoder a` says how to read an `a` out
+of it:
+
+```
+import Decode
+import JSON
+
+let pod =
+  (Decode.map2 (fn n r -> Pod (name = n, restarts = r))
+     (Decode.field "name" Decode.string)
+     (Decode.field "restarts" Decode.int))
+
+JSON.decode pod (JSON.parse! out)   -- Result String Pod
+```
+
+A decoder is a value. Naming one reads nothing, and the same decoder can be
+run against several documents.
+
+### Failure names the field
+
+```
+.items[3].metadata.name: expected String, got Int
+.spec.replicas: no such field
+```
+
+The path is the point. Reading fields one at a time gets a null when the
+name is wrong and carries on, so the run fails somewhere else, later; a
+decoder stops at the field that was wrong and says which one it was.
+
+### The combinators
+
+```
+Decode.int  Decode.float  Decode.string  Decode.bool
+Decode.field name inner        -- read one field
+Decode.list inner              -- read every element
+Decode.map f d                 -- change what came back
+Decode.map2 f a b              -- read two things and combine them
+Decode.and_then f d            -- choose what to read next from what was read
+Decode.succeed v  Decode.fail msg
+Decode.one_of [a, b, ...]      -- the first that works
+```
+
+`map2` covers a two-field record. Wider ones chain through `and_then`, which
+is also where validation goes:
+
+```
+let pod =
+  (Decode.and_then (fn n ->
+     Decode.and_then (fn r ->
+       if r < 0 then Decode.fail "restarts cannot be negative"
+       else Decode.succeed (Pod (name = n, restarts = r)))
+       (Decode.field "restarts" Decode.int))
+     (Decode.field "name" Decode.string))
+```
+
+`one_of` reports every alternative's complaint when none of them works, since
+which one was the real reason is not the decoder's to guess.
+
+### Domain literals decode as themselves
+
+```
+Decode.path  Decode.duration  Decode.url  Decode.size  Decode.version  Decode.date
+```
+
+`"30s"` in a document lexes exactly as `30s` in a script, so the boundary
+produces the type the rest of the program is written against rather than a
+`String` to convert later.
+
+### Text is read, never written
+
+A backend that carries types hands over an `Int` as an `Int`. A backend that
+does not — a CSV cell, a line of output — hands over the text, and
+`Decode.int` reads it exactly as `String.to_int` would. So one decoder serves
+a document and a command's output both:
+
+```
+{"restarts": 4}     Decode.int   -- Ok 4
+{"restarts": "4"}   Decode.int   -- Ok 4
+```
+
+The reverse never happens. `Decode.string` does not accept a number and
+stringify it, because a `string` that accepts anything is the scrape it
+exists to replace:
+
+```
+{"restarts": 4}     Decode.string   -- Error .restarts: expected String, got Int
+```
+
+### Decoding is pure
+
+The functions a decoder is built from carry the empty effect row, so a
+decoder cannot read a file or run a command on the way past. Getting the data
+is the caller's job, and already says so in the caller's signature.
+
+```
+Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
+-- type error: cannot unify effects {} with {Shell, Raise | ..}
+```
+
+---
+
 ## Contracts
 
 A function body may state preconditions and postconditions. They are checked
@@ -1326,7 +1431,7 @@ match CSV.read_file ./data.csv with
 `parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
 `null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
 `null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
-`get_object`, `field`, `field!`
+`get_object`, `field`, `field!`, `decode`
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
 the `!` variants raise on error.  Typed extractors each return `Result`.
@@ -1419,6 +1524,20 @@ the handler lives. So moving work into `Par` can never quietly escape a test:
 being watched costs the overlap, and nothing rehearses for speed.
 
 ---
+
+### `Decode`
+
+`int`, `float`, `string`, `bool`, `field`, `list`, `map`, `map2`, `and_then`,
+`succeed`, `fail`, `one_of`, `path`, `duration`, `url`, `size`, `version`,
+`date`
+
+`Decoder a` is an opaque type. Running a decoder is a backend's job:
+
+```
+JSON.decode : Decoder 'a -> JSON -> Result String 'a
+```
+
+See [Decoders](#decoders).
 
 ### `Option`
 
