@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** P3.1 done, P3.2 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1, P3.2, P3.3 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -218,11 +218,40 @@ not run there.
 
 ## P3.3 — Decoders
 
-`Decoder a` abstract, with `int`, `string`, `bool`, `list`, `field`, `map2`, `and_then`, `one_of`, plus the domain literals (`duration`, `path`, `url`, `size`, `version`, `date`) decoding as themselves. Backends: `JSON.decode`, `TOML.decode`, `CSV.rows`, `Shell.lines`.
+**Done.** `Decoder a` abstract, the combinators, the domain literals, and
+the backends. The existing `JSON.field`/`get_string` layer stays as the
+low-level API, and there are no per-CLI typed wrappers.
 
-The existing `JSON.field`/`get_string` layer stays as the low-level API. No per-CLI typed wrappers — unbounded surface, instantly stale.
+**One shape, four backends.** A decoder reads from JSON's shape, and every
+backend presents what it read in it — TOML converts, a CSV row becomes an
+object keyed by the header, a line of output is a string. That is what makes
+one combinator set serve all four rather than one set per format.
 
-*Accept:* `examples/repo-status.wand`'s four scrapes become one decoder; a wrong field name fails with the field named, not with a null.
+**Text is read, never written.** The rule that made a single set possible:
+`Decode.int` accepts `4` and `"4"`, reading text exactly as `String.to_int`
+would, so the same decoder serves a document and a command's output.
+`Decode.string` does *not* accept `4` and stringify it — a `string` that
+accepts anything is the scrape it exists to replace. One direction, stated.
+
+**Three additions to the budget, each with a call site that needs it.**
+`succeed` and `fail`, because `and_then` has nothing to return without them
+and is otherwise unusable; `float`, because JSON has one and `int` cannot
+read it. `map` is defined in wand over `and_then` and `succeed` rather than
+as a builtin. `Shell` got two functions rather than one: `lines` for a
+record per line, `decode` for a capture that is one value -- which is what
+three of `repo-status`'s four scrapes are.
+
+**What `!` siblings would have cost.** None were added: wand has no raise
+expression, so each would be another OCaml builtin, and no call site needed
+one. `repo-status` wants a default on failure, not a raise.
+
+*Accept:* ~~`examples/repo-status.wand`'s four scrapes become one decoder~~ —
+partly. The two hand-rolled parsers are gone and the empty-capture trap that
+`count_lines` existed for now lives in `Shell.lines`, which is the real win.
+But the honest finding is that repo-status reads four unrelated scalars out
+of git, so there is no record to decode and the field-naming payoff does not
+show there. ~~a wrong field name fails with the field named, not with a
+null~~ done, and it is D7 that shows it.
 
 ## P3.4 — Derivation
 
@@ -245,8 +274,8 @@ Then `else ()`, if there is room.
 ## Picking this up
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 538 wand tests and the OCaml suite pass, eight demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Next is P3.3.
+clean, 559 wand tests and the OCaml suite pass, eight demos pass, every
+`.wand` file is a fixed point of `wand fmt`. Next is P3.4, derivation.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -299,6 +328,6 @@ silently stops, look here first.
 
 1. ~~`with` releases on success, raise, abandonment and cancellation~~ **done**, and on `exit`, `kill` and Ctrl-C besides.
 2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**, and D8 shows it.
-3. One decoder replaces the four scrapes in `examples/repo-status.wand`.
+3. ~~One decoder replaces the four scrapes in `examples/repo-status.wand`~~ **done**, with the caveat recorded under P3.3.
 4. A single-constructor named-field type gets its decoder for free.
 5. D7 and D8 land as runnable, offline demos.
