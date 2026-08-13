@@ -780,18 +780,27 @@ let run_string src =
 let interrupting = Atomic.make false
 
 let install_signal_handlers () =
-  let stop code (_ : int) =
-    if Atomic.exchange interrupting true then
-      (* Asked twice. The first request is already unwinding, so a release
-         is either slow or stuck; stop now rather than make someone hold
-         Ctrl-C down. This skips the remaining cleanup, which is the point. *)
-      Unix._exit code
-    else Evaluator.request_interrupt code
+  let stop signal code (_ : int) =
+    (* Taking the request also hands the signal back to the system, so a
+       second one stops the process outright, without cleanup, the way it
+       would have if wand had never installed a handler.
+
+       This is bounded by how OCaml delivers signals: a handler runs when
+       the program next reaches a safe point, so neither the first request
+       nor the second is seen while it sits in a syscall waiting on a slow
+       command. At a terminal that does not arise -- the whole process group
+       is signalled, the command dies with it, and the wait ends at once.
+       Signalling wand alone, as a supervisor does, waits for the commands
+       already running. *)
+    if not (Atomic.exchange interrupting true) then begin
+      Sys.set_signal signal Sys.Signal_default;
+      Evaluator.request_interrupt code
+    end
   in
   (* 128 + the signal number, which is what a shell reports and what CI
      reads, so nothing downstream has to learn a wand-specific code. *)
-  Sys.set_signal Sys.sigint  (Sys.Signal_handle (stop 130));
-  Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop 143))
+  Sys.set_signal Sys.sigint  (Sys.Signal_handle (stop Sys.sigint  130));
+  Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop Sys.sigterm 143))
 
 let run_file ?(mode = Normal) path =
   let full =
