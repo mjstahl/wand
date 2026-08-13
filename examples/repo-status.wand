@@ -1,24 +1,30 @@
 uses {Shell, IO}
 
-import String
+import Decode
 import List
+import Shell
 
-(* $() strips the trailing newline, so a non-empty capture has exactly one
-   line per entry. Empty output is zero entries, not one empty line. *)
-let count_lines out = if out == "" then 0 else List.length (String.lines out)
-
-(* git rev-list --count prints a number; treat unparseable output as zero. *)
-let to_count s =
-  match String.to_int s with
+(* git prints a count on a line of its own. A repo with no upstream prints
+   nothing at all, so a count that cannot be read is zero rather than a
+   failure. *)
+let count out =
+  match Shell.decode Decode.int out with
   | Ok n -> n
   | Error _ -> 0
 
+(* One entry per line. An empty capture is no entries -- not one empty
+   entry, which is the mistake a line count invites. *)
+let entries out =
+  match Shell.lines Decode.string out with
+  | Ok es -> es
+  | Error _ -> []
+
 let branch = $(git branch --show-current)
-let dirty = count_lines $(git status --porcelain)
-let ahead = to_count $(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo 0)
-let behind = to_count $(git rev-list --count HEAD..@{upstream} 2>/dev/null || echo 0)
+let dirty = List.length (entries $(git status --porcelain))
+let ahead = count $(git rev-list --count @{upstream}..HEAD 2>/dev/null || echo 0)
+let behind = count $(git rev-list --count HEAD..@{upstream} 2>/dev/null || echo 0)
 let last = $(git log -1 --format='%h %s')
-let stashes = count_lines $(git stash list)
+let stashes = List.length (entries $(git stash list))
 
 let status_msg = if dirty > 0 then "${dirty} file(s) changed" else "clean"
 

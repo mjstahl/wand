@@ -3,7 +3,10 @@ uses {IO}
 let [test] = import Test
 import Decode
 import JSON
+import CSV
+import Shell
 import String
+import TOML
 
 (* A decoder's job is not only to produce a value. It is to say what was
    wrong when it cannot, and to say it about the field rather than about the
@@ -141,3 +144,46 @@ test "a decoder is a value" (fn t ->
   let name = Decode.field "name" Decode.string in
   let other = JSON.parse! "{\"name\": \"db-01\"}" in
   t.eq (JSON.decode name j, JSON.decode name other) (Ok "web-01", Ok "db-01"))
+
+(* The other three backends. Each presents what it read in the same shape,
+   so the combinators above are the whole surface: what changes is only
+   where the data came from. *)
+
+test "TOML decodes by field, and nests" (fn t ->
+  let cfg = TOML.parse! "name = \"app\"\ntimeout = \"30s\"\n[server]\nport = 8080" in
+  t.eq
+    (
+      TOML.decode (Decode.field "timeout" Decode.duration) cfg,
+      TOML.decode (Decode.field "server" (Decode.field "port" Decode.int)) cfg
+    )
+    (Ok 30s, Ok 8080))
+
+test "TOML names a missing field with its path" (fn t ->
+  let cfg = TOML.parse! "[server]\nport = 8080" in
+  t.eq
+    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg)
+    (Error ".server.prt: no such field"))
+
+(* A CSV's first row names the columns, so a row is read by field like any
+   other record -- and the cells are text, which `int` reads. *)
+test "CSV reads rows by column name" (fn t ->
+  let src = "host,restarts\nweb-01,4\ndb-01,0" in
+  t.eq (CSV.rows (Decode.field "restarts" Decode.int) src) (Ok [4, 0]))
+
+test "CSV says which row was wrong" (fn t ->
+  let src = "host,restarts\nweb-01,4" in
+  t.eq
+    (CSV.rows (Decode.field "hosts" Decode.string) src)
+    (Error "[0].hosts: no such field"))
+
+test "one line, one value" (fn t -> t.eq (Shell.lines Decode.int "1\n2\n3") (Ok [1, 2, 3]))
+
+(* $() strips the trailing newline, so nothing captured is no lines. A hand
+   written count reports one here, and every caller has to remember. *)
+test "an empty capture is no lines" (fn t -> t.eq (Shell.lines Decode.string "") (Ok []))
+
+test "the whole capture as one value" (fn t ->
+  t.eq (Shell.decode Decode.int "42\n") (Ok 42))
+
+test "and the line that could not be read is named" (fn t ->
+  t.eq (Shell.lines Decode.int "1\n2\nx") (Error "[2]: expected Int, got \"x\""))

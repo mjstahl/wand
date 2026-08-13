@@ -2,7 +2,8 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode" ]
+    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode";
+    "Shell" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -1426,6 +1427,18 @@ let stdlib_type_env : env = [
   ("json_decode",     let a = fresh () in
                       generalize []
                         (TDecoder a @-> (TJson @-> TResult (TString, a))));
+  ("toml_decode",     let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TToml @-> TResult (TString, a))));
+  ("shell_decode",    let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TString @-> TResult (TString, a))));
+  ("shell_lines",     let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TString @-> TResult (TString, TList a))));
+  ("csv_rows",        let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TString @-> TResult (TString, TList a))));
   (* Par primitives. The row on the last arrow is the same variable as the
      one on the supplied function, so calling par_map performs exactly what
      that function performs -- the work happens inside, where inference

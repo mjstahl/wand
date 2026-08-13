@@ -1020,6 +1020,33 @@ let expected what path j =
 let from_text parse (j : Yojson.Basic.t) =
   match j with `String s -> parse (String.trim s) | _ -> None
 
+(* Every backend presents what it read in this shape. TOML carries its own
+   types across; a date has no JSON of its own and comes over as the text it
+   was written as, which is what `Decode.date` reads anyway. *)
+let rec json_of_toml (v : Toml.Types.value) : Yojson.Basic.t =
+  match v with
+  | Toml.Types.TBool b   -> `Bool b
+  | Toml.Types.TInt n    -> `Int n
+  | Toml.Types.TFloat f  -> `Float f
+  | Toml.Types.TString s -> `String s
+  | Toml.Types.TDate d   -> `String (Toml.Printer.string_of_value (Toml.Types.TDate d))
+  | Toml.Types.TTable tbl ->
+    `Assoc (List.map (fun (k, v) ->
+      (Toml.Types.Table.Key.to_string k, json_of_toml v))
+      (Toml.Types.Table.to_list tbl))
+  | Toml.Types.TArray arr ->
+    let items = match arr with
+      | Toml.Types.NodeBool bs   -> List.map (fun b -> Toml.Types.TBool b) bs
+      | Toml.Types.NodeInt ns    -> List.map (fun n -> Toml.Types.TInt n) ns
+      | Toml.Types.NodeFloat fs  -> List.map (fun f -> Toml.Types.TFloat f) fs
+      | Toml.Types.NodeString ss -> List.map (fun s -> Toml.Types.TString s) ss
+      | Toml.Types.NodeDate ds   -> List.map (fun d -> Toml.Types.TDate d) ds
+      | Toml.Types.NodeTable ts  -> List.map (fun t -> Toml.Types.TTable t) ts
+      | Toml.Types.NodeArray ars -> List.map (fun a -> Toml.Types.TArray a) ars
+      | Toml.Types.NodeEmpty     -> []
+    in
+    `List (List.map json_of_toml items)
+
 (* A domain literal decodes as itself: the string is lexed exactly as it
    would be if it had been written in the source, so `"30s"` in a document
    and `30s` in a script become the same Duration. *)
@@ -2104,6 +2131,19 @@ let as_decoder who = function
   | VDecoder d -> d
   | _ -> raise (EvalError (who ^ ": expected a Decoder"))
 
+(* Backends that produce one record per row or per line share this: each
+   record is decoded at its own index, so a failure says which row it was
+   in before it says what was wrong with it. *)
+let decode_each inner items =
+  let rec go i acc = function
+    | [] -> VConstr ("Ok", [VList (List.rev acc)])
+    | x :: rest ->
+      (match inner x [Printf.sprintf "[%d]" i] with
+       | Ok v      -> go (i + 1) (v :: acc) rest
+       | Error msg -> VConstr ("Error", [VString msg]))
+  in
+  go 0 [] items
+
 let decode_builtins : env = [
   ("decode_int", VDecoder (fun j path ->
     match j, from_text int_of_string_opt j with
@@ -2225,6 +2265,53 @@ let decode_builtins : env = [
          | Ok v      -> VConstr ("Ok", [v])
          | Error msg -> VConstr ("Error", [VString msg]))
       | _ -> raise (EvalError "json_decode: expected JSON"))));
+  ("toml_decode", VBuiltin (fun d ->
+    let inner = as_decoder "toml_decode" d in
+    VBuiltin (function
+      | VToml t ->
+        (match inner (json_of_toml t) [] with
+         | Ok v      -> VConstr ("Ok", [v])
+         | Error msg -> VConstr ("Error", [VString msg]))
+      | _ -> raise (EvalError "toml_decode: expected TOML"))));
+  (* One record per line, and the line is text: a command's output has no
+     types of its own, so `Decode.int` reads the digits. *)
+  ("shell_lines", VBuiltin (fun d ->
+    let inner = as_decoder "shell_lines" d in
+    VBuiltin (function
+      | VString s ->
+        (* $() strips the trailing newline, so a non-empty capture has one
+           line per record and an empty capture has none -- not one empty
+           line, which is the mistake every hand-written count makes. *)
+        let lines = if String.trim s = "" then [] else String.split_on_char '\n' s in
+        decode_each inner (List.map (fun l -> `String l) lines)
+      | _ -> raise (EvalError "shell_lines: expected String"))));
+  ("shell_decode", VBuiltin (fun d ->
+    let inner = as_decoder "shell_decode" d in
+    VBuiltin (function
+      | VString s ->
+        (match inner (`String (String.trim s)) [] with
+         | Ok v      -> VConstr ("Ok", [v])
+         | Error msg -> VConstr ("Error", [VString msg]))
+      | _ -> raise (EvalError "shell_decode: expected String"))));
+  (* A CSV's first row names the columns, so a row arrives as an object and
+     is read by field name like anything else. A file without a header is
+     what `CSV.parse` is for. *)
+  ("csv_rows", VBuiltin (fun d ->
+    let inner = as_decoder "csv_rows" d in
+    VBuiltin (function
+      | VString s ->
+        (match csv_parse_string "," s with
+         | [] -> VConstr ("Ok", [VList []])
+         | header :: rows ->
+           let as_object row =
+             let rec pair hs cs = match hs, cs with
+               | [], _ | _, [] -> []
+               | h :: hs', c :: cs' -> (h, `String c) :: pair hs' cs'
+             in
+             `Assoc (pair header row)
+           in
+           decode_each inner (List.map as_object rows))
+      | _ -> raise (EvalError "csv_rows: expected String"))));
 ]
 
 let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins

@@ -32,3 +32,7 @@ let field key t = toml_field key t
 
 (** Look up a key in a TOML table, raising if absent. *)
 let field! key t = toml_field_exn key t
+
+(** Read a typed value out of a TOML document. Failure names the field that
+    failed and the path to it. See `Decode`. *)
+let decode d t = toml_decode d t

@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Decode](#decode) · [Option](#option)
+  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -957,6 +957,31 @@ exists to replace:
 {"restarts": 4}     Decode.string   -- Error .restarts: expected String, got Int
 ```
 
+### Running one
+
+Every backend presents what it read in the same shape, so the combinators
+above are the whole surface — what changes is only where the data came from:
+
+```
+JSON.decode  : Decoder 'a -> JSON   -> Result String 'a
+TOML.decode  : Decoder 'a -> TOML   -> Result String 'a
+CSV.rows     : Decoder 'a -> String -> Result String (List 'a)
+Shell.decode : Decoder 'a -> String -> Result String 'a
+Shell.lines  : Decoder 'a -> String -> Result String (List 'a)
+```
+
+A CSV's first row names its columns, so a row is read by field name like any
+other record; a file without a header row is what `CSV.parse` is for. For
+`Shell.lines`, `$()` strips the trailing newline, so a capture with nothing
+in it is no lines rather than one empty line.
+
+Backends that read one record per row or per line say which one failed
+before saying what was wrong with it:
+
+```
+[2].restarts: expected Int, got "many"
+```
+
 ### Decoding is pure
 
 The functions a decoder is built from carry the empty effect row, so a
@@ -1404,7 +1429,8 @@ if broken? then Proc.exit 1 else continue! ()
 
 ### `CSV`
 
-`parse`, `parse_with`, `stringify`, `stringify_with`, `read_file`, `read_file!`
+`parse`, `parse_with`, `stringify`, `stringify_with`, `read_file`, `read_file!`,
+`rows`
 
 Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV.  Fields may be
 quoted with `""`; embedded quotes are doubled (`"say ""hi"""`).  `read_file`
@@ -1458,7 +1484,7 @@ match JSON.read_file ./config.json with
 
 `parse`, `parse!`, `stringify`, `read_file`, `read_file!`,
 `table?`, `array?`, `get_bool`, `get_int`, `get_float`, `get_string`,
-`get_array`, `get_table`, `field`, `field!`
+`get_array`, `get_table`, `field`, `field!`, `decode`
 
 `TOML` is an opaque type representing any TOML value (table, string, int,
 float, bool, array).  The top-level parse result is always a table.
@@ -1524,6 +1550,16 @@ the handler lives. So moving work into `Par` can never quietly escape a test:
 being watched costs the overlap, and nothing rehearses for speed.
 
 ---
+
+### `Shell`
+
+`decode`, `lines`
+
+Reading what a command wrote. See [Decoders](#decoders).
+
+```
+let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
+```
 
 ### `Decode`
 

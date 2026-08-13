@@ -16,3 +16,8 @@ let read_file path = csv_read_file path
 
 (** Read and parse a CSV file, raising on error. *)
 let read_file! path = csv_read_file_exn path
+
+(** Read one value per row, by column name: the first row names the columns,
+    so a row is read by field like any other record. A file without a header
+    row is what `parse` is for. See `Decode`. *)
+let rows d src = csv_rows d src

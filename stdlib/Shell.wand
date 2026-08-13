@@ -1,0 +1,18 @@
+(* Reading what a command wrote.
+
+   A command's output has no types of its own -- it is text, and the shape
+   is whatever the command decided. These two run a decoder over it, so the
+   reading is done in one place with a message that says what was wrong,
+   rather than by a chain of scrapes that each assume the last one worked.
+
+       let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
+
+   `Decode.int` reads the digits, because a decoder reads a value out of
+   text. See `Decode`. *)
+
+(** Read the whole capture as one value, ignoring surrounding whitespace. *)
+let decode d out = shell_decode d out
+
+(** Read one value per line. `$()` strips the trailing newline, so a capture
+    with nothing in it is no lines rather than one empty line. *)
+let lines d out = shell_lines d out
