@@ -1212,6 +1212,15 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
 (* Typecheck a file without running it, resolving its imports the same way
    running it would. The editing loop and CI both want an answer that costs
    nothing and changes nothing. *)
+(* Whether a path names one of the standard library's own modules. Compared
+   as directories rather than by name, so a user file called FS.wand is a
+   user file. *)
+let is_stdlib_file full =
+  let real p = try Unix.realpath p with Unix.Unix_error _ -> p in
+  match Module_types.find_stdlib_dir () with
+  | exception _ -> false
+  | dir -> real (Filename.dirname full) = real dir
+
 let typecheck_file path : (string * string list * Lint.finding list, string) result =
   let full =
     if Filename.is_relative path
@@ -1226,7 +1235,18 @@ let typecheck_file path : (string * string list * Lint.finding list, string) res
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
-    match Typechecker.infer_program_full_with_own
+    (* A file in the stdlib is checked as what it is: a module, whose body
+       calls the raw builtins the modules are built from. Checked as a
+       script it fails on the first one, so nothing here could be checked
+       at all -- and a module that goes wrong would be found only when
+       something imported it. The rule is the file's home rather than an
+       option, because an option meant for the people writing the standard
+       library is one more thing in everyone else's way. *)
+    let base_env =
+      if is_stdlib_file full then Typechecker.stdlib_type_env
+      else Typechecker.builtin_type_env
+    in
+    match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
     | Error msg -> Error ("type error: " ^ msg)
     | Ok (_, own_type_env, last_t, holes) ->

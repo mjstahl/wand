@@ -148,6 +148,34 @@ let test_stdlib_is_clean () =
       end
     ) (Sys.readdir dir)
 
+(* The same modules through the path a person uses. `lint_module_source`
+   above is the library call; this is `wand t --file`, which has to reach
+   them too -- a module body calls the raw builtins, and checked as a script
+   it fails on the first one. Without this the standard library could only
+   be checked by importing it, so a module could go wrong in a way nobody
+   would see until something used it. *)
+let test_stdlib_typechecks_through_the_tool () =
+  let dir = "../stdlib" in
+  if not (Sys.file_exists dir) then
+    Alcotest.failf "stdlib not found at %s (relative to test sandbox)" dir
+  else
+    Array.iter (fun name ->
+      if Filename.check_suffix name ".wand" then
+        match Runner.typecheck_file (Filename.concat dir name) with
+        | Error m -> Alcotest.failf "%s does not typecheck as a module: %s" name m
+        | Ok (_, _, []) -> ()
+        | Ok (_, _, fs) ->
+          Alcotest.failf "%s has findings:\n%s" name
+            (String.concat "\n" (List.map Lint.to_text fs))
+    ) (Sys.readdir dir)
+
+(* And the boundary the same rule protects: a script cannot reach past a
+   module to the builtin underneath it. *)
+let test_a_script_cannot_call_builtins () =
+  match Runner.run_string "fs_temp_file \"x\" \".txt\"" with
+  | Error _ -> ()
+  | Ok s -> Alcotest.failf "a script reached a raw builtin, got: %s" s
+
 (* ── The doc/lint bridge ─────────────────────────────────────────────────── *)
 
 (* A rule the reference does not document is a rule its audience cannot look
@@ -213,6 +241,8 @@ let () =
     ];
     "stdlib", [
       Alcotest.test_case "lints clean" `Quick test_stdlib_is_clean;
+      Alcotest.test_case "checks through the tool" `Quick test_stdlib_typechecks_through_the_tool;
+      Alcotest.test_case "scripts cannot call builtins" `Quick test_a_script_cannot_call_builtins;
     ];
     "reference", [
       Alcotest.test_case "documents every rule" `Quick test_every_rule_is_documented;

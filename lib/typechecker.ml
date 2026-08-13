@@ -1649,10 +1649,12 @@ let string_of_scheme = function
   | Mono t | Poly (_, _, t) -> string_of_typ t
   | Namespace _           -> "<namespace>"
 
-let infer_program_full_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
+    ?(init_env=[]) (prog : program)
     : (env * env * typ * typ list, string) result =
   try
-    let (_, full_env, own_env, last_t) = infer_program_ ~init_tenv ~init_env prog in
+    let (_, full_env, own_env, last_t) =
+      infer_program_ ~base_env ~init_tenv ~init_env prog in
     let hole_types = List.rev_map repr !holes in
     Ok (full_env, own_env, last_t, hole_types)
   with TypeError msg -> Error msg
