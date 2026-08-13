@@ -1105,9 +1105,44 @@ let parse_program_generic ~on_item tokens =
   in
   (* Before anything else: the manifest, if the file has one. *)
   if looks_like_manifest s then manifest := Some (parse_manifest s);
+  (* Where the previous top-level item began, so an item that starts further
+     in can be recognised for what it almost always is: a continuation the
+     author expected to be joined to the line above. wand ends a definition
+     at the end of a line, and juxtaposition cannot cross one -- an
+     identifier is a perfectly good start to a new definition, so there is
+     nothing to tell the two apart but the indentation. Left alone, this
+     parses as separate items and surfaces much later as an unbound name
+     that is plainly in scope, which is a bad way to learn a layout rule. *)
+  let previous_item = ref None in
   let continue_ = ref true in
   while !continue_ do
     let start_loc = peek_loc s in
+    (match !previous_item with
+     (* Only where an item is about to begin on a later line: the end of the
+        file carries a position too, and definitions separated by `;` sit on
+        one line, where a greater column means nothing. *)
+     | Some (col, end_line)
+       when peek s <> Token.EOF
+            && start_loc.Token.line > end_line
+            && start_loc.Token.col > col
+            && !items <> []
+            (* Only a bare expression, which is the shape a stray argument
+               takes. A definition that happens to be indented is a whole
+               file's layout choice, not a mistake -- and indenting the body
+               of something is how people write, so rejecting it would fire
+               on correct code, which teaches a reader to stop reading
+               errors. *)
+            && (match peek s with
+                | Token.Let | Token.LetStar | Token.Type | Token.Import
+                | Token.DocComment _ -> false
+                | _ -> true) ->
+       raise (ParseError (Printf.sprintf
+         "%d:%d: this line is indented as though it continued the definition \
+          above, but a definition ends at the end of its line.\n       \
+          Put the whole expression on one line, or bracket what continues it: \
+          parentheses, or a leading |> for a pipeline."
+         start_loc.Token.line start_loc.Token.col))
+     | _ -> ());
     let before_items = !items in
     (match peek s with
     | Token.EOF -> continue_ := false
@@ -1278,6 +1313,7 @@ let parse_program_generic ~on_item tokens =
       end);
     if !items != before_items then begin
       let last_loc = if s.pos > 0 then snd s.tokens.(s.pos - 1) else start_loc in
+      previous_item := Some (start_loc.Token.col, last_loc.Token.line);
       on_item start_loc last_loc
     end
   done;

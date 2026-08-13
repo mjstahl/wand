@@ -405,8 +405,47 @@ let test_handler_continuation_binder () =
        let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
        at 0)
 
+(* An application cannot cross a line: an identifier starts a new definition
+   just as well as it continues one, and wand has no layout rule to tell
+   them apart. Left alone that parses as separate definitions and fails much
+   later as an unbound name that is plainly in scope, which is a bad way to
+   learn a layout rule. *)
+let test_indented_continuation () =
+  let parse src = Lexer.tokenize src |> Parser.parse_program in
+  (match parse "let add a b = a + b\nlet f x =\n  add\n    x\n    1\n" with
+   | _ -> Alcotest.fail "expected the indented continuation to be rejected"
+   | exception Parser.ParseError m ->
+     let says sub =
+       let n = String.length sub and t = String.length m in
+       let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
+       at 0
+     in
+     Alcotest.(check bool) "names the real problem" true
+       (says "indented as though it continued the definition above");
+     Alcotest.(check bool) "and says what to do" true (says "one line"));
+  (* Everything that legitimately spans lines must still parse. *)
+  let ok label src =
+    match parse src with
+    | _ -> ()
+    | exception Parser.ParseError m -> Alcotest.failf "%s: %s" label m
+  in
+  ok "a pipeline continuation" "let n = xs\n  |> f\n";
+  ok "if/else across lines" "let f x = if x then\n  1\n  else 2\n";
+  ok "a list across lines" "let xs = [\n  1,\n  2\n]\n";
+  ok "a let..in body" "let f x =\n  let y = 1 in\n  y\n";
+  ok "multi-equation clauses" "let g 0 = 1\nlet g n = 2\n";
+  (* A whole file indented is a layout choice, not a mistake. Only a bare
+     expression is the shape a stray argument takes, so only that is
+     rejected -- a rule that fired on correct code would teach a reader to
+     stop reading errors. *)
+  ok "an indented definition" "let a = 1\n     let b = 2\n     b\n";
+  ok "definitions separated by ;" "let f b = match b with | true -> 1 | false -> 0; f true"
+
 let () =
   Alcotest.run "Parser" [
+    "layout", [
+      Alcotest.test_case "indented continuation" `Quick test_indented_continuation;
+    ];
     "handler cases", [
       Alcotest.test_case "continuation binder" `Quick test_handler_continuation_binder;
     ];
