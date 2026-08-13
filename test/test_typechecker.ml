@@ -89,6 +89,28 @@ match Circle 3.0 with | Circle r -> r | Square s -> s|}
     "let (a, b) = (1, 2) in a + b"
     "3"
 
+(* ── A tuple pattern says the value is a tuple ───────────────────────────── *)
+
+(* A tuple pattern against a type not yet known used to bind its parts and
+   commit to nothing, so `fn (a, b) -> a` was inferred as `'a -> 'b` and
+   accepted anything -- the mismatch surfaced at run time as a non-exhaustive
+   match, in a language whose whole claim is that it would not. It now says
+   what it destructures, like every other pattern. *)
+
+let test_tuple_pattern_types_its_scrutinee () =
+  ok "a tuple pattern is a tuple"
+    "let f p = match p with | (a, b) -> a + b in f (1, 2)"
+    "3";
+  err_contains "a non-tuple passed to a tuple pattern"
+    "let f p = match p with | (a, b) -> a in f 3"
+    "cannot unify";
+  err_contains "a non-tuple passed to a tuple parameter"
+    "let f (a, b) = a in f 3"
+    "cannot unify";
+  err_contains "the wrong width"
+    "let f p = match p with | (a, b) -> a in f (1, 2, 3)"
+    "cannot unify"
+
 (* ── Multi-equation definitions ──────────────────────────────────────────── *)
 
 (* Equations are tried in source order, so an equation an earlier one already
@@ -622,5 +644,6 @@ let () =
       Alcotest.test_case "tuple destructuring rejected"     `Quick test_tuple_destructuring_rejected;
       Alcotest.test_case "named forms survive"              `Quick test_named_forms_survive;
       Alcotest.test_case "positional ctors unaffected"      `Quick test_positional_constructors_unaffected;
+      Alcotest.test_case "a tuple pattern types its value"  `Quick test_tuple_pattern_types_its_scrutinee;
     ];
   ]

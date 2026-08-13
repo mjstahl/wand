@@ -513,7 +513,14 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     (* Tuple syntax destructures tuples only. It used to also unwrap a
        single-constructor named type, so `let (w, h) = rect` bound fields by
        position -- silently wrong on reorder, and invisible at the binding
-       site. Named-field types are destructured by naming their fields. *)
+       site. Named-field types are destructured by naming their fields.
+
+       An unresolved type unifies with a tuple here rather than waiting for a
+       call site to say what it is. Waiting sounds harmless -- the parts get
+       bound either way -- but it means `fn (a, b) -> a` is inferred as
+       `'a -> 'b` and accepts anything, and the mismatch arrives at run time
+       as a non-exhaustive match. A pattern that binds two things is a
+       statement that there are two things to bind. *)
     (match repr t with
      | TName tname ->
        (match find_ctor_in_tenv tenv tname with
@@ -532,10 +539,6 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
           let ts = List.map (fun _ -> fresh ()) ps in
           unify t (TTuple ts);
           List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts)
-     | TVar _ ->
-       (* Type is unresolved — don't commit to tuple; let the call site resolve it *)
-       let ts = List.map (fun _ -> fresh ()) ps in
-       List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts
      | _ ->
        let ts = List.map (fun _ -> fresh ()) ps in
        unify t (TTuple ts);
