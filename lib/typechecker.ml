@@ -2,7 +2,7 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource" ]
+    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -1237,7 +1237,7 @@ let infer_expr (e : expr) : (typ, string) result =
 let stdlib_type_env : env = [
   ("print",      let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
   ("println",    let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
-  ("exit",       let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
+  ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
   ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
   ("write_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TUnit))));
@@ -1452,7 +1452,6 @@ let builtin_tenv : typedef_env = [
 let builtin_type_env : env = [
   ("print",   let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
   ("println", let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
-  ("exit",    let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
 ]
 
 (* ── Manifests ────────────────────────────────────────────────────────────── *)

@@ -35,7 +35,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [Resource](#resource) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
+  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -804,14 +804,15 @@ with FS.temp_file "build_" ".tar" as archive ->
 ```
 
 **A `with` always releases, however the script ends** — returning, raising,
-`exit`, a handler that answers without resuming, Ctrl-C, or a `kill`. There
+`Proc.exit`, a handler that answers without resuming, Ctrl-C, or a `kill`.
+There
 is no `defer`, no `trap`, and nothing to remember at each exit.
 
 The one exception is a process that is destroyed rather than stopped:
 `kill -9` and a machine losing power take the program away without giving it
 the chance to run anything. Nothing can cover that.
 
-`exit n` still exits with `n` — it releases first, then stops. An interrupt
+`Proc.exit n` still exits with `n` — it releases first, then stops. An interrupt
 exits 130 and a `kill` exits 143, as a shell reports them, so nothing
 downstream has to learn a wand-specific code.
 
@@ -1119,7 +1120,7 @@ unbound-name error, even though the module ships with wand. The
 interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
 exception: they preload every stdlib module for convenience — `List`,
 `String`, `Path`, `FS`, `IO`, `Duration`, `Env`, `Map`, `Regex`, `JSON`,
-`TOML`, `CSV`, `Option` and `Par`.
+`TOML`, `CSV`, `Option`, `Par`, `Resource` and `Proc`.
 
 Imported names are available under the module prefix:
 
@@ -1275,6 +1276,22 @@ that runs one. See [Resource brackets](#resource-brackets).
 ### `IO`
 
 `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`
+
+### `Proc`
+
+`exit`
+
+```
+Proc.exit : Int -> 'a ! {Proc}
+```
+
+Ends the program with the given code, running the cleanup of every `with`
+still holding something on the way out. Its result type is whatever the
+caller needs, since nothing follows it:
+
+```
+if broken? then Proc.exit 1 else continue! ()
+```
 
 ### `Env`
 

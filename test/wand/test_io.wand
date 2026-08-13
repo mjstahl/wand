@@ -2,6 +2,7 @@ uses {Proc}
 
 let [test] = import Test
 import IO
+import Proc
 
 test "IO.print_err" (fn t ->
   let outcome =
@@ -41,9 +42,9 @@ test "IO.flush mock" (fn t ->
   in
   t.eq outcome "flushed")
 
-(* ── exit (global) ─────────────────────────────────────────────────────── *)
+(* ── Proc.exit ─────────────────────────────────────────────────────────── *)
 
-let exit_poly_test () : Int = if true then 1 else exit 1
+let exit_poly_test () : Int = if true then 1 else Proc.exit 1
 test "exit is polymorphic in return type" (fn t -> t.eq (exit_poly_test ()) 1)
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)

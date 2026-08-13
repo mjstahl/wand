@@ -163,9 +163,10 @@ let exit_script marker code =
   Printf.sprintf
     {|import FS
 import Path
+import Proc
 with FS.temp_dir "wand_sig_" as d ->
   let () = FS.write_file! "%s" (Path.to_string d) in
-  exit %d|}
+  Proc.exit %d|}
     marker code
 
 let test_exit_releases () =

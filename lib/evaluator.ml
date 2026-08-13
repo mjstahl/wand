@@ -1121,7 +1121,7 @@ let par_run limit f items ~collect =
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
-  ("exit",       performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
+  ("proc_exit",  performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));
@@ -2029,7 +2029,6 @@ let stdlib_eval_env = stdlib_eval_env @ map_builtins
 let base_eval_env : env = [
   ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
-  ("exit",    performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
 ]
