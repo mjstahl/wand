@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** planned · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1 done, P3.2 done but for D8 · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -160,20 +160,53 @@ Two of the four the roadmap listed are cut:
   one crash is worse than no lock, so it waits for a real deploy story to
   shape it.
 
-Abandonment is already handled by the runtime, with `test/test_abandonment.ml`
-standing in a cleanup construct of its own until `with` exists to be the real
-one. What remains for this tranche is the construct itself, and `_` as a
-continuation binder.
+**Done.** `with r as p -> body`, `Resource 'e 'a` carrying its row,
+`Resource.make`, `FS.temp_file` and `FS.temp_dir`, a formatter rule, and `_`
+as a continuation binder. Covered by `test/wand/test_resource.wand` (15
+cases) and `test/test_abandonment.ml`.
 
-*Accept:* a script that raises inside a bracket still releases, observably; a handler that never resumes still releases; nesting releases innermost-first; the formatter has a rule for `with`.
+The raw `FS.temp_file` is gone rather than kept alongside the resource: it
+created a file, returned the path, and nothing removed it. There were 22
+leftovers in one machine's temp directory from test runs; a full suite run
+now leaves none. Release tolerates the file already being gone, so a body
+may rename it into place -- the one use the raw version had.
 
 ## P3.2 — `Par` cancellation and D8
 
-Ctrl-C cancels in-flight workers and runs their brackets. Now genuinely harder than when the roadmap wrote it down: an unwatched worker runs on its own domain, so cancellation has to reach a domain the signal handler is not on, and a watched worker's effects are mid-flight on the calling domain.
+**Cancellation is done; D8 is not.**
 
-**D8** — fan out over twenty hosts, three failing, Ctrl-C mid-run, and a clean "released: 8 locks" instead of orphaned processes.
+The tranche grew a piece the plan did not have: nothing was released when a
+script was *stopped* at all, `Par` or no `Par`. `exit`, Ctrl-C and `kill`
+each skipped every release. The rule now is one sentence, and it is the one
+the reference states:
 
-*Accept:* Ctrl-C during `Par.each` releases every in-flight worker's brackets, in both the watched and unwatched cases; D8 runs offline.
+> A `with` always releases, however the script ends.
+
+Only a process destroyed rather than stopped -- `kill -9` -- skips it, and
+there is a test asserting that limit rather than leaving it to be
+discovered.
+
+How it works, since three attempts got it wrong: a signal records a request
+and the **evaluator** raises it between steps, on its own stack. Raising
+inside a signal handler or inside an effect handler abandons the body
+instead of unwinding it, so the `with` frames never run. The request stands
+until the process ends and each domain takes it once, recorded per domain,
+because a worker runs its own evaluation loop. `Par`'s calling domain defers
+its own interrupt across answering and joining its workers, and a release
+runs to the end deferred the same way -- otherwise the interrupt lands in
+the middle of the cleanup it triggered.
+
+wand also owns its children now: it spawns commands itself and keeps the
+pids, so stopping wand stops them. That is what makes stopping prompt --
+signalling wand alone while four workers sat in a command went from 23.0s to
+0.0s.
+
+**D8** — fan out over twenty hosts, three failing, Ctrl-C mid-run, and a
+clean "released" instead of orphaned processes. Everything it demonstrates
+exists and is tested; what is left is writing the demo, offline, with the
+`demos/assert.sh` moment check every other demo now has.
+
+*Accept:* ~~Ctrl-C during `Par.each` releases every in-flight worker's brackets, in both the watched and unwatched cases~~ done, `test/test_signals.ml`; D8 runs offline.
 
 ## P3.3 — Decoders
 
@@ -201,6 +234,52 @@ Then `else ()`, if there is room.
 
 ---
 
+## Picking this up
+
+**Where things stand.** P3.1 and P3.2's cancellation are done and committed;
+the tree is clean, 538 wand tests and the OCaml suite pass, seven demos pass,
+every `.wand` file is a fixed point of `wand fmt`. Next is D8, then P3.3.
+
+**Run everything with a timeout.** A `Par` script that hangs will sit there:
+one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
+`wand test` for the wand suite, `bash demos/*/run.sh` for the demos -- each
+demo asserts its own moment through `demos/assert.sh` and exits non-zero when
+it stops making its point. That check has caught a silently broken demo twice.
+
+**The trap that caught this session three times.** An exception raised inside
+an effect handler -- a signal handler, a `handle` case, the runtime's own
+handler for a command -- *abandons* the body rather than unwinding it, so no
+`with` on it releases and no `try` sees it. The fix is always the same: send
+it back through the continuation with `Effect.Deep.discontinue`, or record it
+and raise from the evaluator's own stack. If a resource leaks or a body
+silently stops, look here first.
+
+**Things learned that are not in the code.**
+
+- `Fun.protect` finalizers do not run for a dropped continuation, even after
+  a full GC. `discontinue` runs them and returns to the case, which is what
+  lets a case answer without resuming and still release.
+- OCaml runs a signal handler at the next safe point, so neither a first nor
+  a second Ctrl-C is seen while the process sits in a syscall. Killing our
+  own children is what ends the wait; a second Ctrl-C cannot be relied on to
+  preempt one.
+- A forked child must not `Domain.spawn`. The `Par` signal test starts the
+  real binary for this reason; the others fork.
+
+**Known, deliberate, not blocking.**
+
+- The formatter measures width from the indent an expression would continue
+  at, not the column it starts at. Two lines in the corpus exceed the margin
+  because of it: an unbreakable string literal, and an `if` inside a lambda
+  inside a constructor field. Fixing the class means threading a start column
+  through every emitter.
+- `FS.lock` is deferred (staleness detection is a design, not a wrapper) and
+  `FS.in_dir` is dropped (per-process `chdir` races under `Par`). Both are
+  argued above.
+- `ROADMAP.md` still says "arm" where everything else now says "case". Left
+  alone: it is the original review, and rewriting its prose would misreport
+  what it said.
+
 ## Risks
 
 - ~~Abandonment~~ — settled and implemented ahead of the tranche, with tests that fail without the change.
@@ -210,8 +289,8 @@ Then `else ()`, if there is room.
 
 ## Exit criteria
 
-1. `with` releases on success, raise, abandonment and cancellation, each observed by a test.
-2. `Par` workers release their brackets on Ctrl-C.
+1. ~~`with` releases on success, raise, abandonment and cancellation~~ **done**, and on `exit`, `kill` and Ctrl-C besides.
+2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**.
 3. One decoder replaces the four scrapes in `examples/repo-status.wand`.
 4. A single-constructor named-field type gets its decoder for free.
 5. D7 and D8 land as runnable, offline demos.
