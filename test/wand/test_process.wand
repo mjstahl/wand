@@ -48,6 +48,8 @@ test "pipe into $?()" (fn t -> let r = "hello" |> $?(cat) in t.eq r.stdout "hell
 (* ── mock handlers ─────────────────────────────────────────────────────── *)
 
 test "mock process_run" (fn t ->
-  let outcome = handle $(echo hello) with
-  | Shell!run _ k -> k "mocked" in
+  let outcome =
+    handle $(echo hello) with
+    | Shell!run _ k -> k "mocked"
+  in
   t.eq outcome "mocked")

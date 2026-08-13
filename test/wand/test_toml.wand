@@ -143,12 +143,14 @@ test "get_table returns Map" (fn t ->
 test "read_file ok" (fn t ->
   with FS.temp_file "wand_toml_rd_" ".toml" as p ->
   let () = FS.write_file! (Path.to_string p) "[db]\nname = \"mydb\"\n" in
-  let outcome = match TOML.read_file p with
-  | Ok tm -> (let db = TOML.field! "db" tm in
-  match TOML.get_string (TOML.field! "name" db) with
-  | Ok s -> s
-  | Error _ -> "")
-  | Error _ -> "" in
+  let outcome =
+    match TOML.read_file p with
+    | Ok tm -> (let db = TOML.field! "db" tm in
+    match TOML.get_string (TOML.field! "name" db) with
+    | Ok s -> s
+    | Error _ -> "")
+    | Error _ -> ""
+  in
   t.eq outcome "mydb")
 
 test "read_file missing file returns Error" (fn t ->

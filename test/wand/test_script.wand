@@ -66,9 +66,11 @@ and mr_g n = mr_f n
 test "multi-equation clause plus and-group" (fn t -> t.eq (mr_f 4) 24)
 
 test "local let ... and ... in" (fn t ->
-  let x = let is_even n = if n == 0 then true else is_odd (n - 1)
-  and is_odd n = if n == 0 then false else is_even (n - 1)
-  in is_even 7 in
+  let x =
+    let is_even n = if n == 0 then true else is_odd (n - 1)
+    and is_odd n = if n == 0 then false else is_even (n - 1)
+    in is_even 7
+  in
   t.eq x false)
 
 (* ── Source locations in type errors ──────────────────────────────────── *)

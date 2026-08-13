@@ -35,9 +35,11 @@ test "held while the body runs" (fn t -> t.eq (with tracked "c" as _ -> held? "c
    failing script leaves its lock behind. *)
 test "released when the body raises" (fn t ->
   let r = try with tracked "d" as _ -> List.get! 9 [1] in
-  let failed = match r with
-  | Error _ -> true
-  | Ok _ -> false in
+  let failed =
+    match r with
+    | Error _ -> true
+    | Ok _ -> false
+  in
   t.eq (failed, held? "d") (true, false))
 
 test "the raise still reaches the caller" (fn t ->
@@ -57,13 +59,17 @@ test "the outer one is still held inside the inner" (fn t ->
    holding still comes back -- otherwise a mock would leak every lock the
    code it stands in for had taken. *)
 test "released when a handler does not resume" (fn t ->
-  let out = handle with tracked "j" as _ -> let c = $(echo hi) in c with
-  | Shell!run _ _ -> "mocked" in
+  let out =
+    handle with tracked "j" as _ -> let c = $(echo hi) in c with
+    | Shell!run _ _ -> "mocked"
+  in
   t.eq (out, held? "j") ("mocked", false))
 
 test "released when a handler does resume" (fn t ->
-  let out = handle with tracked "k" as _ -> let c = $(echo hi) in c with
-  | Shell!run _ k -> k "mocked" in
+  let out =
+    handle with tracked "k" as _ -> let c = $(echo hi) in c with
+    | Shell!run _ k -> k "mocked"
+  in
   t.eq (out, held? "k") ("mocked", false))
 
 (* A resource is a description, not something already open, so naming one
@@ -82,31 +88,39 @@ test "one resource used twice" (fn t ->
    with it -- an empty-directory removal would fail on the first file the
    body wrote, which is every real use. *)
 test "temp_dir removes a directory that is not empty" (fn t ->
-  let kept = with FS.temp_dir "wand_td_" as d ->
-  let dir = Path.to_string d in
-  let () = FS.write_file! "${dir}/a.txt" "x" in
-  let () = FS.mkdir! (Path.of_string "${dir}/sub") in
-  let () = FS.write_file! "${dir}/sub/b.txt" "y" in dir in
+  let kept =
+    with FS.temp_dir "wand_td_" as d ->
+    let dir = Path.to_string d in
+    let () = FS.write_file! "${dir}/a.txt" "x" in
+    let () = FS.mkdir! (Path.of_string "${dir}/sub") in
+    let () = FS.write_file! "${dir}/sub/b.txt" "y" in dir
+  in
   t.eq (FS.exists? (Path.of_string kept)) false)
 
 test "temp_dir is a directory that exists while it is held" (fn t ->
   t.eq (with FS.temp_dir "wand_td_" as d -> (FS.exists? d, FS.dir? d)) (true, true))
 
 test "two temp_dirs do not collide" (fn t ->
-  let both = with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b in
+  let both =
+    with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b
+  in
   t.eq both true)
 
 (* The tree goes even when the body leaves by raising. The directory's name
    is written outside it first, so the check survives the body it came from. *)
 test "temp_dir cleans up when the body raises" (fn t ->
   let note = marker "raise_case" in
-  let r = try with FS.temp_dir "wand_td_" as d ->
-  let dir = Path.to_string d in
-  let () = FS.write_file! note dir in
-  let () = FS.write_file! "${dir}/a.txt" "x" in List.get! 9 [1] in
+  let r =
+    try with FS.temp_dir "wand_td_" as d ->
+    let dir = Path.to_string d in
+    let () = FS.write_file! note dir in
+    let () = FS.write_file! "${dir}/a.txt" "x" in List.get! 9 [1]
+  in
   let dir = FS.read_file! note in
   let () = FS.delete! (Path.of_string note) in
-  let raised = match r with
-  | Error _ -> true
-  | Ok _ -> false in
+  let raised =
+    match r with
+    | Error _ -> true
+    | Ok _ -> false
+  in
   t.eq (raised, FS.exists? (Path.of_string dir)) (true, false))

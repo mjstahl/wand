@@ -47,14 +47,18 @@ test "field on function result" (fn t ->
 
 test "destructure named fields" (fn t ->
   let p = Point(x = 3, y = 4) in
-  let sum = match p with
-  | Point(x = a, y = b) -> a + b in
+  let sum =
+    match p with
+    | Point(x = a, y = b) -> a + b
+  in
   t.eq sum 7)
 
 test "wildcard field" (fn t ->
   let p = Point(x = 5, y = 99) in
-  let get_x = match p with
-  | Point(x = v, y = _) -> v in
+  let get_x =
+    match p with
+    | Point(x = v, y = _) -> v
+  in
   t.eq get_x 5)
 
 let add_coords p = let Point(x = a, y = b) = p in a + b

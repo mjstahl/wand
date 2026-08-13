@@ -51,14 +51,18 @@ test "each visits every element" (fn t ->
    that an effect performed in a worker would escape a rehearsal, which is
    the one thing a rehearsal must not allow. *)
 test "a worker's commands are seen by a handler" (fn t ->
-  let cmds = Test.shell_calls (fn () -> Par.each 3 (fn n -> let _ = $(echo hi) in ()) [1, 2]) in
+  let cmds =
+    Test.shell_calls (fn () -> Par.each 3 (fn n -> let _ = $(echo hi) in ()) [1, 2])
+  in
   t.eq (List.length cmds) 2)
 
 (* Watching costs the overlap, so it is only paid when someone is watching:
    with no handler in scope a worker performs its own effects on its own
    domain, and the work really does run at the same time. *)
 test "a mock still answers a worker's commands" (fn t ->
-  let out = Test.with_shell [("echo", "mocked")] (fn () -> Par.map 3 (fn n -> $(echo hi)) [1, 2]) in
+  let out =
+    Test.with_shell [("echo", "mocked")] (fn () -> Par.map 3 (fn n -> $(echo hi)) [1, 2])
+  in
   t.eq out [Ok "mocked", Ok "mocked"])
 
 (* Several workers, each performing several effects, all watched. A worker's
@@ -68,11 +72,14 @@ test "a mock still answers a worker's commands" (fn t ->
    had already been consumed. Eight rounds of it, since a race that only
    sometimes loses is a race that passes once and fails in CI. *)
 test "many watched workers, several effects each" (fn t ->
-  let round = fn _ -> Test.shell_calls (fn () ->
-    Par.each
-      4
-      (fn n -> with FS.temp_dir "wand_par_race_" as d ->
-      let () = FS.write_file! "${Path.to_string d}/${n}.txt" "x" in let _ = $(echo hi) in ())
-      [1, 2, 3, 4]) in
+  let round =
+    fn _ -> Test.shell_calls (fn () ->
+      Par.each
+        4
+        (fn n -> with FS.temp_dir "wand_par_race_" as d ->
+        let () = FS.write_file! "${Path.to_string d}/${n}.txt" "x" in
+        let _ = $(echo hi) in ())
+        [1, 2, 3, 4])
+  in
   let counts = List.map (fn r -> List.length r) (List.map round [1, 2, 3, 4, 5, 6, 7, 8]) in
   t.eq counts [4, 4, 4, 4, 4, 4, 4, 4])

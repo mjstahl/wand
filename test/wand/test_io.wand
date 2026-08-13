@@ -4,31 +4,41 @@ let [test] = import Test
 import IO
 
 test "IO.print_err" (fn t ->
-  let outcome = handle let () = IO.print_err "error message" in "ok" with
-  | IO!print_err _ k -> k ()
-  | return s -> s in
+  let outcome =
+    handle let () = IO.print_err "error message" in "ok" with
+    | IO!print_err _ k -> k ()
+    | return s -> s
+  in
   t.eq outcome "ok")
 
 test "IO.println_err" (fn t ->
-  let outcome = handle let () = IO.println_err "error message" in "ok" with
-  | IO!println_err _ k -> k ()
-  | return s -> s in
+  let outcome =
+    handle let () = IO.println_err "error message" in "ok" with
+    | IO!println_err _ k -> k ()
+    | return s -> s
+  in
   t.eq outcome "ok")
 
 test "IO.read_line mock" (fn t ->
-  let outcome = handle IO.read_line! () with
-  | IO!read_line _ k -> k "mocked line" in
+  let outcome =
+    handle IO.read_line! () with
+    | IO!read_line _ k -> k "mocked line"
+  in
   t.eq outcome "mocked line")
 
 test "IO.read_all mock" (fn t ->
-  let outcome = handle IO.read_all! () with
-  | IO!read_all _ k -> k "all of stdin" in
+  let outcome =
+    handle IO.read_all! () with
+    | IO!read_all _ k -> k "all of stdin"
+  in
   t.eq outcome "all of stdin")
 
 test "IO.flush mock" (fn t ->
-  let outcome = handle let () = IO.flush () in "flushed" with
-  | IO!flush _ k -> k ()
-  | return s -> s in
+  let outcome =
+    handle let () = IO.flush () in "flushed" with
+    | IO!flush _ k -> k ()
+    | return s -> s
+  in
   t.eq outcome "flushed")
 
 (* ── exit (global) ─────────────────────────────────────────────────────── *)

@@ -48,7 +48,9 @@ test "concat both empty" (fn t ->
 (* ── pipeline ──────────────────────────────────────────────────────────── *)
 
 test "range |> filter |> sort_by" (fn t ->
-  let got = List.range 1 10 |> List.filter (fn x -> x % 2 == 0) |> List.sort_by (fn x -> 0 - x) in
+  let got =
+    List.range 1 10 |> List.filter (fn x -> x % 2 == 0) |> List.sort_by (fn x -> 0 - x)
+  in
   t.eq got [10, 8, 6, 4, 2])
 test "flatten after map" (fn t ->
   let got = List.range 1 3 |> List.map (fn x -> [x, x * 2]) |> List.flatten in

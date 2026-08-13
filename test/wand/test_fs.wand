@@ -18,8 +18,10 @@ let scratch = with FS.temp_file "wand_fs_test_" "" as p -> Path.to_string p
 let () = FS.mkdir! (Path.of_string scratch)
 
 test "temp_file gives a unique file that exists while it is held" (fn t ->
-  let inner = with FS.temp_file "wand_" ".txt" as a ->
-  with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b) in
+  let inner =
+    with FS.temp_file "wand_" ".txt" as a ->
+    with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b)
+  in
   t.eq inner (true, true, true))
 
 (* The point of the bracket: nobody has to remember the delete. *)
@@ -139,9 +141,11 @@ test "cleanup scratch directory" (fn t ->
    filesystem directly; a handler installed here intercepts it and
    resumes without ever writing to disk. *)
 test "mock append does not touch real filesystem" (fn t ->
-  let outcome = handle let () = FS.append! (Path.of_string "/dev/null") "data" in "done" with
-  | FS!append _ k -> k ()
-  | return s -> s in
+  let outcome =
+    handle let () = FS.append! (Path.of_string "/dev/null") "data" in "done" with
+    | FS!append _ k -> k ()
+    | return s -> s
+  in
   t.eq outcome "done")
 
 (* read_file/write_file perform bare `read_file`/`write_file` effects
@@ -150,20 +154,26 @@ test "mock append does not touch real filesystem" (fn t ->
    touching disk at all. *)
 
 test "mock read_file returns substituted content" (fn t ->
-  let outcome = handle FS.read_file! "/nonexistent" with
-  | FS!read_file _ k -> k "mocked content" in
+  let outcome =
+    handle FS.read_file! "/nonexistent" with
+    | FS!read_file _ k -> k "mocked content"
+  in
   t.eq outcome "mocked content")
 
 test "mock write_file resumes without touching disk" (fn t ->
-  let outcome = handle let () = FS.write_file! "/nonexistent" "data" in "done" with
-  | FS!write_file _ k -> k ()
-  | return s -> s in
+  let outcome =
+    handle let () = FS.write_file! "/nonexistent" "data" in "done" with
+    | FS!write_file _ k -> k ()
+    | return s -> s
+  in
   t.eq outcome "done")
 
 test "mock write_file can capture the path/content argument" (fn t ->
-  let outcome = handle let () = FS.write_file! "/tmp/foo.txt" "hello" in "wrote" with
-  | FS!write_file (path, _) k -> path ++ ": ok" ++ k ()
-  | return s -> s in
+  let outcome =
+    handle let () = FS.write_file! "/tmp/foo.txt" "hello" in "wrote" with
+    | FS!write_file (path, _) k -> path ++ ": ok" ++ k ()
+    | return s -> s
+  in
   t.eq outcome "/tmp/foo.txt: okwrote")
 
 (* ── Result payloads carry no source position ──────────────────────────── *)

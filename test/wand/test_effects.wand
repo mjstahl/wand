@@ -10,9 +10,11 @@ test "println returns unit" (fn t -> t.eq (let () = println "hi" in 99) 99)
 (* ── Sequencing ────────────────────────────────────────────────────────── *)
 
 test "newline sequences" (fn t ->
-  let outcome = handle let () = print "a" in let () = print "b" in print "c" with
-  | IO!print s k -> s ++ k ()
-  | return _ -> "" in
+  let outcome =
+    handle let () = print "a" in let () = print "b" in print "c" with
+    | IO!print s k -> s ++ k ()
+    | return _ -> ""
+  in
   t.eq outcome "abc")
 
 test "unit sequencing" (fn t -> t.eq (let () = print "x" in 42) 42)
@@ -20,46 +22,60 @@ test "unit sequencing" (fn t -> t.eq (let () = print "x" in 42) 42)
 (* ── Custom handlers ───────────────────────────────────────────────────── *)
 
 test "collect prints" (fn t ->
-  let outcome = handle let () = print "hello" in print " world" with
-  | IO!print s k -> s ++ k ()
-  | return _ -> "" in
+  let outcome =
+    handle let () = print "hello" in print " world" with
+    | IO!print s k -> s ++ k ()
+    | return _ -> ""
+  in
   t.eq outcome "hello world")
 
 test "count prints" (fn t ->
-  let outcome = handle let () = print "a" in let () = print "b" in print "c" with
-  | IO!print _ k -> 1 + k ()
-  | return _ -> 0 in
+  let outcome =
+    handle let () = print "a" in let () = print "b" in print "c" with
+    | IO!print _ k -> 1 + k ()
+    | return _ -> 0
+  in
   t.eq outcome 3)
 
 test "transform return value" (fn t ->
-  let outcome = handle 42 with
-  | return n -> n * 2 in
+  let outcome =
+    handle 42 with
+    | return n -> n * 2
+  in
   t.eq outcome 84)
 
 test "no effect cases needed" (fn t ->
-  let outcome = handle 10 + 5 with
-  | return n -> n in
+  let outcome =
+    handle 10 + 5 with
+    | return n -> n
+  in
   t.eq outcome 15)
 
 test "unhandled effect reaches default" (fn t ->
-  let outcome = handle let () = print "x" in 1 with
-  | return n -> n in
+  let outcome =
+    handle let () = print "x" in 1 with
+    | return n -> n
+  in
   t.eq outcome 1)
 
 (* ── Pattern matching on effect args ──────────────────────────────────── *)
 
 test "literal match on arg" (fn t ->
-  let outcome = handle let () = print "hello" in print "world" with
-  | IO!print "hello" k -> "H" ++ k ()
-  | IO!print s k -> s ++ k ()
-  | return _ -> "" in
+  let outcome =
+    handle let () = print "hello" in print "world" with
+    | IO!print "hello" k -> "H" ++ k ()
+    | IO!print s k -> s ++ k ()
+    | return _ -> ""
+  in
   t.eq outcome "Hworld")
 
 (* ── Process effect ────────────────────────────────────────────────────── *)
 
 test "mock process" (fn t ->
-  let outcome = handle $("echo real") with
-  | Shell!run _ k -> k "mocked" in
+  let outcome =
+    handle $("echo real") with
+    | Shell!run _ k -> k "mocked"
+  in
   t.eq outcome "mocked")
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)

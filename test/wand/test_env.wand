@@ -65,7 +65,13 @@ test "dotenv formats" (fn t ->
   let () = FS.write_file! (Path.to_string p) dotenv_fmt in
   let m = Env.read! p in
   t.eq
-    (Map.get! "KEY1" m, Map.get! "KEY2" m, Map.get! "KEY3" m, Map.get! "KEY4" m, Map.get! "KEY5" m)
+    (
+      Map.get! "KEY1" m,
+      Map.get! "KEY2" m,
+      Map.get! "KEY3" m,
+      Map.get! "KEY4" m,
+      Map.get! "KEY5" m
+    )
     ("hello", "quoted", "single", "exported", "has=equals"))
 
 test "load sets env var" (fn t ->

@@ -200,8 +200,8 @@ and emit_expr_inner indent e =
   | Match (scr, cases) -> emit_match indent scr cases
   | BinOp (op, a, b) -> emit_binop indent op a b
   | UnOp (op, e) -> op ^ emit_atom indent e
-  | Tuple es -> "(" ^ String.concat ", " (List.map (emit_expr indent) es) ^ ")"
-  | List es  -> "[" ^ String.concat ", " (List.map (emit_expr indent) es) ^ "]"
+  | Tuple es -> emit_sequence indent "(" ")" (List.map (emit_expr indent) es)
+  | List es  -> emit_sequence indent "[" "]" (List.map (emit_expr indent) es)
   | ConstrApp (name, kvs) ->
     let field (k, v) =
       (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
@@ -276,7 +276,8 @@ and emit_expr_inner indent e =
     else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
-    "[" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ emit_expr indent e) kvs) ^ "]"
+    emit_sequence indent "[" "]"
+      (List.map (fun (k, e) -> k ^ " = " ^ emit_expr (indent + 2) e) kvs)
 
 and emit_app indent e =
   let rec flatten e = match strip_located e with
@@ -343,6 +344,42 @@ and emit_field indent e l =
   in
   target ^ "." ^ l
 
+(* Items on one line while they fit, one per line when they do not. The
+   brackets carry the break rather than the items being aligned under the
+   opening one: alignment moves every line when the head changes, which
+   makes a diff of a formatted file larger than the edit that caused it. *)
+and emit_sequence indent opening closing items =
+  let oneline = opening ^ String.concat ", " items ^ closing in
+  if fits indent oneline then oneline
+  else
+    let inner = String.make (indent + 2) ' ' in
+    opening ^ "\n" ^ inner
+    ^ String.concat (",\n" ^ inner) items
+    ^ "\n" ^ String.make indent ' ' ^ closing
+
+(* A pipeline reads as a list of stages, so when it does not fit it breaks
+   into one stage per line with the operator leading -- which is where a
+   reader looks to see what happens next, and what makes the stages line up
+   under each other. *)
+and emit_pipeline indent a b =
+  let rec stages e =
+    match strip_located e with
+    | BinOp ("|>", l, r) -> stages l @ [r]
+    | other -> [other]
+  in
+  let all = stages (BinOp ("|>", a, b)) in
+  let piece e =
+    match strip_located e with
+    | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
+      | Let _ | LetRec _ | With _) as inner -> "(" ^ emit_expr indent inner ^ ")"
+    | _ -> emit_expr (indent + 2) e
+  in
+  match List.map piece all with
+  | [] -> ""
+  | first :: rest ->
+    let inner = String.make (indent + 2) ' ' in
+    first ^ String.concat "" (List.map (fun s -> "\n" ^ inner ^ "|> " ^ s) rest)
+
 and emit_binop indent op a b =
   let prec = bin_prec op in
   let assoc = if bin_right_assoc op then `Right else `Left in
@@ -361,7 +398,9 @@ and emit_binop indent op a b =
       | Let _ | LetRec _) as inner -> "(" ^ emit_expr indent inner ^ ")"
     | _ -> emit_expr indent e
   in
-  Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b)
+  let oneline = Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b) in
+  if op = "|>" && not (fits indent oneline) then emit_pipeline indent a b
+  else oneline
 
 (* If `body` is `Annot (te, real_body)` -- a return-type annotation on a
    function clause (`let f x : T = body`) -- return the ": T" to append to
@@ -416,10 +455,18 @@ and emit_let indent p e1 e2 =
   | _ ->
   let e1s = emit_expr indent e1 and e2s = emit_expr indent e2 in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
+  let ind = String.make indent ' ' in
   if fits indent oneline then oneline
   else
-    let ind = String.make indent ' ' in
-    Printf.sprintf "let %s = %s in\n%s%s" (emit_pat p) e1s ind e2s
+    (* Splitting after `in` is the first thing to try, but the binding alone
+       may still be too long -- and the value was rendered as though it began
+       at the margin, not after `let name = `. Given its own line it gets the
+       room the measurement assumed, and wraps on its own terms. *)
+    let bound = Printf.sprintf "let %s = %s in" (emit_pat p) e1s in
+    if fits indent bound then bound ^ "\n" ^ ind ^ e2s
+    else
+      Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
+        (emit_pat p) ind (emit_expr (indent + 2) e1) ind ind e2s
 
 and emit_letrec indent bindings e2 =
   let emit_binding kw (name, params, body) =

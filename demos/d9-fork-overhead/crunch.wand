@@ -15,9 +15,11 @@ let path =
 
 let tally acc line =
   match String.words line with
-  | [_ : level : component : _] -> let seen = match Map.get level acc with
-  | Some n -> n
-  | None -> 0 in
+  | [_ : level : component : _] -> let seen =
+    match Map.get level acc with
+    | Some n -> n
+    | None -> 0
+  in
   let acc = Map.set level (seen + 1) acc in
   if level == "ERROR" then Map.set "c:${component}" 1 acc else acc
   | _ -> acc
