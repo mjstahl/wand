@@ -50,6 +50,10 @@ type value =
       (* mutually-recursive function group; last string is which member
          this particular value represents *)
   | VBuiltin       of (value -> value)
+  (* A resource: how to acquire, and how to give back. A description, not
+     something already open -- which is what lets one be named, passed, and
+     used twice. `with` is the only thing that runs it. *)
+  | VResource      of value * value
 
 and env = (string * value) list
 
@@ -85,6 +89,7 @@ let rec show_value = function
      | Toml.Types.TArray _  -> "<toml-array>"
      | Toml.Types.TDate _   -> "<toml-date>")
   | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
+  | VResource _ -> "<resource>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
@@ -453,6 +458,20 @@ let rec eval (env : env) (e : expr) : value =
             | exn           -> raise exn);
           effc = fun (type a) (_ : a Effect.t) ->
             (None : ((a, value) Effect.Deep.continuation -> value) option) }
+  | With (resource, p, body) ->
+    (* Acquire, run, release -- and release however the body leaves: a
+       value, a raise, or a handler that answered without resuming and
+       unwound it. Fun.protect covers all three, the last because an
+       abandoned region is torn down deliberately rather than dropped. *)
+    (match eval env resource with
+     | VResource (acquire, release) ->
+       let held = apply acquire VUnit in
+       Fun.protect
+         ~finally:(fun () -> ignore (apply release held))
+         (fun () -> eval (bind_pat p held env) body)
+     | other ->
+       raise (EvalError (Printf.sprintf
+         "with expects a resource, got %s" (show_value other))))
   | Annot (_, e) -> eval env e
   | Located (loc, e) ->
     (try eval env e
@@ -1329,6 +1348,10 @@ let stdlib_eval_env : env = [
         VList (List.map (fun g -> VString (Re.Group.get g 0)) (Re.all re s))
       | _ -> raise (EvalError "regex_find_all: expected String"))
     | _ -> raise (EvalError "regex_find_all: expected Regex")));
+  (* Pair an acquire with a release. The only way to build a resource, and
+     the pair is built in one place so the two halves cannot drift apart. *)
+  ("resource_make", VBuiltin (fun acquire ->
+    VBuiltin (fun release -> VResource (acquire, release))));
   ("regex_compile", VBuiltin (function
     | VString pat ->
       (try VConstr ("Ok", [VRegex (Re.compile (Re.Pcre.re pat))])

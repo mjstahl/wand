@@ -539,6 +539,7 @@ and atom_base_ s =
     ) parts in
     Interp (parsed, tail)
   | Token.Handle -> parse_handle_ s
+  | Token.With   -> parse_with_ s
   | Token.Try    -> Ast.Try (expr_ 0 s)
   | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
       loc Token.pp t (keyword_hint t)))
@@ -797,6 +798,21 @@ and fn_ s =
   expect s Token.Arrow;
   let body_loc = peek_loc s in
   Fn (!params, Located (body_loc, parse_contract_body s))
+
+(* ── Resource bracket ─────────────────────────────────────────────────────── *)
+
+(* `with <resource> as <pat> -> <body>`. Unambiguous with `match ... with`,
+   which only ever reaches its `with` after a scrutinee, never at the start
+   of an expression. The resource expression stops at `as`, so it is parsed
+   at precedence 0 and the keyword terminates it. *)
+and parse_with_ s =
+  (* with already consumed *)
+  let resource = expr_ 0 s in
+  expect s Token.As;
+  let p = pat_ s in
+  expect s Token.Arrow;
+  let body = expr_ 0 s in
+  Ast.With (resource, p, body)
 
 (* ── Handle expression ────────────────────────────────────────────────────── *)
 

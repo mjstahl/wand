@@ -2,7 +2,7 @@ open Ast
 
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option"; "Par" ]
+    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -18,6 +18,11 @@ type typ =
   | TMap    of typ
   | TApp    of typ * typ  (* user-defined generic type application *)
   | TRegex
+  (* A resource: how to acquire an 'a and give it back, and what doing
+     either performs. The row is carried rather than hidden -- a bracket
+     that concealed its own effects would let a file take a lock and
+     report a signature that never mentions it. *)
+  | TResource of Effect_row.row * typ
   | TJson
   | TToml
   | TName of string
@@ -135,6 +140,7 @@ let rec collect_rowvars t =
   | TTuple ts   -> List.concat_map collect_rowvars ts
   | TList t     -> collect_rowvars t
   | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
+  | TResource (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
   | TMap t      -> collect_rowvars t
   | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
   | _           -> []
@@ -226,6 +232,12 @@ let string_of_typ t =
         | _ -> go x
       in
       "Result " ^ wrap e ^ " " ^ wrap t
+    | TResource (r, t) ->
+      let wrap x = match repr x with
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
+        | _ -> go x
+      in
+      "Resource " ^ Effect_row.string_of_row r ^ " " ^ wrap t
     | TMap t ->
       let s = match repr t with
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
@@ -250,6 +262,7 @@ let rec occurs (tv : tv) t =
   | TTuple ts   -> List.exists (occurs tv) ts
   | TList t     -> occurs tv t
   | TResult (e, t) -> occurs tv e || occurs tv t
+  | TResource (_, t) -> occurs tv t
   | TMap t      -> occurs tv t
   | TApp (f, a) -> occurs tv f || occurs tv a
   | _           -> false
@@ -284,6 +297,8 @@ let rec unify t1 t2 =
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
   | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
+  | TResource (r1, t1), TResource (r2, t2) ->
+    Effect_row.unify r1 r2; unify t1 t2
   | TMap t1,    TMap t2    -> unify t1 t2
   | TApp (f1, a1), TApp (f2, a2) -> unify f1 f2; unify a1 a2
   | t1, t2 ->
@@ -315,6 +330,7 @@ let rec free_tvars t =
   | TTuple ts   -> List.concat_map free_tvars ts
   | TList t     -> free_tvars t
   | TResult (e, t) -> free_tvars e @ free_tvars t
+  | TResource (_, t) -> free_tvars t
   | TMap t      -> free_tvars t
   | TApp (f, a) -> free_tvars f @ free_tvars a
   | _           -> []
@@ -326,6 +342,7 @@ let rec free_rowvars_typ t =
   | TTuple ts   -> List.concat_map free_rowvars_typ ts
   | TList t     -> free_rowvars_typ t
   | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
+  | TResource (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
   | TMap t      -> free_rowvars_typ t
   | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
   | _           -> []
@@ -380,6 +397,7 @@ let instantiate = function
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
+      | TResource (r, t) -> TResource (Effect_row.subst_row rsubst r, inst t)
       | TMap t      -> TMap (inst t)
       | TApp (f, a) -> TApp (inst f, inst a)
       | t           -> t
@@ -639,7 +657,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ ->
+  | TRegex | TJson | TToml | TFun _ | TResource _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
 let is_infinite_domain t =
@@ -648,7 +666,7 @@ let is_infinite_domain t =
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TApp _ -> true
+  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ -> true
   | _ -> false
 
 (* Does pattern p match constructor `name` (of the given arity)? Returns
@@ -1142,6 +1160,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let (t, row) = scoped_eff (fun () -> infer tenv env e) in
     performs (Effect_row.remove Effect_row.Raise row);
     TResult (TString, t)
+  | With (resource, p, body) ->
+    (* The resource says what acquiring and releasing perform; the bracket
+       performs all of it, plus whatever the body does. Nothing here is
+       discharged -- a bracket is not a handler, it just guarantees the
+       release runs -- so every row is folded into the enclosing scope and
+       a file that takes a lock says so in its signature. *)
+    let held = fresh () in
+    let row = Effect_row.fresh_row () in
+    unify (infer tenv env resource) (TResource (row, held));
+    performs row;
+    let env' = infer_pat tenv p held env in
+    infer tenv env' body
   | Annot (te, e) ->
     let t = type_of_te te in
     unify t (infer tenv env e);
@@ -1248,6 +1278,15 @@ let stdlib_type_env : env = [
   ("regex_replace_all", generalize [] ((TRegex @-> (TString @-> (TString @-> TString)))));
   ("regex_split",       generalize [] ((TRegex @-> (TString @-> TList TString))));
   ("regex_find_all",    generalize [] ((TRegex @-> (TString @-> TList TString))));
+  ("resource_make",
+   (* Acquire and release share one row: a resource performs what either of
+      them performs, and `with` folds that into its caller. *)
+   let a = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TFun (TUnit, a, e),
+            TFun (TFun (a, TUnit, e), TResource (e, a), Effect_row.pure),
+            Effect_row.pure)));
   ("regex_compile",     generalize [] ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
@@ -1437,6 +1476,8 @@ let rec labels_of_typ t =
       Effect_row.EffSet.union acc (labels_of_typ t)) Effect_row.EffSet.empty ts
   | TList t | TMap t -> labels_of_typ t
   | TResult (e, t) -> Effect_row.EffSet.union (labels_of_typ e) (labels_of_typ t)
+  | TResource (r, t) ->
+    Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
   | TApp (f, a) -> Effect_row.EffSet.union (labels_of_typ f) (labels_of_typ a)
   | _ -> Effect_row.EffSet.empty
 

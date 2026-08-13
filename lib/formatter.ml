@@ -150,7 +150,8 @@ let bin_prec = function
 let bin_right_assoc = function ":" -> true | _ -> false
 
 let is_control_expr e = match strip_located e with
-  | Let _ | LetRec _ | If _ | Match _ | Fn _ | Handle _ | Try _ | Contract _ -> true
+  | Let _ | LetRec _ | If _ | Match _ | Fn _ | Handle _ | Try _ | Contract _
+  | With _ -> true
   | _ -> false
 
 let is_binop_or_unop e = match strip_located e with
@@ -264,6 +265,15 @@ and emit_expr_inner indent e =
     ^ String.make indent ' ' ^ String.concat ("\n" ^ String.make indent ' ')
         (List.map emit_arm arms)
   | Try e -> "try " ^ emit_expr indent e
+  (* The body stays at the bracket's own indentation rather than stepping in.
+     Brackets nest -- a temp dir holding a lock holding a directory change --
+     and indenting each one would push the actual work off the page for
+     something that reads as a preamble, not as nesting. *)
+  | With (r, p, body) ->
+    let head = Printf.sprintf "with %s as %s ->" (emit_expr indent r) (emit_pat p) in
+    let one_line = head ^ " " ^ emit_expr indent body in
+    if fits indent one_line then one_line
+    else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
     "[" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ emit_expr indent e) kvs) ^ "]"

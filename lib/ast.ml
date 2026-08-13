@@ -80,6 +80,10 @@ type expr =
   | Interp   of (string * expr) list * string
   | Handle   of expr * handle_arm list
   | Try      of expr
+  (* `with r as p -> body`: acquire, bind, run, release. The resource is a
+     description of how to get and give back, so it is an ordinary
+     expression here rather than something already open. *)
+  | With     of expr * pat * expr
   | Annot    of type_expr * expr
   | MapLit   of (string * expr) list
 
@@ -197,6 +201,8 @@ let rec show : expr -> string = function
     let es = String.concat " " (List.map (clause "ensures") ens) in
     Printf.sprintf "(contract %s %s %s)" rs es (show body)
   | Try e -> Printf.sprintf "(try %s)" (show e)
+  | With (r, p, b) ->
+    Printf.sprintf "(with %s as %s -> %s)" (show r) (show_pat p) (show b)
   | Annot (_, e) -> show e
   | MapLit kvs ->
     "[" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ show e) kvs) ^ "]"

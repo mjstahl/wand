@@ -46,6 +46,7 @@ type t =
   | Instance
   | Orphan
   | When
+  | As                 (* as — binds the value a `with` acquires *)
   | And                (* and — keyword, not && *)
   | Or                 (* or — keyword, not || *)
   | Handle             (* handle *)
@@ -133,6 +134,7 @@ let pp ppf tok =
     | Do         -> "do"     | End        -> "end"
     | Class      -> "class"  | Instance   -> "instance"
     | Orphan     -> "orphan" | When       -> "when"
+    | As         -> "as"
     | And        -> "and"   | Or         -> "or"
     | Handle     -> "handle" | Return    -> "return"  | Try    -> "try"
     | Eq         -> "="      | Arrow      -> "->"

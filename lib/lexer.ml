@@ -49,6 +49,7 @@ let keyword_or_ident word = match word with
   | "end"      -> End      | "class"    -> Class
   | "instance" -> Instance | "orphan"   -> Orphan
   | "when"     -> When     | "and"      -> And
+  | "as"       -> As
   | "or"       -> Or       | "handle"   -> Handle
   | "return"   -> Return   | "try"      -> Try
   | "true"     -> Bool true
