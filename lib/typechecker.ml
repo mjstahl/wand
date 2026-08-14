@@ -1,9 +1,15 @@
 open Ast
 
+(* Every module under `stdlib/`. The list drives three things that must agree
+   with what is on disk: which names `wand d` will import to answer about,
+   which ones `wand env` lists, and which unknown name gets "did you forget
+   to import" instead of "unknown constructor". A module missing from here
+   still imports and runs -- it just becomes invisible to the tools, which is
+   how `Test` went a long time with unreachable doc strings. *)
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
     "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode";
-    "Shell" ]
+    "Shell"; "Test" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 

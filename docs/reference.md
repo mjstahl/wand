@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Option](#option)
+  - [List](#list) · [Resource](#resource) · [Proc](#proc) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Path](#path) · [IO](#io) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Option](#option) · [Test](#testing)
 - [Testing](#testing)
 - [Comments](#comments)
 - [REPL and CLI](#repl-and-cli)
@@ -1804,6 +1804,12 @@ JSON.decode : Decoder 'a -> JSON -> Result String 'a
 ```
 
 See [Decoders](#decoders).
+
+### `Test`
+
+`test`, `with_shell`, `shell_calls`, `without_writes`, `writes`
+
+The module a test file imports. See [Testing](#testing).
 
 ### `Option`
 

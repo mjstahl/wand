@@ -617,6 +617,10 @@ silently stops, look here first.
 - `ROADMAP.md` still says "arm" where everything else now says "case". Left
   alone: it is the original review, and rewriting its prose would misreport
   what it said.
+- The formatter's margin note above said two lines in the corpus exceed it;
+  it is now nine. Most are string literals that cannot be broken, which is
+  the documented limitation. One is code -- `test/wand/test_derive.wand:168`,
+  135 columns -- and that one is the width bug itself.
 
 ## Risks
 

@@ -182,6 +182,32 @@ let test_a_script_cannot_call_builtins () =
    up; an ID the reference cites that no longer exists sends them looking for
    something gone. Both directions are checked, because prose and enforcement
    drifting apart is exactly what rule IDs exist to prevent. *)
+(* ── The stdlib the tools know about ─────────────────────────────────────── *)
+
+(* `stdlib_module_names` drives which modules `wand d` will import to answer
+   about, which `wand env` lists, and which unknown name gets "did you forget
+   to import". A module on disk but missing from the list still imports and
+   runs -- it just goes invisible to the tools. `Test` sat that way with
+   unreachable doc strings until someone asked `wand d` about it. *)
+let test_every_stdlib_module_is_listed () =
+  let dir = "../stdlib" in
+  if not (Sys.file_exists dir) then
+    Alcotest.failf "stdlib not found at %s (relative to test sandbox)" dir;
+  let on_disk =
+    Sys.readdir dir
+    |> Array.to_list
+    |> List.filter_map (fun f ->
+         if Filename.check_suffix f ".wand" then Some (Filename.remove_extension f) else None)
+    |> List.sort compare
+  in
+  let listed = List.sort compare Wand.Typechecker.stdlib_module_names in
+  let missing = List.filter (fun m -> not (List.mem m listed)) on_disk in
+  let extra   = List.filter (fun m -> not (List.mem m on_disk)) listed in
+  if missing <> [] then
+    Alcotest.failf "on disk but not in stdlib_module_names: %s" (String.concat ", " missing);
+  if extra <> [] then
+    Alcotest.failf "in stdlib_module_names but not on disk: %s" (String.concat ", " extra)
+
 let reference_path = "../docs/reference.md"
 
 let reference_text () =
@@ -247,5 +273,8 @@ let () =
     "reference", [
       Alcotest.test_case "documents every rule" `Quick test_every_rule_is_documented;
       Alcotest.test_case "cites only real rules" `Quick test_every_documented_id_exists;
+    ];
+    "module list", [
+      Alcotest.test_case "matches the stdlib directory" `Quick test_every_stdlib_module_is_listed;
     ];
   ]
