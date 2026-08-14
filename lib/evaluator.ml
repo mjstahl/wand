@@ -977,9 +977,10 @@ let try_lex_single s =
 
 (* `String.to_<domain>`: read the string exactly as the lexer would, and pass
    on what the lexer said when it had something specific to say. *)
-let to_domain name build s =
+let to_domain ?shown name build s =
+  let shown = Option.value shown ~default:s in
   let cannot () =
-    VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as %s" s name)])
+    VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as %s" shown name)])
   in
   match lex_single s with
   | Ok tok -> (match build tok with Some v -> VConstr ("Ok", [v]) | None -> cannot ())
@@ -1368,24 +1369,14 @@ let stdlib_eval_env : env = [
   ("str_to_cidr", VBuiltin (function
     | VString s -> to_domain "CIDR" (function Token.CIDR v -> Some (VCIDR v) | _ -> None) s
     | _ -> raise (EvalError "str_to_cidr: expected String")));
-  (* `String.to_port` reads wand's own notation, so it wants the colon --
-     as `to_duration` wants "30s". When the string is not one, the lexer
-     still knows more than "no": asked about the colon-prefixed form, it can
-     tell an out-of-range number from one that is only missing its colon, and
-     the answer says which. *)
+  (* Both spellings read: `:8080` is wand's own notation, and the bare number
+     is what an environment variable, a config file or a flag holds. A caller
+     that has just read one should not have to add a colon to it, and
+     `Decode.port` accepts both for the same reason. *)
   ("str_to_port", VBuiltin (function
     | VString s ->
-      let err msg = VConstr ("Error", [VString msg]) in
-      (match lex_single s with
-       | Ok (Token.Port n) -> VConstr ("Ok", [VPort n])
-       | _ ->
-         (match lex_single (port_text s) with
-          | Error (Some why) -> err why
-          | Ok (Token.Port _) ->
-            err (Printf.sprintf
-              "cannot parse %S as Port: a port is written with a leading colon, as %s"
-              s (port_text s))
-          | _ -> err (Printf.sprintf "cannot parse %S as Port" s)))
+      to_domain ~shown:s "Port"
+        (function Token.Port v -> Some (VPort v) | _ -> None) (port_text s)
     | _ -> raise (EvalError "str_to_port: expected String")));
   ("str_to_version", VBuiltin (function
     | VString s -> to_domain "Version" (function Token.Version v -> Some (VVersion v) | _ -> None) s

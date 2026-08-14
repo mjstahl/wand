@@ -132,12 +132,15 @@ test "to_port ok" (fn t ->
   match String.to_port ":8080" with
   | Ok _ -> t.ok true
   | Error _ -> t.ok false)
-(* `to_port` reads wand's own notation, so a bare number is not one -- and
-   the error says so, rather than leaving the caller to guess at the rule. *)
+(* Both spellings read: `:8080` is wand's own notation, and the bare number
+   is what an environment variable or a config file holds. *)
+test "to_port takes the bare number too" (fn t ->
+  t.eq (String.to_port "8080") (String.to_port ":8080"))
+
 test "to_port err" (fn t ->
-  match String.to_port "8080" with
+  match String.to_port "http" with
   | Ok _ -> t.ok false
-  | Error msg -> t.eq msg "cannot parse \"8080\" as Port: a port is written with a leading colon, as :8080")
+  | Error msg -> t.eq msg "cannot parse \"http\" as Port")
 
 test "to_port out of range says which rule was broken" (fn t ->
   match String.to_port ":99999" with

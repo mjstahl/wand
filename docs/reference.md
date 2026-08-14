@@ -972,7 +972,8 @@ than only the refusal:
 ```
 
 That sentence comes from the lexer, which is the only place that knows it.
-`String.to_port` and `String.to_ipv4` report it the same way.
+`String.to_port` and `String.to_ipv4` report it the same way, and
+`String.to_port` accepts the same two spellings.
 
 ### Text is read, never written
 
@@ -1387,6 +1388,19 @@ written there.)
 `repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
 `to_float`, `to_bool`, `to_path`, `to_url`, `to_ipv4`, `to_cidr`, `to_port`,
 `to_version`, `to_size`, `to_date`, `to_time`, `to_datetime`, `to_duration`
+
+Each reads the value as it would be written in a script, and returns a
+`Result` naming the rule that was broken:
+
+```
+String.to_duration "30s"      -- Ok 30s
+String.to_ipv4 "256.0.0.1"    -- Error (invalid IPv4 address: each octet must be 0–255)
+String.to_port ":99999"       -- Error (invalid port :99999: must be 0-65535)
+```
+
+`to_port` also takes the bare number — `"8080"` and `":8080"` both read —
+since that is what an environment variable, a config file or a flag holds,
+and `Decode.port` accepts both for the same reason.
 
 ### `Regex`
 
