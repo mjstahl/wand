@@ -1,6 +1,7 @@
 uses {FS.Read, FS.Write}
 
 let [test] = import Test
+import Decode
 import JSON
 import List
 import Map
@@ -186,12 +187,10 @@ test "a key that is not an identifier is written quoted" (fn t ->
     (JSON.stringify
       (JSON.of_map ["content-type" = JSON.of_string "json", "@type" = JSON.of_int 1])))
 
-(* A Map can hold a key twice -- `[a = 1, a = 9]` has two entries and
-   `Map.get` finds the first. Only the one that can be read back is written,
-   since a document naming a key twice is read differently by different
-   parsers. *)
-test "a repeated key is written once, as the one Map.get would find" (fn t ->
-  t.eq "{\"a\":1}" (JSON.stringify (JSON.of_map [a = JSON.of_int 1, a = JSON.of_int 9])))
+(* Nothing to guard against here: a Map holds a key once, so a repeat was
+   resolved before it reached the writer. *)
+test "a repeated key was already resolved by the Map" (fn t ->
+  t.eq "{\"a\":9}" (JSON.stringify (JSON.of_map [a = JSON.of_int 1, a = JSON.of_int 9])))
 
 test "an empty Map is an empty object" (fn t ->
   t.eq "{}" (JSON.stringify (JSON.of_map Map.empty)))
@@ -208,3 +207,25 @@ test "and what was read can be written back" (fn t ->
   match JSON.get_object (JSON.parse! doc) with
   | Ok m -> t.eq doc (JSON.stringify (JSON.of_map m))
   | Error why -> t.eq doc why)
+
+(* A document may name a key twice even though a Map cannot hold one twice.
+   Every reader here takes the later one -- which is what the parsers
+   everywhere else do -- so no two readers of the same document in the same
+   program can disagree about it. *)
+test "a document that names a key twice reads the later one, whichever way it is read" (fn t ->
+  let doc = JSON.parse! "{\"a\": 1, \"a\": 9}" in
+  let via_field =
+    match JSON.field "a" doc with
+    | Ok v -> JSON.get_int v
+    | Error why -> Error why
+  in
+  let via_object =
+    match JSON.get_object doc with
+    | Ok m -> (match Map.get "a" m with
+    | Some v -> JSON.get_int v
+    | None -> Error "missing")
+    | Error why -> Error why
+  in
+  t.eq
+    (Ok 9, Ok 9, Ok 9)
+    (via_field, via_object, JSON.decode (Decode.field "a" Decode.int) doc))

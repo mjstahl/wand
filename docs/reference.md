@@ -417,6 +417,21 @@ most keys a document from elsewhere contains:
 
 Quoted keys work in patterns too: `| ["content-type" = v] -> v`.
 
+A key is held once. Give one twice and the last value wins, in the place the
+key first appeared — what an assignment means, and what keeps a document
+written back out in the order it came in:
+
+```
+[a = 1, b = 2, a = 9]        -- [a = 9, b = 2]
+Map.set "b" 99 [a = 1, b = 2, c = 3]   -- [a = 1, b = 99, c = 3]
+Map.merge [a = 1, b = 2] [b = 9]       -- [a = 1, b = 9]
+```
+
+A JSON document *can* name a key twice, even though a `Map` cannot hold one
+twice. Every reader takes the later one — `JSON.field`, `Decode.field`, and
+the `Map` that `JSON.get_object` gives back — so two readers of the same
+document in one program cannot disagree about it.
+
 Using the `Map` module:
 
 ```

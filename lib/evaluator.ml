@@ -18,6 +18,36 @@ let derivable :
   (string, string * string list * (string option * type_expr) list) Hashtbl.t =
   Hashtbl.create 16
 
+(* A Map holds a key once.
+
+   Two entries with one key means one of them is unreachable: `Map.get` finds
+   a single value, while `size`, `keys` and any fold see both. A document
+   read in, edited and written back would carry the ghost along.
+
+   The rule is the one an assignment already implies: the last value given
+   wins, and it sits where the key first appeared. Position matters because
+   a Map is written back out in the order it holds -- a config that reorders
+   itself on every edit makes a diff nobody can read. *)
+let map_put kvs key v =
+  let rec go seen = function
+    | [] -> if seen then [] else [(key, v)]
+    | (k, _) :: rest when String.equal k key ->
+      if seen then go seen rest else (key, v) :: go true rest
+    | pair :: rest -> pair :: go seen rest
+  in
+  go false kvs
+
+let map_of_pairs pairs = List.fold_left (fun acc (k, v) -> map_put acc k v) [] pairs
+
+(* Reading a key out of a document that names it twice. The later one, for
+   the same reason a Map keeps the later value: it is what an assignment
+   means, and it is what the parsers everything else in the world uses do.
+   Every reader here agrees on it -- `JSON.field`, a decoder, and the Map
+   `get_object` hands back -- so a document cannot say different things to
+   two readers of the same program. *)
+let assoc_last key kvs =
+  List.fold_left (fun found (k, v) -> if String.equal k key then Some v else found) None kvs
+
 let find_field_index names label =
   let rec go i = function
     | [] -> None
@@ -440,7 +470,7 @@ let rec eval (env : env) (e : expr) : value =
        ) field_names in
        VConstr (name, ordered))
   | MapLit kvs ->
-    VMap (List.map (fun (k, e) -> (k, eval env e)) kvs)
+    VMap (map_of_pairs (List.map (fun (k, e) -> (k, eval env e)) kvs))
   | Field (e, label) ->
     (* A type's derived decoder: `Pod.decoder`. Resolved from the type's own
        definition rather than bound as a value, so it costs nothing until it
@@ -1872,17 +1902,10 @@ let stdlib_eval_env : env = [
      back is the only answer that round-trips. *)
   ("json_of_map",    VBuiltin (function
     | VMap kvs ->
-      let rec go seen acc = function
-        | [] -> VJson (`Assoc (List.rev acc))
-        | (k, v) :: rest ->
-          let j = match v with
-            | VJson j -> j
-            | _ -> raise (EvalError "json_of_map: values must be JSON")
-          in
-          if List.mem k seen then go seen acc rest
-          else go (k :: seen) ((k, j) :: acc) rest
-      in
-      go [] [] kvs
+      (* A Map holds a key once, so what comes out names each key once too. *)
+      VJson (`Assoc (List.map (fun (k, v) -> match v with
+        | VJson j -> (k, j)
+        | _ -> raise (EvalError "json_of_map: values must be JSON")) kvs))
     | _ -> raise (EvalError "json_of_map: expected Map")));
   ("json_is_null",   VBuiltin (function VJson `Null -> VBool true | VJson _ -> VBool false | _ -> raise (EvalError "json_is_null: expected JSON")));
   ("json_get_bool",  VBuiltin (function
@@ -1907,14 +1930,15 @@ let stdlib_eval_env : env = [
     | VJson j -> VConstr ("Error", [VString ("expected array, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_array: expected JSON")));
   ("json_get_object", VBuiltin (function
-    | VJson (`Assoc kvs) -> VConstr ("Ok", [VMap (List.map (fun (k, j) -> (k, VJson j)) kvs)])
+    | VJson (`Assoc kvs) ->
+      VConstr ("Ok", [VMap (map_of_pairs (List.map (fun (k, j) -> (k, VJson j)) kvs))])
     | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_object: expected JSON")));
   ("json_field", VBuiltin (fun key ->
     VBuiltin (function
       | VJson (`Assoc kvs) ->
         let k = (match key with VString s -> s | _ -> raise (EvalError "json_field: key must be String")) in
-        (match List.assoc_opt k kvs with
+        (match assoc_last k kvs with
          | Some j -> VConstr ("Ok", [VJson j])
          | None   -> VConstr ("Error", [VString ("no field: " ^ k)]))
       | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
@@ -1933,7 +1957,7 @@ let stdlib_eval_env : env = [
     VBuiltin (function
       | VJson (`Assoc kvs) ->
         let k = (match key with VString s -> s | _ -> raise (EvalError "json_field_exn: key must be String")) in
-        (match List.assoc_opt k kvs with
+        (match assoc_last k kvs with
          | Some j -> VJson j
          | None   -> raise (EvalError ("json_field_exn: no field: " ^ k)))
       | VJson j -> raise (EvalError ("json_field_exn: expected object, got " ^ Yojson.Basic.to_string j))
@@ -2162,9 +2186,7 @@ let map_builtins : env = [
     | _ -> raise (EvalError "map_get!: expected String key")));
   ("map_set", VBuiltin (function
     | VString key -> VBuiltin (fun v -> VBuiltin (function
-      | VMap kvs ->
-        let kvs' = List.filter (fun (k, _) -> k <> key) kvs in
-        VMap ((key, v) :: kvs')
+      | VMap kvs -> VMap (map_put kvs key v)
       | _ -> raise (EvalError "map_set: expected Map")))
     | _ -> raise (EvalError "map_set: expected String key")));
   ("map_delete", VBuiltin (function
@@ -2195,14 +2217,15 @@ let map_builtins : env = [
         | VTuple [VString k; v] -> (k, v)
         | _ -> raise (EvalError "map_from_list: expected list of (String, value) tuples")) pairs
       in
-      VMap kvs
+      VMap (map_of_pairs kvs)
     | _ -> raise (EvalError "map_from_list: expected List")));
   ("map_merge", VBuiltin (function
     | VMap a -> VBuiltin (function
       | VMap b ->
-        let keys_b = List.map fst b in
-        let a' = List.filter (fun (k, _) -> not (List.mem k keys_b)) a in
-        VMap (b @ a')
+        (* The right-hand value wins, and a key already on the left keeps its
+           place there -- merging a change into a document should not shuffle
+           the document. *)
+        VMap (List.fold_left (fun acc (k, v) -> map_put acc k v) a b)
       | _ -> raise (EvalError "map_merge: expected Map"))
     | _ -> raise (EvalError "map_merge: expected Map")));
   ("map_map", VBuiltin (function
@@ -2300,7 +2323,7 @@ let rec decoder_of_type_expr venv (te : type_expr) :
       match j with
       | `Assoc kvs ->
         let rec go acc = function
-          | [] -> Ok (VMap (List.rev acc))
+          | [] -> Ok (VMap (map_of_pairs (List.rev acc)))
           | (k, v) :: rest ->
             (match elem v (("." ^ k) :: path) with
              | Ok x      -> go ((k, x) :: acc) rest
@@ -2354,7 +2377,7 @@ and read_field venv key te j path =
   match te with
   | TEApp (TEName "Option", inner) ->
     let d = decoder_of_type_expr venv inner in
-    (match List.assoc_opt key kvs with
+    (match assoc_last key kvs with
      | None | Some `Null -> Ok (VConstr ("None", []))
      | Some v ->
        (match d v (("." ^ key) :: path) with
@@ -2363,7 +2386,7 @@ and read_field venv key te j path =
   | _ ->
     let d = decoder_of_type_expr venv te in
     let here = ("." ^ key) :: path in
-    (match List.assoc_opt key kvs with
+    (match assoc_last key kvs with
      | Some v -> d v here
      | None   -> decode_error here "no such field")
 
@@ -2553,7 +2576,7 @@ let decode_builtins : env = [
         match j with
         | `Assoc kvs ->
           let here = ("." ^ key) :: path in
-          (match List.assoc_opt key kvs with
+          (match assoc_last key kvs with
            | Some v -> inner v here
            | None   -> decode_error here "no such field")
         | _ -> expected "an object" path j))
@@ -2571,7 +2594,7 @@ let decode_builtins : env = [
       VDecoder (fun j path ->
         match j with
         | `Assoc kvs ->
-          (match List.assoc_opt key kvs with
+          (match assoc_last key kvs with
            | None | Some `Null -> Ok (VConstr ("None", []))
            | Some v ->
              (match inner v (("." ^ key) :: path) with
@@ -2589,7 +2612,7 @@ let decode_builtins : env = [
       match j with
       | `Assoc kvs ->
         let rec go acc = function
-          | [] -> Ok (VMap (List.rev acc))
+          | [] -> Ok (VMap (map_of_pairs (List.rev acc)))
           | (k, v) :: rest ->
             (match inner v (("." ^ k) :: path) with
              | Ok x      -> go ((k, x) :: acc) rest

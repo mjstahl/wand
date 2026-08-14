@@ -427,12 +427,28 @@ every `.wand` file here is formatted. The formatter now quotes a key that is
 not an identifier -- quoting is always correct, and bare is only an economy
 for the keys that can afford it.
 
-**One real bug survived the correction.** `of_map` wrote a repeated key
-twice -- `{"a":1,"a":9}` -- which different parsers read differently. It now
-writes the first, which is the one `Map.get` finds and the one wand would
-read back. Note where the duplicate comes from, though: a `Map` itself holds
-both. `[a = 1, a = 9]` has size 2 and an entry nothing can reach. That is a
-`Map` question, not a JSON one, and it is still open.
+**One real bug survived the correction, and it was not JSON's.** `of_map`
+wrote a repeated key twice -- but the repeat came from the `Map`, which held
+both: `[a = 1, a = 9]` had size 2, keys `[a, a]`, and one entry nothing could
+reach.
+
+**Settled: a Map holds a key once.** The last value given wins, in the place
+the key first appeared. Last, because that is what an assignment means and
+what every other language's literal does. First position, because a Map is
+written back out in the order it holds, and a config that reorders itself on
+every edit makes a diff nobody can read -- which `Map.set` was doing, moving
+the key it touched to the front.
+
+The rule went in at every door: the map literal, `from_list`, `set`, `merge`,
+`JSON.get_object`, `Decode.dict`, and a derived decoder's `Map` field. With
+it, `of_map` needs no guard of its own.
+
+**And the readers had to agree.** A document may name a key twice even though
+a Map cannot hold one twice, so `JSON.field`, `Decode.field` and the Map from
+`get_object` each had to answer the same. They take the later one, as the
+parsers everywhere else do. They did not before: `JSON.field` gave the first
+while `get_object` gave the last, so one document could say two different
+things to one program.
 
 ## P3.5 — D7 and `else ()`
 
