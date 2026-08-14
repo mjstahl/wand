@@ -606,7 +606,10 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
   | Variants (_, params, [ctor]) ->
     if ctor.fields = [] then Error "it has no fields"
     else if List.exists (fun (n, _) -> n = None) ctor.fields then
-      Error "its fields are positional, and a document is read by field name"
+      (* "fields" in wand means named fields -- a constructor's positional
+         payload is not one, which is exactly why it cannot be derived. Say
+         payload, so the message does not teach the wrong word. *)
+      Error "its payload has no field names, and a document is read by name"
     else
       List.fold_left (fun acc (fname, te) ->
         match acc with

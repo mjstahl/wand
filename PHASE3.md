@@ -314,8 +314,16 @@ fixed:
 *Accept:* ~~a field added to the type appears in the decoder with no other
 edit~~ done; ~~a type that is not single-constructor named-field gets no
 `decoder` binding and a clear error if one is named~~ done -- five shapes,
-each saying which one it is (`it has more than one constructor`, `its fields
-are positional`, `it is generic`, `field 'm' cannot be read: ...`).
+each saying which one it is (`it has more than one constructor`, `its payload
+has no field names`, `field 'm' cannot be read: ...`).
+
+A note on the vocabulary, since two things sound alike: the language has no
+positional *construction* of a named-field type -- `Point (1, 2)` where
+`Point` declares `x` and `y` was cut in the roadmap's §5.4. A positional
+*constructor* is a different thing and is alive and well: `type Shape =
+Circle Float | Square Float` is ordinary. What derivation refuses is the
+second -- a payload with no field names has nothing for a document to be
+read by.
 
 ### What derivation does not do, and what each piece would cost
 

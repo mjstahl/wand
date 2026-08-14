@@ -167,9 +167,13 @@ let test_underivable_types_say_why () =
   err_contains "several constructors"
     "type Shape = Circle Int | Rect Int Int\nlet d = Shape.decoder"
     "type 'Shape' has no derived decoder: it has more than one constructor";
-  err_contains "positional fields"
+  (* A constructor's positional payload, which is a different thing from the
+     positional *construction* of a named-field type that the language does
+     not have -- `Wrap Int` is fine to write, it just has nothing to read a
+     document by. *)
+  err_contains "a positional payload"
     "type Wrap = Wrap Int\nlet d = Wrap.decoder"
-    "its fields are positional";
+    "its payload has no field names";
   err_contains "a type variable the type does not declare"
     "type Bad = Bad(v: 'a)\nlet d = Bad.decoder"
     "not declared as a parameter";
