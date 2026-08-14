@@ -370,6 +370,54 @@ Then `else ()`, if there is room.
 
 *Accept:* D7's contrast lands in a terminal recording.
 
+## P3.6 — Dictionaries, nulls, and the other direction
+
+Three gaps found by asking what a decoder still cannot read. The first two
+are P3.3's combinator set being one short in each direction; the third is a
+whole direction missing. All three have call sites that cannot be written
+without them, which is the bar the budget sets.
+
+**`Decode.dict : Decoder 'a -> Decoder (Map 'a)`.** A JSON object whose keys
+are data rather than field names -- a label map, per-host counts, anything
+keyed by a name the program does not know in advance -- cannot be decoded at
+all today, by derivation or by hand. That is why a `Map` field is refused,
+and the refusal is currently the truth about the whole layer rather than
+about derivation. Keys become the `Map`'s keys and every value is read with
+the same decoder; a failure names the key it was under, as a field would.
+This also makes a `Map 'a` field derivable, which removes one of the five
+rejection messages.
+
+**`Decode.nullable : Decoder 'a -> Decoder (Option 'a)`.** `optional` is
+field-level on purpose -- absence is a property of a lookup, and deciding it
+there is what tells a missing field from a wrong one. But a *value* may be
+null where no field lookup is involved: `[1, null, 3]` into
+`List (Option Int)` cannot be expressed. `nullable` is the value-level
+sibling, and the two are not redundant: `optional` answers "the field may not
+be there", `nullable` answers "the value may be null". A field of type
+`Option T` keeps mapping to `optional`, which already treats a null as
+absence, so nothing about derivation changes.
+
+**Encoders.** Nothing writes a value back out. A script that reads a config,
+changes one thing and writes it again -- which is most of what a script does
+with a config -- has a typed read and an untyped write, and the asymmetry is
+the sharpest practical limit in the layer.
+
+*Open, and to be settled before writing any of it:* whether an encoder is an
+abstract `Encoder 'a` or simply a function `'a -> JSON`. Decoding earns its
+type from composition and from having somewhere to put a failure; encoding
+cannot fail, so the type may be buying nothing, and `Pod.encoder : Pod ->
+JSON` with `JSON.stringify` after it would add no new construct at all.
+Settle that first -- it decides whether this is a tranche or an afternoon.
+Whichever way it goes, `T.encoder` derives from the same field list
+`T.decoder` already reads, which is what makes it cheap; and the round trip
+(`decode` then `encode` returning the document it started from) is the test
+that says it works.
+
+*Accept:* an object with dynamic keys decodes into a `Map`, naming the key
+that failed; `[1, null, 3]` decodes as `List (Option Int)`; a config read,
+changed and written back comes out as the same document it went in as, but
+for the change.
+
 ---
 
 ## Picking this up
@@ -417,7 +465,11 @@ silently stops, look here first.
   argued above.
 - Derivation covers the flat record and nothing else. What is missing,
   what the eager alternative would cost, and why generics is the piece to
-  pick up first are recorded under P3.4.
+  pick up first are recorded under P3.4. Three of those gaps -- dictionaries,
+  null values, and encoders -- are now P3.6 rather than open questions.
+  Eager construction buys no decoding power at all: it is the same feature
+  built the expensive way, and that is worth remembering before someone
+  reaches for it.
 - `ROADMAP.md` still says "arm" where everything else now says "case". Left
   alone: it is the original review, and rewriting its prose would misreport
   what it said.
@@ -436,3 +488,4 @@ silently stops, look here first.
 3. ~~One decoder replaces the four scrapes in `examples/repo-status.wand`~~ **done**, with the caveat recorded under P3.3.
 4. ~~A single-constructor named-field type gets its decoder for free~~ **done**.
 5. D7 and D8 land as runnable, offline demos.
+6. An object with dynamic keys, a null value, and the write direction all have an answer (P3.6).
