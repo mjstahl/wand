@@ -222,13 +222,34 @@ test "the remaining domain literals" (fn t ->
     )
     (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8))
 
-(* A port is `:8080` in a script and a bare number in a document. *)
-test "a port reads as a number or as text" (fn t ->
-  let doc = JSON.parse! "{\"a\": 8080, \"b\": \"8080\", \"c\": 99999}" in
+(* A port is `:8080` in a script and usually a bare number in a document.
+   Every form goes through the lexer, so a decoder accepts exactly what could
+   have been written in the source -- and nothing it would have rejected. *)
+test "a port reads however it was written" (fn t ->
+  let doc =
+    JSON.parse! "{\"a\": 8080, \"b\": \"8080\", \"c\": \":8080\", \"d\": \" :8080 \"}"
+  in
+  t.eq
+    (
+      JSON.decode (Decode.field "a" Decode.port) doc,
+      JSON.decode (Decode.field "b" Decode.port) doc,
+      JSON.decode (Decode.field "c" Decode.port) doc,
+      JSON.decode (Decode.field "d" Decode.port) doc
+    )
+    (Ok :8080, Ok :8080, Ok :8080, Ok :8080))
+
+(* The number and the text are read by one rule, so they cannot disagree
+   about the same port. *)
+test "and what is not a port is not a port, written either way" (fn t ->
+  let doc = JSON.parse! "{\"a\": -1, \"b\": \":-1\", \"c\": \"http\"}" in
   t.eq
     (
       JSON.decode (Decode.field "a" Decode.port) doc,
       JSON.decode (Decode.field "b" Decode.port) doc,
       JSON.decode (Decode.field "c" Decode.port) doc
     )
-    (Ok :8080, Ok :8080, Error ".c: expected Port, got Int"))
+    (
+      Error ".a: expected Port, got Int",
+      Error ".b: expected Port, got \":-1\"",
+      Error ".c: expected Port, got \"http\""
+    ))

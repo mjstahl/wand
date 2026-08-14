@@ -2286,15 +2286,23 @@ let decode_builtins : env = [
     (function Token.IPv4 v -> Some (VIPv4 v) | _ -> None)));
   ("decode_cidr", VDecoder (decode_lexed "CIDR"
     (function Token.CIDR v -> Some (VCIDR v) | _ -> None)));
-  (* A port is written `:8080` in a script. In a document it is the number
-     on its own, which is what a config file or an API actually contains. *)
+  (* A port is written `:8080` in a script. In a document it is usually the
+     number on its own, which is what a config file or an API contains, and
+     sometimes the script's own form. All three go through the lexer in the
+     end, so what a decoder accepts is exactly what could have been written
+     in the source -- one rule rather than two that drift apart. *)
   ("decode_port", VDecoder (fun j path ->
+    let of_text s =
+      let s = String.trim s in
+      let s = if String.length s > 0 && s.[0] = ':' then s else ":" ^ s in
+      match try_lex_single s with
+      | Some (Token.Port n) -> Some (VPort n)
+      | _ -> None
+    in
+    let read s = match of_text s with Some v -> Ok v | None -> expected "Port" path j in
     match j with
-    | `Int n when n >= 0 && n <= 65535 -> Ok (VPort n)
-    | `String s ->
-      (match try_lex_single (if String.length s > 0 && s.[0] = ':' then s else ":" ^ s) with
-       | Some (Token.Port n) -> Ok (VPort n)
-       | _ -> expected "Port" path j)
+    | `Int n    -> read (string_of_int n)
+    | `String s -> read s
     | _ -> expected "Port" path j));
   ("json_decode", VBuiltin (fun d ->
     let inner = as_decoder "json_decode" d in

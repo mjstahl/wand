@@ -958,9 +958,13 @@ Decode.date  Decode.time      Decode.datetime  Decode.ipv4  Decode.cidr  Decode.
 
 `"30s"` in a document lexes exactly as `30s` in a script, so the boundary
 produces the type the rest of the program is written against rather than a
-`String` to convert later. All twelve domain types have a decoder. `port` is
-the one that reads two ways: `:8080` in a script, but a document holds the
-bare number, so both `8080` and `"8080"` read.
+`String` to convert later. All twelve domain types have a decoder.
+
+Each reads exactly what could have been written in the source, and nothing
+the source would have rejected — the same lexer decides both. `port` is the
+one that shows it, since a script writes `:8080` but a document usually holds
+the bare number: `8080`, `"8080"` and `":8080"` all read, and `-1` does not,
+written either way.
 
 ### Text is read, never written
 
