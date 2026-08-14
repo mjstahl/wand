@@ -18,20 +18,20 @@ let is_some o =
   match o with
   | OSome _ -> true
   | ONone -> false
-test "construct Some" (fn t -> t.eq (is_some (OSome 3)) true)
-test "construct None" (fn t -> t.eq (is_some ONone) false)
+test "construct Some" (fn t -> t.eq true (is_some (OSome 3)))
+test "construct None" (fn t -> t.eq false (is_some ONone))
 
 let get_or d o =
   match o with
   | OSome v -> v
   | ONone -> d
-test "extract value" (fn t -> t.eq (get_or 0 (OSome 42)) 42)
+test "extract value" (fn t -> t.eq 42 (get_or 0 (OSome 42)))
 
 (* ── No cross-instantiation collision ─────────────────────────────────── *)
 
 let unbox (Box x) = x
 test "same generic type at two different type args" (fn t ->
-  t.eq (unbox (Box 1), unbox (Box "s")) (1, "s"))
+  t.eq (1, "s") (unbox (Box 1), unbox (Box "s")))
 
 (* ── Negative cases ────────────────────────────────────────────────────── *)
 
@@ -39,36 +39,36 @@ test "same generic type at two different type args" (fn t ->
 
 test "map" (fn t ->
   t.eq
+    2
     (match Option.map (fn x -> x + 1) (Some 1) with
     | Some v -> v
-    | None -> 0)
-    2)
+    | None -> 0))
 
 test "and_then" (fn t ->
   let half x = if x % 2 == 0 then Some (x / 2) else None
   in t.eq
+    2
     (match Option.and_then half (Some 4) with
     | Some v -> v
-    | None -> -1)
-    2)
+    | None -> -1))
 
-test "default" (fn t -> t.eq (Option.default 0 None) 0)
+test "default" (fn t -> t.eq 0 (Option.default 0 None))
 
 test "to_result ok" (fn t ->
   t.eq
+    5
     (match Option.to_result "missing" (Some 5) with
     | Ok v -> v
-    | Error _ -> 0)
-    5)
+    | Error _ -> 0))
 
 test "to_result error" (fn t ->
   t.eq
+    "missing"
     (match Option.to_result "missing" None with
     | Ok _ -> ""
-    | Error e -> e)
-    "missing")
+    | Error e -> e))
 
-test "get! present" (fn t -> t.eq (Option.get! (Some 7)) 7)
+test "get! present" (fn t -> t.eq 7 (Option.get! (Some 7)))
 test "get! absent raises" (fn t -> t.raises (fn () -> Option.get! None))
 
 (* ── Result generalization ─────────────────────────────────────────────── *)
@@ -83,16 +83,16 @@ let gparse s : Result ParseError Int =
 
 test "custom error type" (fn t ->
   t.eq
+    "bad: abc"
     (match gparse "abc" with
     | Ok n -> "ok"
     | Error (UnexpectedToken tk) -> "bad: ${tk}"
-    | Error UnexpectedEof -> "eof")
-    "bad: abc")
+    | Error UnexpectedEof -> "eof"))
 
 let plain_result : Result String Int = Ok 1
 test "plain string error still works" (fn t ->
   t.eq
+    1
     (match plain_result with
     | Ok n -> n
-    | Error _ -> 0)
-    1)
+    | Error _ -> 0))

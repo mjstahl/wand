@@ -3,49 +3,49 @@ import Path
 
 (* ── join ──────────────────────────────────────────────────────────────── *)
 
-test "join absolute + segment" (fn t -> t.eq (Path.join /usr/local /bin) /usr/local/bin)
-test "join relative" (fn t -> t.eq (Path.join ./foo /bar) ./foo/bar)
-test "join nested" (fn t -> t.eq (Path.join /var /log) /var/log)
+test "join absolute + segment" (fn t -> t.eq /usr/local/bin (Path.join /usr/local /bin))
+test "join relative" (fn t -> t.eq ./foo/bar (Path.join ./foo /bar))
+test "join nested" (fn t -> t.eq /var/log (Path.join /var /log))
 
 (* ── parent / dirname ──────────────────────────────────────────────────── *)
 
-test "parent" (fn t -> t.eq (Path.parent /usr/local/bin) /usr/local)
-test "dirname alias" (fn t -> t.eq (Path.dirname /usr/local/bin) /usr/local)
-test "parent top-level" (fn t -> t.eq (Path.parent /usr) (Path.of_string "/"))
+test "parent" (fn t -> t.eq /usr/local (Path.parent /usr/local/bin))
+test "dirname alias" (fn t -> t.eq /usr/local (Path.dirname /usr/local/bin))
+test "parent top-level" (fn t -> t.eq (Path.of_string "/") (Path.parent /usr))
 
 (* ── basename ──────────────────────────────────────────────────────────── *)
 
-test "basename with ext" (fn t -> t.eq (Path.basename /usr/local/bin/wand) "wand")
-test "basename file" (fn t -> t.eq (Path.basename /etc/hosts) "hosts")
+test "basename with ext" (fn t -> t.eq "wand" (Path.basename /usr/local/bin/wand))
+test "basename file" (fn t -> t.eq "hosts" (Path.basename /etc/hosts))
 
 (* ── extension ─────────────────────────────────────────────────────────── *)
 
-test "extension dot txt" (fn t -> t.eq (Path.extension /foo/bar.txt) ".txt")
-test "extension none" (fn t -> t.eq (Path.extension /foo/bar) "")
-test "with_extension add" (fn t -> t.eq (Path.with_extension ".ml" /foo/bar) /foo/bar.ml)
+test "extension dot txt" (fn t -> t.eq ".txt" (Path.extension /foo/bar.txt))
+test "extension none" (fn t -> t.eq "" (Path.extension /foo/bar))
+test "with_extension add" (fn t -> t.eq /foo/bar.ml (Path.with_extension ".ml" /foo/bar))
 test "with_extension replace" (fn t ->
-  t.eq (Path.with_extension ".ml" /foo/bar.wand) /foo/bar.ml)
+  t.eq /foo/bar.ml (Path.with_extension ".ml" /foo/bar.wand))
 
 (* ── absolute? / relative? ───────────────────────────────────────── *)
 
 test "absolute? /" (fn t -> t.ok (Path.absolute? /etc/hosts))
-test "absolute? ./" (fn t -> t.eq (Path.absolute? ./foo) false)
+test "absolute? ./" (fn t -> t.eq false (Path.absolute? ./foo))
 test "relative? ./" (fn t -> t.ok (Path.relative? ./foo))
-test "relative? /" (fn t -> t.eq (Path.relative? /usr) false)
+test "relative? /" (fn t -> t.eq false (Path.relative? /usr))
 
 (* ── normalize ─────────────────────────────────────────────────────────── *)
 
-test "normalize double slash" (fn t -> t.eq (Path.normalize /usr//local) /usr/local)
-test "normalize dot component" (fn t -> t.eq (Path.normalize /usr/./local) /usr/local)
-test "normalize dotdot" (fn t -> t.eq (Path.normalize /usr/local/../bin) /usr/bin)
+test "normalize double slash" (fn t -> t.eq /usr/local (Path.normalize /usr//local))
+test "normalize dot component" (fn t -> t.eq /usr/local (Path.normalize /usr/./local))
+test "normalize dotdot" (fn t -> t.eq /usr/bin (Path.normalize /usr/local/../bin))
 
 (* ── to_string / of_string ────────────────────────────────────────────── *)
 
-test "to_string" (fn t -> t.eq (Path.to_string /etc/hosts) "/etc/hosts")
-test "of_string" (fn t -> t.eq (Path.to_string (Path.of_string "/etc/hosts")) "/etc/hosts")
+test "to_string" (fn t -> t.eq "/etc/hosts" (Path.to_string /etc/hosts))
+test "of_string" (fn t -> t.eq "/etc/hosts" (Path.to_string (Path.of_string "/etc/hosts")))
 
 (* ── components ────────────────────────────────────────────────────────── *)
 
 test "components absolute" (fn t ->
-  t.eq (Path.components /usr/local/bin) ["usr", "local", "bin"])
-test "components relative" (fn t -> t.eq (Path.components ./foo/bar) [".", "foo", "bar"])
+  t.eq ["usr", "local", "bin"] (Path.components /usr/local/bin))
+test "components relative" (fn t -> t.eq [".", "foo", "bar"] (Path.components ./foo/bar))

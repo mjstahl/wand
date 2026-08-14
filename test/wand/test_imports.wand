@@ -7,28 +7,28 @@ let [test] = import Test
 
 let mylib = import ./imports_fixture
 
-test "whole module bound to name" (fn t -> t.eq mylib.answer 42)
-test "function call via bound name" (fn t -> t.eq (mylib.double 21) 42)
-test "multiple fields accessible" (fn t -> t.eq (mylib.x + mylib.y) 3)
+test "whole module bound to name" (fn t -> t.eq 42 mylib.answer)
+test "function call via bound name" (fn t -> t.eq 42 (mylib.double 21))
+test "multiple fields accessible" (fn t -> t.eq 3 (mylib.x + mylib.y))
 
 let Mylib = import ./imports_fixture
 
-test "capital name works" (fn t -> t.eq Mylib.greet "hello")
+test "capital name works" (fn t -> t.eq "hello" Mylib.greet)
 
 let L = import List
 let Strs = import String
 
-test "stdlib bound to custom name" (fn t -> t.eq (L.length [1, 2, 3]) 3)
-test "stdlib with different local name" (fn t -> t.eq (Strs.upper "hello") "HELLO")
+test "stdlib bound to custom name" (fn t -> t.eq 3 (L.length [1, 2, 3]))
+test "stdlib with different local name" (fn t -> t.eq "HELLO" (Strs.upper "hello"))
 
 let [foo = a, bar = b] = import ./imports_fixture
 
-test "destructure two fields" (fn t -> t.eq (a + b) 30)
+test "destructure two fields" (fn t -> t.eq 30 (a + b))
 
 let [double = dbl] = import ./imports_fixture
 
-test "destructure function" (fn t -> t.eq (dbl 21) 42)
+test "destructure function" (fn t -> t.eq 42 (dbl 21))
 
 let [answer, pi] = import ./imports_fixture
 
-test "shorthand list destructure" (fn t -> t.eq (answer + pi) 45)
+test "shorthand list destructure" (fn t -> t.eq 45 (answer + pi))

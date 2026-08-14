@@ -4,8 +4,8 @@ let [test] = import Test
 
 (* ── Default handler ───────────────────────────────────────────────────── *)
 
-test "print returns unit" (fn t -> t.eq (let () = print "hi" in 42) 42)
-test "println returns unit" (fn t -> t.eq (let () = println "hi" in 99) 99)
+test "print returns unit" (fn t -> t.eq 42 (let () = print "hi" in 42))
+test "println returns unit" (fn t -> t.eq 99 (let () = println "hi" in 99))
 
 (* ── Sequencing ────────────────────────────────────────────────────────── *)
 
@@ -15,9 +15,9 @@ test "newline sequences" (fn t ->
     | IO!print s k -> s ++ k ()
     | return _ -> ""
   in
-  t.eq outcome "abc")
+  t.eq "abc" outcome)
 
-test "unit sequencing" (fn t -> t.eq (let () = print "x" in 42) 42)
+test "unit sequencing" (fn t -> t.eq 42 (let () = print "x" in 42))
 
 (* ── Custom handlers ───────────────────────────────────────────────────── *)
 
@@ -27,7 +27,7 @@ test "collect prints" (fn t ->
     | IO!print s k -> s ++ k ()
     | return _ -> ""
   in
-  t.eq outcome "hello world")
+  t.eq "hello world" outcome)
 
 test "count prints" (fn t ->
   let outcome =
@@ -35,28 +35,28 @@ test "count prints" (fn t ->
     | IO!print _ k -> 1 + k ()
     | return _ -> 0
   in
-  t.eq outcome 3)
+  t.eq 3 outcome)
 
 test "transform return value" (fn t ->
   let outcome =
     handle 42 with
     | return n -> n * 2
   in
-  t.eq outcome 84)
+  t.eq 84 outcome)
 
 test "no effect cases needed" (fn t ->
   let outcome =
     handle 10 + 5 with
     | return n -> n
   in
-  t.eq outcome 15)
+  t.eq 15 outcome)
 
 test "unhandled effect reaches default" (fn t ->
   let outcome =
     handle let () = print "x" in 1 with
     | return n -> n
   in
-  t.eq outcome 1)
+  t.eq 1 outcome)
 
 (* ── Pattern matching on effect args ──────────────────────────────────── *)
 
@@ -67,7 +67,7 @@ test "literal match on arg" (fn t ->
     | IO!print s k -> s ++ k ()
     | return _ -> ""
   in
-  t.eq outcome "Hworld")
+  t.eq "Hworld" outcome)
 
 (* ── Process effect ────────────────────────────────────────────────────── *)
 
@@ -76,6 +76,6 @@ test "mock process" (fn t ->
     handle $("echo real") with
     | Shell!run _ k -> k "mocked"
   in
-  t.eq outcome "mocked")
+  t.eq "mocked" outcome)
 
 (* ── Type errors ───────────────────────────────────────────────────────── *)

@@ -2,20 +2,20 @@ let [test] = import Test
 
 (* ── String concatenation ──────────────────────────────────────────────── *)
 
-test "simple concat" (fn t -> t.eq ("hello" ++ " world") "hello world")
+test "simple concat" (fn t -> t.eq "hello world" ("hello" ++ " world"))
 
 test "concat with var" (fn t ->
-  let name = "Alice" in t.eq ("Hello, " ++ name ++ "!") "Hello, Alice!")
+  let name = "Alice" in t.eq "Hello, Alice!" ("Hello, " ++ name ++ "!"))
 
-test "concat empty" (fn t -> t.eq ("" ++ "abc") "abc")
+test "concat empty" (fn t -> t.eq "abc" ("" ++ "abc"))
 
 (* ── String interpolation ──────────────────────────────────────────────── *)
 
-test "simple interp" (fn t -> let name = "World" in t.eq "Hello, ${name}!" "Hello, World!")
+test "simple interp" (fn t -> let name = "World" in t.eq "Hello, World!" "Hello, ${name}!")
 
-test "interp arithmetic" (fn t -> t.eq "1 + 2 = ${1 + 2}" "1 + 2 = 3")
-test "interp bool" (fn t -> t.eq "flag: ${true}" "flag: true")
+test "interp arithmetic" (fn t -> t.eq "1 + 2 = 3" "1 + 2 = ${1 + 2}")
+test "interp bool" (fn t -> t.eq "flag: true" "flag: ${true}")
 test "no interp" (fn t -> t.eq "plain string" "plain string")
 
 test "multiple interps" (fn t ->
-  let x = "a" in let y = "b" in t.eq "${x} and ${y}" "a and b")
+  let x = "a" in let y = "b" in t.eq "a and b" "${x} and ${y}")

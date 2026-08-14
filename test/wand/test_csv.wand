@@ -8,33 +8,33 @@ import FS
 
 (* ── parse ─────────────────────────────────────────────────────────────── *)
 
-test "single row" (fn t -> t.eq (List.length (CSV.parse "a,b,c")) 1)
+test "single row" (fn t -> t.eq 1 (List.length (CSV.parse "a,b,c")))
 test "field value" (fn t ->
-  t.eq (List.head! (List.head! (CSV.parse "hello,world"))) "hello")
-test "multiple rows" (fn t -> t.eq (List.length (CSV.parse "a,b\nc,d")) 2)
-test "field count per row" (fn t -> t.eq (List.length (List.head! (CSV.parse "a,b,c"))) 3)
+  t.eq "hello" (List.head! (List.head! (CSV.parse "hello,world"))))
+test "multiple rows" (fn t -> t.eq 2 (List.length (CSV.parse "a,b\nc,d")))
+test "field count per row" (fn t -> t.eq 3 (List.length (List.head! (CSV.parse "a,b,c"))))
 
 test "quoted field with space" (fn t ->
-  t.eq (List.head! (List.head! (CSV.parse "\"hello world\",b"))) "hello world")
-test "embedded comma" (fn t -> t.eq (List.head! (List.head! (CSV.parse "\"a,b\",c"))) "a,b")
+  t.eq "hello world" (List.head! (List.head! (CSV.parse "\"hello world\",b"))))
+test "embedded comma" (fn t -> t.eq "a,b" (List.head! (List.head! (CSV.parse "\"a,b\",c"))))
 test "escaped quote" (fn t ->
-  t.eq (List.head! (List.head! (CSV.parse "\"say \"\"hi\"\"\",b"))) "say \"hi\"")
+  t.eq "say \"hi\"" (List.head! (List.head! (CSV.parse "\"say \"\"hi\"\"\",b"))))
 
 (* ── parse_with ────────────────────────────────────────────────────────── *)
 
 test "tab separator field count" (fn t ->
-  t.eq (List.length (List.head! (CSV.parse_with "\t" "a\tb\tc"))) 3)
+  t.eq 3 (List.length (List.head! (CSV.parse_with "\t" "a\tb\tc"))))
 test "pipe separator second field" (fn t ->
-  t.eq (List.head! (List.tail! (List.head! (CSV.parse_with "|" "x|y")))) "y")
+  t.eq "y" (List.head! (List.tail! (List.head! (CSV.parse_with "|" "x|y")))))
 
 (* ── stringify ─────────────────────────────────────────────────────────── *)
 
 test "simple two-row output" (fn t ->
-  t.eq (CSV.stringify [["a", "b"], ["c", "d"]]) "a,b\nc,d")
+  t.eq "a,b\nc,d" (CSV.stringify [["a", "b"], ["c", "d"]]))
 test "quotes field containing comma" (fn t ->
-  t.eq (CSV.stringify [["a,b", "c"]]) "\"a,b\",c")
+  t.eq "\"a,b\",c" (CSV.stringify [["a,b", "c"]]))
 test "stringify_with custom separator" (fn t ->
-  t.eq (CSV.stringify_with "|" [["x", "y"]]) "x|y")
+  t.eq "x|y" (CSV.stringify_with "|" [["x", "y"]]))
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
@@ -46,7 +46,7 @@ test "read_file row count and header" (fn t ->
     | Ok rows -> (List.length rows, List.head! (List.head! rows))
     | Error _ -> (-1, "")
   in
-  t.eq outcome (3, "name"))
+  t.eq (3, "name") outcome)
 
 test "read_file missing file gives Error" (fn t ->
   t.ok
@@ -57,7 +57,7 @@ test "read_file missing file gives Error" (fn t ->
 test "read_file! row count" (fn t ->
   with FS.temp_file "wand_csv_exn_" ".csv" as p ->
   let () = FS.write_file! (Path.to_string p) "x,y\n1,2\n" in
-  let rows = CSV.read_file! p in t.eq (List.length rows) 2)
+  let rows = CSV.read_file! p in t.eq 2 (List.length rows))
 
 test "read_file! raises on missing" (fn t ->
   t.raises (fn () -> CSV.read_file! (Path.of_string "/nonexistent/wand_missing.csv")))

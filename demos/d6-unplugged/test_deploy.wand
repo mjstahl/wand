@@ -13,18 +13,18 @@ let [deploy!] = import ./deploy
 let sealed thunk =
   Test.with_shell [("git describe", "v2.1.0")] (fn () -> Test.without_writes thunk)
 
-test "it runs, on a plane" (fn t -> t.eq (sealed deploy!) "deployed v2.1.0")
+test "it runs, on a plane" (fn t -> t.eq "deployed v2.1.0" (sealed deploy!))
 
 test "it pushes exactly once" (fn t ->
   let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!) in
-  t.eq (List.length (List.filter (fn c -> String.contains? "push" c) cmds)) 1)
+  t.eq 1 (List.length (List.filter (fn c -> String.contains? "push" c) cmds)))
 
 test "and nothing before the push touches prod" (fn t ->
   let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!) in
-  t.eq (List.head cmds) (Some "git describe --tags"))
+  t.eq (Some "git describe --tags") (List.head cmds))
 
 test "it would write exactly one file" (fn t ->
-  t.eq (Test.with_shell [] (fn () -> Test.writes deploy!)) ["/etc/app/config.toml"])
+  t.eq ["/etc/app/config.toml"] (Test.with_shell [] (fn () -> Test.writes deploy!)))
 
 test "which was never written" (fn t ->
-  let _ = sealed deploy! in t.eq (FS.exists? (Path.of_string "/etc/app/config.toml")) false)
+  let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))

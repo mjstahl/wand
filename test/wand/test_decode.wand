@@ -29,33 +29,33 @@ let failure d =
   | Ok _ -> "decoded, but should not have"
 
 test "reads a field" (fn t ->
-  t.eq (decoded (Decode.field "name" Decode.string)) (Ok "web-01"))
+  t.eq (Ok "web-01") (decoded (Decode.field "name" Decode.string)))
 
 test "reads an int, a bool" (fn t ->
   t.eq
+    (Ok 4, Ok true)
     (
       decoded (Decode.field "restarts" Decode.int),
       decoded (Decode.field "ready" Decode.bool)
-    )
-    (Ok 4, Ok true))
+    ))
 
 (* The named field is the moment: a scrape that reads the wrong field gets a
    null and carries on, so the run fails somewhere else, later. *)
 test "a missing field is named" (fn t ->
-  t.eq (failure (Decode.field "restarrts" Decode.int)) ".restarrts: no such field")
+  t.eq ".restarrts: no such field" (failure (Decode.field "restarrts" Decode.int)))
 
 test "a wrong type names the field and what was there" (fn t ->
-  t.eq (failure (Decode.field "name" Decode.int)) ".name: expected Int, got \"web-01\"")
+  t.eq ".name: expected Int, got \"web-01\"" (failure (Decode.field "name" Decode.int)))
 
 test "the path is the whole path" (fn t ->
   let name = Decode.field "metadata" (Decode.field "name" Decode.string) in
   t.eq
-    (failure (Decode.field "items" (Decode.list name)))
-    ".items[1].metadata.name: expected String, got Int")
+    ".items[1].metadata.name: expected String, got Int"
+    (failure (Decode.field "items" (Decode.list name))))
 
 test "a list decodes every element" (fn t ->
   let counts = JSON.parse! "{\"counts\": [1, 2, 3]}" in
-  t.eq (JSON.decode (Decode.field "counts" (Decode.list Decode.int)) counts) (Ok [1, 2, 3]))
+  t.eq (Ok [1, 2, 3]) (JSON.decode (Decode.field "counts" (Decode.list Decode.int)) counts))
 
 (* Two fields into a record. Wider records go through and_then. *)
 test "map2 builds a record" (fn t ->
@@ -65,7 +65,7 @@ test "map2 builds a record" (fn t ->
       (Decode.field "name" Decode.string)
       (Decode.field "restarts" Decode.int)
   in
-  t.eq (decoded pod) (Ok Pod(name = "web-01", restarts = 4)))
+  t.eq (Ok Pod(name = "web-01", restarts = 4)) (decoded pod))
 
 test "and_then chooses what to read next" (fn t ->
   let checked =
@@ -73,7 +73,7 @@ test "and_then chooses what to read next" (fn t ->
       (fn n -> if n > 3 then Decode.succeed n else Decode.fail "too few")
       (Decode.field "restarts" Decode.int)
   in
-  t.eq (decoded checked) (Ok 4))
+  t.eq (Ok 4) (decoded checked))
 
 test "and_then can refuse, and says where" (fn t ->
   let checked =
@@ -81,40 +81,40 @@ test "and_then can refuse, and says where" (fn t ->
       (fn n -> if n > 9 then Decode.succeed n else Decode.fail "too few")
       (Decode.field "restarts" Decode.int)
   in
-  t.eq (failure checked) "too few")
+  t.eq "too few" (failure checked))
 
 test "map changes what came back" (fn t ->
-  t.eq (decoded (Decode.map String.upper (Decode.field "name" Decode.string))) (Ok "WEB-01"))
+  t.eq (Ok "WEB-01") (decoded (Decode.map String.upper (Decode.field "name" Decode.string))))
 
 test "one_of takes the first that works" (fn t ->
   t.eq
+    (Ok "web-01")
     (decoded
       (Decode.one_of
-        [Decode.field "restarts" Decode.string, Decode.field "name" Decode.string]))
-    (Ok "web-01"))
+        [Decode.field "restarts" Decode.string, Decode.field "name" Decode.string])))
 
 (* Which alternative was the real one is not the decoder's to guess, so it
    reports all of them rather than picking. *)
 test "one_of reports every alternative when none works" (fn t ->
   t.eq
-    (failure (Decode.one_of [Decode.field "nope" Decode.int, Decode.field "name" Decode.int]))
-    "no alternative matched: .nope: no such field; .name: expected Int, got \"web-01\"")
+    "no alternative matched: .nope: no such field; .name: expected Int, got \"web-01\""
+    (failure (Decode.one_of [Decode.field "nope" Decode.int, Decode.field "name" Decode.int])))
 
 (* A domain literal decodes as itself, so the boundary produces the type the
    rest of the program is written against. *)
 test "domain literals decode as themselves" (fn t ->
   t.eq
+    (Ok 30s, Ok 1.4.2, Ok /var/log/app)
     (
       decoded (Decode.field "timeout" Decode.duration),
       decoded (Decode.field "version" Decode.version),
       decoded (Decode.field "log" Decode.path)
-    )
-    (Ok 30s, Ok 1.4.2, Ok /var/log/app))
+    ))
 
 test "and a string that is not one says so" (fn t ->
   t.eq
-    (failure (Decode.field "name" Decode.duration))
-    ".name: expected Duration, got \"web-01\"")
+    ".name: expected Duration, got \"web-01\""
+    (failure (Decode.field "name" Decode.duration)))
 
 (* Text backends hand over text, so a decoder reads a value out of it. The
    reverse never happens: `string` does not stringify a number, since that
@@ -122,29 +122,29 @@ test "and a string that is not one says so" (fn t ->
 test "a number written as text still reads as a number" (fn t ->
   let text = JSON.parse! "{\"n\": \"42\", \"f\": \"1.5\", \"b\": \"true\"}" in
   t.eq
+    (Ok 42, Ok 1.5, Ok true)
     (
       JSON.decode (Decode.field "n" Decode.int) text,
       JSON.decode (Decode.field "f" Decode.float) text,
       JSON.decode (Decode.field "b" Decode.bool) text
-    )
-    (Ok 42, Ok 1.5, Ok true))
+    ))
 
 test "but a number is not text" (fn t ->
   t.eq
-    (failure (Decode.field "restarts" Decode.string))
-    ".restarts: expected String, got Int")
+    ".restarts: expected String, got Int"
+    (failure (Decode.field "restarts" Decode.string)))
 
 test "reading a field of something that is not an object" (fn t ->
   t.eq
-    (failure (Decode.field "name" (Decode.field "deeper" Decode.string)))
-    ".name: expected an object, got \"web-01\"")
+    ".name: expected an object, got \"web-01\""
+    (failure (Decode.field "name" (Decode.field "deeper" Decode.string))))
 
 (* A decoder is a value: naming one runs nothing, and one can be used
    against several documents. *)
 test "a decoder is a value" (fn t ->
   let name = Decode.field "name" Decode.string in
   let other = JSON.parse! "{\"name\": \"db-01\"}" in
-  t.eq (JSON.decode name j, JSON.decode name other) (Ok "web-01", Ok "db-01"))
+  t.eq (Ok "web-01", Ok "db-01") (JSON.decode name j, JSON.decode name other))
 
 (* The other three backends. Each presents what it read in the same shape,
    so the combinators above are the whole surface: what changes is only
@@ -153,60 +153,60 @@ test "a decoder is a value" (fn t ->
 test "TOML decodes by field, and nests" (fn t ->
   let cfg = TOML.parse! "name = \"app\"\ntimeout = \"30s\"\n[server]\nport = 8080" in
   t.eq
+    (Ok 30s, Ok 8080)
     (
       TOML.decode (Decode.field "timeout" Decode.duration) cfg,
       TOML.decode (Decode.field "server" (Decode.field "port" Decode.int)) cfg
-    )
-    (Ok 30s, Ok 8080))
+    ))
 
 test "TOML names a missing field with its path" (fn t ->
   let cfg = TOML.parse! "[server]\nport = 8080" in
   t.eq
-    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg)
-    (Error ".server.prt: no such field"))
+    (Error ".server.prt: no such field")
+    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg))
 
 (* A CSV's first row names the columns, so a row is read by field like any
    other record -- and the cells are text, which `int` reads. *)
 test "CSV reads rows by column name" (fn t ->
   let src = "host,restarts\nweb-01,4\ndb-01,0" in
-  t.eq (CSV.rows (Decode.field "restarts" Decode.int) src) (Ok [4, 0]))
+  t.eq (Ok [4, 0]) (CSV.rows (Decode.field "restarts" Decode.int) src))
 
 test "CSV says which row was wrong" (fn t ->
   let src = "host,restarts\nweb-01,4" in
   t.eq
-    (CSV.rows (Decode.field "hosts" Decode.string) src)
-    (Error "[0].hosts: no such field"))
+    (Error "[0].hosts: no such field")
+    (CSV.rows (Decode.field "hosts" Decode.string) src))
 
-test "one line, one value" (fn t -> t.eq (Shell.lines Decode.int "1\n2\n3") (Ok [1, 2, 3]))
+test "one line, one value" (fn t -> t.eq (Ok [1, 2, 3]) (Shell.lines Decode.int "1\n2\n3"))
 
 (* $() strips the trailing newline, so nothing captured is no lines. A hand
    written count reports one here, and every caller has to remember. *)
-test "an empty capture is no lines" (fn t -> t.eq (Shell.lines Decode.string "") (Ok []))
+test "an empty capture is no lines" (fn t -> t.eq (Ok []) (Shell.lines Decode.string ""))
 
 test "the whole capture as one value" (fn t ->
-  t.eq (Shell.decode Decode.int "42\n") (Ok 42))
+  t.eq (Ok 42) (Shell.decode Decode.int "42\n"))
 
 test "and the line that could not be read is named" (fn t ->
-  t.eq (Shell.lines Decode.int "1\n2\nx") (Error "[2]: expected Int, got \"x\""))
+  t.eq (Error "[2]: expected Int, got \"x\"") (Shell.lines Decode.int "1\n2\nx"))
 
 (* A field that may not be there. The distinction that matters is between a
    field that is absent and a field that is there and wrong: the first is an
    answer, the second is the silent null this layer exists to replace. *)
 
 test "an absent field is None" (fn t ->
-  t.eq (decoded (Decode.optional "restarrts" Decode.int)) (Ok None))
+  t.eq (Ok None) (decoded (Decode.optional "restarrts" Decode.int)))
 
 test "a null field is None -- absence written down" (fn t ->
   let nulled = JSON.parse! "{\"restarts\": null}" in
-  t.eq (JSON.decode (Decode.optional "restarts" Decode.int) nulled) (Ok None))
+  t.eq (Ok None) (JSON.decode (Decode.optional "restarts" Decode.int) nulled))
 
 test "a present field is Some" (fn t ->
-  t.eq (decoded (Decode.optional "restarts" Decode.int)) (Ok (Some 4)))
+  t.eq (Ok (Some 4)) (decoded (Decode.optional "restarts" Decode.int)))
 
 (* `optional` says the field may be missing. It does not say its contents
    may be anything. *)
 test "a present field that will not decode is still a failure" (fn t ->
-  t.eq (failure (Decode.optional "name" Decode.int)) ".name: expected Int, got \"web-01\"")
+  t.eq ".name: expected Int, got \"web-01\"" (failure (Decode.optional "name" Decode.int)))
 
 test "the remaining domain literals" (fn t ->
   let doc =
@@ -214,13 +214,13 @@ test "the remaining domain literals" (fn t ->
       "{\"at\": \"14:30:00\", \"when\": \"2024-01-15T09:00:00Z\", \"ip\": \"10.0.0.4\", \"net\": \"10.0.0.0/8\"}"
   in
   t.eq
+    (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8)
     (
       JSON.decode (Decode.field "at" Decode.time) doc,
       JSON.decode (Decode.field "when" Decode.datetime) doc,
       JSON.decode (Decode.field "ip" Decode.ipv4) doc,
       JSON.decode (Decode.field "net" Decode.cidr) doc
-    )
-    (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8))
+    ))
 
 (* A port is `:8080` in a script and usually a bare number in a document.
    Every form goes through the lexer, so a decoder accepts exactly what could
@@ -230,13 +230,13 @@ test "a port reads however it was written" (fn t ->
     JSON.parse! "{\"a\": 8080, \"b\": \"8080\", \"c\": \":8080\", \"d\": \" :8080 \"}"
   in
   t.eq
+    (Ok :8080, Ok :8080, Ok :8080, Ok :8080)
     (
       JSON.decode (Decode.field "a" Decode.port) doc,
       JSON.decode (Decode.field "b" Decode.port) doc,
       JSON.decode (Decode.field "c" Decode.port) doc,
       JSON.decode (Decode.field "d" Decode.port) doc
-    )
-    (Ok :8080, Ok :8080, Ok :8080, Ok :8080))
+    ))
 
 (* The number and the text are read by one rule -- the lexer -- so they
    cannot disagree about the same port, and neither can a literal. A port
@@ -247,16 +247,16 @@ test "and what is not a port is not a port, written either way" (fn t ->
   in
   t.eq
     (
-      JSON.decode (Decode.field "a" Decode.port) doc,
-      JSON.decode (Decode.field "b" Decode.port) doc,
-      JSON.decode (Decode.field "c" Decode.port) doc,
-      JSON.decode (Decode.field "d" Decode.port) doc,
-      JSON.decode (Decode.field "e" Decode.port) doc
-    )
-    (
       Error ".a: expected Port, got -1",
       Error ".b: expected Port, got \":-1\"",
       Error ".c: expected Port, got \"http\"",
       Error ".d: invalid port :65536: must be 0-65535",
       Ok :65535
+    )
+    (
+      JSON.decode (Decode.field "a" Decode.port) doc,
+      JSON.decode (Decode.field "b" Decode.port) doc,
+      JSON.decode (Decode.field "c" Decode.port) doc,
+      JSON.decode (Decode.field "d" Decode.port) doc,
+      JSON.decode (Decode.field "e" Decode.port) doc
     ))

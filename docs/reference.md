@@ -1659,14 +1659,21 @@ The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
 ```
 let [test] = import Test
 
-test "add" (fn t -> t.eq (2 + 2) 4)
+test "add" (fn t -> t.eq 4 (2 + 2))
 test "some" (fn t -> t.ok (Option.some? (Some 1)))
 test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
 ```
 
-- `t.eq actual expected` — pass if they are equal. The computed value goes
-  first, as in `t.eq (2 + 2) 4`, and a failure reports it as what was *got*:
-  `expected 4, got 5`.
+- `t.eq expected actual` — pass if they are equal. The value under test goes
+  last, as it does in every wand function, so it pipes:
+
+  ```
+  t.eq 4 (2 + 2)
+  (2 + 2) |> t.eq 4
+  ```
+
+  Either way a failure reads `expected 4, got 5`, with `got` naming the code
+  under test.
 - `t.ok cond` — pass if `cond` is `true`.
 - `t.raises thunk` — pass if calling `thunk ()` raises. `thunk` must be a
   zero-argument function (`fn () -> ...`), not the expression directly —

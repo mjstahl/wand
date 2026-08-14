@@ -22,18 +22,18 @@ test "temp_file gives a unique file that exists while it is held" (fn t ->
     with FS.temp_file "wand_" ".txt" as a ->
     with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b)
   in
-  t.eq inner (true, true, true))
+  t.eq (true, true, true) inner)
 
 (* The point of the bracket: nobody has to remember the delete. *)
 test "temp_file removes the file when the bracket ends" (fn t ->
-  let p = with FS.temp_file "wand_" ".txt" as p -> p in t.eq (FS.exists? p) false)
+  let p = with FS.temp_file "wand_" ".txt" as p -> p in t.eq false (FS.exists? p))
 
 (* A body may publish the file by renaming it; cleanup then has nothing to
    do and must not fail on the way out. *)
 test "temp_file tolerates the file being renamed away" (fn t ->
   let dst = Path.of_string "${scratch}/published.txt" in
   let () = with FS.temp_file "wand_" ".txt" as p -> FS.rename! p dst in
-  let published = FS.exists? dst in let () = FS.delete! dst in t.eq published true)
+  let published = FS.exists? dst in let () = FS.delete! dst in t.eq true published)
 
 test "mkdir creates nested directories" (fn t ->
   let dir = Path.of_string "${scratch}/mkdir_case/nested/deep" in
@@ -47,14 +47,14 @@ test "create_file makes an empty file" (fn t ->
   let p = Path.of_string "${scratch}/create_file_case.txt" in
   let () = FS.create_file! p in
   let contents = FS.read_file! (Path.to_string p) in
-  let () = FS.delete! p in t.eq contents "")
+  let () = FS.delete! p in t.eq "" contents)
 
 test "append writes to a real file on disk" (fn t ->
   let p = Path.of_string "${scratch}/append_case.txt" in
   let () = FS.write_file! (Path.to_string p) "hello" in
   let () = FS.append! p " world" in
   let contents = FS.read_file! (Path.to_string p) in
-  let () = FS.delete! p in t.eq contents "hello world")
+  let () = FS.delete! p in t.eq "hello world" contents)
 
 test "rename moves a file" (fn t ->
   let src = Path.of_string "${scratch}/rename_src.txt" in
@@ -62,7 +62,7 @@ test "rename moves a file" (fn t ->
   let () = FS.write_file! (Path.to_string src) "data" in
   let () = FS.rename! src dst in
   let contents = FS.read_file! (Path.to_string dst) in
-  let () = FS.delete! dst in t.eq contents "data")
+  let () = FS.delete! dst in t.eq "data" contents)
 
 test "copy duplicates a file" (fn t ->
   let src = Path.of_string "${scratch}/copy_src.txt" in
@@ -70,18 +70,18 @@ test "copy duplicates a file" (fn t ->
   let () = FS.write_file! (Path.to_string src) "copied" in
   let () = FS.copy! src dst in
   let contents = FS.read_file! (Path.to_string dst) in
-  let () = FS.delete! src in let () = FS.delete! dst in t.eq contents "copied")
+  let () = FS.delete! src in let () = FS.delete! dst in t.eq "copied" contents)
 
 test "exists?/file?/dir?" (fn t ->
   let p = Path.of_string "${scratch}/exists_case.txt" in
   let () = FS.write_file! (Path.to_string p) "x" in
   let outcome = (FS.exists? p, FS.file? p, FS.dir? p) in
-  let () = FS.delete! p in t.eq outcome (true, true, false))
+  let () = FS.delete! p in t.eq (true, true, false) outcome)
 
 test "size returns byte length" (fn t ->
   let p = Path.of_string "${scratch}/size_case.txt" in
   let () = FS.write_file! (Path.to_string p) "12345" in
-  let sz = FS.size! p in let () = FS.delete! p in t.eq sz 5)
+  let sz = FS.size! p in let () = FS.delete! p in t.eq 5 sz)
 
 test "list_dir lists immediate children" (fn t ->
   let dir = Path.of_string "${scratch}/list_dir_case" in
@@ -92,7 +92,7 @@ test "list_dir lists immediate children" (fn t ->
   let names = List.sort (List.map Path.basename entries) in
   let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/a.txt") in
   let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/b.txt") in
-  let () = FS.delete! dir in t.eq names ["a.txt", "b.txt"])
+  let () = FS.delete! dir in t.eq ["a.txt", "b.txt"] names)
 
 (* `**` is the replacement for the removed FS.walk: it crosses directory
    separators and matches names without a dot, so `plain` below is included.
@@ -112,18 +112,18 @@ test "glob ** recurses into subdirectories" (fn t ->
   let () = FS.delete! (Path.of_string "${base}/sub/plain") in
   let () = FS.delete! (Path.of_string "${base}/sub") in
   let () = FS.delete! (Path.of_string base) in
-  t.eq names ["a.txt", "sub/b.txt", "sub/plain"])
+  t.eq ["a.txt", "sub/b.txt", "sub/plain"] names)
 
 test "delete removes a file" (fn t ->
   let p = Path.of_string "${scratch}/delete_case.txt" in
   let () = FS.write_file! (Path.to_string p) "x" in
-  let () = FS.delete! p in t.eq (FS.exists? p) false)
+  let () = FS.delete! p in t.eq false (FS.exists? p))
 
 test "read/write roundtrip" (fn t ->
   let p = Path.of_string "${scratch}/roundtrip_case.txt" in
   let () = FS.write_file! (Path.to_string p) "round trip" in
   let contents = FS.read_file! (Path.to_string p) in
-  let () = FS.delete! p in t.eq contents "round trip")
+  let () = FS.delete! p in t.eq "round trip" contents)
 
 test "read nonexistent file raises" (fn t ->
   t.raises (fn () -> FS.read_file! "/no/such/path/wand_test_xyz"))
@@ -146,7 +146,7 @@ test "mock append does not touch real filesystem" (fn t ->
     | FS!append _ k -> k ()
     | return s -> s
   in
-  t.eq outcome "done")
+  t.eq "done" outcome)
 
 (* read_file/write_file perform bare `read_file`/`write_file` effects
    (no fs_ prefix, unlike the mutating ops above) -- mocking them the
@@ -158,7 +158,7 @@ test "mock read_file returns substituted content" (fn t ->
     handle FS.read_file! "/nonexistent" with
     | FS!read_file _ k -> k "mocked content"
   in
-  t.eq outcome "mocked content")
+  t.eq "mocked content" outcome)
 
 test "mock write_file resumes without touching disk" (fn t ->
   let outcome =
@@ -166,7 +166,7 @@ test "mock write_file resumes without touching disk" (fn t ->
     | FS!write_file _ k -> k ()
     | return s -> s
   in
-  t.eq outcome "done")
+  t.eq "done" outcome)
 
 test "mock write_file can capture the path/content argument" (fn t ->
   let outcome =
@@ -174,7 +174,7 @@ test "mock write_file can capture the path/content argument" (fn t ->
     | FS!write_file (path, _) k -> path ++ ": ok" ++ k ()
     | return s -> s
   in
-  t.eq outcome "/tmp/foo.txt: okwrote")
+  t.eq "/tmp/foo.txt: okwrote" outcome)
 
 (* ── Result payloads carry no source position ──────────────────────────── *)
 

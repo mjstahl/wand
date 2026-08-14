@@ -24,12 +24,12 @@ let tracked name =
 
 let held? name = FS.exists? (Path.of_string (marker name))
 
-test "the body sees what was acquired" (fn t -> t.eq (with tracked "a" as x -> x) "a")
+test "the body sees what was acquired" (fn t -> t.eq "a" (with tracked "a" as x -> x))
 
 test "released after the body returns" (fn t ->
-  let _ = with tracked "b" as x -> x in t.eq (held? "b") false)
+  let _ = with tracked "b" as x -> x in t.eq false (held? "b"))
 
-test "held while the body runs" (fn t -> t.eq (with tracked "c" as _ -> held? "c") true)
+test "held while the body runs" (fn t -> t.eq true (with tracked "c" as _ -> held? "c"))
 
 (* Release has to happen before `try` turns the raise into a value, or a
    failing script leaves its lock behind. *)
@@ -40,7 +40,7 @@ test "released when the body raises" (fn t ->
     | Error _ -> true
     | Ok _ -> false
   in
-  t.eq (failed, held? "d") (true, false))
+  t.eq (true, false) (failed, held? "d"))
 
 test "the raise still reaches the caller" (fn t ->
   t.raises (fn () -> with tracked "e" as _ -> List.get! 9 [1]))
@@ -48,12 +48,12 @@ test "the raise still reaches the caller" (fn t ->
 (* Innermost first: the order things were acquired, reversed. *)
 test "nested brackets release inside out" (fn t ->
   let _ = with tracked "f" as _ -> with tracked "g" as _ -> 1 in
-  t.eq [held? "f", held? "g"] [false, false])
+  t.eq [false, false] [held? "f", held? "g"])
 
 test "the outer one is still held inside the inner" (fn t ->
   t.eq
-    (with tracked "h" as _ -> with tracked "i" as _ -> [held? "h", held? "i"])
-    [true, true])
+    [true, true]
+    (with tracked "h" as _ -> with tracked "i" as _ -> [held? "h", held? "i"]))
 
 (* A handler that answers on its own ends the body. What the body was
    holding still comes back -- otherwise a mock would leak every lock the
@@ -63,24 +63,24 @@ test "released when a handler does not resume" (fn t ->
     handle with tracked "j" as _ -> let c = $(echo hi) in c with
     | Shell!run _ _ -> "mocked"
   in
-  t.eq (out, held? "j") ("mocked", false))
+  t.eq ("mocked", false) (out, held? "j"))
 
 test "released when a handler does resume" (fn t ->
   let out =
     handle with tracked "k" as _ -> let c = $(echo hi) in c with
     | Shell!run _ k -> k "mocked"
   in
-  t.eq (out, held? "k") ("mocked", false))
+  t.eq ("mocked", false) (out, held? "k"))
 
 (* A resource is a description, not something already open, so naming one
    acquires nothing and using it twice acquires twice. *)
 test "naming a resource acquires nothing" (fn t ->
-  let r = tracked "l" in t.eq (held? "l") false)
+  let r = tracked "l" in t.eq false (held? "l"))
 
 test "one resource used twice" (fn t ->
   let r = tracked "m" in
   let first = with r as x -> x in
-  let second = with r as x -> x in t.eq [first, second] ["m", "m"])
+  let second = with r as x -> x in t.eq ["m", "m"] [first, second])
 
 (* ── FS.temp_dir ───────────────────────────────────────────────────────── *)
 
@@ -95,16 +95,16 @@ test "temp_dir removes a directory that is not empty" (fn t ->
     let () = FS.mkdir! (Path.of_string "${dir}/sub") in
     let () = FS.write_file! "${dir}/sub/b.txt" "y" in dir
   in
-  t.eq (FS.exists? (Path.of_string kept)) false)
+  t.eq false (FS.exists? (Path.of_string kept)))
 
 test "temp_dir is a directory that exists while it is held" (fn t ->
-  t.eq (with FS.temp_dir "wand_td_" as d -> (FS.exists? d, FS.dir? d)) (true, true))
+  t.eq (true, true) (with FS.temp_dir "wand_td_" as d -> (FS.exists? d, FS.dir? d)))
 
 test "two temp_dirs do not collide" (fn t ->
   let both =
     with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b
   in
-  t.eq both true)
+  t.eq true both)
 
 (* The tree goes even when the body leaves by raising. The directory's name
    is written outside it first, so the check survives the body it came from. *)
@@ -123,4 +123,4 @@ test "temp_dir cleans up when the body raises" (fn t ->
     | Error _ -> true
     | Ok _ -> false
   in
-  t.eq (raised, FS.exists? (Path.of_string dir)) (true, false))
+  t.eq (true, false) (raised, FS.exists? (Path.of_string dir)))

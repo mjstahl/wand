@@ -12,15 +12,15 @@ import String
 (* ── Results keep the list's order ─────────────────────────────────────── *)
 
 test "results come back in order, not completion order" (fn t ->
-  t.eq (Par.map 4 (fn x -> x * 2) [1, 2, 3, 4, 5]) [Ok 2, Ok 4, Ok 6, Ok 8, Ok 10])
+  t.eq [Ok 2, Ok 4, Ok 6, Ok 8, Ok 10] (Par.map 4 (fn x -> x * 2) [1, 2, 3, 4, 5]))
 
-test "an empty list is fine" (fn t -> t.eq (Par.map 4 (fn x -> x) []) [])
+test "an empty list is fine" (fn t -> t.eq [] (Par.map 4 (fn x -> x) []))
 
 test "a limit larger than the work is fine" (fn t ->
-  t.eq (Par.map 99 (fn x -> x + 1) [1, 2]) [Ok 2, Ok 3])
+  t.eq [Ok 2, Ok 3] (Par.map 99 (fn x -> x + 1) [1, 2]))
 
 test "a limit of one still works" (fn t ->
-  t.eq (Par.map 1 (fn x -> x + 1) [1, 2, 3]) [Ok 2, Ok 3, Ok 4])
+  t.eq [Ok 2, Ok 3, Ok 4] (Par.map 1 (fn x -> x + 1) [1, 2, 3]))
 
 (* ── A failure is a value ──────────────────────────────────────────────── *)
 
@@ -28,8 +28,8 @@ test "a limit of one still works" (fn t ->
    back as an Error where its result would have been. *)
 test "a failure lands in its own position" (fn t ->
   t.eq
-    (Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty, [k = 3]])
-    [Ok 1, Error "map key not found: k", Ok 3])
+    [Ok 1, Error "map key not found: k", Ok 3]
+    (Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty, [k = 3]]))
 
 test "and the error carries no source position" (fn t ->
   let results = Par.map 2 (fn m -> Map.get! "k" m) [Map.empty] in
@@ -43,7 +43,7 @@ test "each visits every element" (fn t ->
   with FS.temp_dir "wand_par_" as d ->
   let dir = Path.to_string d in
   let () = Par.each 3 (fn n -> FS.write_file! "${dir}/${n}.txt" "x") [1, 2, 3] in
-  t.eq (List.length (FS.glob_in *.txt (Path.of_string dir))) 3)
+  t.eq 3 (List.length (FS.glob_in *.txt (Path.of_string dir))))
 
 (* ── Effects performed inside a worker are still interceptable ─────────── *)
 
@@ -54,7 +54,7 @@ test "a worker's commands are seen by a handler" (fn t ->
   let cmds =
     Test.shell_calls (fn () -> Par.each 3 (fn n -> let _ = $(echo hi) in ()) [1, 2])
   in
-  t.eq (List.length cmds) 2)
+  t.eq 2 (List.length cmds))
 
 (* Watching costs the overlap, so it is only paid when someone is watching:
    with no handler in scope a worker performs its own effects on its own
@@ -63,7 +63,7 @@ test "a mock still answers a worker's commands" (fn t ->
   let out =
     Test.with_shell [("echo", "mocked")] (fn () -> Par.map 3 (fn n -> $(echo hi)) [1, 2])
   in
-  t.eq out [Ok "mocked", Ok "mocked"])
+  t.eq [Ok "mocked", Ok "mocked"] out)
 
 (* Several workers, each performing several effects, all watched. A worker's
    effects are answered one at a time on the calling domain, and the reply
@@ -82,4 +82,4 @@ test "many watched workers, several effects each" (fn t ->
         [1, 2, 3, 4])
   in
   let counts = List.map (fn r -> List.length r) (List.map round [1, 2, 3, 4, 5, 6, 7, 8]) in
-  t.eq counts [4, 4, 4, 4, 4, 4, 4, 4])
+  t.eq [4, 4, 4, 4, 4, 4, 4, 4] counts)

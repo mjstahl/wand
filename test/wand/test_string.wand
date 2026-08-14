@@ -3,74 +3,74 @@ import String
 
 (* ── length / empty? ───────────────────────────────────────────────── *)
 
-test "length empty" (fn t -> t.eq (String.length "") 0)
-test "length hello" (fn t -> t.eq (String.length "hello") 5)
+test "length empty" (fn t -> t.eq 0 (String.length ""))
+test "length hello" (fn t -> t.eq 5 (String.length "hello"))
 test "empty? true" (fn t -> t.ok (String.empty? ""))
-test "empty? false" (fn t -> t.eq (String.empty? "x") false)
+test "empty? false" (fn t -> t.eq false (String.empty? "x"))
 
 (* ── upper / lower ─────────────────────────────────────────────────────── *)
 
-test "upper" (fn t -> t.eq (String.upper "hello") "HELLO")
-test "lower" (fn t -> t.eq (String.lower "WORLD") "world")
-test "case round trip" (fn t -> t.eq (String.lower (String.upper "Hello")) "hello")
+test "upper" (fn t -> t.eq "HELLO" (String.upper "hello"))
+test "lower" (fn t -> t.eq "world" (String.lower "WORLD"))
+test "case round trip" (fn t -> t.eq "hello" (String.lower (String.upper "Hello")))
 
 (* ── trim ──────────────────────────────────────────────────────────────── *)
 
-test "trim spaces" (fn t -> t.eq (String.trim "  hello  ") "hello")
-test "trim newlines" (fn t -> t.eq (String.trim "\n  hi\n") "hi")
-test "trim clean" (fn t -> t.eq (String.trim "clean") "clean")
-test "trim_left" (fn t -> t.eq (String.trim_left "  hi  ") "hi  ")
-test "trim_right" (fn t -> t.eq (String.trim_right "  hi  ") "  hi")
+test "trim spaces" (fn t -> t.eq "hello" (String.trim "  hello  "))
+test "trim newlines" (fn t -> t.eq "hi" (String.trim "\n  hi\n"))
+test "trim clean" (fn t -> t.eq "clean" (String.trim "clean"))
+test "trim_left" (fn t -> t.eq "hi  " (String.trim_left "  hi  "))
+test "trim_right" (fn t -> t.eq "  hi" (String.trim_right "  hi  "))
 
 (* ── slice ─────────────────────────────────────────────────────────────── *)
 
-test "slice full" (fn t -> t.eq (String.slice 0 5 "hello") "hello")
-test "slice prefix" (fn t -> t.eq (String.slice 0 3 "hello") "hel")
-test "slice suffix" (fn t -> t.eq (String.slice 2 5 "hello") "llo")
-test "slice empty" (fn t -> t.eq (String.slice 2 2 "hello") "")
-test "slice clamp" (fn t -> t.eq (String.slice 0 100 "hi") "hi")
+test "slice full" (fn t -> t.eq "hello" (String.slice 0 5 "hello"))
+test "slice prefix" (fn t -> t.eq "hel" (String.slice 0 3 "hello"))
+test "slice suffix" (fn t -> t.eq "llo" (String.slice 2 5 "hello"))
+test "slice empty" (fn t -> t.eq "" (String.slice 2 2 "hello"))
+test "slice clamp" (fn t -> t.eq "hi" (String.slice 0 100 "hi"))
 
 (* ── split ─────────────────────────────────────────────────────────────── *)
 
-test "split csv" (fn t -> t.eq (String.split "," "a,b,c") ["a", "b", "c"])
-test "split no match" (fn t -> t.eq (String.split "," "abc") ["abc"])
-test "split words" (fn t -> t.eq (String.split " " "hello world") ["hello", "world"])
+test "split csv" (fn t -> t.eq ["a", "b", "c"] (String.split "," "a,b,c"))
+test "split no match" (fn t -> t.eq ["abc"] (String.split "," "abc"))
+test "split words" (fn t -> t.eq ["hello", "world"] (String.split " " "hello world"))
 
 (* ── contains? / starts_with? / ends_with? ────────────────────────────── *)
 
 test "contains? yes" (fn t -> t.ok (String.contains? "ll" "hello"))
-test "contains? no" (fn t -> t.eq (String.contains? "xy" "hello") false)
+test "contains? no" (fn t -> t.eq false (String.contains? "xy" "hello"))
 test "starts_with? yes" (fn t -> t.ok (String.starts_with? "he" "hello"))
-test "starts_with? no" (fn t -> t.eq (String.starts_with? "lo" "hello") false)
+test "starts_with? no" (fn t -> t.eq false (String.starts_with? "lo" "hello"))
 test "ends_with? yes" (fn t -> t.ok (String.ends_with? "lo" "hello"))
-test "ends_with? no" (fn t -> t.eq (String.ends_with? "he" "hello") false)
+test "ends_with? no" (fn t -> t.eq false (String.ends_with? "he" "hello"))
 
 (* ── replace ───────────────────────────────────────────────────────────── *)
 
-test "replace basic" (fn t -> t.eq (String.replace "o" "0" "hello world") "hell0 w0rld")
-test "replace no match" (fn t -> t.eq (String.replace "x" "y" "hello") "hello")
-test "replace prefix" (fn t -> t.eq (String.replace "he" "HE" "hello") "HEllo")
+test "replace basic" (fn t -> t.eq "hell0 w0rld" (String.replace "o" "0" "hello world"))
+test "replace no match" (fn t -> t.eq "hello" (String.replace "x" "y" "hello"))
+test "replace prefix" (fn t -> t.eq "HEllo" (String.replace "he" "HE" "hello"))
 
 (* ── repeat / reverse ──────────────────────────────────────────────────── *)
 
-test "repeat 3" (fn t -> t.eq (String.repeat 3 "ab") "ababab")
-test "repeat 0" (fn t -> t.eq (String.repeat 0 "ab") "")
-test "repeat 1" (fn t -> t.eq (String.repeat 1 "x") "x")
-test "reverse" (fn t -> t.eq (String.reverse "hello") "olleh")
-test "reverse empty" (fn t -> t.eq (String.reverse "") "")
+test "repeat 3" (fn t -> t.eq "ababab" (String.repeat 3 "ab"))
+test "repeat 0" (fn t -> t.eq "" (String.repeat 0 "ab"))
+test "repeat 1" (fn t -> t.eq "x" (String.repeat 1 "x"))
+test "reverse" (fn t -> t.eq "olleh" (String.reverse "hello"))
+test "reverse empty" (fn t -> t.eq "" (String.reverse ""))
 
 (* ── chars ─────────────────────────────────────────────────────────────── *)
 
-test "chars" (fn t -> t.eq (String.chars "abc") ["a", "b", "c"])
-test "chars empty" (fn t -> t.eq (String.chars "") [])
+test "chars" (fn t -> t.eq ["a", "b", "c"] (String.chars "abc"))
+test "chars empty" (fn t -> t.eq [] (String.chars ""))
 
 (* ── of_int / to_int / to_float ───────────────────────────────────────── *)
 
-test "of_int" (fn t -> t.eq (String.of_int 42) "42")
-test "to_int ok" (fn t -> t.eq (String.to_int "123") (Ok 123))
-test "of_int negative" (fn t -> t.eq (String.of_int (-7)) "-7")
-test "to_float ok" (fn t -> t.eq (String.to_float "3.14") (Ok 3.14))
-test "to_float int-like" (fn t -> t.eq (String.to_float "42") (Ok 42.0))
+test "of_int" (fn t -> t.eq "42" (String.of_int 42))
+test "to_int ok" (fn t -> t.eq (Ok 123) (String.to_int "123"))
+test "of_int negative" (fn t -> t.eq "-7" (String.of_int (-7)))
+test "to_float ok" (fn t -> t.eq (Ok 3.14) (String.to_float "3.14"))
+test "to_float int-like" (fn t -> t.eq (Ok 42.0) (String.to_float "42"))
 test "to_int err" (fn t ->
   match String.to_int "abc" with
   | Ok _ -> t.ok false
@@ -82,29 +82,29 @@ test "to_float err" (fn t ->
 
 (* ── join ──────────────────────────────────────────────────────────────── *)
 
-test "join csv" (fn t -> t.eq (String.join ", " ["a", "b", "c"]) "a, b, c")
-test "join empty" (fn t -> t.eq (String.join ", " []) "")
-test "join single" (fn t -> t.eq (String.join ", " ["only"]) "only")
+test "join csv" (fn t -> t.eq "a, b, c" (String.join ", " ["a", "b", "c"]))
+test "join empty" (fn t -> t.eq "" (String.join ", " []))
+test "join single" (fn t -> t.eq "only" (String.join ", " ["only"]))
 
 (* ── lines / words ─────────────────────────────────────────────────────── *)
 
-test "lines" (fn t -> t.eq (String.lines "a\nb\nc") ["a", "b", "c"])
-test "words" (fn t -> t.eq (String.words "one two three") ["one", "two", "three"])
+test "lines" (fn t -> t.eq ["a", "b", "c"] (String.lines "a\nb\nc"))
+test "words" (fn t -> t.eq ["one", "two", "three"] (String.words "one two three"))
 
 (* ── pipeline ──────────────────────────────────────────────────────────── *)
 
 test "pipe" (fn t ->
-  let s = "  Hello, World!  " in t.eq (s |> String.trim |> String.lower) "hello, world!")
+  let s = "  Hello, World!  " in t.eq "hello, world!" (s |> String.trim |> String.lower))
 
 (* ── to_bool / to_path ────────────────────────────────────────────────── *)
 
-test "to_bool true" (fn t -> t.eq (String.to_bool "true") (Ok true))
-test "to_bool false" (fn t -> t.eq (String.to_bool "False") (Ok false))
+test "to_bool true" (fn t -> t.eq (Ok true) (String.to_bool "true"))
+test "to_bool false" (fn t -> t.eq (Ok false) (String.to_bool "False"))
 test "to_bool err" (fn t ->
   match String.to_bool "yes" with
   | Ok _ -> t.ok false
   | Error _ -> t.ok true)
-test "to_path" (fn t -> t.eq (String.to_path "/tmp/foo") /tmp/foo)
+test "to_path" (fn t -> t.eq /tmp/foo (String.to_path "/tmp/foo"))
 
 (* ── domain type parsers ───────────────────────────────────────────────── *)
 
@@ -135,22 +135,22 @@ test "to_port ok" (fn t ->
 (* Both spellings read: `:8080` is wand's own notation, and the bare number
    is what an environment variable or a config file holds. *)
 test "to_port takes the bare number too" (fn t ->
-  t.eq (String.to_port "8080") (String.to_port ":8080"))
+  t.eq (String.to_port ":8080") (String.to_port "8080"))
 
 test "to_port err" (fn t ->
   match String.to_port "http" with
   | Ok _ -> t.ok false
-  | Error msg -> t.eq msg "cannot parse \"http\" as Port")
+  | Error msg -> t.eq "cannot parse \"http\" as Port" msg)
 
 test "to_port out of range says which rule was broken" (fn t ->
   match String.to_port ":99999" with
   | Ok _ -> t.ok false
-  | Error msg -> t.eq msg "invalid port :99999: must be 0-65535")
+  | Error msg -> t.eq "invalid port :99999: must be 0-65535" msg)
 
 test "and an octet out of range does too" (fn t ->
   match String.to_ipv4 "256.0.0.1" with
   | Ok _ -> t.ok false
-  | Error msg -> t.eq msg "invalid IPv4 address: each octet must be 0–255")
+  | Error msg -> t.eq "invalid IPv4 address: each octet must be 0–255" msg)
 test "to_version ok" (fn t ->
   match String.to_version "1.2.3" with
   | Ok _ -> t.ok true

@@ -28,7 +28,7 @@ test "*.wand matches" (fn t ->
   let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
   let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
   let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
-  t.eq names ["bar.wand", "foo.wand"])
+  t.eq ["bar.wand", "foo.wand"] names)
 
 test "*.ml matches" (fn t ->
   let dir = Path.of_string scratch in
@@ -36,13 +36,13 @@ test "*.ml matches" (fn t ->
   let () = FS.write_file! "${scratch}/baz.ml" "" in
   let names = FS.glob_in *.ml dir |> List.map Path.basename |> List.sort in
   let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
-  let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in t.eq names ["baz.ml"])
+  let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in t.eq ["baz.ml"] names)
 
 test "no match" (fn t ->
   let dir = Path.of_string scratch in
   let () = FS.write_file! "${scratch}/foo.wand" "" in
   let names = FS.glob_in *.py dir |> List.map Path.basename |> List.sort in
-  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in t.eq names [])
+  let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in t.eq [] names)
 
 test "./* matches all" (fn t ->
   let dir = Path.of_string scratch in
@@ -53,7 +53,7 @@ test "./* matches all" (fn t ->
   let () = FS.delete! (Path.of_string "${scratch}/foo.wand") in
   let () = FS.delete! (Path.of_string "${scratch}/bar.wand") in
   let () = FS.delete! (Path.of_string "${scratch}/baz.ml") in
-  t.eq names ["bar.wand", "baz.ml", "foo.wand"])
+  t.eq ["bar.wand", "baz.ml", "foo.wand"] names)
 
 test "** recursive" (fn t ->
   let dir = Path.of_string scratch in
@@ -63,7 +63,7 @@ test "** recursive" (fn t ->
   let names = FS.glob_in **.wand dir |> List.map Path.basename |> List.sort in
   let () = FS.delete! (Path.of_string "${scratch}/a.wand") in
   let () = FS.delete! (Path.of_string "${scratch}/sub/b.wand") in
-  let () = FS.delete! (Path.of_string "${scratch}/sub") in t.eq names ["a.wand", "b.wand"])
+  let () = FS.delete! (Path.of_string "${scratch}/sub") in t.eq ["a.wand", "b.wand"] names)
 
 test "cleanup scratch directory" (fn t ->
   let () = FS.delete! (Path.of_string scratch) in t.ok true)

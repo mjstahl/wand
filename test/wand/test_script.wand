@@ -16,54 +16,54 @@ import Env
 (* ── Value bindings ────────────────────────────────────────────────────── *)
 
 let single_binding = 42
-test "single binding" (fn t -> t.eq single_binding 42)
+test "single binding" (fn t -> t.eq 42 single_binding)
 
 let double_val x = x * 2
-test "fn shorthand" (fn t -> t.eq (double_val 5) 10)
+test "fn shorthand" (fn t -> t.eq 10 (double_val 5))
 
 let add_two x y = x + y
-test "two params" (fn t -> t.eq (add_two 3 4) 7)
+test "two params" (fn t -> t.eq 7 (add_two 3 4))
 
 let quad x = double_val (double_val x)
-test "chained" (fn t -> t.eq (quad 3) 12)
+test "chained" (fn t -> t.eq 12 (quad 3))
 
 (* ── Imports ───────────────────────────────────────────────────────────── *)
 
 let Lib = import ./imports_fixture
 
-test "import binding" (fn t -> t.eq Lib.answer 42)
-test "import function" (fn t -> t.eq (Lib.double 21) 42)
-test "import multiple bindings" (fn t -> t.eq (Lib.shout Lib.greeting) "hello!")
+test "import binding" (fn t -> t.eq 42 Lib.answer)
+test "import function" (fn t -> t.eq 42 (Lib.double 21))
+test "import multiple bindings" (fn t -> t.eq "hello!" (Lib.shout Lib.greeting))
 
 (* ── Stdlib imports ────────────────────────────────────────────────────── *)
 
-test "List.map" (fn t -> t.eq (List.map (fn x -> x * 2) [1, 2, 3]) [2, 4, 6])
-test "List.filter" (fn t -> t.eq (List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]) [3, 4, 5])
-test "List.length" (fn t -> t.eq (List.length [1, 2, 3, 4, 5]) 5)
-test "List.reverse" (fn t -> t.eq (List.reverse [1, 2, 3]) [3, 2, 1])
+test "List.map" (fn t -> t.eq [2, 4, 6] (List.map (fn x -> x * 2) [1, 2, 3]))
+test "List.filter" (fn t -> t.eq [3, 4, 5] (List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]))
+test "List.length" (fn t -> t.eq 5 (List.length [1, 2, 3, 4, 5]))
+test "List.reverse" (fn t -> t.eq [3, 2, 1] (List.reverse [1, 2, 3]))
 test "List.fold_left sum" (fn t ->
-  t.eq (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]) 15)
+  t.eq 15 (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]))
 
 (* ── Recursive top-level functions ────────────────────────────────────── *)
 
 let script_fact n = if n <= 0 then 1 else n * script_fact (n - 1)
-test "factorial" (fn t -> t.eq (script_fact 5) 120)
+test "factorial" (fn t -> t.eq 120 (script_fact 5))
 
 let script_fib n = if n <= 1 then n else script_fib (n - 1) + script_fib (n - 2)
-test "fibonacci" (fn t -> t.eq (script_fib 10) 55)
+test "fibonacci" (fn t -> t.eq 55 (script_fib 10))
 
 (* ── Mutually-recursive top-level functions (`and`) ───────────────────── *)
 
 let is_even n = if n == 0 then true else is_odd (n - 1)
 and is_odd n = if n == 0 then false else is_even (n - 1)
-test "even/odd, top-level" (fn t -> t.eq (is_even 10) true)
+test "even/odd, top-level" (fn t -> t.eq true (is_even 10))
 
 let mr_f _p0 =
   match _p0 with
   | 0 -> 1
   | n -> n * mr_g (n - 1)
 and mr_g n = mr_f n
-test "multi-equation clause plus and-group" (fn t -> t.eq (mr_f 4) 24)
+test "multi-equation clause plus and-group" (fn t -> t.eq 24 (mr_f 4))
 
 test "local let ... and ... in" (fn t ->
   let x =
@@ -71,7 +71,7 @@ test "local let ... and ... in" (fn t ->
     and is_odd n = if n == 0 then false else is_even (n - 1)
     in is_even 7
   in
-  t.eq x false)
+  t.eq false x)
 
 (* ── Source locations in type errors ──────────────────────────────────── *)
 
@@ -79,41 +79,41 @@ test "local let ... and ... in" (fn t ->
 
 let mfact 0 = 1
 let mfact n = n * mfact (n - 1)
-test "multi-equation factorial" (fn t -> t.eq (mfact 5) 120)
+test "multi-equation factorial" (fn t -> t.eq 120 (mfact 5))
 
 let madd 0 y = y
 let madd x 0 = x
 let madd x y = x + y
 test "multi-equation two args" (fn t ->
-  t.eq "${madd 3 4}, ${madd 0 9}, ${madd 5 0}" "7, 9, 5")
+  t.eq "7, 9, 5" "${madd 3 4}, ${madd 0 9}, ${madd 5 0}")
 
 type Opt = None | Some Int
 let show_opt None = "nothing"
 let show_opt (Some n) = "just ${n}"
 test "constructor patterns" (fn t ->
-  t.eq "${show_opt None}, ${show_opt (Some 42)}" "nothing, just 42")
+  t.eq "nothing, just 42" "${show_opt None}, ${show_opt (Some 42)}")
 
 let label 1 = "one"
 let label 2 = "two"
 let label _ = "other"
 test "wildcard catch-all" (fn t ->
-  t.eq "${label 1}, ${label 2}, ${label 99}" "one, two, other")
+  t.eq "one, two, other" "${label 1}, ${label 2}, ${label 99}")
 
 (* ── Environment variables ────────────────────────────────────────────── *)
 
-test "basic" (fn t -> t.eq $HOME (Env.get! "HOME"))
-test "in let" (fn t -> let d = $HOME in t.eq d (Env.get! "HOME"))
-test "concatenation" (fn t -> t.eq ($HOME ++ "/bin") (Env.get! "HOME" ++ "/bin"))
-test "interpolation" (fn t -> t.eq "home: $HOME" ("home: " ++ Env.get! "HOME"))
-test "string shorthand" (fn t -> t.eq "home: $HOME" ("home: " ++ Env.get! "HOME"))
+test "basic" (fn t -> t.eq (Env.get! "HOME") $HOME)
+test "in let" (fn t -> let d = $HOME in t.eq (Env.get! "HOME") d)
+test "concatenation" (fn t -> t.eq (Env.get! "HOME" ++ "/bin") ($HOME ++ "/bin"))
+test "interpolation" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: $HOME")
+test "string shorthand" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: $HOME")
 test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
 
 (* ── Type annotations ─────────────────────────────────────────────────── *)
 
 let value_annot : Int = 42
-test "value annot" (fn t -> t.eq value_annot 42)
+test "value annot" (fn t -> t.eq 42 value_annot)
 
 let annot_double x : Int = x * 2
-test "fn return annot" (fn t -> t.eq (annot_double 3) 6)
+test "fn return annot" (fn t -> t.eq 6 (annot_double 3))
 
 (* ── Errors ────────────────────────────────────────────────────────────── *)

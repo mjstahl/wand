@@ -11,133 +11,133 @@ import FS
 
 test "null" (fn t ->
   t.eq
+    "null"
     (match JSON.parse "null" with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err")
-    "null")
+    | Error _ -> "err"))
 
 test "number" (fn t ->
   t.eq
+    "42"
     (match JSON.parse "42" with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err")
-    "42")
+    | Error _ -> "err"))
 
 test "string" (fn t ->
   t.eq
+    "\"hello\""
     (match JSON.parse "\"hello\"" with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err")
-    "\"hello\"")
+    | Error _ -> "err"))
 
 test "bad JSON returns Error" (fn t ->
   t.eq
+    "error"
     (match JSON.parse "{bad}" with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "error")
+    | Error _ -> "error"))
 
-test "parse! valid" (fn t -> t.eq (JSON.stringify (JSON.parse! "true")) "true")
+test "parse! valid" (fn t -> t.eq "true" (JSON.stringify (JSON.parse! "true")))
 test "parse! invalid raises" (fn t -> t.raises (fn () -> JSON.parse! "not json"))
 
 (* ── get_* extractors ─────────────────────────────────────────────────── *)
 
 test "get_bool true" (fn t ->
   t.eq
+    true
     (match JSON.get_bool (JSON.parse! "true") with
     | Ok b -> b
-    | Error _ -> false)
-    true)
+    | Error _ -> false))
 
 test "get_bool wrong type" (fn t ->
   t.eq
+    "error"
     (match JSON.get_bool (JSON.parse! "42") with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "error")
+    | Error _ -> "error"))
 
 test "get_int" (fn t ->
   t.eq
+    99
     (match JSON.get_int (JSON.parse! "99") with
     | Ok n -> n
-    | Error _ -> -1)
-    99)
+    | Error _ -> -1))
 
 test "get_int wrong type" (fn t ->
   t.eq
+    "error"
     (match JSON.get_int (JSON.parse! "\"hi\"") with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "error")
+    | Error _ -> "error"))
 
 test "get_float from float literal" (fn t ->
   t.eq
+    true
     (match JSON.get_float (JSON.parse! "3.14") with
     | Ok f -> f > 3.0
-    | Error _ -> false)
-    true)
+    | Error _ -> false))
 
 test "get_float from int literal" (fn t ->
   t.eq
+    true
     (match JSON.get_float (JSON.parse! "2") with
     | Ok f -> f == 2.0
-    | Error _ -> false)
-    true)
+    | Error _ -> false))
 
 test "get_string" (fn t ->
   t.eq
+    "world"
     (match JSON.get_string (JSON.parse! "\"world\"") with
     | Ok s -> s
-    | Error _ -> "")
-    "world")
+    | Error _ -> ""))
 
 test "get_array length" (fn t ->
   t.eq
+    3
     (match JSON.get_array (JSON.parse! "[1,2,3]") with
     | Ok xs -> List.length xs
-    | Error _ -> -1)
-    3)
+    | Error _ -> -1))
 
 test "get_object then field" (fn t ->
   t.eq
+    "\"v\""
     (match JSON.get_object (JSON.parse! "{\"k\":\"v\"}") with
     | Ok m -> JSON.stringify (Map.get! "k" m)
-    | Error _ -> "")
-    "\"v\"")
+    | Error _ -> ""))
 
 (* ── field / field! ────────────────────────────────────────────────────── *)
 
 test "field exists" (fn t ->
   let j = JSON.parse! "{\"name\":\"Alice\",\"age\":30}" in
   t.eq
+    "\"Alice\""
     (match JSON.field "name" j with
     | Ok v -> JSON.stringify v
-    | Error _ -> "")
-    "\"Alice\"")
+    | Error _ -> ""))
 
 test "field missing" (fn t ->
   let j = JSON.parse! "{\"a\":1}" in
   t.eq
+    "error"
     (match JSON.field "z" j with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "error")
+    | Error _ -> "error"))
 
 test "field! exists" (fn t ->
-  let j = JSON.parse! "{\"x\":42}" in t.eq (JSON.stringify (JSON.field! "x" j)) "42")
+  let j = JSON.parse! "{\"x\":42}" in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
 
 test "field! missing raises" (fn t ->
   let j = JSON.parse! "{\"a\":1}" in t.raises (fn () -> JSON.field! "z" j))
 
 (* ── construction ──────────────────────────────────────────────────────── *)
 
-test "of_bool" (fn t -> t.eq (JSON.stringify (JSON.of_bool true)) "true")
-test "of_int" (fn t -> t.eq (JSON.stringify (JSON.of_int 7)) "7")
-test "of_float" (fn t -> t.eq (JSON.stringify (JSON.of_float 1.5)) "1.5")
-test "of_string" (fn t -> t.eq (JSON.stringify (JSON.of_string "hi")) "\"hi\"")
+test "of_bool" (fn t -> t.eq "true" (JSON.stringify (JSON.of_bool true)))
+test "of_int" (fn t -> t.eq "7" (JSON.stringify (JSON.of_int 7)))
+test "of_float" (fn t -> t.eq "1.5" (JSON.stringify (JSON.of_float 1.5)))
+test "of_string" (fn t -> t.eq "\"hi\"" (JSON.stringify (JSON.of_string "hi")))
 test "of_list" (fn t ->
-  t.eq (JSON.stringify (JSON.of_list [JSON.of_int 1, JSON.of_int 2])) "[1,2]")
-test "null and is_null" (fn t -> t.eq (JSON.null? JSON.null) true)
+  t.eq "[1,2]" (JSON.stringify (JSON.of_list [JSON.of_int 1, JSON.of_int 2])))
+test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 
 (* ── stringify_pretty ──────────────────────────────────────────────────── *)
 
@@ -145,10 +145,10 @@ test "pretty round-trips" (fn t ->
   let j = JSON.parse! "{\"a\":1}" in
   let s = JSON.stringify_pretty j in
   t.eq
+    "ok"
     (match JSON.parse s with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "ok")
+    | Error _ -> "error"))
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
@@ -160,11 +160,11 @@ test "read_file ok" (fn t ->
     | Ok j -> JSON.stringify (JSON.field! "greeting" j)
     | Error _ -> ""
   in
-  t.eq outcome "\"hello\"")
+  t.eq "\"hello\"" outcome)
 
 test "read_file missing file returns Error" (fn t ->
   t.eq
+    "error"
     (match JSON.read_file (Path.of_string "/nonexistent/wand_missing.json") with
     | Ok _ -> "ok"
-    | Error _ -> "error")
-    "error")
+    | Error _ -> "error"))

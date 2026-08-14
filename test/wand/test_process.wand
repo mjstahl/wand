@@ -10,17 +10,17 @@ let try_msg thunk =
 
 (* ── Basic execution ($()) ─────────────────────────────────────────────── *)
 
-test "captures stdout" (fn t -> t.eq $(echo hello) "hello")
-test "strips trailing newline" (fn t -> t.eq $(printf hello) "hello")
+test "captures stdout" (fn t -> t.eq "hello" $(echo hello))
+test "strips trailing newline" (fn t -> t.eq "hello" $(printf hello))
 
 test "dynamic cmd via interpolation" (fn t ->
-  let cmd = "echo world" in t.eq $(${cmd}) "world")
+  let cmd = "echo world" in t.eq "world" $(${cmd}))
 
-test "result in binding" (fn t -> let out = $(echo hello) in t.eq out "hello")
+test "result in binding" (fn t -> let out = $(echo hello) in t.eq "hello" out)
 
-test "result in expression" (fn t -> let out = $(echo 3) in t.eq (out == "3") true)
+test "result in expression" (fn t -> let out = $(echo 3) in t.eq true (out == "3"))
 
-test "interpolated command" (fn t -> let word = "hello" in t.eq $(echo ${word}) "hello")
+test "interpolated command" (fn t -> let word = "hello" in t.eq "hello" $(echo ${word}))
 
 (* ── Error handling ────────────────────────────────────────────────────── *)
 
@@ -30,20 +30,20 @@ test "error shows exit code" (fn t ->
 
 (* ── $?() ──────────────────────────────────────────────────────────────── *)
 
-test "stdout field" (fn t -> let r = $?(echo hello) in t.eq r.stdout "hello")
+test "stdout field" (fn t -> let r = $?(echo hello) in t.eq "hello" r.stdout)
 
-test "code zero" (fn t -> let r = $?(true) in t.eq r.code 0)
+test "code zero" (fn t -> let r = $?(true) in t.eq 0 r.code)
 
-test "code non-zero" (fn t -> let r = $?(false) in t.eq r.code 1)
+test "code non-zero" (fn t -> let r = $?(false) in t.eq 1 r.code)
 
-test "never raises" (fn t -> let r = $?(exit 42) in t.eq (r.code == 42) true)
+test "never raises" (fn t -> let r = $?(exit 42) in t.eq true (r.code == 42))
 
 (* ── stdin via |> ──────────────────────────────────────────────────────── *)
 
-test "pipe into cat" (fn t -> t.eq ("hello" |> $(cat)) "hello")
-test "pipe into wc -w" (fn t -> t.eq ("hello world" |> $(wc -w | tr -d " ")) "2")
+test "pipe into cat" (fn t -> t.eq "hello" ("hello" |> $(cat)))
+test "pipe into wc -w" (fn t -> t.eq "2" ("hello world" |> $(wc -w | tr -d " ")))
 
-test "pipe into $?()" (fn t -> let r = "hello" |> $?(cat) in t.eq r.stdout "hello")
+test "pipe into $?()" (fn t -> let r = "hello" |> $?(cat) in t.eq "hello" r.stdout)
 
 (* ── mock handlers ─────────────────────────────────────────────────────── *)
 
@@ -52,4 +52,4 @@ test "mock process_run" (fn t ->
     handle $(echo hello) with
     | Shell!run _ k -> k "mocked"
   in
-  t.eq outcome "mocked")
+  t.eq "mocked" outcome)
