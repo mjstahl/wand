@@ -177,6 +177,17 @@ and emit_atom indent e =
   let s = emit_expr_inner indent e' in
   if is_control_expr e' || is_binop_or_unop e' || is_app e' then "(" ^ s ^ ")" else s
 
+(* An argument, which is an atom with one extra hazard: a bare constructor is
+   greedy. `f None x` parses as `f (None x)`, because a constructor takes the
+   next atom as its payload -- so `None` is safe only as the final argument,
+   where there is nothing left for it to swallow. Dropping those parentheses
+   anywhere else changes what the program means, and a formatter that changes
+   meaning is worse than no formatter. *)
+and emit_arg ~last indent e =
+  match strip_located e with
+  | Constr _ as c when not last -> "(" ^ emit_expr_inner indent c ^ ")"
+  | _ -> emit_atom indent e
+
 and emit_expr_inner indent e =
   match e with
   | Int n      -> string_of_int n
@@ -287,9 +298,11 @@ and emit_app indent e =
   let (head, args) = flatten e in
   if args = [] then emit_expr indent head
   else
-    let oneline =
-      emit_atom indent head ^ " " ^ String.concat " " (List.map (emit_atom indent) args)
+    let emit_args ind =
+      let n = List.length args in
+      List.mapi (fun i a -> emit_arg ~last:(i = n - 1) ind a) args
     in
+    let oneline = emit_atom indent head ^ " " ^ String.concat " " (emit_args indent) in
     if fits indent oneline then oneline
     else
       (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
@@ -308,15 +321,15 @@ and emit_app indent e =
           | Fn (ps, body) ->
             let prefix =
               String.concat " "
-                (emit_atom indent head :: List.map (emit_atom indent) before)
+                (emit_atom indent head
+                 :: List.map (fun a -> emit_arg ~last:false indent a) before)
             in
             prefix ^ " (fn " ^ String.concat " " (List.map emit_pat_atom ps)
             ^ " ->\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
           | _ ->
             (* Otherwise one argument per line, under the head. *)
             emit_atom indent head ^ "\n" ^ inner
-            ^ String.concat ("\n" ^ inner)
-                (List.map (emit_atom (indent + 2)) args)
+            ^ String.concat ("\n" ^ inner) (emit_args (indent + 2))
             ^ (if ind = "" then "" else ""))
        | _, None -> oneline)
 

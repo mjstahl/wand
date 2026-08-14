@@ -141,6 +141,28 @@ let test_float_literal_type_preserved () =
   type_after_format "integral float in a constructor" "Ok 42.0" "Result 'a Float";
   type_after_format "non-integral float unaffected" "3.14" "Float"
 
+(* A bare constructor takes the next atom as its payload, so `f None x`
+   means `f (None x)`. Parentheses around a constructor that is not the last
+   argument are load-bearing, and dropping them changes what the program
+   means -- which a formatter may never do. The final position is safe and
+   stays bare, so formatted code does not fill up with parentheses. *)
+let test_constructor_argument_keeps_its_parens () =
+  (* Behaviour, not text: formatted, this still returns the first argument
+     rather than applying the constructor to the second. *)
+  ok_after_format "constructor before another argument"
+    "type Opt = None | Some Int\nlet f a b = b\nf (None) 7"
+    "7";
+  ok_after_format "constructor as the last argument"
+    "type Opt = None | Some Int\nlet f a b = a\nf 7 None"
+    "7";
+  (* And the parens appear only where they carry weight. *)
+  Alcotest.(check string) "last argument stays bare"
+    "let f a b = a\nlet x = f 1 None\n"
+    (fmt "let f a b = a\nlet x = f 1 None");
+  Alcotest.(check string) "earlier argument keeps its parens"
+    "let f a b = b\nlet x = f (None) 1\n"
+    (fmt "let f a b = b\nlet x = f (None) 1")
+
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -349,6 +371,7 @@ let () =
     "behavior preserved", [
       Alcotest.test_case "behavior" `Quick test_behavior_preserved;
       Alcotest.test_case "float literal type" `Quick test_float_literal_type_preserved;
+      Alcotest.test_case "constructor argument parens" `Quick test_constructor_argument_keeps_its_parens;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;
