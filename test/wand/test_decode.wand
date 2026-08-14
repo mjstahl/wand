@@ -238,18 +238,25 @@ test "a port reads however it was written" (fn t ->
     )
     (Ok :8080, Ok :8080, Ok :8080, Ok :8080))
 
-(* The number and the text are read by one rule, so they cannot disagree
-   about the same port. *)
+(* The number and the text are read by one rule -- the lexer -- so they
+   cannot disagree about the same port, and neither can a literal. A port
+   outside 0-65535 is not one. *)
 test "and what is not a port is not a port, written either way" (fn t ->
-  let doc = JSON.parse! "{\"a\": -1, \"b\": \":-1\", \"c\": \"http\"}" in
+  let doc =
+    JSON.parse! "{\"a\": -1, \"b\": \":-1\", \"c\": \"http\", \"d\": 65536, \"e\": 65535}"
+  in
   t.eq
     (
       JSON.decode (Decode.field "a" Decode.port) doc,
       JSON.decode (Decode.field "b" Decode.port) doc,
-      JSON.decode (Decode.field "c" Decode.port) doc
+      JSON.decode (Decode.field "c" Decode.port) doc,
+      JSON.decode (Decode.field "d" Decode.port) doc,
+      JSON.decode (Decode.field "e" Decode.port) doc
     )
     (
-      Error ".a: expected Port, got Int",
+      Error ".a: expected Port, got -1",
       Error ".b: expected Port, got \":-1\"",
-      Error ".c: expected Port, got \"http\""
+      Error ".c: expected Port, got \"http\"",
+      Error ".d: expected Port, got 65536",
+      Ok :65535
     ))

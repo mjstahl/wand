@@ -105,7 +105,7 @@ a `Date` where a `Duration` is expected.
 | `Url` | `https://example.com` `http://localhost:8080/api` |
 | `IPv4` | `192.168.1.1` `10.0.0.1` |
 | `CIDR` | `192.168.0.0/24` `10.0.0.0/8` |
-| `Port` | `:80` `:8080` `:443` |
+| `Port` | `:80` `:8080` `:443` — 0 to 65535; outside that is a lex error |
 | `Version` | `1.2.3` `0.1.0` `1.2.3-alpha.1` |
 | `Size` | `10MB` `512KB` `1.5GB` `100B` |
 
@@ -963,8 +963,9 @@ produces the type the rest of the program is written against rather than a
 Each reads exactly what could have been written in the source, and nothing
 the source would have rejected — the same lexer decides both. `port` is the
 one that shows it, since a script writes `:8080` but a document usually holds
-the bare number: `8080`, `"8080"` and `":8080"` all read, and `-1` does not,
-written either way.
+the bare number: `8080`, `"8080"` and `":8080"` all read. A port is 0 to
+65535, so `65536` and `-1` do not — the same answer the lexer gives `:65536`
+in a script.
 
 ### Text is read, never written
 

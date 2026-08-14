@@ -475,12 +475,23 @@ let read_ident s first_char =
 
 (* ── Port ───────────────────────────────────────────────────────────────── *)
 
+(* A port is a number from 0 to 65535. Outside that it is not a port, and a
+   program that says so is wrong about something. Checked here rather than at
+   each reader, so a literal, `String.to_port` and `Decode.port` cannot
+   disagree about the same number -- they all come through this. *)
 let read_port s =
   let buf = Buffer.create 5 in
   while not (is_at_end s) && is_digit (peek s) do
     Buffer.add_char buf (advance s)
   done;
-  Port (int_of_string (Buffer.contents buf))
+  let digits = Buffer.contents buf in
+  match int_of_string_opt digits with
+  | Some n when n <= 65535 -> Port n
+  | _ ->
+    (* Also the arm for a number too large to be an Int at all, which used to
+       escape as an OCaml failure rather than a lex error. *)
+    raise (LexError (Printf.sprintf
+      "port :%s is out of range -- a port is 0 to 65535" digits))
 
 (* ── Main tokeniser ─────────────────────────────────────────────────────── *)
 

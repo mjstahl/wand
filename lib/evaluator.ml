@@ -2299,7 +2299,17 @@ let decode_builtins : env = [
       | Some (Token.Port n) -> Some (VPort n)
       | _ -> None
     in
-    let read s = match of_text s with Some v -> Ok v | None -> expected "Port" path j in
+    (* Out of range is the one case where the number matters more than its
+       type: "expected Port, got Int" would be describing what is right about
+       it. Everywhere else the type name is the useful half. *)
+    let read s =
+      match of_text s with
+      | Some v -> Ok v
+      | None ->
+        (match j with
+         | `Int n -> decode_error path (Printf.sprintf "expected Port, got %d" n)
+         | _ -> expected "Port" path j)
+    in
     match j with
     | `Int n    -> read (string_of_int n)
     | `String s -> read s

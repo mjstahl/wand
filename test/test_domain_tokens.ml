@@ -118,7 +118,23 @@ let test_cidr_invalid () =
 let test_ports () =
   check "http"   ":80"    [Port 80];
   check "https"  ":443"   [Port 443];
-  check "dev"    ":8080"  [Port 8080]
+  check "dev"    ":8080"  [Port 8080];
+  check "zero"   ":0"     [Port 0];
+  check "last"   ":65535" [Port 65535]
+
+(* A port is 0 to 65535, checked where CIDR's prefix is checked: in the
+   lexer, so a literal, `String.to_port` and `Decode.port` cannot disagree
+   about the same number. The overflow case used to escape as an OCaml
+   `int_of_string` failure rather than a lex error. *)
+let test_port_out_of_range () =
+  let lex_err label src =
+    match Lexer.tokenize_plain src with
+    | _ -> Alcotest.failf "%s: expected LexError but got tokens" label
+    | exception Lexer.LexError _ -> ()
+  in
+  lex_err "one past the end" ":65536";
+  lex_err "five digits"      ":99999";
+  lex_err "wider than an Int" ":99999999999999999999"
 
 let test_port_disambiguation () =
   (* colon with space before digits → colon token, not port *)
@@ -184,6 +200,7 @@ let () =
       Alcotest.test_case "cidr"               `Quick test_cidr;
       Alcotest.test_case "cidr invalid"       `Quick test_cidr_invalid;
       Alcotest.test_case "ports"              `Quick test_ports;
+      Alcotest.test_case "port out of range"  `Quick test_port_out_of_range;
       Alcotest.test_case "port disambiguation" `Quick test_port_disambiguation;
     ];
     "versions", [
