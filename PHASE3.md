@@ -364,11 +364,38 @@ the derived one -- which today it can, since the two mix freely.
 
 ## P3.5 — D7 and `else ()`
 
-**D7 — jq, typed.** `kubectl get pods -o json | jq -r … | awk …` against a `Pod` type and a typed pipeline. Introduce the same field-name typo on both sides: jq emits silent nulls, wand names the field. Runs offline against a canned fixture, like every other demo.
+**D7 is done**; `else ()` is what remains of the phase.
 
-Then `else ()`, if there is room.
+The demo asks which pods are restarting too often, of a canned
+`kubectl get pods -o json`, through jq and awk and through four types whose
+decoders are derived. Both report the same three pods.
 
-*Accept:* D7's contrast lands in a terminal recording.
+**The contrast grew a second half while it was being written.** Getting the
+field name wrong turns out to have two distinct shapes, and wand answers them
+differently:
+
+- *typing it wrong* -- the field is named in a type, so the code that reads
+  it stops compiling, and nothing runs;
+- *the cluster renaming it* -- the code is consistent with itself and only
+  the document disagrees, so it runs and fails at the boundary where the
+  document is read: `.items[0].status.containerStatuses[0].restartCount: no
+  such field`.
+
+Only the second is the decode boundary the tranche was written for. The first
+is the type system catching it earlier still, and showing both is what says
+these are two guards rather than one.
+
+**jq's answer to both is `0 pods reported, exit 0`.** Not an error, not an
+empty result that looks wrong -- a clean bill of health, while `db-01` sits
+in CrashLoopBackOff with twelve restarts in the document it just read. The
+silence is counted rather than shown, because there is nothing to show.
+
+*Accept:* ~~D7's contrast lands in a terminal recording~~ done,
+`demos/d7-jq-typed/`, offline against a fixture and asserted through four
+`moment` checks.
+
+**`else ()` remains.** One occurrence in the corpus when this phase started;
+`examples/repo-status.wand` still has it.
 
 ## P3.6 — Dictionaries, nulls, and the other direction
 
@@ -423,9 +450,8 @@ for the change.
 ## Picking this up
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 582 wand tests and the OCaml suite pass, eight demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Next is P3.5 -- D7, then
-`else ()` if there is room.
+clean, 582 wand tests and the OCaml suite pass, nine demos pass, every
+`.wand` file is a fixed point of `wand fmt`. Next is `else ()`, then P3.6.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -487,5 +513,5 @@ silently stops, look here first.
 2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**, and D8 shows it.
 3. ~~One decoder replaces the four scrapes in `examples/repo-status.wand`~~ **done**, with the caveat recorded under P3.3.
 4. ~~A single-constructor named-field type gets its decoder for free~~ **done**.
-5. D7 and D8 land as runnable, offline demos.
+5. ~~D7 and D8 land as runnable, offline demos~~ **done**.
 6. An object with dynamic keys, a null value, and the write direction all have an answer (P3.6).

@@ -1,0 +1,40 @@
+uses {FS.Read, IO, Raise}
+
+import Decode
+import IO
+import JSON
+import List
+import String
+
+-- The same question, of the same document: which pods are restarting too
+-- often?
+--
+-- These types are the shape of what kubectl prints. Nothing here writes a
+-- decoder: a type with named fields has one, because it already says what
+-- its fields are. So the field names below are checked against the document
+-- rather than hoped for.
+
+type Container = Container(name: String, restartCount: Int, ready: Bool)
+
+type Status = Status(phase: String, containerStatuses: List Container)
+
+type Meta = Meta(name: String, namespace: String)
+
+type Pod = Pod(metadata: Meta, status: Status)
+
+let pods = Decode.field "items" (Decode.list Pod.decoder)
+
+-- A pod's name, and how often it has restarted across its containers.
+let summary (Pod(metadata = Meta(name = name), status = Status(containerStatuses = cs))) =
+  (name, List.fold_left (fn total (Container(restartCount = r)) -> total + r) 0 cs)
+
+let pad s =
+  if String.length s >= 12 then s else s ++ String.repeat (12 - String.length s) " "
+
+let row (name, restarts) = "  ${pad name} ${restarts}"
+
+let crashlooping ps = List.map row (List.filter (fn (_, r) -> r > 3) (List.map summary ps))
+
+match JSON.decode pods (JSON.read_file! ./pods.json) with
+| Ok ps -> IO.println (String.join "\n" (crashlooping ps))
+| Error why -> IO.println "  ${why}"

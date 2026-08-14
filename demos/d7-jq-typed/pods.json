@@ -1,0 +1,61 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": { "name": "web-01", "namespace": "default" },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          { "name": "web", "restartCount": 0, "ready": true }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "web-02", "namespace": "default" },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          { "name": "web", "restartCount": 1, "ready": true }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "api-01", "namespace": "default" },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          { "name": "api", "restartCount": 7, "ready": false }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "worker-01", "namespace": "jobs" },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          { "name": "worker", "restartCount": 2, "ready": true },
+          { "name": "sidecar", "restartCount": 3, "ready": true }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "cache-01", "namespace": "default" },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          { "name": "redis", "restartCount": 0, "ready": true }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "db-01", "namespace": "data" },
+      "status": {
+        "phase": "CrashLoopBackOff",
+        "containerStatuses": [
+          { "name": "postgres", "restartCount": 12, "ready": false }
+        ]
+      }
+    }
+  ]
+}

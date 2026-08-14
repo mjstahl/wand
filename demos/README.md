@@ -10,6 +10,7 @@ demos/d3-typed-holes/run.sh
 demos/d4-signatures/run.sh
 demos/d5-rehearse/run.sh
 demos/d6-unplugged/run.sh
+demos/d7-jq-typed/run.sh
 demos/d8-fan-out/run.sh
 demos/d9-fork-overhead/run.sh      # slower: it runs a deliberately bad bash loop
 ```
@@ -135,6 +136,48 @@ ok   which was never written
 The assertions are about what the script *attempted*, not only what it
 returned — the commands it would run, in order, and the paths it would write.
 The last line checks the file is still absent.
+
+## D7 — jq, typed
+
+Which pods are restarting too often? Through jq and awk:
+
+```
+jq -r ".items[] | [.metadata.name, ([.status.containerStatuses[].restartCount] | add)] | @tsv" pods.json \
+  | awk -F'\t' '$2 > 3 { printf "  %-12s %s\n", $1, $2 }'
+```
+
+Through a type — and nothing writes a decoder, because a type with named
+fields already has one:
+
+```
+type Container (name : String, restartCount : Int, ready : Bool)
+type Status (phase : String, containerStatuses : List Container)
+type Meta (name : String, namespace : String)
+type Pod (metadata : Meta, status : Status)
+```
+
+Both report the same three pods. Then the field name is got wrong — first by
+typing it wrong, then by leaving the code alone and letting the cluster
+rename it:
+
+```
+  jq: 0 pods reported, exit 0
+  wand: constructor 'Container' has no field 'restartCount' (did you mean 'restartCnt'?)
+
+  jq: 0 pods reported, exit 0
+  wand: .items[0].status.containerStatuses[0].restartCount: no such field
+```
+
+The silence is the point. jq does not fail on a field that is not there — it
+produces null, awk compares null to 3, and the pipeline reports that nothing
+is crashlooping and exits 0. In the document it just read, `db-01` is in
+CrashLoopBackOff with twelve restarts.
+
+The two wand failures are two different guards. The typo never runs at all:
+the field is named in a type, so the code that reads it stops compiling. The
+renamed field does run, because the code is consistent with itself and only
+the document disagrees — that one fails at the boundary where the document
+is read, and says which field, in which container, of which pod.
 
 ## D8 — Fan out without fear
 
