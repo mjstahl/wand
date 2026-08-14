@@ -34,5 +34,5 @@ let sync_msg =
 println "Branch:  ${branch}"
 println "Status:  ${status_msg}"
 println "Sync:    ${sync_msg}"
-if stashes > 0 then println "Stashes: ${stashes} saved" else ()
+if stashes > 0 then println "Stashes: ${stashes} saved"
 println "Last:    ${last}"

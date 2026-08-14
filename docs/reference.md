@@ -222,6 +222,24 @@ happens eagerly; only a function's body is deferred until it's called.
 if x > 0 then "positive" else "non-positive"
 ```
 
+An `if` with nothing to do when the condition is false leaves the branch out:
+
+```
+if stashes > 0 then println "Stashes: ${stashes} saved"
+```
+
+That is the same expression as `else ()`, not a second kind of conditional —
+so the branch has to be `Unit`, since a missing branch can only be `()`:
+
+```
+if ready then 1
+-- an `if` with no `else` does nothing when the condition is false,
+--   so its branch must be Unit -- this one is Int
+```
+
+`wand fmt` writes an empty `else` out of existence: `if c then f () else ()`
+comes back as `if c then f ()`.
+
 ---
 
 ## Pipeline

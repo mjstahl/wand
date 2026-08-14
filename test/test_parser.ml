@@ -238,7 +238,15 @@ let test_if () =
     (If (Var "x", Int 1, Int 0));
   e "nested"
     "if a then if b then 1 else 2 else 3"
-    (If (Var "a", If (Var "b", Int 1, Int 2), Int 3))
+    (If (Var "a", If (Var "b", Int 1, Int 2), Int 3));
+  (* A missing `else` is `else ()`, so there is one conditional rather than
+     two, and the branch is checked against Unit like any other. *)
+  e "one-armed"
+    "if x then f y"
+    (If (Var "x", App (Var "f", Var "y"), Unit));
+  e "one-armed does not reach across a line for its branch"
+    "if x then f ()\ng ()"
+    (If (Var "x", App (Var "f", Unit), Unit))
 
 (* ── Match ───────────────────────────────────────────────────────────────── *)
 

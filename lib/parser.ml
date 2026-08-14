@@ -747,10 +747,18 @@ and if_ s =
   expect s Token.Then;
   let then_loc = peek_loc s in
   let then_ = Located (then_loc, expr_ 0 s) in
-  expect s Token.Else;
-  let else_loc = peek_loc s in
-  let else_ = Located (else_loc, expr_ 0 s) in
-  If (cond, then_, else_)
+  (* A one-armed `if` is `else ()`. Scripting is full of conditionals that
+     do something or nothing -- reporting a count only when there is one --
+     and writing the empty branch out adds a line that says nothing. The
+     branch still has to be `Unit`, because the two arms of an `if` are one
+     expression and the missing one can only be `()`. *)
+  if peek s <> Token.Else then If (cond, then_, Unit)
+  else begin
+    ignore (advance s);
+    let else_loc = peek_loc s in
+    let else_ = Located (else_loc, expr_ 0 s) in
+    If (cond, then_, else_)
+  end
 
 and match_ s =
   (* match already consumed *)

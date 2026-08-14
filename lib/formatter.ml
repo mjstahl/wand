@@ -497,12 +497,21 @@ and emit_letrec indent bindings e2 =
   String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
 
 and emit_if indent c t el =
-  let cs = emit_expr indent c and ts = emit_expr indent t and es = emit_expr indent el in
-  let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
-  if fits indent oneline then oneline
-  else
-    let ind = String.make indent ' ' in
-    Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
+  let cs = emit_expr indent c and ts = emit_expr indent t in
+  (* A branch that does nothing is written by leaving it out, so `else ()` --
+     however it was written -- comes back as the one-armed form. *)
+  match strip_located el with
+  | Unit ->
+    let oneline = Printf.sprintf "if %s then %s" cs ts in
+    if fits indent oneline then oneline
+    else Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ') ts
+  | _ ->
+    let es = emit_expr indent el in
+    let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
+    if fits indent oneline then oneline
+    else
+      let ind = String.make indent ' ' in
+      Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
 
 (* A `match`/`handle` case body ends only where the next `|`-prefixed case
    begins -- there's no other terminator. So an unparenthesized Match or

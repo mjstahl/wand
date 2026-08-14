@@ -65,7 +65,7 @@ let delete path = try delete! path
     the cleanup failing on the way out. *)
 let temp_file prefix suffix =
   let acquire = fn () -> fs_temp_file prefix suffix in
-  let release = fn p -> if exists? p then delete! p else () in Resource.make acquire release
+  let release = fn p -> if exists? p then delete! p in Resource.make acquire release
 
 (** A new, uniquely-named empty directory in the OS temp directory, removed
     with everything in it when the `with` that holds it ends:
@@ -78,8 +78,7 @@ let temp_file prefix suffix =
     tolerates the directory already being gone. *)
 let temp_dir prefix =
   let acquire = fn () -> fs_temp_dir prefix in
-  let release = fn p -> if exists? p then fs_delete_tree p else () in
-  Resource.make acquire release
+  let release = fn p -> if exists? p then fs_delete_tree p in Resource.make acquire release
 
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst

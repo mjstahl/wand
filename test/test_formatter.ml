@@ -163,6 +163,19 @@ let test_constructor_argument_keeps_its_parens () =
     "let f a b = b\nlet x = f (None) 1\n"
     (fmt "let f a b = b\nlet x = f (None) 1")
 
+(* `else ()` is the empty branch written out, and the one-armed form is the
+   same expression. The formatter prints the shorter one either way. *)
+let test_one_armed_if () =
+  Alcotest.(check string) "an explicit empty else is dropped"
+    "let f c = if c then g ()\n"
+    (fmt "let f c = if c then g () else ()");
+  Alcotest.(check string) "and one already written that way is left alone"
+    "let f c = if c then g ()\n"
+    (fmt "let f c = if c then g ()");
+  Alcotest.(check string) "a branch that is not empty keeps its else"
+    "let f c = if c then 1 else 2\n"
+    (fmt "let f c = if c then 1 else 2")
+
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -372,6 +385,7 @@ let () =
       Alcotest.test_case "behavior" `Quick test_behavior_preserved;
       Alcotest.test_case "float literal type" `Quick test_float_literal_type_preserved;
       Alcotest.test_case "constructor argument parens" `Quick test_constructor_argument_keeps_its_parens;
+      Alcotest.test_case "one-armed if" `Quick test_one_armed_if;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;

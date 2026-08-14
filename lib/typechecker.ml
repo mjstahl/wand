@@ -1036,7 +1036,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | If (cond, then_, else_) ->
     unify (infer tenv env cond) TBool;
     let tt = infer tenv env then_ in
-    unify tt (infer tenv env else_);
+    (* An `if` the parser completed for us -- one written without an `else` --
+       has a bare `Unit` for its second branch, where one that was written
+       carries a location. Worth telling apart only to explain the `Unit`:
+       "cannot unify Int with Unit" is true but says nothing about the `else`
+       that is not there. *)
+    (match else_ with
+     | Unit ->
+       (try unify tt TUnit with
+        | TypeError _ ->
+          raise (TypeError (Printf.sprintf
+            "an `if` with no `else` does nothing when the condition is false, so its branch must be Unit -- this one is %s" (string_of_typ tt))))
+     | _ -> unify tt (infer tenv env else_));
     tt
   | Match (scrutinee, cases) ->
     let ts       = infer tenv env scrutinee in

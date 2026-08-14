@@ -111,6 +111,22 @@ let test_tuple_pattern_types_its_scrutinee () =
     "let f p = match p with | (a, b) -> a in f (1, 2, 3)"
     "cannot unify"
 
+(* ── One-armed if ────────────────────────────────────────────────────────── *)
+
+(* `if c then e` is `if c then e else ()`: one conditional, not a second
+   construct. The branch must therefore be Unit, and saying only "cannot
+   unify Int with Unit" would leave the reader looking for the Unit. *)
+let test_one_armed_if () =
+  ok "does the thing"      "if 1 > 0 then println \"a\"" "()";
+  ok "or does nothing"     "if 1 > 2 then println \"a\"" "()";
+  err_contains "a branch that is not Unit says why"
+    "if true then 1"
+    "an `if` with no `else` does nothing when the condition is false";
+  (* An `else` that was written keeps the ordinary message. *)
+  err_contains "a written else is a plain mismatch"
+    "if true then 1 else \"x\""
+    "cannot unify"
+
 (* ── Derived decoders ────────────────────────────────────────────────────── *)
 
 (* A type that is not a single-constructor record has no shape a decoder
@@ -675,6 +691,9 @@ let () =
       Alcotest.test_case "named forms survive"              `Quick test_named_forms_survive;
       Alcotest.test_case "positional ctors unaffected"      `Quick test_positional_constructors_unaffected;
       Alcotest.test_case "a tuple pattern types its value"  `Quick test_tuple_pattern_types_its_scrutinee;
+    ];
+    "one-armed if", [
+      Alcotest.test_case "branch must be Unit" `Quick test_one_armed_if;
     ];
     "derived decoders", [
       Alcotest.test_case "underivable types say why" `Quick test_underivable_types_say_why;

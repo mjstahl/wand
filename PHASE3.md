@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** P3.1–P3.4 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1–P3.5 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -394,8 +394,22 @@ silence is counted rather than shown, because there is nothing to show.
 `demos/d7-jq-typed/`, offline against a fixture and asserted through four
 `moment` checks.
 
-**`else ()` remains.** One occurrence in the corpus when this phase started;
-`examples/repo-status.wand` still has it.
+**`else ()` is done too**, as the decision said: `if c then e` with a `Unit`
+branch, no `when` form, one conditional rather than two. The corpus had three
+occurrences by the end rather than the one measured at the start -- the two
+`FS` resource releases picked it up along the way -- and all three now read
+without the empty branch.
+
+Two small things came with it. A missing `else` is a bare `Unit` in the AST
+where a written one carries a location, which is enough to tell them apart
+and say *why* the branch must be `Unit`:
+
+    an `if` with no `else` does nothing when the condition is false,
+      so its branch must be Unit -- this one is Int
+
+And `wand fmt` writes an empty `else` out of existence, so `if c then f ()
+else ()` comes back one-armed. The formatter rule ships with the construct,
+as the working rules require.
 
 ## P3.6 — Dictionaries, nulls, and the other direction
 
@@ -451,7 +465,7 @@ for the change.
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
 clean, 582 wand tests and the OCaml suite pass, nine demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Next is `else ()`, then P3.6.
+`.wand` file is a fixed point of `wand fmt`. Next is P3.6.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
