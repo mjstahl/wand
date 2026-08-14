@@ -66,11 +66,14 @@ test "truthy" (fn t -> t.ok (1 == 1))|}
   | [o] -> check_pass "truthy" o
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
+(* `t.eq` takes the computed value first, as every call site in the corpus
+   writes it -- `t.eq (2 + 2) 4`. The message follows the call, so the value
+   under test is the one reported as what was got. *)
 let test_eq_fail_message () =
   match outcomes_of {|let [test] = import Test
 test "mismatch" (fn t -> t.eq 1 2)|}
   with
-  | [o] -> check_fail_contains "mismatch" "expected 1, got 2" o
+  | [o] -> check_fail_contains "mismatch" "expected 2, got 1" o
   | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
 
 let test_ok_fail () =

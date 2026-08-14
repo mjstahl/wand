@@ -24,6 +24,8 @@
    Decoding is pure. Reading the document is the caller's job, and already
    says so in the caller's signature. *)
 
+import Option
+
 (** Read a number. `int` requires a whole one; `float` accepts either, since
     a whole number in a document is an Int to the parser and a Float to
     whoever wrote it. *)
@@ -37,9 +39,15 @@ let string = decode_string
 let bool = decode_bool
 
 (** Read a named field, and decode what is under it. Absence is a failure
-    naming the field: absence at a boundary means the document is not what
-    was expected, which is a reason, not a `None`. *)
+    naming the field: a field that has to be there and is not means the
+    document is not what was expected, which is a reason, not a `None`. *)
 let field name inner = decode_field name inner
+
+(** Read a named field that may not be there, as an `Option`. A field that
+    is absent, or written as null, is `None`. A field that is there and will
+    not decode is still a failure -- `optional` says the field may be
+    missing, not that its contents may be anything. *)
+let optional name inner = decode_optional name inner
 
 (** Read every element of a list with the same decoder. The first element
     that fails stops it. *)
@@ -84,3 +92,15 @@ let size = decode_size
 let version = decode_version
 
 let date = decode_date
+
+let time = decode_time
+
+let datetime = decode_datetime
+
+let ipv4 = decode_ipv4
+
+let cidr = decode_cidr
+
+(** A port is `:8080` in a script; in a document it is the bare number, which
+    is what a config file or an API contains. Both read. *)
+let port = decode_port

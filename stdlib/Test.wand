@@ -21,10 +21,10 @@ let test label f =
     Testing(
       ok = fn cond -> if cond then Pass label else Fail "${label}: assertion failed",
       not_ok = fn cond -> if cond then Fail "${label}: expected assertion to fail" else Pass label,
-      eq = fn expected actual -> if expected == actual then Pass label
+      eq = fn actual expected -> if actual == expected then Pass label
       else Fail "${label}: expected ${expected}, got ${actual}",
-      not_eq = fn expected actual -> if expected != actual then Pass label
-      else Fail "${label}: expected ${expected} to differ from ${actual}",
+      not_eq = fn actual expected -> if actual != expected then Pass label
+      else Fail "${label}: expected ${actual} to differ from ${expected}",
       raises = fn thunk -> match try thunk () with
       | Ok _ -> Fail "${label}: expected to raise, but completed normally"
       | Error _ -> Pass label

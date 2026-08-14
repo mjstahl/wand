@@ -1408,10 +1408,19 @@ let stdlib_type_env : env = [
   ("decode_size",     Mono (TDecoder TSize));
   ("decode_version",  Mono (TDecoder TVersion));
   ("decode_date",     Mono (TDecoder TDate));
+  ("decode_time",     Mono (TDecoder TTime));
+  ("decode_datetime", Mono (TDecoder TDateTime));
+  ("decode_ipv4",     Mono (TDecoder TIPv4));
+  ("decode_cidr",     Mono (TDecoder TCIDR));
+  ("decode_port",     Mono (TDecoder TPort));
   ("decode_succeed",  let a = fresh () in generalize [] (a @-> TDecoder a));
   ("decode_fail",     let a = fresh () in generalize [] (TString @-> TDecoder a));
   ("decode_field",    let a = fresh () in
                       generalize [] (TString @-> (TDecoder a @-> TDecoder a)));
+  ("decode_optional", let a = fresh () in
+                      generalize []
+                        (TString @->
+                         (TDecoder a @-> TDecoder (TApp (TName "Option", a)))));
   ("decode_list",     let a = fresh () in
                       generalize [] (TDecoder a @-> TDecoder (TList a)));
   ("decode_map2",     let a = fresh () in let b = fresh () in let c = fresh () in

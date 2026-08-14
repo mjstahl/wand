@@ -2189,6 +2189,27 @@ let decode_builtins : env = [
            | None   -> decode_error here "no such field")
         | _ -> expected "an object" path j))
     | _ -> raise (EvalError "decode_field: key must be String")));
+  (* Absence is an answer; a value that will not decode is not.
+     `one_of [field name inner, succeed None]` is the version that writes
+     itself, and it is wrong: it turns a renamed or retyped field into None
+     as readily as a missing one, which is the silent null this whole layer
+     exists to replace. Absence is decided here, where it can be told apart
+     from failure, and a present field is decoded exactly as `field` would.
+     A null is absence written down, so it answers None too. *)
+  ("decode_optional", VBuiltin (function
+    | VString key -> VBuiltin (fun d ->
+      let inner = as_decoder "decode_optional" d in
+      VDecoder (fun j path ->
+        match j with
+        | `Assoc kvs ->
+          (match List.assoc_opt key kvs with
+           | None | Some `Null -> Ok (VConstr ("None", []))
+           | Some v ->
+             (match inner v (("." ^ key) :: path) with
+              | Ok x      -> Ok (VConstr ("Some", [x]))
+              | Error msg -> Error msg))
+        | _ -> expected "an object" path j))
+    | _ -> raise (EvalError "decode_optional: key must be String")));
   ("decode_list", VBuiltin (fun d ->
     let inner = as_decoder "decode_list" d in
     VDecoder (fun j path ->
@@ -2257,6 +2278,24 @@ let decode_builtins : env = [
     (function Token.Version v -> Some (VVersion v) | _ -> None)));
   ("decode_date", VDecoder (decode_lexed "Date"
     (function Token.Date v -> Some (VDate v) | _ -> None)));
+  ("decode_time", VDecoder (decode_lexed "Time"
+    (function Token.Time v -> Some (VTime v) | _ -> None)));
+  ("decode_datetime", VDecoder (decode_lexed "DateTime"
+    (function Token.DateTime v -> Some (VDateTime v) | _ -> None)));
+  ("decode_ipv4", VDecoder (decode_lexed "IPv4"
+    (function Token.IPv4 v -> Some (VIPv4 v) | _ -> None)));
+  ("decode_cidr", VDecoder (decode_lexed "CIDR"
+    (function Token.CIDR v -> Some (VCIDR v) | _ -> None)));
+  (* A port is written `:8080` in a script. In a document it is the number
+     on its own, which is what a config file or an API actually contains. *)
+  ("decode_port", VDecoder (fun j path ->
+    match j with
+    | `Int n when n >= 0 && n <= 65535 -> Ok (VPort n)
+    | `String s ->
+      (match try_lex_single (if String.length s > 0 && s.[0] = ':' then s else ":" ^ s) with
+       | Some (Token.Port n) -> Ok (VPort n)
+       | _ -> expected "Port" path j)
+    | _ -> expected "Port" path j));
   ("json_decode", VBuiltin (fun d ->
     let inner = as_decoder "json_decode" d in
     VBuiltin (function

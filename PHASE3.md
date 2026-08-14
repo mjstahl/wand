@@ -241,6 +241,32 @@ as a builtin. `Shell` got two functions rather than one: `lines` for a
 record per line, `decode` for a capture that is one value -- which is what
 three of `repo-status`'s four scrapes are.
 
+**Settled for P3.4: what an `Option` field decodes as.** `Decode.optional
+name inner` reads a field as an `Option`. Absent is `None`, and so is a null,
+which is absence written down. A field that is *there* and will not decode is
+still a failure.
+
+The version that writes itself is the wrong one:
+
+    one_of [map Some (field name inner), succeed None]
+
+It turns a renamed or retyped field into `None` as readily as a missing one --
+the silent null this whole layer exists to replace, reintroduced by the
+combinator meant to handle absence. Elm shipped that as `maybe` and spent
+years telling people not to use it. Absence is therefore decided in the field
+lookup, where it can be told apart from failure, rather than by catching a
+failure after the fact.
+
+This is what P3.4 needs: a derived decoder maps a field of type `Option T` to
+`optional`, and every other field type to `field`.
+
+**All twelve domain types now decode**, not the six the budget named:
+`time`, `datetime`, `ipv4` and `cidr` are the same one-line shape as the
+others, and `port` reads both `8080` and `"8080"` because a script writes
+`:8080` but a document holds the bare number. Derivation would otherwise
+have hit a wall on any type with an `IPv4` field -- an odd thing to have to
+explain.
+
 **What `!` siblings would have cost.** None were added: wand has no raise
 expression, so each would be another OCaml builtin, and no call site needed
 one. `repo-status` wants a default on failure, not a raise.
@@ -274,7 +300,7 @@ Then `else ()`, if there is room.
 ## Picking this up
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 559 wand tests and the OCaml suite pass, eight demos pass, every
+clean, 565 wand tests and the OCaml suite pass, eight demos pass, every
 `.wand` file is a fixed point of `wand fmt`. Next is P3.4, derivation.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:

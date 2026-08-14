@@ -903,6 +903,7 @@ decoder stops at the field that was wrong and says which one it was.
 ```
 Decode.int  Decode.float  Decode.string  Decode.bool
 Decode.field name inner        -- read one field
+Decode.optional name inner     -- read one field that may not be there
 Decode.list inner              -- read every element
 Decode.map f d                 -- change what came back
 Decode.map2 f a b              -- read two things and combine them
@@ -927,15 +928,39 @@ let pod =
 `one_of` reports every alternative's complaint when none of them works, since
 which one was the real reason is not the decoder's to guess.
 
+### A field that may not be there
+
+`Decode.optional` reads a field as an `Option`. A field that is absent, or
+written as null, is `None`:
+
+```
+Decode.optional "restarts" Decode.int    -- Decoder (Option Int)
+
+{"restarts": 4}      -- Ok (Some 4)
+{}                   -- Ok None
+{"restarts": null}   -- Ok None
+{"restarts": "many"} -- Error .restarts: expected Int, got "many"
+```
+
+The last line is the point. `optional` says the field may be *missing*, not
+that its contents may be anything — a field that is there and will not decode
+is a failure, exactly as it is under `field`. The version that writes itself,
+`one_of [field name inner, succeed None]`, gets this wrong: it turns a renamed
+or retyped field into `None` as readily as a missing one, which is the silent
+null the whole layer exists to replace.
+
 ### Domain literals decode as themselves
 
 ```
-Decode.path  Decode.duration  Decode.url  Decode.size  Decode.version  Decode.date
+Decode.path  Decode.duration  Decode.url   Decode.size  Decode.version
+Decode.date  Decode.time      Decode.datetime  Decode.ipv4  Decode.cidr  Decode.port
 ```
 
 `"30s"` in a document lexes exactly as `30s` in a script, so the boundary
 produces the type the rest of the program is written against rather than a
-`String` to convert later.
+`String` to convert later. All twelve domain types have a decoder. `port` is
+the one that reads two ways: `:8080` in a script, but a document holds the
+bare number, so both `8080` and `"8080"` read.
 
 ### Text is read, never written
 
@@ -1563,9 +1588,9 @@ let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 
 ### `Decode`
 
-`int`, `float`, `string`, `bool`, `field`, `list`, `map`, `map2`, `and_then`,
-`succeed`, `fail`, `one_of`, `path`, `duration`, `url`, `size`, `version`,
-`date`
+`int`, `float`, `string`, `bool`, `field`, `optional`, `list`, `map`, `map2`,
+`and_then`, `succeed`, `fail`, `one_of`, `path`, `duration`, `url`, `size`,
+`version`, `date`, `time`, `datetime`, `ipv4`, `cidr`, `port`
 
 `Decoder a` is an opaque type. Running a decoder is a backend's job:
 

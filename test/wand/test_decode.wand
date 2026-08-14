@@ -4,6 +4,7 @@ let [test] = import Test
 import Decode
 import JSON
 import CSV
+import Option
 import Shell
 import String
 import TOML
@@ -187,3 +188,47 @@ test "the whole capture as one value" (fn t ->
 
 test "and the line that could not be read is named" (fn t ->
   t.eq (Shell.lines Decode.int "1\n2\nx") (Error "[2]: expected Int, got \"x\""))
+
+(* A field that may not be there. The distinction that matters is between a
+   field that is absent and a field that is there and wrong: the first is an
+   answer, the second is the silent null this layer exists to replace. *)
+
+test "an absent field is None" (fn t ->
+  t.eq (decoded (Decode.optional "restarrts" Decode.int)) (Ok None))
+
+test "a null field is None -- absence written down" (fn t ->
+  let nulled = JSON.parse! "{\"restarts\": null}" in
+  t.eq (JSON.decode (Decode.optional "restarts" Decode.int) nulled) (Ok None))
+
+test "a present field is Some" (fn t ->
+  t.eq (decoded (Decode.optional "restarts" Decode.int)) (Ok (Some 4)))
+
+(* `optional` says the field may be missing. It does not say its contents
+   may be anything. *)
+test "a present field that will not decode is still a failure" (fn t ->
+  t.eq (failure (Decode.optional "name" Decode.int)) ".name: expected Int, got \"web-01\"")
+
+test "the remaining domain literals" (fn t ->
+  let doc =
+    JSON.parse!
+      "{\"at\": \"14:30:00\", \"when\": \"2024-01-15T09:00:00Z\", \"ip\": \"10.0.0.4\", \"net\": \"10.0.0.0/8\"}"
+  in
+  t.eq
+    (
+      JSON.decode (Decode.field "at" Decode.time) doc,
+      JSON.decode (Decode.field "when" Decode.datetime) doc,
+      JSON.decode (Decode.field "ip" Decode.ipv4) doc,
+      JSON.decode (Decode.field "net" Decode.cidr) doc
+    )
+    (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8))
+
+(* A port is `:8080` in a script and a bare number in a document. *)
+test "a port reads as a number or as text" (fn t ->
+  let doc = JSON.parse! "{\"a\": 8080, \"b\": \"8080\", \"c\": 99999}" in
+  t.eq
+    (
+      JSON.decode (Decode.field "a" Decode.port) doc,
+      JSON.decode (Decode.field "b" Decode.port) doc,
+      JSON.decode (Decode.field "c" Decode.port) doc
+    )
+    (Ok :8080, Ok :8080, Error ".c: expected Port, got Int"))
