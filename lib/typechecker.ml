@@ -123,6 +123,58 @@ let fresh () =
   incr next_id;
   TVar { id; def = None }
 
+(* What an intercepted operation carries, and what resuming it has to supply.
+
+   A handler case binds the operation's payload and calls its continuation,
+   and both used to be inferred as fresh variables -- so a case could read a
+   path as a String, or resume a read with an Int, and find out only when it
+   ran. That is the one place in the language where a value crossed a
+   boundary unchecked, in the construct whose whole purpose is standing at a
+   boundary.
+
+   An operation carries what its *raising* builtin returns, not what the
+   `Result`-returning wrapper does: `FS.mtime` is `try mtime!`, so the effect
+   supplies a `DateTime` and the `try` around it makes the `Result`.
+
+   `Shell!run` and `Shell!capture` are left out on purpose: each carries
+   either a command, or a command and the stdin threaded into it, so there
+   is no single payload type to give them. Declaring one would be worse than
+   declaring none -- a handler would be told the shape was a String and
+   handed a tuple whenever someone piped into the command. *)
+let operation_types op : (typ * typ) option =
+  let path = TPath and str = TString in
+  match op with
+  | "FS!read_file"    -> Some (path, str)
+  | "FS!write_file"   -> Some (TTuple [path; str], TUnit)
+  | "FS!append"       -> Some (TTuple [path; str], TUnit)
+  | "FS!create_file"  -> Some (path, TUnit)
+  | "FS!delete"       -> Some (path, TUnit)
+  | "FS!delete_tree"  -> Some (path, TUnit)
+  | "FS!mkdir"        -> Some (path, TUnit)
+  | "FS!rename"       -> Some (TTuple [path; path], TUnit)
+  | "FS!copy"         -> Some (TTuple [path; path], TUnit)
+  | "FS!list_dir"     -> Some (path, TList path)
+  | "FS!exists" | "FS!file" | "FS!dir" -> Some (path, TBool)
+  | "FS!mtime"        -> Some (path, TDateTime)
+  | "FS!size"         -> Some (path, TInt)
+  | "FS!cwd"          -> Some (TUnit, path)
+  | "FS!glob"         -> Some (TTuple [TGlob; path], TList path)
+  | "FS!temp_file"    -> Some (TTuple [str; str], path)
+  | "FS!temp_dir"     -> Some (str, path)
+  | "Env!set"         -> Some (TTuple [str; str], TUnit)
+  | "Env!clear"       -> Some (str, TUnit)
+  | "IO!read_all" | "IO!read_line" -> Some (TUnit, str)
+  | "IO!flush"        -> Some (TUnit, TUnit)
+  (* Printing takes whatever it is given. *)
+  | "IO!print" | "IO!println" | "IO!print_err" | "IO!println_err" ->
+    Some (fresh (), TUnit)
+  | "Shell!run_quiet" -> Some (str, TUnit)
+  | "Shell!exit_code" -> Some (str, TInt)
+  (* Nothing follows an exit, so a case that resumes one may say it resumes
+     with anything. *)
+  | "Proc!exit"       -> Some (TInt, fresh ())
+  | _ -> None
+
 (* ── Repr (follow unification links) ─────────────────────────────────────── *)
 
 let rec repr t =
@@ -1230,10 +1282,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | Ast.ReturnCase (p, b) ->
         let env' = infer_pat tenv p body_t env in
         unify result_t (infer tenv env' b)
-      | Ast.EffectCase (_, arg_pat, cont_name, case_body) ->
-        let arg_t = fresh () in
+      | Ast.EffectCase (op, arg_pat, cont_name, case_body) ->
+        (* The operation says what it carries and what resuming it supplies.
+           An operation with no single payload shape says neither, and those
+           two stay open, as every case used to be. *)
+        let (arg_t, cont_arg_t) =
+          match operation_types op with
+          | Some (a, r) -> (a, r)
+          | None -> (fresh (), fresh ())
+        in
         let env' = infer_pat tenv arg_pat arg_t env in
-        let cont_arg_t = fresh () in
         (* Resuming a handler's continuation runs the rest of the handled
            expression, whose effects the handler is in the middle of
            deciding, so its row is left to inference. *)

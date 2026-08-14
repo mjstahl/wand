@@ -767,8 +767,23 @@ Several functions can share one operation. `FS.read_file` and
 once rather than once per wrapper.
 
 A case binds the operation's argument and a continuation
-(`k`) that resumes the intercepted code with a value you supply. A `return` case
-transforms the result when the body finishes normally:
+(`k`) that resumes the intercepted code with a value you supply. Both are
+checked against the operation, so a case cannot read a path as a `String` or
+resume a read with an `Int`:
+
+```
+| FS!write_file (path, _) k -> path ++ "!" ++ k ()
+-- cannot unify Path with String
+
+| FS!read_file _ k -> k 42
+-- cannot unify String with Int
+```
+
+`Shell!run` and `Shell!capture` are the exception. Each carries either a
+command, or a command and the stdin threaded into it, so there is no single
+payload type to check a case against and theirs are left open.
+
+A `return` case transforms the result when the body finishes normally:
 
 ```
 handle

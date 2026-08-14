@@ -111,6 +111,37 @@ let test_tuple_pattern_types_its_scrutinee () =
     "let f p = match p with | (a, b) -> a in f (1, 2, 3)"
     "cannot unify"
 
+(* ── Effect payloads in handler cases ───────────────────────────────────── *)
+
+(* A handler case binds what an operation carries and resumes it with what it
+   supplies. Both used to be inferred as fresh variables, so a case could read
+   a path as a String and only find out when it ran -- unchecked, in the one
+   construct whose whole job is standing at a boundary. *)
+let test_handler_payloads_are_typed () =
+  err_contains "a path is not a String"
+    {|import FS
+handle FS.write_file! /tmp/x "hi" with
+| FS!write_file (path, _) k -> path ++ "!" ++ k ()|}
+    "cannot unify Path with String";
+  err_contains "resuming a read with the wrong type"
+    "import FS\nhandle FS.read_file! /tmp/x with | FS!read_file _ k -> k 42"
+    "cannot unify String with Int";
+  err_contains "a payload bound at the wrong shape"
+    "import FS\nhandle FS.delete! /tmp/x with | FS!delete (a, b) k -> k ()"
+    "cannot unify Path with";
+  ok "and a case that agrees with the operation still works"
+    {|import FS
+import Path
+handle FS.read_file! /tmp/nonexistent with
+| FS!read_file p k -> k "mocked: ${Path.to_string p}"|}
+    "mocked: /tmp/nonexistent";
+  (* `Shell!run` carries either a command or a command and its stdin, so it
+     has no single payload type and its cases stay open. *)
+  ok "an operation with two payload shapes is left open"
+    {|handle $(echo hi) with
+| Shell!run cmd k -> "mocked"|}
+    "mocked"
+
 (* ── One-armed if ────────────────────────────────────────────────────────── *)
 
 (* `if c then e` is `if c then e else ()`: one conditional, not a second
@@ -698,6 +729,9 @@ let () =
       Alcotest.test_case "named forms survive"              `Quick test_named_forms_survive;
       Alcotest.test_case "positional ctors unaffected"      `Quick test_positional_constructors_unaffected;
       Alcotest.test_case "a tuple pattern types its value"  `Quick test_tuple_pattern_types_its_scrutinee;
+    ];
+    "handler payloads", [
+      Alcotest.test_case "typed by the operation" `Quick test_handler_payloads_are_typed;
     ];
     "one-armed if", [
       Alcotest.test_case "branch must be Unit" `Quick test_one_armed_if;
