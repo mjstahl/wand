@@ -496,11 +496,15 @@ demo.
 
 ## Picking this up
 
-**Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 592 wand tests and the OCaml suite pass, nine demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Every tranche of this phase is
-done; what is left is recorded under P3.4 (generics, renaming, tagged
-unions) and in the roadmap's later phases.
+**Where things stand. The phase is done** -- P3.1 through P3.6, and all six
+exit criteria. The tree is clean, 599 wand tests and the OCaml suite pass,
+eight demos pass (D9 is excluded from CI for its own reasons), and every
+`.wand` file is a fixed point of `wand fmt`.
+
+What is left is not in this phase. Under P3.4: renaming keys, nested paths,
+and tagged unions, each wanting its own decision rather than a ride inside
+derivation. Everything else is the roadmap's later phases -- Phase 0.5's
+interpreter performance and Phase 4's distribution.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -552,9 +556,9 @@ silently stops, look here first.
 ## Risks
 
 - ~~Abandonment~~ — settled and implemented ahead of the tranche, with tests that fail without the change.
-- **Cancellation is harder than it was.** The observer split bought parallel I/O; it also means there are now two shapes of in-flight worker to cancel. Budget accordingly, and be willing to ship D8 watched-only if the unwatched case fights.
+- ~~**Cancellation is harder than it was.**~~ Both shapes cancel; D8 shipped covering them, and the unwatched case did not fight.
 - **The decoder API wants to grow.** Every combinator is defensible on its own and the total is a surface nobody can hold in their head. The listed set is the budget; additions need a call site that cannot be written without them.
-- **Derivation is a research-shaped task in a delivery-shaped phase.** Deriving at the definition keeps it small; if it still isn't, cut it — P3.3 stands alone.
+- ~~**Derivation is a research-shaped task in a delivery-shaped phase.**~~ It stayed small, and for the reason predicted: deriving at the definition, and resolving when a field is read rather than when the decoder is built. Generics landed on top without disturbing it.
 
 ## Exit criteria
 
