@@ -239,24 +239,24 @@ The same task — count log lines by level — written four ways. Measured on
 
 | implementation | median | |
 |---|---|---|
-| bash pipelines | 33 ms | 1.0x |
-| python, one pass | 109 ms | 3.3x |
-| **wand, one pass** | **203 ms** | **6.2x** |
-| bash per-line loop | 22,131 ms | 670x |
+| bash pipelines | 38 ms | 1.0x |
+| **wand, one pass** | **41 ms** | **1.1x** |
+| python, one pass | 138 ms | 3.7x |
+| bash per-line loop | 25,669 ms | 679x |
 
-Two honest readings, and they point in opposite directions.
+**Against a tight pipeline, wand now draws.** Handing a whole file to `grep`
+and `sort` is hard to beat, and for a while wand was ~6x behind it and ~2x
+behind Python. What closed the gap was not the pipeline getting slower: this
+workload calls a handful of stdlib functions per line, and finding each of
+those names used to mean walking the whole environment. Indexing that walk
+took the same run from 97 ms to 43 ms.
 
-**Against a tight pipeline, wand loses.** Handing a whole file to `grep` and
-`sort` is hard to beat, and wand is currently ~6x behind that and ~2x behind
-Python. The evaluator is a tree walker and has not been optimised for
-throughput; the gap holds roughly steady with input size (50,000 lines:
-Python 0.32 s, wand 2.29 s).
+**Against a loop that shells out per line, wand wins by nearly three orders
+of magnitude** — and that is the idiom scripts actually grow into once the
+work stops fitting one pipeline. The loop spends nearly all 25 seconds
+forking: two processes per line, 10,000 processes for 5,000 lines. wand
+spawns none.
 
-**Against a loop that shells out per line, wand wins by two orders of
-magnitude** — and that is the idiom scripts actually grow into once the work
-stops fitting one pipeline. The loop spends nearly all 23 seconds forking:
-two processes per line, 10,000 processes for 5,000 lines. wand spawns none.
-
-So the case for doing the work in wand is not raw speed against coreutils.
-It is that the alternative, once a script outgrows a single pipeline, is
-usually the loop.
+So the case for doing the work in wand no longer needs the second argument.
+It is as fast as the pipeline, and the alternative once a script outgrows a
+single pipeline is usually the loop.

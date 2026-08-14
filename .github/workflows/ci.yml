@@ -55,6 +55,17 @@ jobs:
           demos/d7-jq-typed/run.sh
           demos/d8-fan-out/run.sh
 
+      # D9 is not run here -- it deliberately spends half a minute in a bad
+      # bash loop -- so its scripts are at least typechecked. A demo nobody
+      # runs is a demo that rots: this one broke under a signature change and
+      # nothing noticed.
+      - name: Typecheck the demos that are not run
+        run: |
+          set -euo pipefail
+          for f in demos/d9-fork-overhead/*.wand; do
+            _build/default/bin/wand.exe t "$(cat "$f")" >/dev/null
+          done
+
       # wand fmt is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.
       - name: Check the stdlib is formatted
