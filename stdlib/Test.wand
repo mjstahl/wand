@@ -70,7 +70,7 @@ let without_writes thunk =
   | FS!write_file _ k -> k ()
 
 (** Return the paths `thunk` would write to, in order, without writing
-    anything. *)
+    anything. They come back as `Path`s, which is what the write carried. *)
 let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path : rest

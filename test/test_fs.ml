@@ -14,8 +14,8 @@ let test_read_write_round_trip () =
   let src = Printf.sprintf
     {|import FS
 import Path
-let () = FS.write_file! "%s" "hello world"
-FS.read_file! "%s"|} tmp tmp in
+let () = FS.write_file! (Path.of_string "%s") "hello world"
+FS.read_file! (Path.of_string "%s")|} tmp tmp in
   (try ok "write_file then read_file round-trips" src "hello world"
    with e -> (try Sys.remove tmp with _ -> ()); raise e);
   (try Sys.remove tmp with _ -> ())

@@ -40,7 +40,7 @@ test "stringify_with custom separator" (fn t ->
 
 test "read_file row count and header" (fn t ->
   with FS.temp_file "wand_csv_rd_" ".csv" as p ->
-  let () = FS.write_file! (Path.to_string p) "name,age\nAlice,30\nBob,25\n" in
+  let () = FS.write_file! p "name,age\nAlice,30\nBob,25\n" in
   let outcome =
     match CSV.read_file p with
     | Ok rows -> (List.length rows, List.head! (List.head! rows))
@@ -56,7 +56,7 @@ test "read_file missing file gives Error" (fn t ->
 
 test "read_file! row count" (fn t ->
   with FS.temp_file "wand_csv_exn_" ".csv" as p ->
-  let () = FS.write_file! (Path.to_string p) "x,y\n1,2\n" in
+  let () = FS.write_file! p "x,y\n1,2\n" in
   let rows = CSV.read_file! p in t.eq 2 (List.length rows))
 
 test "read_file! raises on missing" (fn t ->

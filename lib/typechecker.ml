@@ -1341,8 +1341,11 @@ let stdlib_type_env : env = [
   ("println",    let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
   ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
-  ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TString) (TString)));
-  ("write_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TUnit))));
+  (* A file is named by a Path, like every other filesystem operation. These
+     two took a String, so a script holding a Path had to convert away from
+     the domain type at the one boundary the domain type is for. *)
+  ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TString)));
+  ("write_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
   (* String primitives *)
   ("str_length",     generalize [] ((TString @-> TInt)));
   ("str_upper",      generalize [] ((TString @-> TString)));

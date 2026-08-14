@@ -18,8 +18,8 @@ let script marker =
     {|import FS
 import Path
 with FS.temp_dir "wand_sig_" as d ->
-  let () = FS.write_file! "%s" (Path.to_string d) in
-  let () = FS.write_file! "${Path.to_string d}/held.txt" "x" in
+  let () = FS.write_file! (Path.of_string "%s") (Path.to_string d) in
+  let () = FS.write_file! (Path.of_string "${Path.to_string d}/held.txt") "x" in
   let _ = $(sleep 2) in ()|}
     marker
 
@@ -96,10 +96,10 @@ let par_script marker =
 import Path
 import Par
 with FS.temp_dir "wand_sig_" as outer ->
-  let () = FS.write_file! "%s" (Path.to_string outer) in
+  let () = FS.write_file! (Path.of_string "%s") (Path.to_string outer) in
   Par.each 4 (fn n ->
     with FS.temp_dir "wand_sigw_" as d ->
-    let () = FS.write_file! "${Path.to_string outer}/${n}" (Path.to_string d) in
+    let () = FS.write_file! (Path.of_string "${Path.to_string outer}/${n}") (Path.to_string d) in
     let _ = $(sleep 2) in ()) [1, 2, 3, 4]|}
     marker
 
@@ -165,7 +165,7 @@ let exit_script marker code =
 import Path
 import Proc
 with FS.temp_dir "wand_sig_" as d ->
-  let () = FS.write_file! "%s" (Path.to_string d) in
+  let () = FS.write_file! (Path.of_string "%s") (Path.to_string d) in
   Proc.exit %d|}
     marker code
 

@@ -24,7 +24,7 @@ test "and nothing before the push touches prod" (fn t ->
   t.eq (Some "git describe --tags") (List.head cmds))
 
 test "it would write exactly one file" (fn t ->
-  t.eq ["/etc/app/config.toml"] (Test.with_shell [] (fn () -> Test.writes deploy!)))
+  t.eq [/etc/app/config.toml] (Test.with_shell [] (fn () -> Test.writes deploy!)))
 
 test "which was never written" (fn t ->
   let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))

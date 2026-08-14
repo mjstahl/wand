@@ -320,13 +320,13 @@ let run_with_default_handler (thunk : unit -> value) : value =
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
               Effect.Deep.continue k (shell_result stdout stderr code))
-          | WandEffect ("FS!read_file", VString path) ->
+          | WandEffect ("FS!read_file", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)
                      with Sys_error m -> Error ("read_file: " ^ m)) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("FS!write_file", VTuple [VString path; VString content]) ->
+          | WandEffect ("FS!write_file", VTuple [(VString path | VPath path); VString content]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Out_channel.with_open_text path
                            (fun oc -> Out_channel.output_string oc content); Ok ()

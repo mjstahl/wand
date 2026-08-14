@@ -15,14 +15,13 @@ import Path
    Cleanup is observed through a real file rather than a counter, so a test
    passes only if the release actually happened. *)
 
-let marker name = "/tmp/wand_res_${name}"
+let marker name = Path.of_string "/tmp/wand_res_${name}"
 
 let tracked name =
   let acquire = fn () -> let () = FS.write_file! (marker name) "held" in name in
-  let release = fn n -> FS.delete! (Path.of_string (marker n)) in
-  Resource.make acquire release
+  let release = fn n -> FS.delete! (marker n) in Resource.make acquire release
 
-let held? name = FS.exists? (Path.of_string (marker name))
+let held? name = FS.exists? (marker name)
 
 test "the body sees what was acquired" (fn t -> t.eq "a" (with tracked "a" as x -> x))
 
@@ -91,9 +90,9 @@ test "temp_dir removes a directory that is not empty" (fn t ->
   let kept =
     with FS.temp_dir "wand_td_" as d ->
     let dir = Path.to_string d in
-    let () = FS.write_file! "${dir}/a.txt" "x" in
+    let () = FS.write_file! (Path.of_string "${dir}/a.txt") "x" in
     let () = FS.mkdir! (Path.of_string "${dir}/sub") in
-    let () = FS.write_file! "${dir}/sub/b.txt" "y" in dir
+    let () = FS.write_file! (Path.of_string "${dir}/sub/b.txt") "y" in dir
   in
   t.eq false (FS.exists? (Path.of_string kept)))
 
@@ -114,10 +113,10 @@ test "temp_dir cleans up when the body raises" (fn t ->
     try with FS.temp_dir "wand_td_" as d ->
     let dir = Path.to_string d in
     let () = FS.write_file! note dir in
-    let () = FS.write_file! "${dir}/a.txt" "x" in List.get! 9 [1]
+    let () = FS.write_file! (Path.of_string "${dir}/a.txt") "x" in List.get! 9 [1]
   in
   let dir = FS.read_file! note in
-  let () = FS.delete! (Path.of_string note) in
+  let () = FS.delete! note in
   let raised =
     match r with
     | Error _ -> true

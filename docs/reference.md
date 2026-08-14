@@ -548,7 +548,7 @@ instead. `try` runs an expression and converts a raise back into a `Result`,
 so raising code can be handled as values at whatever boundary you choose:
 
 ```
-try (FS.read_file! "config.toml")   -- Result String String
+try (FS.read_file! ./config.toml)   -- Result String String
 try (1 + 1)                          -- Ok(2)
 ```
 
@@ -566,7 +566,7 @@ A signature says what a function does to the machine, not just what it does
 to its arguments. The effects appear after `!`:
 
 ```
-FS.read_file!   String -> String ! {FS.Read, Raise}
+FS.read_file!   Path -> String ! {FS.Read, Raise}
 FS.exists?      Path -> Bool ! {FS.Read}
 Map.get!        String -> Map 'a -> 'a ! {Raise}
 String.upper    String -> String
@@ -627,8 +627,8 @@ This is why each fallible operation and its `!` sibling differ by exactly
 one effect — the plain one is `try` over the raising one:
 
 ```
-FS.read_file!   String -> String ! {FS.Read, Raise}
-FS.read_file    String -> Result String String ! {FS.Read}
+FS.read_file!   Path -> String ! {FS.Read, Raise}
+FS.read_file    Path -> Result String String ! {FS.Read}
 ```
 
 A handler case removes the effect of the operation it intercepts:
@@ -772,7 +772,7 @@ transforms the result when the body finishes normally:
 
 ```
 handle
-  let () = FS.write_file! "/etc/hosts" "..." in
+  let () = FS.write_file! /etc/hosts "..." in
   "done"
 with
 | FS!write_file (path, _) k -> k ()
@@ -818,7 +818,7 @@ changed into. `with` acquires one, binds it, runs a body, and releases it:
 
 ```
 with FS.temp_file "build_" ".tar" as archive ->
-  let () = FS.write_file! (Path.to_string archive) contents in
+  let () = FS.write_file! archive contents in
   publish! archive
 ```
 
@@ -1532,7 +1532,8 @@ and `Decode.port` accepts both for the same reason.
 
 `read_file`, `write_file`, `append`, `create_file`, `mkdir`,
 `delete`, `rename`, `copy`, `list_dir`, `mtime`, `size` — each with a `!`
-sibling that raises instead of returning a `Result`.
+sibling that raises instead of returning a `Result`. Every one names its file
+with a `Path`.
 `exists?`, `file?`, `dir?`, `glob`, `glob_in`, `cwd`
 
 `temp_file prefix suffix` is a resource rather than a plain call, so the
@@ -1540,7 +1541,7 @@ file it creates is removed when the bracket holding it ends:
 
 ```
 with FS.temp_file "wand_" ".txt" as p ->
-  FS.write_file! (Path.to_string p) contents
+  FS.write_file! p contents
 ```
 
 Release tolerates the file already being gone, so a body may rename it into
@@ -1847,7 +1848,7 @@ Given a deploy that pushes and rewrites a config:
 ```
 let deploy () =
   let version = $(git describe --tags) in
-  let () = FS.write_file! "/etc/app/config.toml" "version = \"${version}\"\n" in
+  let () = FS.write_file! /etc/app/config.toml "version = \"${version}\"\n" in
   let _ = $(rsync -a ./build/ web@host:/srv/app) in
   "deployed ${version}"
 ```

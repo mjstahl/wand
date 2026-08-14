@@ -41,7 +41,9 @@ let hosts =
 let leases = "/tmp/wand-demo-d8-leases"
 
 let lease host =
-  let acquire = fn () -> let () = FS.write_file! "${leases}/${host}" "held" in host in
+  let acquire =
+    fn () -> let () = FS.write_file! (Path.of_string "${leases}/${host}") "held" in host
+  in
   let release = fn h -> FS.delete! (Path.of_string "${leases}/${h}") in
   Resource.make acquire release
 
