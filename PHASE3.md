@@ -317,6 +317,51 @@ edit~~ done; ~~a type that is not single-constructor named-field gets no
 each saying which one it is (`it has more than one constructor`, `its fields
 are positional`, `it is generic`, `field 'm' cannot be read: ...`).
 
+### What derivation does not do, and what each piece would cost
+
+What shipped covers the flat record whose keys are its field names. Not
+covered: **generics**, **encoders**, **renamed keys**, **nested paths**, and
+**tagged unions** (`{"kind": "circle", ...}` into a multi-constructor type).
+
+**Do not reach for the eager version.** Building the decoder as a value when
+the type definition is processed is the obvious first move -- that is where
+the fields are -- and it is the expensive one. It creates four problems in
+order, none of which the lazy form has:
+
+| | |
+|---|---|
+| Recursion | Building `Node.decoder` needs `Node.decoder`. Tie the knot with a `lazy` and force inside. An afternoon. |
+| Mutual recursion | A per-type knot does not help `Dir`/`File`; it needs a fixpoint over the whole recursive group, so first the group has to be *found* -- a dependency graph over type definitions and its strongly-connected components. |
+| Forward references | `type Dir (files : List File)` before `File` exists. Eagerly this needs topological ordering, or deferring construction -- and deferring construction *is* the lazy design, reached the expensive way. |
+| Imports | An eagerly-built decoder is a value that has to cross the module boundary beside its type. Lazily the type crossing is enough: the far side derives from the definition that already travelled. |
+
+So the shipped shape is not a cheap approximation of the eager one. It is the
+one that does not manufacture its own work.
+
+**Generics is the real next piece, and it is additive.** `type Box 'a` is
+rejected today. Deriving it means `Box.decoder : Decoder 'a -> Decoder
+(Box 'a)` -- a decoder *function*, parameterised by the decoders of the type
+variables. `T.decoder`'s type then depends on the type's arity, so the
+typechecker computes an arity-dependent signature and the evaluator builds a
+curried value rather than a plain one. A couple of days. Nothing about the
+lazy resolution is in the way: it extends `derivable_typedef` and the type
+side of the `Field` case, and the rest stands.
+
+**`Decode.of T` stays rejected**, for the reason P3.4 was scoped this way in
+the first place: an expression taking a type as an argument is the language's
+first type-in-argument-position, needing an AST node, parser support, a
+typechecker rule for a type name in expression position, and answers for
+`Decode.of (List Pod)` and `Decode.of` on a type variable. That is
+elaboration -- a compile-time expansion pass or a runtime type
+representation. `Pod.decoder` needs none of it and `git grep` finds it.
+
+**Renaming, nested paths and tagged unions each want their own decision**,
+not a ride inside this one. Renaming implies an annotation syntax on fields,
+which the language does not have and should not grow casually. Tagged unions
+imply a convention about which field is the tag. Both are worth doing only
+against a call site that cannot be written with a hand-written decoder beside
+the derived one -- which today it can, since the two mix freely.
+
 ## P3.5 — D7 and `else ()`
 
 **D7 — jq, typed.** `kubectl get pods -o json | jq -r … | awk …` against a `Pod` type and a typed pipeline. Introduce the same field-name typo on both sides: jq emits silent nulls, wand names the field. Runs offline against a canned fixture, like every other demo.
@@ -370,6 +415,9 @@ silently stops, look here first.
 - `FS.lock` is deferred (staleness detection is a design, not a wrapper) and
   `FS.in_dir` is dropped (per-process `chdir` races under `Par`). Both are
   argued above.
+- Derivation covers the flat record and nothing else. What is missing,
+  what the eager alternative would cost, and why generics is the piece to
+  pick up first are recorded under P3.4.
 - `ROADMAP.md` still says "arm" where everything else now says "case". Left
   alone: it is the original review, and rewriting its prose would misreport
   what it said.
