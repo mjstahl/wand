@@ -637,6 +637,19 @@ let run_item env item =
 let ctor_bindings_of tenv =
   List.fold_left (fun acc (_, tdef) -> run_item acc (Ast.TLType tdef)) [] tenv
 
+(* Run top-level items, dropping a fresh index in every so often: a file's
+   own definitions accumulate in front of the base, and without this a name
+   defined early is walked past by everything defined later. *)
+let fold_items step env items =
+  let (env, _) =
+    List.fold_left (fun (env, since) item ->
+      let env = step env item in
+      if since >= Evaluator.index_every then (Evaluator.index_env env, 0)
+      else (env, since + 1)
+    ) (env, 0) items
+  in
+  env
+
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
 type module_result = import_env * (string * Typechecker.scheme) list * env * (string * string) list
@@ -751,8 +764,11 @@ and load_module path ~cache ~loading =
              ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
      | Error msg -> failwith ("type error: " ^ msg)
      | Ok (type_env, own_type) ->
-       let base = stdlib_eval_env @ imported.eval_env in
-       let full_eval = List.fold_left run_item base prog.Ast.items in
+       (* Indexed here: everything a module can see that it did not define
+          itself is fixed by this point, and every name the module goes on to
+          look up sits in front of it. *)
+       let base = index_env (stdlib_eval_env @ imported.eval_env) in
+       let full_eval = fold_items run_item base prog.Ast.items in
        let n_own = List.length full_eval - List.length base in
        let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
          |> List.filter (fun (n, _) -> not (is_private n)) in
@@ -839,11 +855,18 @@ let run_program ?(mode = Normal) ~base_dir prog =
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
      let result = run_in_mode mode (fun () ->
-       let (_, last) = List.fold_left (fun (env, last) item ->
-         match item with
-         | Ast.TLExpr e -> (env, eval env e)
-         | _            -> (run_item env item, last)
-       ) (base_eval_env @ imp.eval_env, VUnit) prog.Ast.items
+       let ((_, last), _) = List.fold_left (fun ((env, last), since) item ->
+         let (env, last) =
+           match item with
+           | Ast.TLExpr e -> (env, eval env e)
+           | _            -> (run_item env item, last)
+         in
+         (* A file's own definitions pile up in front of the base, so a fresh
+            index goes in every so often: without it everything defined late
+            walks past everything defined early. *)
+         if since >= Evaluator.index_every then ((Evaluator.index_env env, last), 0)
+         else ((env, last), since + 1)
+       ) ((index_env (base_eval_env @ imp.eval_env), VUnit), 0) prog.Ast.items
        in last
      ) in
      (* A request that arrived with nothing left to evaluate would otherwise
@@ -969,7 +992,7 @@ let run_test_program ~base_dir prog : (test_outcome list, string) result =
            | Error m -> outcomes := !outcomes @ [TError m]);
           env
         | _ -> run_item env item
-      ) (base_eval_env @ imp.eval_env) prog.Ast.items);
+      ) (index_env (base_eval_env @ imp.eval_env)) prog.Ast.items);
       VUnit
     ));
     Ok !outcomes
@@ -1118,7 +1141,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         let hole_strs = List.map Typechecker.string_of_typ hole_types in
         Ok (new_sess, RHoles hole_strs)
       end else begin
-        let base_eval = base_eval_env @ imp.eval_env @ sess.s_eval_env in
+        let base_eval = index_env (base_eval_env @ imp.eval_env @ sess.s_eval_env) in
         let env_ref  = ref base_eval in
         let last_ref = ref VUnit in
         ignore (run_with_default_handler (fun () ->

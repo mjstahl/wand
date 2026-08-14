@@ -117,3 +117,43 @@ let annot_double x : Int = x * 2
 test "fn return annot" (fn t -> t.eq 6 (annot_double 3))
 
 (* ── Errors ────────────────────────────────────────────────────────────── *)
+
+(* ── Names are found the same way however many there are ────────────────── *)
+
+(* A name is bound by pushing it in front of what was there, and found by
+   walking back. The environment carries indexes over the parts that are
+   settled, so a lookup does not get slower because a file is longer -- and
+   what matters here is that indexing changes nothing about *which* binding
+   is found. The one in front still wins. *)
+
+let shadowed = "first"
+
+let shadowed = "second"
+
+test "the nearest binding wins" (fn t -> t.eq "second" shadowed)
+
+let deep = "defined early"
+
+let a1 = 1
+
+let a2 = 2
+
+let a3 = 3
+
+let a4 = 4
+
+let a5 = 5
+
+let a6 = 6
+
+let a7 = 7
+
+let a8 = 8
+
+test "a name defined early is still found from far away" (fn t -> t.eq "defined early" deep)
+
+(* A script may shadow a name the standard library defines; the index over
+   the builtins must not get consulted before the script's own bindings. *)
+let length = "mine"
+
+test "a script's own name beats a builtin of the same name" (fn t -> t.eq "mine" length)

@@ -70,8 +70,52 @@ type value =
      backend presents its input in JSON's shape, so one set of combinators
      serves all of them. *)
   | VDecoder       of (Yojson.Basic.t -> string list -> (value, string) result)
+  (* An index over the entries behind it. An environment is a list because
+     that is what binding is -- push a name in front of what was there -- and
+     lookup walks it, which is fine for the handful a script defines and not
+     fine for the couple of hundred builtins they all sit in front of. The
+     index is dropped in front of that fixed part, so a name in it is found
+     in one step instead of two hundred.
+
+     It is a hint, not an authority: a miss keeps walking. That way an
+     environment can be appended to, sliced, or carry several indexes without
+     any of it having to know. *)
+  | VEnvIndex      of (string, value) Hashtbl.t
 
 and env = (string * value) list
+
+(* The key an index entry is filed under. Not a legal identifier, so no
+   program can name it and no lookup can collide with it. *)
+let env_index_key = "\000index"
+
+let index_env (base : env) : env =
+  let tbl = Hashtbl.create (List.length base * 2 + 16) in
+  (* First binding wins, as walking the list would. *)
+  List.iter (fun (k, v) -> if not (Hashtbl.mem tbl k) then Hashtbl.add tbl k v) base;
+  (env_index_key, VEnvIndex tbl) :: base
+
+(* Every name an environment can reach, for a "did you mean" hint. *)
+let rec env_names (e : env) =
+  match e with
+  | [] -> []
+  | (k, VEnvIndex tbl) :: rest when k = env_index_key ->
+    Hashtbl.fold (fun k _ acc -> k :: acc) tbl [] @ env_names rest
+  | (k, _) :: rest -> k :: env_names rest
+
+(* Re-index as a file's own definitions pile up, so a lookup never walks more
+   than this many before reaching one. An index is a hint, so adding another
+   in front of an older one is always safe -- the newer one simply covers
+   more. *)
+let index_every = 32
+
+let rec lookup_var name (e : env) =
+  match e with
+  | [] -> None
+  | (k, VEnvIndex tbl) :: rest when k = env_index_key ->
+    (match Hashtbl.find_opt tbl name with
+     | Some _ as found -> found
+     | None -> lookup_var name rest)
+  | (k, v) :: rest -> if String.equal k name then Some v else lookup_var name rest
 
 (* ── Display ──────────────────────────────────────────────────────────────── *)
 
@@ -107,6 +151,7 @@ let rec show_value = function
   | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
   | VResource _ -> "<resource>"
   | VDecoder _  -> "<decoder>"
+  | VEnvIndex _ -> "<env index>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
@@ -316,17 +361,17 @@ let rec eval (env : env) (e : expr) : value =
   | Version s  -> VVersion s
   | Size s     -> VSize s
   | Var name ->
-    (match List.assoc_opt name env with
+    (match lookup_var name env with
      | Some v -> v
      | None   ->
        raise (EvalError (Printf.sprintf "unbound variable '%s'%s"
-         name (Util.hint name (List.map fst env)))))
+         name (Util.hint name (env_names env)))))
   | Constr name ->
-    (match List.assoc_opt name env with
+    (match lookup_var name env with
      | Some v -> v
      | None   ->
        raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (List.map fst env)))))
+         name (Util.hint name (env_names env)))))
   | EnvVar name ->
     (match Sys.getenv_opt name with
      | Some v -> VString v

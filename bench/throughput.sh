@@ -44,6 +44,15 @@ let count n = 1 + count (n - 1)
 count {n}""",
 }
 
+# How lookup scales with the number of names in scope, rather than with the
+# size of the input. A name is found by walking the environment, so without
+# an index this grows with everything defined before it -- which is a
+# different curve from the ones above and was invisible to them.
+SCOPE = """let helper x = x + 1
+{padding}let go 0 acc = acc
+let go n acc = go (n - 1) (acc + helper n)
+go 100000 0"""
+
 sizes = [5000, 10000, 20000, 40000]
 baseline = run("0")
 print(f"startup baseline: {baseline:.0f} ms (subtracted below)\n")
@@ -54,4 +63,15 @@ for label, build in WORKLOADS.items():
     cells = " ".join(f"{t:7.0f}ms" for t in times)
     print(f"{label:28} {cells}   {growth:4.1f}x per 2x")
 print("\nhealthy is ~2.0x per doubling")
+
+print()
+print(f"{'names in scope before the callee':32} {'median':>9}   growth")
+prev = None
+for k in (0, 200, 400, 800):
+    padding = "".join(f"let pad{i} = {i}\n" for i in range(k))
+    ms = max(run(SCOPE.format(padding=padding)) - baseline, 1.0)
+    growth = f"{ms / prev:4.1f}x" if prev else "   --"
+    prev = ms
+    print(f"{k:>32} {ms:7.0f}ms   {growth}")
+print("\nhealthy is flat: finding a name should not cost more because a file is longer")
 PY
