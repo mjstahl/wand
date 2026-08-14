@@ -450,6 +450,67 @@ let generalize (env : env) t =
   if quantify = [] && quantify_rows = [] then Mono t
   else Poly (quantify, quantify_rows, t)
 
+(* ── Reading a scheme back from a cache ───────────────────────────────────
+   A scheme carries unification variables, and `instantiate` tells them apart
+   by their integer id. Those ids were issued by whichever process wrote the
+   scheme down, so two entries read back could each hold a variable numbered
+   7 and be treated as the same variable the moment they meet.
+
+   Everything read back is therefore renumbered into ids this process has
+   issued. Sharing is preserved within an entry -- two occurrences of the
+   same variable stay the same variable -- because ids are consistent inside
+   a single entry even when they collide across entries. *)
+let refresh_scheme (sch : scheme) : scheme =
+  let tmap : (int, typ) Hashtbl.t = Hashtbl.create 16 in
+  let rmap : (int, Effect_row.rowvar) Hashtbl.t = Hashtbl.create 16 in
+  let tvar_for id =
+    match Hashtbl.find_opt tmap id with
+    | Some t -> t
+    | None -> let t = fresh () in Hashtbl.add tmap id t; t
+  in
+  let rowvar_for (v : Effect_row.rowvar) =
+    match Hashtbl.find_opt rmap v.Effect_row.rid with
+    | Some v' -> v'
+    | None ->
+      let v' = Effect_row.fresh_rowvar () in
+      Hashtbl.add rmap v.Effect_row.rid v'; v'
+  in
+  let row r =
+    let (Effect_row.Row (labels, tail)) = Effect_row.repr r in
+    match tail with
+    | None -> Effect_row.Row (labels, None)
+    | Some v -> Effect_row.Row (labels, Some (rowvar_for v))
+  in
+  let rec go t =
+    match repr t with
+    | TVar tv -> tvar_for tv.id
+    | TFun (a, b, r) -> TFun (go a, go b, row r)
+    | TTuple ts -> TTuple (List.map go ts)
+    | TList t -> TList (go t)
+    | TResult (e, t) -> TResult (go e, go t)
+    | TResource (r, t) -> TResource (row r, go t)
+    | TDecoder t -> TDecoder (go t)
+    | TMap t -> TMap (go t)
+    | TApp (f, a) -> TApp (go f, go a)
+    | other -> other
+  in
+  let id_of t = match repr t with TVar tv -> Some tv.id | _ -> None in
+  match sch with
+  | Namespace _ -> sch
+  | Mono t -> Mono (go t)
+  | Poly (ids, rids, t) ->
+    let body = go t in
+    let ids' = List.filter_map (fun id -> id_of (tvar_for id)) ids in
+    let rids' =
+      List.map (fun rid ->
+        match Hashtbl.find_opt rmap rid with
+        | Some v -> v.Effect_row.rid
+        | None ->
+          let v = Effect_row.fresh_rowvar () in
+          Hashtbl.add rmap rid v; v.Effect_row.rid) rids
+    in
+    Poly (ids', rids', body)
+
 let instantiate = function
   | Namespace _ -> TUnit
   | Mono t -> t

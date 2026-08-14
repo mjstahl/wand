@@ -1945,6 +1945,26 @@ chmod +x deploy.wand
 ./deploy.wand
 ```
 
+#### The compile cache
+
+Loading a module is mostly type inference — on a 200-definition module,
+5.7ms of 7.2ms — so what a module's types came out as is kept between runs
+in `~/.cache/wand` (or `$XDG_CACHE_HOME/wand`).
+
+An entry is keyed by the hash of the module's source *and* of everything it
+imports, transitively, so an entry inferred against a file that has since
+changed is unreachable rather than merely out of date. Nothing needs
+clearing, and there is no timestamp to be wrong about. An unreadable entry
+is a miss, not an error.
+
+```
+WAND_NO_CACHE=1 wand script.wand    # ignore it, and write nothing
+```
+
+Caching costs the first run of a script a little and saves every run after
+it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and
+one importing a 200-definition module from 16.5ms to 10.9ms.
+
 ### Interactive session
 
 ```

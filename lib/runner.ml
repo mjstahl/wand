@@ -654,6 +654,12 @@ let fold_items step env items =
 
 type module_result = import_env * (string * Typechecker.scheme) list * env * (string * string) list
 
+(* A module's cache key, by path: the hash of its source and of everything it
+   imports. Recorded as modules load so a parent can fold its children's keys
+   into its own -- which is what makes a stale entry unreachable instead of
+   merely wrong. Per process, like `cache`. *)
+let module_keys : (string, string) Hashtbl.t = Hashtbl.create 16
+
 (* Load imports for a program.
    `cache` maps path -> result so each module is loaded once per run_program.
    `loading` detects import cycles. *)
@@ -759,9 +765,57 @@ and load_module path ~cache ~loading =
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
   let (imported, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
+  (* The key covers this module's source and its imports' keys, which cover
+     theirs. Parsing happens either way -- it is a fifth of what inference
+     costs, and the import list has to be read to know what the key depends
+     on. Inference is what the entry saves. *)
+  let dep_keys =
+    List.filter_map (fun item ->
+      match item with
+      | Ast.TLImport kind
+      | Ast.TLLet (_, [], Ast.ImportExpr kind)
+      | Ast.TLLetPat (_, Ast.ImportExpr kind) ->
+        Hashtbl.find_opt module_keys (resolve_import base_dir kind)
+      | _ -> None) prog.Ast.items
+  in
+  let own_key = Compile_cache.key ~source:src ~deps:dep_keys in
+  Hashtbl.replace module_keys path own_key;
+  (* Only the module's own share is written down. What inference returns is
+     `own @ constructors @ stdlib @ imports`, and the last two are the same
+     for everyone -- storing them would put a copy of the whole standard
+     library in every entry, which costs more to write and read back than
+     the inference it saves. The tail is rebuilt from what is already in
+     hand. *)
+  let tail_len =
+    List.length Typechecker.stdlib_type_env + List.length imported.type_env
+  in
+  let rebuild own_part =
+    own_part @ Typechecker.stdlib_type_env @ imported.type_env
+  in
+  let refresh = List.map (fun (n, s) -> (n, Typechecker.refresh_scheme s)) in
+  let inferred =
+    match Compile_cache.find own_key with
+    | Some (own_part, own_type) ->
+      Ok (rebuild (refresh own_part), refresh own_type)
+    | None ->
+      (match Typechecker.infer_program_env_with_own
+               ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
+       | Ok (type_env, own_type) as ok ->
+         let n_own = List.length type_env - tail_len in
+         if n_own >= 0 then begin
+           let own_part = List.filteri (fun i _ -> i < n_own) type_env in
+           (* Stored only if the tail really is what it is assumed to be.
+              Compared by name: a scheme is a graph of mutable variables and
+              deep-comparing several hundred of them would cost more than the
+              inference being cached. *)
+           if List.map fst (rebuild own_part) = List.map fst type_env then
+             Compile_cache.store own_key (own_part, own_type)
+         end;
+         ok
+       | Error _ as e -> e)
+  in
   let result =
-    (match Typechecker.infer_program_env_with_own
-             ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
+    (match inferred with
      | Error msg -> failwith ("type error: " ^ msg)
      | Ok (type_env, own_type) ->
        (* Indexed here: everything a module can see that it did not define
