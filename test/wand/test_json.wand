@@ -171,32 +171,40 @@ test "read_file missing file returns Error" (fn t ->
 
 (* ── Building an object ──────────────────────────────────────────────────── *)
 
-test "an object is built from its pairs, in the order given" (fn t ->
+(* `get_object` gives back a Map, and this is its inverse. Keys need not be
+   identifiers -- a map literal takes them quoted -- which is what lets a
+   document with real-world keys be written at all. *)
+
+test "an object is built from a Map, in the order it holds" (fn t ->
   t.eq
     "{\"b\":2,\"a\":\"x\"}"
-    (JSON.stringify (JSON.of_object [("b", JSON.of_int 2), ("a", JSON.of_string "x")])))
+    (JSON.stringify (JSON.of_map [b = JSON.of_int 2, a = JSON.of_string "x"])))
 
-(* A document naming the same key twice is read differently by different
-   parsers. wand's own reader takes the first, so that is what gets written
-   and a round trip through our own reader gives back what went in. *)
-test "a repeated key is kept once, at its first position" (fn t ->
+test "a key that is not an identifier is written quoted" (fn t ->
   t.eq
-    "{\"a\":1}"
-    (JSON.stringify (JSON.of_object [("a", JSON.of_int 1), ("a", JSON.of_int 9)])))
+    "{\"content-type\":\"json\",\"@type\":1}"
+    (JSON.stringify
+      (JSON.of_map ["content-type" = JSON.of_string "json", "@type" = JSON.of_int 1])))
 
-test "no pairs is an empty object" (fn t -> t.eq "{}" (JSON.stringify (JSON.of_object [])))
+(* A Map can hold a key twice -- `[a = 1, a = 9]` has two entries and
+   `Map.get` finds the first. Only the one that can be read back is written,
+   since a document naming a key twice is read differently by different
+   parsers. *)
+test "a repeated key is written once, as the one Map.get would find" (fn t ->
+  t.eq "{\"a\":1}" (JSON.stringify (JSON.of_map [a = JSON.of_int 1, a = JSON.of_int 9])))
+
+test "an empty Map is an empty object" (fn t ->
+  t.eq "{}" (JSON.stringify (JSON.of_map Map.empty)))
 
 test "objects nest, and hold arrays" (fn t ->
   t.eq
     "{\"meta\":{\"n\":1},\"xs\":[1]}"
     (JSON.stringify
-      (JSON.of_object
-        [
-          ("meta", JSON.of_object [("n", JSON.of_int 1)]),
-          ("xs", JSON.of_list [JSON.of_int 1])
-        ])))
+      (JSON.of_map
+        [meta = JSON.of_map [n = JSON.of_int 1], xs = JSON.of_list [JSON.of_int 1]])))
 
-test "and a Map goes in through Map.to_list" (fn t ->
-  t.eq
-    "{\"a\":1}"
-    (JSON.stringify (JSON.of_object (Map.to_list (Map.from_list [("a", JSON.of_int 1)])))))
+test "and what was read can be written back" (fn t ->
+  let doc = "{\"a\":1,\"b\":\"two\"}" in
+  match JSON.get_object (JSON.parse! doc) with
+  | Ok m -> t.eq doc (JSON.stringify (JSON.of_map m))
+  | Error why -> t.eq doc why)

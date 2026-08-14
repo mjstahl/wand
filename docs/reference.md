@@ -408,6 +408,15 @@ String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
 let m = [x = 1, y = 2, z = 3]   -- Map Int
 ```
 
+A key is any string. Write it quoted when it is not an identifier — which is
+most keys a document from elsewhere contains:
+
+```
+["content-type" = "application/json", "@type" = "Pod", name = "web"]
+```
+
+Quoted keys work in patterns too: `| ["content-type" = v] -> v`.
+
 Using the `Map` module:
 
 ```
@@ -1651,19 +1660,18 @@ match CSV.read_file ./data.csv with
 ### `JSON`
 
 `parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
-`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_object`,
+`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
 `null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
 `get_object`, `field`, `field!`, `decode`
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
 the `!` variants raise on error.  Typed extractors each return `Result`.
 
-`of_object` builds an object from its pairs, written in the order given —
-which is what makes output diff-friendly. A key that repeats is kept once, at
-its first position: a document naming the same key twice is read differently
-by different parsers, and wand's own reader takes the first, so what is
-written is what would be read back. If what you have is a `Map`, pass
-`Map.to_list`.
+`of_map` is the inverse of `get_object`, writing keys in the order the `Map`
+holds them — which is what makes output diff-friendly. A key the `Map` holds
+twice is written once, at its first position, since that is the one `Map.get`
+finds and a document naming a key twice is read differently by different
+parsers.
 
 ```
 import JSON
@@ -1678,8 +1686,8 @@ match JSON.field "name" j with
 let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
 JSON.stringify arr    -- "[1,2]"
 
-JSON.of_object [("name", JSON.of_string "web"), ("port", JSON.of_int 8080)]
-                      -- {"name":"web","port":8080}
+JSON.of_map [name = JSON.of_string "web", "content-type" = JSON.of_string "json"]
+                      -- {"name":"web","content-type":"json"}
 
 match JSON.read_file ./config.json with
 | Ok cfg -> JSON.field! "host" cfg

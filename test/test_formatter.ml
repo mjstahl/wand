@@ -176,6 +176,21 @@ let test_one_armed_if () =
     "let f c = if c then 1 else 2\n"
     (fmt "let f c = if c then 1 else 2")
 
+(* A `Map` is keyed by arbitrary strings, and the parser takes a key quoted
+   when it is not an identifier. Printing one bare produced source that does
+   not lex -- so every map with a real-world key was destroyed by running the
+   formatter over it, which is why none existed to notice. *)
+let test_map_keys_that_are_not_identifiers () =
+  Alcotest.(check string) "a key that needs quoting keeps them"
+    "let m = [\"content-type\" = 1, \"@type\" = 2, name = 3]\n"
+    (fmt "let m = [\"content-type\" = 1, \"@type\" = 2, name = 3]");
+  Alcotest.(check string) "an identifier key stays bare"
+    "let m = [name = 1]\n"
+    (fmt "let m = [\"name\" = 1]");
+  ok_after_format "and a pattern with one still matches"
+    "let f x = match x with\n| [\"a-b\" = v] -> v\n| _ -> 0\nf [\"a-b\" = 7]"
+    "7"
+
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -386,6 +401,7 @@ let () =
       Alcotest.test_case "float literal type" `Quick test_float_literal_type_preserved;
       Alcotest.test_case "constructor argument parens" `Quick test_constructor_argument_keeps_its_parens;
       Alcotest.test_case "one-armed if" `Quick test_one_armed_if;
+      Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;

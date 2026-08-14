@@ -66,6 +66,19 @@ and emit_type_atom te = match te with
 
 (* ── Patterns ─────────────────────────────────────────────────────────────── *)
 
+(* A map key is written bare when it is an identifier and quoted when it is
+   not. `Map` keys are arbitrary strings -- `"content-type"`, `"@type"` -- and
+   the parser takes them quoted; printing one of those bare produces source
+   that does not lex at all. Quoting is always correct, so the bare form is
+   only an economy for the keys that can afford it. *)
+let map_key k =
+  let plain =
+    String.length k > 0
+    && (match k.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
+    && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) k
+  in
+  if plain then k else "\"" ^ escape_string_body k ^ "\""
+
 let rec emit_pat (p : pat) : string = match p with
   | Int n      -> string_of_int n
   | Float f    -> string_of_wand_float f
@@ -85,7 +98,7 @@ let rec emit_pat (p : pat) : string = match p with
   | PConstrNamed (c, kvs) ->
     c ^ "(" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ emit_pat p) kvs) ^ ")"
   | PMap kvs ->
-    "[" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ emit_pat p) kvs) ^ "]"
+    "[" ^ String.concat ", " (List.map (fun (k, p) -> map_key k ^ " = " ^ emit_pat p) kvs) ^ "]"
 
 and emit_pat_atom (p : pat) : string = match p with
   | PConstr (_, _ :: _) | PConstrNamed _ -> "(" ^ emit_pat p ^ ")"
@@ -288,7 +301,7 @@ and emit_expr_inner indent e =
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
     emit_sequence indent "[" "]"
-      (List.map (fun (k, e) -> k ^ " = " ^ emit_expr (indent + 2) e) kvs)
+      (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
 
 and emit_app indent e =
   let rec flatten e = match strip_located e with

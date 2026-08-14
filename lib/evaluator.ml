@@ -1862,21 +1862,28 @@ let stdlib_eval_env : env = [
       let items = List.map (function VJson j -> j | _ -> raise (EvalError "json_of_list: elements must be JSON")) vs in
       VJson (`List items)
     | _ -> raise (EvalError "json_of_list: expected List")));
-  (* An object from its pairs, in the order given. A key repeated later is
-     dropped rather than written twice: a document with the same name twice
-     is read differently by different parsers, and wand's own reader takes
-     the first -- so what is written is what we would read back. *)
-  ("json_of_object", VBuiltin (function
-    | VList pairs ->
+  (* An object from a Map, in the order the Map holds. `JSON.get_object` gives
+     back a Map, so this is its inverse.
+
+     A key the Map holds twice is written once, at its first position. A Map
+     can hold a repeated key -- `[a = 1, a = 9]` has two entries and
+     `Map.get` finds the first -- and a document naming the same key twice is
+     read differently by different parsers. Writing the one that can be read
+     back is the only answer that round-trips. *)
+  ("json_of_map",    VBuiltin (function
+    | VMap kvs ->
       let rec go seen acc = function
         | [] -> VJson (`Assoc (List.rev acc))
-        | VTuple [VString k; VJson j] :: rest ->
+        | (k, v) :: rest ->
+          let j = match v with
+            | VJson j -> j
+            | _ -> raise (EvalError "json_of_map: values must be JSON")
+          in
           if List.mem k seen then go seen acc rest
           else go (k :: seen) ((k, j) :: acc) rest
-        | _ -> raise (EvalError "json_of_object: expected a list of (String, JSON)")
       in
-      go [] [] pairs
-    | _ -> raise (EvalError "json_of_object: expected a list of (String, JSON)")));
+      go [] [] kvs
+    | _ -> raise (EvalError "json_of_map: expected Map")));
   ("json_is_null",   VBuiltin (function VJson `Null -> VBool true | VJson _ -> VBool false | _ -> raise (EvalError "json_is_null: expected JSON")));
   ("json_get_bool",  VBuiltin (function
     | VJson (`Bool b) -> VConstr ("Ok", [VBool b])

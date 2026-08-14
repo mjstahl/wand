@@ -405,19 +405,34 @@ above, seen from the other side -- derivation covers the shape that matches
 the type, and anything else is hand-written. It only bites where those three
 bite, which is why nothing in the corpus has hit it yet.
 
-**Done: `JSON.of_object`**, one function rather than a module, and a
-replacement rather than an addition -- `JSON.of_map` went with it. Two ways
-to build one object would have been the defect the budget rule guards
-against, and `of_map` had no call site in the corpus while forcing a
-`Map.from_list` detour on every one it might have had. What is left is a
-pair: `of_list` for arrays, `of_object` for objects, `Map.to_list` for the
-rare case that starts from a Map.
+**There was no ergonomic gap.** The clumsiness was a mistake of mine, and
+the correction is worth keeping because the reasoning that produced it is
+the kind that repeats.
 
-It also retired a live bug. `of_map` wrote a repeated key twice --
-`{"a":1,"a":9}` -- which different parsers read differently, and wand's own
-reader takes the first of. `of_object` keeps the first and drops the rest,
-so what is written is what would be read back. Order is preserved, which
-matters for a config file that lands in a diff.
+`JSON.of_map` takes a `Map`, and the objection was that building one meant
+`JSON.of_map (Map.from_list [("content-type", ...)])` -- a detour, because a
+map literal seemed to allow only identifier keys. It does not: a key may be
+written quoted, in literals and in patterns both.
+
+    ["content-type" = JSON.of_string "json", "@type" = JSON.of_int 1]
+
+So `of_map` was fine, and it is the inverse of `get_object`, which already
+gives back a `Map`. It stays. `JSON.of_object`, briefly added and taking a
+list of pairs, is gone: it was less pleasant to write and no more expressive.
+
+**Why nobody had noticed the quoted form worked:** `wand fmt` printed every
+map key bare, so `["content-type" = 1]` came back as `[content-type = 1]`,
+which does not lex. Any file using one was destroyed by formatting it, and
+every `.wand` file here is formatted. The formatter now quotes a key that is
+not an identifier -- quoting is always correct, and bare is only an economy
+for the keys that can afford it.
+
+**One real bug survived the correction.** `of_map` wrote a repeated key
+twice -- `{"a":1,"a":9}` -- which different parsers read differently. It now
+writes the first, which is the one `Map.get` finds and the one wand would
+read back. Note where the duplicate comes from, though: a `Map` itself holds
+both. `[a = 1, a = 9]` has size 2 and an entry nothing can reach. That is a
+`Map` question, not a JSON one, and it is still open.
 
 ## P3.5 — D7 and `else ()`
 
