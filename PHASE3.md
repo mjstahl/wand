@@ -385,6 +385,31 @@ imply a convention about which field is the tag. Both are worth doing only
 against a call site that cannot be written with a hand-written decoder beside
 the derived one -- which today it can, since the two mix freely.
 
+**The two directions are not equally pleasant to write by hand.** Reading a
+renamed or nested field composes; writing one back does not:
+
+    -- reading
+    Decode.map2 (fn n r -> Pod (name = n, restarts = r))
+      (Decode.field "metadata" (Decode.field "podName" Decode.string))
+      (Decode.field "status" (Decode.field "restartCount" Decode.int))
+
+    -- writing
+    JSON.of_map
+      (Map.from_list
+        [("podName", JSON.of_string n), ("restartCount", JSON.of_int r)])
+
+This is not an argument for an `Encode` module: encoding cannot fail, so a
+combinator set would be a second name for `JSON.of_int` and the rest, and
+that is the trade P3.6 already refused. It is the same gap as the three
+above, seen from the other side -- derivation covers the shape that matches
+the type, and anything else is hand-written. It only bites where those three
+bite, which is why nothing in the corpus has hit it yet.
+
+The smallest thing that would help is one function rather than a module:
+`JSON.of_object : List (String, JSON) -> JSON`, removing the `Map.from_list`
+detour. Worth adding when a call site needs it, and not before -- the budget
+rule applies to this side too.
+
 ## P3.5 — D7 and `else ()`
 
 **D7 is done**; `else ()` is what remains of the phase.
