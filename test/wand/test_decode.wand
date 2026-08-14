@@ -4,6 +4,7 @@ let [test] = import Test
 import Decode
 import JSON
 import CSV
+import Map
 import Option
 import Shell
 import String
@@ -260,3 +261,30 @@ test "and what is not a port is not a port, written either way" (fn t ->
       JSON.decode (Decode.field "d" Decode.port) doc,
       JSON.decode (Decode.field "e" Decode.port) doc
     ))
+
+(* An object whose keys are data rather than field names. Nothing else in the
+   set can read one: `field` wants a name the program knows in advance. *)
+
+test "an object with dynamic keys reads as a Map" (fn t ->
+  let counts = JSON.parse! "{\"web-01\": 3, \"db-01\": 12}" in
+  t.eq
+    (Ok (Map.from_list [("web-01", 3), ("db-01", 12)]))
+    (JSON.decode (Decode.dict Decode.int) counts))
+
+test "and a bad value names the key it was under" (fn t ->
+  let counts = JSON.parse! "{\"a\": 1, \"b\": \"x\"}" in
+  t.eq (Error ".b: expected Int, got \"x\"") (JSON.decode (Decode.dict Decode.int) counts))
+
+(* `optional` asks whether a field is there, which only a lookup can ask.
+   `nullable` asks whether a value is null, which is the question an element
+   of a list raises. *)
+
+test "a null inside a list" (fn t ->
+  t.eq
+    (Ok [Some 1, None, Some 3])
+    (JSON.decode (Decode.list (Decode.nullable Decode.int)) (JSON.parse! "[1, null, 3]")))
+
+test "nullable still refuses a value that is neither" (fn t ->
+  t.eq
+    (Error "expected Int, got \"x\"")
+    (JSON.decode (Decode.nullable Decode.int) (JSON.parse! "\"x\"")))

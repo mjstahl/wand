@@ -292,6 +292,9 @@ let derive_decoder :
   (string -> Yojson.Basic.t -> string list -> (value, string) result) ref =
   ref (fun _ _ _ -> Error "decoder derivation is not wired up")
 
+let derive_encoder : (string -> value -> value) ref =
+  ref (fun _ _ -> raise (EvalError "encoder derivation is not wired up"))
+
 let rec eval (env : env) (e : expr) : value =
   check_interrupt ();
   match e with
@@ -401,6 +404,8 @@ let rec eval (env : env) (e : expr) : value =
     (match bare e, label with
      | Constr tname, "decoder" when Hashtbl.mem derivable tname ->
        VDecoder (fun j path -> !derive_decoder tname j path)
+     | Constr tname, "encoder" when Hashtbl.mem derivable tname ->
+       VBuiltin (fun v -> !derive_encoder tname v)
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -2214,9 +2219,20 @@ let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -
       "a field holds a tuple, which has no field names to read it by")
   | TEFun _ ->
     raise (Not_derivable "a field holds a function, which no document contains")
-  | TEApp (TEName "Map", _) ->
-    raise (Not_derivable
-      "a field holds a Map, whose keys are a runtime question -- read it with a hand-written decoder")
+  | TEApp (TEName "Map", inner) ->
+    let elem = decoder_of_type_expr inner in
+    (fun j path ->
+      match j with
+      | `Assoc kvs ->
+        let rec go acc = function
+          | [] -> Ok (VMap (List.rev acc))
+          | (k, v) :: rest ->
+            (match elem v (("." ^ k) :: path) with
+             | Ok x      -> go ((k, x) :: acc) rest
+             | Error msg -> Error msg)
+        in
+        go [] kvs
+      | _ -> expected "an object" path j)
   | TEApp _ ->
     raise (Not_derivable "a field holds a type no decoder is known for")
 
@@ -2262,6 +2278,55 @@ and read_field key te j path =
     (match List.assoc_opt key kvs with
      | Some v -> d v here
      | None   -> decode_error here "no such field")
+
+(* ── Derived encoders ─────────────────────────────────────────────────────
+   The other direction, and a much smaller thing: encoding cannot fail, so
+   there is no error to thread and no path to carry. That is why an encoder
+   is an ordinary function `'a -> JSON` rather than a type of its own --
+   `JSON` and its constructors already exist, and a second abstraction beside
+   `Decoder` would earn nothing.
+
+   It works from the value rather than from the type, since a value carries
+   its own tag and cannot disagree with itself. A field holding `None` is
+   left out rather than written as null: both read back as `None`, and a
+   config is tidier without the empty keys. *)
+and json_of_value (v : value) : Yojson.Basic.t =
+  match v with
+  | VInt n    -> `Int n
+  | VFloat f  -> `Float f
+  | VString s -> `String s
+  | VBool b   -> `Bool b
+  | VUnit     -> `Null
+  | VPath s | VDuration s | VUrl s | VSize s | VVersion s
+  | VDate s | VTime s | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> `String s
+  (* A port reads back from either spelling, so it goes out as the number a
+     document would have held. *)
+  | VPort n -> `Int n
+  | VList vs -> `List (List.map json_of_value vs)
+  | VMap kvs -> `Assoc (List.map (fun (k, v) -> (k, json_of_value v)) kvs)
+  | VJson j -> j
+  | VConstr ("None", []) -> `Null
+  | VConstr ("Some", [x]) -> json_of_value x
+  | VConstr (ctor, vals) ->
+    (match Hashtbl.find_opt constr_fields ctor with
+     | Some names when List.length names = List.length vals ->
+       let pairs =
+         List.concat (List.map2 (fun n v ->
+           match n, v with
+           | Some _, VConstr ("None", []) -> []   (* absent, not null *)
+           | Some name, v -> [(name, json_of_value v)]
+           | None, _ -> []) names vals)
+       in
+       `Assoc pairs
+     | _ ->
+       raise (EvalError (Printf.sprintf
+         "cannot encode '%s': it has no named fields" ctor)))
+  | _ -> raise (EvalError "cannot encode this value as JSON")
+
+and derived_encoder tname v =
+  match Hashtbl.find_opt derivable tname with
+  | None -> raise (EvalError (Printf.sprintf "no encoder for type '%s'" tname))
+  | Some _ -> VJson (json_of_value v)
 
 and decode_registry : env ref = ref []
 
@@ -2348,6 +2413,37 @@ let decode_builtins : env = [
               | Error msg -> Error msg))
         | _ -> expected "an object" path j))
     | _ -> raise (EvalError "decode_optional: key must be String")));
+  (* An object whose keys are data rather than field names -- a label map,
+     per-host counts, anything keyed by a name the program does not know in
+     advance. The keys become the Map's keys; a failure names the key it was
+     under, exactly as a field would. *)
+  ("decode_dict", VBuiltin (fun d ->
+    let inner = as_decoder "decode_dict" d in
+    VDecoder (fun j path ->
+      match j with
+      | `Assoc kvs ->
+        let rec go acc = function
+          | [] -> Ok (VMap (List.rev acc))
+          | (k, v) :: rest ->
+            (match inner v (("." ^ k) :: path) with
+             | Ok x      -> go ((k, x) :: acc) rest
+             | Error msg -> Error msg)
+        in
+        go [] kvs
+      | _ -> expected "an object" path j)));
+  (* A value that may be null, where no field lookup is involved -- an
+     element of a list, say. `optional` is the field-level sibling: it
+     answers whether the field is *there*, which is a question only a lookup
+     can ask. This one answers whether the value is null. *)
+  ("decode_nullable", VBuiltin (fun d ->
+    let inner = as_decoder "decode_nullable" d in
+    VDecoder (fun j path ->
+      match j with
+      | `Null -> Ok (VConstr ("None", []))
+      | _ ->
+        (match inner j path with
+         | Ok v      -> Ok (VConstr ("Some", [v]))
+         | Error msg -> Error msg))));
   ("decode_list", VBuiltin (fun d ->
     let inner = as_decoder "decode_list" d in
     VDecoder (fun j path ->
@@ -2507,6 +2603,7 @@ let decode_builtins : env = [
    they are defined rather than while they are being defined. *)
 let () = decode_registry := decode_builtins
 let () = derive_decoder := derived_decoder
+let () = derive_encoder := derived_encoder
 
 let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins
 

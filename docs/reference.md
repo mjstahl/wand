@@ -923,6 +923,8 @@ Decode.int  Decode.float  Decode.string  Decode.bool
 Decode.field name inner        -- read one field
 Decode.optional name inner     -- read one field that may not be there
 Decode.list inner              -- read every element
+Decode.dict inner              -- read an object whose keys are data
+Decode.nullable inner          -- read a value that may be null
 Decode.map f d                 -- change what came back
 Decode.map2 f a b              -- read two things and combine them
 Decode.and_then f d            -- choose what to read next from what was read
@@ -966,6 +968,25 @@ is a failure, exactly as it is under `field`. The version that writes itself,
 `one_of [field name inner, succeed None]`, gets this wrong: it turns a renamed
 or retyped field into `None` as readily as a missing one, which is the silent
 null the whole layer exists to replace.
+
+### Keys that are data, and values that are null
+
+`Decode.field` wants a name the program knows in advance. When the keys *are*
+the data — a label map, per-host counts — `Decode.dict` reads the object into
+a `Map`, and a failure names the key it was under:
+
+```
+{"web-01": 3, "db-01": 12}   Decode.dict Decode.int   -- Ok (Map of 2)
+{"a": 1, "b": "x"}           Decode.dict Decode.int   -- Error .b: expected Int, got "x"
+```
+
+`Decode.nullable` is `optional`'s value-level sibling. `optional` asks whether
+a *field* is there, which only a lookup can ask; `nullable` asks whether a
+value is null, which is the question an element of a list raises:
+
+```
+[1, null, 3]   Decode.list (Decode.nullable Decode.int)   -- Ok [Some 1, None, Some 3]
+```
 
 ### Domain literals decode as themselves
 
@@ -1077,7 +1098,10 @@ interesting ones, and the two mix freely:
 Decode.field "items" (Decode.list Pod.decoder)
 ```
 
-A type that is not a single-constructor record has no decoder, and naming one
+`T.encoder` is derived from the same fields, so a type states its shape once
+and both directions follow.
+
+A type that is not a single-constructor record has neither, and naming one
 says which:
 
 ```
@@ -1085,6 +1109,29 @@ type Shape = Circle Int | Rect Int Int
 Shape.decoder
 -- type 'Shape' has no derived decoder: it has more than one constructor
 ```
+
+### Writing it back out
+
+The same type gives an encoder, and it is an ordinary function rather than a
+type of its own — encoding cannot fail, so there is nothing for one to carry:
+
+```
+Pod.encoder : Pod -> JSON
+
+JSON.stringify (Pod.encoder p)
+JSON.of_list (List.map Pod.encoder ps)
+```
+
+So a script can read a document, change one thing, and write back what it
+read:
+
+```
+{"name": "api", "port": 8080, "timeout": "30s", "replicas": 2}   -- in
+{"name":"api","port":8080,"timeout":"30s","replicas":4}          -- out
+```
+
+A field holding `None` is left out rather than written as null. Both read
+back as `None`, and a config is tidier without the empty keys.
 
 ### Decoding is pure
 
@@ -1684,9 +1731,10 @@ let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 
 ### `Decode`
 
-`int`, `float`, `string`, `bool`, `field`, `optional`, `list`, `map`, `map2`,
-`and_then`, `succeed`, `fail`, `one_of`, `path`, `duration`, `url`, `size`,
-`version`, `date`, `time`, `datetime`, `ipv4`, `cidr`, `port`
+`int`, `float`, `string`, `bool`, `field`, `optional`, `list`, `dict`,
+`nullable`, `map`, `map2`, `and_then`, `succeed`, `fail`, `one_of`, `path`,
+`duration`, `url`, `size`, `version`, `date`, `time`, `datetime`, `ipv4`,
+`cidr`, `port`
 
 `Decoder a` is an opaque type. Running a decoder is a backend's job:
 

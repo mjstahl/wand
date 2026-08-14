@@ -513,8 +513,7 @@ let rec derivable_field_type tenv seen (te : type_expr) : (unit, string) result 
   | TETuple _ ->
     Error "a tuple has no field names for a document to be read by"
   | TEFun _ -> Error "no document contains a function"
-  | TEApp (TEName "Map", _) ->
-    Error "a Map's keys are a runtime question -- read one with a hand-written decoder"
+  | TEApp (TEName "Map", inner) -> derivable_field_type tenv seen inner
   | TEApp _ -> Error "no decoder is known for that type"
 
 and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
@@ -1142,14 +1141,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (* `Pod.decoder`, when `Pod` is a type rather than a module. Checked after
        the namespace lookup, so a module of the same name keeps its member. *)
     let derived = match ns_result, unwrap_loc e, label with
-      | None, Constr tname, "decoder" ->
+      | None, Constr tname, (("decoder" | "encoder") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with
-            | Ok () -> Some (TDecoder (TName tname))
+            | Ok () ->
+              (* An encoder is an ordinary function: encoding cannot fail, so
+                 there is nothing for a type of its own to carry. *)
+              Some (if which = "decoder" then TDecoder (TName tname)
+                    else TFun (TName tname, TJson, Effect_row.pure))
             | Error why ->
               raise (TypeError (Printf.sprintf
-                "type '%s' has no derived decoder: %s" tname why)))
+                "type '%s' has no derived %s: %s" tname which why)))
          | None -> None)
       | _ -> None
     in
@@ -1501,6 +1504,11 @@ let stdlib_type_env : env = [
                          (TDecoder a @-> TDecoder (TApp (TName "Option", a)))));
   ("decode_list",     let a = fresh () in
                       generalize [] (TDecoder a @-> TDecoder (TList a)));
+  ("decode_dict",     let a = fresh () in
+                      generalize [] (TDecoder a @-> TDecoder (TMap a)));
+  ("decode_nullable", let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> TDecoder (TApp (TName "Option", a))));
   ("decode_map2",     let a = fresh () in let b = fresh () in let c = fresh () in
                       generalize []
                         (TFun (a, TFun (b, c, Effect_row.pure), Effect_row.pure)

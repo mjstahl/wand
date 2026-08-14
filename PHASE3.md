@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** P3.1–P3.5 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1–P3.6 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -411,7 +411,7 @@ And `wand fmt` writes an empty `else` out of existence, so `if c then f ()
 else ()` comes back one-armed. The formatter rule ships with the construct,
 as the working rules require.
 
-## P3.6 — Dictionaries, nulls, and the other direction
+## P3.6 — Dictionaries, nulls, and the other direction (done)
 
 Three gaps found by asking what a decoder still cannot read. The first two
 are P3.3's combinator set being one short in each direction; the third is a
@@ -443,29 +443,41 @@ changes one thing and writes it again -- which is most of what a script does
 with a config -- has a typed read and an untyped write, and the asymmetry is
 the sharpest practical limit in the layer.
 
-*Open, and to be settled before writing any of it:* whether an encoder is an
-abstract `Encoder 'a` or simply a function `'a -> JSON`. Decoding earns its
-type from composition and from having somewhere to put a failure; encoding
-cannot fail, so the type may be buying nothing, and `Pod.encoder : Pod ->
-JSON` with `JSON.stringify` after it would add no new construct at all.
-Settle that first -- it decides whether this is a tranche or an afternoon.
-Whichever way it goes, `T.encoder` derives from the same field list
-`T.decoder` already reads, which is what makes it cheap; and the round trip
-(`decode` then `encode` returning the document it started from) is the test
-that says it works.
+**Settled: an encoder is a function `'a -> JSON`.** No `Encoder` type, no
+`Encode` module. Encoding cannot fail, so there is no error to thread and no
+path to carry -- the two things that earn `Decoder` its abstraction. `JSON`
+and its constructors already exist, so `Pod.encoder : Pod -> JSON` composes
+with what is there (`JSON.stringify (Pod.encoder p)`,
+`JSON.of_list (List.map Pod.encoder ps)`), and a second set of combinators
+beside `Decode`'s would be a second name for `JSON.of_int`. So the only piece
+worth building was derivation, and this was the afternoon rather than the
+tranche.
 
-*Accept:* an object with dynamic keys decodes into a `Map`, naming the key
-that failed; `[1, null, 3]` decodes as `List (Option Int)`; a config read,
-changed and written back comes out as the same document it went in as, but
-for the change.
+It encodes from the *value* rather than from the type, since a value carries
+its own tag and cannot disagree with itself. A field holding `None` is left
+out rather than written as null: both read back as `None`, and a config is
+tidier without the empty keys.
+
+**Done**, all three. `Decode.dict` also made a `Map` field derivable, which
+removed one of P3.4's five rejection messages -- the refusal was always a
+statement about the combinator set rather than about derivation, and now
+there is nothing to refuse.
+
+*Accept:* ~~an object with dynamic keys decodes into a `Map`, naming the key
+that failed~~ done; ~~`[1, null, 3]` decodes as `List (Option Int)`~~ done;
+~~a config read, changed and written back comes out as the same document it
+went in as, but for the change~~ done, and pinned as a test rather than a
+demo.
 
 ---
 
 ## Picking this up
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 582 wand tests and the OCaml suite pass, nine demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Next is P3.6.
+clean, 592 wand tests and the OCaml suite pass, nine demos pass, every
+`.wand` file is a fixed point of `wand fmt`. Every tranche of this phase is
+done; what is left is recorded under P3.4 (generics, renaming, tagged
+unions) and in the roadmap's later phases.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -528,4 +540,4 @@ silently stops, look here first.
 3. ~~One decoder replaces the four scrapes in `examples/repo-status.wand`~~ **done**, with the caveat recorded under P3.3.
 4. ~~A single-constructor named-field type gets its decoder for free~~ **done**.
 5. ~~D7 and D8 land as runnable, offline demos~~ **done**.
-6. An object with dynamic keys, a null value, and the write direction all have an answer (P3.6).
+6. ~~An object with dynamic keys, a null value, and the write direction all have an answer (P3.6)~~ **done**.

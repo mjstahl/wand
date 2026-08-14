@@ -53,6 +53,16 @@ let optional name inner = decode_optional name inner
     that fails stops it. *)
 let list inner = decode_list inner
 
+(** Read an object whose keys are data rather than field names -- a label
+    map, per-host counts -- into a `Map`. Every value is read with the same
+    decoder, and a failure names the key it was under. *)
+let dict inner = decode_dict inner
+
+(** Read a value that may be null, as an `Option`. This is the value-level
+    sibling of `optional`, which asks whether a *field* is there: only a
+    lookup can ask that, so an element of a list needs this one instead. *)
+let nullable inner = decode_nullable inner
+
 (** Read two things from the same value and combine them. This is how a
     record with two fields is built. *)
 let map2 f a b = decode_map2 f a b

@@ -142,9 +142,16 @@ let test_underivable_types_say_why () =
   err_contains "generic"
     "type Box 'a = Box(v: 'a)\nlet d = Box.decoder"
     "it is generic";
+  (* A `Map` field became derivable when `Decode.dict` landed; a tuple did
+     not, and cannot -- a document is read by name, and a tuple has none. *)
   err_contains "a field with no decoder"
-    "type M = M(m: (Map Int))\nlet d = M.decoder"
-    "field 'm' cannot be read";
+    "type T = T(t: (Int, Int))\nlet d = T.decoder"
+    "field 't' cannot be read";
+  ok "a Map field is read by Decode.dict"
+    {|type M (m: Map Int)
+match M.decoder with
+| _ -> "ok"|}
+    "ok";
   err_contains "an enum"
     "type Color = Red | Green\nlet d = Color.decoder"
     "more than one constructor"
