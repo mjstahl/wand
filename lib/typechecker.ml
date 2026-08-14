@@ -1669,7 +1669,7 @@ let stdlib_type_env : env = [
   ("json_of_float",     generalize [] ((TFloat @-> TJson)));
   ("json_of_string",    generalize [] ((TString @-> TJson)));
   ("json_of_list",      generalize [] ((TList TJson @-> TJson)));
-  ("json_of_map",       generalize [] ((TMap TJson @-> TJson)));
+  ("json_of_object",    generalize [] ((TList (TTuple [TString; TJson]) @-> TJson)));
   ("json_is_null",      generalize [] ((TJson @-> TBool)));
   ("json_get_bool",     generalize [] ((TJson @-> TResult (TString, TBool))));
   ("json_get_int",      generalize [] ((TJson @-> TResult (TString, TInt))));

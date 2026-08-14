@@ -1862,13 +1862,21 @@ let stdlib_eval_env : env = [
       let items = List.map (function VJson j -> j | _ -> raise (EvalError "json_of_list: elements must be JSON")) vs in
       VJson (`List items)
     | _ -> raise (EvalError "json_of_list: expected List")));
-  ("json_of_map",    VBuiltin (function
-    | VMap kvs ->
-      let assoc = List.map (fun (k, v) -> match v with
-        | VJson j -> (k, j)
-        | _ -> raise (EvalError "json_of_map: values must be JSON")) kvs in
-      VJson (`Assoc assoc)
-    | _ -> raise (EvalError "json_of_map: expected Map")));
+  (* An object from its pairs, in the order given. A key repeated later is
+     dropped rather than written twice: a document with the same name twice
+     is read differently by different parsers, and wand's own reader takes
+     the first -- so what is written is what we would read back. *)
+  ("json_of_object", VBuiltin (function
+    | VList pairs ->
+      let rec go seen acc = function
+        | [] -> VJson (`Assoc (List.rev acc))
+        | VTuple [VString k; VJson j] :: rest ->
+          if List.mem k seen then go seen acc rest
+          else go (k :: seen) ((k, j) :: acc) rest
+        | _ -> raise (EvalError "json_of_object: expected a list of (String, JSON)")
+      in
+      go [] [] pairs
+    | _ -> raise (EvalError "json_of_object: expected a list of (String, JSON)")));
   ("json_is_null",   VBuiltin (function VJson `Null -> VBool true | VJson _ -> VBool false | _ -> raise (EvalError "json_is_null: expected JSON")));
   ("json_get_bool",  VBuiltin (function
     | VJson (`Bool b) -> VConstr ("Ok", [VBool b])

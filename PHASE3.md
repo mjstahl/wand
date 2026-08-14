@@ -405,10 +405,19 @@ above, seen from the other side -- derivation covers the shape that matches
 the type, and anything else is hand-written. It only bites where those three
 bite, which is why nothing in the corpus has hit it yet.
 
-The smallest thing that would help is one function rather than a module:
-`JSON.of_object : List (String, JSON) -> JSON`, removing the `Map.from_list`
-detour. Worth adding when a call site needs it, and not before -- the budget
-rule applies to this side too.
+**Done: `JSON.of_object`**, one function rather than a module, and a
+replacement rather than an addition -- `JSON.of_map` went with it. Two ways
+to build one object would have been the defect the budget rule guards
+against, and `of_map` had no call site in the corpus while forcing a
+`Map.from_list` detour on every one it might have had. What is left is a
+pair: `of_list` for arrays, `of_object` for objects, `Map.to_list` for the
+rare case that starts from a Map.
+
+It also retired a live bug. `of_map` wrote a repeated key twice --
+`{"a":1,"a":9}` -- which different parsers read differently, and wand's own
+reader takes the first of. `of_object` keeps the first and drops the rest,
+so what is written is what would be read back. Order is preserved, which
+matters for a config file that lands in a diff.
 
 ## P3.5 — D7 and `else ()`
 

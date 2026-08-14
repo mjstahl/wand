@@ -168,3 +168,35 @@ test "read_file missing file returns Error" (fn t ->
     (match JSON.read_file (Path.of_string "/nonexistent/wand_missing.json") with
     | Ok _ -> "ok"
     | Error _ -> "error"))
+
+(* ── Building an object ──────────────────────────────────────────────────── *)
+
+test "an object is built from its pairs, in the order given" (fn t ->
+  t.eq
+    "{\"b\":2,\"a\":\"x\"}"
+    (JSON.stringify (JSON.of_object [("b", JSON.of_int 2), ("a", JSON.of_string "x")])))
+
+(* A document naming the same key twice is read differently by different
+   parsers. wand's own reader takes the first, so that is what gets written
+   and a round trip through our own reader gives back what went in. *)
+test "a repeated key is kept once, at its first position" (fn t ->
+  t.eq
+    "{\"a\":1}"
+    (JSON.stringify (JSON.of_object [("a", JSON.of_int 1), ("a", JSON.of_int 9)])))
+
+test "no pairs is an empty object" (fn t -> t.eq "{}" (JSON.stringify (JSON.of_object [])))
+
+test "objects nest, and hold arrays" (fn t ->
+  t.eq
+    "{\"meta\":{\"n\":1},\"xs\":[1]}"
+    (JSON.stringify
+      (JSON.of_object
+        [
+          ("meta", JSON.of_object [("n", JSON.of_int 1)]),
+          ("xs", JSON.of_list [JSON.of_int 1])
+        ])))
+
+test "and a Map goes in through Map.to_list" (fn t ->
+  t.eq
+    "{\"a\":1}"
+    (JSON.stringify (JSON.of_object (Map.to_list (Map.from_list [("a", JSON.of_int 1)])))))

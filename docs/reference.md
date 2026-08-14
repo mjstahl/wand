@@ -1651,12 +1651,19 @@ match CSV.read_file ./data.csv with
 ### `JSON`
 
 `parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
-`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
+`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_object`,
 `null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
 `get_object`, `field`, `field!`, `decode`
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
 the `!` variants raise on error.  Typed extractors each return `Result`.
+
+`of_object` builds an object from its pairs, written in the order given —
+which is what makes output diff-friendly. A key that repeats is kept once, at
+its first position: a document naming the same key twice is read differently
+by different parsers, and wand's own reader takes the first, so what is
+written is what would be read back. If what you have is a `Map`, pass
+`Map.to_list`.
 
 ```
 import JSON
@@ -1670,6 +1677,9 @@ match JSON.field "name" j with
 -- Building JSON
 let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
 JSON.stringify arr    -- "[1,2]"
+
+JSON.of_object [("name", JSON.of_string "web"), ("port", JSON.of_int 8080)]
+                      -- {"name":"web","port":8080}
 
 match JSON.read_file ./config.json with
 | Ok cfg -> JSON.field! "host" cfg

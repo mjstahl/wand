@@ -25,7 +25,11 @@ let of_int n = json_of_int n
 let of_float f = json_of_float f
 let of_string s = json_of_string s
 let of_list xs = json_of_list xs
-let of_map m = json_of_map m
+(** Build an object from its pairs, written in the order given. A key that
+    repeats is kept once, at its first position: a document naming the same
+    key twice is read differently by different parsers, and wand's own reader
+    takes the first. Use `Map.to_list` if what you have is a Map. *)
+let of_object pairs = json_of_object pairs
 
 (** Test whether a JSON value is null. *)
 let null? j = json_is_null j
