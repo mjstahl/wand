@@ -170,9 +170,9 @@ let test_underivable_types_say_why () =
   err_contains "positional fields"
     "type Wrap = Wrap Int\nlet d = Wrap.decoder"
     "its fields are positional";
-  err_contains "generic"
-    "type Box 'a = Box(v: 'a)\nlet d = Box.decoder"
-    "it is generic";
+  err_contains "a type variable the type does not declare"
+    "type Bad = Bad(v: 'a)\nlet d = Bad.decoder"
+    "not declared as a parameter";
   (* A `Map` field became derivable when `Decode.dict` landed; a tuple did
      not, and cannot -- a document is read by name, and a tuple has none. *)
   err_contains "a field with no decoder"
@@ -658,6 +658,28 @@ let test_arity_hint () =
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
+(* A generic type takes one decoder per parameter, in the order it declares
+   them, and gives back a decoder for the applied type. *)
+let test_generic_derivation () =
+  prog_is "one parameter"
+    "type Box 'a (v: 'a)\nBox.decoder"
+    "Decoder 'a -> Decoder (Box 'a)";
+  prog_is "two, in order"
+    "type Pair 'a 'b (left: 'a, right: 'b)\nPair.decoder"
+    "Decoder 'a -> Decoder 'b -> Decoder (Pair 'a 'b)";
+  prog_is "and the encoder takes encoders"
+    "type Box 'a (v: 'a)\nBox.encoder"
+    "('a -> JSON) -> Box 'a -> JSON";
+  (* Constructing one keeps its arguments, which is what makes the pair fit
+     together: `Box(v = 3)` is a `Box Int`, exactly as `Box 3` is. *)
+  prog_is "named construction applies the parameters"
+    "type Box 'a (v: 'a)\nBox(v = 3)"
+    "Box Int";
+  prog_is "and a field of an applied type is the argument"
+    "type Box 'a (v: 'a)\nlet b = Box(v = 3)\nb.v"
+    "Int"
+
+
 let () =
   Alcotest.run "Typechecker" [
     "constructor arguments", [
@@ -739,5 +761,6 @@ let () =
     "derived decoders", [
       Alcotest.test_case "underivable types say why" `Quick test_underivable_types_say_why;
       Alcotest.test_case "derived decoder types"     `Quick test_derived_decoder_has_the_type;
+      Alcotest.test_case "generic derivation"        `Quick test_generic_derivation;
     ];
   ]

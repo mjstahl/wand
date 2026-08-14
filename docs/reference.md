@@ -1104,6 +1104,18 @@ Fields may hold lists, other derivable types, and the type being defined:
 type Node (label : String, children : List Node)
 ```
 
+A type with parameters takes one decoder for each, in the order it declares
+them:
+
+```
+type Paged 'a (items : List 'a, total : Int)
+
+Paged.decoder : Decoder 'a -> Decoder (Paged 'a)
+Paged.encoder : ('a -> JSON) -> Paged 'a -> JSON
+
+JSON.decode (Paged.decoder Pod.decoder) doc
+```
+
 Derivation covers the flat record whose keys are its field names. A document
 with nested keys, different names, or values needing validation is what a
 hand-written decoder is for — deriving removes the boilerplate ones, not the

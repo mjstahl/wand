@@ -338,14 +338,29 @@ order, none of which the lazy form has:
 So the shipped shape is not a cheap approximation of the eager one. It is the
 one that does not manufacture its own work.
 
-**Generics is the real next piece, and it is additive.** `type Box 'a` is
-rejected today. Deriving it means `Box.decoder : Decoder 'a -> Decoder
-(Box 'a)` -- a decoder *function*, parameterised by the decoders of the type
-variables. `T.decoder`'s type then depends on the type's arity, so the
-typechecker computes an arity-dependent signature and the evaluator builds a
-curried value rather than a plain one. A couple of days. Nothing about the
-lazy resolution is in the way: it extends `derivable_typedef` and the type
-side of the `Field` case, and the rest stands.
+**Generics is done**, and it was additive as predicted: `derivable_typedef`
+learned that a type variable is fine when the type declares it, the `Field`
+case builds one arrow per parameter, and the lazy resolution was not in the
+way. `Box.decoder : Decoder 'a -> Decoder (Box 'a)`, and
+`Box.encoder : ('a -> JSON) -> Box 'a -> JSON`.
+
+The encoder had to stop being purely value-directed to do it. A supplied
+encoder has to be the one that runs -- accepting one and then ignoring it in
+favour of a structural walk would answer with something other than what it
+was asked for -- so encoding now walks the field types where a type variable
+is involved and falls through to the value everywhere else.
+
+Two pre-existing bugs came out of it, both about applied types being dropped:
+
+- `Box(v = 3)` was typed `Box`, not `Box Int`. Named construction converted
+  each field's type expression on its own, so every field got an unrelated
+  variable and the result was never applied; positional construction
+  (`Box 3`) had been right all along. It now builds from the constructor's
+  own scheme.
+- dot access then had to see through an applied type -- `p.v` on a `Box Int`
+  is an `Int` -- which it could not, because it only matched a bare `TName`.
+  Fixing the first without the second broke every test in the corpus at once,
+  which is how the second was found.
 
 **`Decode.of T` stays rejected**, for the reason P3.4 was scoped this way in
 the first place: an expression taking a type as an argument is the language's
@@ -515,7 +530,7 @@ silently stops, look here first.
 - `FS.lock` is deferred (staleness detection is a design, not a wrapper) and
   `FS.in_dir` is dropped (per-process `chdir` races under `Par`). Both are
   argued above.
-- Derivation covers the flat record and nothing else. What is missing,
+- Derivation covers the flat record, including generic ones. What is missing,
   what the eager alternative would cost, and why generics is the piece to
   pick up first are recorded under P3.4. Three of those gaps -- dictionaries,
   null values, and encoders -- are now P3.6 rather than open questions.

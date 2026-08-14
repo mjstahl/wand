@@ -478,8 +478,13 @@ let instantiate = function
 
 type typedef_env = (string * type_def) list
 
-let type_of_te (te : type_expr) : typ =
+(* `bound` fixes what a type's parameters stand for, so a field of an applied
+   generic type comes back with the arguments substituted in: the `v` of a
+   `Box Int` is an `Int`, not a fresh variable. Anything unbound gets one,
+   which is what a standalone type expression needs. *)
+let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
   let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
+  List.iter (fun (n, t) -> Hashtbl.replace vars n t) bound;
   let rec go = function
     | TEName name ->
       (match name with
@@ -508,6 +513,8 @@ let type_of_te (te : type_expr) : typ =
     | TEApp (TEName "Map", arg)    -> TMap    (go arg)
     | TEApp (f, arg) -> TApp (go f, go arg)
   in go te
+
+let type_of_te (te : type_expr) : typ = type_of_te_bound [] te
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
   match tdef with
@@ -547,7 +554,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
 
    A type may mention itself, so the walk carries the types it is already
    inside. *)
-let rec derivable_field_type tenv seen (te : type_expr) : (unit, string) result =
+let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) result =
   match te with
   | TEName ("Int" | "Float" | "String" | "Bool" | "Path" | "Glob" | "Duration"
            | "Url" | "Size" | "Version" | "Date" | "Time" | "DateTime"
@@ -558,23 +565,45 @@ let rec derivable_field_type tenv seen (te : type_expr) : (unit, string) result 
       (match List.assoc_opt tname tenv with
        | Some tdef -> derivable_typedef tenv (tname :: seen) tdef
        | None -> Error (Printf.sprintf "no decoder is known for type '%s'" tname))
-  | TEApp (TEName "List", inner)   -> derivable_field_type tenv seen inner
-  | TEApp (TEName "Option", inner) -> derivable_field_type tenv seen inner
+  | TEApp (TEName "List", inner)   -> derivable_field_type tenv seen params inner
+  | TEApp (TEName "Option", inner) -> derivable_field_type tenv seen params inner
+  | TEApp (TEName "Map", inner)    -> derivable_field_type tenv seen params inner
+  (* A type variable is read by the decoder supplied for it, so it is fine
+     when the type declares it and nonsense when it does not. *)
   | TEVar v ->
-    Error (Printf.sprintf "a decoder cannot be derived for the type variable '%s" v)
+    if List.mem v params then Ok ()
+    else Error (Printf.sprintf "'%s is not one of the type's parameters" v)
   | TETuple _ ->
     Error "a tuple has no field names for a document to be read by"
   | TEFun _ -> Error "no document contains a function"
-  | TEApp (TEName "Map", inner) -> derivable_field_type tenv seen inner
-  | TEApp _ -> Error "no decoder is known for that type"
+  | TEApp _ ->
+    (* A generic type applied to arguments: derivable when it is and its
+       arguments are. *)
+    let rec spine te = match te with
+      | TEApp (f, a) -> let (h, args) = spine f in (h, args @ [a])
+      | TEName n -> (Some n, [])
+      | _ -> (None, [])
+    in
+    (match spine te with
+     | (Some tname, args) ->
+       let head =
+         if List.mem tname seen then Ok ()
+         else
+           (match List.assoc_opt tname tenv with
+            | Some tdef -> derivable_typedef tenv (tname :: seen) tdef
+            | None -> Error (Printf.sprintf "no decoder is known for type '%s'" tname))
+       in
+       List.fold_left (fun acc a ->
+         match acc with
+         | Error _ -> acc
+         | Ok () -> derivable_field_type tenv seen params a) head args
+     | _ -> Error "no decoder is known for that type")
 
 and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
   match tdef with
-  | Variants (_, _ :: _, _) ->
-    Error "it is generic, and a decoder cannot be derived for a type variable"
-  | Variants (_, [], []) -> Error "it has no constructor"
-  | Variants (_, [], _ :: _ :: _) -> Error "it has more than one constructor"
-  | Variants (_, [], [ctor]) ->
+  | Variants (_, _, []) -> Error "it has no constructor"
+  | Variants (_, _, _ :: _ :: _) -> Error "it has more than one constructor"
+  | Variants (_, params, [ctor]) ->
     if ctor.fields = [] then Error "it has no fields"
     else if List.exists (fun (n, _) -> n = None) ctor.fields then
       Error "its fields are positional, and a document is read by field name"
@@ -583,7 +612,7 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
         match acc with
         | Error _ -> acc
         | Ok () ->
-          (match derivable_field_type tenv seen te with
+          (match derivable_field_type tenv seen params te with
            | Ok () -> Ok ()
            | Error why ->
              Error (Printf.sprintf "field '%s' cannot be read: %s"
@@ -1162,6 +1191,25 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
      | Some (tname, ctor) ->
+       (* Types come from the constructor's own scheme rather than from each
+          field expression on its own, so a generic type keeps its arguments:
+          `Box(v = 3)` is a `Box Int`, exactly as `Box 3` is. Converting each
+          field type separately gave every one an unrelated variable and left
+          the result unapplied. *)
+       let arg_ts, result_t =
+         match List.assoc_opt name (tenv_to_ctor_env tenv) with
+         | Some sch -> unwrap_ctor_type (instantiate sch)
+         | None -> ([], TName tname)
+       in
+       let field_type fname =
+         let rec index i = function
+           | [] -> None
+           | (dn, _) :: rest -> if dn = Some fname then Some i else index (i + 1) rest
+         in
+         match index 0 ctor.fields with
+         | Some i -> List.nth_opt arg_ts i
+         | None -> None
+       in
        List.iter (fun (fname_opt, e) ->
          match fname_opt with
          | None -> raise (TypeError "positional field in named construction")
@@ -1170,9 +1218,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
             | None -> raise (TypeError (Printf.sprintf
                 "constructor '%s' has no field '%s'%s"
                 name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
-            | Some (_, te) -> unify (infer tenv env e) (type_of_te te))
+            | Some (_, te) ->
+              let expected =
+                match field_type fname with Some t -> t | None -> type_of_te te
+              in
+              unify (infer tenv env e) expected)
        ) fields;
-       TName tname)
+       result_t)
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let rec unwrap_loc = function Located (_, x) -> unwrap_loc x | x -> x in
@@ -1198,10 +1250,27 @@ let rec infer tenv (env : env) (e : expr) : typ =
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with
             | Ok () ->
+              (* A generic type takes one decoder per parameter, in the order
+                 it declares them: `Box.decoder : Decoder 'a -> Decoder
+                 (Box 'a)`. With no parameters there is nothing to take, and
+                 it is a decoder outright. *)
+              let params = match tdef with Variants (_, ps, _) -> ps in
+              let vars = List.map (fun _ -> fresh ()) params in
+              let applied =
+                List.fold_left (fun acc v -> TApp (acc, v)) (TName tname) vars
+              in
               (* An encoder is an ordinary function: encoding cannot fail, so
                  there is nothing for a type of its own to carry. *)
-              Some (if which = "decoder" then TDecoder (TName tname)
-                    else TFun (TName tname, TJson, Effect_row.pure))
+              let result =
+                if which = "decoder" then TDecoder applied
+                else TFun (applied, TJson, Effect_row.pure)
+              in
+              Some (List.fold_right (fun v acc ->
+                let arg =
+                  if which = "decoder" then TDecoder v
+                  else TFun (v, TJson, Effect_row.pure)
+                in
+                TFun (arg, acc, Effect_row.pure)) vars result)
             | Error why ->
               raise (TypeError (Printf.sprintf
                 "type '%s' has no derived %s: %s" tname which why)))
@@ -1211,16 +1280,26 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (match (match derived with Some _ -> derived | None -> ns_result) with
      | Some t -> t
      | None ->
-       (match repr (infer tenv env e) with
-        | TName tname ->
+       (* A generic type reaches here applied to its arguments, so the head
+          is what names the type and the arguments say what its parameters
+          stand for: the `v` of a `Box Int` is an `Int`. *)
+       let rec head_and_args t = match repr t with
+         | TApp (f, a) -> let (h, args) = head_and_args f in (h, args @ [a])
+         | other -> (other, [])
+       in
+       (match head_and_args (infer tenv env e) with
+        | (TName tname, args) ->
           (match List.assoc_opt tname tenv with
-           | Some (Variants (_, _, ctors)) ->
+           | Some (Variants (_, params, ctors)) ->
+             let bound =
+               try List.combine params args with Invalid_argument _ -> []
+             in
              let all_named = List.concat_map (fun c ->
                List.filter_map (fun (fname, te) ->
                  match fname with Some n -> Some (n, te) | None -> None)
                c.fields) ctors in
              (match List.assoc_opt label all_named with
-              | Some te -> type_of_te te
+              | Some te -> type_of_te_bound bound te
               | None    ->
                 let names = List.map fst all_named in
                 raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
@@ -1231,10 +1310,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
            verified to exist. Key presence in a Map is a runtime question, so
            the same syntax cannot carry the same guarantee -- Map.get returns
            an Option and Map.get! raises, each saying so at the call site. *)
-        | TMap vt -> raise (TypeError (Printf.sprintf
+        | (TMap vt, _) -> raise (TypeError (Printf.sprintf
             "cannot use dot access on a Map (Map %s); use Map.get for an \
              Option or Map.get! to raise on a missing key" (string_of_typ vt)))
-        | t -> raise (TypeError (Printf.sprintf
+        | (t, _) -> raise (TypeError (Printf.sprintf
             "field access requires a named type, got %s" (string_of_typ t)))))
   | MapLit [] ->
     TMap (fresh ())

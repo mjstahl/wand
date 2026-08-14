@@ -613,10 +613,11 @@ let run_item env item =
        derived, so the definition is kept where the derivation can find it.
        Anything else -- several constructors, positional fields, a generic --
        has no shape a decoder could read, and is not recorded. *)
-    (match params, ctors with
-     | [], [ctor] when ctor.Ast.fields <> []
+    (match ctors with
+     | [ctor] when ctor.Ast.fields <> []
                        && List.for_all (fun (n, _) -> n <> None) ctor.Ast.fields ->
-       Hashtbl.replace Evaluator.derivable tname (ctor.Ast.name, ctor.Ast.fields)
+       Hashtbl.replace Evaluator.derivable tname
+         (ctor.Ast.name, params, ctor.Ast.fields)
      | _ -> Hashtbl.remove Evaluator.derivable tname);
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in

@@ -169,3 +169,55 @@ test "a document read, changed, and written back" (fn t ->
   t.eq
     "{\"name\":\"api\",\"port\":8080,\"timeout\":\"30s\",\"replicas\":4}"
     (JSON.stringify (Config.encoder scaled)))
+
+(* A type with parameters takes one decoder for each, in the order it
+   declares them, and gives back a decoder for the applied type. *)
+
+type Paged 'a = Paged(items: List 'a, total: Int)
+
+type Tree 'a = Tree(value: 'a, children: List (Tree 'a))
+
+test "a generic type is decoded by supplying a decoder per parameter" (fn t ->
+  let doc = JSON.parse! "{\"items\": [1, 2, 3], \"total\": 3}" in
+  t.eq (Ok Paged(items = [1, 2, 3], total = 3)) (JSON.decode (Paged.decoder Decode.int) doc))
+
+test "and the argument can be another derived decoder" (fn t ->
+  t.eq
+    (Ok Paged(items = [Meta(name = "web", ready = true)], total = 1))
+    (JSON.decode
+      (Paged.decoder Meta.decoder)
+      (JSON.parse! "{\"items\": [{\"name\": \"web\", \"ready\": true}], \"total\": 1}")))
+
+test "a failure inside the parameter still names its place" (fn t ->
+  let doc = JSON.parse! "{\"items\": [1, \"x\"], \"total\": 2}" in
+  t.eq
+    (Error ".items[1]: expected Int, got \"x\"")
+    (JSON.decode (Paged.decoder Decode.int) doc))
+
+(* Generic and recursive at once: the type mentions itself with the same
+   argument, and the decoders are found when the field is reached. *)
+test "a generic type may mention itself" (fn t ->
+  let doc =
+    JSON.parse! "{\"value\": 1, \"children\": [{\"value\": 2, \"children\": []}]}"
+  in
+  t.eq
+    (Ok Tree(value = 1, children = [Tree(value = 2, children = [])]))
+    (JSON.decode (Tree.decoder Decode.int) doc))
+
+(* The encoder takes one encoder per parameter, and the one supplied is the
+   one that runs -- it is not a structural walk that ignores what it is
+   given. *)
+test "a generic type is encoded by supplying an encoder per parameter" (fn t ->
+  t.eq
+    "{\"items\":[1,2,3],\"total\":3}"
+    (JSON.stringify (Paged.encoder JSON.of_int Paged(items = [1, 2, 3], total = 3))))
+
+test "and that encoder is the one that runs" (fn t ->
+  t.eq
+    "{\"items\":[\"n=1\"],\"total\":1}"
+    (JSON.stringify
+      (Paged.encoder (fn n -> JSON.of_string "n=${n}") Paged(items = [1], total = 1))))
+
+test "a generic round trip" (fn t ->
+  let p = Paged(items = [1, 2], total = 2) in
+  t.eq (Ok p) (JSON.decode (Paged.decoder Decode.int) (Paged.encoder JSON.of_int p)))

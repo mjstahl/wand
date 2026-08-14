@@ -14,7 +14,8 @@ let () =
    field is decoded rather than when the decoder is built, which is what lets
    `type Node (label : String, children : List Node)` have a decoder at all
    -- built eagerly, deriving one would not terminate. *)
-let derivable : (string, string * (string option * type_expr) list) Hashtbl.t =
+let derivable :
+  (string, string * string list * (string option * type_expr) list) Hashtbl.t =
   Hashtbl.create 16
 
 let find_field_index names label =
@@ -288,12 +289,11 @@ let rec try_match (p : pat) v (env : env) : env option =
 
 (* Deriving a decoder needs the decoding machinery, which is defined further
    down the file; `eval` only has to be able to reach it. *)
-let derive_decoder :
-  (string -> Yojson.Basic.t -> string list -> (value, string) result) ref =
-  ref (fun _ _ _ -> Error "decoder derivation is not wired up")
+let derive_decoder : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "decoder derivation is not wired up"))
 
-let derive_encoder : (string -> value -> value) ref =
-  ref (fun _ _ -> raise (EvalError "encoder derivation is not wired up"))
+let derive_encoder : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "encoder derivation is not wired up"))
 
 let rec eval (env : env) (e : expr) : value =
   check_interrupt ();
@@ -403,9 +403,9 @@ let rec eval (env : env) (e : expr) : value =
     let rec bare x = match x with Located (_, y) -> bare y | y -> y in
     (match bare e, label with
      | Constr tname, "decoder" when Hashtbl.mem derivable tname ->
-       VDecoder (fun j path -> !derive_decoder tname j path)
+       !derive_decoder tname
      | Constr tname, "encoder" when Hashtbl.mem derivable tname ->
-       VBuiltin (fun v -> !derive_encoder tname v)
+       !derive_encoder tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -2172,7 +2172,19 @@ let map_builtins : env = [
 (* Why a type has no derived decoder, in a sentence that says what to do. *)
 exception Not_derivable of string
 
-let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -> (value, string) result) =
+(* The head of an applied type and its arguments: `Tree 'a` is ("Tree", ['a]). *)
+let rec type_spine te =
+  match te with
+  | TEApp (f, a) -> let (head, args) = type_spine f in (head, args @ [a])
+  | TEName n -> (Some n, [])
+  | _ -> (None, [])
+
+(* `venv` binds a type's parameters to the decoders supplied for them, so a
+   generic type is read by a decoder that takes one decoder per parameter --
+   `Box.decoder : Decoder 'a -> Decoder (Box 'a)`. It is threaded rather than
+   global because a type may mention itself with different arguments. *)
+let rec decoder_of_type_expr venv (te : type_expr) :
+  (Yojson.Basic.t -> string list -> (value, string) result) =
   let named name =
     match name with
     | "Int"      -> scalar_decoder "decode_int"
@@ -2193,12 +2205,18 @@ let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -
     | tname ->
       (* Another named type: looked up when a field is decoded, so a type may
          mention itself. *)
-      (fun j path -> (derived_decoder tname) j path)
+      (fun j path -> derived_decoder tname [] j path)
   in
   match te with
   | TEName name -> named name
+  | TEVar v ->
+    (match List.assoc_opt v venv with
+     | Some d -> d
+     | None ->
+       raise (Not_derivable (Printf.sprintf
+         "a decoder cannot be derived for the type variable '%s" v)))
   | TEApp (TEName "List", inner) ->
-    let elem = decoder_of_type_expr inner in
+    let elem = decoder_of_type_expr venv inner in
     (fun j path ->
       match j with
       | `List items ->
@@ -2211,16 +2229,13 @@ let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -
         in
         go 0 [] items
       | _ -> expected "a list" path j)
-  | TEVar v ->
-    raise (Not_derivable (Printf.sprintf
-      "it is generic: a decoder cannot be derived for the type variable '%s" v))
   | TETuple _ ->
     raise (Not_derivable
       "a field holds a tuple, which has no field names to read it by")
   | TEFun _ ->
     raise (Not_derivable "a field holds a function, which no document contains")
   | TEApp (TEName "Map", inner) ->
-    let elem = decoder_of_type_expr inner in
+    let elem = decoder_of_type_expr venv inner in
     (fun j path ->
       match j with
       | `Assoc kvs ->
@@ -2234,7 +2249,14 @@ let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -
         go [] kvs
       | _ -> expected "an object" path j)
   | TEApp _ ->
-    raise (Not_derivable "a field holds a type no decoder is known for")
+    (* A generic type applied to something: `Tree 'a`, `Paged Pod`. Its own
+       parameters are bound to decoders for the arguments, built here in the
+       environment the mention stands in. *)
+    (match type_spine te with
+     | (Some tname, args) when Hashtbl.mem derivable tname ->
+       let arg_decoders = List.map (decoder_of_type_expr venv) args in
+       (fun j path -> derived_decoder tname arg_decoders j path)
+     | _ -> raise (Not_derivable "a field holds a type no decoder is known for"))
 
 (* A builtin decoder, by the name it is registered under. *)
 and scalar_decoder name j path =
@@ -2242,16 +2264,22 @@ and scalar_decoder name j path =
   | Some (VDecoder d) -> d j path
   | _ -> raise (EvalError ("derive: no builtin decoder " ^ name))
 
-and derived_decoder tname j path =
+and derived_decoder tname arg_decoders j path =
   match Hashtbl.find_opt derivable tname with
   | None ->
     Error (Printf.sprintf "no decoder for type '%s'" tname)
-  | Some (ctor, fields) ->
+  | Some (ctor, params, fields) ->
+    let venv =
+      try List.combine params arg_decoders
+      with Invalid_argument _ ->
+        raise (EvalError (Printf.sprintf
+          "'%s' takes %d type argument(s)" tname (List.length params)))
+    in
     let rec go acc = function
       | [] -> Ok (VConstr (ctor, List.rev acc))
       | (fname, te) :: rest ->
         let key = match fname with Some n -> n | None -> "" in
-        (match read_field key te j path with
+        (match read_field venv key te j path with
          | Ok v      -> go (v :: acc) rest
          | Error msg -> Error msg)
     in
@@ -2261,11 +2289,11 @@ and derived_decoder tname j path =
 
 (* One field of a derived decoder. A field whose type is an `Option` may be
    absent -- that is what the type says -- and every other field may not. *)
-and read_field key te j path =
+and read_field venv key te j path =
   let kvs = match j with `Assoc kvs -> kvs | _ -> [] in
   match te with
   | TEApp (TEName "Option", inner) ->
-    let d = decoder_of_type_expr inner in
+    let d = decoder_of_type_expr venv inner in
     (match List.assoc_opt key kvs with
      | None | Some `Null -> Ok (VConstr ("None", []))
      | Some v ->
@@ -2273,7 +2301,7 @@ and read_field key te j path =
         | Ok x      -> Ok (VConstr ("Some", [x]))
         | Error msg -> Error msg))
   | _ ->
-    let d = decoder_of_type_expr te in
+    let d = decoder_of_type_expr venv te in
     let here = ("." ^ key) :: path in
     (match List.assoc_opt key kvs with
      | Some v -> d v here
@@ -2290,6 +2318,37 @@ and read_field key te j path =
    its own tag and cannot disagree with itself. A field holding `None` is
    left out rather than written as null: both read back as `None`, and a
    config is tidier without the empty keys. *)
+(* Encoding walks the field types when a type variable is involved, so an
+   encoder passed in for a parameter is the one that runs. Everywhere else it
+   falls through to the value, which carries its own tag. *)
+and json_of_typed venv (te : type_expr) (v : value) : Yojson.Basic.t =
+  match te, v with
+  | TEVar name, _ ->
+    (match List.assoc_opt name venv with
+     | Some f ->
+       (match apply f v with
+        | VJson j -> j
+        | other   -> json_of_value other)
+     | None -> json_of_value v)
+  | TEApp (TEName "Option", _), VConstr ("None", []) -> `Null
+  | TEApp (TEName "Option", inner), VConstr ("Some", [x]) -> json_of_typed venv inner x
+  | TEApp (TEName "List", inner), VList vs ->
+    `List (List.map (json_of_typed venv inner) vs)
+  | TEApp (TEName "Map", inner), VMap kvs ->
+    `Assoc (List.map (fun (k, x) -> (k, json_of_typed venv inner x)) kvs)
+  | _, VConstr (_, _) ->
+    (match type_spine te with
+     | (Some tname, args) when Hashtbl.mem derivable tname ->
+       let arg_encoders =
+         List.map (fun a ->
+           VBuiltin (fun x -> VJson (json_of_typed venv a x))) args
+       in
+       (match encoded_with tname arg_encoders v with
+        | VJson j -> j
+        | other -> json_of_value other)
+     | _ -> json_of_value v)
+  | _ -> json_of_value v
+
 and json_of_value (v : value) : Yojson.Basic.t =
   match v with
   | VInt n    -> `Int n
@@ -2323,10 +2382,57 @@ and json_of_value (v : value) : Yojson.Basic.t =
          "cannot encode '%s': it has no named fields" ctor)))
   | _ -> raise (EvalError "cannot encode this value as JSON")
 
-and derived_encoder tname v =
+and encoded_with tname arg_encoders v =
   match Hashtbl.find_opt derivable tname with
   | None -> raise (EvalError (Printf.sprintf "no encoder for type '%s'" tname))
-  | Some _ -> VJson (json_of_value v)
+  | Some (_, params, fields) ->
+    let venv =
+      try List.combine params arg_encoders
+      with Invalid_argument _ ->
+        raise (EvalError (Printf.sprintf
+          "'%s' takes %d type argument(s)" tname (List.length params)))
+    in
+    (match v with
+     | VConstr (_, vals) when List.length vals = List.length fields ->
+       let pairs =
+         List.concat (List.map2 (fun (fname, te) x ->
+           match fname, x with
+           (* A field holding None is left out rather than written as null. *)
+           | Some _, VConstr ("None", []) -> []
+           | Some name, x -> [(name, json_of_typed venv te x)]
+           | None, _ -> []) fields vals)
+       in
+       VJson (`Assoc pairs)
+     | _ -> VJson (json_of_value v))
+
+(* What `T.encoder` is worth: a function from the type, after one encoder per
+   parameter. Encoding cannot fail, so these are plain functions to JSON. *)
+and encoder_value tname =
+  match Hashtbl.find_opt derivable tname with
+  | None -> raise (EvalError (Printf.sprintf "no encoder for type '%s'" tname))
+  | Some (_, params, _) ->
+    let rec collect n acc =
+      if n = 0 then VBuiltin (fun v -> encoded_with tname (List.rev acc) v)
+      else VBuiltin (fun f -> collect (n - 1) (f :: acc))
+    in
+    collect (List.length params) []
+
+(* What `T.decoder` is worth. A type with no parameters is a decoder; one
+   with parameters is a function taking a decoder for each, in the order the
+   type declares them -- `Box.decoder : Decoder 'a -> Decoder (Box 'a)`. *)
+and decoder_value tname =
+  match Hashtbl.find_opt derivable tname with
+  | None -> raise (EvalError (Printf.sprintf "no decoder for type '%s'" tname))
+  | Some (_, params, _) ->
+    let rec collect n acc =
+      if n = 0 then VDecoder (fun j path -> derived_decoder tname (List.rev acc) j path)
+      else
+        VBuiltin (fun d ->
+          match d with
+          | VDecoder inner -> collect (n - 1) (inner :: acc)
+          | _ -> raise (EvalError (tname ^ ".decoder: expected a Decoder")))
+    in
+    collect (List.length params) []
 
 and decode_registry : env ref = ref []
 
@@ -2602,8 +2708,8 @@ let decode_builtins : env = [
 (* Derivation reaches the builtin decoders by name, so it needs them after
    they are defined rather than while they are being defined. *)
 let () = decode_registry := decode_builtins
-let () = derive_decoder := derived_decoder
-let () = derive_encoder := derived_encoder
+let () = derive_decoder := decoder_value
+let () = derive_encoder := encoder_value
 
 let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins
 
