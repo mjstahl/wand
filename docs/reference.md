@@ -1149,6 +1149,14 @@ interesting ones, and the two mix freely:
 Decode.field "items" (Decode.list Pod.decoder)
 ```
 
+There is a worked example of each in `examples/`:
+
+| | |
+|---|---|
+| `decode-renamed-keys.wand` | the document's keys are not the type's field names |
+| `decode-nested-fields.wand` | the value is nested deeper than the type — mirror the shape, or reach through it |
+| `decode-tagged-union.wand` | a `kind` field says which constructor to build |
+
 `T.encoder` is derived from the same fields, so a type states its shape once
 and both directions follow.
 

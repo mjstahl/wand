@@ -14,7 +14,10 @@ open Wand
 let dir = "../examples"
 
 (* Examples whose behavior does not depend on the host: no $(), no stdin. *)
-let hermetic = ["hello.wand"; "fibonacci.wand"; "greetings.wand"; "shapes.wand"]
+let hermetic =
+  [ "hello.wand"; "fibonacci.wand"; "greetings.wand"; "shapes.wand";
+    "decode-renamed-keys.wand"; "decode-nested-fields.wand";
+    "decode-tagged-union.wand" ]
 
 let example_files () =
   if not (Sys.file_exists dir) then

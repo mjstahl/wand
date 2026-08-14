@@ -113,6 +113,17 @@ let test_cidr_invalid () =
   lex_err "prefix 33"    "10.0.0.0/33";
   lex_err "prefix 128"   "10.0.0.0/128"
 
+(* A number too large to be an `Int` is a lex error naming the limit. It
+   used to reach `int_of_string`, whose failure escaped as OCaml's own, so
+   the reader got "Error: int_of_string" and nothing about where. *)
+let test_int_too_large () =
+  check "the largest there is" "4611686018427387903" [Int 4611686018427387903];
+  (match Lexer.tokenize_plain "30000000000000000000" with
+   | _ -> Alcotest.fail "expected a LexError for a number past max_int"
+   | exception Lexer.LexError msg ->
+     if not (String.length msg > 0 && String.length msg > 20) then
+       Alcotest.failf "expected a message naming the limit, got: %s" msg)
+
 (* ── Ports ──────────────────────────────────────────────────────────────── *)
 
 let test_ports () =
@@ -201,6 +212,7 @@ let () =
       Alcotest.test_case "cidr invalid"       `Quick test_cidr_invalid;
       Alcotest.test_case "ports"              `Quick test_ports;
       Alcotest.test_case "port out of range"  `Quick test_port_out_of_range;
+      Alcotest.test_case "int too large"      `Quick test_int_too_large;
       Alcotest.test_case "port disambiguation" `Quick test_port_disambiguation;
     ];
     "versions", [

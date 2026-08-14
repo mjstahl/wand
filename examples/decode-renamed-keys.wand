@@ -1,0 +1,42 @@
+uses {IO}
+
+import Decode
+import IO
+import JSON
+
+-- A document whose keys are not the names you want.
+--
+-- `Pod.decoder` reads each field by its own name, so it wants `podName` and
+-- `restartCount`. When the type should read better than the document does,
+-- the decoder is written by hand -- and a hand-written one is an ordinary
+-- value, so it goes wherever a derived one goes.
+
+type Pod = Pod(name: String, restarts: Int)
+
+let document = "{\"podName\": \"web-01\", \"restartCount\": 4}"
+
+-- `map2` reads two things from the same object and puts them together. The
+-- field names on the left are the document's; the ones on the right are the
+-- type's.
+let pod =
+  (Decode.map2
+    (fn n r -> Pod(name = n, restarts = r))
+    (Decode.field "podName" Decode.string)
+    (Decode.field "restartCount" Decode.int))
+
+-- Wider records chain through `and_then`, which also gives somewhere to put
+-- a check that the document itself cannot express.
+let checked_pod =
+  (Decode.and_then
+    (fn n -> Decode.and_then
+      (fn r -> if r < 0 then Decode.fail "restartCount cannot be negative"
+      else Decode.succeed Pod(name = n, restarts = r))
+      (Decode.field "restartCount" Decode.int))
+    (Decode.field "podName" Decode.string))
+
+let () = IO.println (JSON.decode pod (JSON.parse! document))
+
+let () = IO.println (JSON.decode checked_pod (JSON.parse! document))
+
+-- A key that is missing is still named, whichever name it was looked up by.
+IO.println (JSON.decode pod (JSON.parse! "{\"podName\": \"web-01\"}"))

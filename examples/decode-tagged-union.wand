@@ -1,0 +1,51 @@
+uses {IO}
+
+import Decode
+import IO
+import JSON
+import List
+
+-- A document that says which shape it is, in a field.
+--
+-- Derivation covers a type with one constructor, because that is a type
+-- whose shape a document can be read into directly. A type with several has
+-- to be told which one to build, and only the document knows -- so the
+-- choice is written out. `and_then` is what writes it: read the tag, then
+-- pick the decoder for the rest from what it said.
+
+type Shape = Circle Int | Rect Int Int
+
+let shape =
+  (Decode.and_then
+    (fn kind -> if kind == "circle" then Decode.map (fn r -> Circle r) (Decode.field "r" Decode.int)
+    else if kind == "rect" then Decode.map2
+      (fn w h -> Rect w h)
+      (Decode.field "w" Decode.int)
+      (Decode.field "h" Decode.int)
+    else Decode.fail "unknown kind: ${kind}")
+    (Decode.field "kind" Decode.string))
+
+let area s =
+  match s with
+  | Circle r -> r * r * 3
+  | Rect w h -> w * h
+
+let document =
+  "[{\"kind\": \"circle\", \"r\": 3}, {\"kind\": \"rect\", \"w\": 2, \"h\": 5}]"
+
+let shapes = JSON.decode (Decode.list shape) (JSON.parse! document)
+
+let () =
+  match shapes with
+  | Ok ss -> IO.println "areas: ${List.map area ss}"
+  | Error why -> IO.println why
+
+-- A tag nobody knows is a failure that says so, and says which element it
+-- was -- the `fail` message is reported at the path the decoder had reached.
+let () =
+  IO.println (JSON.decode (Decode.list shape) (JSON.parse! "[{\"kind\": \"hexagon\"}]"))
+
+-- The tag field is part of the document, not of the type: nothing here
+-- assumes it is called "kind", and a document tagging by "type" or "@type"
+-- differs by one string.
+IO.println (JSON.decode shape (JSON.parse! "{\"kind\": \"rect\", \"w\": 4, \"h\": 4}"))

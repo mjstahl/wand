@@ -214,6 +214,23 @@ let test_width_is_measured_from_the_start_column () =
     "type Opt = None | Some Int\nlet plus n = n + 1\nlet f x =\n  match x with\n     | Some averylongconstructorpattern -> let y = plus averylongconstructorpattern in y\n     | None -> 0\nf (Some 41)"
     "42"
 
+(* A binding's value may run onto the next line, but not as a bare
+   application: the definition ends at the first line, loudly at the top
+   level and silently inside a `let ... in`. Every other wrapped form carries
+   an operator or a bracket that says it is not finished, so only this one
+   needs the parentheses put back. *)
+let test_a_wrapped_application_keeps_its_brackets () =
+  ok_after_format "a top-level binding still binds what it looks like"
+    "let g a b c = a + b + c\nlet x =\n  (g\n     100000\n     200000\n     300000)\nx"
+    "600000";
+  ok_after_format "and a local one"
+    "let g a b c = a + b + c\nlet outer =\n  let x =\n    (g\n       100000\n       200000\n       300000)\n  in x\nouter"
+    "600000";
+  (* A form that carries its own continuation is left alone. *)
+  Alcotest.(check string) "a wrapped match gains no brackets"
+    "let f x =\n  match x with\n  | 0 -> \"zero\"\n  | _ -> \"other\"\n"
+    (fmt "let f x =\n  match x with\n  | 0 -> \"zero\"\n  | _ -> \"other\"")
+
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -426,6 +443,7 @@ let () =
       Alcotest.test_case "one-armed if" `Quick test_one_armed_if;
       Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
       Alcotest.test_case "width from the start column" `Quick test_width_is_measured_from_the_start_column;
+      Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;

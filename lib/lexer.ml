@@ -423,7 +423,15 @@ let read_numeric s first_char =
   | _ ->
     (match try_read_size_unit s with
      | Some unit -> Size (first ^ unit)
-     | None      -> Int (int_of_string first))
+     | None ->
+       (* A number too large for an Int is a lex error like any other. It
+          used to reach `int_of_string`, whose failure escaped as OCaml's own
+          -- the reader got "Error: int_of_string" and nothing about where. *)
+       (match int_of_string_opt first with
+        | Some n -> Int n
+        | None ->
+          raise (LexError (Printf.sprintf
+            "%s is too large for an Int, which holds up to %d" first max_int))))
 
 (* ── Regex literals: r/pattern/flags ────────────────────────────────────── *)
 

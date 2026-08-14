@@ -378,12 +378,23 @@ typechecker rule for a type name in expression position, and answers for
 elaboration -- a compile-time expansion pass or a runtime type
 representation. `Pod.decoder` needs none of it and `git grep` finds it.
 
-**Renaming, nested paths and tagged unions each want their own decision**,
-not a ride inside this one. Renaming implies an annotation syntax on fields,
-which the language does not have and should not grow casually. Tagged unions
-imply a convention about which field is the tag. Both are worth doing only
-against a call site that cannot be written with a hand-written decoder beside
-the derived one -- which today it can, since the two mix freely.
+**Renaming, nested paths and tagged unions stay out of the language**, and
+are worked examples instead -- `examples/decode-renamed-keys.wand`,
+`decode-nested-fields.wand`, `decode-tagged-union.wand`, each runnable and
+each run by CI.
+
+All three need the same missing thing: a way to say something about a field
+that the type does not say -- this field is called `podName` in the document,
+this one lives at `.metadata.name`, this constructor is chosen by a `kind`
+tag. That is annotation syntax, which the language does not have and should
+not grow for boilerplate. And all three are writable today, since a
+hand-written decoder sits beside a derived one without ceremony. So the gap
+was never capability, only typing, and an example removes the typing for
+whoever reads it next.
+
+Nested paths has a second answer worth preferring: mirror the document in
+types and let every level derive, which is what D7 does. The error then names
+the whole path it walked, which the flattened version throws away.
 
 **The two directions are not equally pleasant to write by hand.** Reading a
 renamed or nested field composes; writing one back does not:

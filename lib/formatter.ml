@@ -204,6 +204,48 @@ let is_app e = match strip_located e with
 (* `?col` says where the text begins when that is not the indent -- the
    caller knows, because the caller wrote the prefix. Everything defaults to
    the indent, so an emitter that starts its own line needs to say nothing. *)
+(* A binding's value may run onto the next line, but not as a bare
+   application: `let x =\n  f\n    1\n    2` ends the definition at `f` --
+   loudly at the top level, and silently inside a `let ... in`, where the
+   lines after it quietly become something else. Every other wrapped form
+   carries its own continuation, an operator or a bracket that says the
+   expression is not finished. So an application that wrapped gets
+   parentheses, and nothing else needs them. *)
+(* Only for a top-level item, which is the one place a newline ends a
+   definition: the parser breaks an expression at a line end only while no
+   bracket is open, so the same shape nested inside a call is fine as it
+   stands. *)
+let bracket_if_wrapped_app body emitted =
+  (* The parser continues a definition onto the next line only while a
+     bracket is still open -- `test "x" (fn t ->` ends inside one, so what
+     follows belongs to it. A line that closes everything it opened ends the
+     definition, and the lines after it become something else. That is the
+     condition, so that is what is checked: unclosed brackets at the end of
+     the first line. *)
+    let depth_after_first_line str =
+      let n = String.length str in
+      let rec go i depth in_string =
+        if i >= n then depth
+        else
+          match str.[i] with
+          | '\n' when not in_string -> depth
+          | '\\' when in_string -> go (i + 2) depth in_string
+          | '"' -> go (i + 1) depth (not in_string)
+          | ('(' | '[') when not in_string -> go (i + 1) (depth + 1) in_string
+          | (')' | ']') when not in_string -> go (i + 1) (depth - 1) in_string
+          | _ -> go (i + 1) depth in_string
+      in
+      go 0 0 false
+    in
+    (* Both conditions, and only together. A `match` or an `if` is safe with
+       nothing left open, because its parse is not finished at the first line
+       -- the cases are still owed. An application's is: it ends where the
+       line does, and what follows is read as something new. *)
+    match strip_located body with
+    | App _ when String.contains emitted '\n' && depth_after_first_line emitted <= 0 ->
+      "(" ^ emitted ^ ")"
+    | _ -> emitted
+
 let rec emit_expr ?col indent e =
   emit_expr_inner ?col indent (strip_located e)
 
@@ -614,7 +656,7 @@ let emit_one_equation head_kw pats body =
   let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
   let oneline = head ^ " = " ^ emit_expr 0 body in
   if fits 0 oneline then oneline
-  else head ^ " =\n  " ^ emit_expr 2 body
+  else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
 
@@ -678,7 +720,9 @@ let emit_top_item_pretty = function
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in
     if fits 0 oneline then oneline
-    else Printf.sprintf "let %s =\n  %s" (emit_pat p) (emit_expr 2 e)
+    else
+      Printf.sprintf "let %s =\n  %s" (emit_pat p)
+        (bracket_if_wrapped_app e (emit_expr 2 e))
   | TLLet (name, [], Annot (te, body)) ->
     (* Same ambiguity as the local-`let` case: reprinting via inline
        `expr : Type` would re-parse as cons, not ascription -- keep the
@@ -687,12 +731,12 @@ let emit_top_item_pretty = function
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys in
     if fits 0 oneline then oneline
-    else head ^ " =\n  " ^ emit_expr 2 body
+    else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
   | TLLet (name, [], e) ->
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" name body in
     if fits 0 oneline then oneline
-    else Printf.sprintf "let %s =\n  %s" name (emit_expr 2 e)
+    else Printf.sprintf "let %s =\n  %s" name (bracket_if_wrapped_app e (emit_expr 2 e))
   | TLLet (name, params, e) ->
     (match try_multi_equation params e with
      | Some clauses ->
@@ -719,8 +763,9 @@ let emit_top_item_pretty = function
      | first :: rest ->
        String.concat "\n" (emit_binding "let" first :: List.map (emit_binding "and") rest))
   | TLExpr e ->
-    let s = emit_expr 0 e in
-    if fits 0 s then s else emit_expr 0 e
+    (* A top-level expression is subject to the same rule as a binding's
+       value: wrapped as a bare application it stops being one expression. *)
+    bracket_if_wrapped_app e (emit_expr 0 e)
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────
 

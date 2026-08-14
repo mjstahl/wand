@@ -1,0 +1,48 @@
+uses {IO}
+
+import Decode
+import IO
+import JSON
+
+-- A document nested deeper than the type you want out of it.
+--
+-- There are two answers, and the first is usually the better one.
+
+let document =
+  "{\"metadata\": {\"name\": \"web-01\", \"namespace\": \"default\"},\n    \"status\": {\"phase\": \"Running\", \"restarts\": 4}}"
+
+-- 1. Mirror the shape. Each level is a type, every decoder is derived, and
+--    nothing is written by hand. A failure names the whole path it walked,
+--    which is the part that pays off when a document changes under you.
+
+type Meta = Meta(name: String, namespace: String)
+
+type Status = Status(phase: String, restarts: Int)
+
+type Pod = Pod(metadata: Meta, status: Status)
+
+let () = IO.println (JSON.decode Pod.decoder (JSON.parse! document))
+
+let wrong_type =
+  "{\"metadata\": {\"name\": 1, \"namespace\": \"d\"},\n    \"status\": {\"phase\": \"R\", \"restarts\": 0}}"
+
+let () = IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
+
+-- 2. Flatten it. When the intermediate types earn nothing -- when nothing in
+--    the script ever wants a `Meta` -- reach through with nested `field`s
+--    and build the type you actually use.
+
+type Flat = Flat(name: String, restarts: Int)
+
+let flat =
+  (Decode.map2
+    (fn n r -> Flat(name = n, restarts = r))
+    (Decode.field "metadata" (Decode.field "name" Decode.string))
+    (Decode.field "status" (Decode.field "restarts" Decode.int)))
+
+let () = IO.println (JSON.decode flat (JSON.parse! document))
+
+-- The nested form still names where it failed, so flattening the type does
+-- not flatten the error.
+(IO.println
+  (JSON.decode flat (JSON.parse! "{\"metadata\": {}, \"status\": {\"restarts\": 1}}")))
