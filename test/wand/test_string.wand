@@ -132,10 +132,22 @@ test "to_port ok" (fn t ->
   match String.to_port ":8080" with
   | Ok _ -> t.ok true
   | Error _ -> t.ok false)
+(* `to_port` reads wand's own notation, so a bare number is not one -- and
+   the error says so, rather than leaving the caller to guess at the rule. *)
 test "to_port err" (fn t ->
   match String.to_port "8080" with
   | Ok _ -> t.ok false
-  | Error _ -> t.ok true)
+  | Error msg -> t.eq msg "cannot parse \"8080\" as Port: a port is written with a leading colon, as :8080")
+
+test "to_port out of range says which rule was broken" (fn t ->
+  match String.to_port ":99999" with
+  | Ok _ -> t.ok false
+  | Error msg -> t.eq msg "invalid port :99999: must be 0-65535")
+
+test "and an octet out of range does too" (fn t ->
+  match String.to_ipv4 "256.0.0.1" with
+  | Ok _ -> t.ok false
+  | Error msg -> t.eq msg "invalid IPv4 address: each octet must be 0–255")
 test "to_version ok" (fn t ->
   match String.to_version "1.2.3" with
   | Ok _ -> t.ok true

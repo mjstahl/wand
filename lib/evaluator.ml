@@ -960,11 +960,38 @@ let csv_stringify_rows sep rows =
   String.concat "\n" (List.map (fun row ->
     String.concat sep (List.map quote_field row)) rows)
 
-let try_lex_single s =
+(* Lexing one domain literal out of a string, keeping the lexer's complaint
+   when it has one. `256.0.0.1` and `:99999` are not merely unreadable: the
+   lexer knows an octet is 0-255 and a port is 0-65535, and a reader that
+   answers "cannot parse" has thrown away the only sentence that says what to
+   do about it. Whoever gets the message -- a person or a model -- is then
+   guessing at a rule the program already knows. *)
+let lex_single s : (Token.t, string option) result =
   match Lexer.tokenize_plain s with
-  | [tok; Token.EOF] -> Some tok
-  | _ -> None
-  | exception Lexer.LexError _ -> None
+  | [tok; Token.EOF] -> Ok tok
+  | _ -> Error None
+  | exception Lexer.LexError msg -> Error (Some msg)
+
+let try_lex_single s =
+  match lex_single s with Ok tok -> Some tok | Error _ -> None
+
+(* `String.to_<domain>`: read the string exactly as the lexer would, and pass
+   on what the lexer said when it had something specific to say. *)
+let to_domain name build s =
+  let cannot () =
+    VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as %s" s name)])
+  in
+  match lex_single s with
+  | Ok tok -> (match build tok with Some v -> VConstr ("Ok", [v]) | None -> cannot ())
+  | Error (Some why) -> VConstr ("Error", [VString why])
+  | Error None -> cannot ()
+
+(* A port is `:8080` in wand's own notation; a document or an environment
+   variable holds the bare number. Adding the colon is how the second is read
+   as the first. *)
+let port_text s =
+  let s = String.trim s in
+  if String.length s > 0 && s.[0] = ':' then s else ":" ^ s
 
 (* ── Decoding ────────────────────────────────────────────────────────────── *)
 
@@ -1333,64 +1360,50 @@ let stdlib_eval_env : env = [
     | VString s -> VPath s
     | _ -> raise (EvalError "str_to_path: expected String")));
   ("str_to_url", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Url u) -> VConstr ("Ok", [VUrl u])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Url" s)]))
+    | VString s -> to_domain "Url" (function Token.Url v -> Some (VUrl v) | _ -> None) s
     | _ -> raise (EvalError "str_to_url: expected String")));
   ("str_to_ipv4", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.IPv4 v) -> VConstr ("Ok", [VIPv4 v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as IPv4" s)]))
+    | VString s -> to_domain "IPv4" (function Token.IPv4 v -> Some (VIPv4 v) | _ -> None) s
     | _ -> raise (EvalError "str_to_ipv4: expected String")));
   ("str_to_cidr", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.CIDR v) -> VConstr ("Ok", [VCIDR v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as CIDR" s)]))
+    | VString s -> to_domain "CIDR" (function Token.CIDR v -> Some (VCIDR v) | _ -> None) s
     | _ -> raise (EvalError "str_to_cidr: expected String")));
+  (* `String.to_port` reads wand's own notation, so it wants the colon --
+     as `to_duration` wants "30s". When the string is not one, the lexer
+     still knows more than "no": asked about the colon-prefixed form, it can
+     tell an out-of-range number from one that is only missing its colon, and
+     the answer says which. *)
   ("str_to_port", VBuiltin (function
     | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Port n) -> VConstr ("Ok", [VPort n])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Port" s)]))
+      let err msg = VConstr ("Error", [VString msg]) in
+      (match lex_single s with
+       | Ok (Token.Port n) -> VConstr ("Ok", [VPort n])
+       | _ ->
+         (match lex_single (port_text s) with
+          | Error (Some why) -> err why
+          | Ok (Token.Port _) ->
+            err (Printf.sprintf
+              "cannot parse %S as Port: a port is written with a leading colon, as %s"
+              s (port_text s))
+          | _ -> err (Printf.sprintf "cannot parse %S as Port" s)))
     | _ -> raise (EvalError "str_to_port: expected String")));
   ("str_to_version", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Version v) -> VConstr ("Ok", [VVersion v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Version" s)]))
+    | VString s -> to_domain "Version" (function Token.Version v -> Some (VVersion v) | _ -> None) s
     | _ -> raise (EvalError "str_to_version: expected String")));
   ("str_to_size", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Size v) -> VConstr ("Ok", [VSize v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Size" s)]))
+    | VString s -> to_domain "Size" (function Token.Size v -> Some (VSize v) | _ -> None) s
     | _ -> raise (EvalError "str_to_size: expected String")));
   ("str_to_date", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Date v) -> VConstr ("Ok", [VDate v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Date" s)]))
+    | VString s -> to_domain "Date" (function Token.Date v -> Some (VDate v) | _ -> None) s
     | _ -> raise (EvalError "str_to_date: expected String")));
   ("str_to_time", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Time v) -> VConstr ("Ok", [VTime v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Time" s)]))
+    | VString s -> to_domain "Time" (function Token.Time v -> Some (VTime v) | _ -> None) s
     | _ -> raise (EvalError "str_to_time: expected String")));
   ("str_to_datetime", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.DateTime v) -> VConstr ("Ok", [VDateTime v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as DateTime" s)]))
+    | VString s -> to_domain "DateTime" (function Token.DateTime v -> Some (VDateTime v) | _ -> None) s
     | _ -> raise (EvalError "str_to_datetime: expected String")));
   ("str_to_duration", VBuiltin (function
-    | VString s ->
-      (match try_lex_single s with
-       | Some (Token.Duration v) -> VConstr ("Ok", [VDuration v])
-       | _ -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Duration" s)]))
+    | VString s -> to_domain "Duration" (function Token.Duration v -> Some (VDuration v) | _ -> None) s
     | _ -> raise (EvalError "str_to_duration: expected String")));
   (* FS primitives *)
   ("fs_exists",  performing "FS!exists" (function
@@ -2292,20 +2305,14 @@ let decode_builtins : env = [
      end, so what a decoder accepts is exactly what could have been written
      in the source -- one rule rather than two that drift apart. *)
   ("decode_port", VDecoder (fun j path ->
-    let of_text s =
-      let s = String.trim s in
-      let s = if String.length s > 0 && s.[0] = ':' then s else ":" ^ s in
-      match try_lex_single s with
-      | Some (Token.Port n) -> Some (VPort n)
-      | _ -> None
-    in
     (* Out of range is the one case where the number matters more than its
-       type: "expected Port, got Int" would be describing what is right about
-       it. Everywhere else the type name is the useful half. *)
-    let read s =
-      match of_text s with
-      | Some v -> Ok v
-      | None ->
+       type, and the lexer has the sentence for it: "expected Port, got Int"
+       would be describing what is right about it. *)
+    let read text =
+      match lex_single (port_text text) with
+      | Ok (Token.Port n)  -> Ok (VPort n)
+      | Error (Some why)   -> decode_error path why
+      | _ ->
         (match j with
          | `Int n -> decode_error path (Printf.sprintf "expected Port, got %d" n)
          | _ -> expected "Port" path j)

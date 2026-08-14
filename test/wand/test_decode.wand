@@ -257,6 +257,6 @@ test "and what is not a port is not a port, written either way" (fn t ->
       Error ".a: expected Port, got -1",
       Error ".b: expected Port, got \":-1\"",
       Error ".c: expected Port, got \"http\"",
-      Error ".d: expected Port, got 65536",
+      Error ".d: invalid port :65536: must be 0-65535",
       Ok :65535
     ))

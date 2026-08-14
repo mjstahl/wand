@@ -490,8 +490,7 @@ let read_port s =
   | _ ->
     (* Also the arm for a number too large to be an Int at all, which used to
        escape as an OCaml failure rather than a lex error. *)
-    raise (LexError (Printf.sprintf
-      "port :%s is out of range -- a port is 0 to 65535" digits))
+    raise (LexError (Printf.sprintf "invalid port :%s: must be 0-65535" digits))
 
 (* ── Main tokeniser ─────────────────────────────────────────────────────── *)
 
