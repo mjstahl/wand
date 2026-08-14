@@ -2106,6 +2106,12 @@ never silently dropped, and never rewritten from one style into the other. Multi
 (`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
 rather than left as the desugared `match`.
 
+Lines are wrapped to fit 92 columns — chosen for the pane code is *read* in
+rather than the one it is written in. A split diff gives each side around
+ninety columns, and a line past that scrolls sideways exactly where code is
+looked at hardest; the same width holds for wand shown next to bash in a
+README or a terminal recording.
+
 An item with a comment inside it is re-emitted exactly as written.
 Formatting it would mean deciding which expression the comment now belongs
 to, and a comment moved to the wrong one is worse than a comment left where
