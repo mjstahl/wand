@@ -29,7 +29,8 @@ let test label f =
   let t =
     Testing(
       ok = fn cond -> if cond then Pass label else Fail "${label}: assertion failed",
-      not_ok = fn cond -> if cond then Fail "${label}: expected assertion to fail" else Pass label,
+      not_ok = fn cond -> if cond then Fail "${label}: expected assertion to fail"
+      else Pass label,
       eq = fn expected actual -> if expected == actual then Pass label
       else Fail "${label}: expected ${expected}, got ${actual}",
       not_eq = fn expected actual -> if expected != actual then Pass label

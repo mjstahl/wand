@@ -4,8 +4,16 @@ open Ast
 
 let max_width = 92
 
-let fits indent s =
-  not (String.contains s '\n') && indent + String.length s <= max_width
+(* Does this fit on the line it is going onto?
+
+   `col` is the column the text will start at, which is not the indentation
+   it wraps to: a match case's body is written after `| Some x -> `, so it
+   begins some 30 columns right of the case's indent. Measuring from the
+   indent said everything fitted and left lines half again over the margin.
+   The two coincide only when an expression begins a line, which is why one
+   parameter passed for both for so long. *)
+let fits col s =
+  not (String.contains s '\n') && col + String.length s <= max_width
 
 let rec strip_located e = match e with
   | Located (_, e) -> strip_located e
@@ -178,7 +186,11 @@ let is_app e = match strip_located e with
   | App _ -> true
   | _ -> false
 
-let rec emit_expr indent e = emit_expr_inner indent (strip_located e)
+(* `?col` says where the text begins when that is not the indent -- the
+   caller knows, because the caller wrote the prefix. Everything defaults to
+   the indent, so an emitter that starts its own line needs to say nothing. *)
+let rec emit_expr ?col indent e =
+  emit_expr_inner ?col indent (strip_located e)
 
 (* App-chain function/argument positions require strict "atom" syntax --
    a bare BinOp/UnOp/If/Match/Fn/Let there would be reparsed differently
@@ -201,7 +213,8 @@ and emit_arg ~last indent e =
   | Constr _ as c when not last -> "(" ^ emit_expr_inner indent c ^ ")"
   | _ -> emit_atom indent e
 
-and emit_expr_inner indent e =
+and emit_expr_inner ?col indent e =
+  let col = match col with Some c -> c | None -> indent in
   match e with
   | Int n      -> string_of_int n
   | Float f    -> string_of_wand_float f
@@ -215,22 +228,25 @@ and emit_expr_inner indent e =
   | Constr x   -> x
   | EnvVar x   -> "$" ^ x
   | Hole       -> "?"
-  | App _      -> emit_app indent e
+  | App _      -> emit_app ~col indent e
   | Fn (ps, body) ->
-    "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " -> " ^ emit_expr indent body
-  | Let (p, e1, e2) -> emit_let indent p e1 e2
+    (* The body is written after `fn params -> `, so that is where it
+       starts -- an `if` in here was the other half of this bug. *)
+    let head = "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " -> " in
+    head ^ emit_expr ~col:(col + String.length head) indent body
+  | Let (p, e1, e2) -> emit_let ~col indent p e1 e2
   | LetRec (bindings, e2) -> emit_letrec indent bindings e2
-  | If (c, t, el) -> emit_if indent c t el
+  | If (c, t, el) -> emit_if ~col indent c t el
   | Match (scr, cases) -> emit_match indent scr cases
-  | BinOp (op, a, b) -> emit_binop indent op a b
+  | BinOp (op, a, b) -> emit_binop ~col indent op a b
   | UnOp (op, e) -> op ^ emit_atom indent e
-  | Tuple es -> emit_sequence indent "(" ")" (List.map (emit_expr indent) es)
-  | List es  -> emit_sequence indent "[" "]" (List.map (emit_expr indent) es)
+  | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr indent) es)
+  | List es  -> emit_sequence ~col indent "[" "]" (List.map (emit_expr indent) es)
   | ConstrApp (name, kvs) ->
     let field (k, v) =
       (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
     let oneline = name ^ "(" ^ String.concat ", " (List.map field kvs) ^ ")" in
-    if fits indent oneline then oneline
+    if fits col oneline then oneline
     else
       (* Too wide for a line: one field per line, as a record reads. *)
       let ind = String.make indent ' ' in
@@ -238,8 +254,10 @@ and emit_expr_inner indent e =
       name ^ "(\n" ^ inner
       ^ String.concat (",\n" ^ inner)
           (List.map (fun (k, v) ->
-             (match k with Some n -> n ^ " = " | None -> "")
-             ^ emit_expr (indent + 2) v) kvs)
+             let label = match k with Some n -> n ^ " = " | None -> "" in
+             (* The value is written after its field name, so that is where
+                it starts. *)
+             label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
       ^ "\n" ^ ind ^ ")"
   | Field (e, l) -> emit_field indent e l
   | Seq (a, b) ->
@@ -296,14 +314,15 @@ and emit_expr_inner indent e =
   | With (r, p, body) ->
     let head = Printf.sprintf "with %s as %s ->" (emit_expr indent r) (emit_pat p) in
     let one_line = head ^ " " ^ emit_expr indent body in
-    if fits indent one_line then one_line
+    if fits col one_line then one_line
     else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
     emit_sequence indent "[" "]"
       (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
 
-and emit_app indent e =
+and emit_app ?col indent e =
+  let col = match col with Some c -> c | None -> indent in
   let rec flatten e = match strip_located e with
     | App (f, x) -> let (h, args) = flatten f in (h, args @ [x])
     | other -> (other, [])
@@ -316,7 +335,7 @@ and emit_app indent e =
       List.mapi (fun i a -> emit_arg ~last:(i = n - 1) ind a) args
     in
     let oneline = emit_atom indent head ^ " " ^ String.concat " " (emit_args indent) in
-    if fits indent oneline then oneline
+    if fits col oneline then oneline
     else
       (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
          -> ...)` -- and reads best with its body on the next line, the way
@@ -374,9 +393,10 @@ and emit_field indent e l =
    brackets carry the break rather than the items being aligned under the
    opening one: alignment moves every line when the head changes, which
    makes a diff of a formatted file larger than the edit that caused it. *)
-and emit_sequence indent opening closing items =
+and emit_sequence ?col indent opening closing items =
+  let col = match col with Some c -> c | None -> indent in
   let oneline = opening ^ String.concat ", " items ^ closing in
-  if fits indent oneline then oneline
+  if fits col oneline then oneline
   else
     let inner = String.make (indent + 2) ' ' in
     opening ^ "\n" ^ inner
@@ -406,7 +426,8 @@ and emit_pipeline indent a b =
     let inner = String.make (indent + 2) ' ' in
     first ^ String.concat "" (List.map (fun s -> "\n" ^ inner ^ "|> " ^ s) rest)
 
-and emit_binop indent op a b =
+and emit_binop ?col indent op a b =
+  let col = match col with Some c -> c | None -> indent in
   let prec = bin_prec op in
   let assoc = if bin_right_assoc op then `Right else `Left in
   let side_str side e =
@@ -425,7 +446,7 @@ and emit_binop indent op a b =
     | _ -> emit_expr indent e
   in
   let oneline = Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b) in
-  if op = "|>" && not (fits indent oneline) then emit_pipeline indent a b
+  if op = "|>" && not (fits col oneline) then emit_pipeline indent a b
   else oneline
 
 (* If `body` is `Annot (te, real_body)` -- a return-type annotation on a
@@ -438,7 +459,8 @@ and split_clause_annot body =
   | Annot (te, real_body) -> (" : " ^ emit_type_expr te, real_body)
   | _ -> ("", body)
 
-and emit_let indent p e1 e2 =
+and emit_let ?col indent p e1 e2 =
+  let col = match col with Some c -> c | None -> indent in
   match e1 with
   | Fn (params, fbody) ->
     (* A *raw* (non-`Located`) `Fn` as a `let` RHS only ever comes from the
@@ -459,7 +481,7 @@ and emit_let indent p e1 e2 =
       let (annot_s, body) = split_clause_annot body in
       let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
       let oneline = head ^ " = " ^ emit_expr indent body in
-      if fits indent oneline then oneline
+      if fits col oneline then oneline
       else head ^ " =\n" ^ ind ^ "  " ^ emit_expr (indent + 2) body
     ) clauses in
     String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
@@ -474,7 +496,7 @@ and emit_let indent p e1 e2 =
     let bodys = emit_expr indent body and e2s = emit_expr indent e2 in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
-    if fits indent oneline then oneline
+    if fits col oneline then oneline
     else
       let ind = String.make indent ' ' in
       Printf.sprintf "%s = %s in\n%s%s" head bodys ind e2s
@@ -482,14 +504,14 @@ and emit_let indent p e1 e2 =
   let e1s = emit_expr indent e1 and e2s = emit_expr indent e2 in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
   let ind = String.make indent ' ' in
-  if fits indent oneline then oneline
+  if fits col oneline then oneline
   else
     (* Splitting after `in` is the first thing to try, but the binding alone
        may still be too long -- and the value was rendered as though it began
        at the margin, not after `let name = `. Given its own line it gets the
        room the measurement assumed, and wraps on its own terms. *)
     let bound = Printf.sprintf "let %s = %s in" (emit_pat p) e1s in
-    if fits indent bound then bound ^ "\n" ^ ind ^ e2s
+    if fits col bound then bound ^ "\n" ^ ind ^ e2s
     else
       Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
         (emit_pat p) ind (emit_expr (indent + 2) e1) ind ind e2s
@@ -509,19 +531,20 @@ and emit_letrec indent bindings e2 =
   in
   String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
 
-and emit_if indent c t el =
+and emit_if ?col indent c t el =
+  let col = match col with Some c -> c | None -> indent in
   let cs = emit_expr indent c and ts = emit_expr indent t in
   (* A branch that does nothing is written by leaving it out, so `else ()` --
      however it was written -- comes back as the one-armed form. *)
   match strip_located el with
   | Unit ->
     let oneline = Printf.sprintf "if %s then %s" cs ts in
-    if fits indent oneline then oneline
+    if fits col oneline then oneline
     else Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ') ts
   | _ ->
     let es = emit_expr indent el in
     let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
-    if fits indent oneline then oneline
+    if fits col oneline then oneline
     else
       let ind = String.make indent ' ' in
       Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
@@ -543,10 +566,10 @@ and case_body_tail e = match strip_located e with
   | LetRec (_, e2)     -> case_body_tail e2
   | e -> e
 
-and emit_case_body indent body =
+and emit_case_body ?col indent body =
   match case_body_tail body with
-  | Match _ | Handle _ -> "(" ^ emit_expr indent body ^ ")"
-  | _ -> emit_expr indent body
+  | Match _ | Handle _ -> "(" ^ emit_expr ?col indent body ^ ")"
+  | _ -> emit_expr ?col indent body
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's
    "with", so an unparenthesized nested Match there is fragile even when
@@ -563,7 +586,10 @@ and emit_match indent scr cases =
       | None -> ""
       | Some g -> " when " ^ emit_expr indent g
     in
-    ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " ^ emit_case_body indent body
+    (* The body starts after the pattern and the arrow, not at the case's
+       indent -- which is the whole of this bug. *)
+    let prefix = ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " in
+    prefix ^ emit_case_body ~col:(String.length prefix) indent body
   in
   "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)

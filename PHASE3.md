@@ -599,11 +599,15 @@ silently stops, look here first.
 
 **Known, deliberate, not blocking.**
 
-- The formatter measures width from the indent an expression would continue
-  at, not the column it starts at. Two lines in the corpus exceed the margin
-  because of it: an unbreakable string literal, and an `if` inside a lambda
-  inside a constructor field. Fixing the class means threading a start column
-  through every emitter.
+- ~~The formatter measures width from the indent an expression would continue
+  at, not the column it starts at.~~ **Fixed.** Width is now measured from
+  where the text actually begins, which the caller knows because the caller
+  wrote the prefix: a case body starts after `| Some x -> `, a lambda body
+  after `fn x -> `, a field's value after `name = `. The two numbers are the
+  same only when an expression begins a line, which is why one parameter
+  carried both for so long. Threading it cost an optional `?col` on the
+  emitters that decide widths, not a signature change everywhere -- and
+  reformatting the whole corpus moved four lines in two files.
 - `FS.lock` is deferred (staleness detection is a design, not a wrapper) and
   `FS.in_dir` is dropped (per-process `chdir` races under `Par`). Both are
   argued above.
@@ -617,10 +621,13 @@ silently stops, look here first.
 - `ROADMAP.md` still says "arm" where everything else now says "case". Left
   alone: it is the original review, and rewriting its prose would misreport
   what it said.
-- The formatter's margin note above said two lines in the corpus exceed it;
-  it is now nine. Most are string literals that cannot be broken, which is
-  the documented limitation. One is code -- `test/wand/test_derive.wand:168`,
-  135 columns -- and that one is the width bug itself.
+- Seven lines still pass the margin, and none of them is the bug above. Four
+  are string literals with nowhere to break. Three are one to three columns
+  over because a closing `)` is appended after a body that was measured
+  without it -- the same shape of mistake, from the other side: the caller
+  knows about the suffix and the callee does not. Left alone at three columns
+  and three lines; it wants a `reserve` alongside the start column, and that
+  is a second parameter for a smaller problem.
 
 ## Risks
 

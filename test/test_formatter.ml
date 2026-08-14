@@ -191,6 +191,29 @@ let test_map_keys_that_are_not_identifiers () =
     "let f x = match x with\n| [\"a-b\" = v] -> v\n| _ -> 0\nf [\"a-b\" = 7]"
     "7"
 
+(* Width is measured from the column the text starts at, which is not the
+   indent it wraps to: a case body is written after `| Some x -> ` and so
+   begins some way right of the case's own indent. Measuring from the indent
+   said everything fitted, and left lines half again over the margin. *)
+let longest_line s =
+  String.split_on_char '\n' s
+  |> List.fold_left (fun acc l -> max acc (String.length l)) 0
+
+let check_wraps label src =
+  let out = fmt src in
+  if longest_line out > 92 then
+    Alcotest.failf "%s: %d columns, should have wrapped:\n%s" label (longest_line out) out
+
+let test_width_is_measured_from_the_start_column () =
+  check_wraps "a case body after a wide pattern"
+    "let f x =\n  match x with\n  | Some averylongconstructorpattern ->      let y = someprettylongfunction averylongconstructorpattern in y\n  | None -> 0";
+  check_wraps "a lambda body inside a constructor field"
+    "let t label =\n  Testing(\n    ok = fn cond -> if cond then Pass label else Fail      \"${label}: the assertion did not hold at all\"\n  )";
+  (* And what it decides still runs the same. *)
+  ok_after_format "wrapping a case body preserves it"
+    "type Opt = None | Some Int\nlet plus n = n + 1\nlet f x =\n  match x with\n     | Some averylongconstructorpattern -> let y = plus averylongconstructorpattern in y\n     | None -> 0\nf (Some 41)"
+    "42"
+
 (* ── Comment preservation ────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -402,6 +425,7 @@ let () =
       Alcotest.test_case "constructor argument parens" `Quick test_constructor_argument_keeps_its_parens;
       Alcotest.test_case "one-armed if" `Quick test_one_armed_if;
       Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
+      Alcotest.test_case "width from the start column" `Quick test_width_is_measured_from_the_start_column;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;
