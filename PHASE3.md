@@ -1,6 +1,6 @@
 # Phase 3 — Day-to-day quality
 
-**Status:** P3.1, P3.2, P3.3 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
+**Status:** P3.1–P3.4 done · **Goal:** the two boundaries a script spends its life on — acquiring things that must be released, and reading data that arrives untyped — each get one construct, and neither can fail silently.
 
 ```
 with FS.temp_dir () as tmp ->
@@ -281,11 +281,41 @@ null~~ done, and it is D7 that shows it.
 
 ## P3.4 — Derivation
 
-Every single-constructor named-field type also binds `T.decoder`. The type definition becomes the single source of truth and nothing is hand-written to go stale.
+**Done.** `T.decoder` for every single-constructor named-field type, derived
+from the definition.
 
-Kept separate from P3.3 and after it on purpose: decoders are useful without derivation, so if this tranche is harder than it looks, the phase still ships something.
+**Resolved at the use, not bound at the definition.** `Pod.decoder` is a
+`Field` node the typechecker and evaluator each answer from the type's own
+definition. Nothing is added to any environment, so a type costs nothing
+until its decoder is named -- and, the part that mattered, the decoders of
+the types a field mentions are looked up **when that field is decoded**
+rather than when the decoder is built. That is the whole answer to the
+recursion risk this tranche was sized by: `type Node (label : String,
+children : List Node)` works, and building eagerly it could not have.
 
-*Accept:* a field added to the type appears in the decoder with no other edit; a type that is not single-constructor named-field gets no `decoder` binding and a clear error if one is named.
+**`Option` is the field that may be absent**, decided in P3.3 and used here
+unchanged: an `Option` field maps to `optional`, every other field to
+`field`. Nothing else distinguishes them, and the type already said which
+was which.
+
+**Two pre-existing bugs surfaced on the way**, both in the parser and both
+fixed:
+
+- a named field's type was parsed as an atom, so `children : List Node` did
+  not parse and needed parentheses -- exactly the shape derivation is for.
+  Named fields now take an application; positional ones stay atoms, since
+  `Pair Int Int` is two fields rather than one applied to the other. The
+  formatter follows, so the canonical form is the bare one.
+- a constructor with no payload took the *next line's* type name as its
+  payload, so `type Color = Red | Green` followed by a line starting with an
+  uppercase name silently became `Green <that>`. The newline check existed
+  for the second payload atom onward but not the first.
+
+*Accept:* ~~a field added to the type appears in the decoder with no other
+edit~~ done; ~~a type that is not single-constructor named-field gets no
+`decoder` binding and a clear error if one is named~~ done -- five shapes,
+each saying which one it is (`it has more than one constructor`, `its fields
+are positional`, `it is generic`, `field 'm' cannot be read: ...`).
 
 ## P3.5 — D7 and `else ()`
 
@@ -300,8 +330,9 @@ Then `else ()`, if there is room.
 ## Picking this up
 
 **Where things stand.** P3.1 and P3.2 are done and committed; the tree is
-clean, 565 wand tests and the OCaml suite pass, eight demos pass, every
-`.wand` file is a fixed point of `wand fmt`. Next is P3.4, derivation.
+clean, 582 wand tests and the OCaml suite pass, eight demos pass, every
+`.wand` file is a fixed point of `wand fmt`. Next is P3.5 -- D7, then
+`else ()` if there is room.
 
 **Run everything with a timeout.** A `Par` script that hangs will sit there:
 one cost six minutes of a session. `dune build @runtest` for the OCaml suite,
@@ -355,5 +386,5 @@ silently stops, look here first.
 1. ~~`with` releases on success, raise, abandonment and cancellation~~ **done**, and on `exit`, `kill` and Ctrl-C besides.
 2. ~~`Par` workers release their brackets on Ctrl-C~~ **done**, and D8 shows it.
 3. ~~One decoder replaces the four scrapes in `examples/repo-status.wand`~~ **done**, with the caveat recorded under P3.3.
-4. A single-constructor named-field type gets its decoder for free.
+4. ~~A single-constructor named-field type gets its decoder for free~~ **done**.
 5. D7 and D8 land as runnable, offline demos.

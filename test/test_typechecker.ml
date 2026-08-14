@@ -111,6 +111,36 @@ let test_tuple_pattern_types_its_scrutinee () =
     "let f p = match p with | (a, b) -> a in f (1, 2, 3)"
     "cannot unify"
 
+(* ── Derived decoders ────────────────────────────────────────────────────── *)
+
+(* A type that is not a single-constructor record has no shape a decoder
+   could read. Naming one has to say which of those it is, since "no field
+   'decoder'" would send the reader looking for a field. *)
+let test_underivable_types_say_why () =
+  err_contains "several constructors"
+    "type Shape = Circle Int | Rect Int Int\nlet d = Shape.decoder"
+    "type 'Shape' has no derived decoder: it has more than one constructor";
+  err_contains "positional fields"
+    "type Wrap = Wrap Int\nlet d = Wrap.decoder"
+    "its fields are positional";
+  err_contains "generic"
+    "type Box 'a = Box(v: 'a)\nlet d = Box.decoder"
+    "it is generic";
+  err_contains "a field with no decoder"
+    "type M = M(m: (Map Int))\nlet d = M.decoder"
+    "field 'm' cannot be read";
+  err_contains "an enum"
+    "type Color = Red | Green\nlet d = Color.decoder"
+    "more than one constructor"
+
+let test_derived_decoder_has_the_type () =
+  ok "a derived decoder is a Decoder of its type"
+    {|type Pod (name: String, restarts: Int)
+let d = Pod.decoder
+match Pod.decoder with
+| _ -> "ok"|}
+    "ok"
+
 (* ── Multi-equation definitions ──────────────────────────────────────────── *)
 
 (* Equations are tried in source order, so an equation an earlier one already
@@ -645,5 +675,9 @@ let () =
       Alcotest.test_case "named forms survive"              `Quick test_named_forms_survive;
       Alcotest.test_case "positional ctors unaffected"      `Quick test_positional_constructors_unaffected;
       Alcotest.test_case "a tuple pattern types its value"  `Quick test_tuple_pattern_types_its_scrutinee;
+    ];
+    "derived decoders", [
+      Alcotest.test_case "underivable types say why" `Quick test_underivable_types_say_why;
+      Alcotest.test_case "derived decoder types"     `Quick test_derived_decoder_has_the_type;
     ];
   ]

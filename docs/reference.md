@@ -1020,6 +1020,54 @@ before saying what was wrong with it:
 [2].restarts: expected Int, got "many"
 ```
 
+### A type is its own decoder
+
+A type with one constructor and named fields already says what a decoder for
+it would do, so it has one:
+
+```
+type Pod (name : String, restarts : Int, timeout : Duration)
+
+JSON.decode Pod.decoder (JSON.parse! out)   -- Result String Pod
+```
+
+`Pod.decoder : Decoder Pod` reads each field by its own name. Add a field to
+the type and it is read; there is no second copy to keep in step.
+
+A field whose type is an `Option` may be absent, and every other field may
+not — which is what the type already says:
+
+```
+type Job (name : String, owner : Option String)
+
+{"name": "build"}                  -- Ok (Job (name = "build", owner = None))
+{"name": "build", "owner": 3}      -- Error .owner: expected String, got Int
+```
+
+Fields may hold lists, other derivable types, and the type being defined:
+
+```
+type Node (label : String, children : List Node)
+```
+
+Derivation covers the flat record whose keys are its field names. A document
+with nested keys, different names, or values needing validation is what a
+hand-written decoder is for — deriving removes the boilerplate ones, not the
+interesting ones, and the two mix freely:
+
+```
+Decode.field "items" (Decode.list Pod.decoder)
+```
+
+A type that is not a single-constructor record has no decoder, and naming one
+says which:
+
+```
+type Shape = Circle Int | Rect Int Int
+Shape.decoder
+-- type 'Shape' has no derived decoder: it has more than one constructor
+```
+
 ### Decoding is pure
 
 The functions a decoder is built from carry the empty effect row, so a
@@ -1117,6 +1165,10 @@ type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 
 `type Point (x : Int, y : Int)` is shorthand for
 `type Point = Point (x : Int, y : Int)`.
+
+A named field's type may be an application — `children : List Node`,
+`owner : Option String` — written without parentheses. A positional field may
+not: `Pair Int Int` is two fields, not one type applied to another.
 
 ```
 type Point  (x : Int, y : Int)

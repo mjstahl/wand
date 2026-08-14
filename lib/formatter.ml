@@ -555,12 +555,19 @@ let emit_one_equation head_kw pats body =
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
 
+(* A named field's type may be an application -- `children: List Node` -- and
+   is written without parentheses, since the comma or the closing paren ends
+   it. A positional field may not: `Pair Int Int` is two fields, not one
+   applied to the other, so those stay atoms. An arrow needs its parentheses
+   either way, and `emit_type_app_expr` still adds them. *)
+let emit_named_field_type t = emit_type_app_expr t
+
 let emit_ctor_fields fields =
   if fields = [] then ""
   else match fields with
     | (Some _, _) :: _ ->
       "(" ^ String.concat ", " (List.map (fun (n, t) ->
-        Option.get n ^ ": " ^ emit_type_atom t) fields) ^ ")"
+        Option.get n ^ ": " ^ emit_named_field_type t) fields) ^ ")"
     | _ ->
       " " ^ String.concat " " (List.map (fun (_, t) -> emit_type_atom t) fields)
 
@@ -574,7 +581,7 @@ let emit_ctor_fields_wrapped name fields =
     name ^ "(\n"
     ^ String.concat ",\n"
         (List.map (fun (n, t) ->
-           "  " ^ Option.get n ^ ": " ^ emit_type_atom t) fields)
+           "  " ^ Option.get n ^ ": " ^ emit_named_field_type t) fields)
     ^ "\n)"
   | _ -> name ^ emit_ctor_fields fields
 

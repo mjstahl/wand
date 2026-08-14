@@ -486,6 +486,59 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
       (ctor.name, generalize [] t)
     ) ctors
 
+(* ── Derived decoders ─────────────────────────────────────────────────────
+   A single-constructor type whose fields are named already states what a
+   decoder for it would do, so `T.decoder` is derived from the definition
+   rather than written out beside it. Everything checkable about that is
+   checked here: what is not derivable says why, at the point where someone
+   asked for it.
+
+   A type may mention itself, so the walk carries the types it is already
+   inside. *)
+let rec derivable_field_type tenv seen (te : type_expr) : (unit, string) result =
+  match te with
+  | TEName ("Int" | "Float" | "String" | "Bool" | "Path" | "Glob" | "Duration"
+           | "Url" | "Size" | "Version" | "Date" | "Time" | "DateTime"
+           | "IPv4" | "CIDR" | "Port") -> Ok ()
+  | TEName tname ->
+    if List.mem tname seen then Ok ()   (* recursive: read when it is reached *)
+    else
+      (match List.assoc_opt tname tenv with
+       | Some tdef -> derivable_typedef tenv (tname :: seen) tdef
+       | None -> Error (Printf.sprintf "no decoder is known for type '%s'" tname))
+  | TEApp (TEName "List", inner)   -> derivable_field_type tenv seen inner
+  | TEApp (TEName "Option", inner) -> derivable_field_type tenv seen inner
+  | TEVar v ->
+    Error (Printf.sprintf "a decoder cannot be derived for the type variable '%s" v)
+  | TETuple _ ->
+    Error "a tuple has no field names for a document to be read by"
+  | TEFun _ -> Error "no document contains a function"
+  | TEApp (TEName "Map", _) ->
+    Error "a Map's keys are a runtime question -- read one with a hand-written decoder"
+  | TEApp _ -> Error "no decoder is known for that type"
+
+and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
+  match tdef with
+  | Variants (_, _ :: _, _) ->
+    Error "it is generic, and a decoder cannot be derived for a type variable"
+  | Variants (_, [], []) -> Error "it has no constructor"
+  | Variants (_, [], _ :: _ :: _) -> Error "it has more than one constructor"
+  | Variants (_, [], [ctor]) ->
+    if ctor.fields = [] then Error "it has no fields"
+    else if List.exists (fun (n, _) -> n = None) ctor.fields then
+      Error "its fields are positional, and a document is read by field name"
+    else
+      List.fold_left (fun acc (fname, te) ->
+        match acc with
+        | Error _ -> acc
+        | Ok () ->
+          (match derivable_field_type tenv seen te with
+           | Ok () -> Ok ()
+           | Error why ->
+             Error (Printf.sprintf "field '%s' cannot be read: %s"
+               (match fname with Some n -> n | None -> "?") why))
+      ) (Ok ()) ctor.fields
+
 let find_ctor_in_tenv tenv name =
   List.find_map (fun (tname, tdef) ->
     match tdef with
@@ -1075,7 +1128,21 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | Constr ns_name | Var ns_name -> lookup_ns ns_name
       | _ -> None
     in
-    (match ns_result with
+    (* `Pod.decoder`, when `Pod` is a type rather than a module. Checked after
+       the namespace lookup, so a module of the same name keeps its member. *)
+    let derived = match ns_result, unwrap_loc e, label with
+      | None, Constr tname, "decoder" ->
+        (match List.assoc_opt tname tenv with
+         | Some tdef ->
+           (match derivable_typedef tenv [tname] tdef with
+            | Ok () -> Some (TDecoder (TName tname))
+            | Error why ->
+              raise (TypeError (Printf.sprintf
+                "type '%s' has no derived decoder: %s" tname why)))
+         | None -> None)
+      | _ -> None
+    in
+    (match (match derived with Some _ -> derived | None -> ns_result) with
      | Some t -> t
      | None ->
        (match repr (infer tenv env e) with

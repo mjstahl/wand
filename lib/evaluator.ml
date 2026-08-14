@@ -8,6 +8,15 @@ let () =
   Hashtbl.add constr_fields "ShellResult"
     [Some "stdout"; Some "stderr"; Some "code"]
 
+(* Type definitions, kept for derivation.
+   A decoder derived from a type has to find the decoders of the types its
+   fields mention, and a type may mention itself. Those are looked up when a
+   field is decoded rather than when the decoder is built, which is what lets
+   `type Node (label : String, children : List Node)` have a decoder at all
+   -- built eagerly, deriving one would not terminate. *)
+let derivable : (string, string * (string option * type_expr) list) Hashtbl.t =
+  Hashtbl.create 16
+
 let find_field_index names label =
   let rec go i = function
     | [] -> None
@@ -277,6 +286,12 @@ let rec try_match (p : pat) v (env : env) : env option =
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
 
+(* Deriving a decoder needs the decoding machinery, which is defined further
+   down the file; `eval` only has to be able to reach it. *)
+let derive_decoder :
+  (string -> Yojson.Basic.t -> string list -> (value, string) result) ref =
+  ref (fun _ _ _ -> Error "decoder derivation is not wired up")
+
 let rec eval (env : env) (e : expr) : value =
   check_interrupt ();
   match e with
@@ -379,6 +394,14 @@ let rec eval (env : env) (e : expr) : value =
   | MapLit kvs ->
     VMap (List.map (fun (k, e) -> (k, eval env e)) kvs)
   | Field (e, label) ->
+    (* A type's derived decoder: `Pod.decoder`. Resolved from the type's own
+       definition rather than bound as a value, so it costs nothing until it
+       is named and a recursive type can still have one. *)
+    let rec bare x = match x with Located (_, y) -> bare y | y -> y in
+    (match bare e, label with
+     | Constr tname, "decoder" when Hashtbl.mem derivable tname ->
+       VDecoder (fun j path -> !derive_decoder tname j path)
+     | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
     (match eval env e with
@@ -401,7 +424,7 @@ let rec eval (env : env) (e : expr) : value =
                "constructor '%s' has no field named '%s'" name label)))
         | None -> raise (EvalError (Printf.sprintf
             "constructor '%s' has no named fields" name)))
-     | _ -> raise (EvalError "field access on non-record"))
+     | _ -> raise (EvalError "field access on non-record")))
   | Seq (a, b) ->
     ignore (eval env a); eval env b
   | ImportExpr _ ->
@@ -2131,6 +2154,117 @@ let map_builtins : env = [
 
 (* ── Decoder builtins ─────────────────────────────────────────────────────── *)
 
+(* ── Derived decoders ─────────────────────────────────────────────────────
+   A single-constructor type whose fields are named already says everything a
+   decoder needs: the field names, and what each one holds. `Pod.decoder`
+   reads exactly that, so adding a field to the type adds it to the decoder
+   and there is no second copy to go stale.
+
+   Only the flat record is covered. A document whose keys are nested, spelled
+   differently, or need validating is what a hand-written decoder is for --
+   derivation removes the boilerplate ones, not the interesting ones. *)
+
+(* Why a type has no derived decoder, in a sentence that says what to do. *)
+exception Not_derivable of string
+
+let rec decoder_of_type_expr (te : type_expr) : (Yojson.Basic.t -> string list -> (value, string) result) =
+  let named name =
+    match name with
+    | "Int"      -> scalar_decoder "decode_int"
+    | "Float"    -> scalar_decoder "decode_float"
+    | "String"   -> scalar_decoder "decode_string"
+    | "Bool"     -> scalar_decoder "decode_bool"
+    | "Path"     -> scalar_decoder "decode_path"
+    | "Duration" -> scalar_decoder "decode_duration"
+    | "Url"      -> scalar_decoder "decode_url"
+    | "Size"     -> scalar_decoder "decode_size"
+    | "Version"  -> scalar_decoder "decode_version"
+    | "Date"     -> scalar_decoder "decode_date"
+    | "Time"     -> scalar_decoder "decode_time"
+    | "DateTime" -> scalar_decoder "decode_datetime"
+    | "IPv4"     -> scalar_decoder "decode_ipv4"
+    | "CIDR"     -> scalar_decoder "decode_cidr"
+    | "Port"     -> scalar_decoder "decode_port"
+    | tname ->
+      (* Another named type: looked up when a field is decoded, so a type may
+         mention itself. *)
+      (fun j path -> (derived_decoder tname) j path)
+  in
+  match te with
+  | TEName name -> named name
+  | TEApp (TEName "List", inner) ->
+    let elem = decoder_of_type_expr inner in
+    (fun j path ->
+      match j with
+      | `List items ->
+        let rec go i acc = function
+          | [] -> Ok (VList (List.rev acc))
+          | x :: rest ->
+            (match elem x (Printf.sprintf "[%d]" i :: path) with
+             | Ok v      -> go (i + 1) (v :: acc) rest
+             | Error msg -> Error msg)
+        in
+        go 0 [] items
+      | _ -> expected "a list" path j)
+  | TEVar v ->
+    raise (Not_derivable (Printf.sprintf
+      "it is generic: a decoder cannot be derived for the type variable '%s" v))
+  | TETuple _ ->
+    raise (Not_derivable
+      "a field holds a tuple, which has no field names to read it by")
+  | TEFun _ ->
+    raise (Not_derivable "a field holds a function, which no document contains")
+  | TEApp (TEName "Map", _) ->
+    raise (Not_derivable
+      "a field holds a Map, whose keys are a runtime question -- read it with a hand-written decoder")
+  | TEApp _ ->
+    raise (Not_derivable "a field holds a type no decoder is known for")
+
+(* A builtin decoder, by the name it is registered under. *)
+and scalar_decoder name j path =
+  match List.assoc_opt name !decode_registry with
+  | Some (VDecoder d) -> d j path
+  | _ -> raise (EvalError ("derive: no builtin decoder " ^ name))
+
+and derived_decoder tname j path =
+  match Hashtbl.find_opt derivable tname with
+  | None ->
+    Error (Printf.sprintf "no decoder for type '%s'" tname)
+  | Some (ctor, fields) ->
+    let rec go acc = function
+      | [] -> Ok (VConstr (ctor, List.rev acc))
+      | (fname, te) :: rest ->
+        let key = match fname with Some n -> n | None -> "" in
+        (match read_field key te j path with
+         | Ok v      -> go (v :: acc) rest
+         | Error msg -> Error msg)
+    in
+    (match j with
+     | `Assoc _ -> go [] fields
+     | _ -> expected "an object" path j)
+
+(* One field of a derived decoder. A field whose type is an `Option` may be
+   absent -- that is what the type says -- and every other field may not. *)
+and read_field key te j path =
+  let kvs = match j with `Assoc kvs -> kvs | _ -> [] in
+  match te with
+  | TEApp (TEName "Option", inner) ->
+    let d = decoder_of_type_expr inner in
+    (match List.assoc_opt key kvs with
+     | None | Some `Null -> Ok (VConstr ("None", []))
+     | Some v ->
+       (match d v (("." ^ key) :: path) with
+        | Ok x      -> Ok (VConstr ("Some", [x]))
+        | Error msg -> Error msg))
+  | _ ->
+    let d = decoder_of_type_expr te in
+    let here = ("." ^ key) :: path in
+    (match List.assoc_opt key kvs with
+     | Some v -> d v here
+     | None   -> decode_error here "no such field")
+
+and decode_registry : env ref = ref []
+
 let as_decoder who = function
   | VDecoder d -> d
   | _ -> raise (EvalError (who ^ ": expected a Decoder"))
@@ -2368,6 +2502,11 @@ let decode_builtins : env = [
            decode_each inner (List.map as_object rows))
       | _ -> raise (EvalError "csv_rows: expected String"))));
 ]
+
+(* Derivation reaches the builtin decoders by name, so it needs them after
+   they are defined rather than while they are being defined. *)
+let () = decode_registry := decode_builtins
+let () = derive_decoder := derived_decoder
 
 let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins
 

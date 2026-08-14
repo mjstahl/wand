@@ -50,7 +50,7 @@
        wand/test_contracts.wand wand/test_process.wand wand/test_strings.wand wand/test_effects.wand
        wand/test_list_patterns.wand wand/test_io.wand wand/test_env.wand
        wand/test_hermetic.wand wand/test_par.wand wand/test_resource.wand
-       wand/test_decode.wand)
+       wand/test_decode.wand wand/test_derive.wand)
  (libraries wand alcotest))
 
 (test

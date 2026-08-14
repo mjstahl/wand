@@ -608,7 +608,16 @@ let run_item env item =
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
-  | Ast.TLType (Ast.Variants (_, _, ctors)) ->
+  | Ast.TLType (Ast.Variants (tname, params, ctors)) ->
+    (* A single-constructor type with named fields can have its decoder
+       derived, so the definition is kept where the derivation can find it.
+       Anything else -- several constructors, positional fields, a generic --
+       has no shape a decoder could read, and is not recorded. *)
+    (match params, ctors with
+     | [], [ctor] when ctor.Ast.fields <> []
+                       && List.for_all (fun (n, _) -> n <> None) ctor.Ast.fields ->
+       Hashtbl.replace Evaluator.derivable tname (ctor.Ast.name, ctor.Ast.fields)
+     | _ -> Hashtbl.remove Evaluator.derivable tname);
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
       Hashtbl.replace Evaluator.constr_fields ctor.Ast.name field_names;

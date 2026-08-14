@@ -990,7 +990,11 @@ let parse_type_def s =
        LParen + other -> single field needing grouping/tupling: (List Int),
          (Int, Int). *)
     match peek s with
-    | Token.Upper _ | Token.TypeVar _ ->
+    (* The newline check belongs on the first payload as much as the rest: a
+       constructor without one would otherwise take the next line's type name
+       as its payload, so `type Color = Red | Green` followed by a line
+       starting with an uppercase name silently became `Green <that>`. *)
+    | (Token.Upper _ | Token.TypeVar _) when not (newline_breaks_expr s) ->
       let fields = ref [(None, parse_type_atom s)] in
       while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
         fields := !fields @ [(None, parse_type_atom s)]
@@ -1004,7 +1008,12 @@ let parse_type_def s =
          let parse_named () =
            let fname = expect_ident s in
            expect s Token.Colon;
-           let ftype = parse_type_atom s in
+           (* An applied type -- `List String`, `Option Node` -- reads as one
+              field type. The comma and the closing paren are not type atoms,
+              so the application stops where the field does. Positional fields
+              stay atoms: `Pair Int Int` is two of them, not one applied to
+              the other. *)
+           let ftype = parse_type_app s in
            (Some fname, ftype)
          in
          let first = parse_named () in
