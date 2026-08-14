@@ -431,7 +431,17 @@ D1–D3 and D9 cost nothing but writing and belong in the repo now — they are 
 
 **Phase 3 — Day-to-day quality:** decoders + derivation (§4.5); brackets (§4.6); `else ()` sugar; **demo D7** (§6).
 
-**Phase 0.5 — Interpreter performance (pulled out of Phase 4; depends on nothing):** the throughput drags D9 measured — assoc-list environments making variable lookup O(scope size), and process output read one byte at a time — plus the cross-invocation compile cache (`~/.cache/wand`, content-hash keyed). Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
+**Phase 0.5 — Interpreter performance (pulled out of Phase 4; depends on nothing): done.** All three items, though not as written.
+
+*Process output read one byte at a time* was already fixed, during the `Par` work: output is drained in 64K blocks.
+
+*Assoc-list environments* were the real drag, and the diagnosis needed sharpening. Lookup did not cost the size of the scope; it cost the *distance* to the binding, which made a file's own length slow its own lookups down. Environments now carry an index over the part that is settled — the couple of hundred builtins every script sits in front of, and the file's own definitions every 32 items — consulted as a hint on the way past, so a miss keeps walking and nothing about appending, slicing or module composition had to change. Average lookup went from 102.5 steps to 3.6; a file with 800 definitions between a helper and its use went from 2496ms to 349ms, and the curve is flat instead of linear. D9's log-cruncher went from 97ms to 43ms — which puts wand level with the bash pipeline it was 6x behind, and ahead of Python rather than behind it.
+
+*The compile cache* is content-hash keyed, in `~/.cache/wand`, storing what inference worked out. The key covers the module's source and, transitively, its imports' keys: an entry inferred against a file that has since changed is unreachable rather than stale, so nothing has to notice a change. Only the module's own share is stored — inference returns `own @ constructors @ stdlib @ imports`, and writing the last two would put a copy of the standard library in every entry. Six stdlib imports: 16.2ms to 12.1ms. A 200-definition user module: 16.5ms to 10.9ms.
+
+Two things that measurement settled rather than assumption. The frontend is 97% of loading a module (infer 5.7ms, parse 1.0, lex 0.3, read 0.04, *evaluate 0.17*), which is why the cache stores types and syntax and never an evaluation environment — those hold closures, which `Marshal` cannot write. And a scheme read back has to be renumbered: `instantiate` tells unification variables apart by integer id, and two entries could each hold a variable numbered 7.
+
+Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
 
 **Phase 4 — Reach:** ~~`Par` (§4.7), its cancellation, and **demo D8**~~ **done**, the last two in Phase 3 once §4.6 brackets gave them something to release; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
 
