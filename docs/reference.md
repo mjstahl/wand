@@ -1664,7 +1664,9 @@ test "some" (fn t -> t.ok (Option.some? (Some 1)))
 test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
 ```
 
-- `t.eq expected actual` — pass if `expected == actual`.
+- `t.eq actual expected` — pass if they are equal. The computed value goes
+  first, as in `t.eq (2 + 2) 4`, and a failure reports it as what was *got*:
+  `expected 4, got 5`.
 - `t.ok cond` — pass if `cond` is `true`.
 - `t.raises thunk` — pass if calling `thunk ()` raises. `thunk` must be a
   zero-argument function (`fn () -> ...`), not the expression directly —

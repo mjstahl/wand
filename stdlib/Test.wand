@@ -15,7 +15,11 @@ type Testing 'a 'b = Testing(
 )
 
 (** Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/
-    `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label. *)
+    `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label.
+    
+    `eq` takes the computed value first and what it should be second --
+    `t.eq (2 + 2) 4` -- so a failure reads `expected 4, got 5` with `got`
+    naming the code under test. *)
 let test label f =
   let t =
     Testing(
