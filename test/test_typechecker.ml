@@ -45,6 +45,51 @@ let p = P(x = 1, y = 2) in p.x|}
 let p = P(x = 1, y = 2) in p.z|}
     "has no field 'z'"
 
+(* A value of a multi-constructor type is one of its constructors, and which
+   one is not known at the access. A field only some constructors carry used
+   to typecheck and fail when the value turned out to be one of the others. *)
+
+let test_field_must_be_on_every_constructor () =
+  ok "a field every constructor carries reads fine"
+    {|type T = A(x: Int, u: Int) | B(x: Int, w: Int)
+(B(x = 7, w = 9)).x|}
+    "7";
+  err_contains "a field only some constructors carry"
+    {|type T = A(x: Int) | B(y: Int)
+let v = B(y = 2) in v.x|}
+    "is not on every constructor";
+  err_contains "the same field at two types"
+    {|type T = A(x: Int) | B(x: String)
+let v = A(x = 1) in v.x|}
+    "depends on the constructor";
+  err_contains "a field no constructor has"
+    {|type T = A(x: Int) | B(x: Int)
+let v = A(x = 1) in v.zz|}
+    "has no field 'zz'"
+
+(* A named constructor's arity is as known as a positional one's, so leaving
+   a field out is a type error rather than something the evaluator finds. *)
+
+let test_construction_needs_every_field () =
+  err_contains "one field left out"
+    {|type M = M(a: Int, b: Int)
+M(a = 1)|}
+    "is missing field 'b'";
+  err_contains "several left out"
+    {|type M = M(a: Int, b: Int, c: Int)
+M(b = 1)|}
+    "is missing fields 'a', 'c'";
+  ok "every field given, in any order"
+    {|type M = M(a: Int, b: Int)
+let m = M(b = 2, a = 1) in m.a|}
+    "1";
+  (* Patterns still bind a subset -- naming one field is how you read it. *)
+  ok "a pattern may name fewer fields than the type has"
+    {|type M = M(a: Int, b: Int)
+match M(a = 1, b = 2) with
+| M(a = n) -> n|}
+    "1"
+
 let test_map_patterns_still_work () =
   ok "map pattern binds a key"
     {|let m = [x = 1, y = 2] in
@@ -759,6 +804,8 @@ let () =
     "field access", [
       Alcotest.test_case "map dot access rejected" `Quick test_map_dot_access_rejected;
       Alcotest.test_case "named fields checked"    `Quick test_named_field_access_checked;
+      Alcotest.test_case "field on every ctor"     `Quick test_field_must_be_on_every_constructor;
+      Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;
       Alcotest.test_case "map patterns unaffected" `Quick test_map_patterns_still_work;
     ];
     "multi-equation", [

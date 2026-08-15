@@ -1382,9 +1382,11 @@ type Wrap = Wrap (List Int)     -- one field, type List Int
 type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 ```
 
-### Single-constructor shorthand (named fields)
+### Named fields
 
-`type Point (x : Int, y : Int)` is shorthand for
+Fields may be named instead of positional, and are then given and read by
+name rather than by position. For a type with one constructor there is a
+shorthand: `type Point (x : Int, y : Int)` means
 `type Point = Point (x : Int, y : Int)`.
 
 A named field's type may be an application — `children : List Node`,
@@ -1404,14 +1406,20 @@ c.radius   -- 5
 
 #### Construction
 
-Fields are named, in any order:
+Fields are named, in any order, and every one has to be given:
 
 ```
 Point (x = 1, y = 2)
 Point (y = 2, x = 1)    -- same thing
+
+Point (x = 1)
+-- type error: constructor 'Point' is missing field 'y'
 ```
 
 #### Pattern matching on named fields
+
+A pattern may name fewer fields than the type has — naming one is how you
+read it:
 
 ```
 let magnitude p =
@@ -1421,7 +1429,35 @@ let magnitude p =
 let area c =
   let Circle (radius = r) = c in
   r * r
+
+let just_x p = match p with | Point (x = a) -> a
 ```
+
+#### Named fields in a type with several constructors
+
+Named fields are not limited to the single-constructor form:
+
+```
+type Node = Leaf (value : Int) | Branch (left : Node, right : Node)
+```
+
+Constructing and matching work as above. Dot access is narrower: a value of
+`Node` is a `Leaf` or a `Branch`, and which one is not known at the access,
+so a field is readable only when *every* constructor carries it, at the same
+type.
+
+```
+type T = A (x : Int, u : Int) | B (x : Int, w : Int)
+(B (x = 7, w = 9)).x     -- 7, every constructor has x
+
+type U = A (x : Int) | B (y : Int)
+v.x
+-- type error: field 'x' is not on every constructor of 'U': B does not
+--   have it, so which constructor a value holds decides whether 'x' is
+--   there. Match on the constructor instead
+```
+
+Match on the constructor to read a field only some of them have.
 
 ---
 

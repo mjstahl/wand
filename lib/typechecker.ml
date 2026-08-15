@@ -1302,6 +1302,24 @@ let rec infer tenv (env : env) (e : expr) : typ =
               in
               unify (infer tenv env e) expected)
        ) fields;
+       (* The loop above checks that each field given is declared. The other
+          direction was checked only when the value was built, so a
+          construction missing a field typechecked and failed at runtime --
+          a positional constructor's arity has always been static, and a
+          named one's is no less known. *)
+       let given = List.filter_map fst fields in
+       let missing =
+         List.filter_map (fun (dn, _) ->
+           match dn with
+           | Some n when not (List.mem n given) -> Some n
+           | _ -> None) ctor.fields
+       in
+       if missing <> [] then
+         raise (TypeError (Printf.sprintf
+           "constructor '%s' is missing field%s %s"
+           name
+           (if List.length missing = 1 then "" else "s")
+           (String.concat ", " (List.map (fun n -> "'" ^ n ^ "'") missing))));
        result_t)
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
@@ -1372,16 +1390,49 @@ let rec infer tenv (env : env) (e : expr) : typ =
              let bound =
                try List.combine params args with Invalid_argument _ -> []
              in
-             let all_named = List.concat_map (fun c ->
+             let named c =
                List.filter_map (fun (fname, te) ->
                  match fname with Some n -> Some (n, te) | None -> None)
-               c.fields) ctors in
-             (match List.assoc_opt label all_named with
-              | Some te -> type_of_te_bound bound te
-              | None    ->
-                let names = List.map fst all_named in
+               c.fields
+             in
+             (* A value of this type is one of its constructors, and which
+                one is not known here -- so a field is only readable if every
+                constructor carries it. Accepting a field that only some have
+                let `v.x` typecheck on a `B` that has no `x` and fail at
+                runtime instead. *)
+             let has, lacks =
+               List.partition (fun c -> List.mem_assoc label (named c)) ctors
+             in
+             (match has, lacks with
+              | [], _ ->
+                let names =
+                  List.concat_map (fun c -> List.map fst (named c)) ctors in
                 raise (TypeError (Printf.sprintf "type '%s' has no field '%s'%s"
-                  tname label (Util.hint label names))))
+                  tname label (Util.hint label names)))
+              | _, (_ :: _) ->
+                raise (TypeError (Printf.sprintf
+                  "field '%s' is not on every constructor of '%s': %s %s it, \
+                   so which constructor a value holds decides whether '%s' \
+                   is there. Match on the constructor instead"
+                  label tname
+                  (String.concat ", " (List.map (fun c -> c.name) lacks))
+                  (if List.length lacks = 1 then "does not have" else "do not have")
+                  label))
+              | c0 :: rest, [] ->
+                let field_t c = type_of_te_bound bound (List.assoc label (named c)) in
+                let t0 = field_t c0 in
+                (* Every constructor's `x` has to be one type, or the type of
+                   `v.x` would depend on which constructor v holds. *)
+                List.iter (fun c ->
+                  let t = field_t c in
+                  try unify t0 t with TypeError _ ->
+                    raise (TypeError (Printf.sprintf
+                      "field '%s' of '%s' is %s in %s but %s in %s, so its \
+                       type depends on the constructor. Match on the \
+                       constructor instead"
+                      label tname (string_of_typ t0) c0.name
+                      (string_of_typ t) c.name))) rest;
+                t0)
            | _ -> raise (TypeError (Printf.sprintf
                "cannot access field '%s' on type '%s'" label tname)))
         (* Dot access is checked field access: `p.x` on a named type is
