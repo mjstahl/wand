@@ -20,7 +20,8 @@ consequence, which is why they go first.
 | A script cannot be handed over | There is no way to give someone a script that runs without installing wand first. This is the moat that killed every previous bash replacement. |
 | No release artifacts | CI builds and tests; it publishes nothing. There is no way to install wand except by building it. |
 | Size | The binary is **3.8 MB**, not the ~10 MB the roadmap assumed. The stdlib is 19 files and **34 KB** — under 1% of it. Nothing here needs shrinking. |
-| Startup | `wand e '1 + 2'` is 2.05× `bash -c ':'`, inside the 2–3× budget. Embedding should improve it slightly (no directory walk, no file reads); it must not make it worse. |
+| Startup | `wand e '1 + 2'` takes **~9 ms** against bash's ~5 ms — 1.75–1.89× over three runs, inside the 2–3× budget. Quote the milliseconds, not the ratio: most of bash's 5 ms is process creation and linking rather than bash, so the number that means anything is the **~4 ms difference**, which is wand's own startup. A single noisier run gave 10.7 ms and 2.05×, which is how much these move. |
+| What that 4 ms is | Building the builtin environment, then walking up from the working directory for `stdlib/` and reading whatever modules the input mentions. One stdlib module costs ~2 ms today (`wand e 'List.length'` is ~11 ms against `wand e '1 + 2'`'s ~9). That is the part embedding can take. |
 
 ## Decisions
 
@@ -38,7 +39,7 @@ consequence, which is why they go first.
 
 1. Each tranche leaves the tree green: build, both suites, nine demos, `wand fmt` a fixed point.
 2. The binary must keep working from inside the source tree at every step. Development is done with this binary; if it breaks, everything stops.
-3. Anything that changes startup gets `bench/startup.sh` run before and after, in the same commit message.
+3. Anything that changes startup gets `bench/startup.sh` run before and after, in the same commit message — several runs, quoting milliseconds. The ratio to bash moves by 15% between runs on an idle machine, so a single reading cannot tell an improvement from noise.
 
 ## P4.1 — Stdlib embedding
 
@@ -53,7 +54,9 @@ and loses an hour.
 *Accept:* `cd /tmp && wand e 'List.length [1,2]'` prints `2`; a directory
 named `stdlib/` next to the working directory changes nothing; `WAND_STDLIB`
 still replaces the library wholesale; `find_stdlib_dir` no longer exists;
-startup no worse than 2.05×.
+`wand e '1 + 2'` no slower than ~9 ms and `wand e 'List.length'` faster than
+its ~11 ms, both read from `bench/startup.sh` over several runs rather than
+one.
 
 ## P4.2 — `wand compile`
 
