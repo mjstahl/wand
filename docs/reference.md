@@ -1859,12 +1859,12 @@ Fork-join parallelism, and nothing else:
 
 ```
 Par.map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
-Par.each : Int -> ('a -> Unit ! 'e) -> List 'a -> Unit ! 'e
+Par.each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
 ```
 
-The first argument is the most workers to run at once — stated, because how
-much a script may do at the same time is a decision about the machine it runs
-on. Results come back in the list's order, not the order they finished, and
+`each` drops what its function returns, as `List.each` does. The first
+argument is the most workers to run at once — stated, because how much a
+script may do at the same time is a decision about the machine it runs on. Results come back in the list's order, not the order they finished, and
 an element whose work raises comes back as an `Error` in its place rather
 than failing the others.
 
