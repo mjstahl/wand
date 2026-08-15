@@ -764,6 +764,7 @@ and match_ s =
   (* match already consumed *)
   let scrutinee = expr_ 0 s in
   expect s Token.With;
+  let arms_loc = loc_prefix s in
   let cases = ref [] in
   let continue_ = ref true in
   while !continue_ do
@@ -784,6 +785,13 @@ and match_ s =
     end else
       continue_ := false
   done;
+  (* A match with no arms has no value for any input, so nothing it could
+     mean is worth inferring. Left alone it typechecked as 'a -> 'b and
+     bound a name whose body had silently gone missing. *)
+  if !cases = [] then
+    raise (ParseError (Format.asprintf
+      "%smatch has no cases; each begins with '|', as in `| Some x -> x`"
+      arms_loc));
   Match (scrutinee, !cases)
 
 and contract_expr_ s =
