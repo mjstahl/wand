@@ -1,3 +1,15 @@
+; Release builds for Linux link statically against musl, so the binary runs
+; on a machine with no OCaml, no wand tree and no matching libc. Static
+; linking is a Linux-only idea -- macOS does not support it and does not need
+; it -- so it lives in a profile the macOS jobs do not use. Scoped to this
+; directory: the stdlib table's generator runs on the build machine and has
+; no reason to be linked this way.
+
+(env
+ (static
+  (link_flags
+   (-ccopt -static))))
+
 (executable
  (public_name wand)
  (name wand)

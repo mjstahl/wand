@@ -1,0 +1,149 @@
+name: Release
+
+# Tagging publishes. `workflow_dispatch` builds and uploads the same
+# artifacts without creating a release, which is how the matrix gets checked
+# before a tag makes it permanent.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # OCaml has no cross-compilation worth relying on: ocamlopt emits
+          # code for the machine it was built for, and every dependency would
+          # have to be rebuilt for the target. So each artifact is built on
+          # its own hardware. All four runners are free for public repos.
+          - target: linux-x86_64
+            runs-on: ubuntu-latest
+            static: true
+          - target: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+            static: true
+          - target: macos-aarch64
+            runs-on: macos-15
+            static: false
+          - target: macos-x86_64
+            runs-on: macos-13
+            static: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Linux binaries are built inside Alpine and linked statically
+      # against musl, so they run wherever they are copied. The image is
+      # multi-arch, so the same reference builds natively on both runners.
+      # Docker is driven directly rather than through `container:`, which
+      # would put the checkout and the image's `opam` user at odds.
+      - name: Build (Linux, static musl)
+        if: matrix.static
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src \
+            ocaml/opam:alpine-ocaml-5.4 sh -c '
+              set -eu
+              sudo chown -R opam:opam /src
+              sudo apk add --no-cache musl-dev
+              opam install . --deps-only
+              opam exec -- dune build --profile static bin/wand.exe
+            '
+
+      - name: Set up OCaml (macOS)
+        if: ${{ !matrix.static }}
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.x"
+
+      - name: Build (macOS)
+        if: ${{ !matrix.static }}
+        run: |
+          set -euo pipefail
+          opam install . --deps-only
+          opam exec -- dune build --profile release bin/wand.exe
+
+      # What the release claims is that the binary runs where it is put. It
+      # is checked here, from a directory with no wand tree above it, because
+      # that is exactly what P4.1 fixed and exactly what a download does.
+      - name: Check it runs where it is put
+        run: |
+          set -euo pipefail
+          BIN="$PWD/_build/default/bin/wand.exe"
+          file "$BIN"
+          if [ "${{ matrix.static }}" = "true" ]; then
+            # A dynamically linked binary would pass everything below on this
+            # runner and fail on the user's machine. Read from `file` rather
+            # than `ldd`, whose wording for a static binary differs between
+            # the glibc host and the musl build.
+            file "$BIN" | grep -q "statically linked" || {
+              echo "expected a static binary" >&2
+              exit 1
+            }
+          fi
+          cd /tmp
+          mkdir -p stdlib
+          echo 'let length x = "hijacked"' > stdlib/List.wand
+          test "$("$BIN" e 'List.length [1,2]')" = "2 : Int"
+          test "$("$BIN" e '1 + 2')" = "3 : Int"
+          echo "runs from /tmp, ignores a decoy stdlib/"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="wand-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/$NAME"
+          cp _build/default/bin/wand.exe "dist/$NAME/wand"
+          chmod +x "dist/$NAME/wand"
+          cp LICENSE README.md "dist/$NAME/"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+          shasum -a 256 "dist/$NAME.tar.gz" > "dist/$NAME.tar.gz.sha256"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # `gh` is on the runner, so publishing needs no third-party action.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file - <<'NOTES'
+          Download the archive for your platform, unpack it, and put `wand` on
+          your `PATH`. The binary carries its own standard library, so it runs
+          from any directory with nothing else installed.
+
+          The Linux binaries are static musl builds. The macOS binaries are
+          not notarised, so a download is quarantined until you clear it:
+
+              xattr -d com.apple.quarantine wand
+
+          Checksums are the `.sha256` files beside each archive.
+          NOTES
