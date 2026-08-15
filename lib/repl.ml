@@ -85,10 +85,40 @@ let rec gather_lines acc =
     match LNoise.linenoise "   .. " with
     | None      -> acc
     | Some ""   -> acc
-    | Some more ->
-      let combined = acc ^ "\n" ^ more in
-      ignore (LNoise.history_add combined);
-      gather_lines combined
+    | Some more -> gather_lines (acc ^ "\n" ^ more)
+
+(* linenoise edits one line and draws a stored newline without returning the
+   cursor, so a multi-line entry recalled with Up came back as a staircase
+   with its opening characters scrolled off. History holds the definition
+   joined into the single line linenoise can actually show and edit.
+
+   Joining has to drop `--` comments: without the newline that ended one,
+   it would comment out the rest of the definition. A `--` inside a string
+   is not a comment, so the scan tracks quoting. Block comments survive --
+   they carry their own terminator. *)
+let flatten_for_history src =
+  if not (String.contains src '\n') then src
+  else
+    let strip_line_comment line =
+      let n = String.length line in
+      let in_str = ref false and escape = ref false in
+      let cut = ref n and i = ref 0 in
+      while !i < n && !cut = n do
+        let c = line.[!i] in
+        if !escape then escape := false
+        else if !in_str then (
+          if c = '\\' then escape := true
+          else if c = '"' then in_str := false)
+        else if c = '"' then in_str := true
+        else if c = '-' && !i + 1 < n && line.[!i + 1] = '-' then cut := !i;
+        incr i
+      done;
+      String.sub line 0 !cut
+    in
+    String.split_on_char '\n' src
+    |> List.map (fun l -> String.trim (strip_line_comment l))
+    |> List.filter (fun l -> l <> "")
+    |> String.concat " "
 
 (* ── Tab completion ───────────────────────────────────────────────────────── *)
 
@@ -312,11 +342,16 @@ and loop (sess : Runner.session) =
     let line = String.trim line in
     if line = "" then loop sess
     else begin
-      ignore (LNoise.history_add line);
-      if line.[0] = ':' then
+      if line.[0] = ':' then begin
+        ignore (LNoise.history_add line);
         loop (handle_command sess line)
+      end
       else begin
         let src = gather_lines line in
+        (* Added once the definition is whole. Adding the opening line first
+           and each accumulation after it left four entries for a four-line
+           definition, three of them prefixes of the fourth. *)
+        ignore (LNoise.history_add (flatten_for_history src));
         (* Ctrl-C abandons what is running and gives the prompt back, rather
            than ending the session: at a prompt, stopping the thing you just
            typed is what you meant, not stopping the session you are in the
