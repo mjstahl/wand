@@ -1,6 +1,6 @@
 # Phase 4 — Reach
 
-**Status:** P4.1 done · **Goal:** a wand binary that works where it is put,
+**Status:** P4.1 and P4.4 done · **Goal:** a wand binary that works where it is put,
 and a script that can be handed to a machine with no wand on it.
 
 Phases 1–3 made a script honest about what it does and pleasant to write.
@@ -18,7 +18,7 @@ consequence, which is why they go first.
 | The binary is not relocatable *(fixed, P4.1)* | `cd /tmp && wand e 'List.length [1,2]'` fails. The standard library is found by walking up from the working directory looking for `stdlib/`, so wand only works inside a tree that happens to contain one. |
 | Its standard library is hijackable *(fixed, P4.1)* | A directory named `stdlib/` above the working directory *is* the standard library. `mkdir stdlib && echo 'let length x = "not wand"' > stdlib/List.wand` makes `List.length [1,2]` return `"not wand"`. Arbitrary code, loaded because a folder had the right name, in the language whose pitch is that a script cannot lie about what it does. |
 | A script cannot be handed over | There is no way to give someone a script that runs without installing wand first. This is the moat that killed every previous bash replacement. |
-| No release artifacts | CI builds and tests; it publishes nothing. There is no way to install wand except by building it. |
+| No release artifacts *(fixed, P4.4)* | CI builds and tests; it publishes nothing. There is no way to install wand except by building it. |
 | Size | The binary is **3.8 MB**, not the ~10 MB the roadmap assumed. The stdlib is 19 files and **34 KB** — under 1% of it. Nothing here needs shrinking. |
 | Startup | `wand e '1 + 2'` takes **~9 ms** against bash's ~5 ms — 1.75–1.89× over three runs, inside the 2–3× budget. Quote the milliseconds, not the ratio: most of bash's 5 ms is process creation and linking rather than bash, so the number that means anything is the **~4 ms difference**, which is wand's own startup. A single noisier run gave 10.7 ms and 2.05×, which is how much these move. |
 | What that 4 ms is | Building the builtin environment, then walking up from the working directory for `stdlib/` and reading whatever modules the input mentions. One stdlib module costs ~2 ms today (`wand e 'List.length'` is ~11 ms against `wand e '1 + 2'`'s ~9). That is the part embedding can take. |
@@ -173,13 +173,45 @@ else the type already says.
 a `Port`; a bad value names the flag it came from; positional arguments are
 reachable; no second set of combinators exists.
 
-## P4.4 — Release artifacts
+## P4.4 — Release artifacts · done
 
-A static `x86_64` and `aarch64` Linux binary (musl), a macOS binary, attached
-to a tagged release. This is CI work, not language work.
+`v0.1.0` is published with four archives and their checksums: static musl
+Linux on `x86_64` and `aarch64`, macOS on `aarch64` and `x86_64`. Each holds
+`wand`, `LICENSE` and `README.md`.
 
-*Accept:* a tag produces downloadable binaries; each runs on a clean machine
-with no OCaml and no wand tree.
+**Building happens where the hardware is.** `ocamlopt` emits code for the
+machine it was built for, so cross-compiling would mean a cross toolchain
+plus every dependency rebuilt for the target. There is no `GOOS`/`GOARCH`
+here. The Linux jobs build inside `ocaml/opam`'s multi-arch Alpine image and
+link statically against musl; the macOS job builds natively on `macos-15`.
+
+Three things the plan did not anticipate, all of which cost a CI round trip
+to find:
+
+| | |
+|---|---|
+| The Intel macOS runner never runs | `macos-13` sat queued across five dispatches without ever being assigned, while `macos-15` picked up instantly. That target left the matrix; `make release` builds it on a developer's Intel Mac and attaches it to the same release. |
+| Static-PIE segfaults on x86_64 | Alpine's gcc defaults to PIE, so `-static` alone yields a static-pie binary, and OCaml's runtime does not survive musl's static-pie startup on `x86_64` -- exit 139 before printing anything. `-no-pie` fixes it. **aarch64 built and ran the same commit correctly**, so one Linux target would have shipped this. |
+| `file` says `static-pie linked` | Not `statically linked`, which is what the check looked for. It rejected exactly the binary it asked for. |
+
+**Neither side of a release waits for the other.** CI builds three archives
+on a tag; `make release VERSION=x.y.z` tags, pushes, builds the fourth and
+attaches it. Both create the release if it is absent and upload to it if it
+is not, so they finish in either order. It is a draft until someone
+publishes it, because an undrafted release is public from the moment it
+exists, and a public release missing an architecture is worse than one
+nobody can see yet. The notes live in `.github/release-notes.md` so the text
+does not depend on which side won the race -- `v0.1.0` was created by the
+local build and shipped a placeholder until that was fixed.
+
+*Accept:* met, on all four. `shasum -c` verifies each archive next to the
+download. `linux-x86_64` runs on Debian stable -- a glibc distribution, no
+OCaml, no wand tree -- and `linux-aarch64` runs under emulation. The macOS
+`x86_64` binary runs natively here. `macos-aarch64` ran on the `macos-15`
+runner that built it, in the same smoke check every job does: from `/tmp`,
+with a decoy `stdlib/` beside it, printing `3 : Int` and `2 : Int`. That is
+the file the archive holds -- macOS is not stripped, so packaging copies
+what was tested.
 
 ## P4.5 — `setup-wand` action
 
@@ -208,8 +240,17 @@ moving — D9's table changed twice in one session.
   `com.apple.quarantine`, though `spctl -a` rejected it as having no usable
   signature. Apple Silicon requires at least an ad-hoc signature and kills
   what lacks one, so none of those runs generalise. Verify the section route
-  end to end on an arm64 machine before P4.2 is called done; that binary is
-  also a P4.4 release target, so the machine has to exist by then anyway.
+  end to end on an arm64 machine before P4.2 is called done.
+
+  P4.4 supplied the machine and settled half of it. `macos-15` is an arm64
+  runner; the binary it produces is `adhoc, linker-signed` -- the linker
+  signs it unasked -- and the job runs what it built, so an ordinary OCaml
+  arm64 binary demonstrably starts and works.
+
+  What that does not touch is the case P4.2 creates: a binary whose reserved
+  section has been overwritten and which was then re-signed. Baseline
+  execution is now evidence; the patched-and-resigned variant remains
+  untested on arm64, and `macos-15` is where to test it.
 - **The embedded table going stale.** Guarded. `test/test_stdlib_embed.ml`
   compares every embedded source to its file on disk, so a table built from
   wrong dependencies fails there rather than passing everything. The guard
@@ -224,9 +265,21 @@ moving — D9's table changed twice in one session.
 **Where things stand.** Phase 3 is finished and its plan deleted -- what it
 learned lives in the code that does it, not in a document. 616 wand tests,
 the OCaml suite, nine demos and a `wand fmt` fixed point across 70 `.wand`
-files. No code in this phase has been written. The one thing that has
-happened is the signing experiment, run because it could invalidate P4.2 --
-it did, and what it found is in the decisions table and the risks.
+files.
+
+P4.1 and P4.4 are done, and `v0.1.0` is published. **The order changed**:
+P4.5 comes next, then P4.2 and P4.3. The reasoning is the phase's own --
+P4.5 calls CI the beachhead, and in CI you install the tool, so a
+self-contained executable buys nothing there. Against that, P4.2 got more
+expensive when the signing experiment turned it into two mechanisms with an
+arm64 leg still unverified, and `wand t` already reports an inferred effect
+row, so the audit story does not wait on `--manifest`. P4.3 follows P4.2
+because flags arrive with compiled executables; `Env.args ()` is what the
+corpus uses today.
+
+The signing experiment was run before any of this, because it could
+invalidate P4.2's design. It did, and what it found is in the decisions
+table and the risks.
 
 **Verify by exit code, never by reading output.** Twice in one session a
 check of the form `dune build @runtest 2>&1 | grep -c "\[FAIL\]"` reported
@@ -264,8 +317,13 @@ times: ports, integer literals, durations, all `int_of_string` without
 
 ## Exit criteria
 
-1. wand runs from any directory, with no `stdlib/` anywhere on the machine.
-2. A directory named `stdlib/` cannot change what a program means.
+1. **Met.** wand runs from any directory, with no `stdlib/` anywhere on the
+   machine.
+2. **Met.** A directory named `stdlib/` cannot change what a program means.
 3. `wand compile` produces an executable that runs where wand is not installed.
 4. That executable states its own effect row without running.
-5. Released binaries exist for Linux and macOS, installable in one line.
+5. **Met.** Released binaries exist for Linux and macOS, installable in one
+   line -- `v0.1.0`, four archives with checksums.
+
+3 and 4 are P4.2, which now comes after P4.5. Phase 4 does not end until
+they are met; what changed is the order, not the bar.
