@@ -275,7 +275,7 @@ to write a wand script will meet them in the same order.
 
 | | |
 |---|---|
-| **Shell interpolation eats what follows** | `$(${wand} fmt ${dir}/*.wand)` is a type error -- `cannot unify Path with (Int, 'a)` -- because the `/` and `*` after the interpolation parse as arithmetic. Past that it still would not work: interpolated values are escaped, so the shell receives a literal asterisk and formats nothing. The escaping is right and the parse is consistent; together they mean the obvious way to pass a glob fails twice, the second time in silence. |
+| **Shell interpolation** *(done -- see below)* | `$(${wand} fmt ${dir}/*.wand)` is a type error, `cannot unify Path with (Int, 'a)`, because `*.wand` lexes as a glob literal and the `/` before it reads as division. Chasing that turned up something larger, which is written up under its own heading. |
 | **`List.each` passes tuples, and says so nowhere** | `each f xs` calls `f (index, value)` while `map` and `filter` pass the element. Writing `fn src ->` gets `cannot unify Path with (Int, 'a)`, which points at neither the lambda nor the tuple. Three neighbouring functions with two conventions is the real problem; the error is the symptom. |
 | **The reference lists names, not signatures** | `### List` is a bare list of 27 names. Learning that `each` is index-passing meant reading `stdlib/List.wand`. Signatures in the module lists would have prevented the item above. |
 | **`<>` says `unexpected token: >`** | The operator is `!=`. The message could say so; nothing else in the language would make a reader guess it. |
@@ -294,6 +294,49 @@ test that installs `handle ... with | IO!println_err _ k -> k ()` exercises
 its own handler rather than the one a script gets. Running a script, rather
 than testing one, is what found it -- which is an argument for more
 wand-scripted CI rather than less.
+
+**And a second crash, of the same shape.** Loosening `Par.each` left it
+reporting its old signature until the cache was turned off, which reads
+exactly like the change not having worked. The compile cache keyed a
+module's entry to its source and its imports but not to the binary that
+inferred its types, so changing a builtin left every hash matching and
+every cached type wrong. The key now covers the binary's version, size and
+mtime.
+
+## Shell interpolation, and what chasing it found
+
+The item above was written believing interpolated values were escaped
+before reaching the shell. **They were not**, and nobody had checked -- the
+belief was stated three times, once in a committed source comment, before
+anyone ran it. Testing showed the opposite: the command was assembled by
+concatenation and handed to `/bin/sh -c`, so a value carrying spaces split
+into several arguments, a value carrying `*` expanded, and a value carrying
+`;`, `|`, backticks or `$(...)` **ran commands of its own**. An ordinary
+`String` was a shell injection.
+
+That matters here more than in most languages. `uses {Shell}` says a script
+runs commands and cannot say which, so the manifest a human is meant to
+audit -- on a script an AI wrote -- did not bound what could run.
+
+**What was done.** `${x}` is now *quote interpolate*: the value becomes
+exactly one argument, whatever it contains. `$!{x}` is *raw interpolate*:
+the value is spliced as shell source, which is the old behaviour, kept for
+the cases that need it -- several arguments in one value, a pattern to
+expand, a command assembled elsewhere. The two spellings are deliberately a
+family: `${...}` and `$!{...}` are the same operation, and `!` already means
+"the sharp version" in this language, as in `read_file!`.
+
+Strings keep the old meaning and are a separate AST node, because a string
+has no argument boundaries and nothing to quote for; `$!{...}` in a string
+literal is a lex error rather than a synonym.
+
+**How it was done, which is the part worth repeating.** A characterization
+test was written first, pinning the old behaviour case by case. When the
+change landed it predicted every failure -- nine of them, including an
+injection test that now fails because the injection no longer works -- and
+was then rewritten into a specification of both forms. Given the belief
+that started this was wrong three times over, a baseline written down beat
+a baseline remembered.
 
 ## P4.6 — The positioning post
 
