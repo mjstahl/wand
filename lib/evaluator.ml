@@ -659,7 +659,8 @@ let rec eval (env : env) (e : expr) : value =
               try_cases effect_cases
             | _ -> None
       })
-  | Interp (parts, tail) ->
+  | RawString s -> VString s
+  | Interp (parts, tail) | RawInterp (parts, tail) ->
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e) ->
       Buffer.add_string buf lit;

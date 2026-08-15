@@ -106,7 +106,8 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
                     text = Lint_rules.shell1 ~stages:ops } :: !acc
        | _ -> ());
       go inner
-    | Ast.Interp (parts, _) -> List.iter (fun (_, e) -> go e) parts
+    | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
+      List.iter (fun (_, e) -> go e) parts
     | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> go a; go b
     | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
     | Ast.Field (a, _) | Ast.Try a -> go a

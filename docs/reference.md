@@ -113,6 +113,56 @@ String concatenation with `++`:
 "foo" ++ "bar"           -- "foobar"
 ```
 
+### Backtick strings
+
+Between backticks every character is itself. There are no escapes, so a
+quote is a quote and a backslash is a backslash — which is what you want for
+text written in some other language:
+
+```
+`{"hello": "world"}`
+`\d+\s*(\w+)`
+`C:\Users\ada`
+```
+
+They span lines, and the layout is the text. A newline straight after the
+opening backtick is not part of it, so a literal can start on the line
+below; nothing else is trimmed, so indentation and the final newline are
+kept:
+
+```
+`
+Hello World
+This was a line break
+`
+```
+
+is `"Hello World\nThis was a line break\n"`.
+
+`%{...}` still interpolates, so a backtick string is a template like any
+other:
+
+```
+let user = "ada"
+`{"name": "%{user}", "role": "admin"}`
+```
+
+That makes `%{` the one sequence a backtick string cannot contain. Write
+that one in an ordinary string, where the percent can be escaped:
+`"\%{literal}"`.
+
+A backtick string is an ordinary `String` — the syntax is about how you
+write it, not what it is. It concatenates, interpolates and matches like
+any other:
+
+```
+`ab` ++ `c`                    -- "abc"
+
+match answer with
+| `yes` -> 1
+| _     -> 0
+```
+
 ---
 
 ## Lexical domain types

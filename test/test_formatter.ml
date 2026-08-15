@@ -405,6 +405,40 @@ let test_handle_and_regex_round_trip () =
     "import Regex\nRegex.match? r/fix|bug/i \"FIXED\""
     "true"
 
+(* A backtick string has to come back as one. Rendered as a quoted string it
+   would return escaped -- the whole point of writing it was not to escape --
+   and a newline inside it would not read back at all. *)
+
+let raw_src =
+  "let inline = `{\"hello\": \"world\"}`\n\
+   let block = `\n\
+   one\n\
+   two\n\
+   `\n\
+   let re = `\\d+\\s*`\n\
+   let who = \"ada\"\n\
+   let interp = `{\"name\": \"%{who}\"}`\n\
+   inline"
+
+let test_raw_strings_round_trip () =
+  let out = fmt raw_src in
+  assert_contains "quotes stay unescaped" out "`{\"hello\": \"world\"}`";
+  assert_contains "backslashes stay literal" out "`\\d+\\s*`";
+  assert_contains "interpolation is kept" out "`{\"name\": \"%{who}\"}`";
+  Alcotest.(check bool) "no backtick text was requoted as a string literal"
+    false (contains out "\"{\\\"hello");
+  assert_idempotent "raw strings are a fixed point" raw_src;
+  (* The value has to survive the trip, not just the shape. *)
+  (match Runner.run_string (out ^ "\n") with
+   | Ok _ -> ()
+   | Error m -> Alcotest.failf "formatted source no longer runs: %s" m)
+
+(* A multi-line literal keeps its layout: the newline the lexer drops after
+   the opening backtick is put back, or each pass would eat a line. *)
+let test_raw_multiline_keeps_its_shape () =
+  let out = fmt "let b = `\none\ntwo\n`\nb" in
+  assert_contains "content still starts on its own line" out "`\none\ntwo\n`"
+
 (* `$NAME` in a string is text, so the formatter has nothing to interpret:
    it comes back as written, and is not turned into an interpolation. An
    actual environment read is `%{$USER}`, and that round-trips as itself. *)
@@ -453,6 +487,8 @@ let () =
       Alcotest.test_case "contract indent"  `Quick test_contract_clauses_keep_their_indent;
       Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
+      Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
+      Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;
       Alcotest.test_case "wide application"  `Quick test_wide_application_breaks;
     ];
     "comments", [

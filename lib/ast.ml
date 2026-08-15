@@ -78,6 +78,10 @@ type expr =
   | RegexLit  of string * string
   | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
+  (* A backtick string: the same value as `String`/`Interp`, kept apart so
+     the formatter can give one back as one. *)
+  | RawString of string
+  | RawInterp of (string * expr) list * string
   (* A command's interpolations, each saying how it goes in: `${x}` quotes
      the value into one argument, `$!{x}` splices it as shell source. Kept
      apart from `Interp` because a string has no argument boundaries and so
@@ -179,12 +183,25 @@ let rec show : expr -> string = function
   | RegexLit (p, f)   -> Printf.sprintf "r/%s/%s" p f
   | ImportExpr (StdlibModule n) -> Printf.sprintf "import %s" n
   | ImportExpr (UserPath p)     -> Printf.sprintf "import %s" p
+  | RawString s -> Printf.sprintf "`%s`" s
+  | RawInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    Buffer.add_char buf '`';
+    List.iter (fun (lit, e) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf "%{";
+      Buffer.add_string buf (show e);
+      Buffer.add_char buf '}'
+    ) parts;
+    Buffer.add_string buf tail;
+    Buffer.add_char buf '`';
+    Buffer.contents buf
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     Buffer.add_char buf '"';
     List.iter (fun (lit, e) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf "${";
+      Buffer.add_string buf "%{";
       Buffer.add_string buf (show e);
       Buffer.add_char buf '}'
     ) parts;

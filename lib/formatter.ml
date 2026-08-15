@@ -40,6 +40,19 @@ let rec strip_located e = match e with
   | Located (_, e) -> strip_located e
   | e -> e
 
+(* The lexer drops a newline written straight after the opening backtick, so
+   whether one was there is not in the text. A literal spanning lines gets
+   one put back, which is how anyone would have written it and what keeps
+   the closing backtick under the opening one; a single-line literal stays
+   on its line.
+
+   Idempotent either way, because the newline this adds is exactly the one
+   the lexer takes off: a text of "a\nb" emits as backtick, newline, a, b,
+   and reads back as "a\nb". A literal that really begins with a blank line
+   keeps it for the same reason. *)
+let reopen_raw s =
+  if String.contains s '\n' then "\n" ^ s else s
+
 let escape_string_body str =
   let n = String.length str in
   let buf = Buffer.create (n + 8) in
@@ -345,6 +358,23 @@ and emit_expr_inner ?col indent e =
   | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
   | ImportExpr (StdlibModule n) -> "import " ^ n
   | ImportExpr (UserPath p)     -> "import " ^ p
+  (* Given back as it was written. Its content is verbatim by definition, so
+     nothing is escaped -- and the newline the lexer dropped after the
+     opening backtick is put back, or a reformat would eat one line of
+     layout on every pass. *)
+  | RawString s -> "`" ^ reopen_raw s ^ "`"
+  | RawInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    Buffer.add_char buf '`';
+    List.iteri (fun i (lit, e) ->
+      Buffer.add_string buf (if i = 0 then reopen_raw lit else lit);
+      Buffer.add_string buf "%{";
+      Buffer.add_string buf (emit_expr indent e);
+      Buffer.add_char buf '}'
+    ) parts;
+    Buffer.add_string buf tail;
+    Buffer.add_char buf '`';
+    Buffer.contents buf
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     Buffer.add_char buf '"';

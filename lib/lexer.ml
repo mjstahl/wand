@@ -119,7 +119,62 @@ let read_string s =
   in
   loop ()
 
-(* ── Run-command literals: $(cmd ${var}) ────────────────────────────────── *)
+(* ── Raw string literals: `...` ─────────────────────────────────────────── *)
+
+(* Between backticks every character is itself. There are no escapes, so a
+   backslash is a backslash and a double quote is just a quote -- which is
+   the point: JSON,
+   a regex, a Windows path and a here-doc can all be pasted in as they are.
+
+   `%{...}` still interpolates, because a string form that could not take a
+   value would only send people back to `"..."` and its escaping. That makes
+   `%{` the one sequence a raw string cannot hold; an ordinary quoted string
+   escapes it as backslash-percent, and needing that is rarer than
+   everything this buys.
+
+   A newline straight after the opening backtick is not part of the text, so
+   a literal can start on its own line without the string starting blank.
+   Nothing else is trimmed: trailing spaces, indentation and the final
+   newline are all kept, since a raw string is for text whose shape matters. *)
+let read_raw_string s =
+  (* The opening backtick is consumed; drop a newline that follows it. *)
+  if peek s = '\n' then ignore (advance s)
+  else if peek s = '\r' && peek2 s = '\n' then (ignore (advance s); ignore (advance s));
+  let parts = ref [] in
+  let buf = Buffer.create 32 in
+  let rec loop () =
+    if is_at_end s then raise (LexError "unterminated `...` string");
+    match advance s with
+    | '`' ->
+      if !parts = [] then RawStr (Buffer.contents buf)
+      else RawInterpStr (!parts, Buffer.contents buf)
+    | '%' when peek s = '!' && peek2 s = '{' ->
+      raise (LexError "%!{...} is for shell commands, where it splices a \
+                       value as shell source. A string has nothing to quote \
+                       for, so write %{...} here.")
+    | '%' when peek s = '{' ->
+      ignore (advance s);
+      let lit = Buffer.contents buf in
+      Buffer.clear buf;
+      let expr_buf = Buffer.create 16 in
+      let depth = ref 1 in
+      while !depth > 0 do
+        if is_at_end s then raise (LexError "unterminated string interpolation");
+        let c = advance s in
+        if c = '{' then (incr depth; Buffer.add_char expr_buf c)
+        else if c = '}' then begin
+          decr depth;
+          if !depth > 0 then Buffer.add_char expr_buf c
+        end else
+          Buffer.add_char expr_buf c
+      done;
+      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      loop ()
+    | c -> Buffer.add_char buf c; loop ()
+  in
+  loop ()
+
+(* ── Run-command literals: $(cmd %{var}) ────────────────────────────────── *)
 
 let read_run_cmd s =
   let parts = ref [] in
@@ -536,6 +591,7 @@ let next_token s =
     | ' ' | '\t' | '\r' -> scan ()
     | '\n' -> ret Newline
     | '"'  -> ret (read_string s)
+    | '`'  -> ret (read_raw_string s)
     | '('  when peek s = '*' ->
       let (text, is_doc) = read_comment s in
       ret (if is_doc then DocComment text else Comment text)

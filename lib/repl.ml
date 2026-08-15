@@ -19,19 +19,25 @@ let is_ident_char = function
 let is_complete src =
   let depth  = ref 0 in
   let in_str = ref false in
+  (* A backtick string is the other way to be mid-literal, and it is the one
+     that spans lines on purpose. No escapes exist inside one, so any
+     backtick ends it. *)
+  let in_raw = ref false in
   let escape = ref false in
   String.iter (fun c ->
     if !escape then escape := false
+    else if !in_raw then (if c = '`' then in_raw := false)
     else if !in_str then (
       if c = '\\' then escape := true
       else if c = '"' then in_str := false)
     else (match c with
       | '"'       -> in_str := true
+      | '`'       -> in_raw := true
       | '(' | '[' -> incr depth
       | ')' | ']' -> decr depth
       | _         -> ())
   ) src;
-  if !in_str || !depth > 0 then false
+  if !in_str || !in_raw || !depth > 0 then false
   else
     let s = String.trim src in
     let n = String.length s in
@@ -96,6 +102,13 @@ let rec gather_lines acc =
    it would comment out the rest of the definition. A `--` inside a string
    is not a comment, so the scan tracks quoting. Block comments survive --
    they carry their own terminator. *)
+(* Joining changes what a backtick string means -- its newlines are its
+   content, and a recalled entry that quietly said something else would be
+   worse than no entry. Such a definition is left out of history rather than
+   flattened into a lie. *)
+let can_flatten src =
+  not (String.contains src '\n' && String.contains src '`')
+
 let flatten_for_history src =
   if not (String.contains src '\n') then src
   else
@@ -351,7 +364,8 @@ and loop (sess : Runner.session) =
         (* Added once the definition is whole. Adding the opening line first
            and each accumulation after it left four entries for a four-line
            definition, three of them prefixes of the fourth. *)
-        ignore (LNoise.history_add (flatten_for_history src));
+        if can_flatten src then
+          ignore (LNoise.history_add (flatten_for_history src));
         (* Ctrl-C abandons what is running and gives the prompt back, rather
            than ending the session: at a prompt, stopping the thing you just
            typed is what you meant, not stopping the session you are in the

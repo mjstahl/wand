@@ -78,7 +78,13 @@ type t =
   | Dollar             (* $ *)
   | EnvVar of string   (* $HOME, $PATH, $MY_VAR — uppercase only *)
   | PlusPlus           (* ++ *)
-  | InterpStr    of (string * string) list * string  (* "lit ${src} ... tail" *)
+  | InterpStr    of (string * string) list * string  (* "lit %{src} ... tail" *)
+  (* A backtick string. Kept apart from `String`/`InterpStr` all the way to
+     the formatter, which has to give one back as one: rendered as `"..."`
+     it would come back escaped, and a newline inside it would not read at
+     all. *)
+  | RawStr       of string
+  | RawInterpStr of (string * string) list * string
   (* A command's interpolations carry how they are to be inserted: `${x}`
      quotes the value into one argument, `$!{x}` splices it as shell source.
      `true` is raw. Strings have no such distinction -- there is nothing to
@@ -155,6 +161,8 @@ let pp ppf tok =
     | EnvVar s   -> Printf.sprintf "$%s" s
     | PlusPlus   -> "++"
     | InterpStr _  -> "InterpStr"
+    | RawStr s     -> Printf.sprintf "RawStr(%S)" s
+    | RawInterpStr _ -> "RawInterpStr"
     | RunCmdRaw _  -> "RunCmdRaw"
     | RunQueryRaw _ -> "RunQueryRaw"
     | Regex (p, f)  -> Printf.sprintf "r/%s/%s" p f

@@ -19,3 +19,53 @@ test "no interp" (fn t -> t.eq "plain string" "plain string")
 
 test "multiple interps" (fn t ->
   let x = "a" in let y = "b" in t.eq "a and b" "%{x} and %{y}")
+
+(* ── Backtick strings ──────────────────────────────────────────────────── *)
+
+(* Everything between backticks is itself. The point is text that would
+   otherwise be a wall of backslashes: JSON, a regex, a Windows path. *)
+
+test "a quote needs no escape" (fn t -> t.eq "{\"hello\": \"world\"}" `{"hello": "world"}`)
+
+test "a backslash is a backslash" (fn t -> t.eq "\\d+\\s*" `\d+\s*`)
+
+test "shell source is kept as written" (fn t ->
+  t.eq "export PATH=$HOME/bin" `export PATH=$HOME/bin`)
+
+test "it is an ordinary String" (fn t -> t.eq "abc" (`ab` ++ `c`))
+
+(* A newline straight after the opening backtick is layout, not text.
+   Nothing else is trimmed -- the indent and the last newline are kept. *)
+
+test "the opening newline is dropped" (fn t ->
+  t.eq
+    "one\ntwo\n"
+    `
+one
+two
+`)
+
+test "an indent inside is text" (fn t ->
+  t.eq
+    "  indented\n"
+    `
+  indented
+`)
+
+test "a blank first line survives" (fn t ->
+  t.eq
+    "\nafter a blank line\n"
+    `
+
+after a blank line
+`)
+
+test "interpolation still works" (fn t ->
+  let who = "ada" in t.eq "{\"name\": \"ada\"}" `{"name": "%{who}"}`)
+
+test "as a pattern" (fn t ->
+  t.eq
+    "matched"
+    (match "hi" with
+    | "hi" -> "matched"
+    | _ -> "no"))

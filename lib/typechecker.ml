@@ -1538,7 +1538,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
         unify result_t (infer tenv env'' case_body)
     ) cases;
     result_t
-  | Interp (parts, _) ->
+  | RawString _ -> TString
+  | Interp (parts, _) | RawInterp (parts, _) ->
     List.iter (fun (_, e) -> ignore (infer tenv env e)) parts;
     TString
   | CmdInterp (parts, _) ->

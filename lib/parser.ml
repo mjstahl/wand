@@ -175,6 +175,7 @@ let is_atom_start = function
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket
   | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.RunQueryRaw _
+  | Token.RawStr _ | Token.RawInterpStr _
   | Token.Regex _ | Token.EnvVar _ | Token.Import
   | Token.Handle | Token.Try -> true
   | _ -> false
@@ -185,7 +186,7 @@ let is_expr_start = function
   | t -> is_atom_start t
 
 let is_pat_atom_start = function
-  | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
+  | Token.Int _ | Token.Float _ | Token.String _ | Token.RawStr _ | Token.Bool _
   | Token.Ident _ | Token.Underscore | Token.Upper _
   | Token.LParen | Token.LBracket -> true
   | _ -> false
@@ -197,6 +198,9 @@ let rec pat_ s =
   | Token.Int n      -> ignore (advance s); (Int n : pat)
   | Token.Float f    -> ignore (advance s); Float f
   | Token.String str -> ignore (advance s); String str
+  (* A backtick string is a string; a pattern has no interpolation to keep
+     apart, so it needs no separate form. *)
+  | Token.RawStr str -> ignore (advance s); String str
   | Token.Bool b     -> ignore (advance s); Bool b
   | Token.Ident name -> ignore (advance s); PVar name
   | Token.Underscore -> ignore (advance s); Wild
@@ -267,6 +271,9 @@ and pat_atom_ s =
   | Token.Int n      -> ignore (advance s); (Int n : pat)
   | Token.Float f    -> ignore (advance s); Float f
   | Token.String str -> ignore (advance s); String str
+  (* A backtick string is a string; a pattern has no interpolation to keep
+     apart, so it needs no separate form. *)
+  | Token.RawStr str -> ignore (advance s); String str
   | Token.Bool b     -> ignore (advance s); Bool b
   | Token.Ident name -> ignore (advance s); PVar name
   | Token.Underscore -> ignore (advance s); Wild
@@ -552,6 +559,14 @@ and atom_base_ s =
       (lit, expr_ 0 s2)
     ) parts in
     Interp (parsed, tail)
+  | Token.RawStr str -> RawString str
+  | Token.RawInterpStr (parts, tail) ->
+    let parsed = List.map (fun (lit, src) ->
+      let toks = Lexer.tokenize src in
+      let s2 = make toks in
+      (lit, expr_ 0 s2)
+    ) parts in
+    RawInterp (parsed, tail)
   | Token.Handle -> parse_handle_ s
   | Token.With   -> parse_with_ s
   | Token.Try    -> Ast.Try (expr_ 0 s)
