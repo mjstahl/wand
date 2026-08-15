@@ -36,6 +36,14 @@ let max_width = 92
 let fits col s =
   not (String.contains s '\n') && col + String.length s <= max_width
 
+(* The keyword a binding opens with, and the column its name starts at. A
+   binding's later clauses line up under the first one's name rather than at
+   a fixed step, so a sibling keyword -- `letrec` -- would carry its own
+   clauses across without a second number to keep in step. *)
+let let_keyword = "let"
+
+let name_column indent keyword = indent + String.length keyword + 1
+
 let rec strip_located e = match e with
   | Located (_, e) -> strip_located e
   | e -> e
@@ -593,15 +601,30 @@ and emit_let ?col indent p e1 e2 =
       | Some cs -> cs
       | None    -> [(params, fbody)]
     in
+    (* The first clause carries the keyword and fixes the column its name
+       starts at; the rest are that name again, under it. The `in` closes
+       the group from the keyword's own column, so the block reads as one
+       shape rather than a stack of unrelated lines. *)
+    let clause_indent i = if i = 0 then indent else name_column indent let_keyword in
     let lines = List.mapi (fun i (pats, body) ->
-      let kw = if i = 0 then "let " ^ name else name in
+      let ci = clause_indent i in
+      let cind = String.make ci ' ' in
+      let kw = if i = 0 then let_keyword ^ " " ^ name else name in
       let (annot_s, body) = split_clause_annot body in
       let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
-      let oneline = head ^ " = " ^ emit_expr indent body in
-      if fits col oneline then oneline
-      else head ^ " =\n" ^ ind ^ "  " ^ emit_expr (indent + 2) body
+      (* Measured from where this clause actually starts, not from the
+         group's column, or a later clause is allowed a line it cannot fit. *)
+      let clause_col = if i = 0 then col else ci in
+      let oneline = head ^ " = " ^ emit_expr ci body in
+      if fits clause_col oneline then oneline
+      else head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
     ) clauses in
-    String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
+    let joined =
+      String.concat "\n"
+        (List.mapi (fun i l ->
+           if i = 0 then l else String.make (clause_indent i) ' ' ^ l) lines)
+    in
+    joined ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
        be genuinely ambiguous: the parser's infix `:` in expression position

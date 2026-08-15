@@ -49,14 +49,15 @@ let _positional_key = "_"
 
 let _object_of flags args =
   let go acc positional [] = Ok (acc, positional)
-  go acc positional [arg : rest] =
-    if _flag? arg then if _inline? arg then let (k, v) = _inline_pair arg in go (Map.set k (JSON.of_string v) acc) positional rest
-    else let k = _name_of arg in
-    if List.any (fn f -> f == k) flags then go (Map.set k (JSON.of_string "true") acc) positional rest
-    else match rest with
-    | [v : more] -> go (Map.set k (JSON.of_string v) acc) positional more
-    | [] -> Error "--%{k} expects a value"
-    else go acc (List.append positional [arg]) rest
+      go acc positional [arg : rest] =
+        if _flag? arg then if _inline? arg then let (k, v) = _inline_pair arg in
+        go (Map.set k (JSON.of_string v) acc) positional rest
+        else let k = _name_of arg in
+        if List.any (fn f -> f == k) flags then go (Map.set k (JSON.of_string "true") acc) positional rest
+        else match rest with
+        | [v : more] -> go (Map.set k (JSON.of_string v) acc) positional more
+        | [] -> Error "--%{k} expects a value"
+        else go acc (List.append positional [arg]) rest
   in match go Map.empty [] args with
   | Error e -> Error e
   | Ok (fields, positional) -> Ok

@@ -93,7 +93,7 @@ let each f [h : t] = let _ = f h in each f t
 (** Pair each element with its position, counting from zero. *)
 let indexed xs =
   let go _ [] = []
-  go i [h : t] = (i, h) : go (i + 1) t
+      go i [h : t] = (i, h) : go (i + 1) t
   in go 0 xs
 
 (** Return the element at index n, or None if out of bounds. *)

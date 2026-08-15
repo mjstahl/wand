@@ -405,6 +405,36 @@ let test_handle_and_regex_round_trip () =
     "import Regex\nRegex.match? r/fix|bug/i \"FIXED\""
     "true"
 
+(* A binding's later clauses line up under the first one's name, and the
+   `in` closes the group from the keyword's own column -- so the shape says
+   which lines belong to the binding and which one ends it. Both spellings
+   of the source converge, since which was written is not in the AST. *)
+let test_let_clause_alignment () =
+  let lines ls = String.concat "\n" ls in
+  let expected =
+    lines [ "let answer =";
+            "  let fib 0 = 0";
+            "      fib 1 = 1";
+            "      fib n = fib (n - 1) + fib (n - 2)";
+            "  in fib 10";
+            "";
+            "answer" ]
+  in
+  let repeated_let =
+    lines [ "let answer =";
+            "  let fib 0 = 0";
+            "  let fib 1 = 1";
+            "  let fib n = fib (n - 1) + fib (n - 2)";
+            "  in fib 10";
+            "";
+            "answer" ]
+  in
+  Alcotest.(check string) "from the repeated-let spelling"
+    expected (String.trim (fmt repeated_let));
+  Alcotest.(check string) "from the aligned spelling"
+    expected (String.trim (fmt expected));
+  assert_idempotent "the layout is a fixed point" repeated_let
+
 (* A backtick string has to come back as one. Rendered as a quoted string it
    would return escaped -- the whole point of writing it was not to escape --
    and a newline inside it would not read back at all. *)
@@ -487,6 +517,7 @@ let () =
       Alcotest.test_case "contract indent"  `Quick test_contract_clauses_keep_their_indent;
       Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
+      Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;
       Alcotest.test_case "wide application"  `Quick test_wide_application_breaks;
