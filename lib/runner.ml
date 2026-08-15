@@ -666,12 +666,13 @@ let module_keys : (string, string) Hashtbl.t = Hashtbl.create 16
 let rec load_imports_for ~base_dir ~cache ~loading prog =
   List.fold_left (fun (acc, acc_docs) item ->
     let load_kind kind =
-      let full = resolve_import base_dir kind in
-      match Hashtbl.find_opt cache full with
+      let src_ref = resolve_import base_dir kind in
+      let key = Module_types.key_of src_ref in
+      match Hashtbl.find_opt cache key with
       | Some cached -> cached
       | None ->
-        if List.mem full !loading then failwith ("import cycle detected: " ^ full)
-        else load_module full ~cache ~loading
+        if List.mem key !loading then failwith ("import cycle detected: " ^ key)
+        else load_module src_ref ~cache ~loading
     in
     let bind_field own_type own_eval field alias =
       let t = match List.assoc_opt field own_type with
@@ -746,12 +747,12 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
     | _ -> (acc, acc_docs)
   ) (empty_import_env, []) prog.Ast.items
 
-and load_module path ~cache ~loading =
-  let src =
-    try In_channel.with_open_text path In_channel.input_all
-    with Sys_error msg ->
-      failwith ("cannot import '" ^ path ^ "': " ^ msg)
-  in
+and load_module src_ref ~cache ~loading =
+  (* Embedded or on disk, a module is a name and some source from here on:
+     the name keys the caches and the cycle check, and nothing below asks
+     where the bytes came from. *)
+  let path = Module_types.key_of src_ref in
+  let src = Module_types.read_source src_ref in
   let tokens =
     try Lexer.tokenize src
     with Lexer.LexError msg ->
@@ -775,7 +776,8 @@ and load_module path ~cache ~loading =
       | Ast.TLImport kind
       | Ast.TLLet (_, [], Ast.ImportExpr kind)
       | Ast.TLLetPat (_, Ast.ImportExpr kind) ->
-        Hashtbl.find_opt module_keys (resolve_import base_dir kind)
+        Hashtbl.find_opt module_keys
+          (Module_types.key_of (resolve_import base_dir kind))
       | _ -> None) prog.Ast.items
   in
   let own_key = Compile_cache.key ~source:src ~deps:dep_keys in
@@ -1299,14 +1301,17 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
 (* Typecheck a file without running it, resolving its imports the same way
    running it would. The editing loop and CI both want an answer that costs
    nothing and changes nothing. *)
-(* Whether a path names one of the standard library's own modules. Compared
-   as directories rather than by name, so a user file called FS.wand is a
-   user file. *)
+(* Whether a path names one of the standard library's own modules. The
+   library is embedded, so the only files this can be true of are the
+   sources it was built from -- `wand t stdlib/List.wand` in the tree, or a
+   directory `WAND_STDLIB` points at. Asked of the directory the file is
+   actually in, so a user file called FS.wand is a user file. *)
 let is_stdlib_file full =
-  let real p = try Unix.realpath p with Unix.Unix_error _ -> p in
-  match Module_types.find_stdlib_dir () with
-  | exception _ -> false
-  | dir -> real (Filename.dirname full) = real dir
+  let dir = Filename.dirname full in
+  Module_types.is_stdlib_dir dir
+  && List.mem_assoc
+       (Filename.remove_extension (Filename.basename full))
+       Stdlib_embed.table
 
 let typecheck_file path : (string * string list * Lint.finding list, string) result =
   let full =
@@ -1357,7 +1362,7 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
-    let base_dir = Module_types.find_stdlib_dir () in
+    let base_dir = Module_types.stdlib_base_dir in
     let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)

@@ -1,6 +1,6 @@
 # Phase 4 — Reach
 
-**Status:** not started · **Goal:** a wand binary that works where it is put,
+**Status:** P4.1 done · **Goal:** a wand binary that works where it is put,
 and a script that can be handed to a machine with no wand on it.
 
 Phases 1–3 made a script honest about what it does and pleasant to write.
@@ -15,8 +15,8 @@ consequence, which is why they go first.
 
 | | |
 |---|---|
-| The binary is not relocatable | `cd /tmp && wand e 'List.length [1,2]'` fails. The standard library is found by walking up from the working directory looking for `stdlib/`, so wand only works inside a tree that happens to contain one. |
-| Its standard library is hijackable | A directory named `stdlib/` above the working directory *is* the standard library. `mkdir stdlib && echo 'let length x = "not wand"' > stdlib/List.wand` makes `List.length [1,2]` return `"not wand"`. Arbitrary code, loaded because a folder had the right name, in the language whose pitch is that a script cannot lie about what it does. |
+| The binary is not relocatable *(fixed, P4.1)* | `cd /tmp && wand e 'List.length [1,2]'` fails. The standard library is found by walking up from the working directory looking for `stdlib/`, so wand only works inside a tree that happens to contain one. |
+| Its standard library is hijackable *(fixed, P4.1)* | A directory named `stdlib/` above the working directory *is* the standard library. `mkdir stdlib && echo 'let length x = "not wand"' > stdlib/List.wand` makes `List.length [1,2]` return `"not wand"`. Arbitrary code, loaded because a folder had the right name, in the language whose pitch is that a script cannot lie about what it does. |
 | A script cannot be handed over | There is no way to give someone a script that runs without installing wand first. This is the moat that killed every previous bash replacement. |
 | No release artifacts | CI builds and tests; it publishes nothing. There is no way to install wand except by building it. |
 | Size | The binary is **3.8 MB**, not the ~10 MB the roadmap assumed. The stdlib is 19 files and **34 KB** — under 1% of it. Nothing here needs shrinking. |
@@ -29,9 +29,11 @@ consequence, which is why they go first.
 |---|---|
 | Embed sources or precompiled ASTs? | **Sources.** A `Marshal`'d AST is tied to the compiler that wrote it and to our own type definitions, so it turns every refactor into a format migration. The stdlib is 34 KB of text; parsing it is 1–2 ms and the compile cache already covers the repeat cost. Precompiled ASTs are a later optimisation, taken only if a measurement asks for it. |
 | How to embed | **A dune rule generating an OCaml module**, not a new dependency. `ocaml-crunch` does exactly this and is one `depends` line, but it is a build-time dependency for turning 19 files into string constants, which is a rule we can read in full. Keep the dependency list at five. |
-| Lookup order | Embedded table first, `WAND_STDLIB` before it as an explicit override. Nothing else. `find_stdlib_dir` and its upward walk are deleted, which is what removes the hijack. |
+| Lookup order | `WAND_STDLIB` when it is set, the embedded table otherwise. Nothing else. `find_stdlib_dir` and its upward walk are deleted, which is what removes the hijack. |
 | `WAND_STDLIB` after embedding | **Kept**, as a development override: run a built binary against a working-tree stdlib. It stops being how the stdlib is normally found and becomes how you replace it on purpose. |
-| `wand compile` architecture | **Appended payload**, as the roadmap decided: a byte copy of the runtime with the script and the transitive closure of its *user* modules appended, plus a trailer holding a magic number and a length. At startup the runtime checks its own tail and runs the payload if there is one. No toolchain on the user's machine. |
+| `wand compile` architecture | **Appended payload on ELF, a patched section on Mach-O.** A byte copy of the runtime carries the script and the transitive closure of its *user* modules. On Linux they go on the tail, behind a trailer holding a magic number and a length, and the runtime checks its own tail at startup. On macOS a tail is illegal (see below): the binary reserves a zero-filled `__WAND,__payload` section at link time, `wand compile` overwrites it in place -- same file size, nothing past the end -- and re-signs ad-hoc. Two ways in, one payload format, one loader once the bytes are in hand. |
+| Why macOS differs | Measured, not assumed. `codesign` refuses to sign a Mach-O with data past the last load-command-covered region -- `main executable failed strict validation`, exit 1 -- so appending breaks the signature and then forbids repairing it. Truncating the appended bytes lets the same file sign again, which is what pins trailing data as the cause. A payload living in a real section signs, verifies, and runs; so does a reserved section patched in place. |
+| Payload size on macOS | **Fixed, reserved at link time.** Patching in place is what keeps the file legal, so the reserve cannot grow to fit. A script whose user modules exceed it is a compile error naming the limit. The stdlib is embedded by P4.1 and is not in the payload, so this bounds user code alone. |
 | What the payload contains | Source text, keyed by module path, plus the entry script — the same table shape as the embedded stdlib, so one loader serves both. |
 | Manifest stamping | `wand compile` typechecks, then stamps the inferred effect row into the payload. `./deploy --manifest` prints `uses {Shell, FS.Write}` without running anything. An artifact that states its own blast radius is the point of the whole exercise. |
 
@@ -41,22 +43,44 @@ consequence, which is why they go first.
 2. The binary must keep working from inside the source tree at every step. Development is done with this binary; if it breaks, everything stops.
 3. Anything that changes startup gets `bench/startup.sh` run before and after, in the same commit message — several runs, quoting milliseconds. The ratio to bash moves by 15% between runs on an idle machine, so a single reading cannot tell an improvement from noise.
 
-## P4.1 — Stdlib embedding
+## P4.1 — Stdlib embedding · done
 
-Delete the filesystem search. A dune rule turns `stdlib/*.wand` into a
-generated module holding `(name, source)` pairs; the loader consults it
-before anything else, and `WAND_STDLIB` overrides it.
+`tools/gen_stdlib_embed.ml` turns `stdlib/*.wand` into `Stdlib_embed.table`,
+a list of `(name, source)` pairs compiled into the library. Resolution
+returns `Embedded of name | File of path` rather than a path, which is what
+lets one loader serve both: the key a module is cached and cycle-checked
+under is `<stdlib>/List.wand` for an embedded module and the real path for a
+user file, and nothing below `load_module` asks where the bytes came from.
+`find_stdlib_dir` and its upward walk are gone.
 
-The rule must depend on the `.wand` sources so that editing the stdlib
-rebuilds the table — otherwise a developer edits `List.wand`, sees no change,
-and loses an hour.
+Two call sites needed a rule that no longer had a directory to consult.
+`is_stdlib_file` decides whether a file is typechecked against the raw
+builtins, and now asks whether the file's own directory holds *every* module
+the binary carries -- a standard library rather than a folder with a
+`List.wand` in it. `lint_module_source` resolves against `<stdlib>`, which
+its imports never consult because they are all stdlib imports.
 
-*Accept:* `cd /tmp && wand e 'List.length [1,2]'` prints `2`; a directory
-named `stdlib/` next to the working directory changes nothing; `WAND_STDLIB`
-still replaces the library wholesale; `find_stdlib_dir` no longer exists;
-`wand e '1 + 2'` no slower than ~9 ms and `wand e 'List.length'` faster than
-its ~11 ms, both read from `bench/startup.sh` over several runs rather than
-one.
+**Startup did not move, and the reason is worth keeping.** Before and after,
+interleaved, five runs of 25--60 samples: `wand e '1 + 2'` 9.5 ms both ways,
+`wand e 'List.length'` 10.7 ms both ways, deltas between -0.22 and +0.21 ms
+against a run-to-run spread of ±0.5 ms. The ~2 ms a stdlib module costs is
+parse and inference, not the directory walk and the `open` that embedding
+removed -- those are under a tenth of a millisecond warm. The gap table above
+guessed wrong about where that 2 ms lives; taking it is a matter for the
+compile cache or precompiled ASTs, and neither has a measurement asking for
+it yet. The binary grew 42 KB, 3,977,848 to 4,019,440 bytes.
+
+*Accept:* met, except that `wand e 'List.length'` is unchanged rather than
+faster -- see above. `cd /tmp && wand e 'List.length [1,2]'` prints `2`; a
+`stdlib/` beside or above the working directory changes nothing;
+`WAND_STDLIB` still replaces the library wholesale; `find_stdlib_dir` no
+longer exists; `wand e '1 + 2'` is no slower.
+
+`test/test_stdlib_embed.ml` holds the guard the risks section asked for: it
+compares every embedded source to the file on disk, so a table built from
+stale dependencies fails there rather than passing everything. The canary
+check -- add an exported binding to `List.wand`, `dune build`, call it --
+confirmed the rule tracks edits.
 
 ## P4.2 — `wand compile`
 
@@ -66,18 +90,28 @@ wand compile deploy.wand -o deploy
 ./deploy --manifest      # uses {Shell, FS.Write}
 ```
 
-Copy the running binary, append the payload, write a trailer. At startup,
-read the trailer; if the magic is there, run the payload instead of parsing
-argv as usual.
+Copy the running binary, put the payload in it, and at startup look for the
+magic before parsing argv as usual. Where the payload goes is the platform
+split decided above: a tail and a trailer on ELF, the reserved
+`__WAND,__payload` section overwritten in place on Mach-O, followed by
+`codesign -f -s -`.
 
 Finding our own executable is the first problem: `Sys.executable_name` is not
 reliable when the program was found on `PATH`, and a wrong answer here copies
 the wrong file. Read `/proc/self/exe` where it exists, fall back to
 `Sys.executable_name`, and fail loudly rather than copying something else.
 
+The macOS path needs `/usr/bin/codesign`, which is an OS binary rather than a
+Command Line Tools stub and so is present on a stock machine -- but it is
+still an external program, and the one place the "no toolchain" claim is
+qualified. Check for it and say so plainly when it is missing, rather than
+producing an executable that dies with `Killed: 9` on the user's laptop.
+
 *Accept:* a compiled script runs on a machine with no wand and no stdlib
 directory; it reports its own manifest without executing; compiling a script
-whose imports do not typecheck fails at compile time, not at run time.
+whose imports do not typecheck fails at compile time, not at run time; on
+macOS the product passes `codesign -v` and a payload over the reserve fails
+at compile time with the limit in the message.
 
 ## P4.3 — Reading arguments
 
@@ -163,15 +197,24 @@ moving — D9's table changed twice in one session.
 
 ## Risks
 
-- **Signing.** Appending bytes to a macOS binary invalidates its code
-  signature, and a signed-and-notarised wand would produce compiled scripts
-  that Gatekeeper refuses. This may force `wand compile` to re-sign, to
-  produce an unsigned artifact with a documented `xattr` step, or to be a
-  Linux-first feature. Find out early: it can invalidate P4.2's design.
-- **The embedded table going stale.** If the dune rule's dependencies are
-  wrong, a built binary carries yesterday's stdlib and every test still
-  passes. Guard it with a test that reads a known doc string through the
-  embedded path and compares it to the file on disk.
+- **Signing.** Answered, and it did change P4.2's design. Appending to a
+  Mach-O invalidates its signature *and* leaves `codesign` unable to sign it
+  again, so re-signing after appending -- the obvious way out -- does not
+  exist. The reserved-section patch above is what replaced it.
+
+  What is still open is **arm64**, and it is where the risk actually bites.
+  The measurements were taken on an x86_64 Mac, which tolerates a broken or
+  absent signature at exec: every appended binary ran, including one carrying
+  `com.apple.quarantine`, though `spctl -a` rejected it as having no usable
+  signature. Apple Silicon requires at least an ad-hoc signature and kills
+  what lacks one, so none of those runs generalise. Verify the section route
+  end to end on an arm64 machine before P4.2 is called done; that binary is
+  also a P4.4 release target, so the machine has to exist by then anyway.
+- **The embedded table going stale.** Guarded. `test/test_stdlib_embed.ml`
+  compares every embedded source to its file on disk, so a table built from
+  wrong dependencies fails there rather than passing everything. The guard
+  only holds while the test can see `../stdlib`, which its dune stanza
+  depends on.
 - **`--manifest` as a lie.** A stamped row that is not re-derived from the
   payload is a claim nobody checks. Stamp it from the same inference that
   typechecked the script, in the same run.
@@ -181,7 +224,9 @@ moving — D9's table changed twice in one session.
 **Where things stand.** Phase 3 is finished and its plan deleted -- what it
 learned lives in the code that does it, not in a document. 616 wand tests,
 the OCaml suite, nine demos and a `wand fmt` fixed point across 70 `.wand`
-files. Nothing in this phase has been started.
+files. No code in this phase has been written. The one thing that has
+happened is the signing experiment, run because it could invalidate P4.2 --
+it did, and what it found is in the decisions table and the risks.
 
 **Verify by exit code, never by reading output.** Twice in one session a
 check of the form `dune build @runtest 2>&1 | grep -c "\[FAIL\]"` reported

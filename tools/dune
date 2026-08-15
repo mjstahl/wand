@@ -1,0 +1,3 @@
+(executable
+ (name gen_stdlib_embed)
+ (modules gen_stdlib_embed))

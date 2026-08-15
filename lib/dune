@@ -1,3 +1,18 @@
 (library
  (name wand)
  (libraries unix re re.pcre yojson toml linenoise))
+
+; The standard library, compiled into the binary as source text. The glob is
+; what makes an edit to a `.wand` file rebuild the table -- get it wrong and
+; a built binary carries yesterday's stdlib while every test still passes,
+; which `test_stdlib_embed.ml` is there to catch.
+
+(rule
+ (targets stdlib_embed.ml)
+ (deps
+  (glob_files %{workspace_root}/stdlib/*.wand)
+  %{workspace_root}/tools/gen_stdlib_embed.exe)
+ (action
+  (with-stdout-to
+   stdlib_embed.ml
+   (run %{workspace_root}/tools/gen_stdlib_embed.exe %{deps}))))

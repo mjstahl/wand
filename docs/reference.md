@@ -2018,15 +2018,17 @@ there is no value that reads one way and behaves the other.
 | `WAND_CACHE` | `0`/`false`/`no`/`off` disables the compile cache |
 | `WAND_CACHE_HOME` | the cache directory itself |
 | `XDG_CACHE_HOME` | a parent for it; wand uses `$XDG_CACHE_HOME/wand` |
-| `WAND_STDLIB` | a standard library to use instead of the one wand would find |
+| `WAND_STDLIB` | a standard library to use instead of the built-in one |
 
 The cache goes in the first of these that is set: `WAND_CACHE_HOME`, then
 `$XDG_CACHE_HOME/wand`, then `~/.cache/wand` — or `%LOCALAPPDATA%\wand\cache`
 on Windows, where `~/.cache` is not a place anything keeps.
 
-`WAND_STDLIB` replaces the standard library wholesale, so a `List.wand` in
-that directory *is* `List`. Unset, wand looks for a `stdlib/` directory from
-the working directory upwards, and says so plainly when there isn't one.
+The standard library is compiled into the binary, so wand runs the same from
+any directory and a `stdlib/` folder is just a folder. `WAND_STDLIB` replaces
+that library wholesale, so a `List.wand` in the directory it names *is*
+`List`; it is meant for working on the standard library itself, where a built
+binary has to run against sources on disk.
 
 An empty value counts as unset everywhere here, since an empty value nearly
 always comes from a shell interpolating something that held nothing.
@@ -2037,13 +2039,12 @@ always comes from a shell interpolating something that held nothing.
 |---|---|
 | `WAND_CACHE` | `0`/`false`/`no`/`off` disables the compile cache |
 | `XDG_CACHE_HOME` | where the cache lives; `~/.cache` when unset |
-| `WAND_STDLIB` | a standard library to use instead of the one wand would find |
+| `WAND_STDLIB` | a standard library to use instead of the built-in one |
 
-`WAND_STDLIB` replaces the standard library wholesale, so a `List.wand` in
-that directory *is* `List`. Unset, wand looks for a `stdlib/` directory from
-the working directory upwards. An empty value counts as unset, since an empty
-value nearly always comes from a shell interpolating something that held
-nothing.
+The standard library is compiled into the binary. `WAND_STDLIB` replaces it
+wholesale, so a `List.wand` in the directory it names *is* `List`. An empty
+value counts as unset, since an empty value nearly always comes from a shell
+interpolating something that held nothing.
 
 Caching costs the first run of a script a little and saves every run after
 it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and
