@@ -2005,8 +2005,12 @@ clearing, and there is no timestamp to be wrong about. An unreadable entry
 is a miss, not an error.
 
 ```
-WAND_NO_CACHE=1 wand script.wand    # ignore it, and write nothing
+WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
 ```
+
+`0`, `false`, `no` and `off` turn it off; unset, or any other value, leaves
+it on. The switch is named for what it controls rather than against it, so
+there is no value that reads one way and behaves the other.
 
 Caching costs the first run of a script a little and saves every run after
 it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and

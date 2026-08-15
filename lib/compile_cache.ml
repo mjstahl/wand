@@ -21,7 +21,23 @@
    checked rather than guaranteed. Reading a dependency's bytes is the cheap
    part of loading it, so the guarantee is nearly free. *)
 
-let disabled = Sys.getenv_opt "WAND_NO_CACHE" <> None
+(* `WAND_CACHE=0` turns the cache off, and so do `false`, `no` and `off`.
+   Anything else, or nothing at all, leaves it on.
+
+   Named for what it controls rather than against it. The obvious first choice
+   is a negative switch tested for presence -- `NO_COLOR` and its relatives
+   work that way -- but a name with a negative in it invites a value, and then
+   every value a reader would pick to mean *off* (`WAND_NO_CACHE=0`, `=false`,
+   or the empty string a shell leaves behind when an unset variable is
+   interpolated) turns the cache off instead. A switch that reads backwards
+   under exactly the values people reach for is not a switch worth having. *)
+let disabled =
+  match Sys.getenv_opt "WAND_CACHE" with
+  | Some v ->
+    (match String.lowercase_ascii (String.trim v) with
+     | "0" | "false" | "no" | "off" -> true
+     | _ -> false)
+  | None -> false
 
 (* Bumped when the shape of what is written changes. An old entry then has a
    different key rather than being read back as the wrong shape -- Marshal

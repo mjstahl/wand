@@ -77,21 +77,43 @@ let test_a_corrupt_entry_is_survivable () =
     entries;
   Alcotest.(check string) "still runs" "42" (run ~dir:d ~cache:c ["main.wand"])
 
-let test_cache_can_be_turned_off () =
-  let (d, c) = scratch () in
-  write (Filename.concat d "mod.wand") "let n = 41";
-  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+(* `WAND_CACHE` is read for what it says, not for being set at all: the
+   values a reader picks to mean off have to mean off, and everything else --
+   including the empty string a shell leaves behind for an unset variable --
+   has to leave the cache alone. *)
+let run_with_cache_var value dir cache =
   let cmd =
-    Printf.sprintf "cd %s && WAND_NO_CACHE=1 XDG_CACHE_HOME=%s %s main.wand 2>&1"
-      (Filename.quote d) (Filename.quote c) (Filename.quote wand_binary)
+    Printf.sprintf "cd %s && WAND_CACHE=%s XDG_CACHE_HOME=%s %s main.wand 2>&1"
+      (Filename.quote dir) (Filename.quote value) (Filename.quote cache)
+      (Filename.quote wand_binary)
   in
   let ic = Unix.open_process_in cmd in
   let out = String.trim (In_channel.input_all ic) in
   ignore (Unix.close_process_in ic);
-  Alcotest.(check string) "runs without a cache" "42" out;
-  let wand_dir = Filename.concat c "wand" in
+  let wand_dir = Filename.concat cache "wand" in
   let entries = if Sys.file_exists wand_dir then Array.length (Sys.readdir wand_dir) else 0 in
-  Alcotest.(check int) "and wrote nothing" 0 entries
+  (out, entries)
+
+let test_cache_can_be_turned_off () =
+  List.iter (fun value ->
+    let (d, c) = scratch () in
+    write (Filename.concat d "mod.wand") "let n = 41";
+    write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+    let (out, entries) = run_with_cache_var value d c in
+    Alcotest.(check string) ("runs with WAND_CACHE=" ^ value) "42" out;
+    Alcotest.(check int) ("wrote nothing with WAND_CACHE=" ^ value) 0 entries
+  ) ["0"; "false"; "no"; "off"; "OFF"]
+
+let test_other_values_leave_it_on () =
+  List.iter (fun value ->
+    let (d, c) = scratch () in
+    write (Filename.concat d "mod.wand") "let n = 41";
+    write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+    let (out, entries) = run_with_cache_var value d c in
+    Alcotest.(check string) ("runs with WAND_CACHE=" ^ value) "42" out;
+    if entries = 0 then
+      Alcotest.failf "WAND_CACHE=%S should have left the cache on" value
+  ) ["1"; "true"; "yes"; ""]
 
 let () =
   Alcotest.run "Compile cache" [
@@ -103,5 +125,6 @@ let () =
     "when it cannot be trusted", [
       Alcotest.test_case "a corrupt entry"         `Quick test_a_corrupt_entry_is_survivable;
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
+      Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
     ];
   ]
