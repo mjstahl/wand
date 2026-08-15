@@ -34,7 +34,7 @@ let copy_into! dir =
    asterisk and format nothing at all. *)
 let format_in! dir =
   sources
-  |> List.each (fn src -> let _ = $(${wand} fmt ${copy_of dir src}) in ())
+  |> List.each (fn src -> $(${wand} fmt ${copy_of dir src}))
 
 (* A file that changed is one `wand fmt` would rewrite, which means the tree
    checked in is not what the formatter produces. Every one of them is

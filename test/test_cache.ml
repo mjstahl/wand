@@ -150,6 +150,49 @@ let test_other_values_leave_it_on () =
       Alcotest.failf "WAND_CACHE=%S should have left the cache on" value
   ) ["1"; "true"; "yes"; ""]
 
+(* A module's types come from the binary as much as from its source. A
+   builtin whose signature changed leaves every hash matching and every
+   cached type wrong, which reads as the change not having worked -- it did
+   exactly that when `par_each` was loosened. The binary's identity is part
+   of the key, so a rebuilt binary cannot read the old binary's entries.
+
+   Tested through a copy, because the built binary cannot be modified and a
+   copy's mtime is the thing under test. *)
+let test_a_rebuilt_binary_invalidates_entries () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "mod.wand") "let n = 41";
+  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+  let copy = Filename.concat d "wand-copy" in
+  let cp =
+    Printf.sprintf "cp %s %s" (Filename.quote wand_binary) (Filename.quote copy)
+  in
+  if Sys.command cp <> 0 then Alcotest.fail "could not copy the binary";
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote copy)));
+  let run_copy () =
+    let cmd =
+      Printf.sprintf "cd %s && XDG_CACHE_HOME=%s %s main.wand 2>&1"
+        (Filename.quote d) (Filename.quote c) (Filename.quote copy)
+    in
+    let ic = Unix.open_process_in cmd in
+    let out = String.trim (In_channel.input_all ic) in
+    ignore (Unix.close_process_in ic);
+    out
+  in
+  let count () =
+    let wand_dir = Filename.concat c "wand" in
+    if Sys.file_exists wand_dir then Array.length (Sys.readdir wand_dir) else 0
+  in
+  Alcotest.(check string) "first run" "42" (run_copy ());
+  let after_first = count () in
+  Alcotest.(check bool) "wrote something" true (after_first > 0);
+  Alcotest.(check string) "second run, same binary" "42" (run_copy ());
+  Alcotest.(check int) "reused its entries" after_first (count ());
+  (* Stand in for a rebuild: same source, a binary that is not the same file. *)
+  ignore (Sys.command (Printf.sprintf "touch -t 203012312359 %s" (Filename.quote copy)));
+  Alcotest.(check string) "after the binary changed" "42" (run_copy ());
+  Alcotest.(check bool) "wrote fresh entries rather than reading the old ones"
+    true (count () > after_first)
+
 let () =
   Alcotest.run "Compile cache" [
     "between runs", [
@@ -162,5 +205,6 @@ let () =
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
       Alcotest.test_case "where it lives"          `Quick test_cache_home_layers;
+      Alcotest.test_case "a rebuilt binary"        `Quick test_a_rebuilt_binary_invalidates_entries;
     ];
   ]

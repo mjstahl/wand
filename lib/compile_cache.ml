@@ -94,10 +94,29 @@ let ensure_dir () =
      with Unix.Unix_error _ -> ());
   d
 
+(* A module's types come from its source *and* from the binary that inferred
+   them: change a builtin's signature and every cached entry is wrong while
+   every hash still matches. That is not hypothetical -- loosening
+   `par_each` left `Par.each` reporting its old type until the cache was
+   turned off, which reads exactly like the change not having worked.
+
+   The binary's identity is its version, plus its size and mtime, which move
+   on every rebuild during development. `Sys.executable_name` can be wrong
+   about where it is; that costs a cache miss, never a stale hit. *)
+let binary_identity =
+  lazy
+    (match Unix.stat Sys.executable_name with
+     | st ->
+       Printf.sprintf "%s:%d:%.0f" Version.value st.Unix.st_size
+         st.Unix.st_mtime
+     | exception _ -> Version.value)
+
 let key ~source ~deps =
   Digest.to_hex
     (Digest.string
-       (String.concat "\000" (format_version :: source :: List.sort compare deps)))
+       (String.concat "\000"
+          (format_version :: Lazy.force binary_identity :: source
+          :: List.sort compare deps)))
 
 let path_for key = Filename.concat (dir ()) (key ^ ".wandc")
 

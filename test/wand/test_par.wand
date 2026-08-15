@@ -54,7 +54,7 @@ test "each visits every element" (fn t ->
    the one thing a rehearsal must not allow. *)
 test "a worker's commands are seen by a handler" (fn t ->
   let cmds =
-    Test.shell_calls (fn () -> Par.each 3 (fn n -> let _ = $(echo hi) in ()) [1, 2])
+    Test.shell_calls (fn () -> Par.each 3 (fn n -> $(echo hi)) [1, 2])
   in
   t.eq 2 (List.length cmds))
 
@@ -80,7 +80,7 @@ test "many watched workers, several effects each" (fn t ->
         4
         (fn n -> with FS.temp_dir "wand_par_race_" as d ->
         let () = FS.write_file! (Path.of_string "${Path.to_string d}/${n}.txt") "x" in
-        let _ = $(echo hi) in ())
+        $(echo hi))
         [1, 2, 3, 4])
   in
   let counts = List.map (fn r -> List.length r) (List.map round [1, 2, 3, 4, 5, 6, 7, 8]) in

@@ -81,9 +81,14 @@ let drop_while _ [] = []
 let drop_while p [h : t] = if p h then drop_while p t else h : t
 
 (** Call f on each element, for side effects. Takes the element, as `map`
-    and `filter` do; pair it with `indexed` when the position is wanted. *)
+    and `filter` do; pair it with `indexed` when the position is wanted.
+    
+    Whatever f returns is dropped. Most commands run for their effect
+    produce something anyway -- `$()` hands back stdout whether or not the
+    command wrote any -- and requiring Unit taxed every one of those call
+    sites with a `let _ = ... in ()` that said nothing. *)
 let each _ [] = ()
-let each f [h : t] = let () = f h in each f t
+let each f [h : t] = let _ = f h in each f t
 
 (** Pair each element with its position, counting from zero. *)
 let indexed xs =

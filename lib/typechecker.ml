@@ -1760,9 +1760,13 @@ let stdlib_type_env : env = [
                let e = Effect_row.fresh_row () in
                generalize [] (TInt @-> (TFun (a, b, e)
                  @-> TFun (TList a, TList (TResult (TString, b)), e))));
+  (* Like `List.each`, what the worker returns is dropped: a command run for
+     its effect still hands back stdout, and demanding Unit taxed every such
+     call site with a discard that said nothing. *)
   ("par_each", let a = fresh () in
+               let b = fresh () in
                let e = Effect_row.fresh_row () in
-               generalize [] (TInt @-> (TFun (a, TUnit, e)
+               generalize [] (TInt @-> (TFun (a, b, e)
                  @-> TFun (TList a, TUnit, e))));
   (* TOML primitives *)
   ("toml_parse",        generalize [] ((TString @-> TResult (TString, TToml))));
