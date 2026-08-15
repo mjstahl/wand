@@ -711,7 +711,15 @@ let rec eval (env : env) (e : expr) : value =
        abandoned region is torn down deliberately rather than dropped. *)
     (match eval env resource with
      | VResource (acquire, release) ->
-       let held = apply acquire VUnit in
+       (* An acquire runs to the end for the same reason a release does. The
+          resource becomes real partway through it -- the file exists, the
+          lock is taken -- and only the value it returns lets the release
+          reach that resource. An interrupt taken between those two points
+          leaves something held that nothing can now give back, which is the
+          leak this bracket exists to prevent. Deferred, the interrupt is
+          taken on the first step of the body instead, with the release
+          already installed. *)
+       let held = defer_interrupts (fun () -> apply acquire VUnit) in
        Fun.protect
          (* A release runs to the end even while the program is stopping.
             It is ordinary evaluation, so without this the interrupt would

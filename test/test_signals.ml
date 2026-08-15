@@ -78,6 +78,43 @@ let test_sigterm_releases () =
   Alcotest.(check bool) "the directory is gone" false present;
   Alcotest.(check int) "exits 143" 143 code
 
+(* The interrupt landing inside `acquire`, rather than in the body. The
+   release is installed only once acquire returns, so a resource that had
+   already become real -- the file written, the lock taken -- had nothing to
+   give it back, and an interrupt in that window left it held. The window is
+   small, which is what made this a demo that passed everywhere except a
+   loaded machine.
+
+   The marker is written after the resource exists and before the work that
+   follows it, so the parent signals while acquire is still running. The
+   work is pure: a command would end by another route, and this is the one
+   that check_interrupt governs. *)
+let acquire_script marker =
+  Printf.sprintf
+    {|import FS
+import List
+import Path
+import Resource
+let held = "%s.held"
+let r =
+  let acquire = fn () ->
+    let () = FS.write_file! (Path.of_string held) "x" in
+    let () = FS.write_file! (Path.of_string "%s") held in
+    let _ = List.length (List.range 0 500000) in
+    held
+  in
+  let release = fn h -> FS.delete! (Path.of_string h) in
+  Resource.make acquire release
+with r as h -> h|}
+    marker marker
+
+let test_interrupt_during_acquire_releases () =
+  let marker = Filename.temp_file "wand_sig_m" "" in
+  Sys.remove marker;
+  let (code, present) = interrupted_run ~signal:Sys.sigint ~marker (acquire_script marker) in
+  Alcotest.(check bool) "what acquire had taken is given back" false present;
+  Alcotest.(check int) "exits 130" 130 code
+
 (* Nothing survives SIGKILL. Stated as a test so the limit is recorded
    rather than discovered. *)
 let test_sigkill_cannot_release () =
@@ -194,6 +231,7 @@ let () =
       Alcotest.test_case "SIGTERM" `Quick test_sigterm_releases;
       Alcotest.test_case "exit n"  `Quick test_exit_releases;
       Alcotest.test_case "Par workers" `Quick test_par_workers_release;
+      Alcotest.test_case "during acquire" `Quick test_interrupt_during_acquire_releases;
     ];
     "the limit", [
       Alcotest.test_case "SIGKILL cannot" `Quick test_sigkill_cannot_release;
