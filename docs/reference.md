@@ -1555,8 +1555,16 @@ written there.)
 
 `map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
 `head`, `head!`, `tail`, `tail!`, `empty?`, `any`, `all`, `find`, `zip`, `take`, `drop`,
-`take_while`, `drop_while`, `each`, `sort`, `sort_by`, `unique`, `range`,
-`flatten`, `concat`, `get`, `get!`
+`take_while`, `drop_while`, `each`, `indexed`, `sort`, `sort_by`, `unique`,
+`range`, `flatten`, `concat`, `get`, `get!`
+
+`each` takes the element, as `map` and `filter` do, and returns `Unit` — it
+is for side effects. When the position is wanted, `indexed` supplies it:
+
+```
+files |> List.each (fn p -> FS.copy! p (Path.join dest (Path.basename p)))
+files |> List.indexed |> List.each (fn (i, p) -> IO.println "${i}: ${p}")
+```
 
 ### `String`
 

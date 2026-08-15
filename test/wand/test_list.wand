@@ -1,5 +1,9 @@
+uses {FS.Read, FS.Write, Raise}
+
 let [test] = import Test
+import FS
 import List
+import Path
 import String
 
 (* ── sort ──────────────────────────────────────────────────────────────── *)
@@ -91,3 +95,44 @@ test "drop_while drops through first miss" (fn t ->
 test "drop_while empty list" (fn t -> t.eq [] (List.drop_while (fn x -> x < 3) []))
 test "drop_while all match" (fn t -> t.eq [] (List.drop_while (fn x -> x < 10) [1, 2]))
 test "drop_while no match" (fn t -> t.eq [1, 2] (List.drop_while (fn x -> x < 0) [1, 2]))
+
+(* ── each ──────────────────────────────────────────────────────────────── *)
+
+(* `each` takes the element, as `map` and `filter` do. It used to take
+   `(index, element)`, which meant every call site wanting a side effect
+   opened with `fn (_, x) ->` -- and every one in the corpus discarded the
+   index. Tested through a real side effect, which also pins the order. *)
+test "each sees every element, in order" (fn t ->
+  with FS.temp_dir "list_each_" as d ->
+    let log = Path.join d (Path.of_string "log") in
+    let () = FS.write_file! log "" in
+    let () = List.each (fn x -> FS.append! log "${x}\n") ["a", "b", "c"] in
+    t.eq "a\nb\nc\n" (FS.read_file! log))
+
+test "each on an empty list does nothing" (fn t ->
+  with FS.temp_dir "list_each_empty_" as d ->
+    let log = Path.join d (Path.of_string "log") in
+    let () = FS.write_file! log "" in
+    let empty : List String = [] in
+    let () = List.each (fn x -> FS.append! log x) empty in
+    t.eq "" (FS.read_file! log))
+
+(* ── indexed ───────────────────────────────────────────────────────────── *)
+
+test "indexed counts from zero" (fn t ->
+  t.eq [(0, "a"), (1, "b"), (2, "c")] (List.indexed ["a", "b", "c"]))
+test "indexed empty" (fn t ->
+  let empty : List Int = [] in t.eq [] (List.indexed empty))
+
+(* The position, when it is wanted, is one call away rather than in every
+   signature that never uses it. *)
+test "indexed pairs with each" (fn t ->
+  with FS.temp_dir "list_indexed_" as d ->
+    let log = Path.join d (Path.of_string "log") in
+    let () = FS.write_file! log "" in
+    let () =
+      ["a", "b"]
+      |> List.indexed
+      |> List.each (fn (i, x) -> FS.append! log "${i}:${x} ")
+    in
+    t.eq "0:a 1:b " (FS.read_file! log))

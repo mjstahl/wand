@@ -80,10 +80,15 @@ let take_while p [h : t] = if p h then h : take_while p t else []
 let drop_while _ [] = []
 let drop_while p [h : t] = if p h then drop_while p t else h : t
 
-(** Call f (index, element) for each element, for side effects. *)
-let each f xs =
-  let go _ [] = ()
-  go i [h : t] = let () = f (i, h) in go (i + 1) t
+(** Call f on each element, for side effects. Takes the element, as `map`
+    and `filter` do; pair it with `indexed` when the position is wanted. *)
+let each _ [] = ()
+let each f [h : t] = let () = f h in each f t
+
+(** Pair each element with its position, counting from zero. *)
+let indexed xs =
+  let go _ [] = []
+  go i [h : t] = (i, h) : go (i + 1) t
   in go 0 xs
 
 (** Return the element at index n, or None if out of bounds. *)

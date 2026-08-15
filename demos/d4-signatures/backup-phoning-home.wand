@@ -10,4 +10,4 @@ let backup_one! dest p =
 
 let backup_all! dest =
   let () = FS.mkdir! (Path.of_string dest) in
-  List.each (fn (_, p) -> backup_one! dest p) (FS.glob *.wand)
+  List.each (fn p -> backup_one! dest p) (FS.glob *.wand)

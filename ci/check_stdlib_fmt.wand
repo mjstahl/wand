@@ -27,14 +27,14 @@ let sources = FS.glob_in *.wand (Path.of_string "stdlib")
 let copy_of dir src = Path.join dir (Path.basename src)
 
 let copy_into! dir =
-  sources |> List.each (fn (_, src) -> FS.copy! src (copy_of dir src))
+  sources |> List.each (fn src -> FS.copy! src (copy_of dir src))
 
 (* One file per call rather than a glob: an interpolated value is escaped
    before it reaches the shell, so `${dir}/*.wand` would arrive as a literal
    asterisk and format nothing at all. *)
 let format_in! dir =
   sources
-  |> List.each (fn (_, src) -> let _ = $(${wand} fmt ${copy_of dir src}) in ())
+  |> List.each (fn src -> let _ = $(${wand} fmt ${copy_of dir src}) in ())
 
 (* A file that changed is one `wand fmt` would rewrite, which means the tree
    checked in is not what the formatter produces. Every one of them is
@@ -46,7 +46,7 @@ let rewritten! dir =
 
 let report changed =
   let () = IO.println_err "wand fmt would rewrite these files:" in
-  let () = changed |> List.each (fn (_, p) -> IO.println_err "  ${Path.to_string p}") in
+  let () = changed |> List.each (fn p -> IO.println_err "  ${Path.to_string p}") in
   Proc.exit 1
 
 let main! () =

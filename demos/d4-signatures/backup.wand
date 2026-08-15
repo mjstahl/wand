@@ -8,4 +8,4 @@ let backup_one! dest p = FS.copy! p (Path.join (Path.of_string dest) (Path.basen
 
 let backup_all! dest =
   let () = FS.mkdir! (Path.of_string dest) in
-  List.each (fn (_, p) -> backup_one! dest p) (FS.glob *.wand)
+  List.each (fn p -> backup_one! dest p) (FS.glob *.wand)
