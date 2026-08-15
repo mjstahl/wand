@@ -151,12 +151,47 @@ let test_every_export_is_documented () =
       (List.length missing)
       (String.concat "\n  " missing)
 
+let contains haystack needle =
+  let hn = String.length haystack and nn = String.length needle in
+  nn <= hn
+  && (let found = ref false in
+      for i = 0 to hn - nn do
+        if String.sub haystack i nn = needle then found := true
+      done;
+      !found)
+
+(* A section nothing links to is a section nobody finds. `Args` had a full
+   page of its own and was the one module the contents list left out, so it
+   read as missing however complete it was. *)
+
+let test_every_module_is_listed_in_contents () =
+  let doc =
+    let ic = open_in reference_path in
+    let s = In_channel.input_all ic in
+    close_in ic; s
+  in
+  (* The contents links each module as `[Name](#name)`. *)
+  let missing =
+    List.filter
+      (fun m ->
+        let link = Printf.sprintf "[%s](#%s)" m (String.lowercase_ascii m) in
+        not (contains doc link))
+      Wand.Typechecker.stdlib_module_names
+  in
+  if missing <> [] then
+    Alcotest.failf
+      "the contents list does not link %d standard library module(s):\n  %s"
+      (List.length missing)
+      (String.concat "\n  " missing)
+
 let () =
   Alcotest.run "reference signatures"
     [ ( "stdlib",
         [ Alcotest.test_case "match the binary" `Quick
             test_documented_signatures_are_real;
           Alcotest.test_case "cover every export" `Quick
-            test_every_export_is_documented
+            test_every_export_is_documented;
+          Alcotest.test_case "list every module" `Quick
+            test_every_module_is_listed_in_contents
         ] )
     ]
