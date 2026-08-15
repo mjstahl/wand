@@ -58,7 +58,9 @@ jobs:
               opam exec -- dune build --profile static bin/wand.exe
               # Release binaries ship without debug info: it is a third of
               # the file and nothing reads it from a downloaded artifact.
-              sudo strip _build/default/bin/wand.exe
+              # Debug sections only -- a full strip renumbers sections and
+              # leaves a static-pie binary that starts and prints nothing.
+              sudo strip --strip-debug _build/default/bin/wand.exe
               # Handing the tree back, so the steps after this one -- and the
               # checkout action cleaning up after itself -- still own it.
               sudo chown -R "$HOST_UID:$HOST_GID" /src
@@ -103,11 +105,12 @@ jobs:
           # Each check reports what it got. A bare `test` that fails says
           # nothing, which costs a whole CI round trip to learn one string.
           check() {
-            got=$("$BIN" e "$1" 2>&1) || true
+            got=$("$BIN" e "$1" 2>&1) && rc=0 || rc=$?
             if [ "$got" != "$2" ]; then
               echo "wand e '$1'" >&2
               echo "  expected: $2" >&2
               echo "  got:      $got" >&2
+              echo "  exit:     $rc" >&2
               exit 1
             fi
             echo "wand e '$1' -> $got"
