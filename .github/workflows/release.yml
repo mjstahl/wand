@@ -49,12 +49,19 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/src" -w /src \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             ocaml/opam:alpine-ocaml-5.4 sh -c '
               set -eu
               sudo chown -R opam:opam /src
               sudo apk add --no-cache musl-dev
               opam install . --deps-only
               opam exec -- dune build --profile static bin/wand.exe
+              # Release binaries ship without debug info: it is a third of
+              # the file and nothing reads it from a downloaded artifact.
+              sudo strip _build/default/bin/wand.exe
+              # Handing the tree back, so the steps after this one -- and the
+              # checkout action cleaning up after itself -- still own it.
+              sudo chown -R "$HOST_UID:$HOST_GID" /src
             '
 
       - name: Set up OCaml (macOS)
@@ -82,8 +89,10 @@ jobs:
             # A dynamically linked binary would pass everything below on this
             # runner and fail on the user's machine. Read from `file` rather
             # than `ldd`, whose wording for a static binary differs between
-            # the glibc host and the musl build.
-            file "$BIN" | grep -q "statically linked" || {
+            # the glibc host and the musl build. musl links these as PIE, so
+            # `file` says "static-pie linked" -- still static, and still what
+            # this is checking for.
+            file "$BIN" | grep -qE "statically linked|static-pie linked" || {
               echo "expected a static binary" >&2
               exit 1
             }
