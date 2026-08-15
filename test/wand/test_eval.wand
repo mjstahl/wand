@@ -27,6 +27,27 @@ test "div" (fn t -> t.eq 5 (10 / 2))
 test "neg" (fn t -> t.eq (-7) (-7))
 test "prec" (fn t -> t.eq 14 (2 + 3 * 4))
 
+(* ── Overflow ──────────────────────────────────────────────────────────── *)
+
+(* Int is a machine word, so these have no representable result. Each used
+   to wrap silently and hand back a number that looked like an answer. *)
+
+let max_int = 4611686018427387903
+let min_int = (-4611686018427387903 - 1)
+
+test "add overflows" (fn t -> t.raises (fn () -> max_int + 1))
+test "sub overflows" (fn t -> t.raises (fn () -> min_int - 1))
+test "mul overflows" (fn t -> t.raises (fn () -> max_int * 2))
+test "div overflows" (fn t -> t.raises (fn () -> min_int / -1))
+test "neg overflows" (fn t -> t.raises (fn () -> 0 - min_int))
+
+(* -1 * min_int wraps to min_int, and dividing that back by -1 wraps to
+   min_int again -- so checking the product by division alone misses it. *)
+test "mul overflows at -1" (fn t -> t.raises (fn () -> min_int * -1))
+
+test "arithmetic up to the boundary is unchanged" (fn t ->
+  t.eq max_int (max_int - 1 + 1))
+
 test "eq true" (fn t -> t.eq true (1 == 1))
 test "eq false" (fn t -> t.eq false (1 == 2))
 test "neq" (fn t -> t.eq true (1 != 2))

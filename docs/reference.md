@@ -73,6 +73,21 @@ true        -- Bool
 ()          -- Unit
 ```
 
+`Int` is a machine word, holding `-4611686018427387904` to
+`4611686018427387903`. A literal outside that range is a lex error, and
+arithmetic whose result falls outside it is a runtime error rather than a
+wrapped-around value:
+
+```
+4611686018427387903 + 1
+-- runtime error: integer overflow in '+':
+--   Int holds -4611686018427387904 to 4611686018427387903
+```
+
+Like division by zero, this is a runtime error and not the `Raise` effect —
+any `+` can overflow, so tracking it would put `Raise` in the row of every
+function that adds two numbers.
+
 String interpolation:
 
 ```

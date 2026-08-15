@@ -200,6 +200,44 @@ let rec show_value = function
 
 exception EvalError of string
 
+(* ── Checked Int arithmetic ───────────────────────────────────────────────── *)
+
+(* Int is a machine word, 63 bits on a 64-bit platform, and wrapping past its
+   range produced a plausible-looking wrong number rather than a complaint:
+   the linear `fib 91` came back negative and every later term stayed wrong
+   without anything saying so. Arithmetic whose result Int cannot represent
+   now fails the way `1 / 0` does.
+
+   A runtime error, not the Raise effect. Overflow is possible in any `+`, so
+   making it an effect would put Raise in the row of every function that adds
+   two numbers, which says nothing about that function -- the same reason
+   division by zero is a runtime error today. *)
+let overflow op =
+  raise (EvalError (Printf.sprintf
+    "integer overflow in '%s': Int holds %d to %d" op min_int max_int))
+
+(* Two operands of one sign whose result has the other went past the end. *)
+let add_ovf x y =
+  let s = x + y in
+  if (x >= 0) = (y >= 0) && (s >= 0) <> (x >= 0) then overflow "+" else s
+
+let sub_ovf x y =
+  let d = x - y in
+  if (x >= 0) <> (y >= 0) && (d >= 0) <> (x >= 0) then overflow "-" else d
+
+(* Dividing the product back gives a different operand when it wrapped.
+   `-1 * min_int` is the exception: it wraps to min_int, and dividing that
+   by -1 wraps straight back, so the check has to name it. *)
+let mul_ovf x y =
+  let p = x * y in
+  if x <> 0 && (p / x <> y || (x = -1 && y = min_int)) then overflow "*"
+  else p
+
+(* min_int / -1 is the one quotient with no representation. *)
+let div_ovf x y = if x = min_int && y = -1 then overflow "/" else x / y
+
+let neg_ovf x = if x = min_int then overflow "-" else -x
+
 (* ── Algebraic effects ────────────────────────────────────────────────────── *)
 
 type _ Effect.t += WandEffect : string * value -> value Effect.t
@@ -430,7 +468,7 @@ let rec eval (env : env) (e : expr) : value =
     raise (EvalError "cannot evaluate a hole")
   | UnOp ("-", e) ->
     (match eval env e with
-     | VInt n   -> VInt (-n)
+     | VInt n   -> VInt (neg_ovf n)
      | VFloat f -> VFloat (-.f)
      | _        -> raise (EvalError "'-' requires a number"))
   | UnOp ("!", e) ->
@@ -743,23 +781,23 @@ and eval_binop (env : env) op a b : value =
   match op with
   | "+"  ->
     (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VInt (x + y)
+     | VInt x,   VInt y   -> VInt (add_ovf x y)
      | VFloat x, VFloat y -> VFloat (x +. y)
      | _ -> raise (EvalError "'+' requires matching numeric types"))
   | "-"  ->
     (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VInt (x - y)
+     | VInt x,   VInt y   -> VInt (sub_ovf x y)
      | VFloat x, VFloat y -> VFloat (x -. y)
      | _ -> raise (EvalError "'-' requires matching numeric types"))
   | "*"  ->
     (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VInt (x * y)
+     | VInt x,   VInt y   -> VInt (mul_ovf x y)
      | VFloat x, VFloat y -> VFloat (x *. y)
      | _ -> raise (EvalError "'*' requires matching numeric types"))
   | "/"  ->
     (match eval env a, eval env b with
      | VInt _,   VInt 0   -> raise (EvalError "division by zero")
-     | VInt x,   VInt y   -> VInt (x / y)
+     | VInt x,   VInt y   -> VInt (div_ovf x y)
      | VFloat x, VFloat y -> VFloat (x /. y)
      | _ -> raise (EvalError "'/' requires matching numeric types"))
   | "%"  ->
