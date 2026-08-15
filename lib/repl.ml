@@ -68,7 +68,7 @@ let special_commands =
    ":load"; ":l"; ":reload"; ":r"; ":env"; ":clear"; ":reset";
    ":exit"; ":x"; ":quit"; ":q"; ":help"; ":h"]
 
-let builtin_names = ["print"; "println"; "exit"; "Ok"; "Error"]
+let builtin_names = ["print"; "println"; "Ok"; "Error"]
 
 let is_ident_char = function
   | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
