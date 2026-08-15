@@ -1750,6 +1750,10 @@ if broken? then Proc.exit 1 else continue! ()
 
 `get`, `get!`, `set`, `clear`, `all`, `args`, `home`, `user`, `read`, `load`
 
+`args` is the arguments the script was given, without the program name:
+`wand deploy.wand --port 8080` gives `["--port", "8080"]`. See
+[`Args`](#args) for reading them with a decoder.
+
 ### `CSV`
 
 `parse`, `parse_with`, `stringify`, `stringify_with`, `read_file`, `read_file!`,
@@ -1904,13 +1908,59 @@ let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 
 ```
 JSON.decode : Decoder 'a -> JSON -> Result String 'a
+TOML.decode : Decoder 'a -> TOML -> Result String 'a
+Args.parse  : Decoder 'a -> List String -> Result String 'a
 ```
 
 See [Decoders](#decoders).
 
+### `Args`
+
+`parse`, `parse_with`
+
+A command line is another untyped boundary, so it is read the same way as
+any other: argv becomes a document and a decoder reads it. There are no
+combinators here — every one of `Decode`'s already applies, including the
+domain readers and the error that names the field.
+
+```
+type Opts (port : Port, timeout : Duration, config : Path)
+
+Args.parse Opts.decoder (Env.args ())
+-- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
+-- Error .port: expected Port, got "http"
+```
+
+`--port 8080` and `--port=8080` are the same thing; with `=`, only the
+first one splits, so a value may contain more. Every flag is assumed to
+take a value, because that is the one fact a list of strings cannot reveal:
+without it, `--message -5` and a flag followed by a positional argument are
+the same shape. Name the flags that do not:
+
+```
+Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+```
+
+Those become `true` when present and are absent otherwise, so a `Bool`
+field wants `Decode.optional` or a default. A flag with nothing after it is
+an error — `--config expects a value`.
+
+Only `--name` is a flag. A single dash is not, which keeps `-5` an
+argument; short flags do not exist. Positional arguments arrive under `_`:
+
+```
+Args.parse (Decode.field "_" (Decode.list Decode.string)) (Env.args ())
+```
+
+`Env.args ()` is already the arguments alone — there is no program name at
+the front to skip, as there would be with bash's `$0` or C's `argv[0]`.
+
 ### `Test`
 
 `test`, `with_shell`, `shell_calls`, `without_writes`, `writes`
+
+The handle a test block receives carries `ok`, `not_ok`, `eq`, `not_eq`,
+`raises` and `fail`.
 
 The module a test file imports. See [Testing](#testing).
 
@@ -1963,6 +2013,18 @@ test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 
   Either way a failure reads `expected 4, got 5`, with `got` naming the code
   under test.
 - `t.ok cond` — pass if `cond` is `true`.
+- `t.fail why` — fail, saying why. For the branch where the test itself has
+  gone wrong rather than the value being different: an unexpected `Error`,
+  a pattern that should not have matched, a setup step that did not hold.
+
+  ```
+  match Args.parse Opts.decoder args with
+  | Ok o    -> t.eq :8080 o.port
+  | Error e -> t.fail e
+  ```
+
+  A failure reads `label: why`, so the reason travels with the test name
+  rather than being compared against something it was never meant to equal.
 - `t.raises thunk` — pass if calling `thunk ()` raises. `thunk` must be a
   zero-argument function (`fn () -> ...`), not the expression directly —
   wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)` would

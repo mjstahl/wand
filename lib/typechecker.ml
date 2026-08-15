@@ -9,7 +9,7 @@ open Ast
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
     "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode";
-    "Shell"; "Test" ]
+    "Shell"; "Test"; "Args" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 

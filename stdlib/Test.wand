@@ -11,7 +11,8 @@ type Testing 'a 'b = Testing(
   not_ok: (Bool -> TestOutcome),
   eq: ('a -> 'a -> TestOutcome),
   not_eq: ('a -> 'a -> TestOutcome),
-  raises: ((Unit -> 'b) -> TestOutcome)
+  raises: ((Unit -> 'b) -> TestOutcome),
+  fail: (String -> TestOutcome)
 )
 
 (** Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/
@@ -37,7 +38,8 @@ let test label f =
       else Fail "${label}: expected ${actual} to differ from ${expected}",
       raises = fn thunk -> match try thunk () with
       | Ok _ -> Fail "${label}: expected to raise, but completed normally"
-      | Error _ -> Pass label
+      | Error _ -> Pass label,
+      fail = fn why -> Fail "${label}: ${why}"
     )
   in
   f t
