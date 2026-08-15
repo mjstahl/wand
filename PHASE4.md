@@ -260,6 +260,41 @@ action takes pre-`0.1.1` releases at their word instead of failing them.
 That branch is exercised on every run: the workflow installs `0.1.0` after
 `latest`, which also proves the tool-cache path.
 
+## Found by writing a wand script
+
+`ci/check_stdlib_fmt.wand` is 60 lines and took ten corrections to write.
+Every one was a real mistake, so none of these are complaints -- but the
+errors sorted themselves cleanly. **Everything about types and effects was
+excellent; everything about the shell boundary and stdlib ergonomics was
+poor.** That is where the next round of polish belongs, and it is worth
+noting that the manifest error not only named the offending function but
+wrote the corrected `uses` line to paste.
+
+None of these are Phase 4 work. They are recorded because the next person
+to write a wand script will meet them in the same order.
+
+| | |
+|---|---|
+| **Shell interpolation eats what follows** | `$(${wand} fmt ${dir}/*.wand)` is a type error -- `cannot unify Path with (Int, 'a)` -- because the `/` and `*` after the interpolation parse as arithmetic. Past that it still would not work: interpolated values are escaped, so the shell receives a literal asterisk and formats nothing. The escaping is right and the parse is consistent; together they mean the obvious way to pass a glob fails twice, the second time in silence. |
+| **`List.each` passes tuples, and says so nowhere** | `each f xs` calls `f (index, value)` while `map` and `filter` pass the element. Writing `fn src ->` gets `cannot unify Path with (Int, 'a)`, which points at neither the lambda nor the tuple. Three neighbouring functions with two conventions is the real problem; the error is the symptom. |
+| **The reference lists names, not signatures** | `### List` is a bare list of 27 names. Learning that `each` is index-passing meant reading `stdlib/List.wand`. Signatures in the module lists would have prevented the item above. |
+| **`<>` says `unexpected token: >`** | The operator is `!=`. The message could say so; nothing else in the language would make a reader guess it. |
+| **No `ignore`** | Discarding a `$()` result inside a lambda takes `let _ = ... in ()`, which is noise at exactly the point where a script is doing something shell-shaped. |
+
+The bash step this replaced was 8 lines against 60. What the length buys is a
+manifest, guaranteed cleanup through `with FS.temp_dir`, a report naming
+every file rather than a `diff -r` dump, and three mistakes refused before
+anything ran. Worth it here; not obviously worth it everywhere, and saying
+otherwise would be a claim the corpus does not support yet.
+
+**And it found a crash.** `IO.println_err` killed the interpreter with an
+unhandled OCaml effect, along with `IO.print_err` and `IO.read_line`.
+`test/wand/test_io.wand` covers all three and passed throughout, because a
+test that installs `handle ... with | IO!println_err _ k -> k ()` exercises
+its own handler rather than the one a script gets. Running a script, rather
+than testing one, is what found it -- which is an argument for more
+wand-scripted CI rather than less.
+
 ## P4.6 — The positioning post
 
 Anchored on D5: *AI writes it, a human audits the manifest, CI typechecks it,
