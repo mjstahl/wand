@@ -7,6 +7,18 @@
 ; a built binary carries yesterday's stdlib while every test still passes,
 ; which `test_stdlib_embed.ml` is there to catch.
 
+; The version, from the one file that holds it. `make release` refuses to tag
+; unless VERSION matches the tag, so a binary cannot claim a version that was
+; never released.
+
+(rule
+ (targets version.ml)
+ (deps %{workspace_root}/VERSION %{workspace_root}/tools/gen_version.exe)
+ (action
+  (with-stdout-to
+   version.ml
+   (run %{workspace_root}/tools/gen_version.exe %{workspace_root}/VERSION))))
+
 (rule
  (targets stdlib_embed.ml)
  (deps

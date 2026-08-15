@@ -14,6 +14,7 @@ let usage () =
   print_endline "  fmt, format <file>  Format a .wand file in place";
   print_endline "  test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
   print_endline "  h, help [cmd]    Show this help, or help for a command";
+  print_endline "  version          Print the version and exit (--version, -V)";
   print_endline "";
   print_endline "Running a script:";
   print_endline "  --dry-run        Report what the script would change, without doing it";
@@ -185,6 +186,10 @@ let () =
   let args = Array.to_list Sys.argv |> List.tl in
   match args with
   | [] | ["--help"] | ["-h"] -> usage ()
+  (* Printed bare, as `wand 0.1.0`, so an installer can compare it to what it
+     meant to install without parsing prose. *)
+  | ["--version"] | ["-V"] | ["version"] ->
+    print_endline ("wand " ^ Wand.Version.value)
   | sub :: rest when sub = "--dry-run" || sub = "--trace" ->
     (* The mode can come first, which reads better: wand --dry-run deploy.wand *)
     (match rest with

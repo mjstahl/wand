@@ -47,6 +47,9 @@ release:
 	@test "$$(uname -s)-$$(uname -m)" = "Darwin-x86_64" || \
 	  { echo "the $(TARGET) archive has to be built on an Intel Mac; this is $$(uname -s)-$$(uname -m)"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty; commit before releasing"; exit 1; }
+	@test "$$(cat VERSION)" = "$(VERSION)" || \
+	  { echo "VERSION says $$(cat VERSION) but you asked to release $(VERSION);"; \
+	    echo "update VERSION and commit it, so \`wand --version\` matches the tag"; exit 1; }
 	dune build
 	dune test
 	_build/default/bin/wand.exe test test/wand

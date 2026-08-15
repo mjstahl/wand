@@ -123,6 +123,11 @@
  (libraries wand alcotest))
 
 (test
+ (name test_version)
+ (deps %{workspace_root}/VERSION %{exe:../bin/wand.exe})
+ (libraries wand alcotest unix))
+
+(test
  (name test_stdlib_embed)
  (deps
   (source_tree ../stdlib)
