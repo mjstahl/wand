@@ -7,7 +7,7 @@ source "$(dirname "$0")/../assert.sh"
 D=demos/d6-unplugged
 
 echo "== the script under test =="
-sed -n '8,13p' "$D/deploy.wand" | sed 's/^/  /'
+sed -n '9,14p' "$D/deploy.wand" | sed 's/^/  /'
 
 echo
 printf '  deploy! : '

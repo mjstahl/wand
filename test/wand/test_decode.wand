@@ -1,5 +1,3 @@
-uses {IO}
-
 let [test] = import Test
 import Decode
 import JSON

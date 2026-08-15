@@ -169,6 +169,54 @@ let test_stdlib_is_clean () =
       end
     ) (Sys.readdir dir)
 
+(* Everything else written in wand: the tests, the demos, the examples, and
+   wand's own CI script. The stdlib check above covered the library only, so
+   a manifest permitting what a test file did not use, or a function that
+   could raise without saying so, sat there warning and nothing failed. Eleven
+   of them had, across files nobody had linted since writing them.
+
+   The exceptions are demo files that are supposed to be wrong: a demo whose
+   point is an error has to contain one, and each of these is asserted by its
+   own run.sh. *)
+let expected_findings =
+  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2") ]
+
+let expected_type_errors =
+  [ (* D1: the same script bash would run, which wand will not. *)
+    "unsafe.wand";
+    (* D4: a manifest narrower than the code, which is the demo. *)
+    "backup-bounded.wand" ]
+
+let rec wand_files dir =
+  Sys.readdir dir |> Array.to_list
+  |> List.concat_map (fun entry ->
+       let path = Filename.concat dir entry in
+       if Sys.is_directory path then wand_files path
+       else if Filename.check_suffix entry ".wand" then [ path ]
+       else [])
+
+let test_corpus_is_clean () =
+  let roots = List.filter Sys.file_exists [ "wand"; "../demos"; "../examples"; "../ci" ] in
+  let files = List.concat_map wand_files roots in
+  Alcotest.(check bool) "found files to lint" true (List.length files > 20);
+  List.iter
+    (fun path ->
+      let name = Filename.basename path in
+      match Runner.typecheck_file path with
+      | Error _ when List.mem name expected_type_errors -> ()
+      | Error m -> Alcotest.failf "%s failed to typecheck: %s" path m
+      | Ok (_, _, findings) ->
+        let unexpected =
+          List.filter
+            (fun (f : Lint.finding) ->
+              not (List.mem (name, Lint_rules.code f.Lint.rule) expected_findings))
+            findings
+        in
+        if unexpected <> [] then
+          Alcotest.failf "%s has lint findings:\n%s" path
+            (String.concat "\n" (List.map Lint.to_text unexpected)))
+    files
+
 (* The same modules through the path a person uses. `lint_module_source`
    above is the library call; this is `wand t --file`, which has to reach
    them too -- a module body calls the raw builtins, and checked as a script
@@ -289,6 +337,7 @@ let () =
     ];
     "stdlib", [
       Alcotest.test_case "lints clean" `Quick test_stdlib_is_clean;
+      Alcotest.test_case "the corpus lints clean" `Quick test_corpus_is_clean;
       Alcotest.test_case "checks through the tool" `Quick test_stdlib_typechecks_through_the_tool;
       Alcotest.test_case "scripts cannot call builtins" `Quick test_a_script_cannot_call_builtins;
     ];

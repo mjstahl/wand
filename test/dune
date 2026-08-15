@@ -106,6 +106,10 @@
  (name test_lint)
  (deps
   (source_tree ../stdlib)
+  (source_tree wand)
+  (source_tree ../demos)
+  (source_tree ../examples)
+  (source_tree ../ci)
   ../docs/reference.md)
  (libraries wand alcotest))
 

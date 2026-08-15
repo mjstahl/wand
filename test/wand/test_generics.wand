@@ -29,9 +29,9 @@ test "extract value" (fn t -> t.eq 42 (get_or 0 (OSome 42)))
 
 (* ── No cross-instantiation collision ─────────────────────────────────── *)
 
-let unbox (Box x) = x
+let unbox! (Box x) = x
 test "same generic type at two different type args" (fn t ->
-  t.eq (1, "s") (unbox (Box 1), unbox (Box "s")))
+  t.eq (1, "s") (unbox! (Box 1), unbox! (Box "s")))
 
 (* ── Negative cases ────────────────────────────────────────────────────── *)
 

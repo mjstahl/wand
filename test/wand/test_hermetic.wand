@@ -10,7 +10,7 @@ import Path
 (* A script whose real execution would push to production and rewrite a
    config. Every test below runs it, and neither happens. *)
 
-let deploy () =
+let deploy! () =
   let version = $(git describe --tags) in
   let () =
     FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"${version}\"\n"
@@ -25,26 +25,26 @@ let sealed thunk =
 (* ── It runs, against canned output ────────────────────────────────────── *)
 
 test "runs to completion without the network" (fn t ->
-  t.eq "deployed v2.1.0" (sealed deploy))
+  t.eq "deployed v2.1.0" (sealed deploy!))
 
 test "a command matching nothing answers empty" (fn t ->
-  t.eq "deployed " (Test.with_shell [] (fn () -> Test.without_writes deploy)))
+  t.eq "deployed " (Test.with_shell [] (fn () -> Test.without_writes deploy!)))
 
 (* ── What it attempted ─────────────────────────────────────────────────── *)
 
 test "reports every command, in order" (fn t ->
   t.eq
     ["git describe --tags", "rsync -a ./build/ web@host:/srv/app"]
-    (Test.shell_calls (fn () -> Test.without_writes deploy)))
+    (Test.shell_calls (fn () -> Test.without_writes deploy!)))
 
 test "pushes exactly once" (fn t ->
-  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy) in
+  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!) in
   t.eq 1 (List.length (List.filter (fn c -> String.contains? "rsync" c) cmds)))
 
 test "reports what it would write" (fn t ->
-  t.eq [/etc/app/config.toml] (Test.with_shell [] (fn () -> Test.writes deploy)))
+  t.eq [/etc/app/config.toml] (Test.with_shell [] (fn () -> Test.writes deploy!)))
 
 (* ── And nothing actually happened ─────────────────────────────────────── *)
 
 test "the config was never written" (fn t ->
-  let _ = sealed deploy in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))
+  let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))

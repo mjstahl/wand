@@ -1,4 +1,4 @@
-uses {FS.Read, FS.Write, Raise}
+uses {FS.Read, FS.Write}
 
 let [test] = import Test
 import Resource

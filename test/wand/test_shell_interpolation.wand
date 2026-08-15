@@ -1,4 +1,4 @@
-uses {Shell, FS.Read, FS.Write, Raise}
+uses {Shell, FS.Read, FS.Write}
 
 let [test] = import Test
 import FS
@@ -9,7 +9,7 @@ import String
 (* How a value gets into a command.
 
    `${x}` is quote interpolate: the value becomes exactly one argument,
-   whatever it contains. `$!{x}` is raw interpolate: the value is spliced
+   whatever it contains. `$!{x}` is raw! interpolate: the value is spliced
    into the command as shell source, which the shell then reads.
 
    The difference is the whole safety story of `$()`. A path with a space
@@ -21,34 +21,34 @@ import String
    `printf "[%s]"` prints one bracketed field per argument, which is how
    these tell "one argument" from "several". *)
 
-let quoted v = $(printf "[%s]" ${v})
-let raw v = $(printf "[%s]" $!{v})
+let quoted! v = $(printf "[%s]" ${v})
+let raw! v = $(printf "[%s]" $!{v})
 
 (* ── Quote interpolate: one value, one argument ────────────────────────── *)
 
-test "a plain value is one argument" (fn t -> t.eq "[one]" (quoted "one"))
+test "a plain value is one argument" (fn t -> t.eq "[one]" (quoted! "one"))
 
-test "spaces do not split it" (fn t -> t.eq "[a b]" (quoted "a b"))
+test "spaces do not split it" (fn t -> t.eq "[a b]" (quoted! "a b"))
 
-test "a tab does not split it" (fn t -> t.eq "[a\tb]" (quoted "a\tb"))
+test "a tab does not split it" (fn t -> t.eq "[a\tb]" (quoted! "a\tb"))
 
-test "quotes in the value are kept" (fn t -> t.eq "[say \"hi\"]" (quoted "say \"hi\""))
+test "quotes in the value are kept" (fn t -> t.eq "[say \"hi\"]" (quoted! "say \"hi\""))
 
 (* The one character single quotes cannot carry is the single quote, which
    is closed, escaped and reopened. It has to survive that. *)
-test "a single quote survives" (fn t -> t.eq "[it's]" (quoted "it's"))
+test "a single quote survives" (fn t -> t.eq "[it's]" (quoted! "it's"))
 
-test "an empty value is one empty argument" (fn t -> t.eq "[]" (quoted ""))
+test "an empty value is one empty argument" (fn t -> t.eq "[]" (quoted! ""))
 
 (* ── Quote interpolate: nothing expands ────────────────────────────────── *)
 
-test "a glob is literal text" (fn t -> t.eq "[*.txt]" (quoted "*.txt"))
+test "a glob is literal text" (fn t -> t.eq "[*.txt]" (quoted! "*.txt"))
 
-test "a tilde is literal text" (fn t -> t.eq "[~]" (quoted "~"))
+test "a tilde is literal text" (fn t -> t.eq "[~]" (quoted! "~"))
 
 (* `\$` because `$HOME` in a wand string is env-var interpolation, which
    would read the variable here rather than pass its name to the shell. *)
-test "a variable reference is literal text" (fn t -> t.eq "[\$HOME]" (quoted "\$HOME"))
+test "a variable reference is literal text" (fn t -> t.eq "[\$HOME]" (quoted! "\$HOME"))
 
 (* ── Quote interpolate: nothing runs ───────────────────────────────────── *)
 
@@ -56,15 +56,15 @@ test "a variable reference is literal text" (fn t -> t.eq "[\$HOME]" (quoted "\$
    not source, so a script cannot be made to run something by what it was
    handed. *)
 test "a semicolon does not start a second command" (fn t ->
-  t.eq "[x; echo INJECTED]" (quoted "x; echo INJECTED"))
+  t.eq "[x; echo INJECTED]" (quoted! "x; echo INJECTED"))
 
 test "a pipe does not build a pipeline" (fn t ->
-  t.eq "[x | echo PIPED]" (quoted "x | echo PIPED"))
+  t.eq "[x | echo PIPED]" (quoted! "x | echo PIPED"))
 
 test "command substitution does not run" (fn t ->
-  t.eq "[$(echo SUB)]" (quoted "$(echo SUB)"))
+  t.eq "[$(echo SUB)]" (quoted! "$(echo SUB)"))
 
-test "backticks do not run" (fn t -> t.eq "[`echo TICK`]" (quoted "`echo TICK`"))
+test "backticks do not run" (fn t -> t.eq "[`echo TICK`]" (quoted! "`echo TICK`"))
 
 (* The same attempt that used to write a file, now inert. *)
 test "an interpolated value cannot perform effects of its own" (fn t ->
@@ -75,20 +75,20 @@ test "an interpolated value cannot perform effects of its own" (fn t ->
 
 (* ── Raw interpolate: the value is shell source ────────────────────────── *)
 
-test "raw splits on spaces" (fn t -> t.eq "[a][b]" (raw "a b"))
+test "raw! splits on spaces" (fn t -> t.eq "[a][b]" (raw! "a b"))
 
-test "raw expands a glob" (fn t ->
+test "raw! expands a glob" (fn t ->
   with FS.temp_dir "shell_glob_" as d ->
   let () = FS.write_file! (Path.join d (Path.of_string "a.txt")) "" in
   let () = FS.write_file! (Path.join d (Path.of_string "b.txt")) "" in
   let pattern = "${Path.to_string d}/*.txt" in
   t.eq 2 (List.length (String.lines $(ls $!{pattern}))))
 
-(* What raw is for: a command assembled elsewhere and then run. *)
-test "raw can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $($!{c}))
+(* What raw! is for: a command assembled elsewhere and then run. *)
+test "raw! can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $($!{c}))
 
-test "raw runs what the value says" (fn t ->
-  t.eq true (String.contains? "RAN" (raw "x; echo RAN")))
+test "raw! runs what the value says" (fn t ->
+  t.eq true (String.contains? "RAN" (raw! "x; echo RAN")))
 
 (* ── Both forms in one command ─────────────────────────────────────────── *)
 

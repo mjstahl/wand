@@ -1,6 +1,7 @@
 uses {Shell, FS.Write}
 
 import FS
+import Path
 
 -- The real thing: pushes to production and rewrites a system config.
 -- Nothing in this file is written for testability.

@@ -75,8 +75,8 @@ test "chain falls through on too-short list" (fn t ->
     | [a : b : c : tl] -> "matched"
     | _ -> "too short"))
 
-let lp_third [_ : _ : x : _] = x
-test "chain in a function multi-equation" (fn t -> t.eq 30 (lp_third [10, 20, 30, 40]))
+let lp_third! [_ : _ : x : _] = x
+test "chain in a function multi-equation" (fn t -> t.eq 30 (lp_third! [10, 20, 30, 40]))
 
 (* ── Recursive functions over lists ───────────────────────────────────── *)
 
