@@ -2011,6 +2011,10 @@ WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
 it on. The switch is named for what it controls rather than against it, so
 there is no value that reads one way and behaves the other.
 
+Caching costs the first run of a script a little and saves every run after
+it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and
+one importing a 200-definition module from 16.5ms to 10.9ms.
+
 #### Environment
 
 | | |
@@ -2032,23 +2036,6 @@ binary has to run against sources on disk.
 
 An empty value counts as unset everywhere here, since an empty value nearly
 always comes from a shell interpolating something that held nothing.
-
-#### Environment
-
-| | |
-|---|---|
-| `WAND_CACHE` | `0`/`false`/`no`/`off` disables the compile cache |
-| `XDG_CACHE_HOME` | where the cache lives; `~/.cache` when unset |
-| `WAND_STDLIB` | a standard library to use instead of the built-in one |
-
-The standard library is compiled into the binary. `WAND_STDLIB` replaces it
-wholesale, so a `List.wand` in the directory it names *is* `List`. An empty
-value counts as unset, since an empty value nearly always comes from a shell
-interpolating something that held nothing.
-
-Caching costs the first run of a script a little and saves every run after
-it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and
-one importing a 200-definition module from 16.5ms to 10.9ms.
 
 ### Interactive session
 
