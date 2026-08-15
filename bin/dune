@@ -5,10 +5,15 @@
 ; directory: the stdlib table's generator runs on the build machine and has
 ; no reason to be linked this way.
 
+; `-no-pie` is not incidental. Alpine's gcc defaults to PIE, so `-static`
+; alone yields a static-pie binary, and the x86_64 one segfaults before it
+; prints anything -- OCaml's runtime and musl's static-pie startup disagree.
+; The aarch64 build of the same commit runs fine, which is how this stays
+; hidden unless both are tested.
 (env
  (static
   (link_flags
-   (-ccopt -static))))
+   (-ccopt -static -ccopt -no-pie))))
 
 (executable
  (public_name wand)
