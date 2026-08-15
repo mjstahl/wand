@@ -8,6 +8,14 @@ let session_ref : Runner.session ref = ref (Runner.make_session ())
 
 (* ── Multi-line detection ─────────────────────────────────────────────────── *)
 
+let starts_with s prefix =
+  let ls = String.length s and lp = String.length prefix in
+  ls >= lp && String.sub s 0 lp = prefix
+
+let is_ident_char = function
+  | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
+  | _ -> false
+
 let is_complete src =
   let depth  = ref 0 in
   let in_str = ref false in
@@ -33,9 +41,30 @@ let is_complete src =
         let l = String.length suf in
         n >= l && String.sub s (n - l) l = suf
       in
+      (* A keyword only dangles when it is a whole word. `ends_with "with"`
+         alone would also fire on `String.starts_with`, leaving a session
+         that named the function waiting for a line that is never coming. *)
+      let ends_with_kw kw =
+        ends_with kw
+        && (n = String.length kw || not (is_ident_char s.[n - String.length kw - 1]))
+      in
+      (* A match's arms are not part of the line that opens it, and the arm
+         list has no closing token -- so `match s with` looks finished, and
+         so does every arm. Both keep the continuation prompt up, and a
+         blank line ends the definition, as it already did elsewhere. *)
+      let last_line =
+        match String.rindex_opt s '\n' with
+        | Some i -> String.trim (String.sub s (i + 1) (n - i - 1))
+        | None   -> s
+      in
+      (* `|` opens an arm; `|>` and `||` are operators continuing a line. *)
+      let opens_arm =
+        String.length last_line > 0 && last_line.[0] = '|'
+        && not (starts_with last_line "|>" || starts_with last_line "||")
+      in
       not (ends_with "->" || ends_with "=" || ends_with "|" ||
-           ends_with "then" || ends_with "else" || ends_with "in" ||
-           ends_with ",")
+           ends_with_kw "then" || ends_with_kw "else" || ends_with_kw "in" ||
+           ends_with_kw "with" || ends_with "," || opens_arm)
 
 (* ── Result display ───────────────────────────────────────────────────────── *)
 
@@ -69,14 +98,6 @@ let special_commands =
    ":exit"; ":x"; ":quit"; ":q"; ":help"; ":h"]
 
 let builtin_names = ["print"; "println"; "Ok"; "Error"]
-
-let is_ident_char = function
-  | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
-  | _ -> false
-
-let starts_with s prefix =
-  let ls = String.length s and lp = String.length prefix in
-  ls >= lp && String.sub s 0 lp = prefix
 
 let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "]
 
