@@ -582,7 +582,18 @@ let rec eval (env : env) (e : expr) : value =
                         in
                         let answer = eval ((cont_name, cont) :: env') case_body in
                         (* Resuming consumes the continuation, so only an case
-                           that never did has one left to discontinue. *)
+                           that never did has one left to discontinue.
+
+                           Measured against OCaml itself, four ways, because
+                           the obvious one is wrong: an case that *resumes*
+                           runs cleanup and keeps its value; one that *drops*
+                           the continuation runs no cleanup at all, not even
+                           after a full GC; one that *discontinues* runs
+                           cleanup but unwinds past the case, losing its
+                           value; and one that discontinues and catches --
+                           this -- gets both, because `discontinue` returns
+                           to the case rather than transferring away from
+                           it. *)
                         if not !resumed then
                           (try ignore (Effect.Deep.discontinue k Abandoned)
                            with Abandoned -> ());
@@ -2255,7 +2266,16 @@ let map_builtins : env = [
 
 (* ── Derived decoders ─────────────────────────────────────────────────────
    A single-constructor type whose fields are named already says everything a
-   decoder needs: the field names, and what each one holds. `Pod.decoder`
+   decoder needs: the field names, and what each one holds.
+
+   Built here when a decoder is *used*, never when a type is defined. Building
+   at the definition is the obvious move and the expensive one: a type that
+   mentions itself would not terminate, a pair that mention each other needs
+   a fixpoint over a dependency graph, a type mentioned before it is defined
+   needs topological ordering, and every built decoder becomes a value that
+   has to cross the module boundary. Deferring costs none of that and buys no
+   less: eager construction adds no decoding power whatever, it is the same
+   feature built the expensive way. `Pod.decoder`
    reads exactly that, so adding a field to the type adds it to the decoder
    and there is no second copy to go stale.
 

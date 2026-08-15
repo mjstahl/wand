@@ -27,6 +27,12 @@ let max_width = 92
    indent said everything fitted and left lines half again over the margin.
    The two coincide only when an expression begins a line, which is why one
    parameter passed for both for so long. *)
+(* One case is knowingly left: a closing `)` appended after a body that was
+   measured without it, which is this mistake from the other side -- the
+   caller knows about the suffix, the callee does not. Three lines in the
+   corpus run one to three columns past the margin because of it. The fix is
+   a `reserve` threaded alongside `col`, and it is a second concept through
+   every emitter for three columns, so it waits until the count grows. *)
 let fits col s =
   not (String.contains s '\n') && col + String.length s <= max_width
 

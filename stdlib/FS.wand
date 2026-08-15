@@ -80,6 +80,13 @@ let temp_dir prefix =
   let acquire = fn () -> fs_temp_dir prefix in
   let release = fn p -> if exists? p then fs_delete_tree p in Resource.make acquire release
 
+(* There is deliberately no `lock`. A lock is worth having for what happens
+   when a process dies holding one, so a usable one needs staleness detection
+   -- pid, host, timestamp -- and a policy for breaking a stale lock. That is
+   a design, and it wants a real deploy to shape it: a lock that wedges a
+   queue after one crash is worse than no lock at all. The bracket it would
+   sit on is here and proven, so nothing is waiting on anything. *)
+
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst
 
