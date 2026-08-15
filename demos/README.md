@@ -12,7 +12,8 @@ demos/d5-rehearse/run.sh
 demos/d6-unplugged/run.sh
 demos/d7-jq-typed/run.sh
 demos/d8-fan-out/run.sh
-demos/d9-fork-overhead/run.sh      # slower: it runs a deliberately bad bash loop
+demos/d9-fork-overhead/run.sh      # ~1½ minutes: it runs a deliberately bad bash loop
+                                   # N=500 demos/d9-fork-overhead/run.sh takes ten seconds
 ```
 
 ---

@@ -619,9 +619,17 @@ silently stops, look here first.
   carried both for so long. Threading it cost an optional `?col` on the
   emitters that decide widths, not a signature change everywhere -- and
   reformatting the whole corpus moved four lines in two files.
-- `FS.lock` is deferred (staleness detection is a design, not a wrapper) and
-  `FS.in_dir` is dropped (per-process `chdir` races under `Par`). Both are
-  argued above.
+- `FS.lock` is **not planned**, and `FS.in_dir` is dropped (per-process
+  `chdir` races under `Par`). A lock's whole value is what happens when a
+  process dies holding one, so it needs staleness detection -- pid, host,
+  timestamp -- and a policy for breaking a stale one. That is a design, and a
+  design wants a real deploy to shape it; a lock that wedges a queue after
+  one crash is worse than none. The bracket half it would sit on is done and
+  proven, so nothing is blocked. If a deploy story turns up, this is a new
+  decision rather than a resumed one.
+- D9 runs in CI at `N=500`, ten seconds rather than ninety-six. It is the one
+  demo whose full size is for a human; skipping it entirely is what let it rot
+  under a signature change with nothing noticing.
 - Derivation covers the flat record, including generic ones. What is missing,
   what the eager alternative would cost, and why generics is the piece to
   pick up first are recorded under P3.4. Three of those gaps -- dictionaries,
@@ -636,9 +644,11 @@ silently stops, look here first.
   are string literals with nowhere to break. Three are one to three columns
   over because a closing `)` is appended after a body that was measured
   without it -- the same shape of mistake, from the other side: the caller
-  knows about the suffix and the callee does not. Left alone at three columns
-  and three lines; it wants a `reserve` alongside the start column, and that
-  is a second parameter for a smaller problem.
+  knows about the suffix and the callee does not. **Accepted, not tracked.**
+  It wants a `reserve` threaded alongside the start column, which is a second
+  concept through the same emitters for three lines that are three columns
+  long. If the count grows, the fix is known and the shape of it is written
+  here.
 
 ## Risks
 
