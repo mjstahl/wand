@@ -100,8 +100,20 @@ jobs:
           cd /tmp
           mkdir -p stdlib
           echo 'let length x = "hijacked"' > stdlib/List.wand
-          test "$("$BIN" e 'List.length [1,2]')" = "2 : Int"
-          test "$("$BIN" e '1 + 2')" = "3 : Int"
+          # Each check reports what it got. A bare `test` that fails says
+          # nothing, which costs a whole CI round trip to learn one string.
+          check() {
+            got=$("$BIN" e "$1" 2>&1) || true
+            if [ "$got" != "$2" ]; then
+              echo "wand e '$1'" >&2
+              echo "  expected: $2" >&2
+              echo "  got:      $got" >&2
+              exit 1
+            fi
+            echo "wand e '$1' -> $got"
+          }
+          check '1 + 2' '3 : Int'
+          check 'List.length [1,2]' '2 : Int'
           echo "runs from /tmp, ignores a decoy stdlib/"
 
       - name: Package
