@@ -76,6 +76,27 @@ let test_uses1 () =
    because a file without a manifest is legal -- but a manifest is only
    worth having if it makes code better, so this is where a file is told
    what better looks like. *)
+(* A statement whose value is a Result loses the failure it carries. Nothing
+   else reports it: the file typechecks, the script exits 0, and the write
+   that did not happen is never mentioned. *)
+let test_drop1 () =
+  fires "a discarded Result"
+    "uses {FS.Write, IO}\nimport FS\nimport IO\nFS.write_file /tmp/x.txt \"hi\"\nIO.println \"done\""
+    "V-DROP1";
+  (* Binding to `_` says the failure does not matter, which is an answer. *)
+  silent "discarded on purpose"
+    "uses {FS.Write, IO}\nimport FS\nimport IO\nlet _ = FS.write_file /tmp/x.txt \"hi\"\nIO.println \"done\"";
+  (* The `!` sibling raises, so the failure is not lost. *)
+  silent "the raising sibling"
+    "uses {FS.Write, IO}\nimport FS\nimport IO\nFS.write_file! /tmp/x.txt \"hi\"\nIO.println \"done\"";
+  (* Discarding a String is what running a command for its effect looks like,
+     so only Results are worth a finding. *)
+  silent "a discarded String"
+    "uses {Shell, IO}\nimport IO\n$(echo hi)\nIO.println \"done\"";
+  (* The last item is the file's value, not something thrown away. *)
+  silent "a Result as the file's value"
+    "uses {FS.Write}\nimport FS\nFS.write_file /tmp/x.txt \"hi\""
+
 let test_uses2 () =
   fires "effects and no manifest"
     "let publish! () = $(rsync -a . host:/srv)\npublish!" "A-USES2";
@@ -257,6 +278,7 @@ let () =
       Alcotest.test_case "V-PRED2"  `Quick test_pred2;
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
+      Alcotest.test_case "V-DROP1"  `Quick test_drop1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
       Alcotest.test_case "A-USES2"  `Quick test_uses2;

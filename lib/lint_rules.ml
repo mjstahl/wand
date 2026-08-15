@@ -18,6 +18,7 @@ type id =
   | A_SHELL1   (* a shell blob hides work the type system could see *)
   | A_USES1    (* the manifest permits more than the file needs *)
   | A_USES2    (* the file reaches outside itself and does not say so *)
+  | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -66,6 +67,9 @@ let all = [
   { id = A_USES2;  code = "A-USES2";
     summary = "the file performs effects and declares no manifest";
     kind = Advisory };
+  { id = V_DROP1;  code = "V-DROP1";
+    summary = "a statement discards a Result, so a failure goes unread";
+    kind = Violation };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
@@ -107,6 +111,13 @@ let name1 ~name ~params =
     name
     (if List.length params = 1 then "" else "s")
     (String.concat ", " (List.map (fun p -> "'" ^ p ^ "'") params))
+
+let drop1 ~typ =
+  Printf.sprintf
+    "this statement's value is a %s and nothing reads it, so a failure here \
+     is lost; match it, call the `!` sibling, or bind it to `_` to say the \
+     failure does not matter"
+    typ
 
 let pred2 ~name =
   let bare = String.sub name 3 (String.length name - 3) in

@@ -1957,9 +1957,15 @@ let check_manifest (prog : program) (own_env : env) =
     end
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
+(* The type of each bare top-level expression, by item index. A named
+   definition's type is in `own_env`; an expression has no name, and the
+   lint that catches a discarded `Result` needs it. *)
+let expr_item_types : (int * typ) list ref = ref []
+
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
+  expr_item_types := [];
   current_eff := Effect_row.fresh_row ();
   holes := [];
   let local_tenv = List.filter_map (function
@@ -1968,7 +1974,9 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
+  let item_index = ref (-1) in
   let (env, last_t) = List.fold_left (fun (env, last_t) item ->
+    incr item_index;
     match item with
     | TLLet (_, [], body) when is_import_expr body ->
       (env, last_t)  (* pre-loaded by load_imports_for *)
@@ -2002,7 +2010,9 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       let env' = infer_pat tenv pat t env in
       (env', last_t)
     | TLExpr e ->
-      (env, infer tenv env e)
+      let t = infer tenv env e in
+      expr_item_types := (!item_index, t) :: !expr_item_types;
+      (env, t)
     | TLType _ | TLImport _ -> (env, last_t)
   ) (base_env, TUnit) prog.items
   in

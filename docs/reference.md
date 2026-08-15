@@ -2540,9 +2540,25 @@ it would punish the safer choice.
 | `V-BANG1` | a function that can raise is not named with `!` |
 | `V-BANG2` | a `!`-named function cannot raise |
 | `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
+| `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `A-USES1` | a manifest permits an effect the file does not use |
 | `A-USES2` | a file performs effects and declares no manifest |
+
+`V-DROP1` is the one that catches a bug rather than a habit:
+
+```
+FS.write_file /etc/app.toml config      -- the Result goes nowhere
+IO.println "deployed"                   -- and this prints either way
+```
+
+The write may have failed; the script says it deployed and exits 0. Match
+the `Result`, call `write_file!` and let it raise, or bind it to `_` if the
+failure genuinely does not matter. Writing the statement as
+`let () = FS.write_file ...` is a type error for the same reason — this rule
+is what catches the shape that says nothing either way. Values that are not
+`Result` are left alone: discarding a `String` is what running a command for
+its effect looks like.
 
 ```
 wand t --strict "..."     # violations become errors (exit 1)

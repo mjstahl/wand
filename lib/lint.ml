@@ -173,7 +173,28 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
        | [] -> ()
        | ps -> add Lint_rules.V_NAME1 loc (Lint_rules.name1 ~name ~params:ps));
       findings := List.rev_append (walk_expr loc body) !findings
-    | Ast.TLLetPat (_, body) | Ast.TLExpr body ->
+    | Ast.TLExpr body ->
+      (* A statement whose value is a Result throws away the failure it
+         carries, and nothing else reports it: `wand t` is happy, the script
+         exits 0, and the write that did not happen is never mentioned.
+         Only Results, because discarding a String is what running a command
+         for its effect looks like. The last item is the file's value rather
+         than a discarded one, so it is left alone.
+
+         `let () = ...` already catches this as a type error, and `let _ =`
+         says the failure does not matter. This is for the bare statement,
+         which says nothing either way. *)
+      (if i < List.length prog.Ast.items - 1 then
+         match List.assoc_opt i !Typechecker.expr_item_types with
+         | Some t ->
+           (match Typechecker.repr t with
+            | Typechecker.TResult _ ->
+              add Lint_rules.V_DROP1 loc
+                (Lint_rules.drop1 ~typ:(Typechecker.string_of_typ t))
+            | _ -> ())
+         | None -> ());
+      findings := List.rev_append (walk_expr loc body) !findings
+    | Ast.TLLetPat (_, body) ->
       findings := List.rev_append (walk_expr loc body) !findings
     | Ast.TLLetRec bindings ->
       List.iter (fun (_, _, b) ->
