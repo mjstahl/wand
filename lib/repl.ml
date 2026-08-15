@@ -316,8 +316,8 @@ and loop (sess : Runner.session) =
     end
 
 let stdlib_prelude =
-  "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Env\nimport Map\nimport Regex"
+  String.concat "\n"
+    (List.map (fun n -> "import " ^ n) Typechecker.stdlib_module_names)
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   print_endline "wand interactive — :help for commands, :quit to exit";
