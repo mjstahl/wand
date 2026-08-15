@@ -104,6 +104,41 @@ let test_cache_can_be_turned_off () =
     Alcotest.(check int) ("wrote nothing with WAND_CACHE=" ^ value) 0 entries
   ) ["0"; "false"; "no"; "off"; "OFF"]
 
+(* Where the entries land: wand's own variable first, the shared convention
+   under it, and an empty value counting as unset in both. *)
+let cache_dir_used env_assignments dir =
+  let cmd =
+    Printf.sprintf "cd %s && %s %s main.wand >/dev/null 2>&1"
+      (Filename.quote dir) env_assignments (Filename.quote wand_binary)
+  in
+  ignore (Sys.command cmd)
+
+let entries_in d = if Sys.file_exists d then Array.length (Sys.readdir d) else 0
+
+let test_cache_home_layers () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "mod.wand") "let n = 41";
+  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+  let own = Filename.concat c "own" and shared = Filename.concat c "shared" in
+  cache_dir_used (Printf.sprintf "WAND_CACHE_HOME=%s" (Filename.quote own)) d;
+  if entries_in own = 0 then Alcotest.fail "WAND_CACHE_HOME is the directory itself";
+  cache_dir_used (Printf.sprintf "XDG_CACHE_HOME=%s" (Filename.quote shared)) d;
+  if entries_in (Filename.concat shared "wand") = 0 then
+    Alcotest.fail "XDG_CACHE_HOME is a parent, with wand/ under it";
+  (* wand's own wins, and an empty one is not a directory named nothing. *)
+  let own2 = Filename.concat c "own2" and shared2 = Filename.concat c "shared2" in
+  cache_dir_used
+    (Printf.sprintf "WAND_CACHE_HOME=%s XDG_CACHE_HOME=%s"
+       (Filename.quote own2) (Filename.quote shared2)) d;
+  Alcotest.(check int) "the shared one is not used when wand's is set" 0
+    (entries_in (Filename.concat shared2 "wand"));
+  if entries_in own2 = 0 then Alcotest.fail "wand's own should have been used";
+  let shared3 = Filename.concat c "shared3" in
+  cache_dir_used
+    (Printf.sprintf "WAND_CACHE_HOME= XDG_CACHE_HOME=%s" (Filename.quote shared3)) d;
+  if entries_in (Filename.concat shared3 "wand") = 0 then
+    Alcotest.fail "an empty WAND_CACHE_HOME should count as unset"
+
 let test_other_values_leave_it_on () =
   List.iter (fun value ->
     let (d, c) = scratch () in
@@ -126,5 +161,6 @@ let () =
       Alcotest.test_case "a corrupt entry"         `Quick test_a_corrupt_entry_is_survivable;
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
+      Alcotest.test_case "where it lives"          `Quick test_cache_home_layers;
     ];
   ]

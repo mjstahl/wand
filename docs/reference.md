@@ -1995,8 +1995,7 @@ chmod +x deploy.wand
 #### The compile cache
 
 Loading a module is mostly type inference — on a 200-definition module,
-5.7ms of 7.2ms — so what a module's types came out as is kept between runs
-in `~/.cache/wand` (or `$XDG_CACHE_HOME/wand`).
+5.7ms of 7.2ms — so what a module's types came out as is kept between runs.
 
 An entry is keyed by the hash of the module's source *and* of everything it
 imports, transitively, so an entry inferred against a file that has since
@@ -2011,6 +2010,40 @@ WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
 `0`, `false`, `no` and `off` turn it off; unset, or any other value, leaves
 it on. The switch is named for what it controls rather than against it, so
 there is no value that reads one way and behaves the other.
+
+#### Environment
+
+| | |
+|---|---|
+| `WAND_CACHE` | `0`/`false`/`no`/`off` disables the compile cache |
+| `WAND_CACHE_HOME` | the cache directory itself |
+| `XDG_CACHE_HOME` | a parent for it; wand uses `$XDG_CACHE_HOME/wand` |
+| `WAND_STDLIB` | a standard library to use instead of the one wand would find |
+
+The cache goes in the first of these that is set: `WAND_CACHE_HOME`, then
+`$XDG_CACHE_HOME/wand`, then `~/.cache/wand` — or `%LOCALAPPDATA%\wand\cache`
+on Windows, where `~/.cache` is not a place anything keeps.
+
+`WAND_STDLIB` replaces the standard library wholesale, so a `List.wand` in
+that directory *is* `List`. Unset, wand looks for a `stdlib/` directory from
+the working directory upwards, and says so plainly when there isn't one.
+
+An empty value counts as unset everywhere here, since an empty value nearly
+always comes from a shell interpolating something that held nothing.
+
+#### Environment
+
+| | |
+|---|---|
+| `WAND_CACHE` | `0`/`false`/`no`/`off` disables the compile cache |
+| `XDG_CACHE_HOME` | where the cache lives; `~/.cache` when unset |
+| `WAND_STDLIB` | a standard library to use instead of the one wand would find |
+
+`WAND_STDLIB` replaces the standard library wholesale, so a `List.wand` in
+that directory *is* `List`. Unset, wand looks for a `stdlib/` directory from
+the working directory upwards. An empty value counts as unset, since an empty
+value nearly always comes from a shell interpolating something that held
+nothing.
 
 Caching costs the first run of a script a little and saves every run after
 it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and

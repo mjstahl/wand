@@ -7,10 +7,15 @@
 
 let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
 
+(* `WAND_STDLIB` points at a standard library to use instead of the one that
+   would be found. Empty counts as unset: an empty value almost always
+   arrives from a shell interpolating a variable that held nothing, and
+   reading that as "use the directory named by nothing" breaks every run for
+   a reason nobody can see. *)
 let find_stdlib_dir_uncached () =
   match Sys.getenv_opt "WAND_STDLIB" with
-  | Some dir -> dir
-  | None ->
+  | Some dir when String.trim dir <> "" -> dir
+  | _ ->
     (* Walk up from CWD until we find a stdlib/ directory *)
     let rec ascend dir =
       let candidate = Filename.concat dir "stdlib" in
@@ -42,6 +47,20 @@ let resolve_stdlib name =
   else
     let lower = Filename.concat stdlib_dir (String.lowercase_ascii name ^ ".wand") in
     if Sys.file_exists lower then lower
+    else if not (Sys.file_exists stdlib_dir) then
+      (* The library itself is missing, which is not the same as a script
+         forgetting to import it -- and saying "did you forget to import
+         List?" to someone whose wand cannot find its own standard library
+         sends them to look at their code. *)
+      failwith
+        (Printf.sprintf
+           "cannot find the standard library: no directory at %s.%s"
+           stdlib_dir
+           (match Sys.getenv_opt "WAND_STDLIB" with
+            | Some d when String.trim d <> "" ->
+              Printf.sprintf " WAND_STDLIB is set to %S." d
+            | _ ->
+              " Set WAND_STDLIB to point at one, or run where stdlib/ is above you."))
     else exact
 
 let resolve_import base_dir = function

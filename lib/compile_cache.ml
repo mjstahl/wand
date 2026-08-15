@@ -44,16 +44,43 @@ let disabled =
    will happily hand back nonsense typed as whatever the reader expected. *)
 let format_version = "1"
 
+(* Where the entries live, most specific first.
+
+   `WAND_CACHE_HOME` is wand's own, and is the directory itself rather than a
+   parent to append to -- point it somewhere and that is where entries go.
+   It exists so wand's cache can be moved (a fast disk, a container volume, a
+   sandbox) without relocating every other tool's.
+
+   `XDG_CACHE_HOME` is the shared convention beneath it, and is a parent: the
+   spec says a program takes a subdirectory of it. Honouring it matters where
+   `$HOME` is read-only and the environment has already been told where
+   writable scratch lives.
+
+   Then the platform's own answer. `~/.cache` is a Unix convention and not a
+   Windows one, where the place for this is `%LOCALAPPDATA%`; falling through
+   to `$HOME/.cache` there would land somewhere Windows does not keep, and
+   falling through to the temp directory -- which is what happened before --
+   means an entry written by one run is not there for the next. *)
 let dir () =
-  let base =
-    match Sys.getenv_opt "XDG_CACHE_HOME" with
-    | Some d when d <> "" -> d
-    | _ ->
-      (match Sys.getenv_opt "HOME" with
-       | Some h -> Filename.concat h ".cache"
-       | None -> Filename.get_temp_dir_name ())
+  let non_empty name =
+    match Sys.getenv_opt name with
+    | Some d when String.trim d <> "" -> Some d
+    | _ -> None
   in
-  Filename.concat base "wand"
+  match non_empty "WAND_CACHE_HOME" with
+  | Some d -> d
+  | None ->
+    (match non_empty "XDG_CACHE_HOME" with
+     | Some d -> Filename.concat d "wand"
+     | None ->
+       if Sys.win32 then
+         (match non_empty "LOCALAPPDATA" with
+          | Some d -> Filename.concat (Filename.concat d "wand") "cache"
+          | None -> Filename.concat (Filename.get_temp_dir_name ()) "wand")
+       else
+         (match non_empty "HOME" with
+          | Some h -> Filename.concat (Filename.concat h ".cache") "wand"
+          | None -> Filename.concat (Filename.get_temp_dir_name ()) "wand"))
 
 (* Best-effort: a cache that cannot be created is a cache that is not used,
    never an error a script has to hear about. *)

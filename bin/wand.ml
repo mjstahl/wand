@@ -161,7 +161,13 @@ let load_files ?(sources = []) loads =
     if prelude = "" then sess
     else match Wand.Runner.run_session sess prelude with
       | Ok (s, _) -> s
-      | Error _   -> sess
+      | Error msg ->
+        (* The prelude is nothing but `import X` lines for modules the input
+           mentions, so a failure here is the standard library failing to
+           load. Carrying on without it produced "did you forget to import
+           List?" -- an error about the caller's code, for a problem in the
+           installation. *)
+        Printf.eprintf "Error: %s\n" msg; exit 1
   in
   List.fold_left (fun s path ->
     match (try Ok (In_channel.with_open_text path In_channel.input_all)
