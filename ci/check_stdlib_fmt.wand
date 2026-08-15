@@ -1,0 +1,60 @@
+uses {Shell, FS.Read, FS.Write, Env, IO, Proc}
+
+import Env
+import FS
+import IO
+import List
+import Option
+import Path
+import Proc
+
+(* `wand fmt` is the canonical form: running it over a formatted tree changes
+   nothing. Checked on a copy, so a failure reports rather than rewrites --
+   the formatter has produced source that does not parse before, and leaving
+   a mangled file on disk turns one bug into two.
+
+   This is wand's own CI step, written in wand. It runs after the suites, so
+   the binary it uses has already been exercised by tests that do not depend
+   on it. *)
+
+(* The binary to check with -- the one this build just produced, not
+   whatever is on PATH. CI sets it; a bare `wand` is the fallback for
+   running this by hand. *)
+let wand = Env.get "WAND" |> Option.default "wand"
+
+let sources = FS.glob_in *.wand (Path.of_string "stdlib")
+
+let copy_of dir src = Path.join dir (Path.basename src)
+
+let copy_into! dir =
+  sources |> List.each (fn (_, src) -> FS.copy! src (copy_of dir src))
+
+(* One file per call rather than a glob: an interpolated value is escaped
+   before it reaches the shell, so `${dir}/*.wand` would arrive as a literal
+   asterisk and format nothing at all. *)
+let format_in! dir =
+  sources
+  |> List.each (fn (_, src) -> let _ = $(${wand} fmt ${copy_of dir src}) in ())
+
+(* A file that changed is one `wand fmt` would rewrite, which means the tree
+   checked in is not what the formatter produces. Every one of them is
+   reported: fixing them one CI run at a time is how a five-minute job
+   becomes an afternoon. *)
+let rewritten! dir =
+  sources
+  |> List.filter (fn src -> FS.read_file! src != FS.read_file! (copy_of dir src))
+
+let report changed =
+  let () = IO.println_err "wand fmt would rewrite these files:" in
+  let () = changed |> List.each (fn (_, p) -> IO.println_err "  ${Path.to_string p}") in
+  Proc.exit 1
+
+let main! () =
+  with FS.temp_dir "wand_fmt_check_" as dir ->
+    let () = copy_into! dir in
+    let () = format_in! dir in
+    match rewritten! dir with
+    | []      -> IO.println "stdlib is a wand fmt fixed point (${List.length sources} files)"
+    | changed -> report changed
+
+main! ()

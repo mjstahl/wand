@@ -65,11 +65,33 @@ jobs:
 
       # wand fmt is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.
+      #
+      # The check itself is a wand script. It runs here, after the suites,
+      # rather than earlier: the binary it uses is the one this build just
+      # produced, so anything ahead of it has to be able to fail without a
+      # wand script running at all.
       - name: Check the stdlib is formatted
+        env:
+          WAND: ${{ github.workspace }}/_build/default/bin/wand.exe
+        run: $WAND ci/check_stdlib_fmt.wand
+
+      # setup-wand's test suite is written in wand and is the only wand code
+      # that exercises an installed binary the way a user meets it. Nothing
+      # in that repository runs against an unreleased wand, so a change here
+      # could break it and nobody would know until the next release. Run it
+      # against this build.
+      - uses: actions/checkout@v4
+        with:
+          repository: mjstahl/setup-wand
+          path: .setup-wand
+
+      - name: Run setup-wand's suite against this build
         run: |
           set -euo pipefail
           WAND="$PWD/_build/default/bin/wand.exe"
-          rm -rf /tmp/stdlib-check
-          cp -r stdlib /tmp/stdlib-check
-          (cd /tmp/stdlib-check && "$WAND" fmt ./*.wand)
-          diff -r stdlib /tmp/stdlib-check
+          export PATH="$(dirname "$WAND"):$PATH"
+          # The suite calls `wand`, so it has to find this build rather than
+          # anything else on PATH -- and the copy in _build is wand.exe.
+          ln -sf "$WAND" "$(dirname "$WAND")/wand"
+          cd .setup-wand
+          EXPECTED_VERSION="$(cat ../VERSION)" wand test test
