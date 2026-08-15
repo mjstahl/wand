@@ -127,7 +127,10 @@ jobs:
           chmod +x "dist/$NAME/wand"
           cp LICENSE README.md "dist/$NAME/"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
-          shasum -a 256 "dist/$NAME.tar.gz" > "dist/$NAME.tar.gz.sha256"
+          # Recorded from inside dist/, so the file names the archive rather
+          # than a path that only existed on the runner -- `shasum -c` is run
+          # next to the download, not here.
+          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
           ls -la dist
 
       - uses: actions/upload-artifact@v4
