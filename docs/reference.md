@@ -477,6 +477,26 @@ match xs with
 | _               -> "fewer than three elements"
 ```
 
+The same patterns destructure in a `let`:
+
+```
+let xs = [1, 2, 3]
+
+let [a, b, c] = xs      -- a = 1, b = 2, c = 3
+let [h : t]   = xs      -- h = 1, t = [2, 3]
+```
+
+A tuple's shape is part of its type, so destructuring one wrongly is a type
+error. A list's length is not part of its type, so a `let` that names the
+wrong number of elements is accepted and fails when it runs:
+
+```
+let [a, b] = [1, 2, 3]
+-- runtime error: pattern match failure
+```
+
+Use `match` when the length is not known in advance.
+
 Multi-equation over lists:
 
 ```
@@ -544,6 +564,9 @@ match m with
 
 let [x = a] = m in a         -- extract just x; other keys ignored
 ```
+
+A key the map does not hold fails when it runs, as a list of the wrong
+length does — the map's keys are not part of its type either.
 
 An empty map is `Map.empty`.
 
