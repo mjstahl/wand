@@ -29,9 +29,9 @@ let copy_of dir src = Path.join dir (Path.basename src)
 let copy_into! dir =
   sources |> List.each (fn src -> FS.copy! src (copy_of dir src))
 
-(* One file per call rather than a glob: an interpolated value is escaped
-   before it reaches the shell, so `${dir}/*.wand` would arrive as a literal
-   asterisk and format nothing at all. *)
+(* One file per call rather than a glob. `${dir}/*.wand` does not parse --
+   `*.wand` is a glob literal, so the `/` reads as division -- and passing
+   each path is clearer than relying on the shell to expand one. *)
 let format_in! dir =
   sources
   |> List.each (fn src -> $(${wand} fmt ${copy_of dir src}))
