@@ -79,7 +79,67 @@ the wrong file. Read `/proc/self/exe` where it exists, fall back to
 directory; it reports its own manifest without executing; compiling a script
 whose imports do not typecheck fails at compile time, not at run time.
 
-## P4.3 — Release artifacts
+## P4.3 — Reading arguments
+
+`Env.args () : List String` is all a script has. That is enough for the one
+positional path `demos/d9-fork-overhead/crunch.wand` takes, and it is the
+whole corpus's usage today -- but `wand compile` turns scripts into
+executables people invoke with flags, so the need arrives with it.
+
+**Arguments are another untyped boundary**, which the language already has
+one blessed way to read. Presented as an object, argv decodes with what
+exists -- every combinator, every domain reader, derivation, and the error
+that names the field:
+
+```
+deploy --port=8080 --timeout=30s --config=./app.toml
+
+type Opts (port : Port, timeout : Duration, config : Path)
+Args.parse Opts.decoder (Env.args ())
+                       -- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
+                       -- Error .port: expected Port, got "http"
+```
+
+That was tried before writing this: hand the derived decoder an object shaped
+like those flags and it already works. So the only open question is how argv
+becomes the object.
+
+### The options, costed
+
+| | What it is | Cost | What it cannot do |
+|---|---|---|---|
+| **A. An argv backend for `Decode`** | One builtin turning argv into an object, plus a wand wrapper. `Args.parse : Decoder 'a -> List String -> Result String 'a` | ~40 lines and one new name. Everything else already exists. | Short flags (`-v`), generated `--help`, subcommands |
+| **B. An `Args` module of its own** | `flag`, `option`, `positional`, descriptions, `parse`, generated help | A combinator set the size of `Decode`'s, its own grammar, its own error messages, and either its own domain readers or a borrow of `Decode`'s | Nothing, eventually — which is the problem |
+| **C. Leave it** | Scripts match on `Env.args ()` | Zero | Anything past two positional arguments |
+
+**A, and not B.** B is a second combinator set for a problem the first one
+already solves, which is the shape the budget rule exists to catch; its extra
+capability is short flags and generated help, and neither has a call site.
+C is what the corpus does today and stops being enough the moment a compiled
+script takes options.
+
+### The one real decision inside A
+
+How a flag's value is recognised, given that the conversion happens before
+any type is known:
+
+- `--key=value` only. No grammar at all, unambiguous, tiny. Alien to anyone
+  coming from bash.
+- `--key value`, taking the next token unless it starts with `-`. Familiar,
+  and wrong for `--message -5` and for a flag followed by a positional.
+- `--key value`, told which names are boolean: `Args.parse ~flags:["verbose"]`.
+  Unambiguous, familiar, and one argument wide.
+
+The third is the one to take. It is the only version that is both familiar
+and unambiguous, and the thing it asks for -- the list of flags that take no
+value -- is the only fact the conversion genuinely cannot infer. Everything
+else the type already says.
+
+*Accept:* a compiled script reads `--port=8080` and `--port 8080` alike into
+a `Port`; a bad value names the flag it came from; positional arguments are
+reachable; no second set of combinators exists.
+
+## P4.4 — Release artifacts
 
 A static `x86_64` and `aarch64` Linux binary (musl), a macOS binary, attached
 to a tagged release. This is CI work, not language work.
@@ -87,7 +147,7 @@ to a tagged release. This is CI work, not language work.
 *Accept:* a tag produces downloadable binaries; each runs on a clean machine
 with no OCaml and no wand tree.
 
-## P4.4 — `setup-wand` action
+## P4.5 — `setup-wand` action
 
 A GitHub Action that installs a released binary. CI is the beachhead: a
 controlled environment where per-repo tooling is already normal, and where a
@@ -95,7 +155,7 @@ script can be adopted one repository at a time.
 
 *Accept:* a workflow with `uses: mjstahl/setup-wand@v1` can run `wand test`.
 
-## P4.5 — The positioning post
+## P4.6 — The positioning post
 
 Anchored on D5: *AI writes it, a human audits the manifest, CI typechecks it,
 dry-run rehearses it.* Written last, because it quotes numbers and those keep
