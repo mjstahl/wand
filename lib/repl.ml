@@ -320,7 +320,10 @@ let stdlib_prelude =
     (List.map (fun n -> "import " ^ n) Typechecker.stdlib_module_names)
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
-  print_endline "wand interactive — :help for commands, :quit to exit";
+  (* Flushed, because linenoise writes the prompt with its own `write` rather
+     than through this buffer, and an unflushed banner lands after it. *)
+  Printf.printf "wand v%s interactive - :h for commands, :q to exit\n%!"
+    Version.value;
   LNoise.set_completion_callback complete_line;
   ignore (LNoise.history_set ~max_length:1000);
   ignore (LNoise.history_load ~filename:history_file);
