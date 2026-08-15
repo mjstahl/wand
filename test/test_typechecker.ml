@@ -45,6 +45,44 @@ let p = P(x = 1, y = 2) in p.x|}
 let p = P(x = 1, y = 2) in p.z|}
     "has no field 'z'"
 
+(* Inferring what a recursive function performs means already knowing it: the
+   body calls the function being inferred. The constraint is a fixed point,
+   and rejecting it meant a recursive function could carry no effect of its
+   own -- only ones handed to it as a parameter, which is why `List.each`
+   typechecked and a loop that printed did not. *)
+
+let test_recursion_may_perform_effects () =
+  ok "a recursive function that prints"
+    {|import IO
+let go n = if n == 0 then 0 else let () = IO.println "x" in go (n - 1)
+go 0|}
+    "0";
+  err_contains "and the effect reaches the signature"
+    {|uses {}
+import IO
+let go n = if n == 0 then 0 else let () = IO.println "x" in go (n - 1)
+go 0|}
+    "performs IO";
+  ok "an effect on the base case counts too"
+    {|import IO
+let go n = if n == 0 then let () = IO.println "x" in 0 else go (n - 1)
+go 0|}
+    "0";
+  err_contains "mutual recursion carries it across the group"
+    {|uses {}
+import IO
+let a n = if n == 0 then 0 else b (n - 1)
+and b n = let () = IO.println "x" in a (n - 1)
+a 0|}
+    "performs IO";
+  (* The over-approximating direction stays: a pure recursion gains nothing,
+     and an effect taken as a parameter stays a variable. *)
+  ok "pure recursion is still pure"
+    {|uses {}
+let count n = if n == 0 then 0 else count (n - 1)
+count 3|}
+    "0"
+
 (* A type name that is not declared anywhere used to become an opaque type of
    its own, so a misspelling was accepted and only surfaced -- if at all -- as
    a unification failure at some later use. *)
@@ -859,6 +897,7 @@ let () =
     "field access", [
       Alcotest.test_case "map dot access rejected" `Quick test_map_dot_access_rejected;
       Alcotest.test_case "named fields checked"    `Quick test_named_field_access_checked;
+      Alcotest.test_case "recursion + effects"     `Quick test_recursion_may_perform_effects;
       Alcotest.test_case "unknown type names"      `Quick test_unknown_type_names_rejected;
       Alcotest.test_case "field on every ctor"     `Quick test_field_must_be_on_every_constructor;
       Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;

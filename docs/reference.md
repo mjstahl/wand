@@ -735,6 +735,16 @@ exit, so it carries `{Shell, Raise}`; `$?()` hands back a `ShellResult`
 instead and carries `{Shell}` alone. `$NAME` reads the environment, so it
 carries `{Env}`.
 
+Including through a function that calls itself, and around a group that
+calls each other:
+
+```
+let countdown n =
+  if n == 0 then () else let () = IO.println "${n}" in countdown (n - 1)
+
+countdown       -- Int -> Unit ! {IO}
+```
+
 ### `try` and `handle` take effects away
 
 `try` converts a raise into a `Result`, so `Raise` does not escape it:

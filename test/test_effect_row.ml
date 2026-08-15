@@ -96,6 +96,26 @@ let test_unifying_a_row_with_itself () =
   unifies "a row with itself" r r;
   shows "unchanged" r "{Shell | ..}"
 
+(* One variable on both sides carrying different labels is a recursive
+   equation, `p = {IO} + p`, not a conflict -- it is the shape a function
+   that calls itself produces. Solving it binds the variable to what the two
+   sides disagree on, after which both read the same. *)
+let test_same_variable_different_labels () =
+  let v = fresh_rowvar () in
+  let ambient = Row (EffSet.singleton IO, Some v) in
+  let recursive_call = Row (EffSet.empty, Some v) in
+  unifies "the recursive equation is solved" ambient recursive_call;
+  shows "the effect survives on both sides" ambient "{IO | ..}";
+  shows "and the other side now carries it too" recursive_call "{IO | ..}"
+
+let test_same_variable_disjoint_labels () =
+  let v = fresh_rowvar () in
+  let a = Row (EffSet.singleton IO, Some v) in
+  let b = Row (EffSet.singleton Shell, Some v) in
+  unifies "two effects, one variable" a b;
+  shows "both sides carry both" a "{Shell, IO | ..}";
+  shows "on the other side as well" b "{Shell, IO | ..}"
+
 (* ── Occurs check ────────────────────────────────────────────────────────── *)
 
 (* Binding a variable to a row that contains it would build a row standing
@@ -148,6 +168,8 @@ let () =
       Alcotest.test_case "late information"  `Quick test_information_arrives_after_linking;
       Alcotest.test_case "chain of three"    `Quick test_three_rows_in_a_chain;
       Alcotest.test_case "self-unification"  `Quick test_unifying_a_row_with_itself;
+      Alcotest.test_case "recursive equation" `Quick test_same_variable_different_labels;
+      Alcotest.test_case "disjoint, one var"  `Quick test_same_variable_disjoint_labels;
       Alcotest.test_case "occurs check"      `Quick test_occurs_check;
     ];
     "construction", [

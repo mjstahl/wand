@@ -175,9 +175,21 @@ let unify a b =
     bind v (Row (EffSet.diff la lb, None))
   | Some va, Some vb ->
     if va.rid = vb.rid then begin
+      (* One variable on both sides, carrying different labels. This is not
+         a conflict but a recursive equation -- `p = {IO} + p` -- and it is
+         how a function that calls itself arrives here: performing an effect
+         puts it in the ambient row, the recursive call contributes the same
+         tail without it, and the two meet.
+
+         Solved rather than rejected. Binding the variable to the labels the
+         two sides disagree on leaves both reading `la + lb + p'`, which is
+         the least row satisfying the equation. Without this a recursive
+         function could perform no effect of its own: it typechecked only
+         while every effect it had came from a function it was passed, which
+         is why `List.each` is fine and a loop that prints is not. *)
       if not (EffSet.equal la lb) then
-        raise (RowError (Printf.sprintf "cannot unify effects %s with %s"
-          (string_of_row ra) (string_of_row rb)))
+        bind va (Row (EffSet.union (EffSet.diff la lb) (EffSet.diff lb la),
+                      Some (fresh_rowvar ())))
     end else begin
       let shared = fresh_rowvar () in
       bind va (Row (EffSet.diff lb la, Some shared));
