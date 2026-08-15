@@ -327,7 +327,11 @@ let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   let sess = Runner.make_session ~base_dir () in
   let sess = match Runner.run_session sess stdlib_prelude with
     | Ok (s, _) -> s
-    | Error _   -> sess
+    | Error msg ->
+      (* Without the prelude every stdlib name in the session is unbound, so
+         say why rather than letting each use report its own confusion. *)
+      Printf.printf "warning: standard library not loaded: %s\n%!" msg;
+      sess
   in
   let sess = List.fold_left load_file sess loads in
   Runner.install_signal_handlers ();
