@@ -1545,13 +1545,18 @@ so a field is readable only when *every* constructor carries it, at the same
 type.
 
 ```
-type T = A (x : Int, u : Int) | B (x : Int, w : Int)
-(B (x = 7, w = 9)).x     -- 7, every constructor has x
+type Sized = Small (x : Int, u : Int) | Large (x : Int, w : Int)
 
-type U = A (x : Int) | B (y : Int)
+(Large (x = 7, w = 9)).x     -- 7, every constructor has x
+```
+
+```
+type Mixed = Counted (x : Int) | Named (y : String)
+
+let v = Named (y = "hi")
 v.x
--- type error: field 'x' is not on every constructor of 'U': B does not
---   have it, so which constructor a value holds decides whether 'x' is
+-- type error: field 'x' is not on every constructor of 'Mixed': Named does
+--   not have it, so which constructor a value holds decides whether 'x' is
 --   there. Match on the constructor instead
 ```
 
