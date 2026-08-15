@@ -441,9 +441,11 @@ D1–D3 and D9 cost nothing but writing and belong in the repo now — they are 
 
 Two things that measurement settled rather than assumption. The frontend is 97% of loading a module (infer 5.7ms, parse 1.0, lex 0.3, read 0.04, *evaluate 0.17*), which is why the cache stores types and syntax and never an evaluation environment — those hold closures, which `Marshal` cannot write. And a scheme read back has to be renumbered: `instantiate` tells unification variables apart by integer id, and two entries could each hold a variable numbered 7.
 
-Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
+Lazy per-module deserialization has no measurement asking for it: embedding the standard library did not move startup, because the ~2 ms a module costs is parse and inference rather than finding and reading the file.
 
-**Phase 4 — Reach** (planned in `PHASE4.md`, which measured two of these as bugs rather than features: the binary is not relocatable, and any directory named `stdlib/` above the working directory replaces the standard library)**:** ~~`Par` (§4.7), its cancellation, and **demo D8**~~ **done**, the last two in Phase 3 once §4.6 brackets gave them something to release; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
+**Phase 4 — Reach: done.** Two items in it were bugs rather than features — the binary was not relocatable, and any directory named `stdlib/` above the working directory replaced the standard library. Both are fixed by embedding the standard library in the binary. `Par` (§4.7), its cancellation and **demo D8** landed in Phase 3. Released binaries exist for Linux and macOS on x86_64 and aarch64, and `mjstahl/setup-wand@v1` installs one in a workflow. `Args.parse` reads a command line with a decoder. The position anchored on D5 is the README's opening.
+
+`wand compile` — a script that runs where wand is not installed — was dropped. Appending a payload to a Mach-O invalidates its signature and `codesign` then refuses to sign the file at all, so macOS needed a reserved section patched in place and re-signed: two mechanisms for one feature. CI installing a released binary covers the case it was for.
 
 ---
 

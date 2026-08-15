@@ -47,6 +47,48 @@ Key pipeline stages to expect: **Lexing → Parsing → Type inference → Evalu
 - `_build/` and `_opam/` are generated — never edit them.
 - The active OPAM switch is local (`_opam/`) if present.
 
+## Verifying a change
+
+Check by exit code, never by reading output. `dune build @runtest 2>&1 | grep
+-c "\[FAIL\]"` reports clean when nothing ran, and `set -e` does not abort a
+`cmd; echo ok` sequence under zsh.
+
+```bash
+dune build                                            # exit code
+dune build @runtest --force                           # exit code
+_build/default/bin/wand.exe test test/wand            # exit code
+for d in demos/d1* … demos/d8*; do $d/run.sh; done    # each exit code
+N=500 demos/d9-fork-overhead/run.sh                   # ten seconds
+WAND=$PWD/_build/default/bin/wand.exe \
+  $PWD/_build/default/bin/wand.exe ci/check_stdlib_fmt.wand
+dune build @fmt                                       # dune files
+```
+
+Changing `lib/formatter.ml` needs more: the formatter has produced source
+that does not parse, so check that the corpus is still a fixed point *and*
+still runs. `wand fmt` writes in place, so run it on a copy.
+
+Changing anything on the startup path gets before-and-after numbers in the
+commit message, from several runs. Readings move ~15% between runs, so one
+reading cannot tell an improvement from noise.
+
+## Releasing
+
+`VERSION` holds the number, and it is bumped in the commit that warrants it
+rather than at release time — otherwise a build from `main` claims to be the
+last release while behaving differently.
+
+```bash
+make release VERSION=0.6.0          # tags, pushes, builds the macOS x86_64
+                                    # archive, attaches it
+gh release edit v0.6.0 --draft=false
+```
+
+CI builds the other three archives when the tag lands. Both sides create the
+release if it is missing, so they can finish in either order, and it stays a
+draft until someone publishes it. `make release` refuses a tag that `VERSION`
+disagrees with.
+
 ## Writing wand code
 
 Read `docs/reference.md` for the wand language reference — syntax, types,
