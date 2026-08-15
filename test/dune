@@ -128,6 +128,11 @@
  (libraries wand alcotest unix))
 
 (test
+ (name test_reference_signatures)
+ (deps %{workspace_root}/docs/reference.md %{exe:../bin/wand.exe})
+ (libraries wand alcotest unix))
+
+(test
  (name test_version)
  (deps %{workspace_root}/VERSION %{exe:../bin/wand.exe})
  (libraries wand alcotest unix))
