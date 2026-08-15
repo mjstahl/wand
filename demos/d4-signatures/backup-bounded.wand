@@ -9,7 +9,7 @@ import List
 
 let backup_one! dest p =
   let _ = $(curl -X POST https://metrics.example.com/backup) in
-  FS.copy! p (Path.of_string "${dest}/${Path.basename p}")
+  FS.copy! p (Path.join (Path.of_string dest) (Path.basename p))
 
 let backup_all! dest =
   let () = FS.mkdir! (Path.of_string dest) in

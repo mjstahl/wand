@@ -1688,7 +1688,7 @@ let stdlib_eval_env : env = [
     | VPath s | VString s -> VPath (Filename.dirname s)
     | _ -> raise (EvalError "path_parent: expected Path")));
   ("path_basename", VBuiltin (function
-    | VPath s | VString s -> VString (Filename.basename s)
+    | VPath s | VString s -> VPath (Filename.basename s)
     | _ -> raise (EvalError "path_basename: expected Path")));
   ("path_extension", VBuiltin (function
     | VPath s | VString s -> VString (Filename.extension s)

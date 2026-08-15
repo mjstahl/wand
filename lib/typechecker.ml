@@ -1616,7 +1616,7 @@ let stdlib_type_env : env = [
   (* Path primitives *)
   ("path_join",           generalize [] ((TPath @-> (TPath @-> TPath))));
   ("path_parent",         generalize [] ((TPath @-> TPath)));
-  ("path_basename",       generalize [] ((TPath @-> TString)));
+  ("path_basename",       generalize [] ((TPath @-> TPath)));
   ("path_extension",      generalize [] ((TPath @-> TString)));
   ("path_with_extension", generalize [] ((TString @-> (TPath @-> TPath))));
   ("path_is_absolute",    generalize [] ((TPath @-> TBool)));

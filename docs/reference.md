@@ -1632,6 +1632,18 @@ that runs one. See [Resource brackets](#resource-brackets).
 `absolute?`, `relative?`, `normalize`, `to_string`, `of_string`,
 `components`
 
+`basename` returns a `Path`, as `parent` and `dirname` do — a basename is a
+one-segment relative path, and joining it onto a directory is the usual next
+step:
+
+```
+FS.copy! p (Path.join dest (Path.basename p))
+```
+
+`extension` and `components` return text, because an extension and a list of
+segments are not paths. Use `Path.to_string` when the text of a basename is
+what you want.
+
 ### `IO`
 
 `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`

@@ -86,7 +86,7 @@ test "list_dir lists immediate children" (fn t ->
   let () = FS.write_file! (Path.of_string "${scratch}/list_dir_case/a.txt") "a" in
   let () = FS.write_file! (Path.of_string "${scratch}/list_dir_case/b.txt") "b" in
   let entries = FS.list_dir! dir in
-  let names = List.sort (List.map Path.basename entries) in
+  let names = List.sort (List.map (fn p -> Path.to_string (Path.basename p)) entries) in
   let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/a.txt") in
   let () = FS.delete! (Path.of_string "${scratch}/list_dir_case/b.txt") in
   let () = FS.delete! dir in t.eq ["a.txt", "b.txt"] names)

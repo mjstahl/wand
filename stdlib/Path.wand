@@ -4,7 +4,10 @@ let join p1 p2 = path_join p1 p2
 (** Return the parent directory of a path. *)
 let parent p = path_parent p
 
-(** Return the final component of a path, without directories. *)
+(** Return the final component of a path, without directories. It is a
+    Path, not a String: a basename is a one-segment relative path, and the
+    thing you most often do next is join it onto a directory. Use
+    `Path.to_string` when the text itself is what you want. *)
 let basename p = path_basename p
 
 (** Alias for parent: return the directory portion of a path. *)
