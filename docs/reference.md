@@ -483,6 +483,37 @@ r.stderr   -- String
 r.code     -- Int
 ```
 
+### Interpolated values are shell text
+
+`${...}` inside `$()` inserts the value into the command *as source*, not as
+an argument. The command is assembled and handed to `/bin/sh -c`, so every
+shell metacharacter in an interpolated value is live:
+
+```
+let f = "two words.txt"
+$(ls ${f})                  -- two arguments: `two` and `words.txt`
+
+let p = "*.txt"
+$(ls ${p})                  -- expands to every .txt file
+
+let n = "x; rm -rf /tmp/z"
+$(echo ${n})                -- runs `echo x`, then `rm -rf /tmp/z`
+```
+
+The last one is the shape that matters: a value can carry `;`, `|`,
+backticks or `$(...)` and run commands of its own. A script whose manifest
+says `uses {Shell}` says that it runs commands — it cannot say *which*, so
+a value assembled from a file, an environment variable, or another
+command's output can decide.
+
+**Do not interpolate untrusted input into `$()`.** Where the value is a
+path or an argument you control, this is unremarkable; where it came from
+outside the script, build the command from known parts and pass the data
+some other way.
+
+`test/wand/test_shell_interpolation.wand` records this behaviour case by
+case.
+
 Pipeline with `|>` threads the left-hand string as stdin to the command:
 
 ```
@@ -1570,7 +1601,9 @@ written there.)
 `range`, `flatten`, `concat`, `get`, `get!`
 
 `each` takes the element, as `map` and `filter` do, and returns `Unit` — it
-is for side effects. When the position is wanted, `indexed` supplies it:
+is for side effects. Whatever the function returns is dropped, so a command
+run for its effect needs no ceremony: `$()` hands back stdout whether or not
+the command wrote any. When the position is wanted, `indexed` supplies it:
 
 ```
 files |> List.each (fn p -> FS.copy! p (Path.join dest (Path.basename p)))
@@ -2031,9 +2064,12 @@ Loading a module is mostly type inference — on a 200-definition module,
 
 An entry is keyed by the hash of the module's source *and* of everything it
 imports, transitively, so an entry inferred against a file that has since
-changed is unreachable rather than merely out of date. Nothing needs
-clearing, and there is no timestamp to be wrong about. An unreadable entry
-is a miss, not an error.
+changed is unreachable rather than merely out of date. The key also covers
+the binary itself — its version, size and mtime — because a module's types
+come from the builtins as much as from its source, and a builtin whose
+signature changed would otherwise leave every hash matching and every
+cached type wrong. Nothing needs clearing, and there is no timestamp to be
+wrong about. An unreadable entry is a miss, not an error.
 
 ```
 WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
