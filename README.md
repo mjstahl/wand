@@ -6,22 +6,18 @@ wand is for the scripts that outgrew bash — deploys, CI glue, cron jobs, log
 munging — where a mistake is expensive and the person reading the diff is not
 the person who wrote it.
 
-> A script that an AI wrote is read differently from one a person wrote:
-> nobody has been through it line by line. So wand puts the blast radius on
-> the first line. `uses {Shell, FS.Write}` is checked against the code — a
-> manifest that does not cover what the script does is a type error, and a
-> script with no manifest is told the row it would need. `wand t` runs that
-> check without running the script, which is a job CI already knows how to
-> do, and `--dry-run` rehearses the effects first: *would write*, *would
-> delete*, *would run*, before anything does.
+> An AI can write a script faster than anyone will read it. So a wand script
+> declares what it touches on its first line — `uses {Shell, FS.Write}` — and
+> the compiler checks the declaration against the code. Declare too little and
+> it does not typecheck. Declare nothing and wand prints the line to add.
+> `wand t` runs the check without executing the script. `--dry-run` prints
+> what a run would do: *would write*, *would delete*, *would run*.
 >
-> The manifest is worth reading because the language does not leak underneath
-> it. Values interpolated into a shell command are quoted, so a filename from
-> `Env.get` or a line from a log cannot decide what runs. Effects cross
-> function boundaries in the type, so a helper five calls down cannot reach
-> the network without the row at the top saying so. The claim is narrow and
-> deliberate: not that a script is correct, but that it cannot do anything it
-> did not admit to.
+> The declaration cannot be worked around. A value interpolated into a shell
+> command is quoted, so a filename from an environment variable cannot become
+> a second command. A function that shells out five calls down still needs the
+> first line to allow it. wand does not check that a script is correct, only
+> that it cannot do what it did not declare.
 
 **[Language reference →](docs/reference.md)**
 
