@@ -45,6 +45,61 @@ let p = P(x = 1, y = 2) in p.x|}
 let p = P(x = 1, y = 2) in p.z|}
     "has no field 'z'"
 
+(* A type name that is not declared anywhere used to become an opaque type of
+   its own, so a misspelling was accepted and only surfaced -- if at all -- as
+   a unification failure at some later use. *)
+
+let test_unknown_type_names_rejected () =
+  err_contains "a field naming a type that does not exist"
+    {|type Meta = Meta(name: String)
+type Pod = Pod(metadata: Meta, status: Status)
+1|}
+    "unknown type 'Status'";
+  err_contains "and it says which declaration invented it"
+    {|type Pod = Pod(status: Status)
+1|}
+    "in field 'status' of 'Pod'";
+  err_contains "a misspelling is offered the name it missed"
+    {|type Meta = Meta(name: String)
+type P = P(m: Mata)
+1|}
+    "did you mean 'Meta'";
+  err_contains "a positional field too"
+    {|type S = Circle Radius | Square Int
+1|}
+    "unknown type 'Radius'";
+  err_contains "an annotation, which carries its own location"
+    "let f x : Itn = x
+2"
+    "unknown type 'Itn'";
+  (* Declaration order is not the point: types are collected before any is
+     read, and that stays true. *)
+  ok "a field may name a type declared further down"
+    {|type A = A(b: B)
+type B = B(n: Int)
+(A(b = B(n = 7))).b.n|}
+    "7";
+  ok "generic parameters are not type names"
+    {|type Box 'a = Box 'a
+type W = W(b: Box Int)
+let w = W(b = Box 1) in 1|}
+    "1";
+  ok "builtin types are known without an import"
+    {|type W = W(l: List Int, p: Path, d: Duration)
+1|}
+    "1";
+  (* A module's type needs the import that brings the module in, the same as
+     its functions do. Unimported, it was silently a type of its own. *)
+  ok "an imported type is known"
+    {|import Option
+type W = W(o: Option String)
+1|}
+    "1";
+  err_contains "the same type unimported"
+    {|type W = W(o: Option String)
+1|}
+    "unknown type 'Option'"
+
 (* A value of a multi-constructor type is one of its constructors, and which
    one is not known at the access. A field only some constructors carry used
    to typecheck and fail when the value turned out to be one of the others. *)
@@ -804,6 +859,7 @@ let () =
     "field access", [
       Alcotest.test_case "map dot access rejected" `Quick test_map_dot_access_rejected;
       Alcotest.test_case "named fields checked"    `Quick test_named_field_access_checked;
+      Alcotest.test_case "unknown type names"      `Quick test_unknown_type_names_rejected;
       Alcotest.test_case "field on every ctor"     `Quick test_field_must_be_on_every_constructor;
       Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;
       Alcotest.test_case "map patterns unaffected" `Quick test_map_patterns_still_work;

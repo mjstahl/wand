@@ -1346,6 +1346,32 @@ sketch a solution and ask what fills it.
 
 ## Type definitions
 
+Every type a definition mentions has to exist. Declaration order does not
+matter — a file's types are collected before any of them is read, so a field
+may name a type declared further down, and two types may refer to each other:
+
+```
+type Pod  = Pod (metadata : Meta, status : Status)
+type Meta = Meta (name : String, namespace : String)
+type Status = Running | Pending
+```
+
+A name that is declared nowhere is an error, rather than a type of its own:
+
+```
+type Pod = Pod (metadata : Meta, status : Statsu)
+-- type error: unknown type 'Statsu' in field 'status' of 'Pod'
+--   (did you mean 'Status'?)
+```
+
+A type from another module needs that module imported, the same as its
+functions do:
+
+```
+import Option
+type Slot = Slot (owner : Option String)
+```
+
 ### Enum-style (no payload)
 
 ```

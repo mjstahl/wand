@@ -549,6 +549,31 @@ type typedef_env = (string * type_def) list
    generic type comes back with the arguments substituted in: the `v` of a
    `Box Int` is an `Int`, not a fresh variable. Anything unbound gets one,
    which is what a standalone type expression needs. *)
+(* The type names in scope for the file being checked. A name that is not
+   one of them used to become an opaque `TName` that nothing could construct
+   or unify with, so `type Pod (status : Status)` with no `Status` anywhere
+   was accepted, and a misspelt `Itn` was a type in its own right. The
+   mistake surfaced later as "cannot unify Int with Status", pointing at the
+   use rather than at the declaration that invented the name.
+
+   None outside a program: `type_of_te` is also called where there is no
+   file to draw a set from, and refusing every name there would be wrong. *)
+let known_type_names : string list option ref = ref None
+
+(* The names `type_of_te_bound` resolves without consulting a file: the
+   primitives, and the four that only ever appear applied to an argument. *)
+let builtin_type_name = function
+  | "Int" | "Float" | "String" | "Bool" | "Unit" | "Path" | "Glob"
+  | "Date" | "Time" | "DateTime" | "Duration" | "Url" | "IPv4" | "CIDR"
+  | "Port" | "Version" | "Size" | "JSON" | "TOML"
+  | "List" | "Map" | "Result" | "Decoder" -> true
+  | _ -> false
+
+let with_known_type_names names f =
+  let saved = !known_type_names in
+  known_type_names := Some names;
+  Fun.protect ~finally:(fun () -> known_type_names := saved) f
+
 let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
   let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
   List.iter (fun (n, t) -> Hashtbl.replace vars n t) bound;
@@ -565,7 +590,12 @@ let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
        | "Version"  -> TVersion  | "Size"     -> TSize
        | "JSON"     -> TJson
        | "TOML"     -> TToml
-       | n          -> TName n)
+       | n          ->
+         (match !known_type_names with
+          | Some known when not (builtin_type_name n || List.mem n known) ->
+            raise (TypeError (Printf.sprintf "unknown type '%s'%s"
+              n (Util.hint n known)))
+          | _ -> TName n))
     | TEVar name ->
       (match Hashtbl.find_opt vars name with
        | Some t -> t
@@ -2024,9 +2054,54 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in
+  (* Every type this file can name: its own, whatever it imported, and the
+     builtins. The definitions are collected before any of them is read, so
+     a field may still name a type declared further down. Set around the
+     constructor env too -- that is where a field's type is first read, and
+     an unknown name in one has to be caught there rather than wherever the
+     constructor is eventually used. *)
+  let known = List.map fst tenv in
+  (* Checked here, ahead of the constructor env, so the message can say which
+     declaration invented the name. Reaching it through `type_of_te_bound`
+     instead would report it wherever the constructor was first used, or --
+     for a constructor nobody calls -- not at all. An annotation is left to
+     that path, where the expression carries its own location. *)
+  let rec te_names = function
+    | TEName n     -> [n]
+    | TEVar _      -> []
+    | TEApp (f, a) -> te_names f @ te_names a
+    | TETuple ts   -> List.concat_map te_names ts
+    | TEFun (a, b) -> te_names a @ te_names b
+  in
+  List.iter (function
+    | TLType (Variants (tname, params, ctors)) ->
+      List.iter (fun c ->
+        List.iter (fun (fname, te) ->
+          List.iter (fun n ->
+            if not (builtin_type_name n || List.mem n known || List.mem n params)
+            then
+              let where = match fname with
+                | Some f -> Printf.sprintf "field '%s' of '%s'" f c.name
+                | None   -> Printf.sprintf "a field of '%s'" c.name
+              in
+              (* The single-constructor shorthand names both the same, and
+                 saying it twice reads like two different things. *)
+              let decl =
+                if c.name = tname then ""
+                else Printf.sprintf ", declaring '%s'" tname
+              in
+              raise (TypeError (Printf.sprintf
+                "unknown type '%s' in %s%s%s"
+                n where decl (Util.hint n known))))
+            (te_names te))
+          c.fields)
+        ctors
+    | _ -> ()) prog.items;
+  with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let item_index = ref (-1) in
-  let (env, last_t) = List.fold_left (fun (env, last_t) item ->
+  let (env, last_t) =
+  List.fold_left (fun (env, last_t) item ->
     incr item_index;
     match item with
     | TLLet (_, [], body) when is_import_expr body ->
@@ -2070,7 +2145,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   let n_own = List.length env - List.length base_env in
   let own_env = List.filteri (fun i _ -> i < n_own) env in
   check_manifest prog own_env;
-  (tenv, env, own_env, last_t)
+  (tenv, env, own_env, last_t))
 
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * typ, string) result =
