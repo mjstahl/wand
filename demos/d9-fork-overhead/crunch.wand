@@ -22,7 +22,7 @@ let tally acc line =
     | None -> 0
   in
   let acc = Map.set level (seen + 1) acc in
-  if level == "ERROR" then Map.set "c:${component}" 1 acc else acc
+  if level == "ERROR" then Map.set "c:%{component}" 1 acc else acc
   | _ -> acc
 
 let counts =
@@ -36,7 +36,7 @@ let count k =
 let components =
   List.length (List.filter (fn k -> String.starts_with? "c:" k) (Map.keys counts))
 
-println "ERROR ${count "ERROR"}"
-println "WARN ${count "WARN"}"
-println "INFO ${count "INFO"}"
-println "components-with-errors ${components}"
+println "ERROR %{count "ERROR"}"
+println "WARN %{count "WARN"}"
+println "INFO %{count "INFO"}"
+println "components-with-errors %{components}"

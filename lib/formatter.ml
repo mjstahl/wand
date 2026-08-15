@@ -50,9 +50,11 @@ let escape_string_body str =
     | '\n' -> Buffer.add_string buf "\\n"
     | '\t' -> Buffer.add_string buf "\\t"
     | '\r' -> Buffer.add_string buf "\\r"
-    | '$' when i + 1 < n && (str.[i + 1] = '{'
-               || (str.[i + 1] >= 'A' && str.[i + 1] <= 'Z')) ->
-      Buffer.add_string buf "\\$"
+    (* `${` and `%{` are the two openers the lexer reacts to: `%{` starts an
+       interpolation, and `${` is refused as the old spelling. Text holding
+       either has to come back escaped or it will not read as itself. *)
+    | '$' when i + 1 < n && str.[i + 1] = '{' -> Buffer.add_string buf "\\$"
+    | '%' when i + 1 < n && str.[i + 1] = '{' -> Buffer.add_string buf "\\%"
     | c -> Buffer.add_char buf c
   ) str;
   Buffer.contents buf
@@ -348,11 +350,9 @@ and emit_expr_inner ?col indent e =
     Buffer.add_char buf '"';
     List.iter (fun (lit, e) ->
       Buffer.add_string buf (escape_string_body lit);
-      (* `$NAME` is already an interpolation; wrapping it gives ${$NAME}. *)
-      match strip_located e with
-      | EnvVar name -> Buffer.add_string buf ("$" ^ name)
-      | e ->
-      Buffer.add_string buf "${";
+      (* `$NAME` is plain text in a string now, so an env read has to be
+         written out as the expression it is: `%{$HOME}`. *)
+      Buffer.add_string buf "%{";
       Buffer.add_string buf (emit_expr indent e);
       Buffer.add_char buf '}'
     ) parts;
@@ -365,7 +365,7 @@ and emit_expr_inner ?col indent e =
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e, raw) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "$!{" else "${");
+      Buffer.add_string buf (if raw then "%!{" else "%{");
       Buffer.add_string buf (emit_expr indent e);
       Buffer.add_char buf '}'
     ) parts;
@@ -440,7 +440,7 @@ and emit_app ?col indent e =
             ^ (if ind = "" then "" else ""))
        | _, None -> oneline)
 
-(* A command's text, with interpolations left as ${...} and nothing quoted. *)
+(* A command's text, with interpolations left as %{...} and nothing quoted. *)
 and emit_command indent e =
   match strip_located e with
   | String s -> s
@@ -448,19 +448,19 @@ and emit_command indent e =
     let buf = Buffer.create 32 in
     List.iter (fun (lit, ex) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf "${";
+      Buffer.add_string buf "%{";
       Buffer.add_string buf (emit_expr indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;
     Buffer.contents buf
   (* Which form each interpolation used has to survive formatting: rewriting
-     `$!{x}` as `${x}` would quietly quote a splice that was meant to be
+     `%!{x}` as `%{x}` would quietly quote a splice that was meant to be
      shell source, and the script would stop working. *)
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
     List.iter (fun (lit, ex, raw) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "$!{" else "${");
+      Buffer.add_string buf (if raw then "%!{" else "%{");
       Buffer.add_string buf (emit_expr indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;

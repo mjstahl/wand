@@ -9,14 +9,14 @@ test "true" (fn t -> t.eq true true)
 test "false" (fn t -> t.eq false false)
 test "unit" (fn t -> t.eq () ())
 
-test "path" (fn t -> t.eq "/etc/foo" "${/etc/foo}")
-test "date" (fn t -> t.eq "2024-01-15" "${2024-01-15}")
-test "time" (fn t -> t.eq "14:30:00" "${14:30:00}")
-test "duration" (fn t -> t.eq "5min" "${5min}")
-test "url" (fn t -> t.eq "https://example.com" "${https://example.com}")
-test "ipv4" (fn t -> t.eq "192.168.1.1" "${192.168.1.1}")
-test "version" (fn t -> t.eq "1.2.3" "${1.2.3}")
-test "size" (fn t -> t.eq "10MB" "${10MB}")
+test "path" (fn t -> t.eq "/etc/foo" "%{/etc/foo}")
+test "date" (fn t -> t.eq "2024-01-15" "%{2024-01-15}")
+test "time" (fn t -> t.eq "14:30:00" "%{14:30:00}")
+test "duration" (fn t -> t.eq "5min" "%{5min}")
+test "url" (fn t -> t.eq "https://example.com" "%{https://example.com}")
+test "ipv4" (fn t -> t.eq "192.168.1.1" "%{192.168.1.1}")
+test "version" (fn t -> t.eq "1.2.3" "%{1.2.3}")
+test "size" (fn t -> t.eq "10MB" "%{10MB}")
 
 (* ── Arithmetic ────────────────────────────────────────────────────────── *)
 
@@ -33,7 +33,7 @@ test "prec" (fn t -> t.eq 14 (2 + 3 * 4))
    to wrap silently and hand back a number that looked like an answer. *)
 
 let max_int = 4611686018427387903
-let min_int = (-4611686018427387903 - 1)
+let min_int = -4611686018427387903 - 1
 
 test "add overflows" (fn t -> t.raises (fn () -> max_int + 1))
 test "sub overflows" (fn t -> t.raises (fn () -> min_int - 1))
@@ -45,8 +45,7 @@ test "neg overflows" (fn t -> t.raises (fn () -> 0 - min_int))
    min_int again -- so checking the product by division alone misses it. *)
 test "mul overflows at -1" (fn t -> t.raises (fn () -> min_int * -1))
 
-test "arithmetic up to the boundary is unchanged" (fn t ->
-  t.eq max_int (max_int - 1 + 1))
+test "arithmetic up to the boundary is unchanged" (fn t -> t.eq max_int (max_int - 1 + 1))
 
 test "eq true" (fn t -> t.eq true (1 == 1))
 test "eq false" (fn t -> t.eq false (1 == 2))

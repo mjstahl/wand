@@ -4,7 +4,7 @@ let [test] = import Test
 
 type Color = Red | Green | Blue
 
-test "nullary constructor" (fn t -> t.eq "Red" "${Red}")
+test "nullary constructor" (fn t -> t.eq "Red" "%{Red}")
 test "constructor equality" (fn t -> t.eq true (Red == Red))
 test "constructor inequality" (fn t -> t.eq false (Red == Green))
 
@@ -13,8 +13,8 @@ test "constructor inequality" (fn t -> t.eq false (Red == Green))
 type Wrap = Wrap Int
 type Pair = Pair Int Int
 
-test "single payload" (fn t -> t.eq "Wrap(42)" "${Wrap 42}")
-test "two payloads" (fn t -> t.eq "Pair(3, 4)" "${Pair 3 4}")
+test "single payload" (fn t -> t.eq "Wrap(42)" "%{Wrap 42}")
+test "two payloads" (fn t -> t.eq "Pair(3, 4)" "%{Pair 3 4}")
 
 (* ── Pattern matching on variants ─────────────────────────────────────── *)
 
@@ -70,7 +70,7 @@ test "single field by name" (fn t ->
   let c = Circle(radius = 7) in let Circle(radius = r) = c in t.eq 7 r)
 
 test "multi field by name" (fn t ->
-  let p = Point(x = 3, y = 4) in let Point(x = a, y = b) = p in t.eq "3, 4" "${a}, ${b}")
+  let p = Point(x = 3, y = 4) in let Point(x = a, y = b) = p in t.eq "3, 4" "%{a}, %{b}")
 
 test "match case by name" (fn t ->
   let c = Circle(radius = 9) in

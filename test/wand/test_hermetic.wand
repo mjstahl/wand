@@ -13,9 +13,9 @@ import Path
 let deploy! () =
   let version = $(git describe --tags) in
   let () =
-    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"${version}\"\n"
+    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"%{version}\"\n"
   in
-  let _ = $(rsync -a ./build/ web@host:/srv/app) in "deployed ${version}"
+  let _ = $(rsync -a ./build/ web@host:/srv/app) in "deployed %{version}"
 
 (* Handlers compose: each holds back one family, so a script touching two
    needs both, nested. *)

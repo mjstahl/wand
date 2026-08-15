@@ -58,14 +58,14 @@ test "three-way chain, binds head/mid/tail" (fn t ->
   t.eq
     "1,2,3,[4]"
     (match [1, 2, 3, 4] with
-    | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+    | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
     | _ -> "no match"))
 
 test "chain exactly consuming the list" (fn t ->
   t.eq
     "1,2,3,[]"
     (match [1, 2, 3] with
-    | [a : b : c : tl] -> "${a},${b},${c},${tl}"
+    | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
     | _ -> "no match"))
 
 test "chain falls through on too-short list" (fn t ->

@@ -7,10 +7,10 @@ let area s =
 
 let describe s =
   match s with
-  | Circle r -> "circle(r=${r})"
-  | Rect w h -> "rect(${w}x${h})"
+  | Circle r -> "circle(r=%{r})"
+  | Rect w h -> "rect(%{w}x%{h})"
 
 let c = Circle 5
 let r = Rect 3 4
 
-"${describe c} area=${area c}, ${describe r} area=${area r}"
+"%{describe c} area=%{area c}, %{describe r} area=%{area r}"

@@ -11,11 +11,11 @@ test "concat empty" (fn t -> t.eq "abc" ("" ++ "abc"))
 
 (* ── String interpolation ──────────────────────────────────────────────── *)
 
-test "simple interp" (fn t -> let name = "World" in t.eq "Hello, World!" "Hello, ${name}!")
+test "simple interp" (fn t -> let name = "World" in t.eq "Hello, World!" "Hello, %{name}!")
 
-test "interp arithmetic" (fn t -> t.eq "1 + 2 = 3" "1 + 2 = ${1 + 2}")
-test "interp bool" (fn t -> t.eq "flag: true" "flag: ${true}")
+test "interp arithmetic" (fn t -> t.eq "1 + 2 = 3" "1 + 2 = %{1 + 2}")
+test "interp bool" (fn t -> t.eq "flag: true" "flag: %{true}")
 test "no interp" (fn t -> t.eq "plain string" "plain string")
 
 test "multiple interps" (fn t ->
-  let x = "a" in let y = "b" in t.eq "a and b" "${x} and ${y}")
+  let x = "a" in let y = "b" in t.eq "a and b" "%{x} and %{y}")

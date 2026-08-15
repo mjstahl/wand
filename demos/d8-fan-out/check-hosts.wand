@@ -42,21 +42,21 @@ let leases = "/tmp/wand-demo-d8-leases"
 
 let lease host =
   let acquire =
-    fn () -> let () = FS.write_file! (Path.of_string "${leases}/${host}") "held" in host
+    fn () -> let () = FS.write_file! (Path.of_string "%{leases}/%{host}") "held" in host
   in
-  let release = fn h -> FS.delete! (Path.of_string "${leases}/${h}") in
+  let release = fn h -> FS.delete! (Path.of_string "%{leases}/%{h}") in
   Resource.make acquire release
 
 let check! host =
-  with lease host as h -> let out = $(demos/d8-fan-out/probe.sh ${h}) in String.trim out
+  with lease host as h -> let out = $(demos/d8-fan-out/probe.sh %{h}) in String.trim out
 
 let failed? (Error _) = true
 let failed? (Ok _) = false
 
 let line checked =
   match checked with
-  | (host, Ok out) -> "  ok    ${host}  ${out}"
-  | (host, Error why) -> "  FAIL  ${host}  ${why}"
+  | (host, Ok out) -> "  ok    %{host}  %{out}"
+  | (host, Error why) -> "  FAIL  %{host}  %{why}"
 
 let results = Par.map 8 check! hosts
 
@@ -68,8 +68,8 @@ let reachable = List.length results - failures
 
 let () = IO.println ""
 
-let () = IO.println "${reachable} reachable, ${failures} not, and none of it fatal"
+let () = IO.println "%{reachable} reachable, %{failures} not, and none of it fatal"
 
 let held = FS.list_dir! (Path.of_string leases)
 
-IO.println "leases still held: ${List.length held}"
+IO.println "leases still held: %{List.length held}"

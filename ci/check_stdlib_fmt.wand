@@ -28,10 +28,10 @@ let copy_of dir src = Path.join dir (Path.basename src)
 
 let copy_into! dir = sources |> List.each (fn src -> FS.copy! src (copy_of dir src))
 
-(* One file per call rather than a glob. `${dir}/*.wand` does not parse --
+(* One file per call rather than a glob. `%{dir}/*.wand` does not parse --
    `*.wand` is a glob literal, so the `/` reads as division -- and passing
    each path is clearer than relying on the shell to expand one. *)
-let format_in! dir = sources |> List.each (fn src -> $(${wand} fmt ${copy_of dir src}))
+let format_in! dir = sources |> List.each (fn src -> $(%{wand} fmt %{copy_of dir src}))
 
 (* A file that changed is one `wand fmt` would rewrite, which means the tree
    checked in is not what the formatter produces. Every one of them is
@@ -42,7 +42,7 @@ let rewritten! dir =
 
 let report changed =
   let () = IO.println_err "wand fmt would rewrite these files:" in
-  let () = changed |> List.each (fn p -> IO.println_err "  ${Path.to_string p}") in
+  let () = changed |> List.each (fn p -> IO.println_err "  %{Path.to_string p}") in
   Proc.exit 1
 
 let main! () =
@@ -50,7 +50,7 @@ let main! () =
   let () = copy_into! dir in
   let () = format_in! dir in
   match rewritten! dir with
-  | [] -> IO.println "stdlib is a wand fmt fixed point (${List.length sources} files)"
+  | [] -> IO.println "stdlib is a wand fmt fixed point (%{List.length sources} files)"
   | changed -> report changed
 
 main! ()

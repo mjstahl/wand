@@ -88,13 +88,24 @@ Like division by zero, this is a runtime error and not the `Raise` effect —
 any `+` can overflow, so tracking it would put `Raise` in the row of every
 function that adds two numbers.
 
-String interpolation:
+String interpolation with `%{...}`, which takes any expression:
 
 ```
 let name = "world"
-"hello, ${name}!"        -- "hello, world!"
-"1 + 1 = ${1 + 1}"      -- "1 + 1 = 2"
+"hello, %{name}!"        -- "hello, world!"
+"1 + 1 = %{1 + 1}"       -- "1 + 1 = 2"
+"home is %{$HOME}"       -- reads the environment, like any other expression
 ```
+
+`$` is not special in a string. Text holding shell or Make source keeps it,
+which is what you want when the string is a template for something else to
+expand:
+
+```
+"export PATH=$HOME/bin:$PATH"   -- exactly those characters
+```
+
+For the literal text `%{`, escape the percent: `"\%{not an interpolation}"`.
 
 String concatenation with `++`:
 
@@ -250,7 +261,7 @@ if x > 0 then "positive" else "non-positive"
 An `if` with nothing to do when the condition is false leaves the branch out:
 
 ```
-if stashes > 0 then println "Stashes: ${stashes} saved"
+if stashes > 0 then println "Stashes: %{stashes} saved"
 ```
 
 That is the same expression as `else ()`, not a second kind of conditional —
@@ -343,7 +354,7 @@ line or to make the sequencing explicit.
 match x with
 | 0 -> "zero"
 | 1 -> "one"
-| n -> "other: ${n}"
+| n -> "other: %{n}"
 ```
 
 With guards:
@@ -403,16 +414,16 @@ List patterns:
 ```
 match xs with
 | []        -> "empty"
-| [x]       -> "one element: ${x}"
+| [x]       -> "one element: %{x}"
 | [x, y]    -> "exactly two"
-| [h : t]   -> "head ${h}, tail ${t}"
+| [h : t]   -> "head %{h}, tail %{t}"
 ```
 
 Cons patterns chain, matching several leading elements at once:
 
 ```
 match xs with
-| [a : b : c : t] -> "first three: ${a}, ${b}, ${c}, rest: ${t}"
+| [a : b : c : t] -> "first three: %{a}, %{b}, %{c}, rest: %{t}"
 | _               -> "fewer than three elements"
 ```
 
@@ -495,7 +506,7 @@ Run a shell command and get its stdout as a `String`. Raises on non-zero exit.
 ```
 $(git status)
 $(ls -la)
-$(git log --oneline -${count})      -- values go in with ${...}
+$(git log --oneline -%{count})      -- values go in with %{...}
 ```
 
 Get full output without raising using `$?()`, which returns a `ShellResult`:
@@ -507,64 +518,64 @@ r.stderr   -- String
 r.code     -- Int
 ```
 
-### Interpolation: `${...}` quotes, `$!{...}` splices
+### Interpolation: `%{...}` quotes, `%!{...}` splices
 
 A command line is a sequence of arguments, so a value going into one has to
 say which it is. There are two forms.
 
-**Quote interpolate — `${x}`.** The value becomes exactly one argument,
+**Quote interpolate — `%{x}`.** The value becomes exactly one argument,
 whatever it contains. Spaces do not split it, `*` does not expand, and `;`,
 `|`, backticks and `$(...)` are text:
 
 ```
 let f = "two words.txt"
-$(ls ${f})                  -- runs: ls 'two words.txt'
+$(ls %{f})                  -- runs: ls 'two words.txt'
 
 let p = "*.txt"
-$(ls ${p})                  -- runs: ls '*.txt'        (one literal argument)
+$(ls %{p})                  -- runs: ls '*.txt'        (one literal argument)
 
 let n = "x; rm -rf /tmp/z"
-$(echo ${n})                -- runs: echo 'x; rm -rf /tmp/z'
+$(echo %{n})                -- runs: echo 'x; rm -rf /tmp/z'
 ```
 
-**Raw interpolate — `$!{x}`.** The value is spliced into the command as
+**Raw interpolate — `%!{x}`.** The value is spliced into the command as
 shell source, which the shell then reads. This is how a value carries
 several arguments, a pattern to expand, or a whole command:
 
 ```
 let flags = "-l -a"
-$(ls $!{flags} ${f})        -- runs: ls -l -a 'two words.txt'
+$(ls %!{flags} %{f})        -- runs: ls -l -a 'two words.txt'
 
 let pattern = "./logs/*.log"
-$(wc -l $!{pattern})        -- runs: wc -l ./logs/*.log   (the shell expands)
+$(wc -l %!{pattern})        -- runs: wc -l ./logs/*.log   (the shell expands)
 
 let cmd = "echo hello"
-$($!{cmd})                  -- runs: echo hello
+$(%!{cmd})                  -- runs: echo hello
 ```
 
 Both work the same way in `$?()`.
 
-**Which to reach for.** `${...}` is the one to use — a path, a filename, an
-argument, anything that is data. `$!{...}` is for text you wrote or built
+**Which to reach for.** `%{...}` is the one to use — a path, a filename, an
+argument, anything that is data. `%!{...}` is for text you wrote or built
 that is *meant* to be read as shell syntax, and it hands the value the power
 to decide what runs:
 
 ```
 let name = "x; rm -rf /tmp/z"
-$(echo $!{name})            -- runs: echo x; rm -rf /tmp/z
+$(echo %!{name})            -- runs: echo x; rm -rf /tmp/z
 ```
 
 That is the point of the two spellings. A script whose manifest says
 `uses {Shell}` says that it runs commands; it cannot say *which*. With
-`${...}` a value can only be an argument to the command you wrote, so a
+`%{...}` a value can only be an argument to the command you wrote, so a
 value that arrived from a file, an environment variable, or another
-command's output cannot change what runs. With `$!{...}` it can — which is
+command's output cannot change what runs. With `%!{...}` it can — which is
 sometimes exactly what you want, and is greppable when someone comes to
 audit the script.
 
 Raw interpolation is only for commands. In a string literal there are no
-argument boundaries and so nothing to quote for, and `$!{...}` there is a
-lex error rather than a synonym for `${...}`.
+argument boundaries and so nothing to quote for, and `%!{...}` there is a
+lex error rather than a synonym for `%{...}`.
 
 `test/wand/test_shell_interpolation.wand` specifies both forms case by case.
 
@@ -733,14 +744,15 @@ sync            -- Unit -> String ! {Shell, Raise}
 Nothing above is annotated. `$()` runs a command and raises on a non-zero
 exit, so it carries `{Shell, Raise}`; `$?()` hands back a `ShellResult`
 instead and carries `{Shell}` alone. `$NAME` reads the environment, so it
-carries `{Env}`.
+carries `{Env}` — inside a string that is written `%{$NAME}`, since a
+string's `$` is text.
 
 Including through a function that calls itself, and around a group that
 calls each other:
 
 ```
 let countdown n =
-  if n == 0 then () else let () = IO.println "${n}" in countdown (n - 1)
+  if n == 0 then () else let () = IO.println "%{n}" in countdown (n - 1)
 
 countdown       -- Int -> Unit ! {IO}
 ```
@@ -1761,7 +1773,7 @@ the command wrote any. When the position is wanted, `indexed` supplies it:
 
 ```
 files |> List.each (fn p -> FS.copy! p (Path.join dest (Path.basename p)))
-files |> List.indexed |> List.each (fn (i, p) -> IO.println "${i}: ${p}")
+files |> List.indexed |> List.each (fn (i, p) -> IO.println "%{i}: %{p}")
 ```
 
 ### `String`
@@ -2427,9 +2439,9 @@ Given a deploy that pushes and rewrites a config:
 ```
 let deploy () =
   let version = $(git describe --tags) in
-  let () = FS.write_file! /etc/app/config.toml "version = \"${version}\"\n" in
+  let () = FS.write_file! /etc/app/config.toml "version = \"%{version}\"\n" in
   let _ = $(rsync -a ./build/ web@host:/srv/app) in
-  "deployed ${version}"
+  "deployed %{version}"
 ```
 
 Handlers compose, so a script touching two families needs both, nested:

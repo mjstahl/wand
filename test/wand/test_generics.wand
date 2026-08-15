@@ -86,7 +86,7 @@ test "custom error type" (fn t ->
     "bad: abc"
     (match gparse "abc" with
     | Ok n -> "ok"
-    | Error (UnexpectedToken tk) -> "bad: ${tk}"
+    | Error (UnexpectedToken tk) -> "bad: %{tk}"
     | Error UnexpectedEof -> "eof"))
 
 let plain_result : Result String Int = Ok 1

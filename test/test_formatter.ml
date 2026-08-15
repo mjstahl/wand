@@ -208,7 +208,7 @@ let test_width_is_measured_from_the_start_column () =
   check_wraps "a case body after a wide pattern"
     "let f x =\n  match x with\n  | Some averylongconstructorpattern ->      let y = someprettylongfunction averylongconstructorpattern in y\n  | None -> 0";
   check_wraps "a lambda body inside a constructor field"
-    "let t label =\n  Testing(\n    ok = fn cond -> if cond then Pass label else Fail      \"${label}: the assertion did not hold at all\"\n  )";
+    "let t label =\n  Testing(\n    ok = fn cond -> if cond then Pass label else Fail      \"%{label}: the assertion did not hold at all\"\n  )";
   (* And what it decides still runs the same. *)
   ok_after_format "wrapping a case body preserves it"
     "type Opt = None | Some Int\nlet plus n = n + 1\nlet f x =\n  match x with\n     | Some averylongconstructorpattern -> let y = plus averylongconstructorpattern in y\n     | None -> 0\nf (Some 41)"
@@ -376,7 +376,7 @@ let test_command_text_is_not_quoted () =
   assert_contains "and is still written bare" (fmt "let x = $(git status)\nx")
     "$(git status)";
   ok_after_format "including its interpolations"
-    "let n = 1\nlet out = $(echo ${n})\nout"
+    "let n = 1\nlet out = $(echo %{n})\nout"
     "1"
 
 let test_try_is_parenthesised_as_an_operand () =
@@ -405,12 +405,14 @@ let test_handle_and_regex_round_trip () =
     "import Regex\nRegex.match? r/fix|bug/i \"FIXED\""
     "true"
 
-(* An environment variable is already an interpolation, so re-wrapping it
-   gives ${$USER}. *)
+(* `$NAME` in a string is text, so the formatter has nothing to interpret:
+   it comes back as written, and is not turned into an interpolation. An
+   actual environment read is `%{$USER}`, and that round-trips as itself. *)
 let test_env_var_interpolation () =
-  assert_contains "left as written" (fmt "\"user=$USER\"") "$USER";
-  Alcotest.(check bool) "not double-wrapped" false
-    (contains (fmt "\"user=$USER\"") "${$USER}")
+  assert_contains "text is left as text" (fmt "\"user=$USER\"") "user=$USER";
+  Alcotest.(check bool) "and is not made an interpolation" false
+    (contains (fmt "\"user=$USER\"") "%{$USER}");
+  assert_contains "a real env read survives" (fmt "\"user=%{$USER}\"") "%{$USER}"
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 

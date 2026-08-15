@@ -43,7 +43,7 @@ test "each visits every element" (fn t ->
   with FS.temp_dir "wand_par_" as d ->
   let dir = Path.to_string d in
   let () =
-    Par.each 3 (fn n -> FS.write_file! (Path.of_string "${dir}/${n}.txt") "x") [1, 2, 3]
+    Par.each 3 (fn n -> FS.write_file! (Path.of_string "%{dir}/%{n}.txt") "x") [1, 2, 3]
   in
   t.eq 3 (List.length (FS.glob_in *.txt (Path.of_string dir))))
 
@@ -77,7 +77,7 @@ test "many watched workers, several effects each" (fn t ->
       Par.each
         4
         (fn n -> with FS.temp_dir "wand_par_race_" as d ->
-        let () = FS.write_file! (Path.of_string "${Path.to_string d}/${n}.txt") "x" in
+        let () = FS.write_file! (Path.of_string "%{Path.to_string d}/%{n}.txt") "x" in
         $(echo hi))
         [1, 2, 3, 4])
   in

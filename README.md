@@ -48,7 +48,7 @@ sibling that raises instead, so the risk is legible at the call site.
 ```
 match FS.read_file "config.toml" with
 | Ok text -> text
-| Error why -> "using defaults (${why})"
+| Error why -> "using defaults (%{why})"
 
 FS.read_file! "config.toml"     -- raises; the name says so
 Env.get "HOME"                  -- Option String, not "" when unset
@@ -114,7 +114,7 @@ Requires OCaml 5.x and opam.
 
 Runnable, in [`demos/`](demos/):
 
-- **[The unset variable](demos/d1-unset-variable/)** — `rm -rf "${STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
+- **[The unset variable](demos/d1-unset-variable/)** — `rm -rf "%{STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
 - **[Literals that know what they are](demos/d2-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
 - **[Ask the type system what to write](demos/d3-typed-holes/)** — leave `?`, get back the signature that belongs there
 - **[The signature that cannot lie](demos/d4-signatures/)** — one line added three helpers deep changes the signature; a manifest turns that into a compile error

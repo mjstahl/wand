@@ -106,7 +106,7 @@ test "each sees every element, in order" (fn t ->
   with FS.temp_dir "list_each_" as d ->
   let log = Path.join d (Path.of_string "log") in
   let () = FS.write_file! log "" in
-  let () = List.each (fn x -> FS.append! log "${x}\n") ["a", "b", "c"] in
+  let () = List.each (fn x -> FS.append! log "%{x}\n") ["a", "b", "c"] in
   t.eq "a\nb\nc\n" (FS.read_file! log))
 
 test "each on an empty list does nothing" (fn t ->
@@ -129,6 +129,6 @@ test "indexed pairs with each" (fn t ->
   let log = Path.join d (Path.of_string "log") in
   let () = FS.write_file! log "" in
   let () =
-    ["a", "b"] |> List.indexed |> List.each (fn (i, x) -> FS.append! log "${i}:${x} ")
+    ["a", "b"] |> List.indexed |> List.each (fn (i, x) -> FS.append! log "%{i}:%{x} ")
   in
   t.eq "0:a 1:b " (FS.read_file! log))

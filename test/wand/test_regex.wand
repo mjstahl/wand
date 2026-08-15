@@ -39,7 +39,7 @@ test "capture two groups" (fn t ->
 test "capture pattern match on result" (fn t ->
   match Regex.capture r/^(\S+)\s+(\d+)/ "foo 42" with
   | [] -> t.eq "foo:42" "no match"
-  | [_, name, num] -> t.eq "foo:42" "${name}:${num}"
+  | [_, name, num] -> t.eq "foo:42" "%{name}:%{num}"
   | _ -> t.eq "foo:42" "other")
 
 (* ── Regex.replace ─────────────────────────────────────────────────── *)

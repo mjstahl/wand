@@ -216,7 +216,7 @@ test "and that encoder is the one that runs" (fn t ->
   t.eq
     "{\"items\":[\"n=1\"],\"total\":1}"
     (JSON.stringify
-      (Paged.encoder (fn n -> JSON.of_string "n=${n}") Paged(items = [1], total = 1))))
+      (Paged.encoder (fn n -> JSON.of_string "n=%{n}") Paged(items = [1], total = 1))))
 
 test "a generic round trip" (fn t ->
   let p = Paged(items = [1, 2], total = 2) in

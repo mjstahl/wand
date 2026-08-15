@@ -85,27 +85,29 @@ let madd 0 y = y
 let madd x 0 = x
 let madd x y = x + y
 test "multi-equation two args" (fn t ->
-  t.eq "7, 9, 5" "${madd 3 4}, ${madd 0 9}, ${madd 5 0}")
+  t.eq "7, 9, 5" "%{madd 3 4}, %{madd 0 9}, %{madd 5 0}")
 
 type Opt = None | Some Int
 let show_opt None = "nothing"
-let show_opt (Some n) = "just ${n}"
+let show_opt (Some n) = "just %{n}"
 test "constructor patterns" (fn t ->
-  t.eq "nothing, just 42" "${show_opt None}, ${show_opt (Some 42)}")
+  t.eq "nothing, just 42" "%{show_opt None}, %{show_opt (Some 42)}")
 
 let label 1 = "one"
 let label 2 = "two"
 let label _ = "other"
 test "wildcard catch-all" (fn t ->
-  t.eq "one, two, other" "${label 1}, ${label 2}, ${label 99}")
+  t.eq "one, two, other" "%{label 1}, %{label 2}, %{label 99}")
 
 (* ── Environment variables ────────────────────────────────────────────── *)
 
 test "basic" (fn t -> t.eq (Env.get! "HOME") $HOME)
 test "in let" (fn t -> let d = $HOME in t.eq (Env.get! "HOME") d)
 test "concatenation" (fn t -> t.eq (Env.get! "HOME" ++ "/bin") ($HOME ++ "/bin"))
-test "interpolation" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: $HOME")
-test "string shorthand" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: $HOME")
+test "interpolation" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: %{$HOME}")
+(* `$NAME` in a string is text. Built from pieces on the left so that an
+   interpolation on the right, if there were one, would show as a mismatch. *)
+test "a $NAME in a string is text" (fn t -> t.eq ("home: $" ++ "HOME") "home: $HOME")
 test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
 
 (* ── Type annotations ─────────────────────────────────────────────────── *)

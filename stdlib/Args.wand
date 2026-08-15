@@ -55,7 +55,7 @@ let _object_of flags args =
     if List.any (fn f -> f == k) flags then go (Map.set k (JSON.of_string "true") acc) positional rest
     else match rest with
     | [v : more] -> go (Map.set k (JSON.of_string v) acc) positional more
-    | [] -> Error "--${k} expects a value"
+    | [] -> Error "--%{k} expects a value"
     else go acc (List.append positional [arg]) rest
   in match go Map.empty [] args with
   | Error e -> Error e

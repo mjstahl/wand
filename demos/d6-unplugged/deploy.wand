@@ -9,6 +9,6 @@ import Path
 let deploy! () =
   let version = $(git describe --tags) in
   let () =
-    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"${version}\"\n"
+    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"%{version}\"\n"
   in
-  let _ = $(git push origin main) in "deployed ${version}"
+  let _ = $(git push origin main) in "deployed %{version}"

@@ -75,8 +75,8 @@ let test_read_line_at_eof () =
   let (code, out, err) =
     run
       "uses {IO}\nimport IO\nmatch IO.read_line () with\n\
-       | Ok l    -> IO.println \"ok: ${l}\"\n\
-       | Error e -> IO.println \"error: ${e}\"\n"
+       | Ok l    -> IO.println \"ok: %{l}\"\n\
+       | Error e -> IO.println \"error: %{e}\"\n"
   in
   check_ok "read_line at eof" (code, out, err);
   Alcotest.(check string) "an Error, not an empty string" "error: end of input\n"

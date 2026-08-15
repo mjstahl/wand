@@ -8,21 +8,21 @@ import String
 
 (* How a value gets into a command.
 
-   `${x}` is quote interpolate: the value becomes exactly one argument,
-   whatever it contains. `$!{x}` is raw! interpolate: the value is spliced
+   `%{x}` is quote interpolate: the value becomes exactly one argument,
+   whatever it contains. `%!{x}` is raw! interpolate: the value is spliced
    into the command as shell source, which the shell then reads.
 
    The difference is the whole safety story of `$()`. A path with a space
    in it, a value carrying `;` or `$(...)`, a filename that happens to
-   contain `*` -- under `${}` none of them can change what the command
-   does. Under `$!{}` all of them can, on purpose, and `$!{}` is greppable
+   contain `*` -- under `%{}` none of them can change what the command
+   does. Under `%!{}` all of them can, on purpose, and `%!{}` is greppable
    for exactly that reason.
 
    `printf "[%s]"` prints one bracketed field per argument, which is how
    these tell "one argument" from "several". *)
 
-let quoted! v = $(printf "[%s]" ${v})
-let raw! v = $(printf "[%s]" $!{v})
+let quoted! v = $(printf "[%s]" %{v})
+let raw! v = $(printf "[%s]" %!{v})
 
 (* ── Quote interpolate: one value, one argument ────────────────────────── *)
 
@@ -46,9 +46,10 @@ test "a glob is literal text" (fn t -> t.eq "[*.txt]" (quoted! "*.txt"))
 
 test "a tilde is literal text" (fn t -> t.eq "[~]" (quoted! "~"))
 
-(* `\$` because `$HOME` in a wand string is env-var interpolation, which
-   would read the variable here rather than pass its name to the shell. *)
-test "a variable reference is literal text" (fn t -> t.eq "[\$HOME]" (quoted! "\$HOME"))
+(* No escape needed: `$HOME` in a wand string is the text `$HOME`. Passing
+   it through `%{}` quotes it, so the shell receives the name rather than
+   expanding it. *)
+test "a variable reference is literal text" (fn t -> t.eq "[$HOME]" (quoted! "$HOME"))
 
 (* ── Quote interpolate: nothing runs ───────────────────────────────────── *)
 
@@ -69,9 +70,9 @@ test "backticks do not run" (fn t -> t.eq "[`echo TICK`]" (quoted! "`echo TICK`"
 (* The same attempt that used to write a file, now inert. *)
 test "an interpolated value cannot perform effects of its own" (fn t ->
   with FS.temp_dir "shell_inject_" as d ->
-  let marker = "${Path.to_string d}/written-by-the-value" in
-  let payload = "harmless; touch ${marker}" in
-  let _ = $?(echo ${payload}) in t.eq false (FS.exists? (Path.of_string marker)))
+  let marker = "%{Path.to_string d}/written-by-the-value" in
+  let payload = "harmless; touch %{marker}" in
+  let _ = $?(echo %{payload}) in t.eq false (FS.exists? (Path.of_string marker)))
 
 (* ── Raw interpolate: the value is shell source ────────────────────────── *)
 
@@ -81,11 +82,11 @@ test "raw! expands a glob" (fn t ->
   with FS.temp_dir "shell_glob_" as d ->
   let () = FS.write_file! (Path.join d (Path.of_string "a.txt")) "" in
   let () = FS.write_file! (Path.join d (Path.of_string "b.txt")) "" in
-  let pattern = "${Path.to_string d}/*.txt" in
-  t.eq 2 (List.length (String.lines $(ls $!{pattern}))))
+  let pattern = "%{Path.to_string d}/*.txt" in
+  t.eq 2 (List.length (String.lines $(ls %!{pattern}))))
 
 (* What raw! is for: a command assembled elsewhere and then run. *)
-test "raw! can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $($!{c}))
+test "raw! can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $(%!{c}))
 
 test "raw! runs what the value says" (fn t ->
   t.eq true (String.contains? "RAN" (raw! "x; echo RAN")))
@@ -96,12 +97,12 @@ test "raw! runs what the value says" (fn t ->
    argument that is data. *)
 test "a command can use both" (fn t ->
   let flags = "-n -e" in
-  let value = "two words" in t.eq "[-n][-e][two words]" $(printf "[%s]" $!{flags} ${value}))
+  let value = "two words" in t.eq "[-n][-e][two words]" $(printf "[%s]" %!{flags} %{value}))
 
 (* ── $?() is the same mechanism ────────────────────────────────────────── *)
 
 test "$?() quotes the same way" (fn t ->
-  let v = "a b" in let r = $?(printf "[%s]" ${v}) in t.eq "[a b]" r.stdout)
+  let v = "a b" in let r = $?(printf "[%s]" %{v}) in t.eq "[a b]" r.stdout)
 
 test "$?() splices the same way" (fn t ->
-  let v = "a b" in let r = $?(printf "[%s]" $!{v}) in t.eq "[a][b]" r.stdout)
+  let v = "a b" in let r = $?(printf "[%s]" %!{v}) in t.eq "[a][b]" r.stdout)

@@ -22,7 +22,7 @@ let shape =
       (fn w h -> Rect w h)
       (Decode.field "w" Decode.int)
       (Decode.field "h" Decode.int)
-    else Decode.fail "unknown kind: ${kind}")
+    else Decode.fail "unknown kind: %{kind}")
     (Decode.field "kind" Decode.string))
 
 let area s =
@@ -37,7 +37,7 @@ let shapes = JSON.decode (Decode.list shape) (JSON.parse! document)
 
 let () =
   match shapes with
-  | Ok ss -> IO.println "areas: ${List.map area ss}"
+  | Ok ss -> IO.println "areas: %{List.map area ss}"
   | Error why -> IO.println why
 
 -- A tag nobody knows is a failure that says so, and says which element it

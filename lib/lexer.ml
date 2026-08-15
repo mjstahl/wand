@@ -72,18 +72,26 @@ let read_string s =
     | '\\' ->
       let c = match advance s with
         | 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r'
-        | '\\' -> '\\' | '"' -> '"' | '$' -> '$'
+        | '\\' -> '\\' | '"' -> '"' | '$' -> '$' | '%' -> '%'
         | c -> raise (LexError (Printf.sprintf "unknown escape \\%c" c))
       in
       Buffer.add_char buf c; loop ()
     (* A string is text, not a command line: there are no argument
        boundaries to quote for, so raw interpolation would mean exactly what
-       `${...}` already means. Rejected rather than allowed as a synonym. *)
-    | '$' when peek s = '!' && peek2 s = '{' ->
-      raise (LexError "$!{...} is for shell commands, where it splices a \
+       `%{...}` already means. Rejected rather than allowed as a synonym. *)
+    | '%' when peek s = '!' && peek2 s = '{' ->
+      raise (LexError "%!{...} is for shell commands, where it splices a \
                        value as shell source. A string has nothing to quote \
-                       for, so write ${...} here.")
-    | '$' when peek s = '{' ->
+                       for, so write %{...} here.")
+    (* `$` used to interpolate. It now means one thing -- reaching outside
+       the program, as `$(cmd)` and `$NAME` do -- and text assembly is `%`.
+       Refused for a release rather than read as literal text, because a
+       `"${x}"` that quietly became the characters `${x}` is a wrong answer
+       no one would look for. *)
+    | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
+      raise (LexError "interpolation is %{...} now, not ${...}. For the \
+                       literal text, write \\${...}")
+    | '%' when peek s = '{' ->
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
@@ -101,15 +109,12 @@ let read_string s =
       done;
       parts := !parts @ [(lit, Buffer.contents expr_buf)];
       loop ()
-    | '$' when is_upper (peek s) ->
-      let lit = Buffer.contents buf in
-      Buffer.clear buf;
-      let name_buf = Buffer.create 8 in
-      while not (is_at_end s) && (is_upper (peek s) || is_digit (peek s) || peek s = '_') do
-        Buffer.add_char name_buf (advance s)
-      done;
-      parts := !parts @ [(lit, "$" ^ Buffer.contents name_buf)];
-      loop ()
+    (* `$NAME` is text here. Reading the environment is an expression like
+       any other, so it goes through the one interpolation form -- write
+       `%{$HOME}`. What this buys is that a string holding shell or Make
+       source keeps it: `$HOME`, `$PATH`, `$(date)` all survive as written,
+       and there is no longer a spelling that means one thing in text and
+       another in code. *)
     | c -> Buffer.add_char buf c; loop ()
   in
   loop ()
@@ -131,9 +136,17 @@ let read_run_cmd s =
       else (* closing paren — done *)
         if !parts = [] then RunCmdRaw ([], Buffer.contents buf)
         else RunCmdRaw (!parts, Buffer.contents buf)
-    (* `${x}` quotes, `$!{x}` splices. Both read the same expression source;
-       they differ only in what the evaluator does with the value. *)
+    (* `%{x}` quotes, `%!{x}` splices. Both read the same expression source;
+       they differ only in what the evaluator does with the value.
+
+       `$` keeps its own job inside a command, which is the shell's: `$HOME`
+       and `$(date)` here are text the shell will expand, and wand no longer
+       competes for them. *)
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
+      raise (LexError "interpolation is %{...} now, not ${...}. For a \
+                       variable the shell should expand, $ needs no escape \
+                       -- write $NAME or ${NAME} once this release is past")
+    | '%' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
       let raw = peek s = '!' in
       if raw then ignore (advance s);
       ignore (advance s);

@@ -26,13 +26,13 @@ let behind = count $(git rev-list --count HEAD..@{upstream} 2>/dev/null || echo 
 let last = $(git log -1 --format='%h %s')
 let stashes = List.length (entries $(git stash list))
 
-let status_msg = if dirty > 0 then "${dirty} file(s) changed" else "clean"
+let status_msg = if dirty > 0 then "%{dirty} file(s) changed" else "clean"
 
 let sync_msg =
-  if ahead > 0 || behind > 0 then "^${ahead} ahead  v${behind} behind" else "up to date"
+  if ahead > 0 || behind > 0 then "^%{ahead} ahead  v%{behind} behind" else "up to date"
 
-println "Branch:  ${branch}"
-println "Status:  ${status_msg}"
-println "Sync:    ${sync_msg}"
-if stashes > 0 then println "Stashes: ${stashes} saved"
-println "Last:    ${last}"
+println "Branch:  %{branch}"
+println "Status:  %{status_msg}"
+println "Sync:    %{sync_msg}"
+if stashes > 0 then println "Stashes: %{stashes} saved"
+println "Last:    %{last}"

@@ -33,7 +33,7 @@ let scratch () =
 
 let test_repeated_runs_agree () =
   let (d, c) = scratch () in
-  write (Filename.concat d "mod.wand") "let greet name = \"hello, ${name}\"";
+  write (Filename.concat d "mod.wand") "let greet name = \"hello, %{name}\"";
   write (Filename.concat d "main.wand") "let m = import ./mod\nm.greet \"world\"";
   let first  = run ~dir:d ~cache:c ["main.wand"] in
   let second = run ~dir:d ~cache:c ["main.wand"] in
@@ -44,10 +44,10 @@ let test_repeated_runs_agree () =
    has to make it unreachable -- this is the whole design. *)
 let test_editing_a_dependency_is_seen () =
   let (d, c) = scratch () in
-  write (Filename.concat d "mod.wand") "let greet name = \"hello, ${name}\"";
+  write (Filename.concat d "mod.wand") "let greet name = \"hello, %{name}\"";
   write (Filename.concat d "main.wand") "let m = import ./mod\nm.greet \"world\"";
   ignore (run ~dir:d ~cache:c ["main.wand"]);
-  write (Filename.concat d "mod.wand") "let greet name = \"goodbye, ${name}\"";
+  write (Filename.concat d "mod.wand") "let greet name = \"goodbye, %{name}\"";
   Alcotest.(check string) "the new answer, not the cached one"
     "goodbye, world" (run ~dir:d ~cache:c ["main.wand"])
 
@@ -55,7 +55,7 @@ let test_editing_a_dependency_is_seen () =
    is not merely out of date but wrong. The error still has to appear. *)
 let test_a_dependency_type_change_still_errors () =
   let (d, c) = scratch () in
-  write (Filename.concat d "mod.wand") "let greet name = \"hello, ${name}\"";
+  write (Filename.concat d "mod.wand") "let greet name = \"hello, %{name}\"";
   write (Filename.concat d "main.wand") "let m = import ./mod\nm.greet \"world\"";
   ignore (run ~dir:d ~cache:c ["main.wand"]);
   write (Filename.concat d "mod.wand") "let greet n = n + 1";

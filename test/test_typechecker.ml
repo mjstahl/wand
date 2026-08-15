@@ -271,7 +271,7 @@ handle FS.write_file! /tmp/x "hi" with
     {|import FS
 import Path
 handle FS.read_file! /tmp/nonexistent with
-| FS!read_file p k -> k "mocked: ${Path.to_string p}"|}
+| FS!read_file p k -> k "mocked: %{Path.to_string p}"|}
     "mocked: /tmp/nonexistent";
   (* `Shell!run` carries either a command or a command and its stdin, so it
      has no single payload type and its cases stay open. *)
@@ -627,7 +627,7 @@ let test_glob_is_not_a_path () =
 let test_operator_type_errors () =
   rejects "int ++ string" "1 ++ \"a\"";
   rejects "string ++ int" "\"a\" ++ 1";
-  rejects "bad expression inside interpolation" "\"${1 + true}\"";
+  rejects "bad expression inside interpolation" "\"%{1 + true}\"";
   rejects "cons onto a non-list" "1 : 2";
   rejects "cons of the wrong element type" "1 : [\"a\", \"b\"]"
 

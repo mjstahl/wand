@@ -31,10 +31,10 @@ let summary (Pod(metadata = Meta(name = name), status = Status(containerStatuses
 let pad s =
   if String.length s >= 12 then s else s ++ String.repeat (12 - String.length s) " "
 
-let row (name, restarts) = "  ${pad name} ${restarts}"
+let row (name, restarts) = "  %{pad name} %{restarts}"
 
 let crashlooping ps = List.map row (List.filter (fn (_, r) -> r > 3) (List.map summary ps))
 
 match JSON.decode pods (JSON.read_file! ./pods.json) with
 | Ok ps -> IO.println (String.join "\n" (crashlooping ps))
-| Error why -> IO.println "  ${why}"
+| Error why -> IO.println "  %{why}"
