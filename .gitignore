@@ -35,3 +35,6 @@ setup.log
 # Local OPAM switch
 _opam/
 /wand
+
+# Release archives, built by `make release`
+/dist/

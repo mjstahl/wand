@@ -22,7 +22,11 @@ jobs:
           # OCaml has no cross-compilation worth relying on: ocamlopt emits
           # code for the machine it was built for, and every dependency would
           # have to be rebuilt for the target. So each artifact is built on
-          # its own hardware. All four runners are free for public repos.
+          # its own hardware.
+          #
+          # macOS x86_64 is missing on purpose. Its runner never leaves the
+          # queue, and `make release` builds that archive on a developer's
+          # Intel Mac and attaches it to the same draft release.
           - target: linux-x86_64
             runs-on: ubuntu-latest
             static: true
@@ -31,9 +35,6 @@ jobs:
             static: true
           - target: macos-aarch64
             runs-on: macos-15
-            static: false
-          - target: macos-x86_64
-            runs-on: macos-13
             static: false
 
     steps:
@@ -117,7 +118,11 @@ jobs:
           check 'List.length [1,2]' '2 : Int'
           echo "runs from /tmp, ignores a decoy stdlib/"
 
+      # Archives are a tag's business. A dispatch run builds and proves the
+      # binary works, which is what it is for; naming an archive after a
+      # branch only produces a `wand-main-...tar.gz` nobody should install.
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -134,6 +139,7 @@ jobs:
           ls -la dist
 
       - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: ${{ matrix.target }}
           path: dist/*.tar.gz*
@@ -151,16 +157,28 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # `gh` is on the runner, so publishing needs no third-party action.
-      - name: Publish
+      # `gh` is on the runner, so this needs no third-party action.
+      #
+      # Create if absent, then upload. The macOS x86_64 archive is built on a
+      # developer's Intel Mac by `make release` and attaches to this same
+      # release, and neither side knows which of them will arrive first --
+      # so both create-or-attach rather than assuming.
+      #
+      # A draft, because a release becomes public the moment it exists: left
+      # undrafted, there is a window where someone downloads a release that
+      # is missing their architecture. `gh release edit <tag> --draft=false`
+      # publishes it once every archive is attached.
+      - name: Attach the artifacts built here
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ls -la dist
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file - <<'NOTES'
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file - <<'NOTES'
           Download the archive for your platform, unpack it, and put `wand` on
           your `PATH`. The binary carries its own standard library, so it runs
           from any directory with nothing else installed.
@@ -172,3 +190,4 @@ jobs:
 
           Checksums are the `.sha256` files beside each archive.
           NOTES
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
