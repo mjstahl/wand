@@ -32,7 +32,6 @@ type t =
   | Then
   | Else
   | Type
-  | Token
   | Import
   | Requires
   | Ensures
@@ -130,7 +129,7 @@ let pp ppf tok =
     | In         -> "in"     | Match      -> "match"
     | With       -> "with"   | If         -> "if"
     | Then       -> "then"   | Else       -> "else"
-    | Type       -> "type"   | Token      -> "token"
+    | Type       -> "type"
     | Import     -> "import"
     | Requires   -> "requires" | Ensures  -> "ensures"
     | Result     -> "result" | Fn         -> "fn"

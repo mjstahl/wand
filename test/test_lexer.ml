@@ -54,7 +54,6 @@ let test_keywords () =
     "then",     Then;
     "else",     Else;
     "type",     Type;
-    "token",    Token.Token;
     "import",   Import;
     "requires", Requires;
     "ensures",  Ensures;

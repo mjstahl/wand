@@ -24,19 +24,19 @@ import String
 (* Only `--name`. A single dash is not a flag, which is what keeps `-5` a
    positional argument rather than an option nobody declared, and short
    flags out of a design that has no room for them. *)
-let flag? arg = String.starts_with? "--" arg
+let _flag? arg = String.starts_with? "--" arg
 
-let name_of arg = String.slice 2 (String.length arg) arg
+let _name_of arg = String.slice 2 (String.length arg) arg
 
 (* `--key=value` is unambiguous on its own. Anything else needs to know
    whether the flag takes a value, which is the one fact a list of strings
    cannot supply -- hence `parse_with`. *)
-let inline? arg = String.contains? "=" arg
+let _inline? arg = String.contains? "=" arg
 
-let inline_pair arg =
-  match String.split "=" (name_of arg) with
+let _inline_pair arg =
+  match String.split "=" (_name_of arg) with
   | [k : rest] -> (k, String.join "=" rest)
-  | [] -> (name_of arg, "")
+  | [] -> (_name_of arg, "")
 
 (* ── argv to an object ─────────────────────────────────────────────────── *)
 
@@ -45,13 +45,13 @@ let inline_pair arg =
    word for "the part with no name".
 
        Args.parse (Decode.field "_" (Decode.list Decode.string)) args *)
-let positional_key = "_"
+let _positional_key = "_"
 
-let object_of flags args =
+let _object_of flags args =
   let go acc positional [] = Ok (acc, positional)
   go acc positional [arg : rest] =
-    if flag? arg then if inline? arg then let (k, v) = inline_pair arg in go (Map.set k (JSON.of_string v) acc) positional rest
-    else let k = name_of arg in
+    if _flag? arg then if _inline? arg then let (k, v) = _inline_pair arg in go (Map.set k (JSON.of_string v) acc) positional rest
+    else let k = _name_of arg in
     if List.any (fn f -> f == k) flags then go (Map.set k (JSON.of_string "true") acc) positional rest
     else match rest with
     | [v : more] -> go (Map.set k (JSON.of_string v) acc) positional more
@@ -61,7 +61,7 @@ let object_of flags args =
   | Error e -> Error e
   | Ok (fields, positional) -> Ok
     (JSON.of_map
-      (Map.set positional_key (JSON.of_list (List.map JSON.of_string positional)) fields))
+      (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) fields))
 
 (* ── Parsing ───────────────────────────────────────────────────────────── *)
 
@@ -75,7 +75,7 @@ let object_of flags args =
     reveal: without it, `--message -5` and a flag followed by a positional
     are the same shape. Everything else the type already says. *)
 let parse_with flags decoder args =
-  match object_of flags args with
+  match _object_of flags args with
   | Error e -> Error e
   | Ok obj -> JSON.decode decoder obj
 

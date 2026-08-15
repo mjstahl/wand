@@ -1625,10 +1625,38 @@ written there.)
 
 ### `List`
 
-`map`, `filter`, `fold_left`, `fold_right`, `length`, `append`, `reverse`,
-`head`, `head!`, `tail`, `tail!`, `empty?`, `any`, `all`, `find`, `zip`, `take`, `drop`,
-`take_while`, `drop_while`, `each`, `indexed`, `sort`, `sort_by`, `unique`,
-`range`, `flatten`, `concat`, `get`, `get!`
+```
+map        : ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
+filter     : ('a -> Bool ! 'e) -> List 'a -> List 'a ! 'e
+fold_left  : ('a -> 'b -> 'a ! 'e) -> 'a -> List 'b -> 'a ! 'e
+fold_right : ('a -> 'b -> 'b ! 'e) -> List 'a -> 'b -> 'b ! 'e
+length     : List 'a -> Int
+append     : List 'a -> List 'a -> List 'a ! 'e
+reverse    : List 'a -> List 'a
+head       : List 'a -> Option 'a
+head!      : List 'a -> 'a ! {Raise}
+tail       : List 'a -> Option (List 'a)
+tail!      : List 'a -> List 'a ! {Raise}
+empty?     : List 'a -> Bool
+any        : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
+all        : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
+find       : ('a -> Bool ! 'e) -> List 'a -> Option 'a ! 'e
+zip        : List 'a -> List 'b -> List ('a, 'b) ! 'e
+take       : Int -> List 'a -> List 'a ! 'e
+drop       : Int -> List 'a -> List 'a ! 'e
+take_while : ('a -> Bool ! 'e) -> List 'a -> List 'a ! 'e
+drop_while : ('a -> Bool ! 'e) -> List 'a -> List 'a ! 'e
+each       : ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
+indexed    : List 'a -> List (Int, 'a)
+sort       : List 'a -> List 'a
+sort_by    : ('a -> 'b) -> List 'a -> List 'a
+unique     : List 'a -> List 'a
+range      : Int -> Int -> List Int
+flatten    : List (List 'a) -> List 'a
+concat     : List 'a -> List 'a -> List 'a
+get        : Int -> List 'a -> Option 'a
+get!       : Int -> List 'a -> 'a ! {Raise}
+```
 
 `each` takes the element, as `map` and `filter` do, and returns `Unit` — it
 is for side effects. Whatever the function returns is dropped, so a command
@@ -1642,11 +1670,42 @@ files |> List.indexed |> List.each (fn (i, p) -> IO.println "${i}: ${p}")
 
 ### `String`
 
-`length`, `empty?`, `upper`, `lower`, `trim`, `trim_left`, `trim_right`,
-`slice`, `split`, `contains?`, `starts_with?`, `ends_with?`, `replace`,
-`repeat`, `reverse`, `chars`, `join`, `lines`, `words`, `of_int`, `to_int`,
-`to_float`, `to_bool`, `to_path`, `to_url`, `to_ipv4`, `to_cidr`, `to_port`,
-`to_version`, `to_size`, `to_date`, `to_time`, `to_datetime`, `to_duration`
+```
+length       : String -> Int
+empty?       : String -> Bool
+upper        : String -> String
+lower        : String -> String
+trim         : String -> String
+trim_left    : String -> String
+trim_right   : String -> String
+slice        : Int -> Int -> String -> String
+split        : String -> String -> List String
+contains?    : String -> String -> Bool
+starts_with? : String -> String -> Bool
+ends_with?   : String -> String -> Bool
+replace      : String -> String -> String -> String
+repeat       : Int -> String -> String
+reverse      : String -> String
+chars        : String -> List String
+join         : String -> List String -> String
+lines        : String -> List String
+words        : String -> List String
+of_int       : Int -> String
+to_int       : String -> Result String Int
+to_float     : String -> Result String Float
+to_bool      : String -> Result String Bool
+to_path      : String -> Path
+to_url       : String -> Result String Url
+to_ipv4      : String -> Result String IPv4
+to_cidr      : String -> Result String CIDR
+to_port      : String -> Result String Port
+to_version   : String -> Result String Version
+to_size      : String -> Result String Size
+to_date      : String -> Result String Date
+to_time      : String -> Result String Time
+to_datetime  : String -> Result String DateTime
+to_duration  : String -> Result String Duration
+```
 
 Each reads the value as it would be written in a script, and returns a
 `Result` naming the rule that was broken:
@@ -1663,20 +1722,78 @@ and `Decode.port` accepts both for the same reason.
 
 ### `Regex`
 
-`compile`, `match?`, `capture`, `replace`, `replace_all`, `split`, `match_all`
+```
+compile     : String -> Result String Regex
+match?      : Regex -> String -> Bool
+capture     : Regex -> String -> List String
+replace     : Regex -> String -> String -> String
+replace_all : Regex -> String -> String -> String
+split       : Regex -> String -> List String
+match_all   : Regex -> String -> List String
+```
 
 ### `Map`
 
-`empty`, `get`, `get!`, `set`, `delete`, `has?`, `keys`, `values`, `size`,
-`to_list`, `from_list`, `merge`, `map`, `filter`
+```
+empty     : Map 'a
+get       : String -> Map 'a -> Option 'a
+get!      : String -> Map 'a -> 'a ! {Raise}
+set       : String -> 'a -> Map 'a -> Map 'a
+delete    : String -> Map 'a -> Map 'a
+has?      : String -> Map 'a -> Bool
+keys      : Map 'a -> List String
+values    : Map 'a -> List 'a
+size      : Map 'a -> Int
+to_list   : Map 'a -> List (String, 'a)
+from_list : List (String, 'a) -> Map 'a
+merge     : Map 'a -> Map 'a -> Map 'a
+map       : ('a -> 'b) -> Map 'a -> Map 'b
+filter    : ('a -> Bool) -> Map 'a -> Map 'a
+```
 
 ### `FS`
 
-`read_file`, `write_file`, `append`, `create_file`, `mkdir`,
-`delete`, `rename`, `copy`, `list_dir`, `mtime`, `size` — each with a `!`
-sibling that raises instead of returning a `Result`. Every one names its file
-with a `Path`.
-`exists?`, `file?`, `dir?`, `glob`, `glob_in`, `cwd`
+Each fallible operation comes as a pair: the plain name returns a `Result`,
+the `!` sibling raises. Every one names its file with a `Path`.
+
+```
+read_file    : Path -> Result String String ! {FS.Read}
+write_file   : Path -> String -> Result String Unit ! {FS.Write}
+append       : Path -> String -> Result String Unit ! {FS.Write}
+create_file  : Path -> Result String Unit ! {FS.Write}
+mkdir        : Path -> Result String Unit ! {FS.Write}
+delete       : Path -> Result String Unit ! {FS.Write}
+rename       : Path -> Path -> Result String Unit ! {FS.Write}
+copy         : Path -> Path -> Result String Unit ! {FS.Write}
+list_dir     : Path -> Result String (List Path) ! {FS.Read}
+mtime        : Path -> Result String DateTime ! {FS.Read}
+size         : Path -> Result String Int ! {FS.Read}
+```
+
+The `!` siblings — `read_file!`, `write_file!`, `append!`, `create_file!`,
+`mkdir!`, `delete!`, `rename!`, `copy!`, `list_dir!`, `mtime!`, `size!` —
+return the value and carry `Raise`:
+
+```
+read_file!   : Path -> String ! {FS.Read, Raise}
+write_file!  : Path -> String -> Unit ! {FS.Write, Raise}
+```
+
+Questions and lookups cannot fail, so they have no pair:
+
+```
+exists?      : Path -> Bool ! {FS.Read}
+file?        : Path -> Bool ! {FS.Read}
+dir?         : Path -> Bool ! {FS.Read}
+cwd          : Unit -> Path ! {FS.Read}
+glob         : Glob -> List Path ! {FS.Read}
+glob_in      : Glob -> Path -> List Path ! {FS.Read}
+```
+
+```
+temp_file    : String -> String -> Resource {FS.Read, FS.Write, Raise | ..} Path
+temp_dir     : String -> Resource {FS.Read, FS.Write, Raise | ..} Path
+```
 
 `temp_file prefix suffix` is a resource rather than a plain call, so the
 file it creates is removed when the bracket holding it ends:
@@ -1703,16 +1820,29 @@ than requiring the body to empty it first.
 
 ### `Resource`
 
-`make`
+```
+make : (Unit -> 'a ! 'e) -> ('a -> Unit ! 'e) -> Resource {..} 'a
+```
 
 A resource pairs an acquire with a release, and `with` is the only thing
 that runs one. See [Resource brackets](#resource-brackets).
 
 ### `Path`
 
-`join`, `parent`, `basename`, `dirname`, `extension`, `with_extension`,
-`absolute?`, `relative?`, `normalize`, `to_string`, `of_string`,
-`components`
+```
+join           : Path -> Path -> Path
+parent         : Path -> Path
+basename       : Path -> Path
+dirname        : Path -> Path
+extension      : Path -> String
+with_extension : String -> Path -> Path
+absolute?      : Path -> Bool
+relative?      : Path -> Bool
+normalize      : Path -> Path
+to_string      : Path -> String
+of_string      : String -> Path
+components     : Path -> List String
+```
 
 `basename` returns a `Path`, as `parent` and `dirname` do — a basename is a
 one-segment relative path, and joining it onto a directory is the usual next
@@ -1728,11 +1858,21 @@ what you want.
 
 ### `IO`
 
-`print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`
+```
+print       : 'a -> Unit ! {IO}
+println     : 'a -> Unit ! {IO}
+print_err   : String -> Unit ! {IO}
+println_err : String -> Unit ! {IO}
+read_line   : Unit -> Result String String ! {IO}
+read_all    : Unit -> Result String String ! {IO}
+flush       : Unit -> Unit ! {IO}
+```
 
 ### `Proc`
 
-`exit`
+```
+exit : Int -> 'a ! {Proc}
+```
 
 ```
 Proc.exit : Int -> 'a ! {Proc}
@@ -1748,7 +1888,18 @@ if broken? then Proc.exit 1 else continue! ()
 
 ### `Env`
 
-`get`, `get!`, `set`, `clear`, `all`, `args`, `home`, `user`, `read`, `load`
+```
+get   : String -> Option String ! {Env}
+get!  : String -> String ! {Env, Raise}
+set   : String -> String -> Unit ! {Env}
+clear : String -> Unit ! {Env}
+all   : Unit -> List (String, String) ! {Env}
+args  : Unit -> List String ! {Env}
+home  : Unit -> Path ! {Env}
+user  : Unit -> String ! {Env}
+read  : Path -> Result String (Map String) ! {FS.Read, Env}
+load  : Path -> Result String Unit ! {Env}
+```
 
 `args` is the arguments the script was given, without the program name:
 `wand deploy.wand --port 8080` gives `["--port", "8080"]`. See
@@ -1756,8 +1907,15 @@ if broken? then Proc.exit 1 else continue! ()
 
 ### `CSV`
 
-`parse`, `parse_with`, `stringify`, `stringify_with`, `read_file`, `read_file!`,
-`rows`
+```
+parse          : String -> List (List String)
+parse_with     : String -> String -> List (List String)
+stringify      : List (List String) -> String
+stringify_with : String -> List (List String) -> String
+read_file      : Path -> Result String (List (List String))
+read_file!     : Path -> List (List String) ! {Raise}
+rows           : Decoder 'a -> String -> Result String (List 'a)
+```
 
 Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV.  Fields may be
 quoted with `""`; embedded quotes are doubled (`"say ""hi"""`).  `read_file`
@@ -1781,10 +1939,31 @@ match CSV.read_file ./data.csv with
 
 ### `JSON`
 
-`parse`, `parse!`, `stringify`, `stringify_pretty`, `read_file`, `read_file!`,
-`null`, `of_bool`, `of_int`, `of_float`, `of_string`, `of_list`, `of_map`,
-`null?`, `get_bool`, `get_int`, `get_float`, `get_string`, `get_array`,
-`get_object`, `field`, `field!`, `decode`
+```
+parse            : String -> Result String JSON
+parse!           : String -> JSON ! {Raise}
+stringify        : JSON -> String
+stringify_pretty : JSON -> String
+read_file        : Path -> Result String JSON
+read_file!       : Path -> JSON ! {Raise}
+null             : JSON
+of_bool          : Bool -> JSON
+of_int           : Int -> JSON
+of_float         : Float -> JSON
+of_string        : String -> JSON
+of_list          : List JSON -> JSON
+of_map           : Map JSON -> JSON
+null?            : JSON -> Bool
+get_bool         : JSON -> Result String Bool
+get_int          : JSON -> Result String Int
+get_float        : JSON -> Result String Float
+get_string       : JSON -> Result String String
+get_array        : JSON -> Result String (List JSON)
+get_object       : JSON -> Result String (Map JSON)
+field            : String -> JSON -> Result String JSON
+field!           : String -> JSON -> JSON ! {Raise}
+decode           : Decoder 'a -> JSON -> Result String 'a
+```
 
 `JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
 the `!` variants raise on error.  Typed extractors each return `Result`.
@@ -1818,9 +1997,24 @@ match JSON.read_file ./config.json with
 
 ### `TOML`
 
-`parse`, `parse!`, `stringify`, `read_file`, `read_file!`,
-`table?`, `array?`, `get_bool`, `get_int`, `get_float`, `get_string`,
-`get_array`, `get_table`, `field`, `field!`, `decode`
+```
+parse      : String -> Result String TOML
+parse!     : String -> TOML ! {Raise}
+stringify  : TOML -> String
+read_file  : Path -> Result String TOML
+read_file! : Path -> TOML ! {Raise}
+table?     : TOML -> Bool
+array?     : TOML -> Bool
+get_bool   : TOML -> Result String Bool
+get_int    : TOML -> Result String Int
+get_float  : TOML -> Result String Float
+get_string : TOML -> Result String String
+get_array  : TOML -> Result String (List TOML)
+get_table  : TOML -> Result String (Map TOML)
+field      : String -> TOML -> Result String TOML
+field!     : String -> TOML -> TOML ! {Raise}
+decode     : Decoder 'a -> TOML -> Result String 'a
+```
 
 `TOML` is an opaque type representing any TOML value (table, string, int,
 float, bool, array).  The top-level parse result is always a table.
@@ -1848,12 +2042,26 @@ match TOML.read_file ./config.toml with
 
 ### `Duration`
 
-`zero`, `seconds`, `minutes`, `hours`, `days`, `weeks`, `add`, `sub`, `scale`,
-`format`, `to_ms`
+```
+zero    : Duration
+seconds : Int -> Duration
+minutes : Int -> Duration
+hours   : Int -> Duration
+days    : Int -> Duration
+weeks   : Int -> Duration
+add     : Duration -> Duration -> Duration
+sub     : Duration -> Duration -> Duration
+scale   : Int -> Duration -> Duration
+format  : Duration -> String
+to_ms   : Duration -> Int
+```
 
 ### `Par`
 
-`map`, `each`
+```
+map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
+each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
+```
 
 Fork-join parallelism, and nothing else:
 
@@ -1889,7 +2097,10 @@ being watched costs the overlap, and nothing rehearses for speed.
 
 ### `Shell`
 
-`decode`, `lines`
+```
+decode : Decoder 'a -> String -> Result String 'a
+lines  : Decoder 'a -> String -> Result String (List 'a)
+```
 
 Reading what a command wrote. See [Decoders](#decoders).
 
@@ -1899,10 +2110,34 @@ let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 
 ### `Decode`
 
-`int`, `float`, `string`, `bool`, `field`, `optional`, `list`, `dict`,
-`nullable`, `map`, `map2`, `and_then`, `succeed`, `fail`, `one_of`, `path`,
-`duration`, `url`, `size`, `version`, `date`, `time`, `datetime`, `ipv4`,
-`cidr`, `port`
+```
+int      : Decoder Int
+float    : Decoder Float
+string   : Decoder String
+bool     : Decoder Bool
+field    : String -> Decoder 'a -> Decoder 'a
+optional : String -> Decoder 'a -> Decoder (Option 'a)
+list     : Decoder 'a -> Decoder (List 'a)
+dict     : Decoder 'a -> Decoder (Map 'a)
+nullable : Decoder 'a -> Decoder (Option 'a)
+map      : ('a -> 'b) -> Decoder 'a -> Decoder 'b
+map2     : ('a -> 'b -> 'c) -> Decoder 'a -> Decoder 'b -> Decoder 'c
+and_then : ('a -> Decoder 'b) -> Decoder 'a -> Decoder 'b
+succeed  : 'a -> Decoder 'a
+fail     : String -> Decoder 'a
+one_of   : List Decoder 'a -> Decoder 'a
+path     : Decoder Path
+duration : Decoder Duration
+url      : Decoder Url
+size     : Decoder Size
+version  : Decoder Version
+date     : Decoder Date
+time     : Decoder Time
+datetime : Decoder DateTime
+ipv4     : Decoder IPv4
+cidr     : Decoder CIDR
+port     : Decoder Port
+```
 
 `Decoder a` is an opaque type. Running a decoder is a backend's job:
 
@@ -1916,7 +2151,10 @@ See [Decoders](#decoders).
 
 ### `Args`
 
-`parse`, `parse_with`
+```
+parse      : Decoder 'a -> List String -> Result String 'a
+parse_with : List String -> Decoder 'a -> List String -> Result String 'a
+```
 
 A command line is another untyped boundary, so it is read the same way as
 any other: argv becomes a document and a decoder reads it. There are no
@@ -1957,7 +2195,13 @@ the front to skip, as there would be with bash's `$0` or C's `argv[0]`.
 
 ### `Test`
 
-`test`, `with_shell`, `shell_calls`, `without_writes`, `writes`
+```
+test           : String -> (Testing 'b 'a -> 'c ! 'e) -> 'c ! 'e
+with_shell     : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
+shell_calls    : (Unit -> 'a ! 'e) -> List 'b ! 'e
+without_writes : (Unit -> 'a ! 'e) -> 'a ! 'e
+writes         : (Unit -> 'a ! 'e) -> List Path ! 'e
+```
 
 The handle a test block receives carries `ok`, `not_ok`, `eq`, `not_eq`,
 `raises` and `fail`.
@@ -1966,8 +2210,16 @@ The module a test file imports. See [Testing](#testing).
 
 ### `Option`
 
-`some?`, `none?`, `map`, `and_then`, `or_else`, `default`, `get!`,
-`to_result`
+```
+some?     : Option 'a -> Bool
+none?     : Option 'a -> Bool
+map       : ('a -> 'b ! 'e) -> Option 'a -> Option 'b ! 'e
+and_then  : ('a -> Option 'b ! 'e) -> Option 'a -> Option 'b ! 'e
+or_else   : (Unit -> Option 'a ! 'e) -> Option 'a -> Option 'a ! 'e
+default   : 'a -> Option 'a -> 'a
+get!      : Option 'a -> 'a ! {Raise}
+to_result : 'a -> Option 'b -> Result 'a 'b
+```
 
 `Option 'a` is a generic type (`type Option 'a = None | Some 'a`) — see
 "Generics" above.

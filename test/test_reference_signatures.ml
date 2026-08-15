@@ -46,9 +46,19 @@ let is_name_char c =
   || (c >= '0' && c <= '9')
   || c = '_' || c = '?' || c = '!'
 
-(* `Module.name : type`, and nothing else. A space on the left means this is
-   prose or a binding (`let n : Int = ...`), not a signature. *)
-let signature_of line =
+(* A `### `Module`` heading. Signatures under one are written without the
+   prefix -- `map : ...` inside `### `List`` -- so the heading says which
+   module they belong to. *)
+let heading_of line =
+  let n = String.length line in
+  if n > 6 && String.sub line 0 5 = "### `" && line.[n - 1] = '`' then
+    let name = String.sub line 5 (n - 6) in
+    if List.mem name Wand.Typechecker.stdlib_module_names then Some name else None
+  else None
+
+(* `name : type` or `Module.name : type`, and nothing else. A space on the
+   left means this is prose or a binding (`let n : Int = ...`). *)
+let signature_of ?current_module line =
   match String.index_opt line ':' with
   | None -> None
   | Some i when i + 1 >= String.length line || line.[i + 1] <> ' ' -> None
@@ -60,25 +70,34 @@ let signature_of line =
     else if not (String.for_all (fun c -> is_name_char c || c = '.') lhs) then None
     else
       (match String.index_opt lhs '.' with
-       | None -> None
        | Some d ->
          let m = String.sub lhs 0 d in
          let member = String.sub lhs (d + 1) (String.length lhs - d - 1) in
          if member = "" || not (List.mem m Wand.Typechecker.stdlib_module_names)
          then None
-         else Some (lhs, rhs))
+         else Some (lhs, rhs)
+       | None ->
+         (* Unprefixed: a member of whichever module's section it is in. *)
+         (match current_module with
+          | Some m -> Some (m ^ "." ^ lhs, rhs)
+          | None -> None))
 
 let signatures () =
   let ic = open_in reference_path in
-  let rec loop acc =
+  let rec loop current acc =
     match In_channel.input_line ic with
     | None -> List.rev acc
     | Some line ->
-      (match signature_of line with
-       | Some s -> loop (s :: acc)
-       | None -> loop acc)
+      (* Any heading ends the previous module's scope, so prose elsewhere in
+         the document is never read as one of its members. *)
+      (match (if String.length line > 0 && line.[0] = '#' then Some (heading_of line) else None) with
+       | Some m -> loop m acc
+       | None ->
+         (match signature_of ?current_module:current line with
+          | Some s -> loop current (s :: acc)
+          | None -> loop current acc))
   in
-  let out = loop [] in
+  let out = loop None [] in
   close_in ic;
   out
 
@@ -87,7 +106,7 @@ let test_documented_signatures_are_real () =
   (* A parser that matches nothing passes every comparison it never makes. *)
   Alcotest.(check bool)
     "found signatures to check (the parser still matches the document)" true
-    (List.length sigs >= 5);
+    (List.length sigs >= 100);
   List.iter
     (fun (name, documented) ->
       let actual = run_type name in

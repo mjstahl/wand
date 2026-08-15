@@ -40,7 +40,7 @@ let keyword_or_ident word = match word with
   | "match"    -> Match    | "with"     -> With
   | "if"       -> If       | "then"     -> Then
   | "else"     -> Else     | "type"     -> Type
-  | "token"    -> Token    | "import"   -> Import
+  | "import"   -> Import
   | "requires" -> Requires
   | "ensures"  -> Ensures  | "result"   -> Result
   | "fn"       -> Fn       | "fun"      -> Fn
@@ -550,6 +550,10 @@ let next_token s =
     | '%'  -> ret Percent
     | '!'  -> ret (if peek s = '=' then (ignore (advance s); BangEq) else Bang)
     | '='  -> ret (if peek s = '=' then (ignore (advance s); EqEq)  else Eq)
+    (* `<>` is inequality in several ML dialects and in SQL, so it is a
+       reasonable thing to type. Saying which operator this language uses
+       costs one line and saves the reader guessing from `unexpected '>'`. *)
+    | '<' when peek s = '>' -> raise (LexError "the inequality operator is !=, not <>")
     | '<'  -> ret (if peek s = '=' then (ignore (advance s); LtEq)  else Lt)
     | '>'  -> ret (if peek s = '=' then (ignore (advance s); GtEq)  else Gt)
     | '&'  -> if peek s = '&' then ret (ignore (advance s); AmpAmp)
