@@ -1928,13 +1928,20 @@ mtime        : Path -> Result String DateTime ! {FS.Read}
 size         : Path -> Result String Int ! {FS.Read}
 ```
 
-The `!` siblings — `read_file!`, `write_file!`, `append!`, `create_file!`,
-`mkdir!`, `delete!`, `rename!`, `copy!`, `list_dir!`, `mtime!`, `size!` —
-return the value and carry `Raise`:
+The `!` siblings return the value and carry `Raise`:
 
 ```
 read_file!   : Path -> String ! {FS.Read, Raise}
 write_file!  : Path -> String -> Unit ! {FS.Write, Raise}
+append!      : Path -> String -> Unit ! {FS.Write, Raise}
+create_file! : Path -> Unit ! {FS.Write, Raise}
+mkdir!       : Path -> Unit ! {FS.Write, Raise}
+delete!      : Path -> Unit ! {FS.Write, Raise}
+rename!      : Path -> Path -> Unit ! {FS.Write, Raise}
+copy!        : Path -> Path -> Unit ! {FS.Write, Raise}
+list_dir!    : Path -> List Path ! {FS.Read, Raise}
+mtime!       : Path -> DateTime ! {FS.Read, Raise}
+size!        : Path -> Int ! {FS.Read, Raise}
 ```
 
 Questions and lookups cannot fail, so they have no pair:
@@ -2022,7 +2029,9 @@ println     : 'a -> Unit ! {IO}
 print_err   : String -> Unit ! {IO}
 println_err : String -> Unit ! {IO}
 read_line   : Unit -> Result String String ! {IO}
+read_line!  : Unit -> String ! {IO, Raise}
 read_all    : Unit -> Result String String ! {IO}
+read_all!   : Unit -> String ! {IO, Raise}
 flush       : Unit -> Unit ! {IO}
 ```
 
@@ -2056,7 +2065,9 @@ args  : Unit -> List String ! {Env}
 home  : Unit -> Path ! {Env}
 user  : Unit -> String ! {Env}
 read  : Path -> Result String (Map String) ! {FS.Read, Env}
+read! : Path -> Map String ! {FS.Read, Env, Raise}
 load  : Path -> Result String Unit ! {Env}
+load! : Path -> Unit ! {Env, Raise}
 ```
 
 `args` is the arguments the script was given, without the program name:

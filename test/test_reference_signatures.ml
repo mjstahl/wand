@@ -116,10 +116,47 @@ let test_documented_signatures_are_real () =
           documented actual)
     sigs
 
+(* The other direction. The test above proves that what the reference says is
+   true; it says nothing about what the reference leaves out, and a function
+   documented nowhere is as good as absent to a reader. `Env.read!`,
+   `Env.load!`, `IO.read_line!` and `IO.read_all!` were exported and named
+   nowhere in the document, and nothing noticed. *)
+
+let members_of m =
+  let open Wand in
+  let sess = Runner.make_session () in
+  match Runner.run_session sess ("import " ^ m) with
+  | Ok (sess, _) ->
+    (match List.assoc_opt m sess.Runner.s_type_env with
+     | Some (Wand.Typechecker.Namespace members) -> List.map fst members
+     | _ -> Alcotest.failf "%s did not import as a namespace" m)
+  | Error e -> Alcotest.failf "could not import %s: %s" m e
+
+let test_every_export_is_documented () =
+  let documented = List.map fst (signatures ()) in
+  let missing =
+    List.concat_map
+      (fun m ->
+        List.filter_map
+          (fun f ->
+            let qualified = m ^ "." ^ f in
+            if List.mem qualified documented then None else Some qualified)
+          (members_of m))
+      Wand.Typechecker.stdlib_module_names
+  in
+  if missing <> [] then
+    Alcotest.failf
+      "the standard library exports %d name(s) the reference gives no \
+       signature for:\n  %s"
+      (List.length missing)
+      (String.concat "\n  " missing)
+
 let () =
   Alcotest.run "reference signatures"
     [ ( "stdlib",
         [ Alcotest.test_case "match the binary" `Quick
-            test_documented_signatures_are_real
+            test_documented_signatures_are_real;
+          Alcotest.test_case "cover every export" `Quick
+            test_every_export_is_documented
         ] )
     ]
