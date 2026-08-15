@@ -294,6 +294,27 @@ let run_with_default_handler (thunk : unit -> value) : value =
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               print_endline (show_value v);
               Effect.Deep.continue k VUnit)
+          (* stderr is where a script reports what went wrong, so it is
+             flushed rather than left in a buffer that a later `Proc.exit`
+             would discard. *)
+          | WandEffect ("IO!print_err", v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              output_string stderr (show_value v);
+              flush stderr;
+              Effect.Deep.continue k VUnit)
+          | WandEffect ("IO!println_err", v) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              output_string stderr (show_value v ^ "\n");
+              flush stderr;
+              Effect.Deep.continue k VUnit)
+          | WandEffect ("IO!read_line", VUnit) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match In_channel.input_line stdin with
+              | Some line -> Effect.Deep.continue k (VString line)
+              (* End of input is not a line, and returning "" would make it
+                 indistinguishable from a blank one. `IO.read_line` wraps
+                 this into a Result. *)
+              | None -> Effect.Deep.discontinue k (EvalError "end of input"))
           | WandEffect ("Shell!run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match attempt (fun () -> exec_command cmd) with
