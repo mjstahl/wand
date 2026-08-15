@@ -504,16 +504,22 @@ $(git log --oneline)
 ## Glob
 
 `Glob` is a distinct type from `Path` — a pattern describing a set of files.
-Glob literals use `*`, `**`, or `?` wildcards:
+Glob literals use `*`, `**`, `?`, or `[...]`:
 
 ```
 *.wand              -- Glob
 ./**/*.ml           -- Glob (relative paths need ./ prefix)
 **.wand             -- Glob (recursive, any depth)
 /var/log/*.log      -- Glob
+./file?.txt         -- Glob (? matches exactly one character)
+./file[12].txt      -- Glob ([...] matches one of the characters listed)
 
 ./utils.wand        -- Path (no wildcards — unchanged)
 ```
+
+A pattern that starts with a bare word needs the `./` prefix, like any
+other relative path: `./file*.txt`, not `file*.txt`. Without it the `*`
+reads as multiplication and `file` as a name that was never bound.
 
 `FS.glob` accepts a `Glob`, not a `Path` — mixing them is a type error:
 

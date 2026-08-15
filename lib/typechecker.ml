@@ -1119,6 +1119,19 @@ let rec infer tenv (env : env) (e : expr) : typ =
             (String.concat ", " (List.init (List.length es)
                (fun i -> Printf.sprintf "a%d" (i + 1))))))
         | _ -> ())
+     (* `file*.txt` is not multiplication and never was: `*.txt` lexes as a
+        glob literal, so this reads as applying `file` to it. The name is
+        almost always a filename stem missing the `./` every relative path
+        needs, and "unbound variable 'file'" sends the reader looking for a
+        binding that was never meant to exist. Only fires when the name is
+        unbound, so `FS.glob *.wand` and any other application of a real
+        function to a glob are untouched. *)
+     | Var name, Glob g when not (List.mem_assoc name env) ->
+       raise (TypeError (Printf.sprintf
+         "'%s%s' is a name applied to the glob '%s'. For the glob \
+          '%s%s', write './%s%s' -- a pattern starting with a bare word \
+          needs the './' prefix, like any other relative path."
+         name g g name g name g))
      | _ -> ());
     let tf = infer tenv env f in
     (match (let rec strip = function Located (_, e) -> strip e | e -> e in strip x) with

@@ -449,6 +449,23 @@ let test_unbound_names () =
   rejects_program "unbound in a let" "let x = y; x";
   rejects_program "unbound argument" "println undefined_var"
 
+(* `file*.txt` is not multiplication: `*.txt` lexes as a glob, so it reads as
+   applying `file` to it. "unbound variable 'file'" sends the reader after a
+   binding nobody meant to write, so the error says what was meant instead. *)
+let test_bare_word_glob () =
+  (match type_of_expr "file*.txt" with
+   | Ok t -> Alcotest.failf "expected a type error, got %s" t
+   | Error e ->
+     Alcotest.(check bool) "names the glob that was meant" true
+       (contains e "./file*.txt");
+     Alcotest.(check bool) "explains the prefix" true
+       (contains e "'./' prefix"));
+  (* A bound function applied to a glob is ordinary code and stays that way. *)
+  (match type_of_program_with_imports "import FS
+let _ = FS.glob *.wand" with
+   | Ok () -> ()
+   | Error e -> Alcotest.failf "FS.glob *.wand should typecheck, got: %s" e)
+
 let test_generic_type_errors () =
   (match type_of_program "type Foo 'a = Bar 'b; 1" with
    | Error e ->
@@ -707,6 +724,7 @@ let () =
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;
       Alcotest.test_case "unbound names"       `Quick test_unbound_names;
+      Alcotest.test_case "bare-word glob"      `Quick test_bare_word_glob;
       Alcotest.test_case "generics"            `Quick test_generic_type_errors;
       Alcotest.test_case "builtin arguments"   `Quick test_builtin_argument_types;
       Alcotest.test_case "glob vs path"        `Quick test_glob_is_not_a_path;
