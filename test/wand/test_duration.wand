@@ -1,5 +1,6 @@
 let [test] = import Test
 import Duration
+import String
 
 (* ── constructors ──────────────────────────────────────────────────────── *)
 
@@ -49,3 +50,11 @@ test "scale zero" (fn t -> t.eq "0s" (Duration.format (Duration.scale 0 1h)))
 (* ── pipeline ──────────────────────────────────────────────────────────── *)
 
 test "pipe" (fn t -> t.eq "1m30s" (Duration.seconds 90 |> Duration.format))
+
+(* A duration whose number is past what an Int holds is too large, not
+   malformed -- and the message says which. It used to escape as OCaml's own
+   "int_of_string", which said neither. *)
+test "a duration too large to convert says so" (fn t ->
+  match try Duration.to_ms 99999999999999999999s with
+  | Ok _ -> t.ok false
+  | Error why -> t.ok (String.contains? "too large" why))

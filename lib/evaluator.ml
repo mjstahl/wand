@@ -935,7 +935,18 @@ let parse_dur_ms s =
       let j = ref !i in
       while !j < n && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
       if !j = !i then raise Exit;
-      let num = int_of_string (String.sub s !i (!j - !i)) in
+      (* A number past what an Int holds is not malformed, it is too big --
+         and saying which is the difference between a reader checking their
+         spelling and a reader checking their arithmetic. It used to escape
+         as OCaml's own "int_of_string" and say neither. *)
+      let digits = String.sub s !i (!j - !i) in
+      let num =
+        match int_of_string_opt digits with
+        | Some v -> v
+        | None ->
+          raise (EvalError (Printf.sprintf
+            "duration %S is too large: %s does not fit in an Int" s digits))
+      in
       i := !j;
       if      at !i "min" then (total := !total + num * 60000;              i := !i + 3)
       else if at !i "ms"  then (total := !total + num;                      i := !i + 2)
