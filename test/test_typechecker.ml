@@ -456,10 +456,9 @@ let test_bare_word_glob () =
   (match type_of_expr "file*.txt" with
    | Ok t -> Alcotest.failf "expected a type error, got %s" t
    | Error e ->
-     Alcotest.(check bool) "names the glob that was meant" true
-       (contains e "./file*.txt");
-     Alcotest.(check bool) "explains the prefix" true
-       (contains e "'./' prefix"));
+     Alcotest.(check string) "says what to write, and stops"
+       "'file*.txt' should be written as './file*.txt'"
+       (Util.strip_loc_prefix e));
   (* A bound function applied to a glob is ordinary code and stays that way. *)
   (match type_of_program_with_imports "import FS
 let _ = FS.glob *.wand" with

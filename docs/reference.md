@@ -518,8 +518,13 @@ Glob literals use `*`, `**`, `?`, or `[...]`:
 ```
 
 A pattern that starts with a bare word needs the `./` prefix, like any
-other relative path: `./file*.txt`, not `file*.txt`. Without it the `*`
-reads as multiplication and `file` as a name that was never bound.
+other relative path: `./file*.txt`, not `file*.txt`. Without it, `file`
+reads as a name and `*.txt` as a glob literal, so the line means "apply
+`file` to this glob" — which is why wand answers:
+
+```
+'file*.txt' should be written as './file*.txt'
+```
 
 `FS.glob` accepts a `Glob`, not a `Path` — mixing them is a type error:
 
