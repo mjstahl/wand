@@ -76,6 +76,13 @@ let read_string s =
         | c -> raise (LexError (Printf.sprintf "unknown escape \\%c" c))
       in
       Buffer.add_char buf c; loop ()
+    (* A string is text, not a command line: there are no argument
+       boundaries to quote for, so raw interpolation would mean exactly what
+       `${...}` already means. Rejected rather than allowed as a synonym. *)
+    | '$' when peek s = '!' && peek2 s = '{' ->
+      raise (LexError "$!{...} is for shell commands, where it splices a \
+                       value as shell source. A string has nothing to quote \
+                       for, so write ${...} here.")
     | '$' when peek s = '{' ->
       ignore (advance s);
       let lit = Buffer.contents buf in
@@ -124,14 +131,18 @@ let read_run_cmd s =
       else (* closing paren — done *)
         if !parts = [] then RunCmdRaw ([], Buffer.contents buf)
         else RunCmdRaw (!parts, Buffer.contents buf)
-    | '$' when peek s = '{' ->
+    (* `${x}` quotes, `$!{x}` splices. Both read the same expression source;
+       they differ only in what the evaluator does with the value. *)
+    | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
+      let raw = peek s = '!' in
+      if raw then ignore (advance s);
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
       let expr_buf = Buffer.create 16 in
       let idepth = ref 1 in
       while !idepth > 0 do
-        if is_at_end s then raise (LexError "unterminated string interpolation");
+        if is_at_end s then raise (LexError "unterminated command interpolation");
         let c = advance s in
         if c = '{' then (incr idepth; Buffer.add_char expr_buf c)
         else if c = '}' then begin
@@ -140,7 +151,7 @@ let read_run_cmd s =
         end else
           Buffer.add_char expr_buf c
       done;
-      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      parts := !parts @ [(lit, Buffer.contents expr_buf, raw)];
       loop ()
     | '\\' when peek s = '\n' -> ignore (advance s); loop ()
     | c -> Buffer.add_char buf c; loop ()

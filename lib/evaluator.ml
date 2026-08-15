@@ -362,6 +362,25 @@ let rec try_match (p : pat) v (env : env) : env option =
 
 (* ── Evaluation ───────────────────────────────────────────────────────────── *)
 
+(* One shell argument, whatever the value contains.
+
+   Single quotes are the only quoting `sh` treats as absolutely literal:
+   inside them a space does not split, a `*` does not expand, and `;`, `|`,
+   backticks and `$(...)` are text. The one character they cannot carry is
+   `'` itself, which is closed, escaped and reopened -- the standard
+   `'\''` dance.
+
+   An empty value becomes `''`, which is one empty argument rather than no
+   argument at all. That is the difference between `rm ''` and `rm`. *)
+let shell_quote v =
+  let buf = Buffer.create (String.length v + 2) in
+  Buffer.add_char buf '\'';
+  String.iter
+    (fun c -> if c = '\'' then Buffer.add_string buf "'\\''" else Buffer.add_char buf c)
+    v;
+  Buffer.add_char buf '\'';
+  Buffer.contents buf
+
 (* Deriving a decoder needs the decoding machinery, which is defined further
    down the file; `eval` only has to be able to reach it. *)
 let derive_decoder : (string -> value) ref =
@@ -607,6 +626,15 @@ let rec eval (env : env) (e : expr) : value =
     List.iter (fun (lit, e) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf (show_value (eval env e))
+    ) parts;
+    Buffer.add_string buf tail;
+    VString (Buffer.contents buf)
+  | CmdInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, e, raw) ->
+      Buffer.add_string buf lit;
+      let v = show_value (eval env e) in
+      Buffer.add_string buf (if raw then v else shell_quote v)
     ) parts;
     Buffer.add_string buf tail;
     VString (Buffer.contents buf)

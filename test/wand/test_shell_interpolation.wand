@@ -6,94 +6,102 @@ import List
 import Path
 import String
 
-(* What `${...}` inside `$()` does today, written down.
+(* How a value gets into a command.
 
-   This is a characterization test: it records behaviour rather than
-   arguing for it. Interpolation is textual -- the command string is built
-   and handed to `/bin/sh -c` -- so every shell metacharacter in an
-   interpolated value is live. That is worth pinning down because it is
-   easy to assume otherwise (this file exists because that assumption was
-   made, stated twice, and was wrong), and because changing it to quote by
-   default would be a change to the language rather than a fix.
+   `${x}` is quote interpolate: the value becomes exactly one argument,
+   whatever it contains. `$!{x}` is raw interpolate: the value is spliced
+   into the command as shell source, which the shell then reads.
 
-   If `${...}` becomes "quote interpolate", most of these tests are
-   supposed to fail. Each one says what it would then become, so the
-   change can be made deliberately rather than discovered.
+   The difference is the whole safety story of `$()`. A path with a space
+   in it, a value carrying `;` or `$(...)`, a filename that happens to
+   contain `*` -- under `${}` none of them can change what the command
+   does. Under `$!{}` all of them can, on purpose, and `$!{}` is greppable
+   for exactly that reason.
 
    `printf "[%s]"` prints one bracketed field per argument, which is how
    these tell "one argument" from "several". *)
 
-let fields v = $(printf "[%s]" ${v})
+let quoted v = $(printf "[%s]" ${v})
+let raw v = $(printf "[%s]" $!{v})
 
-(* ── One value, one argument ───────────────────────────────────────────── *)
+(* ── Quote interpolate: one value, one argument ────────────────────────── *)
 
-test "a plain value is one argument" (fn t -> t.eq "[one]" (fields "one"))
+test "a plain value is one argument" (fn t -> t.eq "[one]" (quoted "one"))
 
-(* ── Word splitting ────────────────────────────────────────────────────── *)
+test "spaces do not split it" (fn t -> t.eq "[a b]" (quoted "a b"))
 
-(* Under quote interpolate this becomes "[a b]", and a path with a space in
-   it stops being a bug waiting to happen. *)
-test "spaces split a value into several arguments" (fn t -> t.eq "[a][b]" (fields "a b"))
+test "a tab does not split it" (fn t -> t.eq "[a\tb]" (quoted "a\tb"))
 
-test "a tab splits too" (fn t -> t.eq "[a][b]" (fields "a\tb"))
+test "quotes in the value are kept" (fn t -> t.eq "[say \"hi\"]" (quoted "say \"hi\""))
 
-(* Quoting characters are consumed by the shell rather than protecting
-   anything: the value's own quotes are removed, and it still splits.
-   Under quote interpolate: "[say \"hi\"]". *)
-test "quotes in a value do not protect it" (fn t -> t.eq "[say][hi]" (fields "say \"hi\""))
+(* The one character single quotes cannot carry is the single quote, which
+   is closed, escaped and reopened. It has to survive that. *)
+test "a single quote survives" (fn t -> t.eq "[it's]" (quoted "it's"))
 
-(* Zero arguments, not one empty one. Under quote interpolate this stays
-   "[]" but for the opposite reason -- one empty argument rather than
-   none -- which `printf` cannot tell apart. *)
-test "an empty value contributes no argument" (fn t -> t.eq "[]" (fields ""))
+test "an empty value is one empty argument" (fn t -> t.eq "[]" (quoted ""))
 
-(* ── Expansion ─────────────────────────────────────────────────────────── *)
+(* ── Quote interpolate: nothing expands ────────────────────────────────── *)
 
-(* Under quote interpolate these all become the literal text. *)
-test "a glob in a value is expanded by the shell" (fn t ->
+test "a glob is literal text" (fn t -> t.eq "[*.txt]" (quoted "*.txt"))
+
+test "a tilde is literal text" (fn t -> t.eq "[~]" (quoted "~"))
+
+(* `\$` because `$HOME` in a wand string is env-var interpolation, which
+   would read the variable here rather than pass its name to the shell. *)
+test "a variable reference is literal text" (fn t -> t.eq "[\$HOME]" (quoted "\$HOME"))
+
+(* ── Quote interpolate: nothing runs ───────────────────────────────────── *)
+
+(* These are the ones that matter. A value carrying shell syntax is data,
+   not source, so a script cannot be made to run something by what it was
+   handed. *)
+test "a semicolon does not start a second command" (fn t ->
+  t.eq "[x; echo INJECTED]" (quoted "x; echo INJECTED"))
+
+test "a pipe does not build a pipeline" (fn t ->
+  t.eq "[x | echo PIPED]" (quoted "x | echo PIPED"))
+
+test "command substitution does not run" (fn t ->
+  t.eq "[$(echo SUB)]" (quoted "$(echo SUB)"))
+
+test "backticks do not run" (fn t -> t.eq "[`echo TICK`]" (quoted "`echo TICK`"))
+
+(* The same attempt that used to write a file, now inert. *)
+test "an interpolated value cannot perform effects of its own" (fn t ->
+  with FS.temp_dir "shell_inject_" as d ->
+  let marker = "${Path.to_string d}/written-by-the-value" in
+  let payload = "harmless; touch ${marker}" in
+  let _ = $?(echo ${payload}) in t.eq false (FS.exists? (Path.of_string marker)))
+
+(* ── Raw interpolate: the value is shell source ────────────────────────── *)
+
+test "raw splits on spaces" (fn t -> t.eq "[a][b]" (raw "a b"))
+
+test "raw expands a glob" (fn t ->
   with FS.temp_dir "shell_glob_" as d ->
   let () = FS.write_file! (Path.join d (Path.of_string "a.txt")) "" in
   let () = FS.write_file! (Path.join d (Path.of_string "b.txt")) "" in
   let pattern = "${Path.to_string d}/*.txt" in
-  t.eq 2 (List.length (String.lines $(ls ${pattern}))))
+  t.eq 2 (List.length (String.lines $(ls $!{pattern}))))
 
-test "a tilde in a value is expanded" (fn t ->
-  t.eq true (String.starts_with? "[/" (fields "~")))
+(* What raw is for: a command assembled elsewhere and then run. *)
+test "raw can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $($!{c}))
 
-(* ── Metacharacters run ────────────────────────────────────────────────── *)
+test "raw runs what the value says" (fn t ->
+  t.eq true (String.contains? "RAN" (raw "x; echo RAN")))
 
-(* These are the ones that matter. An interpolated value is shell source,
-   so a value carrying `;`, `|`, `$(...)` or backticks runs commands. A
-   script whose manifest says `uses {Shell}` can therefore run anything a
-   value it was handed says to run.
+(* ── Both forms in one command ─────────────────────────────────────────── *)
 
-   Under quote interpolate every one of these becomes inert text. *)
-test "a semicolon in a value starts a second command" (fn t ->
-  t.eq true (String.contains? "INJECTED" (fields "x; echo INJECTED")))
-
-test "a pipe in a value builds a pipeline" (fn t ->
-  t.eq true (String.contains? "PIPED" (fields "x | echo PIPED")))
-
-test "command substitution in a value runs" (fn t ->
-  t.eq true (String.contains? "SUB" (fields "$(echo SUB)")))
-
-test "backticks in a value run" (fn t ->
-  t.eq true (String.contains? "TICK" (fields "`echo TICK`")))
-
-(* The sharpest form of the same fact: a value can be the entire command.
-   This is the one call site in the corpus that quote interpolate would
-   break outright, and the case a raw form exists to serve. *)
-test "a value can be the whole command" (fn t ->
-  let c = "echo whole" in t.eq "whole" $(${c}))
-
-(* And it is not hypothetical: an interpolated value can write to disk. *)
-test "an interpolated value can perform effects of its own" (fn t ->
-  with FS.temp_dir "shell_inject_" as d ->
-  let marker = "${Path.to_string d}/written-by-the-value" in
-  let payload = "harmless; touch ${marker}" in
-  let _ = $?(echo ${payload}) in t.eq true (FS.exists? (Path.of_string marker)))
+(* The mixture is the ordinary case: flags that are shell source, an
+   argument that is data. *)
+test "a command can use both" (fn t ->
+  let flags = "-n -e" in
+  let value = "two words" in t.eq "[-n][-e][two words]" $(printf "[%s]" $!{flags} ${value}))
 
 (* ── $?() is the same mechanism ────────────────────────────────────────── *)
 
-test "$?() interpolates the same way" (fn t ->
-  let v = "a b" in let r = $?(printf "[%s]" ${v}) in t.eq "[a][b]" r.stdout)
+test "$?() quotes the same way" (fn t ->
+  let v = "a b" in let r = $?(printf "[%s]" ${v}) in t.eq "[a b]" r.stdout)
+
+test "$?() splices the same way" (fn t ->
+  let v = "a b" in let r = $?(printf "[%s]" $!{v}) in t.eq "[a][b]" r.stdout)

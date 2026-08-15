@@ -359,6 +359,18 @@ and emit_expr_inner ?col indent e =
     Buffer.add_string buf (escape_string_body tail);
     Buffer.add_char buf '"';
     Buffer.contents buf
+  (* Only reachable inside `$()`, which `emit_cmd` handles; rendered here so
+     the match is total and so a stray one is still legible. *)
+  | CmdInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, e, raw) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf (if raw then "$!{" else "${");
+      Buffer.add_string buf (emit_expr indent e);
+      Buffer.add_char buf '}'
+    ) parts;
+    Buffer.add_string buf tail;
+    Buffer.contents buf
   | Handle (body, cases) ->
     let emit_arm = function
       | EffectCase (op, p, k, b) ->
@@ -437,6 +449,18 @@ and emit_command indent e =
     List.iter (fun (lit, ex) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf "${";
+      Buffer.add_string buf (emit_expr indent ex);
+      Buffer.add_char buf '}') parts;
+    Buffer.add_string buf tail;
+    Buffer.contents buf
+  (* Which form each interpolation used has to survive formatting: rewriting
+     `$!{x}` as `${x}` would quietly quote a splice that was meant to be
+     shell source, and the script would stop working. *)
+  | CmdInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, ex, raw) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf (if raw then "$!{" else "${");
       Buffer.add_string buf (emit_expr indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;

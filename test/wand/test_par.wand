@@ -53,9 +53,7 @@ test "each visits every element" (fn t ->
    that an effect performed in a worker would escape a rehearsal, which is
    the one thing a rehearsal must not allow. *)
 test "a worker's commands are seen by a handler" (fn t ->
-  let cmds =
-    Test.shell_calls (fn () -> Par.each 3 (fn n -> $(echo hi)) [1, 2])
-  in
+  let cmds = Test.shell_calls (fn () -> Par.each 3 (fn n -> $(echo hi)) [1, 2]) in
   t.eq 2 (List.length cmds))
 
 (* Watching costs the overlap, so it is only paid when someone is watching:

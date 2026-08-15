@@ -471,7 +471,7 @@ Run a shell command and get its stdout as a `String`. Raises on non-zero exit.
 ```
 $(git status)
 $(ls -la)
-$("git log --oneline -${count}")    -- interpolation works
+$(git log --oneline -${count})      -- values go in with ${...}
 ```
 
 Get full output without raising using `$?()`, which returns a `ShellResult`:
@@ -483,36 +483,66 @@ r.stderr   -- String
 r.code     -- Int
 ```
 
-### Interpolated values are shell text
+### Interpolation: `${...}` quotes, `$!{...}` splices
 
-`${...}` inside `$()` inserts the value into the command *as source*, not as
-an argument. The command is assembled and handed to `/bin/sh -c`, so every
-shell metacharacter in an interpolated value is live:
+A command line is a sequence of arguments, so a value going into one has to
+say which it is. There are two forms.
+
+**Quote interpolate — `${x}`.** The value becomes exactly one argument,
+whatever it contains. Spaces do not split it, `*` does not expand, and `;`,
+`|`, backticks and `$(...)` are text:
 
 ```
 let f = "two words.txt"
-$(ls ${f})                  -- two arguments: `two` and `words.txt`
+$(ls ${f})                  -- runs: ls 'two words.txt'
 
 let p = "*.txt"
-$(ls ${p})                  -- expands to every .txt file
+$(ls ${p})                  -- runs: ls '*.txt'        (one literal argument)
 
 let n = "x; rm -rf /tmp/z"
-$(echo ${n})                -- runs `echo x`, then `rm -rf /tmp/z`
+$(echo ${n})                -- runs: echo 'x; rm -rf /tmp/z'
 ```
 
-The last one is the shape that matters: a value can carry `;`, `|`,
-backticks or `$(...)` and run commands of its own. A script whose manifest
-says `uses {Shell}` says that it runs commands — it cannot say *which*, so
-a value assembled from a file, an environment variable, or another
-command's output can decide.
+**Raw interpolate — `$!{x}`.** The value is spliced into the command as
+shell source, which the shell then reads. This is how a value carries
+several arguments, a pattern to expand, or a whole command:
 
-**Do not interpolate untrusted input into `$()`.** Where the value is a
-path or an argument you control, this is unremarkable; where it came from
-outside the script, build the command from known parts and pass the data
-some other way.
+```
+let flags = "-l -a"
+$(ls $!{flags} ${f})        -- runs: ls -l -a 'two words.txt'
 
-`test/wand/test_shell_interpolation.wand` records this behaviour case by
-case.
+let pattern = "./logs/*.log"
+$(wc -l $!{pattern})        -- runs: wc -l ./logs/*.log   (the shell expands)
+
+let cmd = "echo hello"
+$($!{cmd})                  -- runs: echo hello
+```
+
+Both work the same way in `$?()`.
+
+**Which to reach for.** `${...}` is the one to use — a path, a filename, an
+argument, anything that is data. `$!{...}` is for text you wrote or built
+that is *meant* to be read as shell syntax, and it hands the value the power
+to decide what runs:
+
+```
+let name = "x; rm -rf /tmp/z"
+$(echo $!{name})            -- runs: echo x; rm -rf /tmp/z
+```
+
+That is the point of the two spellings. A script whose manifest says
+`uses {Shell}` says that it runs commands; it cannot say *which*. With
+`${...}` a value can only be an argument to the command you wrote, so a
+value that arrived from a file, an environment variable, or another
+command's output cannot change what runs. With `$!{...}` it can — which is
+sometimes exactly what you want, and is greppable when someone comes to
+audit the script.
+
+Raw interpolation is only for commands. In a string literal there are no
+argument boundaries and so nothing to quote for, and `$!{...}` there is a
+lex error rather than a synonym for `${...}`.
+
+`test/wand/test_shell_interpolation.wand` specifies both forms case by case.
 
 Pipeline with `|>` threads the left-hand string as stdin to the command:
 

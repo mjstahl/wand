@@ -529,21 +529,21 @@ and atom_base_ s =
     expect s Token.RParen;
     RunCmd e
   | Token.RunCmdRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src) ->
+    let parse_parts = List.map (fun (lit, src, raw) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
-      (lit, expr_ 0 s2)
+      (lit, expr_ 0 s2, raw)
     ) parts in
     if parse_parts = [] then RunCmd (String tail)
-    else RunCmd (Interp (parse_parts, tail))
+    else RunCmd (CmdInterp (parse_parts, tail))
   | Token.RunQueryRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src) ->
+    let parse_parts = List.map (fun (lit, src, raw) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
-      (lit, expr_ 0 s2)
+      (lit, expr_ 0 s2, raw)
     ) parts in
     if parse_parts = [] then RunQuery (String tail)
-    else RunQuery (Interp (parse_parts, tail))
+    else RunQuery (CmdInterp (parse_parts, tail))
   | Token.Regex (pat, flags) -> RegexLit (pat, flags)
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src) ->

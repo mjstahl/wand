@@ -78,6 +78,11 @@ type expr =
   | RegexLit  of string * string
   | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
+  (* A command's interpolations, each saying how it goes in: `${x}` quotes
+     the value into one argument, `$!{x}` splices it as shell source. Kept
+     apart from `Interp` because a string has no argument boundaries and so
+     nothing to quote for. `true` is raw. *)
+  | CmdInterp of (string * expr * bool) list * string
   | Handle   of expr * handle_case list
   | Try      of expr
   (* `with r as p -> body`: acquire, bind, run, release. The resource is a
@@ -185,6 +190,16 @@ let rec show : expr -> string = function
     ) parts;
     Buffer.add_string buf tail;
     Buffer.add_char buf '"';
+    Buffer.contents buf
+  | CmdInterp (parts, tail) ->
+    let buf = Buffer.create 32 in
+    List.iter (fun (lit, e, raw) ->
+      Buffer.add_string buf lit;
+      Buffer.add_string buf (if raw then "$!{" else "${");
+      Buffer.add_string buf (show e);
+      Buffer.add_char buf '}'
+    ) parts;
+    Buffer.add_string buf tail;
     Buffer.contents buf
   | Handle (body, cases) ->
     let show_handle_case = function

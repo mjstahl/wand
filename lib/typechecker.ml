@@ -1460,6 +1460,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Interp (parts, _) ->
     List.iter (fun (_, e) -> ignore (infer tenv env e)) parts;
     TString
+  | CmdInterp (parts, _) ->
+    List.iter (fun (_, e, _) -> ignore (infer tenv env e)) parts;
+    TString
   | Seq (a, b) -> ignore (infer tenv env a); infer tenv env b
   | Contract (reqs, ens, body) ->
     List.iter (fun req -> unify (infer tenv env req) TBool) reqs;

@@ -80,8 +80,12 @@ type t =
   | EnvVar of string   (* $HOME, $PATH, $MY_VAR — uppercase only *)
   | PlusPlus           (* ++ *)
   | InterpStr    of (string * string) list * string  (* "lit ${src} ... tail" *)
-  | RunCmdRaw    of (string * string) list * string  (* $(cmd ${var} ...) *)
-  | RunQueryRaw  of (string * string) list * string  (* $?(cmd ${var} ...) *)
+  (* A command's interpolations carry how they are to be inserted: `${x}`
+     quotes the value into one argument, `$!{x}` splices it as shell source.
+     `true` is raw. Strings have no such distinction -- there is nothing to
+     quote for -- so `InterpStr` keeps its pairs. *)
+  | RunCmdRaw    of (string * string * bool) list * string  (* $(cmd ${var} ...) *)
+  | RunQueryRaw  of (string * string * bool) list * string  (* $?(cmd ${var} ...) *)
   | Regex        of string * string                  (* r/pattern/flags *)
   (* Delimiters *)
   | LParen             (* ( *)

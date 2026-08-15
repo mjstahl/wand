@@ -13,8 +13,11 @@ let try_msg thunk =
 test "captures stdout" (fn t -> t.eq "hello" $(echo hello))
 test "strips trailing newline" (fn t -> t.eq "hello" $(printf hello))
 
-test "dynamic cmd via interpolation" (fn t ->
-  let cmd = "echo world" in t.eq "world" $(${cmd}))
+(* A whole command in a value is shell source, so it goes in raw. Under
+   `${cmd}` it would be quoted into a single argument and `sh` would look
+   for a program named "echo world". *)
+test "dynamic cmd via raw interpolation" (fn t ->
+  let cmd = "echo world" in t.eq "world" $($!{cmd}))
 
 test "result in binding" (fn t -> let out = $(echo hello) in t.eq "hello" out)
 
