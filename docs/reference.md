@@ -185,7 +185,7 @@ The equations must also cover every case together, checked the same way a
 In the REPL a later `let` for an existing function adds a clause to it
 instead, and the result is reported as `f : Int -> Int, 2 equations`.
 
-Works locally too, with `in` — repeating `let` on each clause or not:
+Works locally too, with `in` — repeating `let` on each equation or not:
 
 ```
 let answer =
@@ -193,7 +193,16 @@ let answer =
   let fib 1 = 1
   let fib n = fib (n - 1) + fib (n - 2)
   in fib 10
+
+let answer =
+  let fib 0 = 0
+  fib 1 = 1
+  fib n = fib (n - 1) + fib (n - 2)
+  in fib 10
 ```
+
+The second form is local only: at the top level every equation needs its
+own `let`, since there is no `in` to say where the definition ends.
 
 Mutually-recursive functions — chain definitions with `and`:
 
