@@ -176,6 +176,47 @@ moving — D9's table changed twice in one session.
   payload is a claim nobody checks. Stamp it from the same inference that
   typechecked the script, in the same run.
 
+## Picking this up
+
+**Where things stand.** Phase 3 is finished and its plan deleted -- what it
+learned lives in the code that does it, not in a document. 616 wand tests,
+the OCaml suite, nine demos and a `wand fmt` fixed point across 70 `.wand`
+files. Nothing in this phase has been started.
+
+**Verify by exit code, never by reading output.** Twice in one session a
+check of the form `dune build @runtest 2>&1 | grep -c "\[FAIL\]"` reported
+clean while the build was broken or two test files were failing to load --
+grep finds nothing when nothing ran. And `set -e` does not abort a
+`cmd; echo ok` sequence under zsh, which reported a demo passing that had
+just failed. The sequence that actually checks everything:
+
+```
+dune build                                            # exit code
+dune build @runtest --force >/dev/null 2>&1           # exit code
+_build/default/bin/wand.exe test test/wand            # exit code
+for d in demos/d1* … demos/d8*; do $d/run.sh; done    # each exit code
+N=500 demos/d9-fork-overhead/run.sh                   # ten seconds
+# then: copy every tracked .wand to a scratch tree, `wand fmt` it, diff back
+```
+
+**The formatter can produce source that does not parse.** Three separate bugs
+this session: dropped parentheses that let a constructor swallow its
+neighbour, stripped quotes on a map key, and a wrapped application whose
+definition then ended at the first line. If you touch `lib/formatter.ml`,
+checking that the corpus is a fixed point is not enough -- the corpus must
+still *run*. And a `wand fmt` over a file the formatter mishandles leaves the
+file broken on disk, so repair it before formatting again.
+
+**Benchmarks move 15% between runs.** Quote milliseconds from several runs,
+never a ratio from one. Current readings on an idle machine: `bash -c ':'`
+~5 ms, `wand e '1 + 2'` ~8.7 ms, `wand e 'List.length'` ~10.3 ms, real
+CPython ~39 ms. Beware `python3` on `PATH` -- if it is a pyenv shim it
+measures 112 ms and is measuring pyenv.
+
+**An OCaml primitive's failure escaping as its own text** was found three
+times: ports, integer literals, durations, all `int_of_string` without
+`_opt`. The corpus is clean of it now; the pattern is worth remembering.
+
 ## Exit criteria
 
 1. wand runs from any directory, with no `stdlib/` anywhere on the machine.

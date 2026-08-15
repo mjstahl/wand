@@ -443,7 +443,7 @@ Two things that measurement settled rather than assumption. The frontend is 97% 
 
 Lazy per-module deserialization stays in Phase 4, since it needs the embedding pipeline that ships with `wand compile`.
 
-**Phase 4 — Reach:** ~~`Par` (§4.7), its cancellation, and **demo D8**~~ **done**, the last two in Phase 3 once §4.6 brackets gave them something to release; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
+**Phase 4 — Reach** (planned in `PHASE4.md`, which measured two of these as bugs rather than features: the binary is not relocatable, and any directory named `stdlib/` above the working directory replaces the standard library)**:** ~~`Par` (§4.7), its cancellation, and **demo D8**~~ **done**, the last two in Phase 3 once §4.6 brackets gave them something to release; static binary + `wand compile` + GitHub Action + stdlib embedding (§4.8); the positioning post anchored on D5: "AI writes it, human audits the manifest, CI typechecks it, dry-run rehearses it."
 
 ---
 
