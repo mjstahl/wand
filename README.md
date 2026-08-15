@@ -6,8 +6,22 @@ wand is for the scripts that outgrew bash — deploys, CI glue, cron jobs, log
 munging — where a mistake is expensive and the person reading the diff is not
 the person who wrote it.
 
-> "What makes wand easy for me to write is that the types tell the truth. When I generate code I'm reasoning about structure, not running it — so a type error caught by `wand t` is immediate, honest feedback rather than a runtime surprise three steps later. The typed holes let me sketch a solution and ask the type system to fill in what I'm uncertain about instead of guessing. And because errors are `Result` values rather than exceptions, the control flow is explicit in the code itself — I can read what I wrote and know exactly where things can fail without simulating execution. The syntax helps too: it's dense without being cryptic, and the lack of noise means what I generate is close to what I meant."
-> — Claude
+> A script that an AI wrote is read differently from one a person wrote:
+> nobody has been through it line by line. So wand puts the blast radius on
+> the first line. `uses {Shell, FS.Write}` is checked against the code — a
+> manifest that does not cover what the script does is a type error, and a
+> script with no manifest is told the row it would need. `wand t` runs that
+> check without running the script, which is a job CI already knows how to
+> do, and `--dry-run` rehearses the effects first: *would write*, *would
+> delete*, *would run*, before anything does.
+>
+> The manifest is worth reading because the language does not leak underneath
+> it. Values interpolated into a shell command are quoted, so a filename from
+> `Env.get` or a line from a log cannot decide what runs. Effects cross
+> function boundaries in the type, so a helper five calls down cannot reach
+> the network without the row at the top saying so. The claim is narrow and
+> deliberate: not that a script is correct, but that it cannot do anything it
+> did not admit to.
 
 **[Language reference →](docs/reference.md)**
 
