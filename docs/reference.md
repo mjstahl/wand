@@ -1757,7 +1757,7 @@ utils.greeting
 
 ### Destructured imports
 
-Import specific names from a module using map destructuring:
+Import specific names from a module by naming them in brackets:
 
 ```
 let [foo = bar]            = import ./utils   -- bind utils.foo as bar
@@ -1775,6 +1775,32 @@ let [foo, bar] = import ./utils         -- bind foo and bar
 
 One form or the other — renaming and plain names cannot be mixed in a
 single destructure.
+
+#### What the brackets bind by
+
+The same brackets destructure a list, a map and a module, and what they
+match on differs in each — the value on the right decides:
+
+```
+let [a, b]      = [10, 20]         -- a list: by position
+let [x = a]     = m                -- a map: by key
+let [map]       = import List      -- a module: by name
+let [map = m2]  = import List      -- a module: by name, renamed
+```
+
+A list pattern is the only one that is positional, and the difference shows
+when the order changes. Swap two names in a list pattern and the bindings
+swap with them; swap them in a module's and nothing moves, because there is
+no order to follow:
+
+```
+let [filter, map] = import List
+map (fn x -> x * 2) [1, 2]     -- [2, 4] — still List.map
+```
+
+Only a list's shape can be wrong at run time in a way its type did not
+catch; a module is checked when it is imported, and a missing name is an
+error there.
 
 ### Stdlib bound to custom name
 
