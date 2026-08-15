@@ -67,7 +67,7 @@ release-archive:
 	tar -czf dist/$(NAME).tar.gz -C dist $(NAME)
 	cd dist && shasum -a 256 $(NAME).tar.gz > $(NAME).tar.gz.sha256
 	gh release view v$(VERSION) >/dev/null 2>&1 || \
-	  gh release create v$(VERSION) --draft --title v$(VERSION) --notes "Draft. Archives are attached as each build finishes."
+	  gh release create v$(VERSION) --draft --title v$(VERSION) --notes-file .github/release-notes.md
 	gh release upload v$(VERSION) dist/$(NAME).tar.gz dist/$(NAME).tar.gz.sha256 --clobber
 	@echo
 	@echo "attached $(NAME).tar.gz to the v$(VERSION) draft"

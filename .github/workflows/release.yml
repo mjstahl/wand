@@ -178,16 +178,5 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               --draft \
               --title "$GITHUB_REF_NAME" \
-              --notes-file - <<'NOTES'
-          Download the archive for your platform, unpack it, and put `wand` on
-          your `PATH`. The binary carries its own standard library, so it runs
-          from any directory with nothing else installed.
-
-          The Linux binaries are static musl builds. The macOS binaries are
-          not notarised, so a download is quarantined until you clear it:
-
-              xattr -d com.apple.quarantine wand
-
-          Checksums are the `.sha256` files beside each archive.
-          NOTES
+              --notes-file .github/release-notes.md
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
