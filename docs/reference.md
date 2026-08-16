@@ -150,7 +150,10 @@ let user = "ada"
 
 That makes `%{` the one sequence a backtick string cannot contain. Write
 that one in an ordinary string, where the percent can be escaped:
-`"\%{literal}"`.
+`"\%{literal}"` — the same escape listed under [Primitives](#primitives).
+A backtick string whose `%{` never closes fails at lexing with an error
+naming this workaround, which is the shape generated shell or template
+text usually takes when it trips over the rule.
 
 A backtick string is an ordinary `String` — the syntax is about how you
 write it, not what it is. It concatenates, interpolates and matches like
@@ -1725,6 +1728,27 @@ let m : Map (List Int) = [a = [1, 2], b = [3]]   -- parens needed for a compound
 
 `:t` prints types in exactly this syntax, so what you see there is always
 what you can paste back into an annotation.
+
+### The three colons
+
+`:` means three things, and position decides which:
+
+```
+let port : Port = :8080     -- annotation, then a port literal
+let xs = 1 : [2, 3]         -- cons
+```
+
+- **A port literal** is `:` glued directly to a digit: `:80`, `:8080`. The
+  lexer decides this one — no space and a digit following make it one
+  token.
+- **A type annotation** is the `:` right after a binding's name and
+  parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`.
+  Only that position (and a type definition's named fields) reads `:` as
+  an annotation.
+- **Cons** is every other `:` between expressions, and the list pattern
+  `[h : t]`. Expression position always means cons — which is why an
+  inline OCaml-style ascription `(e : T)` does not exist; annotate the
+  binding instead.
 
 ---
 
