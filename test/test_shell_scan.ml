@@ -162,6 +162,25 @@ let test_spawn_check () =
      List.map show outcomes |> (fn ws -> String.join \",\" ws)"
     "hi,refused,hi"
 
+(* The manifest checks cover $() and $?(), and those are the only spawn
+   forms a script can write: the raw process builtins are not in a
+   script's scope, and the Shell module only parses output. If this test
+   fails because a spawn-by-string function was added, decide which
+   file's Shell(...) bound governs its commands before shipping it. *)
+let test_no_spawn_by_string () =
+  let rejected label src needle =
+    match Runner.run_string src with
+    | Error m when Lint.contains m needle -> ()
+    | Error m -> Alcotest.failf "%s: wrong error: %s" label m
+    | Ok v -> Alcotest.failf "%s: expected a rejection, got %s" label v
+  in
+  rejected "raw builtin" "process_run \"curl x\""
+    "unbound variable 'process_run'";
+  rejected "Shell module" "import Shell\nShell.run! \"curl x\""
+    "no member 'run!'";
+  rejected "Proc module" "import Proc\nProc.run \"curl x\""
+    "no member 'run'"
+
 let () =
   Alcotest.run "shell scan" [
     "positions", [
@@ -180,5 +199,6 @@ let () =
     ];
     "spawn check", [
       Alcotest.test_case "end to end" `Quick test_spawn_check;
+      Alcotest.test_case "no spawn by string" `Quick test_no_spawn_by_string;
     ];
   ]
