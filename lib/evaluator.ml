@@ -1051,13 +1051,23 @@ let parse_dur_ms s =
             "duration %S is too large: %s does not fit in an Int" s digits))
       in
       i := !j;
-      if      at !i "min" then (total := !total + num * 60000;              i := !i + 3)
-      else if at !i "ms"  then (total := !total + num;                      i := !i + 2)
-      else if at !i "w"   then (total := !total + num * 7 * 24 * 3600000;  i := !i + 1)
-      else if at !i "d"   then (total := !total + num * 24 * 3600000;       i := !i + 1)
-      else if at !i "h"   then (total := !total + num * 3600000;             i := !i + 1)
-      else if at !i "m"   then (total := !total + num * 60000;              i := !i + 1)
-      else if at !i "s"   then (total := !total + num * 1000;               i := !i + 1)
+      (* Each unit's contribution and the running sum go through the checked
+         arithmetic the rest of the evaluator uses. A duration whose total
+         milliseconds overflow an Int used to wrap silently to a negative
+         number that looked like an answer -- `9999999999999w` came back
+         positive-looking nonsense. It is too big, not malformed, and says so.
+         The factors are constants, so only `num * factor` and the sum can
+         overflow; both are checked. *)
+      let add_unit factor width =
+        total := add_ovf !total (mul_ovf num factor); i := !i + width
+      in
+      if      at !i "min" then add_unit 60000 3
+      else if at !i "ms"  then add_unit 1 2
+      else if at !i "w"   then add_unit (7 * 24 * 3600000) 1
+      else if at !i "d"   then add_unit (24 * 3600000) 1
+      else if at !i "h"   then add_unit 3600000 1
+      else if at !i "m"   then add_unit 60000 1
+      else if at !i "s"   then add_unit 1000 1
       else raise Exit
     done
   with Exit -> raise (EvalError (Printf.sprintf "invalid duration: %S" s)));

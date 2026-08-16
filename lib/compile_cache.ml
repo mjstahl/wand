@@ -82,15 +82,40 @@ let dir () =
           | Some h -> Filename.concat (Filename.concat h ".cache") "wand"
           | None -> Filename.concat (Filename.get_temp_dir_name ()) "wand"))
 
+(* A cache entry is a marshalled value handed straight back typed as whatever
+   the reader expects, and `Marshal` checks nothing: a file whose bytes were
+   chosen by someone else becomes a type-confused value that can crash or
+   corrupt. So an entry is only ever read from a directory the current user
+   owns and no one else can write to -- otherwise a local attacker could plant
+   a `.wandc` under the key a run will look for. This is the check ssh and gpg
+   make of their own directories, and it is the load-bearing one: a private
+   directory cannot hold a file this process did not put there.
+
+   On Windows the POSIX ownership and mode bits do not carry this meaning, so
+   the check is skipped there; `%LOCALAPPDATA%` is already per-user. *)
+let dir_is_trustworthy d =
+  if Sys.win32 then true
+  else
+    match Unix.stat d with
+    | st ->
+      st.Unix.st_kind = Unix.S_DIR
+      && st.Unix.st_uid = Unix.getuid ()
+      (* Not writable by group or other: 0o022 are those two write bits. *)
+      && st.Unix.st_perm land 0o022 = 0
+    | exception Unix.Unix_error _ -> false
+
 (* Best-effort: a cache that cannot be created is a cache that is not used,
-   never an error a script has to hear about. *)
+   never an error a script has to hear about. Created private (0700) so it is
+   trustworthy from the start; a directory that already exists but is not is
+   left alone and simply not used, rather than being loosened underneath
+   whoever made it. *)
 let ensure_dir () =
   let d = dir () in
   if not (Sys.file_exists d) then
     (try
        let parent = Filename.dirname d in
        if not (Sys.file_exists parent) then Unix.mkdir parent 0o755;
-       Unix.mkdir d 0o755
+       Unix.mkdir d 0o700
      with Unix.Unix_error _ -> ());
   d
 
@@ -122,6 +147,10 @@ let path_for key = Filename.concat (dir ()) (key ^ ".wandc")
 
 let find (key : string) : 'a option =
   if disabled then None
+  (* A value is deserialised only out of a directory this user owns and no one
+     else can write to -- see `dir_is_trustworthy`. Anywhere else, every entry
+     is a cache miss, so a planted file is never read. *)
+  else if not (dir_is_trustworthy (dir ())) then None
   else
     let p = path_for key in
     if not (Sys.file_exists p) then None
@@ -138,12 +167,19 @@ let find (key : string) : 'a option =
 let store (key : string) (value : 'a) : unit =
   if not disabled then begin
     let d = ensure_dir () in
-    if Sys.file_exists d then
+    (* Written only where it can later be trusted to read back. A directory
+       that is not private is not written to either, rather than seeding it
+       with entries no run will read. *)
+    if Sys.file_exists d && dir_is_trustworthy d then
       try
         (* Written beside and renamed into place, so a reader never sees a
-           half-written entry: two runs of the same script race often. *)
+           half-written entry: two runs of the same script race often. The
+           temp file is opened 0600, so an entry is never briefly readable by
+           anyone but its owner even inside a private directory. *)
         let tmp = Filename.concat d (key ^ "." ^ string_of_int (Unix.getpid ()) ^ ".tmp") in
-        Out_channel.with_open_bin tmp (fun oc -> Marshal.to_channel oc value []);
+        let oc = open_out_gen [Open_wronly; Open_creat; Open_trunc; Open_binary] 0o600 tmp in
+        Fun.protect ~finally:(fun () -> close_out_noerr oc)
+          (fun () -> Marshal.to_channel oc value []);
         Sys.rename tmp (path_for key)
       with _ -> ()
   end

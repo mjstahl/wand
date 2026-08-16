@@ -193,6 +193,32 @@ let test_a_rebuilt_binary_invalidates_entries () =
   Alcotest.(check bool) "wrote fresh entries rather than reading the old ones"
     true (count () > after_first)
 
+(* A cache entry is a marshalled value handed back typed as whatever the
+   reader expects, and Marshal checks nothing -- so an entry planted by
+   someone else is a type-confused value that can crash the process. The
+   defence is to only ever read from, or write to, a directory this user owns
+   privately. A directory anyone else can write to is not used at all: the run
+   still succeeds, and nothing is written where a planted file could later be
+   read back. *)
+let test_a_world_writable_dir_is_not_used () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "mod.wand") "let n = 41";
+  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+  let own = Filename.concat c "own" in
+  Unix.mkdir own 0o700;
+  Unix.chmod own 0o777;   (* group- and other-writable: not trustworthy.
+                             chmod rather than a mkdir mode, which umask trims *)
+  let cmd =
+    Printf.sprintf "cd %s && WAND_CACHE_HOME=%s %s main.wand 2>&1"
+      (Filename.quote d) (Filename.quote own) (Filename.quote wand_binary)
+  in
+  let ic = Unix.open_process_in cmd in
+  let out = String.trim (In_channel.input_all ic) in
+  ignore (Unix.close_process_in ic);
+  Alcotest.(check string) "still runs correctly" "42" out;
+  Alcotest.(check int) "wrote nothing into an untrusted directory" 0
+    (entries_in own)
+
 let () =
   Alcotest.run "Compile cache" [
     "between runs", [
@@ -202,6 +228,7 @@ let () =
     ];
     "when it cannot be trusted", [
       Alcotest.test_case "a corrupt entry"         `Quick test_a_corrupt_entry_is_survivable;
+      Alcotest.test_case "a world-writable dir"    `Quick test_a_world_writable_dir_is_not_used;
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
       Alcotest.test_case "where it lives"          `Quick test_cache_home_layers;
