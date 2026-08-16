@@ -1,5 +1,7 @@
 let [test] = import Test
 
+import List
+
 (* ── Literals ──────────────────────────────────────────────────────────── *)
 
 test "int" (fn t -> t.eq 42 42)
@@ -50,6 +52,13 @@ test "arithmetic up to the boundary is unchanged" (fn t -> t.eq max_int (max_int
 test "eq true" (fn t -> t.eq true (1 == 1))
 test "eq false" (fn t -> t.eq false (1 == 2))
 test "neq" (fn t -> t.eq true (1 != 2))
+
+(* Comparing a value that carries a function raises a catchable error rather
+   than a fatal OCaml exception -- `==` and `!=` typecheck for any type, so a
+   function-typed operand reaches the polymorphic comparison. *)
+test "eq of functions raises" (fn t -> t.raises (fn () -> println == println))
+test "neq of functions raises" (fn t -> t.raises (fn () -> println != println))
+test "sort of functions raises" (fn t -> t.raises (fn () -> List.sort [println, print]))
 test "lt true" (fn t -> t.eq true (1 < 2))
 test "lt false" (fn t -> t.eq false (2 < 1))
 test "gt" (fn t -> t.eq true (3 > 2))

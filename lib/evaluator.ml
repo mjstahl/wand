@@ -307,6 +307,23 @@ let check_interrupt () =
     if not !taken then begin taken := true; raise (Interrupted code) end
   end
 
+(* Structural comparison that a script can catch. OCaml's `=` and `compare`
+   raise Invalid_argument when they reach a closure, and a value may carry one
+   -- a function, a builtin, a compiled regex or a decoder, directly or inside
+   a list, tuple, Map or constructor. That exception is not an EvalError, so
+   `try` re-raises it and the interpreter dies with a fatal error on code that
+   typechecked: `==`, `!=` and `List.sort` all admit function-typed operands.
+   Turning it into an EvalError makes it a value the language can see. *)
+let wand_equal a b =
+  try a = b
+  with Invalid_argument _ ->
+    raise (EvalError "cannot compare functions for equality")
+
+let wand_compare a b =
+  try compare a b
+  with Invalid_argument _ ->
+    raise (EvalError "cannot order functions")
+
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
 (* Whether a pattern list and a value list have the same length, decided by
@@ -823,8 +840,8 @@ and eval_binop (env : env) op a b : value =
     (match eval env b with
      | VList vs -> VList (vh :: vs)
      | _        -> raise (EvalError "':' right side must be a list"))
-  | "==" -> VBool (eval env a = eval env b)
-  | "!=" -> VBool (eval env a <> eval env b)
+  | "==" -> VBool (wand_equal (eval env a) (eval env b))
+  | "!=" -> VBool (not (wand_equal (eval env a) (eval env b)))
   | "<"  ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VBool (x < y)
@@ -2212,18 +2229,24 @@ let stdlib_eval_env : env = [
       | _ -> raise (EvalError "list_get!: expected List"))
     | _ -> raise (EvalError "list_get!: expected Int index")));
   ("list_sort", VBuiltin (function
-    | VList xs -> VList (List.sort compare xs)
+    | VList xs -> VList (List.sort wand_compare xs)
     | _ -> raise (EvalError "list_sort: expected List")));
   ("list_sort_by", VBuiltin (fun f ->
     VBuiltin (function
       | VList xs ->
-        VList (List.sort (fun a b -> compare (apply f a) (apply f b)) xs)
+        VList (List.sort (fun a b -> wand_compare (apply f a) (apply f b)) xs)
       | _ -> raise (EvalError "list_sort_by: expected List"))));
   ("list_unique", VBuiltin (function
     | VList xs ->
+      (* Membership uses structural equality, which raises on a functional
+         value the same way `==` would; surface it as a catchable error
+         rather than a fatal one. *)
       let seen = Hashtbl.create 16 in
       VList (List.filter (fun x ->
-        if Hashtbl.mem seen x then false
+        if (try Hashtbl.mem seen x
+            with Invalid_argument _ ->
+              raise (EvalError "cannot compare functions for equality"))
+        then false
         else (Hashtbl.add seen x (); true)) xs)
     | _ -> raise (EvalError "list_unique: expected List")));
   ("list_range", VBuiltin (function
