@@ -39,6 +39,7 @@ For what wand is and why, see the [README](../README.md).
   - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Path](#path) · [IO](#io) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
+- [Style for scripts](#style-for-scripts)
 - [REPL and CLI](#repl-and-cli)
 - [Building](#building)
 
@@ -2620,6 +2621,47 @@ Block comments, nestable:
   (* nested comment *)
 *)
 ```
+
+---
+
+## Style for scripts
+
+Everything in this manual parses anywhere, but `examples/` and `demos/` are
+written in a deliberately small dialect, aimed at a reader coming from shell
+rather than from ML. The standard library is written by and for the compiler
+team and uses the full language; a script does not have to.
+
+- **One statement per line at the top level.** A newline ends a statement,
+  so top-level code needs no terminator, no `let () =`, and no ceremony —
+  do the thing, then do the next thing.
+
+- **Sequence with `;` in parentheses inside a body.** A function body is one
+  expression, so several statements there go in parentheses, separated by
+  `;` (see [Sequencing](#sequencing)):
+
+  ```
+  let backup_all! dest = (
+    FS.mkdir! (Path.of_string dest);
+    List.each (fn p -> backup_one! dest p) (FS.glob ./*.wand)
+  )
+  ```
+
+- **Reach for `let ... in` to name something, not to sequence.** `let x = e
+  in body` gives `e` a name that `body` uses; that is its job. Chaining
+  statements as `let () = e1 in e2` still works and still typechecks, but
+  the `;` form says the same thing without the puzzle of what `()` binds.
+
+- **`match` over multi-equation definitions.** Defining a function twice
+  with different patterns (`let failed? (Error _) = true` / `let failed?
+  (Ok _) = false`) is legal, and the stdlib uses it. A script writes one
+  definition and matches:
+
+  ```
+  let failed? r =
+    match r with
+    | Error _ -> true
+    | Ok _ -> false
+  ```
 
 ---
 

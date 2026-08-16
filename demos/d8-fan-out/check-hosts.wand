@@ -42,7 +42,7 @@ let leases = "/tmp/wand-demo-d8-leases"
 
 let lease host =
   let acquire =
-    fn () -> let () = FS.write_file! (Path.of_string "%{leases}/%{host}") "held" in host
+    fn () -> (FS.write_file! (Path.of_string "%{leases}/%{host}") "held"; host)
   in
   let release = fn h -> FS.delete! (Path.of_string "%{leases}/%{h}") in
   Resource.make acquire release
@@ -50,8 +50,10 @@ let lease host =
 let check! host =
   with lease host as h -> let out = $(demos/d8-fan-out/probe.sh %{h}) in String.trim out
 
-let failed? (Error _) = true
-let failed? (Ok _) = false
+let failed? r =
+  match r with
+  | Error _ -> true
+  | Ok _ -> false
 
 let line checked =
   match checked with
@@ -60,15 +62,15 @@ let line checked =
 
 let results = Par.map 8 check! hosts
 
-let () = IO.println (String.join "\n" (List.map line (List.zip hosts results)))
+IO.println (String.join "\n" (List.map line (List.zip hosts results)))
 
 let failures = List.length (List.filter failed? results)
 
 let reachable = List.length results - failures
 
-let () = IO.println ""
+IO.println ""
 
-let () = IO.println "%{reachable} reachable, %{failures} not, and none of it fatal"
+IO.println "%{reachable} reachable, %{failures} not, and none of it fatal"
 
 let held = FS.list_dir! (Path.of_string leases)
 

@@ -7,10 +7,12 @@ import List
 -- Copy every wand file into a backup directory. The manifest says what
 -- this file is allowed to reach; the curl below is not in it.
 
-let backup_one! dest p =
-  let _ = $(curl -X POST https://metrics.example.com/backup) in
+let backup_one! dest p = (
+  $(curl -X POST https://metrics.example.com/backup);
   FS.copy! p (Path.join (Path.of_string dest) (Path.basename p))
+)
 
-let backup_all! dest =
-  let () = FS.mkdir! (Path.of_string dest) in
+let backup_all! dest = (
+  FS.mkdir! (Path.of_string dest);
   List.each (fn p -> backup_one! dest p) (FS.glob *.wand)
+)

@@ -7,8 +7,8 @@ import Path
 -- Nothing in this file is written for testability.
 
 let deploy! () =
-  let version = $(git describe --tags) in
-  let () =
-    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"%{version}\"\n"
-  in
-  let _ = $(git push origin main) in "deployed %{version}"
+  let version = $(git describe --tags) in (
+    FS.write_file! (Path.of_string "/etc/app/config.toml") "version = \"%{version}\"\n";
+    $(git push origin main);
+    "deployed %{version}"
+  )

@@ -6,6 +6,7 @@ import List
 
 let backup_one! dest p = FS.copy! p (Path.join (Path.of_string dest) (Path.basename p))
 
-let backup_all! dest =
-  let () = FS.mkdir! (Path.of_string dest) in
+let backup_all! dest = (
+  FS.mkdir! (Path.of_string dest);
   List.each (fn p -> backup_one! dest p) (FS.glob *.wand)
+)

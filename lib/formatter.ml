@@ -673,7 +673,13 @@ and emit_let ?col indent p e1 e2 =
        at the margin, not after `let name = `. Given its own line it gets the
        room the measurement assumed, and wraps on its own terms. *)
     let bound = Printf.sprintf "let %s = %s in" (emit_pat p) e1s in
-    if fits col bound then bound ^ "\n" ^ ind ^ e2s
+    if fits col bound then
+      (match strip_located e2 with
+       (* A sequence after `in` opens its parenthesis on the same line,
+          brace-style, like a sequence after `=`. *)
+       | Seq _ ->
+         bound ^ " " ^ emit_expr ~col:(col + String.length bound + 1) indent e2
+       | _ -> bound ^ "\n" ^ ind ^ e2s)
     else
       Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
         (emit_pat p) ind (emit_expr (indent + 2) e1) ind ind e2s

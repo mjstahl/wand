@@ -34,9 +34,9 @@ let checked_pod =
       (Decode.field "restartCount" Decode.int))
     (Decode.field "podName" Decode.string))
 
-let () = IO.println (JSON.decode pod (JSON.parse! document))
+IO.println (JSON.decode pod (JSON.parse! document))
 
-let () = IO.println (JSON.decode checked_pod (JSON.parse! document))
+IO.println (JSON.decode checked_pod (JSON.parse! document))
 
 -- A key that is missing is still named, whichever name it was looked up by.
 IO.println (JSON.decode pod (JSON.parse! "{\"podName\": \"web-01\"}"))

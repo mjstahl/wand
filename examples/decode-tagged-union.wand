@@ -35,15 +35,13 @@ let document =
 
 let shapes = JSON.decode (Decode.list shape) (JSON.parse! document)
 
-let () =
-  match shapes with
-  | Ok ss -> IO.println "areas: %{List.map area ss}"
-  | Error why -> IO.println why
+match shapes with
+| Ok ss -> IO.println "areas: %{List.map area ss}"
+| Error why -> IO.println why
 
 -- A tag nobody knows is a failure that says so, and says which element it
 -- was -- the `fail` message is reported at the path the decoder had reached.
-let () =
-  IO.println (JSON.decode (Decode.list shape) (JSON.parse! "[{\"kind\": \"hexagon\"}]"))
+IO.println (JSON.decode (Decode.list shape) (JSON.parse! "[{\"kind\": \"hexagon\"}]"))
 
 -- The tag field is part of the document, not of the type: nothing here
 -- assumes it is called "kind", and a document tagging by "type" or "@type"

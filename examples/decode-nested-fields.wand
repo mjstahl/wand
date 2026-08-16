@@ -21,12 +21,12 @@ type Status = Status(phase: String, restarts: Int)
 
 type Pod = Pod(metadata: Meta, status: Status)
 
-let () = IO.println (JSON.decode Pod.decoder (JSON.parse! document))
+IO.println (JSON.decode Pod.decoder (JSON.parse! document))
 
 let wrong_type =
   "{\"metadata\": {\"name\": 1, \"namespace\": \"d\"},\n    \"status\": {\"phase\": \"R\", \"restarts\": 0}}"
 
-let () = IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
+IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
 
 -- 2. Flatten it. When the intermediate types earn nothing -- when nothing in
 --    the script ever wants a `Meta` -- reach through with nested `field`s
@@ -40,7 +40,7 @@ let flat =
     (Decode.field "metadata" (Decode.field "name" Decode.string))
     (Decode.field "status" (Decode.field "restarts" Decode.int)))
 
-let () = IO.println (JSON.decode flat (JSON.parse! document))
+IO.println (JSON.decode flat (JSON.parse! document))
 
 -- The nested form still names where it failed, so flattening the type does
 -- not flatten the error.

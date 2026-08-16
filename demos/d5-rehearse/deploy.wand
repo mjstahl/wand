@@ -12,12 +12,14 @@ let target = "/tmp/wand-demo-deploy"
 let version! () = $(git describe --tags --always)
 
 let deploy! () =
-  let v = version! () in
-  let () = FS.mkdir! (Path.of_string target) in
-  let () = FS.write_file! (Path.of_string "%{target}/config.toml") "version = \"%{v}\"\n" in
-  let () = Env.set "DEPLOYED_VERSION" v in
-  let _ = $(echo rsync -a ./build/ web@host:/srv/app) in
-  let () = FS.write_file! (Path.of_string "%{target}/cache.idx") "stale\n" in
-  let () = FS.delete! (Path.of_string "%{target}/cache.idx") in "deployed %{v}"
+  let v = version! () in (
+    FS.mkdir! (Path.of_string target);
+    FS.write_file! (Path.of_string "%{target}/config.toml") "version = \"%{v}\"\n";
+    Env.set "DEPLOYED_VERSION" v;
+    $(echo rsync -a ./build/ web@host:/srv/app);
+    FS.write_file! (Path.of_string "%{target}/cache.idx") "stale\n";
+    FS.delete! (Path.of_string "%{target}/cache.idx");
+    "deployed %{v}"
+  )
 
 deploy! ()
