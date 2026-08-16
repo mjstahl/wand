@@ -934,11 +934,14 @@ another file imports and calls it.
 ```
 $ wand t --file deploy.wand
 Error: type error: 'publish' performs Shell, which the manifest does not allow.
-       The manifest should be:  "uses {Shell, FS.Write}"
+       The manifest should be:  "uses {Shell(rsync), FS.Write}"
 ```
 
 The error names the binding that introduced the effect and the line to
-write, so the fix is a copy rather than a derivation.
+write, so the fix is a copy rather than a derivation. The suggested
+`Shell` names the binaries it saw when every command word in the file is
+literal (see [Naming the binaries](#naming-the-binaries-shellgit-curl)),
+and is bare `Shell` otherwise.
 
 ### Declaring more than you use is a warning
 
@@ -955,7 +958,7 @@ alone.
 
 ```
 warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
-         so; it could declare "uses {Shell, FS.Write}"
+         so; it could declare "uses {Shell(rsync), FS.Write}"
 ```
 
 A file without a manifest is legal and always will be — a casual script

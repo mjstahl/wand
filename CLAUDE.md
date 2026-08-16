@@ -98,13 +98,19 @@ run of a script that writes or deploys.
 The first line of a file that touches the world declares what it may do:
 
 ```
-uses {Shell, FS.Read, FS.Write, Env, IO}
+uses {Shell(git, curl), FS.Read, FS.Write, Env, IO}
 ```
 
 Those are five of the seven effect labels: `Shell` (subprocesses),
 `FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`.
-Doing more than the manifest says is a type error; declaring more than the
-file does is an `A-USES1` warning. Effects are inferred — never annotated.
+`Shell` may name the binaries the file runs — written as they are in
+`$()`: `Shell(git, docker-compose, ./probe.sh)` — and bare `Shell` means
+any. A literal command word the list omits is a type error; a word decided
+at run time is checked at spawn and flagged by `V-SHELL1`. Doing more than
+the manifest says is a type error; declaring more than the file does is an
+`A-USES1` warning. Effects are inferred — never annotated: `wand t`
+suggests the exact manifest line, narrowed when it can read every command
+word.
 
 ### Syntax card
 
