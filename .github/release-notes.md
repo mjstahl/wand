@@ -26,9 +26,14 @@
 
 ---
 
-Download the archive for your platform, unpack it, and put `wand` on your
-`PATH`. The binary carries its own standard library, so it runs from any
-directory with nothing else installed.
+One line installs it — platform detection, checksum verification, and a
+smoke test included:
+
+    curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
+
+Or download the archive for your platform, unpack it, and put `wand` on
+your `PATH`. The binary carries its own standard library, so it runs from
+any directory with nothing else installed.
 
 | | |
 |---|---|

@@ -98,14 +98,23 @@ reuse ([mjstahl/setup-wand](https://github.com/mjstahl/setup-wand)):
 - run: wand ci/deploy.wand
 ```
 
-**A release binary** — every [release](https://github.com/mjstahl/wand/releases)
-ships static Linux builds (x86_64, aarch64) and macOS builds (aarch64,
-x86_64), each with a `.sha256` alongside:
+**On a laptop** — one line, no sudo. Detects the platform, verifies the
+checksum, proves the binary answers, and installs to `~/.local/bin`
+(`WAND_VERSION` pins a release, `WAND_INSTALL_DIR` picks the directory):
 
 ```
-curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.9.2/wand-0.9.2-macos-aarch64.tar.gz
-tar xzf wand-0.9.2-macos-aarch64.tar.gz
-install wand-0.9.2-macos-aarch64/wand ~/.local/bin/
+curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
+```
+
+**A release binary, by hand** — every
+[release](https://github.com/mjstahl/wand/releases) ships static Linux
+builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), each with a
+`.sha256` alongside:
+
+```
+curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.10.0/wand-0.10.0-macos-aarch64.tar.gz
+tar xzf wand-0.10.0-macos-aarch64.tar.gz
+install wand-0.10.0-macos-aarch64/wand ~/.local/bin/
 ```
 
 The binary carries its own standard library; there is nothing else to
