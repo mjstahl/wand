@@ -17,6 +17,17 @@ The goal is the same one the manifest already serves: a reader decides
 what a file may do to their machine from its first line, and the checker
 holds the file to it.
 
+## What this is, and is not
+
+The manifest is an **audit surface, not a sandbox**. It defends against
+drift and accident — the curl that crept into a backup script, the
+`rm -rf` a reviewer would have caught — and it makes intent legible at
+the top of the file. It does not confine adversarial code: adversarial
+code writes `Shell(sh)` (or `PATH=/evil git`), and both of those are
+*visible*, which is the defense this design actually offers. Every rule
+below is chosen for legibility under that threat model, not for
+containment it cannot deliver.
+
 ## Proposed syntax
 
 ```
@@ -60,22 +71,53 @@ exactly the scripts trying to narrow. And why not static-only with
 interpolation unchecked: an allowlist the interpreter does not enforce at
 the one place it could is a promise the runtime knows how to break.
 
-The residue is surfaced, not hidden: a new advisory lint (`A-SHELL2` —
-`A-SHELL1` is taken by the long-pipeline advisory) flags every
-interpolated command position in a file with a narrowed manifest, so
-`wand t --strict` can hold audit-critical repositories to fully static
-command words.
+The residue is surfaced, not hidden: a new lint `V-SHELL1` flags every
+interpolated command position in a file with a narrowed manifest. It is
+a violation, not an advisory, precisely for its `--strict` semantics:
+a warning in the ordinary loop, an error under `wand t --strict`
+(`Lint.fails_strict` gates on violations only), so audit-critical
+repositories can hold themselves to fully static command words.
+
+### Shell control flow is a static error under a narrowed manifest
+
+`$(for f in *.txt; do git add $f; done)` puts the reserved word `for`
+in command position. Neither check can bound it: statically the
+commands live inside the compound body, and at spawn time the word
+never resolves to a binary — checking `for` against an allowlist would
+just always fail. Since the keyword is literal text, wand knows all of
+this at `wand t` time, so under a narrowed manifest a compound command
+(POSIX reserved word in command position: `if`, `for`, `while`,
+`until`, `case`, `{`, `!`, `time`) is a **type error**, and the message
+says the quiet part:
+
+```
+this $() uses shell control flow, which Shell(git) cannot bound.
+Write the loop in wand (List.each over one $() per item), or declare
+bare Shell.
+```
+
+Under bare `Shell` it stays legal, unchanged from today. This is the
+language's own pitch applied to its own feature: control flow belongs
+in wand, `$()` is for commands.
 
 ## What counts as "the binary"
 
 wand parses the command text with a small shell-word scanner for
 **top-level command positions only**: the first word of the line and the
-first word after each top-level `|`, `&&`, `||`, `;`. Everything else —
-redirections, arguments, quoting, `$(...)` subshells inside the text — is
-the named binary's business, not wand's.
+first word after each top-level `|`, `&&`, `||`, `;`. The scanner is
+quote-aware exactly as far as it must be — a `|` inside single or double
+quotes separates nothing — but everything else about the text
+(redirections, arguments, `$(...)` subshells inside it) is the named
+binary's business, not wand's.
 
 Consequences, stated as rules:
 
+- **Prefix assignments are skipped.** In `$(FOO=1 cmd ...)` the command
+  word is `cmd`: leading `NAME=value` words are environment prefixes in
+  shell grammar, and an assignment cannot execute anything. (`PATH=...`
+  games fall under the threat-model section above: visible, not
+  confined.) A line that is *only* assignments has no command word and
+  nothing to check.
 - **Wrappers are the thing you allow.** `env X=y cmd`, `xargs cmd`,
   `sudo cmd`, `sh -c '...'`, `time cmd` allow `env`, `xargs`, `sudo`,
   `sh`, `time`. wand does not peel wrappers to find the "real" command,
@@ -105,9 +147,11 @@ it could declare "uses {Shell(git, curl)}"
 ```
 
 and falls back to bare `Shell` (with the interpolated site's location in
-the message) when one is not. `A-USES1` symmetrically: a `Shell(git,
-curl)` manifest where `curl` never appears in a command position suggests
-`Shell(git)`.
+the message) when one is not. `A-USES1` symmetrically suggests dropping
+an allowlisted binary that no command position names — but **only when
+every command position in the file is literal**. One interpolated site
+and the narrowing suggestion is off: the binary it spawns at runtime may
+be exactly the one that looks unused.
 
 ## Effect rows are unchanged
 
@@ -136,6 +180,13 @@ at the moment of spawn** — not at `perform`. So:
 - `Test.with_shell` mocks and `--dry-run` rehearsals never trip the
   check; a sealed test can exercise a script whose environment lacks the
   binaries entirely, which is the point of sealing.
+- **Jurisdiction:** the spawn-time check applies the manifest of the
+  file whose text contains the `$()` site — not the caller's. This is
+  what makes the compositional reading true: each manifest bounds its
+  own file's text, an imported helper is bounded by the helper's own
+  first line, and a helper with no manifest is unbounded (exactly as a
+  bare-`Shell` file is). The audit rule stays "read each file's
+  manifest", one level sharper.
 - `--trace` prints the resolved command word alongside the line it
   already prints, since the scanner's result is available.
 - Handlers do not receive the parsed binary name as a separate value in
@@ -156,13 +207,21 @@ at the moment of spawn** — not at `perform`. So:
 - Literal commands: allowed word, refused word, refused word's error
   names the manifest fix.
 - Pipelines and `&&`/`;` chains: every top-level position checked; a
-  refused second stage names that stage.
+  refused second stage names that stage; a quoted `|` inside an argument
+  separates nothing.
+- Prefix assignments: `$(FOO=1 git status)` checks `git`; an
+  assignment-only line checks nothing.
 - `sh -c`, `env`, `xargs`: the wrapper is the checked word.
+- Compound commands: `$(for ...)` under `Shell(git)` is a type error
+  whose message names both exits (wand loop, bare `Shell`); the same
+  text under bare `Shell` runs unchanged.
 - Interpolated first word: runs under bare `Shell`; under `Shell(git)`
   raises at spawn, catchable with `try`; never raises under a mock or
-  `--dry-run`.
+  `--dry-run`. The check applies the manifest of the file containing
+  the site, exercised through an import.
 - Path-qualified words: `/usr/bin/git` vs `git`, slash-entries exact.
 - Inference: narrowed suggestion when fully literal, bare fallback with
-  location otherwise; `A-USES1` narrowing suggestion; `A-SHELL2` on
-  interpolated positions under a narrowed manifest.
+  location otherwise; `A-USES1` narrowing suggestion only in fully
+  literal files; `V-SHELL1` on interpolated positions under a narrowed
+  manifest — warning by default, exit 1 under `--strict`.
 - Formatter round-trips `Shell(git, "docker-compose")`.
