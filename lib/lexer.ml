@@ -72,7 +72,7 @@ let read_string s =
     | '\\' ->
       let c = match advance s with
         | 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r'
-        | '\\' -> '\\' | '"' -> '"' | '$' -> '$' | '%' -> '%'
+        | '\\' -> '\\' | '"' -> '"' | '$' -> '$' | '%' -> '%' | '#' -> '#'
         | c -> raise (LexError (Printf.sprintf "unknown escape \\%c" c))
       in
       Buffer.add_char buf c; loop ()
@@ -91,6 +91,12 @@ let read_string s =
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
       raise (LexError "interpolation is %{...} now, not ${...}. For the \
                        literal text, write \\${...}")
+    (* The Ruby/Elixir spelling, refused for the same reason as `${...}`:
+       text that quietly stayed text is a wrong answer no one would look
+       for. *)
+    | '#' when peek s = '{' ->
+      raise (LexError "#{...} is Ruby; interpolation is %{...} in wand. For \
+                       the literal text, write \\#{...}")
     | '%' when peek s = '{' ->
       ignore (advance s);
       let lit = Buffer.contents buf in
@@ -159,7 +165,11 @@ let read_raw_string s =
       let expr_buf = Buffer.create 16 in
       let depth = ref 1 in
       while !depth > 0 do
-        if is_at_end s then raise (LexError "unterminated string interpolation");
+        if is_at_end s then
+          raise (LexError "unterminated %{...} interpolation in a `...` \
+                           string. A `...` string cannot hold a literal %{ \
+                           -- for that text, use an ordinary \"...\" string \
+                           and write \\%{");
         let c = advance s in
         if c = '{' then (incr depth; Buffer.add_char expr_buf c)
         else if c = '}' then begin
@@ -636,7 +646,16 @@ let next_token s =
        | '>' -> ignore (advance s); Arrow
        | '-' -> LineComment (read_line_comment s)
        | _   -> Minus)
+    | ':' when peek s = ':' ->
+      raise (LexError "'::' is OCaml's cons; in wand it is a single ':' -- \
+                       h : rest to build a list, [h : t] in a pattern")
+    | ':' when peek s = '=' ->
+      raise (LexError "':=' is OCaml's assignment, and wand has no mutation \
+                       -- let binds a new name instead")
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
+    | '/' when peek s = '/' ->
+      raise (LexError "'//' is a C-family comment; wand comments are \
+                       '-- ...' to the end of the line, or '(* ... *)'")
     | '/'  ->
       ret (if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
                                     || peek s = '_' || peek s = '.') then
@@ -680,6 +699,14 @@ let next_token s =
       end
     | c when is_digit c -> ret (read_numeric s c)
     | c when is_alpha c || c = '_' -> ret (read_ident s c)
+    | '\\' when is_alpha (peek s) || peek s = '_' || peek s = '(' ->
+      raise (LexError "'\\x -> ...' is Haskell; a wand lambda is 'fn x -> ...'")
+    (* The shebang on line one is handled in `tokenize`; any other `#` is a
+       bash or Python comment reflex. *)
+    | '#' ->
+      raise (LexError "'#' starts a comment in bash and Python; wand \
+                       comments are '-- ...' to the end of the line, or \
+                       '(* ... *)'")
     | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()

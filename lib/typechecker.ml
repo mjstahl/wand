@@ -393,12 +393,37 @@ type scheme =
 
 and env = (string * scheme) list
 
+(* Names a reader of another language reaches for. wand has no training-data
+   presence, so a model writing it drifts toward OCaml, Python, Ruby, and
+   bash; an unbound-variable error that names the wand spelling is what
+   makes the edit-typecheck loop converge instead of circle. *)
+let foreign_name_hint = function
+  | "not" -> Some "boolean not is '!'"
+  | "ref" | "mutable" ->
+    Some "wand has no mutation; let binds a new name instead"
+  | "raise" | "throw" ->
+    Some "errors are values in wand: return an Error, call a !-suffixed \
+          function to raise, or wrap a call with try"
+  | "printf" | "puts" | "print_endline" | "console" ->
+    Some "printing is println (or IO.println)"
+  | "echo" -> Some "println prints a line; $(echo ...) runs the command"
+  | "lambda" -> Some "a lambda is 'fn x -> ...'"
+  | "elif" -> Some "write 'else if'"
+  | "len" -> Some "List.length and String.length measure things"
+  | "nil" | "null" -> Some "absence is None, matched with 'match ... with'"
+  | "is" -> Some "comparison is '=='; a missing value is matched: \
+                  'match x with | None -> ...'"
+  | _ -> None
+
 let lookup name (env : env) =
   match List.assoc_opt name env with
   | Some s -> s
   | None   ->
-    raise (TypeError (Printf.sprintf "unbound variable '%s'%s"
-      name (Util.hint name (List.map fst env))))
+    let hint = match foreign_name_hint name with
+      | Some h -> " -- " ^ h
+      | None -> Util.hint name (List.map fst env)
+    in
+    raise (TypeError (Printf.sprintf "unbound variable '%s'%s" name hint))
 
 (* ── Free type variables ──────────────────────────────────────────────────── *)
 
