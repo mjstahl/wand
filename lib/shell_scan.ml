@@ -185,6 +185,8 @@ let rec segs_of_cmd (e : Ast.expr) : seg list =
 let fragment = function
   | Token.Ident w -> Some w
   | Token.Int n when n >= 0 -> Some (string_of_int n)
+  (* `demos/probe.sh` arrives as `demos` then the path `/probe.sh`. *)
+  | Token.Path p -> Some p
   | Token.Minus -> Some "-"
   | Token.Dot -> Some "."
   | Token.Plus -> Some "+"
@@ -199,7 +201,8 @@ let render_entry w =
   let reads_back () =
     match Lexer.tokenize w with
     | exception _ -> false
-    | (Token.Ident w0, loc0) :: rest when loc0.Token.offset = 0 ->
+    | ((Token.Ident w0 | Token.Path w0), loc0) :: rest
+      when loc0.Token.offset = 0 ->
       let rec go acc end_ = function
         | [] -> acc = w
         | (t, (loc : Token.loc)) :: tl ->

@@ -33,6 +33,6 @@ rm -rf "$TARGET"
 
 # The point: the rehearsal reports the write and performs none of it, and
 # the file says up front what it may touch.
-moment "uses {Shell, FS.Write, Env}" head -1 "$D/deploy.wand"
+moment "uses {Shell(git, echo), FS.Write, Env}" head -1 "$D/deploy.wand"
 moment "would write" "$WAND" --dry-run "$D/deploy.wand"
 moment_absent "$TARGET"

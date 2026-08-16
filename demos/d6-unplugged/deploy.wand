@@ -1,4 +1,4 @@
-uses {Shell, FS.Write}
+uses {Shell(git), FS.Write}
 
 import FS
 import Path

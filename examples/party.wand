@@ -1,4 +1,4 @@
-uses {Shell}
+uses {Shell(whoami)}
 
 let [greet, shout] = import ./greetings
 

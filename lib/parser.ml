@@ -1185,12 +1185,12 @@ let parse_manifest s =
       let (first, floc) = advance_loc s in
       match first with
       | Token.String w -> add w
-      | Token.Path w   -> add w
-      | Token.Ident w0 ->
-        (* `docker-compose` arrives as `docker`, `-`, `compose` -- inside
-           $() it is raw text, and the manifest should read the same
-           spelling. Fragments are rejoined only when byte-adjacent, so a
-           genuinely spaced `a - b` stays an error. *)
+      | Token.Ident w0 | Token.Path w0 ->
+        (* `docker-compose` arrives as `docker`, `-`, `compose`, and
+           `demos/probe.sh` as an ident then a path -- inside $() a name
+           is raw text, and the manifest should read the same spelling.
+           Fragments are rejoined only when byte-adjacent, so a genuinely
+           spaced `a - b` stays an error. *)
         let buf = Buffer.create 16 in
         Buffer.add_string buf w0;
         let end_ = ref (floc.Token.offset + String.length w0) in

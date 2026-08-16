@@ -7,7 +7,7 @@ munging — where a mistake is expensive and the person reading the diff is not
 the person who wrote it.
 
 > An AI can write a script faster than anyone will read it. So a wand script
-> declares what it touches on its first line — `uses {Shell, FS.Write}` — and
+> declares what it touches on its first line — `uses {Shell(git), FS.Write}` — and
 > the compiler checks the declaration against the code. Declare too little and
 > it does not typecheck. Declare nothing and wand prints the line to add.
 > `wand t` runs the check without executing the script. `--dry-run` prints
