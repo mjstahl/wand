@@ -90,6 +90,31 @@ test "deploy pushes exactly once" (fn t ->
 
 ## Install and run
 
+**In GitHub Actions** — one step, with checksum verification and tool-cache
+reuse ([mjstahl/setup-wand](https://github.com/mjstahl/setup-wand)):
+
+```yaml
+- uses: mjstahl/setup-wand@v1
+- run: wand ci/deploy.wand
+```
+
+**A release binary** — every [release](https://github.com/mjstahl/wand/releases)
+ships static Linux builds (x86_64, aarch64) and macOS builds (aarch64,
+x86_64), each with a `.sha256` alongside:
+
+```
+curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.9.2/wand-0.9.2-macos-aarch64.tar.gz
+tar xzf wand-0.9.2-macos-aarch64.tar.gz
+install wand-0.9.2-macos-aarch64/wand ~/.local/bin/
+```
+
+The binary carries its own standard library; there is nothing else to
+install. Startup stays out of the way of CI glue and editing loops: the
+release binary runs `wand e "1 + 2"` in ~9 ms median (~1.6× `bash -c :`,
+macOS x86_64) — `bench/startup.sh` reproduces the measurement.
+
+**From source** — the contributor path. Requires OCaml 5.x and opam:
+
 ```
 dune build
 dune exec wand -- script.wand
@@ -105,8 +130,6 @@ wand fmt script.wand    # format in place
 wand test               # run every test_*.wand from here down
 wand h                  # help
 ```
-
-Requires OCaml 5.x and opam.
 
 ---
 
