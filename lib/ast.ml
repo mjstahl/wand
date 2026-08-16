@@ -73,8 +73,13 @@ type expr =
   | Seq      of expr * expr
   | Located  of Token.loc * expr
   | Contract of expr list * expr list * expr
-  | RunCmd    of expr
-  | RunQuery  of expr
+  (* The second component is the Shell allowlist of the file this site was
+     written in, when its manifest narrows Shell -- `uses {Shell(git)}`.
+     Jurisdiction travels with the site: a closure from a narrowed file
+     keeps its own file's bound however far it is passed. None means the
+     site is unbounded (bare `Shell`, or no manifest). *)
+  | RunCmd    of expr * string list option
+  | RunQuery  of expr * string list option
   | RegexLit  of string * string
   | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
@@ -178,8 +183,8 @@ let rec show : expr -> string = function
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
-  | RunCmd   e        -> Printf.sprintf "$(%s)" (show e)
-  | RunQuery e        -> Printf.sprintf "$?(%s)" (show e)
+  | RunCmd   (e, _)   -> Printf.sprintf "$(%s)" (show e)
+  | RunQuery (e, _)   -> Printf.sprintf "$?(%s)" (show e)
   | RegexLit (p, f)   -> Printf.sprintf "r/%s/%s" p f
   | ImportExpr (StdlibModule n) -> Printf.sprintf "import %s" n
   | ImportExpr (UserPath p)     -> Printf.sprintf "import %s" p
@@ -272,6 +277,8 @@ type program = {
   items : top_item list;
   docs  : (string * string) list;  (* name -> doc string *)
   (* `uses {Shell, FS.Write}`, when the file declares one. Syntactically the
-     first item, so a reader knows the bound without searching. *)
-  manifest : (string list * Token.loc) option;
+     first item, so a reader knows the bound without searching. Each label
+     is its name plus, for `Shell(git, curl)`, the binaries it admits --
+     None is the bare label. *)
+  manifest : ((string * string list option) list * Token.loc) option;
 }

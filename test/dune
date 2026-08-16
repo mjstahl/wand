@@ -23,6 +23,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_shell_scan)
+ (libraries wand alcotest))
+
+(test
  (name test_wand_string)
  (deps wand/test_string.wand)
  (libraries wand alcotest))

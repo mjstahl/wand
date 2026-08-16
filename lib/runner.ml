@@ -279,6 +279,30 @@ let substitute_for name =
   | "FS!temp_dir"       -> Some (VPath "/tmp/wand-dry-run-dir", "/tmp/wand-dry-run-dir")
   | _ -> None
 
+(* The spawn-time half of a `Shell(git, curl)` manifest. The site's own
+   file's bound arrives via `Evaluator.ambient_shell_allow` -- set around
+   the perform, threaded across domains by Par -- and is checked here, at
+   the moment of actual spawn, over the fully resolved command line. A
+   mock, a rehearsal, or any other handler that intercepted the effect
+   never spawns, so it never trips this. *)
+let guard_shell cmd =
+  match Domain.DLS.get Evaluator.ambient_shell_allow with
+  | None -> ()
+  | Some allow ->
+    List.iter (fun w ->
+      match (w : Shell_scan.word_class) with
+      | Shell_scan.Literal word when not (Shell_scan.allowed ~allow word) ->
+        raise (EvalError (Printf.sprintf
+          "this command runs '%s', which the manifest's %s does not allow"
+          word (Shell_scan.render_label ("Shell", Some allow))))
+      | Shell_scan.Compound kw ->
+        raise (EvalError (Printf.sprintf
+          "this command uses shell control flow ('%s'), which the \
+           manifest's %s cannot bound; write the loop in wand, or declare \
+           bare Shell" kw (Shell_scan.render_label ("Shell", Some allow))))
+      | _ -> ())
+      (Shell_scan.scan_string cmd).Shell_scan.words
+
 let run_with_default_handler (thunk : unit -> value) : value =
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
@@ -317,30 +341,38 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | None -> Effect.Deep.discontinue k (EvalError "end of input"))
           | WandEffect ("Shell!run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> exec_command cmd) with
+              match attempt (fun () -> guard_shell cmd; exec_command cmd) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!run_quiet", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> exec_command_quiet cmd) with
+              match attempt (fun () -> guard_shell cmd; exec_command_quiet cmd) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!exit_code", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
+              match attempt (fun () -> guard_shell cmd) with
+              | Error e -> Effect.Deep.discontinue k e
+              | Ok ()   -> Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
           | WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> exec_command_stdin cmd stdin) with
+              match attempt (fun () -> guard_shell cmd; exec_command_stdin cmd stdin) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!capture", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              let (stdout, stderr, code) = exec_command_full cmd in
-              Effect.Deep.continue k (shell_result stdout stderr code))
+              match attempt (fun () -> guard_shell cmd) with
+              | Error e -> Effect.Deep.discontinue k e
+              | Ok () ->
+                let (stdout, stderr, code) = exec_command_full cmd in
+                Effect.Deep.continue k (shell_result stdout stderr code))
           | WandEffect ("Shell!capture", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
-              Effect.Deep.continue k (shell_result stdout stderr code))
+              match attempt (fun () -> guard_shell cmd) with
+              | Error e -> Effect.Deep.discontinue k e
+              | Ok () ->
+                let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
+                Effect.Deep.continue k (shell_result stdout stderr code))
           | WandEffect ("FS!read_file", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)

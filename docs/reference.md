@@ -662,13 +662,13 @@ let name = "x; rm -rf /tmp/z"
 $(echo %!{name})            -- runs: echo x; rm -rf /tmp/z
 ```
 
-That is the point of the two spellings. A script whose manifest says
-`uses {Shell}` says that it runs commands; it cannot say *which*. With
-`%{...}` a value can only be an argument to the command you wrote, so a
-value that arrived from a file, an environment variable, or another
-command's output cannot change what runs. With `%!{...}` it can — which is
-sometimes exactly what you want, and is greppable when someone comes to
-audit the script.
+That is the point of the two spellings. With `%{...}` a value can only be
+an argument to the command you wrote, so a value that arrived from a file,
+an environment variable, or another command's output cannot change what
+runs. With `%!{...}` it can — which is sometimes exactly what you want,
+and is greppable when someone comes to audit the script. A manifest can
+also bound *which* commands either spelling may reach:
+`uses {Shell(git, curl)}` (see [Manifests](#manifests)).
 
 Raw interpolation is only for commands. In a string literal there are no
 argument boundaries and so nothing to quote for, and `%!{...}` there is a
@@ -970,6 +970,63 @@ A manifest bounds what a file can do to the machine. `Raise` is control
 flow: it is already visible in a `!` name and in every signature, and
 including it would put `Raise` in almost every manifest while saying nothing
 about blast radius.
+
+### Naming the binaries: `Shell(git, curl)`
+
+Bare `Shell` says the file runs commands without saying which. The manifest
+can narrow it to the binaries the file may invoke:
+
+```
+uses {Shell(git, curl), FS.Write}
+```
+
+Entries are bare when they lex as one word or one path, quoted otherwise:
+`Shell(git, "docker-compose", "/opt/bin/deploy")`. Bare `Shell` stays legal
+and means any binary — the honest spelling for a genuinely open-ended
+script. `Shell()` is a parse error: a file that runs nothing drops the
+label.
+
+What is checked, and when:
+
+- **Literal command words are checked by `wand t`** — the first word of
+  each `$()`/`$?()`, and the first word after each top-level `|`, `&&`,
+  `||`, `;`. A word the list omits is a type error naming the word and the
+  manifest line that would admit it. Prefix assignments are skipped
+  (`$(FOO=1 git status)` checks `git`); redirections and their targets are
+  skipped; quoting is honored, so a `|` inside an argument separates
+  nothing.
+- **A command word decided at run time** — `$(%!{cmd} ...)` — is checked at
+  the moment of spawn, against the same list, over the fully resolved
+  command line; a miss raises, catchably, without spawning. The check
+  lives in the default handler, so a test mock or a `--dry-run` rehearsal
+  that intercepts the effect never trips it. Each such site is flagged by
+  `V-SHELL1` (a warning; an error under `--strict`, for repositories that
+  want every command word readable from the text).
+- **Shell control flow cannot be narrowed.** A reserved word in command
+  position (`$(for f in *; do ...; done)`) is a type error under a
+  narrowed manifest: neither check can bound what the compound body runs,
+  so the message says to write the loop in wand or declare bare `Shell`.
+
+What counts as the binary:
+
+- **Wrappers are the thing you allow.** `env`, `xargs`, `sudo`, `sh -c`,
+  `time` are checked as themselves, never peeled — allowing `sh` means
+  allowing anything, and that is visible in the manifest, which is the
+  point.
+- **An entry without a slash matches the word's final path component**
+  (`git` admits `/usr/bin/git`); an entry with a slash matches exactly.
+- **The bound is per file.** Each file's manifest governs the `$()` sites
+  written in that file, however far a closure travels — an imported
+  helper's commands answer to the helper's own first line. The manifest is
+  an audit surface against drift and accident, not a sandbox: adversarial
+  code writes `Shell(sh)`, visibly.
+
+`wand t` suggests the narrowed form whenever every command position in the
+file is literal — `it could declare "uses {Shell(git, curl)}"` — and falls
+back to bare `Shell` when one is not. A listed binary that no command
+position runs is an `A-USES1` warning with the trimmed line, judged only
+in fully literal files: an interpolated site may be exactly where the
+unused-looking binary is spawned.
 
 ---
 
@@ -2842,7 +2899,8 @@ it would punish the safer choice.
 | `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
-| `A-USES1` | a manifest permits an effect the file does not use |
+| `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
+| `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `A-USES2` | a file performs effects and declares no manifest |
 
 `V-DROP1` is the one that catches a bug rather than a habit:

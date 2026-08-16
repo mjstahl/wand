@@ -103,7 +103,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.Located (l, inner) ->
       let saved = !here in
       here := l; go inner; here := saved
-    | Ast.RunCmd inner | Ast.RunQuery inner ->
+    | Ast.RunCmd (inner, allow) | Ast.RunQuery (inner, allow) ->
       (match strip_located inner with
        | Ast.String cmd ->
          let ops = shell_operators cmd in
@@ -113,6 +113,19 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
                     text = Lint_rules.shell1 ~stages:ops;
                     fix = None } :: !acc
        | _ -> ());
+      (* A narrowed manifest with a command word only the run decides:
+         legal, checked at spawn, and said out loud -- under --strict this
+         is what holds a file to fully static words. *)
+      (if allow <> None then
+         let s = Shell_scan.scan (Shell_scan.segs_of_cmd inner) in
+         if s.Shell_scan.raw_tail
+            || List.exists (fun w -> w = Shell_scan.Dynamic)
+                 s.Shell_scan.words
+         then
+           acc := { rule = Lint_rules.V_SHELL1;
+                    line = (!here).Token.line; col = (!here).Token.col;
+                    text = Lint_rules.shell1_dynamic;
+                    fix = None } :: !acc);
       go inner
     | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go e) parts
@@ -230,7 +243,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
      if not (Effect_row.EffSet.is_empty unused) then begin
        let corrected =
          if Effect_row.EffSet.is_empty inferred then None
-         else Some (Typechecker.render_manifest inferred)
+         else
+           Some (Typechecker.render_manifest
+                   ?shell:(Typechecker.shell_suggestion ()) inferred)
        in
        add ?fix:(Option.map (fun c -> ReplaceLine c) corrected)
          Lint_rules.A_USES1 loc
@@ -239,12 +254,41 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
               (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
             ~corrected)
      end
+     else begin
+       (* The labels all earn their place; do the binaries? Only judged
+          when every command position is literal -- an interpolated one may
+          be exactly where the unused-looking binary is spawned. *)
+       match !Typechecker.last_shell_allow with
+       | Some allow when !Typechecker.last_shell_static ->
+         let used = !Typechecker.last_shell_words in
+         let unused_bins =
+           List.filter (fun entry ->
+             not (List.exists (Shell_scan.allowed ~allow:[entry]) used))
+             allow
+         in
+         if unused_bins <> [] then begin
+           let kept =
+             List.filter (fun e -> not (List.mem e unused_bins)) allow in
+           let corrected =
+             Typechecker.render_manifest
+               ?shell:(if kept = [] then None else Some kept) inferred
+           in
+           add ~fix:(ReplaceLine corrected) Lint_rules.A_USES1 loc
+             (Lint_rules.uses1_shell
+                ~unused:(String.concat ", "
+                  (List.map (fun b -> "'" ^ b ^ "'") unused_bins))
+                ~corrected)
+         end
+       | _ -> ()
+     end
    | None ->
      (* No manifest at all. A file that reaches outside itself is told what
         it could declare; a file that does not has nothing to say. *)
      let performs = !Typechecker.last_file_effects in
      if not (Effect_row.EffSet.is_empty performs) then
-       let corrected = Typechecker.render_manifest performs in
+       let corrected =
+         Typechecker.render_manifest
+           ?shell:(Typechecker.shell_suggestion ()) performs in
        add ~fix:(InsertLine corrected)
          Lint_rules.A_USES2 { Token.line = 1; col = 1; offset = 0 }
          (Lint_rules.uses2

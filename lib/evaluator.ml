@@ -242,6 +242,23 @@ let neg_ovf x = if x = min_int then overflow "-" else -x
 
 type _ Effect.t += WandEffect : string * value -> value Effect.t
 
+(* The Shell allowlist of the $()/$?() site currently being performed --
+   the manifest bound of the file the site was written in, carried to the
+   default handler out of band so the effect payload wand handlers match on
+   stays a plain command string. Domain-local: it is set for the dynamic
+   extent of one perform, and a perform is handled on the domain it was
+   made on (Par's cross-domain forwarding re-threads it explicitly). None
+   means the site is unbounded and nothing is checked at spawn. *)
+let ambient_shell_allow : string list option Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> None)
+
+let perform_shell name allow payload =
+  let saved = Domain.DLS.get ambient_shell_allow in
+  Domain.DLS.set ambient_shell_allow allow;
+  Fun.protect
+    ~finally:(fun () -> Domain.DLS.set ambient_shell_allow saved)
+    (fun () -> Effect.perform (WandEffect (name, payload)))
+
 (* Raised into a handled body that a handler case answered without resuming,
    so the body unwinds and releases whatever it was holding. Private, and
    caught by the case that raised it: it is a way of running cleanup, not a
@@ -593,18 +610,18 @@ let rec eval (env : env) (e : expr) : value =
     (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
      with Re.Pcre.Parse_error ->
        raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags)))
-  | RunCmd e ->
+  | RunCmd (e, allow) ->
     let cmd = match eval env e with
       | VString s -> s
       | _ -> raise (EvalError "$(…) requires a string")
     in
-    Effect.perform (WandEffect ("Shell!run", VString cmd))
-  | RunQuery e ->
+    perform_shell "Shell!run" allow (VString cmd)
+  | RunQuery (e, allow) ->
     let cmd = match eval env e with
       | VString s -> s
       | _ -> raise (EvalError "$?(…) requires a string")
     in
-    Effect.perform (WandEffect ("Shell!capture", VString cmd))
+    perform_shell "Shell!capture" allow (VString cmd)
   | Handle (body_expr, cases) ->
     let effect_cases = List.filter_map (function
       | Ast.EffectCase (n, p, k, b) -> Some (n, p, k, b)
@@ -883,20 +900,20 @@ and eval_binop (env : env) op a b : value =
   | "|>" ->
     let va = eval env a in
     (match b with
-     | RunCmd e ->
+     | RunCmd (e, allow) ->
        let cmd = match eval env e with
          | VString s -> s
          | _ -> raise (EvalError "$(…) requires a string")
        in
        let stdin = show_value va in
-       Effect.perform (WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]))
-     | RunQuery e ->
+       perform_shell "Shell!run" allow (VTuple [VString cmd; VString stdin])
+     | RunQuery (e, allow) ->
        let cmd = match eval env e with
          | VString s -> s
          | _ -> raise (EvalError "$?(…) requires a string")
        in
        let stdin = show_value va in
-       Effect.perform (WandEffect ("Shell!capture", VTuple [VString cmd; VString stdin]))
+       perform_shell "Shell!capture" allow (VTuple [VString cmd; VString stdin])
      | _ ->
        let vf = eval env b in
        apply vf va)
@@ -1343,7 +1360,7 @@ let par_run limit f items ~collect =
   let live = Atomic.make 0 in
   let m = Mutex.create () in
   let ready = Condition.create () in
-  let pending : (string * value) option ref = ref None in
+  let pending : (string * value * string list option) option ref = ref None in
   let reply : (value, exn) result option ref = ref None in
 
   (* One worker at a time may have a request outstanding. There is a single
@@ -1358,7 +1375,10 @@ let par_run limit f items ~collect =
     let r =
       Fun.protect ~finally:(fun () -> Mutex.unlock speaking) (fun () ->
         Mutex.lock m;
-        pending := Some (name, arg);
+        (* The worker's ambient allowlist rides along: the pump re-performs
+           on the main domain, where the worker's domain-local value is
+           invisible. *)
+        pending := Some (name, arg, Domain.DLS.get ambient_shell_allow);
         Condition.broadcast ready;
         while !reply = None do Condition.wait ready m done;
         let answer = Option.get !reply in
@@ -1445,11 +1465,11 @@ let par_run limit f items ~collect =
       while !pending = None && Atomic.get live > 0 do Condition.wait ready m done;
       match !pending with
       | None -> Mutex.unlock m
-      | Some (name, arg) ->
+      | Some (name, arg, allow) ->
         pending := None;
         Mutex.unlock m;
         let answer =
-          match Effect.perform (WandEffect (name, arg)) with
+          match perform_shell name allow arg with
           | v -> Ok v
           | exception (EvalError _ as e) -> Error e
         in

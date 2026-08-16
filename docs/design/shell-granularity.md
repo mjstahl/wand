@@ -1,7 +1,8 @@
 # Design: subdividing the `Shell` effect
 
-**Status: proposal — not implemented.** Review this document before any
-code changes.
+**Status: implemented** (reviewed 2026-08-16). The reference's Manifests
+section documents the shipped behavior; this document records the design
+and its reasoning.
 
 ## The problem
 
@@ -169,6 +170,18 @@ a property that flows through unification. Two reasons:
   answered by the imported file's own first line. To know what a program
   may run, read each file's manifest — the same rule as today, one level
   sharper.
+
+## Known limit: `Shell.run` takes a string
+
+`Shell.run! "curl ..."` in a narrowed file is not checked: the spawn is
+performed by a stdlib builtin, whose site carries no file bound — the
+narrowed file's own text never contains a `$()` naming `curl`, only a
+string handed to a function. This is the same shape as `%!{...}` one step
+removed, but without the spawn-time net, because the builtin cannot know
+which file's string it was given. It falls under the threat model above:
+visible (the call is greppable), not confined. A future iteration could
+have the lint flag `Shell.run`/`Shell.run!` references in narrowed files
+the way `V-SHELL1` flags interpolated command words.
 
 ## Handler interaction
 

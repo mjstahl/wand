@@ -19,6 +19,7 @@ type id =
   | A_USES1    (* the manifest permits more than the file needs *)
   | A_USES2    (* the file reaches outside itself and does not say so *)
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
+  | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -73,6 +74,11 @@ let all = [
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
+  (* A violation for its --strict semantics: a repo that narrows Shell can
+     also insist every command word be readable from the text. *)
+  { id = V_SHELL1; code = "V-SHELL1";
+    summary = "the manifest narrows Shell, but this command word is decided at run time";
+    kind = Violation };
 ]
 
 let rule id = List.find (fun r -> r.id = id) all
@@ -161,6 +167,19 @@ let uses2 ~performs ~corrected =
   Printf.sprintf
     "this file performs %s and does not say so; it could declare \"%s\""
     performs corrected
+
+(* The same shape as uses1, for binaries instead of effect labels: the
+   Shell(...) list admits a program no command position names. Only
+   reported when every command position is literal -- an interpolated one
+   may be exactly where the unused-looking binary is spawned. *)
+let uses1_shell ~unused ~corrected =
+  Printf.sprintf
+    "the manifest allows %s, which no command here runs; it could be \"%s\""
+    unused corrected
+
+let shell1_dynamic =
+  "this command's first word is decided at run time, so the Shell(...) \
+   list is checked when it spawns rather than here"
 
 let shell1 ~stages =
   Printf.sprintf

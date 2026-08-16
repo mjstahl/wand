@@ -746,8 +746,47 @@ let test_manifest_too_narrow () =
   manifest_error "a shell call the manifest omits"
     "uses {FS.Write}\nlet publish () = $(rsync -a . host:/srv)\npublish"
     "which the manifest does not allow";
+  (* The suggestion is the narrowed form when every command word is
+     literal: the binaries were read from the text, so name them. *)
   manifest_error "and it says what to write instead"
     "uses {FS.Write}\nlet publish () = $(rsync -a . host:/srv)\npublish"
+    "uses {Shell(rsync)}"
+
+let test_manifest_shell_binaries () =
+  let ok label src =
+    match type_of_program_with_imports src with
+    | Ok () -> ()
+    | Error m -> Alcotest.failf "%s: rejected: %s" label m
+  in
+  ok "an allowed word"
+    "uses {Shell(git)}\nlet b () = $(git status)\nb";
+  manifest_error "a word the list omits"
+    "uses {Shell(git)}\nlet b () = $(curl x)\nb"
+    "runs 'curl', which Shell(git) does not allow";
+  manifest_error "and the fix names the extended list"
+    "uses {Shell(git)}\nlet b () = $(curl x)\nb"
+    "uses {Shell(git, curl)}";
+  manifest_error "every pipeline stage is a position"
+    "uses {Shell(git)}\nlet b () = $(git log | wc -l)\nb"
+    "runs 'wc'";
+  manifest_error "control flow cannot be bounded"
+    "uses {Shell(git)}\nlet b () = $(for f in x; do git add $f; done)\nb"
+    "shell control flow";
+  (* Wrappers are the thing you allow: wand does not peel `env` to find
+     the "real" command, because every peeling rule is an escape hatch. *)
+  ok "the wrapper is the checked word"
+    "uses {Shell(env)}\nlet b () = $(env X=1 curl x)\nb";
+  ok "a bare entry admits a path-qualified word"
+    "uses {Shell(git)}\nlet b () = $(/usr/bin/git status)\nb";
+  manifest_error "a slash entry stays exact"
+    "uses {Shell(\"/opt/bin/git\")}\nlet b () = $(/usr/bin/git status)\nb"
+    "does not allow";
+  (* An interpolated command word is legal here -- it is the spawn-time
+     check's case -- and the narrowed suggestion is withheld. *)
+  ok "a dynamic word typechecks under a narrowed manifest"
+    "uses {Shell(git)}\nlet b c = $(%!{c} status)\nb";
+  manifest_error "a dynamic site makes the suggestion fall back to bare Shell"
+    "uses {}\nlet b c = $(%!{c} status)\nb \"git\""
     "uses {Shell}"
 
 let test_manifest_names_the_binding () =
@@ -848,6 +887,7 @@ let () =
     ];
     "manifests", [
       Alcotest.test_case "too narrow is an error"  `Quick test_manifest_too_narrow;
+      Alcotest.test_case "shell binaries"          `Quick test_manifest_shell_binaries;
       Alcotest.test_case "names the binding"       `Quick test_manifest_names_the_binding;
       Alcotest.test_case "exact passes"            `Quick test_manifest_accepts_an_exact_declaration;
       Alcotest.test_case "absent is unconstrained" `Quick test_no_manifest_is_unconstrained;

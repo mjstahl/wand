@@ -104,6 +104,34 @@ let test_drop1 () =
   silent "a seq whose value is the Result"
     "uses {FS.Write}\nimport FS\nlet go () = ((); FS.write_file /tmp/x.txt \"hi\")\ngo ()"
 
+(* A narrowed Shell with a command word only the run decides: legal, said
+   out loud, and an error under --strict. *)
+let test_shell1_dynamic () =
+  fires "interpolated word under a narrowed manifest"
+    "uses {Shell(git), IO}\nimport IO\nlet c = \"git\"\nIO.println $(%!{c} status)"
+    "V-SHELL1";
+  silent "interpolated word under bare Shell"
+    "uses {Shell, IO}\nimport IO\nlet c = \"git\"\nIO.println $(%!{c} status)";
+  silent "literal words under a narrowed manifest"
+    "uses {Shell(git), IO}\nimport IO\nIO.println $(git status)"
+
+(* Shell(...) entries have the same accounting as effect labels: one no
+   command position runs is flagged -- but only when every position is
+   literal, because an interpolated one may be exactly where the
+   unused-looking binary is spawned. *)
+let test_uses1_shell_binaries () =
+  fires "an allowlisted binary nothing runs"
+    "uses {Shell(git, curl)}\nlet b = $(git status)\nb"
+    "A-USES1";
+  silent "all binaries earn their place"
+    "uses {Shell(git)}\nlet b = $(git status)\nb";
+  (let got =
+     codes "uses {Shell(git, curl)}\nlet b c = $(%!{c} x)\nb \"git\"" in
+   if List.mem "A-USES1" got then
+     Alcotest.failf
+       "a dynamic site must suspend the unused-binary judgment, got [%s]"
+       (String.concat "; " got))
+
 let test_uses2 () =
   fires "effects and no manifest"
     "let publish! () = $(rsync -a . host:/srv)\npublish!" "A-USES2";
@@ -336,7 +364,9 @@ let () =
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
+      Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;
       Alcotest.test_case "A-USES2"  `Quick test_uses2;
+      Alcotest.test_case "V-SHELL1" `Quick test_shell1_dynamic;
     ];
     "catalog", [
       Alcotest.test_case "kinds"        `Quick test_kinds;

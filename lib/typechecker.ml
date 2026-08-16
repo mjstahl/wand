@@ -1514,11 +1514,11 @@ let rec infer tenv (env : env) (e : expr) : typ =
   (* Shell execution is its own form rather than a call to a builtin, so it
      records its effects here. $() raises on a non-zero exit; $?() hands back
      a ShellResult instead, so it cannot. *)
-  | RunCmd    e       ->
+  | RunCmd    (e, _)  ->
     unify (infer tenv env e) TString;
     performs (Effect_row.of_list [Effect_row.Shell; Effect_row.Raise]);
     TString
-  | RunQuery  e       ->
+  | RunQuery  (e, _)  ->
     unify (infer tenv env e) TString;
     performs (Effect_row.single Effect_row.Shell);
     TName "ShellResult"
@@ -1648,11 +1648,11 @@ and infer_binop tenv (env : env) op a b : typ =
   | "|>" ->
     let ta = infer tenv env a in
     (match b with
-     | RunCmd e ->
+     | RunCmd (e, _) ->
        unify (infer tenv env e) TString;
        unify ta TString;
        TString
-     | RunQuery e ->
+     | RunQuery (e, _) ->
        unify (infer tenv env e) TString;
        unify ta TString;
        TName "ShellResult"
@@ -1995,9 +1995,133 @@ let rec labels_of_typ t =
    nothing about blast radius. *)
 let manifest_relevant labels = Effect_row.EffSet.remove Effect_row.Raise labels
 
-let render_manifest labels =
+(* `?shell` narrows the Shell label to the binaries the file was seen to
+   run: `uses {Shell(git, curl), FS.Write}`. Passed only when every command
+   position in the file is literal, so the narrowed suggestion is never a
+   lie about what an interpolated word might spawn. *)
+let render_manifest ?shell labels =
   "uses {" ^ String.concat ", "
-    (List.map Effect_row.name_of (Effect_row.EffSet.elements labels)) ^ "}"
+    (List.map (fun e ->
+       match Effect_row.name_of e, shell with
+       | "Shell", Some ws -> Shell_scan.render_label ("Shell", Some ws)
+       | n, _ -> n)
+     (Effect_row.EffSet.elements labels)) ^ "}"
+
+(* ── Shell command words ─────────────────────────────────────────────────── *)
+
+(* What the file's own $()/$?() sites say, syntactically: the literal
+   command words (for suggesting a narrowed manifest), whether every
+   position was literal, and the declared allowlist. The linter reads
+   these; `check_shell_words` fills them. *)
+let last_shell_words  : string list ref = ref []
+let last_shell_static : bool ref = ref true
+let last_shell_allow  : string list option ref = ref None
+
+(* Every $()/$?() payload in the file, with the nearest enclosing location.
+   Only this file's text: an imported helper's sites are that file's
+   manifest's business, which is what keeps the audit story compositional. *)
+let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
+  let sites = ref [] in
+  let no_loc = Token.{ line = 1; col = 1; offset = 0 } in
+  let rec go loc (e : Ast.expr) =
+    match e with
+    | Located (l, inner) -> go l inner
+    | RunCmd (payload, _) | RunQuery (payload, _) ->
+      sites := (loc, payload) :: !sites;
+      go loc payload                    (* nested $() inside interpolations *)
+    | App (a, b) | BinOp (_, a, b) | Seq (a, b) -> go loc a; go loc b
+    | UnOp (_, a) | Fn (_, a) | Annot (_, a) | Field (a, _) | Try a ->
+      go loc a
+    | Let (_, a, b) -> go loc a; go loc b
+    | LetRec (bs, b) -> List.iter (fun (_, _, e) -> go loc e) bs; go loc b
+    | If (c, t, e) -> go loc c; go loc t; go loc e
+    | Match (s, cases) ->
+      go loc s;
+      List.iter (fun (_, g, b) ->
+        (match g with Some g -> go loc g | None -> ()); go loc b) cases
+    | Tuple es | List es -> List.iter (go loc) es
+    | MapLit kvs -> List.iter (fun (_, v) -> go loc v) kvs
+    | ConstrApp (_, fs) -> List.iter (fun (_, v) -> go loc v) fs
+    | Interp (parts, _) | RawInterp (parts, _) ->
+      List.iter (fun (_, e) -> go loc e) parts
+    | CmdInterp (parts, _) -> List.iter (fun (_, e, _) -> go loc e) parts
+    | Handle (b, cases) ->
+      go loc b;
+      List.iter (function
+        | Ast.EffectCase (_, _, _, x) -> go loc x
+        | Ast.ReturnCase (_, x) -> go loc x) cases
+    | With (r, _, b) -> go loc r; go loc b
+    | Contract (rs, es, b) ->
+      List.iter (go loc) rs; List.iter (go loc) es; go loc b
+    | _ -> ()
+  in
+  List.iter (fun (item : Ast.top_item) ->
+    match item with
+    | TLLet (_, _, b) -> go no_loc b
+    | TLLetPat (_, b) -> go no_loc b
+    | TLLetRec bs -> List.iter (fun (_, _, b) -> go no_loc b) bs
+    | TLExpr b -> go no_loc b
+    | TLImport _ | TLType _ -> ()) prog.items;
+  List.rev !sites
+
+let check_shell_words (prog : program) =
+  let labels = Option.map fst prog.manifest in
+  let allow = match labels with
+    | Some ls -> Option.join (List.assoc_opt "Shell" ls)
+    | None -> None
+  in
+  last_shell_allow := allow;
+  let words = ref [] in
+  let static = ref true in
+  let corrected_with word =
+    match labels with
+    | Some ls ->
+      "uses {" ^ String.concat ", "
+        (List.map (fun (n, a) ->
+           Shell_scan.render_label
+             (n, if n = "Shell" then Option.map (fun ws -> ws @ [word]) a
+                 else a)) ls)
+      ^ "}"
+    | None -> ""
+  in
+  List.iter (fun ((loc : Token.loc), payload) ->
+    let s = Shell_scan.scan (Shell_scan.segs_of_cmd payload) in
+    if s.Shell_scan.raw_tail then static := false;
+    List.iter (fun w ->
+      match (w : Shell_scan.word_class) with
+      | Shell_scan.Literal word ->
+        if not (List.mem word !words) then words := word :: !words;
+        (match allow with
+         | Some allow_list when not (Shell_scan.allowed ~allow:allow_list word) ->
+           raise (TypeError (Printf.sprintf
+             "%d:%d: this command runs '%s', which %s does not allow.\n       \
+              The manifest could be:  \"%s\""
+             loc.Token.line loc.Token.col word
+             (Shell_scan.render_label ("Shell", Some allow_list))
+             (corrected_with word)))
+         | _ -> ())
+      | Shell_scan.Dynamic -> static := false
+      | Shell_scan.Compound kw ->
+        static := false;
+        (match allow with
+         | Some allow_list ->
+           raise (TypeError (Printf.sprintf
+             "%d:%d: this $() uses shell control flow ('%s'), which %s \
+              cannot bound.\n       Write the loop in wand (List.each over \
+              one $() per item), or declare bare Shell."
+             loc.Token.line loc.Token.col kw
+             (Shell_scan.render_label ("Shell", Some allow_list))))
+         | None -> ())
+    ) s.Shell_scan.words
+  ) (shell_sites prog);
+  last_shell_words := List.sort compare !words;
+  last_shell_static := !static
+
+(* The narrowed form for suggestions, when it would be honest. *)
+let shell_suggestion () =
+  if !last_shell_static && !last_shell_words <> []
+  then Some !last_shell_words
+  else None
 
 (* A manifest bounds what the file can do, so it is checked against every
    binding in it -- not only what running the file performs. A function that
@@ -2017,6 +2141,10 @@ let last_file_effects : Effect_row.EffSet.t ref = ref Effect_row.EffSet.empty
 
 let check_manifest (prog : program) (own_env : env) =
   last_manifest := None;
+  (* Command words first: a disallowed literal word or a compound command
+     under a narrowed manifest is an error in its own right, and the
+     word/staticness facts feed every suggestion rendered below. *)
+  check_shell_words prog;
   let per_binding =
     List.filter_map (fun (name, scheme) ->
       match scheme with
@@ -2035,7 +2163,7 @@ let check_manifest (prog : program) (own_env : env) =
   | None -> ()
   | Some (labels, loc) ->
     let declared =
-      List.fold_left (fun acc name ->
+      List.fold_left (fun acc (name, _) ->
         match eff_of_label name with
         | Some e -> Effect_row.EffSet.add e acc
         | None ->
@@ -2071,7 +2199,7 @@ let check_manifest (prog : program) (own_env : env) =
         where
         (String.concat ", "
           (List.map Effect_row.name_of (Effect_row.EffSet.elements missing)))
-        (render_manifest inferred)))
+        (render_manifest ?shell:(shell_suggestion ()) inferred)))
     end
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
@@ -2085,6 +2213,9 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   next_id := 0;
   expr_item_types := [];
   seq_discard_types := [];
+  last_shell_words := [];
+  last_shell_static := true;
+  last_shell_allow := None;
   current_eff := Effect_row.fresh_row ();
   holes := [];
   let local_tenv = List.filter_map (function

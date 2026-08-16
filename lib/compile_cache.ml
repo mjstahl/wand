@@ -42,7 +42,9 @@ let disabled =
 (* Bumped when the shape of what is written changes. An old entry then has a
    different key rather than being read back as the wrong shape -- Marshal
    will happily hand back nonsense typed as whatever the reader expected. *)
-let format_version = "1"
+(* Bumped whenever the marshaled AST changes shape; "2" is the manifest
+   with Shell allowlists and the tagged $()/$?() sites. *)
+let format_version = "2"
 
 (* Where the entries live, most specific first.
 

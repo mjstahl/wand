@@ -375,8 +375,8 @@ and emit_expr_inner ?col indent e =
     ^ emit_expr indent body
   (* The text inside $() is a command, not a string literal: quoting it
      would hand the whole thing to the shell as one word. *)
-  | RunCmd e   -> "$(" ^ emit_command indent e ^ ")"
-  | RunQuery e -> "$?(" ^ emit_command indent e ^ ")"
+  | RunCmd (e, _)   -> "$(" ^ emit_command indent e ^ ")"
+  | RunQuery (e, _) -> "$?(" ^ emit_command indent e ^ ")"
   | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
   | ImportExpr (StdlibModule n) -> "import " ^ n
   | ImportExpr (UserPath p)     -> "import " ^ p
@@ -1029,7 +1029,9 @@ let format_source src =
       [{ offset     = loc.Token.offset;
          start_line = loc.Token.line;
          end_line   = loc.Token.line;
-         text       = "uses {" ^ String.concat ", " labels ^ "}";
+         text       = "uses {"
+                      ^ String.concat ", " (List.map Shell_scan.render_label labels)
+                      ^ "}";
          is_comment = false }]
   in
   assemble (manifest_pcs @ comment_pcs @ item_pcs)

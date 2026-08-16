@@ -18,11 +18,16 @@ type state = {
        a `match` scrutinee or `handle` body in progress. `try e` followed
        by `with` is OCaml drift worth naming, but only when no such owner
        is waiting: `match try thunk () with | ...` is idiomatic wand. *)
+  mutable shell_allow : string list option;
+    (* the manifest's Shell(...) allowlist, once one has been parsed --
+       stamped onto every $()/$?() site so the bound travels with the
+       site's AST wherever its closure goes. *)
 }
 
 let make tokens =
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
-    paren_depth = 0; top_fns = Hashtbl.create 16; with_owners = 0 }
+    paren_depth = 0; top_fns = Hashtbl.create 16; with_owners = 0;
+    shell_allow = None }
 
 (* Plain `Comment _` tokens are invisible to the real parser, exactly like
    `Newline` -- only `DocComment` is left unfiltered (parse_program's
@@ -580,23 +585,23 @@ and atom_base_ s =
     expect s Token.LParen;
     let e = expr_ 0 s in
     expect s Token.RParen;
-    RunCmd e
+    RunCmd (e, s.shell_allow)
   | Token.RunCmdRaw (parts, tail) ->
     let parse_parts = List.map (fun (lit, src, raw) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
       (lit, expr_ 0 s2, raw)
     ) parts in
-    if parse_parts = [] then RunCmd (String tail)
-    else RunCmd (CmdInterp (parse_parts, tail))
+    if parse_parts = [] then RunCmd (String tail, s.shell_allow)
+    else RunCmd (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.RunQueryRaw (parts, tail) ->
     let parse_parts = List.map (fun (lit, src, raw) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
       (lit, expr_ 0 s2, raw)
     ) parts in
-    if parse_parts = [] then RunQuery (String tail)
-    else RunQuery (CmdInterp (parse_parts, tail))
+    if parse_parts = [] then RunQuery (String tail, s.shell_allow)
+    else RunQuery (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.Regex (pat, flags) -> RegexLit (pat, flags)
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src) ->
@@ -1161,6 +1166,35 @@ let parse_manifest s =
   ignore (advance s);              (* uses *)
   expect s Token.LBrace;
   let labels = ref [] in
+  (* `Shell(git, curl)` -- the binaries the file may invoke. Entries are
+     bare when they lex as one word or one path; anything else is quoted. *)
+  let read_shell_args () =
+    ignore (advance s);            (* ( *)
+    if peek s = Token.RParen then
+      raise (ParseError (Printf.sprintf
+        "%sShell() admits nothing -- a file that runs no commands drops the \
+         label instead" (loc_prefix s)));
+    let args = ref [] in
+    let read_arg () =
+      let word = match advance s with
+        | Token.Ident w  -> w
+        | Token.String w -> w
+        | Token.Path w   -> w
+        | t -> raise (ParseError (Format.asprintf
+            "%sexpected a binary name in Shell(...), got %a -- quote \
+             anything that is not a plain word: Shell(git, \"docker-compose\")"
+            (loc_prefix s) Token.pp t))
+      in
+      if List.mem word !args then
+        raise (ParseError (Printf.sprintf
+          "%s'%s' is already in this Shell(...) list" (loc_prefix s) word));
+      args := !args @ [word]
+    in
+    read_arg ();
+    while peek s = Token.Comma do ignore (advance s); read_arg () done;
+    expect s Token.RParen;
+    !args
+  in
   let read_label () =
     let rec parts acc =
       let part = match advance s with
@@ -1172,7 +1206,16 @@ let parse_manifest s =
       let acc = acc @ [part] in
       if peek s = Token.Dot then (ignore (advance s); parts acc) else acc
     in
-    labels := !labels @ [String.concat "." (parts [])]
+    let name = String.concat "." (parts []) in
+    let allow =
+      if peek s <> Token.LParen then None
+      else if name = "Shell" then Some (read_shell_args ())
+      else
+        raise (ParseError (Printf.sprintf
+          "%sonly Shell takes a list of binaries in a manifest"
+          (loc_prefix s)))
+    in
+    labels := !labels @ [(name, allow)]
   in
   if peek s <> Token.RBrace then begin
     read_label ();
@@ -1205,7 +1248,13 @@ let parse_program_generic ~on_item tokens =
     | Some d -> docs := (name, d) :: !docs; pending_doc := None
   in
   (* Before anything else: the manifest, if the file has one. *)
-  if looks_like_manifest s then manifest := Some (parse_manifest s);
+  if looks_like_manifest s then begin
+    manifest := Some (parse_manifest s);
+    s.shell_allow <-
+      (match !manifest with
+       | Some (labels, _) -> Option.join (List.assoc_opt "Shell" labels)
+       | None -> None)
+  end;
   (* Where the previous top-level item began, so an item that starts further
      in can be recognised for what it almost always is: a continuation the
      author expected to be joined to the line above. wand ends a definition

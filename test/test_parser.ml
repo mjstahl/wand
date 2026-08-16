@@ -360,12 +360,34 @@ let test_manifest_parses () =
   (match prog.Ast.manifest with
    | Some (labels, _) ->
      Alcotest.(check (list string)) "the declared effects"
-       ["Shell"; "FS.Write"] labels
+       ["Shell"; "FS.Write"] (List.map fst labels);
+     Alcotest.(check bool) "bare Shell has no allowlist" true
+       (List.for_all (fun (_, allow) -> allow = None) labels)
    | None -> Alcotest.fail "expected a manifest");
   (* An empty one is a claim in its own right: this file touches nothing. *)
   (match (parse_program "uses {}\nlet x = 1\nx").Ast.manifest with
    | Some ([], _) -> ()
    | _ -> Alcotest.fail "expected an empty manifest")
+
+let test_manifest_shell_allowlist () =
+  let prog =
+    parse_program
+      "uses {Shell(git, \"docker-compose\", /opt/bin/deploy), FS.Write}\nlet x = 1\nx"
+  in
+  (match prog.Ast.manifest with
+   | Some ([("Shell", Some allow); ("FS.Write", None)], _) ->
+     Alcotest.(check (list string)) "the binaries"
+       ["git"; "docker-compose"; "/opt/bin/deploy"] allow
+   | _ -> Alcotest.fail "expected Shell(...) then FS.Write");
+  parse_error "empty Shell()"
+    "uses {Shell()}\nlet x = 1\nx"
+    "Shell() admits nothing";
+  parse_error "duplicate binary"
+    "uses {Shell(git, git)}\nlet x = 1\nx"
+    "already in this Shell(...) list";
+  parse_error "args on another label"
+    "uses {FS.Write(git)}\nlet x = 1\nx"
+    "only Shell takes a list of binaries"
 
 let test_manifest_is_optional () =
   match (parse_program "let x = 1\nx").Ast.manifest with
@@ -385,7 +407,7 @@ let test_manifest_must_come_first () =
 let test_manifest_may_follow_comments () =
   let prog = parse_program "-- deploys to prod\nuses {Shell}\nlet x = 1\nx" in
   match prog.Ast.manifest with
-  | Some (["Shell"], _) -> ()
+  | Some ([("Shell", None)], _) -> ()
   | _ -> Alcotest.fail "a comment above the manifest should be allowed"
 
 let test_equation_contiguity () =
@@ -502,6 +524,7 @@ let () =
     ];
     "manifests", [
       Alcotest.test_case "parses"          `Quick test_manifest_parses;
+      Alcotest.test_case "shell allowlist" `Quick test_manifest_shell_allowlist;
       Alcotest.test_case "optional"        `Quick test_manifest_is_optional;
       Alcotest.test_case "must come first" `Quick test_manifest_must_come_first;
       Alcotest.test_case "after comments"  `Quick test_manifest_may_follow_comments;
