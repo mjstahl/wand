@@ -1032,6 +1032,13 @@ position runs is an `A-USES1` warning with the trimmed line, judged only
 in fully literal files: an interpolated site may be exactly where the
 unused-looking binary is spawned.
 
+One boundary the checks do not reach: `Shell.run! "curl ..."` in a
+narrowed file is not checked, because the spawn is performed by a stdlib
+builtin whose site carries no file bound — the file's own text holds only
+a string handed to a function. It is `%!{...}` one step removed, without
+the spawn-time net; like everything else here, it is visible (the call is
+greppable) rather than confined.
+
 ---
 
 ## Effect handlers
