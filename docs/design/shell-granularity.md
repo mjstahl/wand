@@ -60,10 +60,11 @@ exactly the scripts trying to narrow. And why not static-only with
 interpolation unchecked: an allowlist the interpreter does not enforce at
 the one place it could is a promise the runtime knows how to break.
 
-The residue is surfaced, not hidden: a new advisory lint (`A-SHELL1`)
-flags every interpolated command position in a file with a narrowed
-manifest, so `wand t --strict` can hold audit-critical repositories to
-fully static command words.
+The residue is surfaced, not hidden: a new advisory lint (`A-SHELL2` —
+`A-SHELL1` is taken by the long-pipeline advisory) flags every
+interpolated command position in a file with a narrowed manifest, so
+`wand t --strict` can hold audit-critical repositories to fully static
+command words.
 
 ## What counts as "the binary"
 
@@ -162,6 +163,6 @@ at the moment of spawn** — not at `perform`. So:
   `--dry-run`.
 - Path-qualified words: `/usr/bin/git` vs `git`, slash-entries exact.
 - Inference: narrowed suggestion when fully literal, bare fallback with
-  location otherwise; `A-USES1` narrowing suggestion; `A-SHELL1` on
+  location otherwise; `A-USES1` narrowing suggestion; `A-SHELL2` on
   interpolated positions under a narrowed manifest.
 - Formatter round-trips `Shell(git, "docker-compose")`.

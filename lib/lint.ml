@@ -5,11 +5,18 @@
    This module only finds violations and locates them. What each rule is
    called, how it is classified, and what it says all live in `Lint_rules`. *)
 
+(* A machine-applicable correction, carried alongside the human text so a
+   tool consuming `--json` can fix without re-parsing prose. *)
+type fix =
+  | InsertLine  of string   (* a line the file lacks (the manifest) *)
+  | ReplaceLine of string   (* the corrected form of the flagged line *)
+
 type finding = {
   rule : Lint_rules.id;
   line : int;
   col  : int;
   text : string;
+  fix  : fix option;
 }
 
 let rec strip_located e =
@@ -103,7 +110,8 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
          if ops >= shell_threshold then
            acc := { rule = Lint_rules.A_SHELL1;
                     line = (!here).Token.line; col = (!here).Token.col;
-                    text = Lint_rules.shell1 ~stages:ops } :: !acc
+                    text = Lint_rules.shell1 ~stages:ops;
+                    fix = None } :: !acc
        | _ -> ());
       go inner
     | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
@@ -141,8 +149,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
   let locs = Array.of_list item_locs in
   let no_loc = Token.{ line = 0; col = 0; offset = 0 } in
   let findings = ref [] in
-  let add rule loc text =
-    findings := { rule; line = loc.Token.line; col = loc.Token.col; text } :: !findings
+  let add ?fix rule loc text =
+    findings :=
+      { rule; line = loc.Token.line; col = loc.Token.col; text; fix } :: !findings
   in
   List.iteri (fun i (item : Ast.top_item) ->
     let loc = if i < Array.length locs then fst locs.(i) else no_loc in
@@ -218,23 +227,30 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
   (match !Typechecker.last_manifest with
    | Some (declared, inferred, loc) ->
      let unused = Effect_row.EffSet.diff declared inferred in
-     if not (Effect_row.EffSet.is_empty unused) then
-       add Lint_rules.A_USES1 loc
+     if not (Effect_row.EffSet.is_empty unused) then begin
+       let corrected =
+         if Effect_row.EffSet.is_empty inferred then None
+         else Some (Typechecker.render_manifest inferred)
+       in
+       add ?fix:(Option.map (fun c -> ReplaceLine c) corrected)
+         Lint_rules.A_USES1 loc
          (Lint_rules.uses1
             ~unused:(String.concat ", "
               (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
-            ~corrected:(if Effect_row.EffSet.is_empty inferred then None
-                        else Some (Typechecker.render_manifest inferred)))
+            ~corrected)
+     end
    | None ->
      (* No manifest at all. A file that reaches outside itself is told what
         it could declare; a file that does not has nothing to say. *)
      let performs = !Typechecker.last_file_effects in
      if not (Effect_row.EffSet.is_empty performs) then
-       add Lint_rules.A_USES2 { Token.line = 1; col = 1; offset = 0 }
+       let corrected = Typechecker.render_manifest performs in
+       add ~fix:(InsertLine corrected)
+         Lint_rules.A_USES2 { Token.line = 1; col = 1; offset = 0 }
          (Lint_rules.uses2
             ~performs:(String.concat ", "
               (List.map Effect_row.name_of (Effect_row.EffSet.elements performs)))
-            ~corrected:(Typechecker.render_manifest performs)));
+            ~corrected));
   List.stable_sort (fun a b ->
     match compare a.line b.line with 0 -> compare a.col b.col | c -> c)
     (List.rev !findings)
@@ -260,12 +276,90 @@ let escape_json s =
     | c -> Buffer.add_char buf c) s;
   Buffer.contents buf
 
-let to_json fs =
+(* ── Structured diagnostics (`wand t --json`) ────────────────────────────── *)
+
+(* One JSON array on stdout, one object per diagnostic. The schema is part
+   of the CLI's contract (reference.md, "REPL and CLI"): every object has
+   `severity`, `code`, `line`, `col`, and `message`; `file` when a file was
+   named; a `fix` object when a machine-applicable correction exists; and
+   typed holes come as their own `{"kind":"hole"}` shape. *)
+
+let contains msg needle =
+  let n = String.length needle and m = String.length msg in
+  let rec go i = i + n <= m && (String.sub msg i n = needle || go (i + 1)) in
+  go 0
+
+let fix_json = function
+  | InsertLine l  -> Printf.sprintf "{\"insert_line\":\"%s\"}" (escape_json l)
+  | ReplaceLine l -> Printf.sprintf "{\"replace_line\":\"%s\"}" (escape_json l)
+
+let file_field = function
+  | None -> ""
+  | Some f -> Printf.sprintf "\"file\":\"%s\"," (escape_json f)
+
+let finding_json ~strict ?file f =
+  let severity = if strict && fails_strict f then "error" else "warning" in
+  Printf.sprintf
+    "{\"severity\":\"%s\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
+    severity (Lint_rules.code f.rule) (file_field file) f.line f.col
+    (escape_json f.text)
+    (match f.fix with None -> "" | Some fx -> ",\"fix\":" ^ fix_json fx)
+
+let hole_json t =
+  Printf.sprintf "{\"kind\":\"hole\",\"type\":\"%s\"}" (escape_json t)
+
+(* The drift errors name their correction in prose; where the correction is
+   a plain textual substitution, carry it as data too. Keyed on fragments
+   test_drift.ml locks, so rewording a message that breaks a key breaks a
+   test alongside it. *)
+let drift_fixes = [
+  "'::' is OCaml's cons",         ("::", ":");
+  "'//' is a C-family comment",   ("//", "--");
+  "'#' starts a comment",         ("#", "--");
+  "not ${...}",                   ("${", "%{");
+  "#{...} is Ruby",               ("#{", "%{");
+  "'let rec' is OCaml",           ("let rec", "let");
+  "boolean operator is '&&'",     ("and", "&&");
+  "boolean operator is '||'",     ("or", "||");
+  "boolean not is '!'",           ("not", "!");
+]
+
+let error_fix_json msg =
+  match List.find_opt (fun (frag, _) -> contains msg frag) drift_fixes with
+  | None -> ""
+  | Some (_, (from_, to_)) ->
+    Printf.sprintf ",\"fix\":{\"replace\":{\"from\":\"%s\",\"to\":\"%s\"}}"
+      (escape_json from_) (escape_json to_)
+
+(* An error message arrives as "<label>: [line:col: ] text". The label
+   becomes a stable code, the position is lifted out when present. *)
+let error_json ?file msg =
+  let starts p = String.length msg >= String.length p
+                 && String.sub msg 0 (String.length p) = p in
+  let (code, rest) =
+    if starts "type error: " then ("E-TYPE", String.sub msg 12 (String.length msg - 12))
+    else if starts "parse error: " then ("E-PARSE", String.sub msg 13 (String.length msg - 13))
+    else if starts "lex error: " then ("E-LEX", String.sub msg 11 (String.length msg - 11))
+    else ("E-FAIL", msg)
+  in
+  let (line, col, text) =
+    match String.index_opt rest ' ' with
+    | Some sp ->
+      (try Scanf.sscanf (String.sub rest 0 sp) "%d:%d:"
+             (fun l c -> (l, c, String.sub rest (sp + 1) (String.length rest - sp - 1)))
+       with Scanf.Scan_failure _ | Failure _ | End_of_file -> (1, 1, rest))
+    | None -> (1, 1, rest)
+  in
+  Printf.sprintf
+    "{\"severity\":\"error\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
+    code (file_field file) line col (escape_json text) (error_fix_json text)
+
+let diagnostics_json ~strict ?file ~holes findings =
   "[" ^ String.concat ","
-    (List.map (fun f ->
-       Printf.sprintf
-         "{\"rule\":\"%s\",\"kind\":\"%s\",\"line\":%d,\"col\":%d,\"message\":\"%s\"}"
-         (Lint_rules.code f.rule)
-         (Lint_rules.kind_name (Lint_rules.kind f.rule))
-         f.line f.col (escape_json f.text)) fs)
+    (List.map hole_json holes
+     @ List.map (finding_json ~strict ?file) findings)
   ^ "]"
+
+let error_to_json ?file msg = "[" ^ error_json ?file msg ^ "]"
+
+let to_json fs = diagnostics_json ~strict:false ~holes:[] fs

@@ -112,12 +112,14 @@ let parse_lint_flags args =
 
 (* Returns the exit code: lints are warnings unless --strict promotes a
    violation. *)
-let report_lints ~strict ~json sess src =
+let report_lints ~strict ~json ?(holes = []) sess src =
   match Wand.Runner.lint_session sess src with
-  | Error _ -> 0   (* the typecheck itself already reported this *)
-  | Ok [] -> if json then print_endline "[]"; 0
+  | Error _ ->
+    (* the typecheck itself already reported this *)
+    if json then print_endline "[]"; 0
   | Ok findings ->
-    if json then (print_endline (Wand.Lint.to_json findings); 0)
+    if json then
+      (print_endline (Wand.Lint.diagnostics_json ~strict ~holes findings); 0)
     else begin
       List.iter (fun f ->
         Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
@@ -236,14 +238,19 @@ let () =
       (match take_file [] rest with
        | Some path, _ ->
          (match Wand.Runner.typecheck_file path with
-          | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
+          | Error msg ->
+            if json then
+              (print_endline (Wand.Lint.error_to_json ~file:path msg); exit 1)
+            else (Printf.eprintf "Error: %s\n" msg; exit 1)
           | Ok (ty, holes, findings) ->
             if not json then begin
               if holes <> [] then
                 List.iter (fun h -> Printf.printf "Hole: %s\n" h) holes
               else if ty <> "Unit" then print_endline ty
             end;
-            if json then print_endline (Wand.Lint.to_json findings)
+            if json then
+              print_endline
+                (Wand.Lint.diagnostics_json ~strict ~file:path ~holes findings)
             else List.iter (fun f ->
               Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
             if strict && not json && List.exists Wand.Lint.fails_strict findings
@@ -256,10 +263,13 @@ let () =
        | [expr] ->
          let sess = load_files ~sources:[expr] loads in
          (match Wand.Runner.typecheck_session sess expr with
-          | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
+          | Error msg ->
+            if json then (print_endline (Wand.Lint.error_to_json msg); exit 1)
+            else (Printf.eprintf "Error: %s\n" msg; exit 1)
           | Ok r      ->
             if not json then Wand.Repl.print_result r;
-            let code = report_lints ~strict ~json sess expr in
+            let holes = match r with Wand.Runner.RHoles hs -> hs | _ -> [] in
+            let code = report_lints ~strict ~json ~holes sess expr in
             if code <> 0 then exit code)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1))

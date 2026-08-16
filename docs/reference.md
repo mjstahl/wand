@@ -2862,7 +2862,35 @@ its effect looks like.
 
 ```
 wand t --strict "..."     # violations become errors (exit 1)
-wand t --json "..."       # findings as JSON, for tools
+wand t --json "..."       # diagnostics as JSON, for tools
+```
+
+### `--json`
+
+With `--json`, `wand t` prints a single JSON array on stdout — one object
+per diagnostic — and nothing else. Exit codes are unchanged, and the
+human output is unchanged when the flag is absent.
+
+Every finding and error carries `severity` (`"error"`/`"warning"`),
+`code` (`A-USES2`, `V-DROP1`, ...; errors get `E-TYPE`, `E-PARSE`,
+`E-LEX`), `line`, `col`, and `message`; `file` appears when a file was
+named with `--file`. Under `--strict`, must-fix findings report as
+`"error"`. When a machine-applicable correction exists it rides along as
+a `fix` object: the manifest suggestions carry the exact line —
+
+```json
+{"severity":"warning","code":"A-USES2","line":1,"col":1,
+ "message":"this file performs FS.Write and does not say so; it could declare \"uses {FS.Write}\"",
+ "fix":{"insert_line":"uses {FS.Write}"}}
+```
+
+(`A-USES1` carries `fix.replace_line` instead), and the drift errors
+whose correction is a plain substitution carry
+`"fix":{"replace":{"from":"and","to":"&&"}}`. Typed holes come as their
+own shape:
+
+```json
+{"kind":"hole","type":"Int -> Int -> Int ! 'e"}
 ```
 
 ### Formatter

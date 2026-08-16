@@ -19,6 +19,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_json_diagnostics)
+ (libraries wand alcotest))
+
+(test
  (name test_wand_string)
  (deps wand/test_string.wand)
  (libraries wand alcotest))
