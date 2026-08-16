@@ -20,6 +20,14 @@ test "ipv4" (fn t -> t.eq "192.168.1.1" "%{192.168.1.1}")
 test "version" (fn t -> t.eq "1.2.3" "%{1.2.3}")
 test "size" (fn t -> t.eq "10MB" "%{10MB}")
 
+(* ── Sequencing with `;` inside parentheses ────────────────────────────── *)
+
+test "seq values the last statement" (fn t -> t.eq 3 (1; 2; 3))
+test "seq allows a trailing semicolon" (fn t -> t.eq 2 (1; 2;))
+test "seq in a function body" (fn t ->
+  let f x = (x + 1; x * 2) in
+  t.eq 6 (f 3))
+
 (* ── Arithmetic ────────────────────────────────────────────────────────── *)
 
 test "add" (fn t -> t.eq 3 (1 + 2))

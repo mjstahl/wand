@@ -393,8 +393,28 @@ println "working";
 42
 ```
 
-A newline alone ends a statement, so `;` is only needed to put several on one
-line or to make the sequencing explicit.
+A newline alone ends a statement, so at the top level of a file `;` is only
+needed to put several on one line or to make the sequencing explicit.
+
+Inside a function body — or anywhere else an expression is expected — a
+newline cannot separate statements, because inside brackets a newline is just
+formatting and an application may continue across it. There, statements
+sequence with `;` inside parentheses:
+
+```
+let deploy! target = (
+  FS.mkdir! (Path.of_string target);
+  FS.write_file! (Path.of_string "%{target}/config.toml") "version = \"1\"\n";
+  "deployed"
+)
+```
+
+The value of the sequence is the last expression; a trailing `;` before the
+`)` is allowed. Every statement before the last is discarded, so a discarded
+`Result` is flagged by `V-DROP1` exactly as a bare top-level statement's
+would be — match it, call the `!` sibling, or bind it to `_` to say the
+failure does not matter. `let () = e1 in e2` still works and means the same
+thing, with the stricter guarantee that `e1` must be `Unit`.
 
 ---
 

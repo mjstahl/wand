@@ -346,9 +346,23 @@ and emit_expr_inner ?col indent e =
              label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
       ^ "\n" ^ ind ^ ")"
   | Field (e, l) -> emit_field indent e l
-  | Seq (a, b) ->
-    let ind = String.make indent ' ' in
-    emit_expr indent a ^ "\n" ^ ind ^ emit_expr indent b
+  | Seq _ as e ->
+    (* `;` only sequences inside parentheses, so a Seq is written back in
+       that shape: one line when it fits, one statement per line when not. *)
+    let rec parts e = match strip_located e with
+      | Seq (a, b) -> parts a @ parts b
+      | _ -> [e]
+    in
+    let es = parts e in
+    let oneline =
+      "(" ^ String.concat "; " (List.map (emit_expr indent) es) ^ ")" in
+    if fits col oneline then oneline
+    else
+      let ind = String.make indent ' ' in
+      let inner = String.make (indent + 2) ' ' in
+      "(\n" ^ inner
+      ^ String.concat (";\n" ^ inner) (List.map (emit_expr (indent + 2)) es)
+      ^ "\n" ^ ind ^ ")"
   | Located (_, e) -> emit_expr_inner indent e
   | Contract (reqs, ens, body) ->
     (* Each clause sits on its own line at the body's indent; the first is
@@ -617,7 +631,15 @@ and emit_let ?col indent p e1 e2 =
       let clause_col = if i = 0 then col else ci in
       let oneline = head ^ " = " ^ emit_expr ci body in
       if fits clause_col oneline then oneline
-      else head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
+      else begin match strip_located body with
+        (* A sequence body opens its parenthesis on the `=` line, so the
+           block reads brace-style; the Seq emitter, told its true starting
+           column, cannot fit and takes its multiline form. *)
+        | Seq _ ->
+          head ^ " = "
+          ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
+        | _ -> head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
+      end
     ) clauses in
     let joined =
       String.concat "\n"
@@ -830,7 +852,13 @@ let emit_top_item_pretty = function
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        let oneline = head ^ " = " ^ emit_expr 0 e in
        if fits 0 oneline then oneline
-       else head ^ " =\n  " ^ emit_expr 2 e)
+       else begin match strip_located e with
+         (* A sequence body opens its parenthesis on the `=` line, so the
+            block reads brace-style. *)
+         | Seq _ ->
+           head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 e
+         | _ -> head ^ " =\n  " ^ emit_expr 2 e
+       end)
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in

@@ -509,6 +509,7 @@ and atom_base_ s =
   | Token.LParen     ->
     if peek s = Token.RParen then (ignore (advance s); Unit)
     else begin
+      let e_loc = peek_loc s in
       let e = expr_ 0 s in
       if peek s = Token.Comma then begin
         let es = ref [e] in
@@ -516,6 +517,28 @@ and atom_base_ s =
           ignore (advance s); es := !es @ [expr_ 0 s]
         done;
         expect s Token.RParen; Tuple !es
+      end else if peek s = Token.Semicolon then begin
+        (* `(e1; e2; e3)` -- statements in sequence, valuing the last. The
+           parentheses are what make it unambiguous: outside a bracket a
+           newline already separates statements, and juxtaposition means a
+           bare `;` could not tell "next statement" from "next argument"
+           anywhere an application may continue. A trailing `;` before the
+           `)` is allowed. Nested to the right so every discarded statement
+           is a Seq's own first child, which is where the typechecker
+           records its type for the discarded-Result lint. *)
+        let es = ref [Located (e_loc, e)] in
+        while peek s = Token.Semicolon do
+          ignore (advance s);
+          if peek s <> Token.RParen then begin
+            let loc = peek_loc s in
+            es := Located (loc, expr_ 0 s) :: !es
+          end
+        done;
+        expect s Token.RParen;
+        (match !es with
+         | last :: rev_init ->
+           List.fold_left (fun acc e -> Seq (e, acc)) last rev_init
+         | [] -> assert false)
       end else (expect s Token.RParen; e)
     end
   | Token.LBracket -> list_ s

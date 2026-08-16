@@ -202,6 +202,16 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
         findings := List.rev_append (walk_expr loc b) !findings) bindings
     | Ast.TLImport _ | Ast.TLType _ -> ()
   ) prog.Ast.items;
+  (* The same rule for `(e1; e2)` sequences: every expression before the
+     last is discarded, and one whose value is a Result throws away the
+     failure it carries. Recorded by the typechecker because the rule needs
+     the type, exactly like the bare-statement case above. *)
+  List.iter (fun (loc, t) ->
+    match Typechecker.repr t with
+    | Typechecker.TResult _ ->
+      add Lint_rules.V_DROP1 loc
+        (Lint_rules.drop1 ~typ:(Typechecker.string_of_typ t))
+    | _ -> ()) !Typechecker.seq_discard_types;
   (* A manifest that permits more than the file uses. Checked from what
      inference concluded, so the rule cannot disagree with the type error
      that covers the opposite case. *)

@@ -58,6 +58,12 @@ let effs es a b = TFun (a, b, Effect_row.of_list es)
 let next_id = ref 0
 let holes : typ list ref = ref []
 
+(* The type of every expression discarded by a `(e1; e2)` sequence, with the
+   location of the discarded expression. The lint that catches a thrown-away
+   `Result` needs it, for the same reason `expr_item_types` exists for bare
+   top-level statements. *)
+let seq_discard_types : (Token.loc * typ) list ref = ref []
+
 (* Whether a pattern can fail to match. A parameter with a refutable pattern
    makes the function partial -- `let head! [h : _] = h` has nothing to do
    with an empty list but raise -- and that raise comes from the binding
@@ -1545,7 +1551,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | CmdInterp (parts, _) ->
     List.iter (fun (_, e, _) -> ignore (infer tenv env e)) parts;
     TString
-  | Seq (a, b) -> ignore (infer tenv env a); infer tenv env b
+  | Seq (a, b) ->
+    let ta = infer tenv env a in
+    (match a with
+     | Located (loc, _) -> seq_discard_types := (loc, ta) :: !seq_discard_types
+     | _ -> ());
+    infer tenv env b
   | Contract (reqs, ens, body) ->
     List.iter (fun req -> unify (infer tenv env req) TBool) reqs;
     let body_t = infer tenv env body in
@@ -2048,6 +2059,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     : typedef_env * env * env * typ =
   next_id := 0;
   expr_item_types := [];
+  seq_discard_types := [];
   current_eff := Effect_row.fresh_row ();
   holes := [];
   let local_tenv = List.filter_map (function

@@ -95,7 +95,14 @@ let test_drop1 () =
     "uses {Shell, IO}\nimport IO\n$(echo hi)\nIO.println \"done\"";
   (* The last item is the file's value, not something thrown away. *)
   silent "a Result as the file's value"
-    "uses {FS.Write}\nimport FS\nFS.write_file /tmp/x.txt \"hi\""
+    "uses {FS.Write}\nimport FS\nFS.write_file /tmp/x.txt \"hi\"";
+  (* `(e1; e2)` discards e1 the same way a bare statement does, so the same
+     rule watches it. *)
+  fires "a Result discarded by `;`"
+    "uses {FS.Write}\nimport FS\nlet go () = (FS.write_file /tmp/x.txt \"hi\"; ())\ngo ()"
+    "V-DROP1";
+  silent "a seq whose value is the Result"
+    "uses {FS.Write}\nimport FS\nlet go () = ((); FS.write_file /tmp/x.txt \"hi\")\ngo ()"
 
 let test_uses2 () =
   fires "effects and no manifest"

@@ -24,7 +24,10 @@ let test_idempotent_stdlib () =
 let test_idempotent_snippets () =
   assert_idempotent "let binding" "let x = 1\nx + 1";
   assert_idempotent "if/else" "let f x = if x > 0 then \"pos\" else \"neg\"";
-  assert_idempotent "match" "let f x = match x with\n| 0 -> \"zero\"\n| _ -> \"other\""
+  assert_idempotent "match" "let f x = match x with\n| 0 -> \"zero\"\n| _ -> \"other\"";
+  assert_idempotent "semicolon sequence" "let f x = (x + 1; x * 2)\nf 1";
+  assert_idempotent "semicolon sequence wrapped"
+    "let long_named_function x = (String.append x \"a considerable suffix string\"; String.append x \"another considerable suffix\"; x)\nlong_named_function \"y\""
 
 (* ── Behavior preservation ───────────────────────────────────────────────── *)
 
@@ -41,6 +44,9 @@ let test_behavior_preserved () =
     "120";
   ok_after_format "nested app needs parens"
     "let add a b = a + b\nlet f g x = g (add x 1) 2\nf add 3"
+    "6";
+  ok_after_format "semicolon sequence values the last statement"
+    "let f x = (x + 1; x * 2)\nf 3"
     "6";
   ok_after_format "match with guard"
     {|let f x = match x with

@@ -305,6 +305,27 @@ let test_fn () =
     "fn _ -> 0"
     (Fn ([Wild], Int 0))
 
+(* ── Sequencing in parentheses ──────────────────────────────────────────── *)
+
+let test_paren_seq () =
+  e "two statements"
+    "(1; 2)"
+    (Seq (Int 1, Int 2));
+  (* Nested to the right, so every discarded statement is a Seq's own first
+     child -- where the typechecker records its type for V-DROP1. *)
+  e "three nest right"
+    "(1; 2; 3)"
+    (Seq (Int 1, Seq (Int 2, Int 3)));
+  e "trailing semicolon"
+    "(1; 2;)"
+    (Seq (Int 1, Int 2));
+  e "grouping parens unchanged"
+    "(1)"
+    (Int 1);
+  e "in a function body"
+    "fn x -> (x + 1; x * 2)"
+    (Fn ([PVar "x"], Seq (BinOp ("+", Var "x", Int 1), BinOp ("*", Var "x", Int 2))))
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 (* Equations for one function are a single definition, so they must be
@@ -497,5 +518,6 @@ let () =
       Alcotest.test_case "constr pats"       `Quick test_constr_pats;
       Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
       Alcotest.test_case "fn"           `Quick test_fn;
+      Alcotest.test_case "paren seq"    `Quick test_paren_seq;
     ];
   ]
