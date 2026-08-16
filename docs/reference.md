@@ -980,11 +980,12 @@ can narrow it to the binaries the file may invoke:
 uses {Shell(git, curl), FS.Write}
 ```
 
-Entries are bare when they lex as one word or one path, quoted otherwise:
-`Shell(git, "docker-compose", "/opt/bin/deploy")`. Bare `Shell` stays legal
-and means any binary — the honest spelling for a genuinely open-ended
-script. `Shell()` is a parse error: a file that runs nothing drops the
-label.
+Names are written as they are inside `$()` — `Shell(git, docker-compose,
+node.js, g++, /opt/bin/deploy)` all work bare. Quotes are only for a name
+wand cannot lex as one (`"7zip"`, a name with a space). Bare `Shell` stays
+legal and means any binary — the honest spelling for a genuinely
+open-ended script. `Shell()` is a parse error: a file that runs nothing
+drops the label.
 
 What is checked, and when:
 

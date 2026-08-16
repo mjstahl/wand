@@ -39,8 +39,11 @@ The manifest names the binaries the file may invoke. Bare `uses {Shell}`
 stays legal and means *any binary* — backward compatible, and the honest
 spelling for genuinely open-ended scripts.
 
-- Entries are bare words when they lex as one (`git`, `rsync`); anything
-  else is quoted: `Shell(git, "docker-compose", "/opt/bin/deploy")`.
+- Entries are written as they are inside `$()`: `Shell(git,
+  docker-compose, /opt/bin/deploy)`. The manifest rides the ordinary
+  token stream, so hyphenated names arrive as several tokens; the parser
+  rejoins byte-adjacent fragments into one name, and quotes are only for
+  a name wand cannot lex as one (`"7zip"`, a name with a space).
 - `Shell()` (empty list) is a parse error: a file that runs nothing
   drops the label instead.
 - Duplicate entries are an error, like a duplicated label is today.

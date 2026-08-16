@@ -1176,19 +1176,39 @@ let parse_manifest s =
          label instead" (loc_prefix s)));
     let args = ref [] in
     let read_arg () =
-      let word = match advance s with
-        | Token.Ident w  -> w
-        | Token.String w -> w
-        | Token.Path w   -> w
-        | t -> raise (ParseError (Format.asprintf
-            "%sexpected a binary name in Shell(...), got %a -- quote \
-             anything that is not a plain word: Shell(git, \"docker-compose\")"
-            (loc_prefix s) Token.pp t))
+      let add word =
+        if List.mem word !args then
+          raise (ParseError (Printf.sprintf
+            "%s'%s' is already in this Shell(...) list" (loc_prefix s) word));
+        args := !args @ [word]
       in
-      if List.mem word !args then
-        raise (ParseError (Printf.sprintf
-          "%s'%s' is already in this Shell(...) list" (loc_prefix s) word));
-      args := !args @ [word]
+      let (first, floc) = advance_loc s in
+      match first with
+      | Token.String w -> add w
+      | Token.Path w   -> add w
+      | Token.Ident w0 ->
+        (* `docker-compose` arrives as `docker`, `-`, `compose` -- inside
+           $() it is raw text, and the manifest should read the same
+           spelling. Fragments are rejoined only when byte-adjacent, so a
+           genuinely spaced `a - b` stays an error. *)
+        let buf = Buffer.create 16 in
+        Buffer.add_string buf w0;
+        let end_ = ref (floc.Token.offset + String.length w0) in
+        let rec join () =
+          match Shell_scan.fragment (peek s) with
+          | Some frag when (peek_loc s).Token.offset = !end_ ->
+            ignore (advance s);
+            Buffer.add_string buf frag;
+            end_ := !end_ + String.length frag;
+            join ()
+          | _ -> ()
+        in
+        join ();
+        add (Buffer.contents buf)
+      | t -> raise (ParseError (Format.asprintf
+          "%sexpected a binary name in Shell(...), got %a -- quote a name \
+           wand cannot lex as one: Shell(git, \"7zip\")"
+          (loc_prefix s) Token.pp t))
     in
     read_arg ();
     while peek s = Token.Comma do ignore (advance s); read_arg () done;

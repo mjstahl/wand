@@ -90,6 +90,24 @@ let test_holes () =
   check_segs "positions before a raw hole are still read"
     [Lit "git add . && "; RawHole] [Literal "git"; Dynamic] true
 
+let test_render_entry () =
+  let bare w = Alcotest.(check string) (w ^ " stays bare") w (render_entry w) in
+  let quoted w =
+    Alcotest.(check string) (w ^ " needs quotes")
+      ("\"" ^ w ^ "\"") (render_entry w)
+  in
+  bare "git";
+  bare "docker-compose";
+  bare "node.js";
+  bare "g++";
+  bare "apt-get";
+  quoted "7zip";           (* leading digit lexes as a number *)
+  quoted "my tool";        (* whitespace *)
+  quoted "a--b";           (* -- starts a comment *)
+  quoted "do";             (* a keyword, not an Ident *)
+  quoted "git-do";         (* keyword chunk breaks the chain *)
+  quoted "/opt/bin/deploy" (* paths are accepted bare on input, quoted on output *)
+
 let test_allowed () =
   let allow = ["git"; "/opt/bin/deploy"] in
   Alcotest.(check bool) "bare entry, bare word" true (allowed ~allow "git");
@@ -156,6 +174,7 @@ let () =
     ];
     "allowlist", [
       Alcotest.test_case "matching" `Quick test_allowed;
+      Alcotest.test_case "render"   `Quick test_render_entry;
     ];
     "spawn check", [
       Alcotest.test_case "end to end" `Quick test_spawn_check;

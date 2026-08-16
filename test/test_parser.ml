@@ -372,12 +372,13 @@ let test_manifest_parses () =
 let test_manifest_shell_allowlist () =
   let prog =
     parse_program
-      "uses {Shell(git, \"docker-compose\", /opt/bin/deploy), FS.Write}\nlet x = 1\nx"
+      "uses {Shell(git, docker-compose, node.js, g++, \"7zip\", /opt/bin/deploy), FS.Write}\nlet x = 1\nx"
   in
   (match prog.Ast.manifest with
    | Some ([("Shell", Some allow); ("FS.Write", None)], _) ->
      Alcotest.(check (list string)) "the binaries"
-       ["git"; "docker-compose"; "/opt/bin/deploy"] allow
+       ["git"; "docker-compose"; "node.js"; "g++"; "7zip"; "/opt/bin/deploy"]
+       allow
    | _ -> Alcotest.fail "expected Shell(...) then FS.Write");
   parse_error "empty Shell()"
     "uses {Shell()}\nlet x = 1\nx"

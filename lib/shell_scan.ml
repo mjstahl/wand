@@ -177,14 +177,44 @@ let rec segs_of_cmd (e : Ast.expr) : seg list =
     @ [Lit tail]
   | _ -> [RawHole]
 
-(* One manifest label back as source text: `Shell(git, "docker-compose")`.
-   An entry is bare when it re-lexes as one word; quoted otherwise. *)
+(* A token that can be part of one binary name written bare in a manifest.
+   `docker-compose` works as raw text inside $() but reaches the manifest
+   parser as `docker`, `-`, `compose`; the same spelling should work in
+   the manifest that bounds the command, so byte-adjacent fragments are
+   joined back into one name. *)
+let fragment = function
+  | Token.Ident w -> Some w
+  | Token.Int n when n >= 0 -> Some (string_of_int n)
+  | Token.Minus -> Some "-"
+  | Token.Dot -> Some "."
+  | Token.Plus -> Some "+"
+  | Token.PlusPlus -> Some "++"
+  | _ -> None
+
+(* One manifest entry back as source text: bare exactly when the manifest
+   parser would read it back as the same one name -- decided by lexing it,
+   not by guessing the lexer's rules. Quotes stay for the unlexable:
+   spaces, leading digits, keyword chunks. *)
 let render_entry w =
-  let ident_char c =
-    (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c = '_' in
-  if w <> "" && String.for_all ident_char w && w.[0] >= 'a' && w.[0] <= 'z'
-  then w
-  else "\"" ^ w ^ "\""
+  let reads_back () =
+    match Lexer.tokenize w with
+    | exception _ -> false
+    | (Token.Ident w0, loc0) :: rest when loc0.Token.offset = 0 ->
+      let rec go acc end_ = function
+        | [] -> acc = w
+        | (t, (loc : Token.loc)) :: tl ->
+          (match fragment t with
+           | Some frag when loc.Token.offset = end_ ->
+             go (acc ^ frag) (end_ + String.length frag) tl
+           | _ ->
+             (match t with
+              | Token.Newline | Token.EOF -> go acc end_ tl
+              | _ -> false))
+      in
+      go w0 (String.length w0) rest
+    | _ -> false
+  in
+  if reads_back () then w else "\"" ^ w ^ "\""
 
 let render_label = function
   | (name, None) -> name
