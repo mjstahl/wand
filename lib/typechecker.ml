@@ -8,8 +8,8 @@ open Ast
    how `Test` went a long time with unreachable doc strings. *)
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
-    "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc";
-    "Decode"; "Shell"; "Test"; "Args" ]
+    "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
+    "Proc"; "Decode"; "Shell"; "Test"; "Args" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -30,6 +30,10 @@ type typ =
      that concealed its own effects would let a file take a lock and
      report a signature that never mentions it. *)
   | TResource of Effect_row.row * typ
+  (* A stream: an inert recipe -- a source and its stages -- whose row is
+     what a terminal operation performs when it runs the recipe. Like a
+     Resource, it describes; it is never the open thing. *)
+  | TStream of Effect_row.row * typ
   (* How to read an 'a out of data that arrived untyped. No row: decoding is
      a function from something already read, so a decoder that could perform
      effects would be a second way to run a script's I/O. *)
@@ -89,6 +93,8 @@ let rec pat_is_refutable (p : pat) =
 let effect_of_operation = function
   | "Shell!run" | "Shell!run_quiet" | "Shell!exit_code" | "Shell!capture" ->
     Some Effect_row.Shell
+  | "FS!stream_lines" -> Some Effect_row.FsRead
+  | "IO!stdin_lines" -> Some Effect_row.IO
   | "FS!read_file" | "FS!list_dir" | "FS!glob" | "FS!exists" | "FS!file"
   | "FS!dir" | "FS!mtime" | "FS!size" | "FS!cwd" -> Some Effect_row.FsRead
   | "FS!write_file" | "FS!append" | "FS!delete" | "FS!create_file"
@@ -167,6 +173,8 @@ let operation_types op : (typ * typ) option =
   let path = TPath and str = TString in
   match op with
   | "FS!read_file"    -> Some (path, str)
+  | "FS!stream_lines" -> Some (path, TList str)
+  | "IO!stdin_lines"  -> Some (TUnit, TList str)
   | "FS!write_file"   -> Some (TTuple [path; str], TUnit)
   | "FS!append"       -> Some (TTuple [path; str], TUnit)
   | "FS!create_file"  -> Some (path, TUnit)
@@ -221,6 +229,7 @@ let rec collect_rowvars t =
   | TList t     -> collect_rowvars t
   | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
   | TResource (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
+  | TStream (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
   | TDecoder t  -> collect_rowvars t
   | TMap t      -> collect_rowvars t
   | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
@@ -319,6 +328,12 @@ let string_of_typ t =
         | _ -> go x
       in
       "Resource " ^ Effect_row.string_of_row r ^ " " ^ wrap t
+    | TStream (r, t) ->
+      let wrap x = match repr x with
+        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
+        | _ -> go x
+      in
+      "Stream " ^ Effect_row.string_of_row r ^ " " ^ wrap t
     | TDecoder t ->
       let s = match repr t with
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
@@ -350,6 +365,7 @@ let rec occurs (tv : tv) t =
   | TList t     -> occurs tv t
   | TResult (e, t) -> occurs tv e || occurs tv t
   | TResource (_, t) -> occurs tv t
+  | TStream (_, t) -> occurs tv t
   | TDecoder t  -> occurs tv t
   | TMap t      -> occurs tv t
   | TApp (f, a) -> occurs tv f || occurs tv a
@@ -404,6 +420,10 @@ let rec unify t1 t2 =
   | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
   | TResource (r1, t1), TResource (r2, t2) ->
     Effect_row.unify r1 r2; unify t1 t2
+  | TStream (r1, t1), TStream (r2, t2) ->
+    (try Effect_row.unify r1 r2
+     with Effect_row.RowError msg -> raise (TypeError msg));
+    unify t1 t2
   | TDecoder t1, TDecoder t2 -> unify t1 t2
   | TMap t1,    TMap t2    -> unify t1 t2
   | TApp (f1, a1), TApp (f2, a2) -> unify f1 f2; unify a1 a2
@@ -499,6 +519,7 @@ let rec free_tvars t =
   | TList t     -> free_tvars t
   | TResult (e, t) -> free_tvars e @ free_tvars t
   | TResource (_, t) -> free_tvars t
+  | TStream (_, t) -> free_tvars t
   | TDecoder t  -> free_tvars t
   | TMap t      -> free_tvars t
   | TApp (f, a) -> free_tvars f @ free_tvars a
@@ -512,6 +533,7 @@ let rec free_rowvars_typ t =
   | TList t     -> free_rowvars_typ t
   | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
   | TResource (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
+  | TStream (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
   | TDecoder t  -> free_rowvars_typ t
   | TMap t      -> free_rowvars_typ t
   | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
@@ -592,6 +614,7 @@ let refresh_scheme (sch : scheme) : scheme =
     | TList t -> TList (go t)
     | TResult (e, t) -> TResult (go e, go t)
     | TResource (r, t) -> TResource (row r, go t)
+    | TStream (r, t) -> TStream (row r, go t)
     | TDecoder t -> TDecoder (go t)
     | TMap t -> TMap (go t)
     | TApp (f, a) -> TApp (go f, go a)
@@ -647,6 +670,7 @@ let instantiate = function
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
       | TResource (r, t) -> TResource (Effect_row.subst_row rsubst r, inst t)
+      | TStream (r, t) -> TStream (Effect_row.subst_row rsubst r, inst t)
       | TDecoder t  -> TDecoder (inst t)
       | TMap t      -> TMap (inst t)
       | TApp (f, a) -> TApp (inst f, inst a)
@@ -1029,7 +1053,8 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TResource _ | TDecoder _ ->
+  | TRegex | TJson | TToml | TFun _ | TResource _ | TStream _
+  | TDecoder _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
 let is_infinite_domain t =
@@ -1038,7 +1063,8 @@ let is_infinite_domain t =
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TDecoder _ -> true
+  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TStream _
+  | TDecoder _ -> true
   | _ -> false
 
 (* Does pattern p match constructor `name` (of the given arity)? Returns
@@ -1840,6 +1866,64 @@ let stdlib_type_env : env = [
      (TFun (TFun (TUnit, a, e),
             TFun (TFun (a, TUnit, e), TResource (e, a), Effect_row.pure),
             Effect_row.pure)));
+  (* Stream primitives. A source's row is what enumerating it performs --
+     open (a tail variable), so a terminal operation's closure row can join
+     it; the terminals share one row with the stream and the closure, the
+     same sharing resource_make uses. Construction itself is pure: a
+     recipe is inert. *)
+  ("fs_stream_lines",
+   let r = Effect_row.Row
+       (Effect_row.EffSet.of_list [Effect_row.FsRead; Effect_row.Raise],
+        Some (Effect_row.fresh_rowvar ())) in
+   generalize [] (TFun (TPath, TStream (r, TString), Effect_row.pure)));
+  ("io_stdin_lines",
+   let r = Effect_row.Row
+       (Effect_row.EffSet.of_list [Effect_row.IO; Effect_row.Raise],
+        Some (Effect_row.fresh_rowvar ())) in
+   generalize [] (TFun (TUnit, TStream (r, TString), Effect_row.pure)));
+  ("stream_of_list",
+   let a = fresh () in
+   let r = Effect_row.fresh_row () in
+   generalize [] (TFun (TList a, TStream (r, a), Effect_row.pure)));
+  ("stream_map",
+   let a = fresh () and b = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TFun (a, b, e),
+            TFun (TStream (e, a), TStream (e, b), Effect_row.pure),
+            Effect_row.pure)));
+  ("stream_filter",
+   let a = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TFun (a, TBool, e),
+            TFun (TStream (e, a), TStream (e, a), Effect_row.pure),
+            Effect_row.pure)));
+  ("stream_take",
+   let a = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TInt,
+            TFun (TStream (e, a), TStream (e, a), Effect_row.pure),
+            Effect_row.pure)));
+  ("stream_fold",
+   let acc = fresh () and b = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TFun (acc, TFun (b, acc, e), e),
+            TFun (acc, TFun (TStream (e, b), acc, e), Effect_row.pure),
+            Effect_row.pure)));
+  ("stream_each",
+   let a = fresh () and b = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize []
+     (TFun (TFun (a, b, e),
+            TFun (TStream (e, a), TUnit, e),
+            Effect_row.pure)));
+  ("stream_to_list",
+   let a = fresh () in
+   let e = Effect_row.fresh_row () in
+   generalize [] (TFun (TStream (e, a), TList a, e)));
   ("regex_compile",     generalize [] ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
@@ -2095,6 +2179,8 @@ let rec labels_of_typ t =
   | TList t | TMap t -> labels_of_typ t
   | TResult (e, t) -> Effect_row.EffSet.union (labels_of_typ e) (labels_of_typ t)
   | TResource (r, t) ->
+    Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
+  | TStream (r, t) ->
     Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
   | TDecoder t -> labels_of_typ t
   | TApp (f, a) -> Effect_row.EffSet.union (labels_of_typ f) (labels_of_typ a)

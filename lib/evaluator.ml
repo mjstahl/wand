@@ -94,6 +94,17 @@ type value =
      something already open -- which is what lets one be named, passed, and
      used twice. `with` is the only thing that runs it. *)
   | VResource      of value * value
+  (* A stream: an inert recipe -- a source and its stages -- run only by a
+     terminal operation, which opens, pulls each line through the stages,
+     and closes on the way out. Like a Resource, it describes; it is never
+     the open thing, which is what lets one be named, passed, and folded
+     twice (each fold re-runs the recipe). *)
+  | VStream        of stream_desc
+  (* The answer a `FS!stream_lines`-family effect resumes with: the default
+     handler wraps the real channel; a mock answers with a plain list and
+     never sees this constructor. Runtime-internal -- it goes straight back
+     to the terminal loop and no wand code ever holds one. *)
+  | VLineSource    of in_channel
   (* A decoder: how to read a value out of data that arrived untyped. It is
      handed the data and the path it stands at, so a failure can name the
      field that failed rather than only the type that did not fit. Every
@@ -113,6 +124,22 @@ type value =
   | VEnvIndex      of (string, value) Hashtbl.t
 
 and env = (string * value) list
+
+and stream_desc = { s_source : stream_source; s_stages : stream_stage list }
+
+and stream_source =
+  | SFile  of string
+  | SStdin
+  | SVals  of value list
+  (* An injected puller, reachable only from OCaml -- how the tests prove
+     that `take` stops pulling, which no wand-level mock can observe under
+     open-granularity effects. *)
+  | SPull  of (unit -> value option)
+
+and stream_stage =
+  | StMap    of value
+  | StFilter of value
+  | StTake   of int
 
 (* The key an index entry is filed under. Not a legal identifier, so no
    program can name it and no lookup can collide with it. *)
@@ -180,6 +207,8 @@ let rec show_value = function
      | Toml.Types.TDate _   -> "<toml-date>")
   | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
   | VResource _ -> "<resource>"
+  | VStream _ -> "<stream>"
+  | VLineSource _ -> "<line source>"
   | VDecoder _  -> "<decoder>"
   | VEnvIndex _ -> "<env index>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
@@ -1494,6 +1523,122 @@ let par_run limit f items ~collect =
       | exception Interrupted _ -> ()) domains);
     if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
   end
+
+(* ── Streams: running a recipe ────────────────────────────────────────────
+   A terminal operation performs one open-granularity effect per source --
+   the answer is the line source: the default handler wraps the real
+   channel, a mock answers with a plain list -- then pulls internally,
+   running stages and the caller's closures from the ordinary stack, and
+   releases on the way out however the run ends. *)
+
+let stdin_streamed = Atomic.make false
+
+let stream_provider (src : stream_source)
+  : (unit -> value option) * (unit -> unit) =
+  let of_vals vs =
+    let rest = ref vs in
+    ((fun () -> match !rest with [] -> None | v :: tl -> rest := tl; Some v),
+     fun () -> ())
+  in
+  let of_channel ~close ic =
+    ((fun () ->
+        match In_channel.input_line ic with
+        | Some l -> Some (VString l)
+        | None -> None),
+     if close then (fun () -> close_in_noerr ic) else (fun () -> ()))
+  in
+  match src with
+  | SVals vs -> of_vals vs
+  | SPull f -> (f, fun () -> ())
+  | SFile p ->
+    (match Effect.perform (WandEffect ("FS!stream_lines", VPath p)) with
+     | VLineSource ic -> of_channel ~close:true ic
+     | VList vs -> of_vals vs
+     | _ -> raise (EvalError
+         "stream_lines: the handler must answer with a list of lines"))
+  | SStdin ->
+    (match Effect.perform (WandEffect ("IO!stdin_lines", VUnit)) with
+     | VLineSource ic ->
+       (* The real stdin cannot be re-run; a mock can. The flag burns only
+          on the real path, so tests replay freely. *)
+       if Atomic.exchange stdin_streamed true then
+         raise (EvalError
+           "stdin has already been streamed once and cannot be re-run")
+       else of_channel ~close:false ic
+     | VList vs -> of_vals vs
+     | _ -> raise (EvalError
+         "stdin_lines: the handler must answer with a list of lines"))
+
+let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
+  let (pull, close) = stream_provider desc.s_source in
+  let stages = List.map (function
+    | StMap f    -> `Map f
+    | StFilter f -> `Filter f
+    | StTake n   -> `Take (ref n)) desc.s_stages in
+  Fun.protect ~finally:close (fun () ->
+    let stop = ref false in
+    while not !stop do
+      match pull () with
+      | None -> stop := true
+      | Some v0 ->
+        let v = ref (Some v0) in
+        List.iter (fun st ->
+          match !v, st with
+          | None, _ -> ()
+          | Some x, `Map f -> v := Some (apply f x)
+          | Some x, `Filter f ->
+            (match apply f x with
+             | VBool true -> ()
+             | VBool false -> v := None
+             | _ -> raise (EvalError
+                 "Stream.filter: the predicate must return Bool"))
+          | Some _, `Take r ->
+            if !r <= 0 then v := None else decr r) stages;
+        (match !v with Some x -> on_item x | None -> ());
+        (* An exhausted take is a closed gate nothing later can pass, so
+           stop pulling -- `take 100` of a 10GB file reads 100 lines. *)
+        if List.exists (function `Take r -> !r <= 0 | _ -> false) stages
+        then stop := true
+    done)
+
+let stream_builtins : env = [
+  ("fs_stream_lines", VBuiltin (function
+    | VPath p | VString p -> VStream { s_source = SFile p; s_stages = [] }
+    | _ -> raise (EvalError "stream_lines: expected Path")));
+  ("io_stdin_lines", VBuiltin (fun _ ->
+    VStream { s_source = SStdin; s_stages = [] }));
+  ("stream_of_list", VBuiltin (function
+    | VList vs -> VStream { s_source = SVals vs; s_stages = [] }
+    | _ -> raise (EvalError "Stream.of_list: expected List")));
+  ("stream_map", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StMap f] }
+    | _ -> raise (EvalError "Stream.map: expected Stream"))));
+  ("stream_filter", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StFilter f] }
+    | _ -> raise (EvalError "Stream.filter: expected Stream"))));
+  ("stream_take", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VStream d -> VStream { d with s_stages = d.s_stages @ [StTake n] }
+      | _ -> raise (EvalError "Stream.take: expected Stream"))
+    | _ -> raise (EvalError "Stream.take: expected Int")));
+  ("stream_fold", VBuiltin (fun f -> VBuiltin (fun init -> VBuiltin (function
+    | VStream d ->
+      let acc = ref init in
+      run_stream_terminal d ~on_item:(fun x -> acc := apply (apply f !acc) x);
+      !acc
+    | _ -> raise (EvalError "Stream.fold_left: expected Stream")))));
+  ("stream_each", VBuiltin (fun f -> VBuiltin (function
+    | VStream d ->
+      run_stream_terminal d ~on_item:(fun x -> ignore (apply f x));
+      VUnit
+    | _ -> raise (EvalError "Stream.each: expected Stream"))));
+  ("stream_to_list", VBuiltin (function
+    | VStream d ->
+      let acc = ref [] in
+      run_stream_terminal d ~on_item:(fun x -> acc := x :: !acc);
+      VList (List.rev !acc)
+    | _ -> raise (EvalError "Stream.to_list: expected Stream")));
+]
 
 let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
@@ -2970,7 +3115,7 @@ let () = decode_registry := decode_builtins
 let () = derive_decoder := decoder_value
 let () = derive_encoder := encoder_value
 
-let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins
+let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins @ stream_builtins
 
 (* User-visible globals — the only names available without an import *)
 let base_eval_env : env = [

@@ -331,6 +331,15 @@ let run_with_default_handler (thunk : unit -> value) : value =
               output_string stderr (show_value v ^ "\n");
               flush stderr;
               Effect.Deep.continue k VUnit)
+          | WandEffect ("FS!stream_lines", (VString p | VPath p)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (open_in p)
+                     with Sys_error m -> Error ("stream_lines: " ^ m)) with
+              | Ok ic   -> Effect.Deep.continue    k (VLineSource ic)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("IO!stdin_lines", VUnit) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Effect.Deep.continue k (VLineSource stdin))
           | WandEffect ("IO!read_line", VUnit) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match In_channel.input_line stdin with

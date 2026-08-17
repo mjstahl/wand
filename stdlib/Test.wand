@@ -78,3 +78,10 @@ let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path : rest
   | return _ -> []
+
+(** Run `thunk` with streamed files answered from `lines` instead of the
+    disk: every `FS.stream_lines` whose path matches is fed them, and any
+    other path streams as empty. *)
+let with_lines path lines thunk =
+  handle thunk () with
+  | FS!stream_lines p k -> if p == path then k lines else k []

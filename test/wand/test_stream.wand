@@ -1,0 +1,58 @@
+uses {FS.Read}
+
+import Test
+let [test] = import Test
+import FS
+import Stream
+import String
+import List
+
+(* A stream is a recipe: inert until a terminal operation runs it, and
+   each run is a fresh enumeration. *)
+
+test "of_list to_list round-trips" (fn t ->
+  t.eq [1, 2, 3] (Stream.of_list [1, 2, 3] |> Stream.to_list))
+
+test "map transforms as elements flow" (fn t ->
+  t.eq [2, 4, 6] (Stream.of_list [1, 2, 3] |> Stream.map (fn x -> x * 2) |> Stream.to_list))
+
+test "filter keeps what the predicate approves" (fn t ->
+  t.eq [2, 4] (Stream.of_list [1, 2, 3, 4] |> Stream.filter (fn x -> x % 2 == 0) |> Stream.to_list))
+
+test "take passes at most n" (fn t ->
+  t.eq [1, 2] (Stream.of_list [1, 2, 3, 4] |> Stream.take 2 |> Stream.to_list))
+
+test "stages fuse in order" (fn t ->
+  t.eq [4, 6]
+    (Stream.of_list [1, 2, 3, 4]
+     |> Stream.map (fn x -> x * 2)
+     |> Stream.filter (fn x -> x > 2)
+     |> Stream.take 2
+     |> Stream.to_list))
+
+test "fold_left folds every element" (fn t ->
+  t.eq 10 (Stream.of_list [1, 2, 3, 4] |> Stream.fold_left (fn a x -> a + x) 0))
+
+test "each runs in order for its effects" (fn t ->
+  let seen = Stream.of_list ["a", "b"] |> Stream.fold_left (fn acc x -> acc ++ x) "" in
+  t.eq "ab" seen)
+
+test "a mocked file stream feeds the fold" (fn t ->
+  let count log = FS.stream_lines log |> Stream.fold_left (fn n _ -> n + 1) 0 in
+  t.eq 3 (Test.with_lines ./mock.log ["a", "b", "c"] (fn () -> count ./mock.log)))
+
+test "an unmocked path streams empty under with_lines" (fn t ->
+  let count log = FS.stream_lines log |> Stream.fold_left (fn n _ -> n + 1) 0 in
+  t.eq 0 (Test.with_lines ./mock.log ["a"] (fn () -> count ./other.log)))
+
+test "re-enumeration re-runs the recipe" (fn t ->
+  let s = Stream.of_list [1, 2, 3] in
+  t.eq (6, 6)
+    (Stream.fold_left (fn a x -> a + x) 0 s,
+     Stream.fold_left (fn a x -> a + x) 0 s))
+
+test "a missing file raises at the fold, catchably" (fn t ->
+  let go () = FS.stream_lines ./does-not-exist.log |> Stream.fold_left (fn n _ -> n + 1) 0 in
+  t.eq true (match try go () with
+  | Ok _ -> false
+  | Error why -> String.contains? "does-not-exist" why))

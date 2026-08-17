@@ -44,7 +44,7 @@ let disabled =
    will happily hand back nonsense typed as whatever the reader expected. *)
 (* Bumped whenever the marshaled AST changes shape; "2" is the manifest
    with Shell allowlists and the tagged $()/$?() sites. *)
-let format_version = "3"
+let format_version = "4"
 
 (* Where the entries live, most specific first.
 

@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Path](#path) · [IO](#io) · [Float](#float) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -1854,7 +1854,7 @@ unbound-name error, even though the module ships with wand. The
 interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
 exception: they preload every stdlib module for convenience — `List`,
 `String`, `Path`, `FS`, `IO`, `Float`, `Duration`, `Env`, `Map`, `Regex`,
-`JSON`, `TOML`, `CSV`, `Option`, `Par`, `Resource` and `Proc`.
+`JSON`, `TOML`, `CSV`, `Option`, `Par`, `Resource`, `Stream` and `Proc`.
 
 Imported names are available under the module prefix:
 
@@ -2111,6 +2111,7 @@ copy         : Path -> Path -> Result String Unit ! {FS.Write}
 list_dir     : Path -> Result String (List Path) ! {FS.Read}
 mtime        : Path -> Result String DateTime ! {FS.Read}
 size         : Path -> Result String Int ! {FS.Read}
+stream_lines : Path -> Stream {FS.Read, Raise | ..} String
 ```
 
 The `!` siblings return the value and carry `Raise`:
@@ -2218,7 +2219,56 @@ read_line!  : Unit -> String ! {IO, Raise}
 read_all    : Unit -> Result String String ! {IO}
 read_all!   : Unit -> String ! {IO, Raise}
 flush       : Unit -> Unit ! {IO}
+stdin_lines : Unit -> Stream {IO, Raise | ..} String
 ```
+
+### `Stream`
+
+```
+of_list   : List 'a -> Stream {..} 'a
+map       : ('a -> 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+filter    : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+take      : Int -> Stream {..} 'a -> Stream {..} 'a
+fold_left : ('a -> 'b -> 'a ! 'e) -> 'a -> Stream {..} 'b -> 'a ! 'e
+each      : ('a -> 'b ! 'e) -> Stream {..} 'a -> Unit ! 'e
+to_list   : Stream {..} 'a -> List 'a ! 'e
+```
+
+Reading through a file without reading it in. A stream is a **recipe** —
+a source and its stages, inert until a terminal operation (`fold_left`,
+`each`, `to_list`) runs it: open, each line through the stages, close on
+the way out however the run ends. Like a `Resource`, a stream describes;
+it is never the open thing — so it can be named, passed, sent to `Par`,
+and folded twice.
+
+```
+FS.stream_lines /var/log/app.log
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> Stream.fold_left (fn n _ -> n + 1) 0
+```
+
+`take n` stops the source being read once n elements have passed — the
+memory and the reading are both bounded. `to_list` reads everything, and
+saying so is the point of its name.
+
+**A terminal operation re-runs the recipe.** Folding a stream twice
+opens and reads the file twice, seeing it as it is each time; `Par`
+workers enumerate independently. Traversal is neither free nor
+snapshotted — `List` intuition does not transfer. `IO.stdin_lines` is
+the one source that cannot re-run: streaming the real stdin a second
+time raises.
+
+A source that can fail carries `Raise` in the stream's row, and the
+failure surfaces at the terminal operation, where the open happens —
+`try` around the terminal call is the one capture. There are no `!`
+siblings here: no Stream function adds a raise of its own, so none earns
+a bang.
+
+Enumeration performs one effect per open — the same file-level
+granularity as `FS.read_file` — so a fold traces as one line, and a test
+mocks it wholesale: `Test.with_lines path lines thunk` answers every
+`FS.stream_lines` for `path` with `lines`, and streams any other path as
+empty.
 
 ### `Proc`
 
@@ -2582,6 +2632,7 @@ test           : String -> (Testing 'b 'a -> 'c ! 'e) -> 'c ! 'e
 with_shell     : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
 shell_calls    : (Unit -> 'a ! 'e) -> List 'b ! 'e
 without_writes : (Unit -> 'a ! 'e) -> 'a ! 'e
+with_lines     : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes         : (Unit -> 'a ! 'e) -> List Path ! 'e
 ```
 

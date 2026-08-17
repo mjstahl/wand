@@ -125,3 +125,8 @@ let glob pattern = fs_glob pattern (fs_cwd ())
 
 (** Return all paths matching a glob pattern relative to the given directory. *)
 let glob_in pattern dir = fs_glob pattern dir
+
+(** A stream of the file's lines -- a recipe, opened only when a terminal
+    operation runs it, which is also where a missing file raises. See
+    Stream. *)
+let stream_lines p = fs_stream_lines p

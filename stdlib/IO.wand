@@ -28,3 +28,7 @@ let read_all () = try read_all! ()
 
 (** Flush stdout, ensuring all buffered output is written. *)
 let flush () = io_flush ()
+
+(** A stream of stdin's lines. The real stdin can be streamed once; a
+    second run raises. See Stream. *)
+let stdin_lines () = io_stdin_lines ()

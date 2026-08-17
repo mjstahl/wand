@@ -187,9 +187,14 @@ let [test] = import Test        -- destructure specific names
 let [helper] = import ./util    -- another file, by path
 ```
 
-Stdlib modules: List, String, Regex, Map, FS, Resource, Path, IO, Proc,
-Env, CSV, JSON, TOML, Duration, Par, Shell, Decode, Args, Test, Option.
-Builtins like `println` need no import.
+Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
+Float, Proc, Env, CSV, JSON, TOML, Duration, Par, Shell, Decode, Args,
+Test, Option. Builtins like `println` need no import.
+
+Big files stream instead of loading: `FS.stream_lines log |>
+Stream.filter p |> Stream.fold_left f init` — a stream is an inert
+recipe run by the fold (re-running re-reads), and a missing file raises
+at the fold, caught with `try`.
 
 Tests are wand files named `test_*.wand`:
 

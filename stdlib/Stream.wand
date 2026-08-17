@@ -1,0 +1,38 @@
+(* Reading through, without reading in.
+
+   A stream is a recipe: a source and its stages, inert until a terminal
+   operation runs it -- open, each line through the stages, close on the
+   way out however the run ends. Like a Resource, it describes; it is
+   never the open thing, so it can be named, passed, and folded twice.
+   Folding twice runs the recipe twice: traversal is not free and not
+   snapshotted.
+
+       FS.stream_lines /var/log/app.log
+       |> Stream.filter (fn l -> String.contains? "ERROR" l)
+       |> Stream.fold_left (fn n _ -> n + 1) 0
+
+   A source that can fail carries Raise in its row, and the failure
+   surfaces at the terminal operation, where the open happens; `try`
+   around the terminal call is the one capture. *)
+
+(** A stream of a list's elements. The one source that performs nothing. *)
+let of_list xs = stream_of_list xs
+
+(** Transform each element as it flows. *)
+let map f s = stream_map f s
+
+(** Keep the elements the predicate approves. *)
+let filter f s = stream_filter f s
+
+(** At most n elements pass; the source stops being read once they have. *)
+let take n s = stream_take n s
+
+(** Run the recipe, folding every element into acc. *)
+let fold_left f acc s = stream_fold f acc s
+
+(** Run the recipe for f's effects, dropping what f returns. *)
+let each f s = stream_each f s
+
+(** Run the recipe and keep everything -- the memory cost is the point of
+    saying it explicitly. *)
+let to_list s = stream_to_list s
