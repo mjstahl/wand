@@ -135,8 +135,19 @@ case; wants the Shell effect story told first); `drop`, `take_while`
 
 There is no separate `FS.fold_lines!`: it would be a second spelling of
 `Stream.fold_left` over `FS.stream_lines`, and one construct per
-problem says no. The dogfood is `examples/log-summary.wand` and the d3
-demo, both currently read-all-then-split.
+problem says no. Nor is one needed for brevity — the stream argument
+comes last precisely so the composition pipelines, and a script that
+folds the same way twice writes its own one-line helper, specialized
+to its own fold:
+
+```
+let tally_log path =
+  FS.stream_lines path |> Stream.fold_left tally Map.empty
+```
+
+Every call site is then shorter than a generic `fold_lines` call would
+have been. The dogfood is `examples/log-summary.wand` and the d3 demo,
+both currently read-all-then-split.
 
 ## What is touched
 
