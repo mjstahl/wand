@@ -57,8 +57,8 @@ jq -r '.items[] | "  \(.metadata.name)\t\(.status.phase)"' pods.json | sed 's/\t
 
 # The point: the same mistake is silence on one side and a named field on the
 # other -- and the silence is a clean bill of health for a pod that is down.
-moment "db-01" "$WAND" crashlooping.wand
-moment "constructor 'Container' has no field 'restartCount'" typo_wand
-moment ".items[0].status.containerStatuses[0].restartCount: no such field" drifted_wand
-moment "0 pods reported, exit 0" typo_jq
-moment "0 pods reported, exit 0" drift_jq
+assert "db-01" "$WAND" crashlooping.wand
+assert "constructor 'Container' has no field 'restartCount'" typo_wand
+assert ".items[0].status.containerStatuses[0].restartCount: no such field" drifted_wand
+assert "0 pods reported, exit 0" typo_jq
+assert "0 pods reported, exit 0" drift_jq

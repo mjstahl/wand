@@ -31,4 +31,4 @@ show "" 'FS.glob /etc/hosts'
 show "" 'Path.basename *.wand'
 
 # The point: a path is not a glob, and the type system says so.
-moment "cannot unify Glob with Path" "$WAND" e 'FS.glob /etc/hosts'
+assert "cannot unify Glob with Path" "$WAND" e 'FS.glob /etc/hosts'

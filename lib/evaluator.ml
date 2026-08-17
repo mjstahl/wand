@@ -94,11 +94,11 @@ type value =
      something already open -- which is what lets one be named, passed, and
      used twice. `with` is the only thing that runs it. *)
   | VResource      of value * value
-  (* A stream: an inert recipe -- a source and its stages -- run only by a
-     terminal operation, which opens, pulls each line through the stages,
-     and closes on the way out. Like a Resource, it describes; it is never
-     the open thing, which is what lets one be named, passed, and folded
-     twice (each fold re-runs the recipe). *)
+  (* A stream: an inert description of a source and its stages, run only
+     by a terminal operation, which opens, pulls each line through the
+     stages, and closes on the way out. Like a Resource, it describes; it
+     is never the open thing, which is what lets one be named, passed,
+     and folded twice (each fold reads the source afresh). *)
   | VStream        of stream_desc
   (* The answer a `FS!stream_lines`-family effect resumes with: the default
      handler wraps the real channel; a mock answers with a plain list and
@@ -1524,7 +1524,7 @@ let par_run limit f items ~collect =
     if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
   end
 
-(* ── Streams: running a recipe ────────────────────────────────────────────
+(* ── Streams: running a terminal operation ────────────────────────────────
    A terminal operation performs one open-granularity effect per source --
    the answer is the line source: the default handler wraps the real
    channel, a mock answers with a plain list -- then pulls internally,

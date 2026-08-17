@@ -28,5 +28,5 @@ echo
 
 # The point: the effect is inferred through three helpers, and the manifest
 # turns it into a compile error.
-moment "FS.Read, FS.Write" "$WAND" t --load "$D/backup-phoning-home.wand" 'backup_all!'
-moment "which the manifest does not allow" "$WAND" t --file "$D/backup-bounded.wand"
+assert "FS.Read, FS.Write" "$WAND" t --load "$D/backup-phoning-home.wand" 'backup_all!'
+assert "which the manifest does not allow" "$WAND" t --file "$D/backup-bounded.wand"

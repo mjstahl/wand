@@ -7,8 +7,8 @@ import Stream
 import String
 import List
 
-(* A stream is a recipe: inert until a terminal operation runs it, and
-   each run is a fresh enumeration. *)
+(* A stream reads nothing until a terminal operation runs it, and each
+   run is a fresh enumeration. *)
 
 test "of_list to_list round-trips" (fn t ->
   t.eq [1, 2, 3] (Stream.of_list [1, 2, 3] |> Stream.to_list))
@@ -45,7 +45,7 @@ test "an unmocked path streams empty under with_lines" (fn t ->
   let count log = FS.stream_lines log |> Stream.fold_left (fn n _ -> n + 1) 0 in
   t.eq 0 (Test.with_lines ./mock.log ["a"] (fn () -> count ./other.log)))
 
-test "re-enumeration re-runs the recipe" (fn t ->
+test "each fold reads the source afresh" (fn t ->
   let s = Stream.of_list [1, 2, 3] in
   t.eq (6, 6)
     (Stream.fold_left (fn a x -> a + x) 0 s,

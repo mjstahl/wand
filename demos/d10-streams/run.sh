@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A stream is a recipe: the fold opens the file, reads a line at a time,
-# and closes on the way out.
+# A stream reads nothing until the fold runs it: the fold opens the
+# file, reads a line at a time, and closes on the way out.
 #
 # Two claims are on trial. That a file folds in bounded memory -- a
 # million lines counted without holding them. And that `take` stops the
@@ -41,7 +41,7 @@ echo "== five lines from a source that never ends =="
 five
 
 # The points: the count is exact, and the endless read returned.
-moment "142857 ERROR lines" count
-moment "tick 5" five
+assert "142857 ERROR lines" count
+assert "tick 5" five
 
 rm -f "$LOG" "$FIFO"

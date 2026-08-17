@@ -18,5 +18,5 @@ echo "== filled in, then run =="
 printf 'ERROR disk full\nINFO ok\nERROR again\n' | "$WAND" "$D/summarize-filled.wand"
 
 # The point: the hole is answered with the signature to write.
-moment "Hole: Map 'a -> String -> Map 'a" \
+assert "Hole: Map 'a -> String -> Map 'a" \
   "$WAND" t --file "$D/summarize.wand"

@@ -2234,9 +2234,9 @@ each      : ('a -> 'b ! 'e) -> Stream {..} 'a -> Unit ! 'e
 to_list   : Stream {..} 'a -> List 'a ! 'e
 ```
 
-Reading through a file without reading it in. A stream is a **recipe** —
-a source and its stages, inert until a terminal operation (`fold_left`,
-`each`, `to_list`) runs it: open, each line through the stages, close on
+Reading through a file without reading it in. A stream describes a
+source and its stages; nothing is read until a terminal operation
+(`fold_left`, `each`, `to_list`) runs it: open, each line through the stages, close on
 the way out however the run ends. Like a `Resource`, a stream describes;
 it is never the open thing — so it can be named, passed, sent to `Par`,
 and folded twice.
@@ -2251,7 +2251,7 @@ FS.stream_lines /var/log/app.log
 memory and the reading are both bounded. `to_list` reads everything, and
 saying so is the point of its name.
 
-**A terminal operation re-runs the recipe.** Folding a stream twice
+**Each terminal operation reads the source afresh.** Folding a stream twice
 opens and reads the file twice, seeing it as it is each time; `Par`
 workers enumerate independently. Traversal is neither free nor
 snapshotted — `List` intuition does not transfer. `IO.stdin_lines` is

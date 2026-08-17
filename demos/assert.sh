@@ -4,10 +4,10 @@
 # stop demonstrating anything and still pass CI. That is how a manifest went
 # missing from the manifest demo without a single check going red.
 #
-# `moment <expected> <command...>` re-runs the decisive command and requires
+# `assert <expected> <command...>` re-runs the decisive command and requires
 # its output to still contain the line the demo is built around.
 
-moment() {
+assert() {
   local expected="$1"; shift
   # The output is captured rather than piped: most of these commands are
   # meant to fail -- a type error is the point being demonstrated -- and
@@ -25,7 +25,7 @@ moment() {
 }
 
 # The same, for a point made by a file's absence rather than by output.
-moment_absent() {
+assert_absent() {
   local path="$1"
   if [ -e "$path" ]; then
     echo >&2

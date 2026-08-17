@@ -71,7 +71,7 @@ echo "  $(running)"
 
 # Checked here rather than at the end, because the bash run below leaves
 # leases of its own and this directory is about to be reused.
-moment "leases still held: 0" held
+assert "leases still held: 0" held
 
 echo
 echo "== the same thing in bash: xargs -P 8, a trap, a temp file =="
@@ -81,7 +81,7 @@ echo "  $(running)"
 
 # The trap fired -- the results file is gone. The workers are not the
 # parent's to release, so what they were holding stays held.
-moment "leases still held: 8" bash_held
+assert "leases still held: 8" bash_held
 
 pkill -f "$D/probe.sh" >/dev/null 2>&1
 rm -rf "$LEASES" "$BASH_LEASES"
@@ -89,6 +89,6 @@ rm -rf "$LEASES" "$BASH_LEASES"
 # The point: a failure is a value and the order survives it; and an interrupt
 # releases every lease the run was holding.
 echo
-moment "FAIL  web-04" fourth
-moment "17 reachable, 3 not, and none of it fatal" check_hosts
+assert "FAIL  web-04" fourth
+assert "17 reachable, 3 not, and none of it fatal" check_hosts
 rm -rf "$LEASES"

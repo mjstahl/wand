@@ -265,8 +265,9 @@ single pipeline is usually the loop.
 
 ## D10 — Read through, not in
 
-A stream is a recipe: the fold opens the file, reads a line at a time,
-and closes on the way out. Two claims are on trial.
+A stream reads nothing until the fold runs it: the fold opens the file,
+reads a line at a time, and closes on the way out. Two claims are on
+trial.
 
 **A file folds in bounded memory.** A million generated lines, counted
 without holding them:

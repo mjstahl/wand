@@ -30,9 +30,9 @@ type typ =
      that concealed its own effects would let a file take a lock and
      report a signature that never mentions it. *)
   | TResource of Effect_row.row * typ
-  (* A stream: an inert recipe -- a source and its stages -- whose row is
-     what a terminal operation performs when it runs the recipe. Like a
-     Resource, it describes; it is never the open thing. *)
+  (* A stream: an inert description of a source and its stages, whose row
+     is what a terminal operation performs when it reads the source. Like
+     a Resource, it describes; it is never the open thing. *)
   | TStream of Effect_row.row * typ
   (* How to read an 'a out of data that arrived untyped. No row: decoding is
      a function from something already read, so a decoder that could perform
@@ -1869,8 +1869,8 @@ let stdlib_type_env : env = [
   (* Stream primitives. A source's row is what enumerating it performs --
      open (a tail variable), so a terminal operation's closure row can join
      it; the terminals share one row with the stream and the closure, the
-     same sharing resource_make uses. Construction itself is pure: a
-     recipe is inert. *)
+     same sharing resource_make uses. Construction itself is pure:
+     nothing is read until a terminal operation. *)
   ("fs_stream_lines",
    let r = Effect_row.Row
        (Effect_row.EffSet.of_list [Effect_row.FsRead; Effect_row.Raise],

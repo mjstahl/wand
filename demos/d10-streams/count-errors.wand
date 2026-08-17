@@ -8,8 +8,8 @@ import Path
 import Stream
 import String
 
--- Count the ERROR lines in a file of any size. A stream is a recipe:
--- the fold opens the file, reads a line at a time, and closes on the
+-- Count the ERROR lines in a file of any size. Nothing is read until
+-- the fold runs: it opens the file, reads a line at a time, and closes on the
 -- way out, so the file never has to fit in memory.
 
 let log =
