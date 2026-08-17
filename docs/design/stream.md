@@ -146,9 +146,10 @@ There are deliberately no Result-returning terminal siblings: a fold
 fails from two directions at once, and a `Result` that caught the
 source's failures but let the closure's raise past would be a lie. A
 fold over `Stream.of_list` provably cannot raise, because its row says
-so. `take` is why stages are
-interpreted by the runtime rather than desugared: `take 100` of a 10GB
-file must stop reading. Not in v1, each for a stated reason: `length`,
+so.
+
+`take` is why stages are interpreted by the runtime rather than
+desugared: `take 100` of a 10GB file must stop reading. Not in v1, each for a stated reason: `length`,
 `reverse`, `sort` (read-everything traps wearing innocent names —
 `to_list` first, so the cost is visible); `zip` (two sources open at
 once; wanted, later); streaming a command's output (the tail -f use
