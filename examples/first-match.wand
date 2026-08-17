@@ -1,0 +1,29 @@
+uses {FS.Read, Env, IO}
+
+import Env
+import FS
+import IO
+import List
+import Path
+import Stream
+import String
+
+-- The first line of a file that mentions a word, without reading the
+-- rest of it: `take 1` stops the fold, and the fold closes the file.
+--
+--   wand examples/first-match.wand ERROR /var/log/app.log
+
+let (needle, log) =
+  match Env.args () with
+  | [n, p] -> (n, Path.of_string p)
+  | _ -> ("ERROR", /tmp/app.log)
+
+let hits =
+  FS.stream_lines log
+    |> Stream.filter (fn l -> String.contains? needle l)
+    |> Stream.take 1
+    |> Stream.to_list
+
+match List.head hits with
+| Some line -> IO.println line
+| None -> IO.println "no match"

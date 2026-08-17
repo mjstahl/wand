@@ -1,0 +1,19 @@
+uses {FS.Read, Env, IO}
+
+import Env
+import FS
+import IO
+import List
+import Path
+import Stream
+
+-- Five lines from a source that never ends. `take` closes the gate and
+-- the fold stops reading -- the only reason this script can finish: the
+-- pipe on the other end writes forever.
+
+let source =
+  match List.head (Env.args ()) with
+  | Some p -> Path.of_string p
+  | None -> /tmp/wand-demo-d10.fifo
+
+FS.stream_lines source |> Stream.take 5 |> Stream.each (fn l -> IO.println l)

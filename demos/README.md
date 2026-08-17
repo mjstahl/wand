@@ -14,6 +14,7 @@ demos/d7-jq-typed/run.sh
 demos/d8-fan-out/run.sh
 demos/d9-fork-overhead/run.sh      # ~1½ minutes: it runs a deliberately bad bash loop
                                    # N=500 demos/d9-fork-overhead/run.sh takes ten seconds
+demos/d10-streams/run.sh
 ```
 
 ---
@@ -55,7 +56,7 @@ let levels = Stream.fold_left ? Map.empty (IO.stdin_lines ())
 
 ```
 $ wand t "$(cat summarize.wand)"
-Hole: Map 'a -> String -> Map 'a ! 'e
+Hole: Map 'a -> String -> Map 'a ! {IO, Raise | 'e}
 ```
 
 That is the signature of the function to write, derived from how the hole is
@@ -261,3 +262,28 @@ spawns none.
 So the case for doing the work in wand no longer needs the second argument.
 It is as fast as the pipeline, and the alternative once a script outgrows a
 single pipeline is usually the loop.
+
+## D10 — Read through, not in
+
+A stream is a recipe: the fold opens the file, reads a line at a time,
+and closes on the way out. Two claims are on trial.
+
+**A file folds in bounded memory.** A million generated lines, counted
+without holding them:
+
+```
+FS.stream_lines log
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> Stream.fold_left (fn n _ -> n + 1) 0
+```
+
+**`take` stops the reading** — proved on a source that never ends. The
+second script streams a fifo whose writer loops forever, takes five
+lines, and returns. If `take` did not stop the pulling, it would never
+come back:
+
+```
+FS.stream_lines source |> Stream.take 5 |> Stream.each IO.println
+```
+
+Run `demos/d10-streams/run.sh`.

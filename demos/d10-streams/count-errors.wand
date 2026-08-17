@@ -1,0 +1,25 @@
+uses {FS.Read, Env, IO}
+
+import Env
+import FS
+import IO
+import List
+import Path
+import Stream
+import String
+
+-- Count the ERROR lines in a file of any size. A stream is a recipe:
+-- the fold opens the file, reads a line at a time, and closes on the
+-- way out, so the file never has to fit in memory.
+
+let log =
+  match List.head (Env.args ()) with
+  | Some p -> Path.of_string p
+  | None -> /tmp/wand-demo-d10.log
+
+let errors =
+  FS.stream_lines log
+    |> Stream.filter (fn l -> String.contains? "ERROR" l)
+    |> Stream.fold_left (fn n _ -> n + 1) 0
+
+IO.println "%{errors} ERROR lines"
