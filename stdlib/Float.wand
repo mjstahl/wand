@@ -1,0 +1,23 @@
+(* Crossing between the two members of Num.
+
+   Arithmetic never converts on its own -- `1.5 + 1` is a type error --
+   so the crossing is always written out, and this is where it is
+   written. *)
+
+(** The Float with the same value: Float.of_int 3 is 3.0. *)
+let of_int n = float_of_int n
+
+(** The nearest Int, halves rounding away from zero: 2.5 rounds to 3,
+    -2.5 to -3. *)
+let round f = float_round f
+
+(** The largest Int at or below: Float.floor 2.9 is 2, Float.floor -2.1
+    is -3. *)
+let floor f = float_floor f
+
+(** The smallest Int at or above: Float.ceil 2.1 is 3, Float.ceil -2.9
+    is -2. *)
+let ceil f = float_ceil f
+
+(** The distance from zero: Float.abs -2.5 is 2.5. *)
+let abs f = float_abs f

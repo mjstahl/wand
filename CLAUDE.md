@@ -128,6 +128,11 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `try e` yields a `Result` | `try ... with`, `raise` |
 | no mutation — bind a new name | `ref`, `mutable`, `:=` |
 
+Arithmetic (`+ - * /`) works on `Int` and `Float` alike — one numeric
+type per expression, never mixed implicitly (`Float.of_int` /
+`Float.round` convert); `%` is `Int`-only; `Num` in a signature means
+"`Int` or `Float`, decided at use".
+
 Statements: one per line at the top level, nothing else needed. Inside a
 function body, sequence with `;` in parentheses:
 

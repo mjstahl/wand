@@ -7,9 +7,9 @@ open Ast
    still imports and runs -- it just becomes invisible to the tools, which is
    how `Test` went a long time with unreachable doc strings. *)
 let stdlib_module_names =
-  [ "List"; "String"; "Path"; "FS"; "IO"; "Duration"; "Env"; "Map"; "Regex";
-    "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc"; "Decode";
-    "Shell"; "Test"; "Args" ]
+  [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
+    "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Proc";
+    "Decode"; "Shell"; "Test"; "Args" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -41,6 +41,11 @@ type typ =
 and tv = {
   id  : int;
   mutable def : typ option;
+  (* A numeric-constrained variable may only ever become Int or Float --
+     the `Num` in `Num -> Num`. The evaluator dispatches on the value's
+     tag, so the variable can stay generalized: there is no defaulting,
+     and `let double x = x + x` works at both types. *)
+  numeric : bool;
 }
 
 (* Builtin signatures are written with `@->` so the tables stay readable.
@@ -133,7 +138,12 @@ let current_fn : string option ref = ref None
 let fresh () =
   let id = !next_id in
   incr next_id;
-  TVar { id; def = None }
+  TVar { id; def = None; numeric = false }
+
+let fresh_num () =
+  let id = !next_id in
+  incr next_id;
+  TVar { id; def = None; numeric = true }
 
 (* What an intercepted operation carries, and what resuming it has to supply.
 
@@ -251,7 +261,7 @@ let string_of_typ t =
     | TJson     -> "JSON"
     | TToml     -> "TOML"
     | TName n   -> n
-    | TVar tv   -> name_of tv.id
+    | TVar tv   -> if tv.numeric then "Num" else name_of tv.id
     | TFun (a, b, eff) ->
       (* A row prints when it says something. Known effects always do. A row
          variable does only when it appears more than once, because then it
@@ -362,9 +372,26 @@ let rec unify t1 t2 =
   | TToml,     TToml     -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
+  (* Two variables: link so that a numeric constraint survives on
+     whichever remains undefined. *)
+  | TVar tv1, TVar tv2 ->
+    if tv1.numeric && not tv2.numeric then tv2.def <- Some (TVar tv1)
+    else tv1.def <- Some (TVar tv2)
   | TVar tv, t | t, TVar tv ->
     if occurs tv t then raise (TypeError "infinite type")
+    else if tv.numeric && t = TString then
+      raise (TypeError "strings concatenate with '++', not '+'")
+    else if tv.numeric && t <> TInt && t <> TFloat then
+      raise (TypeError (Printf.sprintf
+        "cannot unify Num with %s -- Num is Int or Float" (string_of_typ t)))
     else tv.def <- Some t
+  (* The two members of Num, mixed: name the conversions rather than only
+     the mismatch, since this is the first error a Float-using script
+     meets. *)
+  | (TInt, TFloat) | (TFloat, TInt) ->
+    raise (TypeError
+      "cannot unify Float with Int -- Float.of_int and Float.round \
+       convert explicitly")
   | TFun (a1, res1, eff1), TFun (a2, res2, eff2) ->
     unify a1 a2; unify res1 res2;
     (* Two functions are the same only if calling them does the same. A
@@ -537,10 +564,12 @@ let generalize (env : env) t =
 let refresh_scheme (sch : scheme) : scheme =
   let tmap : (int, typ) Hashtbl.t = Hashtbl.create 16 in
   let rmap : (int, Effect_row.rowvar) Hashtbl.t = Hashtbl.create 16 in
-  let tvar_for id =
-    match Hashtbl.find_opt tmap id with
+  let tvar_for (tv : tv) =
+    match Hashtbl.find_opt tmap tv.id with
     | Some t -> t
-    | None -> let t = fresh () in Hashtbl.add tmap id t; t
+    | None ->
+      let t = if tv.numeric then fresh_num () else fresh () in
+      Hashtbl.add tmap tv.id t; t
   in
   let rowvar_for (v : Effect_row.rowvar) =
     match Hashtbl.find_opt rmap v.Effect_row.rid with
@@ -557,7 +586,7 @@ let refresh_scheme (sch : scheme) : scheme =
   in
   let rec go t =
     match repr t with
-    | TVar tv -> tvar_for tv.id
+    | TVar tv -> tvar_for tv
     | TFun (a, b, r) -> TFun (go a, go b, row r)
     | TTuple ts -> TTuple (List.map go ts)
     | TList t -> TList (go t)
@@ -574,7 +603,15 @@ let refresh_scheme (sch : scheme) : scheme =
   | Mono t -> Mono (go t)
   | Poly (ids, rids, t) ->
     let body = go t in
-    let ids' = List.filter_map (fun id -> id_of (tvar_for id)) ids in
+    let ids' = List.filter_map (fun id ->
+      (* A quantified id was replaced while walking the body; one that
+         never appears in the body constrains nothing, so a plain fresh
+         variable stands in for it. *)
+      match Hashtbl.find_opt tmap id with
+      | Some t -> id_of t
+      | None ->
+        let t = fresh () in
+        Hashtbl.add tmap id t; id_of t) ids in
     let rids' =
       List.map (fun rid ->
         match Hashtbl.find_opt rmap rid with
@@ -589,14 +626,22 @@ let instantiate = function
   | Namespace _ -> TUnit
   | Mono t -> t
   | Poly (ids, rids, t) ->
-    let subst = List.map (fun id -> (id, fresh ())) ids in
+    (* Replacements are made per variable rather than precomputed per id,
+       so a numeric variable's replacement is numeric too -- the record
+       being replaced is what knows. *)
+    let tbl : (int, typ) Hashtbl.t = Hashtbl.create 8 in
+    let subst_for (tv : tv) =
+      match Hashtbl.find_opt tbl tv.id with
+      | Some t' -> t'
+      | None ->
+        let t' = if tv.numeric then fresh_num () else fresh () in
+        Hashtbl.add tbl tv.id t'; t'
+    in
     let rsubst = List.map (fun id -> (id, Effect_row.fresh_rowvar ())) rids in
     let rec inst t =
       match repr t with
       | TVar tv ->
-        (match List.assoc_opt tv.id subst with
-         | Some t' -> t'
-         | None    -> TVar tv)
+        if List.mem tv.id ids then subst_for tv else TVar tv
       | TFun (a, b, r) -> TFun (inst a, inst b, Effect_row.subst_row rsubst r)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
@@ -648,6 +693,10 @@ let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
   let rec go = function
     | TEName name ->
       (match name with
+       (* Each written `Num` is a fresh numeric variable; use-sites link
+          them. This is what keeps `:t` output paste-able: a printed Num
+          never claims more linkage than the code enforces. *)
+       | "Num"      -> fresh_num ()
        | "Int"      -> TInt      | "Float"    -> TFloat
        | "String"   -> TString   | "Bool"     -> TBool
        | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
@@ -1171,7 +1220,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let t = fresh () in
     holes := t :: !holes;
     t
-  | UnOp ("-", e) -> unify (infer tenv env e) TInt; TInt
+  | UnOp ("-", e) ->
+    let n = fresh_num () in
+    unify (infer tenv env e) n; n
   | UnOp ("!", e) -> unify (infer tenv env e) TBool; TBool
   | UnOp (op, _)  -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
   | BinOp (op, a, b) -> infer_binop tenv env op a b
@@ -1669,7 +1720,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
 
 and infer_binop tenv (env : env) op a b : typ =
   match op with
-  | "+" | "-" | "*" | "/" | "%" ->
+  | "+" | "-" | "*" | "/" ->
+    (* One numeric type throughout: Int -> Int -> Int or the same at
+       Float, resolved by use, dispatched by the evaluator on the value's
+       tag. Nothing defaults: an unpinned `fn x -> x + x` stays Num ->
+       Num and works at both. *)
+    let n = fresh_num () in
+    unify (infer tenv env a) n;
+    unify (infer tenv env b) n;
+    n
+  | "%" ->
+    (* Int only: float modulo is a niche with sharp edges. *)
     unify (infer tenv env a) TInt;
     unify (infer tenv env b) TInt;
     TInt
@@ -1744,6 +1805,11 @@ let stdlib_type_env : env = [
   ("str_reverse",    generalize [] ((TString @-> TString)));
   ("str_chars",      generalize [] ((TString @-> TList TString)));
   ("int_to_str",       generalize [] ((TInt @-> TString)));
+  ("float_of_int",     generalize [] ((TInt @-> TFloat)));
+  ("float_round",      generalize [] ((TFloat @-> TInt)));
+  ("float_floor",      generalize [] ((TFloat @-> TInt)));
+  ("float_ceil",       generalize [] ((TFloat @-> TInt)));
+  ("float_abs",        generalize [] ((TFloat @-> TFloat)));
   ("str_to_int",       generalize [] ((TString @-> TResult (TString, TInt))));
   ("str_to_float",     generalize [] ((TString @-> TResult (TString, TFloat))));
   ("str_to_bool",      generalize [] ((TString @-> TResult (TString, TBool))));

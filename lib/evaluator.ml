@@ -1585,6 +1585,23 @@ let stdlib_eval_env : env = [
   ("int_to_str", VBuiltin (function
     | VInt n -> VString (string_of_int n)
     | _ -> raise (EvalError "int_to_str: expected Int")));
+  ("float_of_int", VBuiltin (function
+    | VInt n -> VFloat (float_of_int n)
+    | _ -> raise (EvalError "float_of_int: expected Int")));
+  (* Round half away from zero, the arithmetic reading of "round": -2.5
+     rounds to -3, as Float.round's doc states. *)
+  ("float_round", VBuiltin (function
+    | VFloat f -> VInt (int_of_float (Float.round f))
+    | _ -> raise (EvalError "float_round: expected Float")));
+  ("float_floor", VBuiltin (function
+    | VFloat f -> VInt (int_of_float (Float.floor f))
+    | _ -> raise (EvalError "float_floor: expected Float")));
+  ("float_ceil", VBuiltin (function
+    | VFloat f -> VInt (int_of_float (Float.ceil f))
+    | _ -> raise (EvalError "float_ceil: expected Float")));
+  ("float_abs", VBuiltin (function
+    | VFloat f -> VFloat (Float.abs f)
+    | _ -> raise (EvalError "float_abs: expected Float")));
   ("str_to_int", VBuiltin (function
     | VString s ->
       (match int_of_string_opt (String.trim s) with

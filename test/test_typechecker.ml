@@ -800,6 +800,32 @@ let test_manifest_accepts_an_exact_declaration () =
   | Ok () -> ()
   | Error m -> Alcotest.failf "expected it to pass: %s" m
 
+(* Arithmetic is polymorphic over Int and Float through a Num-constrained
+   variable: no defaulting, no implicit mixing, `%` stays Int. *)
+let test_num_arithmetic () =
+  let ok label src =
+    match type_of_program_with_imports src with
+    | Ok () -> ()
+    | Error m -> Alcotest.failf "%s: rejected: %s" label m
+  in
+  ok "float arithmetic" "let area r = 3.14 * r * r\narea 2.5";
+  ok "a Num function serves both types"
+    "let double x = x + x\nlet a = double 2\nlet b = double 1.5\n(a, b)";
+  ok "a Num annotation round-trips"
+    "let double : Num -> Num = fn x -> x + x\n(double 2, double 1.5)";
+  manifest_error "no implicit mixing"
+    "1.5 + 1"
+    "Float.of_int and Float.round convert explicitly";
+  manifest_error "modulo stays Int"
+    "1.5 % 2.0"
+    "cannot unify Float with Int";
+  manifest_error "Num rejects non-numbers"
+    "let f x = x + x\nf true"
+    "Num is Int or Float";
+  manifest_error "strings are pointed at ++"
+    "\"a\" + \"b\""
+    "strings concatenate with '++', not '+'"
+
 let test_no_manifest_is_unconstrained () =
   match type_of_program_with_imports
           "let publish () = $(rsync -a . host:/srv)\npublish" with
@@ -893,6 +919,9 @@ let () =
       Alcotest.test_case "absent is unconstrained" `Quick test_no_manifest_is_unconstrained;
       Alcotest.test_case "Raise is not declared"   `Quick test_manifest_ignores_raise;
       Alcotest.test_case "unknown label rejected"  `Quick test_manifest_rejects_unknown_labels;
+    ];
+    "num", [
+      Alcotest.test_case "polymorphic arithmetic" `Quick test_num_arithmetic;
     ];
     "effects", [
       Alcotest.test_case "handler discharges its operation" `Quick test_handler_discharges_its_operation;

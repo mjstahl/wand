@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Path](#path) · [IO](#io) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Path](#path) · [IO](#io) · [Float](#float) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -88,6 +88,22 @@ wrapped-around value:
 Like division by zero, this is a runtime error and not the `Raise` effect —
 any `+` can overflow, so tracking it would put `Raise` in the row of every
 function that adds two numbers.
+
+Arithmetic (`+ - * /` and unary `-`) works on `Int` and on `Float` with
+the same spelling — one numeric type throughout an expression, never
+mixed implicitly. `1.5 + 1` is a type error naming the crossing
+functions ([`Float`](#float) has them); `%` is `Int` only. A function
+whose numbers stay unpinned is polymorphic over both:
+
+```
+let double x = x + x     -- double : Num -> Num
+(double 2, double 1.5)   -- (4, 3) : (Int, Float) — each call picks its type
+```
+
+`Num` in a signature means "`Int` or `Float`, decided where it is used";
+it appears in [Type annotations](#type-annotations) like any type name.
+Float division does not raise (`1.0 / 0.0` is infinity, IEEE-style);
+Int keeps its checked behavior.
 
 String interpolation with `%{...}`, which takes any expression:
 
@@ -1794,7 +1810,10 @@ let m : Map (List Int) = [a = [1, 2], b = [3]]   -- parens needed for a compound
 ```
 
 `:t` prints types in exactly this syntax, so what you see there is always
-what you can paste back into an annotation.
+what you can paste back into an annotation. That includes `Num`: each
+written `Num` is a fresh "`Int` or `Float`" variable, and use-sites link
+them — `let double : Num -> Num = fn x -> x + x` reconstructs exactly
+what `:t double` printed.
 
 ### The three colons
 
@@ -1834,8 +1853,8 @@ using it — referencing `List.map` without `import List` fails with an
 unbound-name error, even though the module ships with wand. The
 interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
 exception: they preload every stdlib module for convenience — `List`,
-`String`, `Path`, `FS`, `IO`, `Duration`, `Env`, `Map`, `Regex`, `JSON`,
-`TOML`, `CSV`, `Option`, `Par`, `Resource` and `Proc`.
+`String`, `Path`, `FS`, `IO`, `Float`, `Duration`, `Env`, `Map`, `Regex`,
+`JSON`, `TOML`, `CSV`, `Option`, `Par`, `Resource` and `Proc`.
 
 Imported names are available under the module prefix:
 
@@ -2374,6 +2393,34 @@ match TOML.read_file ./config.toml with
 | Ok t    -> TOML.field! "database" t
 | Error m -> TOML.parse! ""
 ```
+
+### `Float`
+
+```
+of_int : Int -> Float
+round  : Float -> Int
+floor  : Float -> Int
+ceil   : Float -> Int
+abs    : Float -> Float
+```
+
+Crossing between the two members of `Num`. Arithmetic never converts on
+its own — `1.5 + 1` is a type error that names these functions — so the
+crossing is always written out:
+
+```
+import Float
+
+Float.of_int 3          -- 3 : Float
+Float.round 2.5         -- 3, halves rounding away from zero
+Float.round (- 2.5)     -- -3
+Float.floor (- 2.1)     -- -3
+Float.ceil 2.1          -- 3
+Float.abs (- 2.5)       -- 2.5
+```
+
+`String.to_float` parses text; `JSON`/`TOML`/`Decode` read floats out of
+documents.
 
 ### `Duration`
 
