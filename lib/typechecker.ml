@@ -404,7 +404,8 @@ let foreign_name_hint = function
   | "raise" | "throw" ->
     Some "errors are values in wand: return an Error, call a !-suffixed \
           function to raise, or wrap a call with try"
-  | "printf" | "puts" | "print_endline" | "console" ->
+  | "printf" | "puts" | "print_endline" | "print_string" | "print_newline"
+  | "print_int" | "print_float" | "console" ->
     Some "printing is println (or IO.println)"
   | "echo" -> Some "println prints a line; $(echo ...) runs the command"
   | "lambda" -> Some "a lambda is 'fn x -> ...'"
@@ -413,7 +414,42 @@ let foreign_name_hint = function
   | "nil" | "null" -> Some "absence is None, matched with 'match ... with'"
   | "is" -> Some "comparison is '=='; a missing value is matched: \
                   'match x with | None -> ...'"
+  | "begin" -> Some "wand groups expressions with parentheses, not \
+                     'begin ... end'"
+  | "int_of_string" -> Some "String.to_int reads an Int out of a String \
+                             (as a Result); String.of_int goes the other way"
+  | "string_of_int" | "string_of_float" ->
+    Some "interpolation makes strings of anything: \"%{n}\""
+  | "read_lines" -> Some "FS.read_file! reads a whole file, and \
+                          String.lines splits it (import FS and String)"
+  | "list_dir" | "readdir" | "read_dir" ->
+    Some "directories are read with FS.list_dir! (import FS)"
   | _ -> None
+
+(* The same idea one level down: a member looked up on the right module by
+   its name in another language's standard library. Checked before the
+   edit-distance guess, which can mislead here -- List.iter's nearest
+   neighbour by spelling is 'filter', but its meaning is 'each'. *)
+let foreign_member_hint ns member =
+  match ns, member with
+  | "List", "iter" -> Some "wand's is List.each"
+  | "List", "iteri" -> Some "wand's is List.each, with List.indexed for \
+                             positions"
+  | "String", "split_on_char" -> Some "wand's is String.split, and the \
+                                       separator is a String"
+  | "String", "sub" -> Some "wand's is String.slice"
+  | "FS", "read_lines" -> Some "FS.read_file! reads the whole file; \
+                                String.lines splits it"
+  | "Shell", ("run" | "run!" | "exec" | "exec!") ->
+    Some "commands run with $(...); Shell only reads their output \
+          (Shell.decode, Shell.lines)"
+  | _ -> None
+
+(* Named in unbound-name errors that have nothing better to offer: the
+   binary can enumerate what exists, and a reader who has never seen wand
+   has no other way to learn that. *)
+let discovery_hint =
+  " -- 'wand env' lists the modules, 'wand env List' one module's members"
 
 let lookup name (env : env) =
   match List.assoc_opt name env with
@@ -421,7 +457,10 @@ let lookup name (env : env) =
   | None   ->
     let hint = match foreign_name_hint name with
       | Some h -> " -- " ^ h
-      | None -> Util.hint name (List.map fst env)
+      | None ->
+        (match Util.hint name (List.map fst env) with
+         | "" -> discovery_hint
+         | h -> h)
     in
     raise (TypeError (Printf.sprintf "unbound variable '%s'%s" name hint))
 
@@ -1390,9 +1429,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | Some (Namespace ns_env) ->
         Some (match List.assoc_opt label ns_env with
           | Some s -> instantiate s
-          | None   -> raise (TypeError (Printf.sprintf
-              "namespace '%s' has no member '%s'%s"
-              ns_name label (Util.hint label (List.map fst ns_env)))))
+          | None ->
+            let hint = match foreign_member_hint ns_name label with
+              | Some h -> " -- " ^ h
+              | None ->
+                (match Util.hint label (List.map fst ns_env) with
+                 | "" -> Printf.sprintf
+                     " -- 'wand env %s' lists its members" ns_name
+                 | h -> h)
+            in
+            raise (TypeError (Printf.sprintf
+              "namespace '%s' has no member '%s'%s" ns_name label hint)))
       | _ -> None
     in
     let ns_result = match unwrap_loc e with

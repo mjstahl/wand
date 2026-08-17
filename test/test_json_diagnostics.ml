@@ -72,11 +72,11 @@ let test_lex_error_without_position () =
   golden "lex error, no position, drift fix carried"
     "[{\"severity\":\"error\",\"code\":\"E-LEX\",\"file\":\"x.wand\",\
       \"line\":1,\"col\":1,\
-      \"message\":\"'::' is OCaml's cons; in wand it is a single ':' -- \
+      \"message\":\"cons is a single ':' in wand, not '::' -- \
       h : rest to build a list, [h : t] in a pattern\",\
       \"fix\":{\"replace\":{\"from\":\"::\",\"to\":\":\"}}}]"
     (Lint.error_to_json ~file:"x.wand"
-       "lex error: '::' is OCaml's cons; in wand it is a single ':' -- \
+       "lex error: cons is a single ':' in wand, not '::' -- \
         h : rest to build a list, [h : t] in a pattern")
 
 let test_parse_error_drift_fix () =

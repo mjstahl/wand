@@ -95,8 +95,8 @@ let read_string s =
        text that quietly stayed text is a wrong answer no one would look
        for. *)
     | '#' when peek s = '{' ->
-      raise (LexError "#{...} is Ruby; interpolation is %{...} in wand. For \
-                       the literal text, write \\#{...}")
+      raise (LexError "interpolation is %{...}, not #{...}. For the literal \
+                       text, write \\#{...}")
     | '%' when peek s = '{' ->
       ignore (advance s);
       let lit = Buffer.contents buf in
@@ -618,12 +618,22 @@ let next_token s =
         ret (read_path_body s "?")
       else
         ret Hole
+    | '+' when peek s = '.' ->
+      raise (LexError "wand does not spell operators differently for Float \
+                       -- there is no '+.'")
     | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
     | '*'  ->
       (* ** or *.foo etc → Glob; bare * → Star (multiplication) *)
       let prefix = if peek s = '*' then (ignore (advance s); "**") else "*" in
       if not (is_at_end s) && (is_path_body_char (peek s) || is_glob_char (peek s)) then
-        ret (read_path_body s prefix)
+        (* `a *. b` reads as the glob "*." otherwise, and the type error it
+           produces ("cannot unify ... with Glob") points nowhere near the
+           mistake. A real glob always has more after the dot. *)
+        (match read_path_body s prefix with
+         | Glob "*." ->
+           raise (LexError "wand does not spell operators differently for \
+                            Float -- there is no '*.'")
+         | t -> ret t)
       else
         ret (if prefix = "**" then Glob "**" else Star)
     | '%'  -> ret Percent
@@ -637,30 +647,42 @@ let next_token s =
     | '>'  -> ret (if peek s = '=' then (ignore (advance s); GtEq)  else Gt)
     | '&'  -> if peek s = '&' then ret (ignore (advance s); AmpAmp)
               else raise (LexError "unexpected '&'")
+    | '^'  ->
+      raise (LexError "string concatenation is '++' in wand, not '^'")
     | '|'  -> ret (match peek s with
                | '>' -> ignore (advance s); PipeArrow
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
+    | '-' when peek s = '.' ->
+      raise (LexError "wand does not spell operators differently for Float \
+                       -- there is no '-.'")
     | '-'  ->
       ret (match peek s with
        | '>' -> ignore (advance s); Arrow
        | '-' -> LineComment (read_line_comment s)
        | _   -> Minus)
     | ':' when peek s = ':' ->
-      raise (LexError "'::' is OCaml's cons; in wand it is a single ':' -- \
+      raise (LexError "cons is a single ':' in wand, not '::' -- \
                        h : rest to build a list, [h : t] in a pattern")
     | ':' when peek s = '=' ->
-      raise (LexError "':=' is OCaml's assignment, and wand has no mutation \
-                       -- let binds a new name instead")
+      raise (LexError "wand has no mutation, so there is no ':=' -- \
+                       let binds a new name instead")
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/' when peek s = '/' ->
-      raise (LexError "'//' is a C-family comment; wand comments are \
-                       '-- ...' to the end of the line, or '(* ... *)'")
+      raise (LexError "wand comments are '-- ...' to the end of the line, \
+                       or '(* ... *)' -- not '//'")
     | '/'  ->
-      ret (if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
-                                    || peek s = '_' || peek s = '.') then
-             read_path_body s "/"
-           else Slash)
+      if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
+                               || peek s = '_' || peek s = '.') then
+        (* `a /. b` reads as the path "/." otherwise, and the type error it
+           produces ("cannot unify ... with Path") points nowhere near the
+           mistake. *)
+        (match read_path_body s "/" with
+         | Path "/." ->
+           raise (LexError "wand does not spell operators differently for \
+                            Float -- there is no '/.'")
+         | t -> ret t)
+      else ret Slash
     | '.'  ->
       ret (match peek s with
        | '/' -> ignore (advance s); read_path_body s "./"
@@ -688,7 +710,9 @@ let next_token s =
            else raise (LexError "unexpected '~'"))
     | '\'' ->
       if is_at_end s || not (is_lower (peek s)) then
-        raise (LexError "expected lowercase letter after '''")
+        raise (LexError "expected a type variable like 'a after ''' -- and \
+                         wand has no character literals: a one-character \
+                         string is \"x\"")
       else begin
         let buf = Buffer.create 8 in
         Buffer.add_char buf (advance s);
@@ -700,13 +724,12 @@ let next_token s =
     | c when is_digit c -> ret (read_numeric s c)
     | c when is_alpha c || c = '_' -> ret (read_ident s c)
     | '\\' when is_alpha (peek s) || peek s = '_' || peek s = '(' ->
-      raise (LexError "'\\x -> ...' is Haskell; a wand lambda is 'fn x -> ...'")
+      raise (LexError "a wand lambda is 'fn x -> ...', not '\\x -> ...'")
     (* The shebang on line one is handled in `tokenize`; any other `#` is a
-       bash or Python comment reflex. *)
+       comment reflex from bash or Python. *)
     | '#' ->
-      raise (LexError "'#' starts a comment in bash and Python; wand \
-                       comments are '-- ...' to the end of the line, or \
-                       '(* ... *)'")
+      raise (LexError "wand comments are '-- ...' to the end of the line, \
+                       or '(* ... *)' -- not '# ...'")
     | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()

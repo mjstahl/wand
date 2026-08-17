@@ -141,8 +141,10 @@ let keyword_hint = function
      recursive let bindings"
   | Token.Or -> " -- the boolean operator is '||'"
   | Token.Of ->
-    " -- 'of' is OCaml; a wand constructor takes its payload directly: \
-     'Circle Int', not 'Circle of Int'"
+    " -- a wand constructor takes its payload directly: 'Circle Int', \
+     not 'Circle of Int'"
+  | Token.End ->
+    " -- wand groups expressions with parentheses, not 'begin ... end'"
   | _ -> ""
 
 let expect s tok =
@@ -237,8 +239,8 @@ let rec pat_ s =
         expect s Token.RParen; PTuple !ps
       end else if peek s = Token.Colon then
         raise (ParseError (Printf.sprintf
-          "%s'(x : xs)' is Haskell; a wand cons pattern is written in \
-           square brackets: [x : xs]" (loc_prefix s)))
+          "%sa wand cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'" (loc_prefix s)))
       else begin
         expect s Token.RParen;
         (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
@@ -315,8 +317,8 @@ and pat_atom_ s =
         expect s Token.RParen; PTuple !ps
       end else if peek s = Token.Colon then
         raise (ParseError (Printf.sprintf
-          "%s'(x : xs)' is Haskell; a wand cons pattern is written in \
-           square brackets: [x : xs]" (loc_prefix s)))
+          "%sa wand cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'" (loc_prefix s)))
       else (expect s Token.RParen; p)
     end
   | Token.LBracket ->
@@ -624,7 +626,7 @@ and atom_base_ s =
     let body = expr_ 0 s in
     if peek s = Token.With && s.with_owners = 0 then
       raise (ParseError (Printf.sprintf
-        "%s'try ... with' is OCaml; wand's try takes no cases. 'try e' \
+        "%swand's try takes no cases, so there is no 'try ... with': 'try e' \
          yields a Result to match on -- and 'handle ... with' is what \
          intercepts effects." (loc_prefix s)))
     else Ast.Try body
@@ -774,8 +776,8 @@ and let_ s =
   match p with
   | PVar "rec" when is_pat_atom_start (peek s) ->
     raise (ParseError (Printf.sprintf
-      "%s'let rec' is OCaml; a wand let is already recursive -- drop the \
-       'rec' (mutual recursion is 'let f ... and g ...')" (loc_prefix s)))
+      "%sa wand let is already recursive -- drop the 'rec' (mutual \
+       recursion is 'let f ... and g ...')" (loc_prefix s)))
   | PVar name when peek s <> Token.Eq && is_pat_atom_start (peek s) ->
     (* function shorthand: let f params = body, with optional multi-equation
        and optional mutually-recursive `and` group *)
@@ -1355,8 +1357,8 @@ let parse_program_generic ~on_item tokens =
          in
          if name = "rec" && is_pat_atom_start (peek s) then
            raise (ParseError (Printf.sprintf
-             "%s'let rec' is OCaml; a wand let is already recursive -- \
-              drop the 'rec' (mutual recursion is 'let f ... and g ...')"
+             "%sa wand let is already recursive -- drop the 'rec' (mutual \
+              recursion is 'let f ... and g ...')"
              name_loc));
          let params = ref [] in
          while is_pat_atom_start (peek s) do

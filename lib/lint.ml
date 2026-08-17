@@ -357,12 +357,13 @@ let hole_json t =
    test_drift.ml locks, so rewording a message that breaks a key breaks a
    test alongside it. *)
 let drift_fixes = [
-  "'::' is OCaml's cons",         ("::", ":");
-  "'//' is a C-family comment",   ("//", "--");
-  "'#' starts a comment",         ("#", "--");
+  "cons is a single ':' in wand", ("::", ":");
+  "not '//'",                     ("//", "--");
+  "not '# ...'",                  ("#", "--");
   "not ${...}",                   ("${", "%{");
-  "#{...} is Ruby",               ("#{", "%{");
-  "'let rec' is OCaml",           ("let rec", "let");
+  "not #{...}",                   ("#{", "%{");
+  "drop the 'rec'",               ("let rec", "let");
+  "not '^'",                      ("^", "++");
   "boolean operator is '&&'",     ("and", "&&");
   "boolean operator is '||'",     ("or", "||");
   "boolean not is '!'",           ("not", "!");
