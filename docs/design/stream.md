@@ -71,11 +71,21 @@ observability granularity exactly**. `FS.read_file!` is already one
 file-level effect; a watcher today sees "this file was read", never
 "these bytes were". Streams inherit the same contract — no regression
 for watchers, no state machines for mockers, one trace line per fold.
-The consequence, stated plainly: a handler cannot observe or throttle
-mid-stream. If that is ever needed, an opt-in per-line source is an
-additive change, not a rework. `Test.with_lines path lines thunk` wraps
-the handler plumbing so test authors never meet the source's
-representation.
+`Test.with_lines path lines thunk` wraps the handler plumbing so test
+authors never meet the source's representation.
+
+The consequence, stated precisely: mid-stream powers belong to
+**participants, not wrappers**. The fold's own closure runs per line on
+the ordinary stack and can count, pace, print progress, or abort by
+raising; the runtime, which does the pulling, reports the aggregate
+(the trace line at close carries the line count). What no handler can
+do is observe or intervene *in flight* on someone else's fold — the
+same boundary `Par` already draws, where a watcher intercepts workers'
+effects but cannot pause the fan-out mid-run. The one anticipated
+victim is the deferred command-output source (`tail -f`), where a test
+plausibly wants a reactive, pull-based mock; the open effect's answer
+protocol can grow that variant additively when that source lands,
+without touching existing folds.
 
 ## Semantics, stated bluntly
 
@@ -147,8 +157,11 @@ demo, both currently read-all-then-split.
 - Bounded memory: fold a generated large file without materializing it
   (observable via `to_list` vs `fold_left` on a size that would be
   felt).
-- Fusion and early exit: `take n` stops reading (a counting mock
-  source proves how many lines were pulled).
+- Fusion and early exit: `take n` stops reading. Provable only below
+  the effect boundary — under open-granularity a wand-level mock hands
+  its lines over wholesale and cannot count pulls — so this is an
+  OCaml-level test injecting an instrumented source into the terminal
+  loop.
 - Re-enumeration re-opens (mock counts opens); `Par` workers open
   independently; stdin's second enumeration raises.
 - Interception: `Test.with_lines` feeds a fold; `without_writes` seals
