@@ -31,19 +31,19 @@ let ok label src =
 let test_ocaml_cons () =
   expect_error "h :: t"
     "let f l = match l with | h :: t -> h | [] -> 0"
-    "cons is a single ':' in wand, not '::'"
+    "cons is a single ':', not '::'"
 
 let test_ocaml_assignment () =
   expect_error "x := 3" "x := 3"
-    "wand has no mutation, so there is no ':='"
+    "there is no mutation, so there is no ':='"
 
 let test_ocaml_let_rec () =
   expect_error "top-level let rec"
     "let rec f n = if n == 0 then 1 else n * f (n - 1)\nf 3"
-    "a wand let is already recursive -- drop the 'rec'";
+    "a let is already recursive -- drop the 'rec'";
   expect_error "let rec inside an expression"
     "let g () = let rec f n = n in f 1\ng ()"
-    "a wand let is already recursive -- drop the 'rec'"
+    "a let is already recursive -- drop the 'rec'"
 
 let test_ocaml_fun_is_accepted () =
   (* `fun` is close enough to be read as `fn` rather than refused. *)
@@ -52,12 +52,12 @@ let test_ocaml_fun_is_accepted () =
 let test_ocaml_variant_of () =
   expect_error "Circle of Int"
     "type Shape = Circle of Int"
-    "a wand constructor takes its payload directly: 'Circle Int'"
+    "a constructor takes its payload directly: 'Circle Int'"
 
 let test_ocaml_try_with () =
   expect_error "try ... with cases"
     "try 1 / 0 with _ -> 0"
-    "wand's try takes no cases, so there is no 'try ... with'";
+    "try takes no cases, so there is no 'try ... with'";
   (* The idiom the check must not catch: an unparenthesized try as a
      match scrutinee, where the `with` belongs to the match. *)
   ok "match try ... with"
@@ -66,9 +66,9 @@ let test_ocaml_try_with () =
 
 let test_ocaml_unbound_names () =
   expect_error "ref" "let r = ref 3"
-    "wand has no mutation; let binds a new name instead";
+    "there is no mutation; let binds a new name instead";
   expect_error "raise" "raise \"boom\""
-    "errors are values in wand";
+    "errors are values: return an Error";
   expect_error "print_endline" "print_endline \"hi\""
     "printing is println"
 
@@ -76,15 +76,15 @@ let test_ocaml_unbound_names () =
 
 let test_haskell_lambda () =
   expect_error "backslash lambda" "let f = \\x -> x + 1"
-    "a wand lambda is 'fn x -> ...'"
+    "a lambda is 'fn x -> ...'"
 
 let test_haskell_cons_pattern () =
   expect_error "(x : xs) in a match"
     "let f l = match l with | (x : xs) -> x"
-    "a wand cons pattern is written in square brackets: [x : xs]";
+    "a cons pattern is written in square brackets: [x : xs]";
   expect_error "(x : xs) as a parameter"
     "let head (x : xs) = x"
-    "a wand cons pattern is written in square brackets: [x : xs]"
+    "a cons pattern is written in square brackets: [x : xs]"
 
 (* ── Python ───────────────────────────────────────────────────────────────── *)
 
@@ -129,28 +129,28 @@ let test_backtick_literal_percent_brace () =
 
 let test_string_concat () =
   expect_error "^ concatenation" "\"a\" ^ \"b\""
-    "string concatenation is '++' in wand, not '^'"
+    "string concatenation is '++', not '^'"
 
 let test_float_operators () =
   expect_error "*." "let a = 1.5\na *. a"
-    "wand does not spell operators differently for Float -- there is no '*.'";
+    "operators are not spelled differently for Float -- there is no '*.'";
   expect_error "+." "let a = 1.5\na +. 2.0" "there is no '+.'";
   expect_error "-." "let a = 1.5\na -. 2.0" "there is no '-.'";
   expect_error "/." "let a = 1.5\na /. 2.0" "there is no '/.'"
 
 let test_char_literal () =
   expect_error "char literal" "let c = 'x'"
-    "wand has no character literals: a one-character string is \"x\""
+    "there are no character literals: a one-character string is \"x\""
 
 let test_begin_end () =
   expect_error "begin/end block" "let x = begin 1 end\nx"
-    "wand groups expressions with parentheses, not 'begin ... end'"
+    "expressions group with parentheses, not 'begin ... end'"
 
 let test_foreign_members () =
   expect_error "List.iter" "import List\nList.iter (fn x -> x) [1]"
-    "wand's is List.each";
+    "use List.each";
   expect_error "String.sub" "import String\nString.sub \"abc\" 0 1"
-    "wand's is String.slice";
+    "use String.slice";
   expect_error "FS.read_lines" "import FS\nFS.read_lines /tmp/x"
     "FS.read_file! reads the whole file";
   expect_error "int_of_string" "int_of_string \"4\""

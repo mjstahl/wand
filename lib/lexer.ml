@@ -619,8 +619,8 @@ let next_token s =
       else
         ret Hole
     | '+' when peek s = '.' ->
-      raise (LexError "wand does not spell operators differently for Float \
-                       -- there is no '+.'")
+      raise (LexError "operators are not spelled differently for Float -- \
+                       there is no '+.'")
     | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
     | '*'  ->
       (* ** or *.foo etc → Glob; bare * → Star (multiplication) *)
@@ -631,8 +631,8 @@ let next_token s =
            mistake. A real glob always has more after the dot. *)
         (match read_path_body s prefix with
          | Glob "*." ->
-           raise (LexError "wand does not spell operators differently for \
-                            Float -- there is no '*.'")
+           raise (LexError "operators are not spelled differently for Float \
+                            -- there is no '*.'")
          | t -> ret t)
       else
         ret (if prefix = "**" then Glob "**" else Star)
@@ -648,29 +648,29 @@ let next_token s =
     | '&'  -> if peek s = '&' then ret (ignore (advance s); AmpAmp)
               else raise (LexError "unexpected '&'")
     | '^'  ->
-      raise (LexError "string concatenation is '++' in wand, not '^'")
+      raise (LexError "string concatenation is '++', not '^'")
     | '|'  -> ret (match peek s with
                | '>' -> ignore (advance s); PipeArrow
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
     | '-' when peek s = '.' ->
-      raise (LexError "wand does not spell operators differently for Float \
-                       -- there is no '-.'")
+      raise (LexError "operators are not spelled differently for Float -- \
+                       there is no '-.'")
     | '-'  ->
       ret (match peek s with
        | '>' -> ignore (advance s); Arrow
        | '-' -> LineComment (read_line_comment s)
        | _   -> Minus)
     | ':' when peek s = ':' ->
-      raise (LexError "cons is a single ':' in wand, not '::' -- \
+      raise (LexError "cons is a single ':', not '::' -- \
                        h : rest to build a list, [h : t] in a pattern")
     | ':' when peek s = '=' ->
-      raise (LexError "wand has no mutation, so there is no ':=' -- \
+      raise (LexError "there is no mutation, so there is no ':=' -- \
                        let binds a new name instead")
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/' when peek s = '/' ->
-      raise (LexError "wand comments are '-- ...' to the end of the line, \
-                       or '(* ... *)' -- not '//'")
+      raise (LexError "comments are '-- ...' to the end of the line, or \
+                       '(* ... *)' -- not '//'")
     | '/'  ->
       if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
                                || peek s = '_' || peek s = '.') then
@@ -679,8 +679,8 @@ let next_token s =
            mistake. *)
         (match read_path_body s "/" with
          | Path "/." ->
-           raise (LexError "wand does not spell operators differently for \
-                            Float -- there is no '/.'")
+           raise (LexError "operators are not spelled differently for Float \
+                            -- there is no '/.'")
          | t -> ret t)
       else ret Slash
     | '.'  ->
@@ -711,7 +711,7 @@ let next_token s =
     | '\'' ->
       if is_at_end s || not (is_lower (peek s)) then
         raise (LexError "expected a type variable like 'a after ''' -- and \
-                         wand has no character literals: a one-character \
+                         there are no character literals: a one-character \
                          string is \"x\"")
       else begin
         let buf = Buffer.create 8 in
@@ -724,12 +724,12 @@ let next_token s =
     | c when is_digit c -> ret (read_numeric s c)
     | c when is_alpha c || c = '_' -> ret (read_ident s c)
     | '\\' when is_alpha (peek s) || peek s = '_' || peek s = '(' ->
-      raise (LexError "a wand lambda is 'fn x -> ...', not '\\x -> ...'")
+      raise (LexError "a lambda is 'fn x -> ...', not '\\x -> ...'")
     (* The shebang on line one is handled in `tokenize`; any other `#` is a
        comment reflex from bash or Python. *)
     | '#' ->
-      raise (LexError "wand comments are '-- ...' to the end of the line, \
-                       or '(* ... *)' -- not '# ...'")
+      raise (LexError "comments are '-- ...' to the end of the line, or \
+                       '(* ... *)' -- not '# ...'")
     | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()

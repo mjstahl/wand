@@ -400,9 +400,9 @@ and env = (string * scheme) list
 let foreign_name_hint = function
   | "not" -> Some "boolean not is '!'"
   | "ref" | "mutable" ->
-    Some "wand has no mutation; let binds a new name instead"
+    Some "there is no mutation; let binds a new name instead"
   | "raise" | "throw" ->
-    Some "errors are values in wand: return an Error, call a !-suffixed \
+    Some "errors are values: return an Error, call a !-suffixed \
           function to raise, or wrap a call with try"
   | "printf" | "puts" | "print_endline" | "print_string" | "print_newline"
   | "print_int" | "print_float" | "console" ->
@@ -414,7 +414,7 @@ let foreign_name_hint = function
   | "nil" | "null" -> Some "absence is None, matched with 'match ... with'"
   | "is" -> Some "comparison is '=='; a missing value is matched: \
                   'match x with | None -> ...'"
-  | "begin" -> Some "wand groups expressions with parentheses, not \
+  | "begin" -> Some "expressions group with parentheses, not \
                      'begin ... end'"
   | "int_of_string" -> Some "String.to_int reads an Int out of a String \
                              (as a Result); String.of_int goes the other way"
@@ -432,12 +432,10 @@ let foreign_name_hint = function
    neighbour by spelling is 'filter', but its meaning is 'each'. *)
 let foreign_member_hint ns member =
   match ns, member with
-  | "List", "iter" -> Some "wand's is List.each"
-  | "List", "iteri" -> Some "wand's is List.each, with List.indexed for \
-                             positions"
-  | "String", "split_on_char" -> Some "wand's is String.split, and the \
-                                       separator is a String"
-  | "String", "sub" -> Some "wand's is String.slice"
+  | "List", "iter" -> Some "use List.each"
+  | "List", "iteri" -> Some "use List.each, with List.indexed for positions"
+  | "String", "split_on_char" -> Some "use String.split -- the separator is a String"
+  | "String", "sub" -> Some "use String.slice"
   | "FS", "read_lines" -> Some "FS.read_file! reads the whole file; \
                                 String.lines splits it"
   | "Shell", ("run" | "run!" | "exec" | "exec!") ->

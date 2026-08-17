@@ -357,7 +357,7 @@ let hole_json t =
    test_drift.ml locks, so rewording a message that breaks a key breaks a
    test alongside it. *)
 let drift_fixes = [
-  "cons is a single ':' in wand", ("::", ":");
+  "cons is a single ':', not '::'", ("::", ":");
   "not '//'",                     ("//", "--");
   "not '# ...'",                  ("#", "--");
   "not ${...}",                   ("${", "%{");
