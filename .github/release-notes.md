@@ -1,28 +1,27 @@
-## What's new in 0.10.0
+## What's new in 0.11.0
 
-- **Manifests can name binaries: `uses {Shell(git, curl)}`.** Literal
-  command words — the first word of each `$()`/`$?()` and of every
-  top-level `|`/`&&`/`||`/`;` stage — are checked by `wand t`, which also
-  suggests the narrowed line when it can read every word. A word decided
-  at run time is checked at the moment of spawn, catchably, and never
-  under a test mock or `--dry-run`. Names are written as they are inside
-  `$()` — `Shell(git, docker-compose, ./probe.sh)` — and bare `Shell`
-  still means any binary. The demos and examples now narrow their own
-  manifests.
-- **`;` sequences statements inside parentheses.** A function body chains
-  as `let deploy! t = ( FS.mkdir! ...; "deployed" )` — no more
-  `let () = ... in`. A `Result` discarded by `;` is flagged like any
-  other. The examples and demos are rewritten in this style, named in the
-  reference as "Style for scripts".
-- **Foreign syntax gets a correction, not a syntax error.** `h :: t`,
-  `let rec`, `Circle of Int`, `try ... with`, `\x ->`, `(x:xs)`,
-  `and`/`or`/`not`, `//` and `#` comments, `#{x}`, `:=` — each names the
-  wand spelling; unbound `ref`, `raise`, `puts`, `lambda`, `len`, ... do
-  the same.
-- **`wand t --json` grew a full diagnostic schema**: severity, stable
-  codes (including `E-TYPE`/`E-PARSE`/`E-LEX` for errors), typed-hole
-  shapes, and machine-applicable `fix` payloads — the exact manifest line
-  to insert, or `{from, to}` for drift corrections.
+- **Arithmetic is polymorphic over `Int` and `Float`.** One spelling —
+  `3.14 * r * r` just works — with one numeric type per expression,
+  never mixed implicitly. `Num` in a signature means "`Int` or `Float`,
+  decided at use", and an unpinned `let double x = x + x` serves both.
+  The new `Float` module carries the crossings (`of_int`, `round`,
+  `floor`, `ceil`, `abs`); `%` stays `Int`-only.
+- **`Stream`: fold a 10GB log in bounded memory.** A stream is an inert
+  recipe — `FS.stream_lines log |> Stream.filter p |> Stream.fold_left
+  f init` opens, streams, and closes inside the fold, and `take n`
+  stops the reading. Sources for files and stdin, `Test.with_lines`
+  for mocking, failures caught with `try` at the fold. Folding twice
+  re-runs the recipe.
+- **Error messages, round two** — grown from a measured cold-model run
+  (55 attempts and five failures under v0.9.2's errors; 24 and none
+  with the full v0.10.0+ toolchain): `^` names `++`, the OCaml float
+  operators name themselves instead of lexing into glob gibberish,
+  char literals and `begin/end` name their corrections, `List.iter`
+  says `use List.each` instead of a misleading edit-distance guess,
+  and unbound names with no better answer hand over the discovery
+  loop: `'wand env' lists the modules, 'wand env List' one module's
+  members`. All messages now name the construct, not a language —
+  `cons is a single ':', not '::'`.
 
 ---
 
