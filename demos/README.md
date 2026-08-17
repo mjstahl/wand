@@ -55,7 +55,7 @@ let levels = Stream.fold_left ? Map.empty (IO.stdin_lines ())
 ```
 
 ```
-$ wand t "$(cat summarize.wand)"
+$ wand t --file summarize.wand
 Hole: Map 'a -> String -> Map 'a ! {IO, Raise | 'e}
 ```
 
