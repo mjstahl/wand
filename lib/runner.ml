@@ -668,7 +668,7 @@ let run_item env item =
       (name, VFixGroup (bindings, env, name)) :: acc) env bindings
   | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> env  (* pre-loaded *)
   | Ast.TLLetPat (pat, e) ->
-    Evaluator.bind_pat pat (eval env e) env
+    Evaluator.bind_pat ~prefix:true pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
   | Ast.TLType (Ast.Variants (tname, params, ctors)) ->
     (* A single-constructor type with named fields can have its decoder
@@ -1282,7 +1282,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
               ) bindings
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
-              env_ref := Evaluator.bind_pat pat (eval !env_ref e) !env_ref
+              env_ref := Evaluator.bind_pat ~prefix:true pat (eval !env_ref e) !env_ref
             | Ast.TLType (Ast.Variants (_, _, ctors)) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);

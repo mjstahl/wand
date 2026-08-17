@@ -517,25 +517,30 @@ match xs with
 | _               -> "fewer than three elements"
 ```
 
-The same patterns destructure in a `let`:
+The same patterns destructure in a `let`, with one difference. A `match`
+arm states the whole shape — a longer list belongs to another arm — but a
+`let` has no other arm; it only binds. So in a `let`, a list pattern names
+the leading elements and ignores whatever follows, the way a map pattern
+binds the keys it names and ignores the rest:
 
 ```
 let xs = [1, 2, 3]
 
 let [a, b, c] = xs      -- a = 1, b = 2, c = 3
+let [a, b]    = xs      -- a = 1, b = 2, the 3 is not consulted
 let [h : t]   = xs      -- h = 1, t = [2, 3]
 ```
 
 A tuple's shape is part of its type, so destructuring one wrongly is a type
-error. A list's length is not part of its type, so a `let` that names the
-wrong number of elements is accepted and fails when it runs:
+error. A list's length is not part of its type, so a `let` that names more
+elements than the list has is accepted and fails when it runs:
 
 ```
-let [a, b] = [1, 2, 3]
+let [a, b] = [1]
 -- runtime error: pattern match failure
 ```
 
-Use `match` when the length is not known in advance.
+Use `match` when even the elements you name may not be there.
 
 Multi-equation over lists:
 
@@ -1929,9 +1934,9 @@ let [filter, map] = import List
 map (fn x -> x * 2) [1, 2]     -- [2, 4] — still List.map
 ```
 
-Only a list's shape can be wrong at run time in a way its type did not
-catch; a module is checked when it is imported, and a missing name is an
-error there.
+Only a list can be too short at run time in a way its type did not catch;
+a module is checked when it is imported, and a missing name is an error
+there.
 
 ### Stdlib bound to custom name
 

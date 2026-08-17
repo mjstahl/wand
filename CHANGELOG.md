@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.0] - Unreleased
+
+### Changed
+
+- Change a destructuring `let` to bind a list pattern's leading elements and ignore the rest, as map patterns already do with keys; `match` arms and function equations still require the exact length
+
 ## [0.11.0] - 2026-08-17
 
 ### Changed

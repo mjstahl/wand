@@ -395,7 +395,13 @@ let observed f =
 (* Installs the runtime's own handlers. Set by the runner, which owns them. *)
 let with_default_handler : ((unit -> value) -> value) ref = ref (fun f -> f ())
 
-let rec try_match (p : pat) v (env : env) : env option =
+(* In a match arm, a list pattern states the whole shape: `[a, b]` is a
+   two-element list and nothing else, because the arms discriminate and a
+   longer list belongs to another arm. A destructuring `let` has no other
+   arm -- it only binds -- so there `[a, b]` names the leading elements and
+   whatever follows is ignored, the way a map pattern binds the keys it
+   names and ignores the rest. [prefix] selects the binding reading. *)
+let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
   match p, v with
   | PVar name, v          -> Some ((name, v) :: env)
   | Wild, _               -> Some env
@@ -408,32 +414,35 @@ let rec try_match (p : pat) v (env : env) : env option =
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
-        | Some env -> try_match p v env)
+        | Some env -> try_match ~prefix p v env)
       (Some env) ps vs
-  | PList ps, VList vs when same_length ps vs ->
-    List.fold_left2
-      (fun acc p v -> match acc with
-        | None     -> None
-        | Some env -> try_match p v env)
-      (Some env) ps vs
-  | PList _, VList _ -> None
+  | PList ps, VList vs ->
+    let rec go acc ps vs =
+      match acc, ps, vs with
+      | None, _, _                 -> None
+      | Some env, [], []           -> Some env
+      | Some env, [], _ :: _       -> if prefix then Some env else None
+      | Some _, _ :: _, []         -> None
+      | Some env, p :: ps, v :: vs -> go (try_match ~prefix p v env) ps vs
+    in
+    go (Some env) ps vs
   | PCons (hp, tp), VList (v :: vs) ->
-    (match try_match hp v env with
+    (match try_match ~prefix hp v env with
      | None      -> None
-     | Some env' -> try_match tp (VList vs) env')
+     | Some env' -> try_match ~prefix tp (VList vs) env')
   | PCons _, VList [] -> None
   | PTuple ps, VConstr (_, vals) when same_length ps vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
-        | Some env -> try_match p v env)
+        | Some env -> try_match ~prefix p v env)
       (Some env) ps vals
   | PConstr (name, pats), VConstr (vname, vals)
     when name = vname && same_length pats vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
-        | Some env -> try_match p v env)
+        | Some env -> try_match ~prefix p v env)
       (Some env) pats vals
   | PConstrNamed (name, bindings), VConstr (vname, vals) when name = vname ->
     (match Hashtbl.find_opt constr_fields name with
@@ -448,7 +457,7 @@ let rec try_match (p : pat) v (env : env) : env option =
             | Some i ->
               (match List.nth_opt vals i with
                | None -> None
-               | Some v -> try_match p v env))
+               | Some v -> try_match ~prefix p v env))
        ) (Some env) bindings)
   | PMap bindings, (VMap kvs | VRecord kvs) ->
     List.fold_left (fun acc (key, p) ->
@@ -457,7 +466,7 @@ let rec try_match (p : pat) v (env : env) : env option =
       | Some env ->
         (match List.assoc_opt key kvs with
          | None   -> None
-         | Some v -> try_match p v env)
+         | Some v -> try_match ~prefix p v env)
     ) (Some env) bindings
   | _ -> None
 
@@ -553,7 +562,7 @@ let rec eval (env : env) (e : expr) : value =
         VFix (name, fenv, params, body)
       | _ -> v1
     in
-    eval (bind_pat p v1 env) e2
+    eval (bind_pat ~prefix:true p v1 env) e2
   | LetRec (bindings, e2) ->
     let env' = List.fold_left (fun acc (name, _, _) ->
       (name, VFixGroup (bindings, env, name)) :: acc) env bindings in
@@ -826,8 +835,8 @@ and apply vf vx =
   | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])
   | _ -> raise (EvalError "cannot apply a non-function")
 
-and bind_pat (p : pat) v (env : env) : env =
-  match try_match p v env with
+and bind_pat ?(prefix = false) (p : pat) v (env : env) : env =
+  match try_match ~prefix p v env with
   | Some env' -> env'
   | None      ->
     raise (EvalError (Printf.sprintf "pattern match failure"))
