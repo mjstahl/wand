@@ -110,8 +110,8 @@ Deliberately small, mirroring `List` names exactly where meanings
 match:
 
 ```
-FS.stream_lines : Path -> Stream {FS.Read} String
-IO.stdin_lines  : Unit -> Stream {IO} String
+FS.stream_lines : Path -> Stream {FS.Read, Raise} String
+IO.stdin_lines  : Unit -> Stream {IO, Raise} String
 Stream.of_list  : List 'a -> Stream {} 'a
 
 Stream.map      : ('a -> 'b ! 'e) -> Stream 'r 'a -> Stream {'r, 'e} 'b
@@ -124,7 +124,29 @@ Stream.to_list   : Stream 'r 'a -> List 'a ! 'r
 ```
 
 (The row spellings above are the intent; the implementation prints them
-however `Resource` prints its row today.) `take` is why stages are
+however `Resource` prints its row today.)
+
+**The error channel.** A recipe is inert, so `FS.stream_lines
+missing.log` succeeds and the failure surfaces at the terminal
+operation, when the open happens. That raise rides the *stream's row*,
+stamped by the source -- following the `!` convention's real rule: the
+bang marks a function's own added raise, never effects flowing through
+its parameters (`List.map` is not `map!` though `f` may raise through
+it). So the terminals stay three, un-banged, and generic; a fold's
+failures -- the source's I/O and the closure's raises alike -- arrive
+through one channel, and `try` is the one capture:
+
+```
+match try (log |> Stream.fold_left tally Map.empty) with
+| Ok counts -> ...
+| Error why -> ...
+```
+
+There are deliberately no Result-returning terminal siblings: a fold
+fails from two directions at once, and a `Result` that caught the
+source's failures but let the closure's raise past would be a lie. A
+fold over `Stream.of_list` provably cannot raise, because its row says
+so. `take` is why stages are
 interpreted by the runtime rather than desugared: `take 100` of a 10GB
 file must stop reading. Not in v1, each for a stated reason: `length`,
 `reverse`, `sort` (read-everything traps wearing innocent names —
