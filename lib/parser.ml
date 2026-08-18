@@ -215,7 +215,7 @@ let is_atom_start = function
   | Token.Duration _ | Token.Url _ | Token.IPv4 _ | Token.CIDR _
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
-  | Token.LParen | Token.LBracket
+  | Token.LParen | Token.LBracket | Token.LBrace
   | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.RunQueryRaw _
   | Token.RawStr _ | Token.RawInterpStr _
   | Token.Regex _ | Token.EnvVar _ | Token.Import
@@ -230,7 +230,7 @@ let is_expr_start = function
 let is_pat_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.RawStr _ | Token.Bool _
   | Token.Ident _ | Token.Underscore | Token.Upper _
-  | Token.LParen | Token.LBracket -> true
+  | Token.LParen | Token.LBracket | Token.LBrace -> true
   | _ -> false
 
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
@@ -269,6 +269,8 @@ let rec pat_ s =
     end
   | Token.LBracket ->
     ignore (advance s); list_pat_ s
+  | Token.LBrace ->
+    ignore (advance s); brace_map_pat_ s
   | Token.Upper name ->
     ignore (advance s);
     if peek_named_args s then begin
@@ -342,6 +344,8 @@ and pat_atom_ s =
     end
   | Token.LBracket ->
     ignore (advance s); list_pat_ s
+  | Token.LBrace ->
+    ignore (advance s); brace_map_pat_ s
   | t ->
     fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
       Token.pp t (keyword_hint t))
@@ -402,6 +406,30 @@ and list_pat_ s =
         PList !pats
       end
     end
+  end
+
+(* `{status = s, phase}` -- the brace form of a map pattern. A bare
+   identifier puns: the key binds a variable of its own name. A quoted key
+   has no identifier to pun into, so it takes `= pat` like any rename. *)
+and brace_map_pat_ s =
+  (* { already consumed *)
+  if peek s = Token.RBrace then (ignore (advance s); PMap [])
+  else begin
+    let parse_entry () =
+      match advance s with
+      | Token.Ident k ->
+        if peek s = Token.Eq then (ignore (advance s); (k, pat_ s))
+        else (k, (PVar k : pat))
+      | Token.String k ->
+        expect s Token.Eq; (k, pat_ s)
+      | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
+    in
+    let entries = ref [parse_entry ()] in
+    while peek s = Token.Comma do
+      ignore (advance s); entries := !entries @ [parse_entry ()]
+    done;
+    expect s Token.RBrace;
+    PMap !entries
   end
 
 let builtin_types = [
@@ -588,6 +616,7 @@ and atom_base_ s =
       end else (expect s Token.RParen; e)
     end
   | Token.LBracket -> list_ s
+  | Token.LBrace   -> brace_map_ s
   | Token.Let      -> let_ s
   | Token.If       -> if_ s
   | Token.Match    -> match_ s
@@ -703,6 +732,30 @@ and list_ s =
       expect s Token.RBracket;
       List !elems
     end
+  end
+
+(* `{x = 1, y = 2}` -- the brace form of a map literal. `{}` is the empty
+   map, sugar for `Map.empty`. Keys are identifiers or quoted strings, as
+   in the bracket form. *)
+and brace_map_ s =
+  (* { already consumed *)
+  if peek s = Token.RBrace then (ignore (advance s); MapLit [])
+  else begin
+    let parse_entry () =
+      let key = match advance s with
+        | Token.Ident k  -> k
+        | Token.String k -> k
+        | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
+      in
+      expect s Token.Eq;
+      (key, expr_ 0 s)
+    in
+    let entries = ref [parse_entry ()] in
+    while peek s = Token.Comma do
+      ignore (advance s); entries := !entries @ [parse_entry ()]
+    done;
+    expect s Token.RBrace;
+    MapLit !entries
   end
 
 and parse_body s =
@@ -1329,7 +1382,7 @@ let parse_program_generic ~on_item tokens =
       let saved = s.pos in
       ignore (advance s);
       (match peek s with
-       | Token.LBracket | Token.LParen ->
+       | Token.LBracket | Token.LParen | Token.LBrace ->
          (* Top-level pattern destructuring: let <pat> = <expr> *)
          let p = pat_ s in
          expect s Token.Eq;

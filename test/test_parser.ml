@@ -12,6 +12,36 @@ let e label input expected =
 let parse_program s =
   Lexer.tokenize s |> Parser.parse_program
 
+(* ── Brace maps ──────────────────────────────────────────────────────────── *)
+
+let test_brace_map_literal () =
+  e "brace map" "{x = 1, y = 2}" (MapLit [("x", Int 1); ("y", Int 2)]);
+  e "empty map" "{}" (MapLit []);
+  e "quoted key" {|{"two words" = 1}|} (MapLit [("two words", Int 1)]);
+  e "same value as brackets" "[x = 1]" (MapLit [("x", Int 1)]);
+  e "nested in interpolation" {|"%{f {x = 1}}"|}
+    (Interp ([("", App (Var "f", MapLit [("x", Int 1)]))], ""))
+
+let test_brace_map_pattern () =
+  e "rename" "match m with | {x = a} -> a"
+    (Match (Var "m", [(PMap [("x", PVar "a")], None, Var "a")]));
+  e "pun" "match m with | {x, y} -> x"
+    (Match (Var "m", [(PMap [("x", PVar "x"); ("y", PVar "y")], None, Var "x")]));
+  e "pun and rename mixed" "match m with | {x, y = b} -> b"
+    (Match (Var "m", [(PMap [("x", PVar "x"); ("y", PVar "b")], None, Var "b")]));
+  e "empty map pattern" "match m with | {} -> 0"
+    (Match (Var "m", [(PMap [], None, Int 0)]));
+  (match (try Ok (parse {|match m with | {"two words"} -> 0|})
+          with Parser.ParseError _ as e -> Error e) with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "a quoted key must not pun")
+
+let test_brace_import_destructure () =
+  let prog = parse_program "let {test} = import Test\n1" in
+  match prog.items with
+  | [TLLetPat (PMap [("test", PVar "test")], _); TLExpr _] -> ()
+  | _ -> Alcotest.fail "expected a TLLetPat with a punned PMap"
+
 (* ── Literals ────────────────────────────────────────────────────────────── *)
 
 let test_lits () =
@@ -517,6 +547,9 @@ let () =
       Alcotest.test_case "program newlines" `Quick test_program_newlines;
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
+      Alcotest.test_case "brace map literal" `Quick test_brace_map_literal;
+      Alcotest.test_case "brace map pattern" `Quick test_brace_map_pattern;
+      Alcotest.test_case "brace import destructure" `Quick test_brace_import_destructure;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "constr positional" `Quick test_constr_positional;
       Alcotest.test_case "constr positional patterns" `Quick test_constr_positional_patterns;
