@@ -849,6 +849,38 @@ let test_manifest_rejects_unknown_labels () =
     "uses {Bogus}\nlet x = 1\nx"
     "is not an effect"
 
+(* What using a member commits a file's manifest to -- the query the
+   editor's auto-import tier asks before extending `uses {...}`
+   (LSP.md §2.1). Asked of the schemes an import binds, exactly as the
+   server will ask it. *)
+let test_manifest_labels_of_member () =
+  let env =
+    let sess = Runner.make_session () in
+    match Runner.run_session sess "import FS\nimport List" with
+    | Ok (s, _) -> s.Runner.s_type_env
+    | Error m -> Alcotest.failf "imports failed: %s" m
+  in
+  let member ns name =
+    match List.assoc_opt ns env with
+    | Some (Typechecker.Namespace members) ->
+      (match List.assoc_opt name members with
+       | Some s -> s
+       | None -> Alcotest.failf "%s has no member %s" ns name)
+    | _ -> Alcotest.failf "no namespace %s" ns
+  in
+  let labels s =
+    Typechecker.manifest_labels_of_scheme s
+    |> Effect_row.EffSet.elements |> List.map Effect_row.name_of
+  in
+  Alcotest.(check (list string)) "write_file! implies FS.Write, not Raise"
+    ["FS.Write"] (labels (member "FS" "write_file!"));
+  Alcotest.(check (list string)) "read_file implies FS.Read"
+    ["FS.Read"] (labels (member "FS" "read_file"));
+  Alcotest.(check (list string)) "a polymorphic row commits to nothing"
+    [] (labels (member "List" "map"));
+  Alcotest.(check (list string)) "a namespace itself commits to nothing"
+    [] (labels (List.assoc "FS" env))
+
 
 (* ── Parentheses group a tuple ───────────────────────────────────────────── *)
 
@@ -923,6 +955,7 @@ let () =
       Alcotest.test_case "absent is unconstrained" `Quick test_no_manifest_is_unconstrained;
       Alcotest.test_case "Raise is not declared"   `Quick test_manifest_ignores_raise;
       Alcotest.test_case "unknown label rejected"  `Quick test_manifest_rejects_unknown_labels;
+      Alcotest.test_case "labels of a member"      `Quick test_manifest_labels_of_member;
     ];
     "num", [
       Alcotest.test_case "polymorphic arithmetic" `Quick test_num_arithmetic;

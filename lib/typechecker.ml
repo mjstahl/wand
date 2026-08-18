@@ -2199,6 +2199,18 @@ let rec labels_of_typ t =
    nothing about blast radius. *)
 let manifest_relevant labels = Effect_row.EffSet.remove Effect_row.Raise labels
 
+(* The manifest labels using a member commits a file to -- what typing
+   `FS.write_file!` obliges `uses {...}` to say. Concrete labels only: a
+   polymorphic row means the function passes its argument's effects
+   through, which commits the caller to nothing by itself. `Raise` is
+   excluded like everywhere manifests are concerned. Serves the editor's
+   auto-import tier (LSP.md §2.1) and the manifest check below, so the two
+   cannot disagree about what a member implies. *)
+let manifest_labels_of_scheme (s : scheme) : Effect_row.EffSet.t =
+  match s with
+  | Mono t | Poly (_, _, t) -> manifest_relevant (labels_of_typ t)
+  | Namespace _ -> Effect_row.EffSet.empty
+
 (* `?shell` narrows the Shell label to the binaries the file was seen to
    run: `uses {Shell(git, curl), FS.Write}`. Passed only when every command
    position in the file is literal, so the narrowed suggestion is never a
@@ -2351,11 +2363,8 @@ let check_manifest (prog : program) (own_env : env) =
   check_shell_words prog;
   let per_binding =
     List.filter_map (fun (name, scheme) ->
-      match scheme with
-      | Mono t | Poly (_, _, t) ->
-        let ls = manifest_relevant (labels_of_typ t) in
-        if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
-      | Namespace _ -> None
+      let ls = manifest_labels_of_scheme scheme in
+      if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
     ) own_env
   in
   let inferred =
