@@ -921,6 +921,35 @@ and load_module src_ref ~cache ~loading =
   loading := List.filter (fun p -> p <> path) !loading;
   result
 
+(* The signature of a standard library module the buffer has *not* imported:
+   the editor asks when deciding whether `FS.write_file!` can resolve, what
+   to show on hover, and what an auto-import commits the manifest to. Exact
+   name only -- the case fallback that softens `import list` at run time
+   would make an auto-edit guess, and a guessed edit is the one thing that
+   tier must never produce. Loading is exactly what `import M` does, cached
+   per process like the module caches. *)
+let stdlib_sig_cache :
+  (string, (Typechecker.env * (string * string) list) option) Hashtbl.t =
+  Hashtbl.create 8
+
+let stdlib_module_sig name :
+  (Typechecker.env * (string * string) list) option =
+  match Hashtbl.find_opt stdlib_sig_cache name with
+  | Some r -> r
+  | None ->
+    let r =
+      if not (List.mem_assoc name Stdlib_embed.table) then None
+      else
+        match
+          load_module (Module_types.resolve_stdlib name)
+            ~cache:(Hashtbl.create 8) ~loading:(ref [])
+        with
+        | (_, own_type, _, docs) -> Some (own_type, docs)
+        | exception _ -> None
+    in
+    Hashtbl.replace stdlib_sig_cache name r;
+    r
+
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 
 (* Wraps a program in the chosen mode. The mode handler sits inside the
@@ -1400,6 +1429,7 @@ type source_check = {
   sc_holes    : string list;             (* hole types, in order *)
   sc_findings : Lint.finding list;
   sc_env      : Typechecker.env;         (* the file's own names *)
+  sc_scope    : Typechecker.env;         (* everything in scope: own, imports, base *)
   sc_docs     : (string * string) list;  (* name -> doc string *)
 }
 
@@ -1434,11 +1464,12 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
-    | Ok (_, own_type_env, last_t, holes) ->
+    | Ok (full_type_env, own_type_env, last_t, holes) ->
       Ok { sc_type     = Typechecker.string_of_typ last_t;
            sc_holes    = List.map Typechecker.string_of_typ holes;
            sc_findings = Lint.check prog item_locs own_type_env;
            sc_env      = own_type_env;
+           sc_scope    = full_type_env;
            sc_docs     = prog.Ast.docs @ imp_docs }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
