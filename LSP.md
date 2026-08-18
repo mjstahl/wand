@@ -221,6 +221,9 @@ nothing applies them. Add `--fix`:
   ordered bottom-up so line numbers stay valid, then **re-checks and
   repeats to a fixed point** — a fix can unlock a further finding — with a
   small iteration cap.
+- The fix repertoire is `InsertLine`/`ReplaceLine` today (`lint.ml`);
+  `V-IMP1`'s fix — deleting the dead import — wants a `DeleteLine`
+  alongside them.
 - Requires `--file`; refuses on a parse or type error it has no fix for
   (fixing around a broken file is guesswork).
 - Prints one line per applied fix (`rule: line — what changed`); with
@@ -265,9 +268,11 @@ Each lands independently and is useful before the server exists.
 
 1. **`Runner.typecheck_source ~path src`** — the per-buffer entry point
    (`typecheck_file` reads from disk, `run_session` accumulates
-   REPL-style). Returns one structured result: diagnostics, the file's own
-   type env and docs (hover), def-site index (definition), holes with
-   locations, the manifest suggestion, the loc→type table.
+   REPL-style). **Done** (`84b5763`): returns a `source_check` record —
+   type, holes, findings, the file's own type env and docs — and
+   `typecheck_file` reads a file into it. Still to grow, as items 2–3
+   land: structured diagnostics, the def-site index, hole locations, the
+   manifest suggestion, the loc→type table.
 2. **A structured diagnostic type**, with `wand t`'s text and `--json`
    output re-expressed over it. Today the JSON path partially re-parses
    message strings for positions; the LSP must not.
