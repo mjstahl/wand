@@ -102,9 +102,14 @@ got=$(cd "$tmp" && "./$name/wand" e '1 + 1') \
 
 # ── Install ───────────────────────────────────────────────────────────────
 
+# Staged next to the destination and renamed over it: the archive's binary
+# is read-only (dune's build outputs are 555, and tar keeps that), so an
+# in-place cp over a previous install is refused -- and the rename swaps
+# the file whole, so a running wand is never overwritten mid-execution.
 mkdir -p "$install_dir"
-cp "$tmp/$name/wand" "$install_dir/wand"
-chmod +x "$install_dir/wand"
+cp "$tmp/$name/wand" "$install_dir/.wand.new.$$"
+chmod 755 "$install_dir/.wand.new.$$"
+mv -f "$install_dir/.wand.new.$$" "$install_dir/wand"
 
 say "installed wand $version to $install_dir/wand"
 

@@ -65,7 +65,7 @@ release-archive:
 	rm -rf dist/$(NAME) dist/$(NAME).tar.gz*
 	mkdir -p dist/$(NAME)
 	cp _build/default/bin/wand.exe dist/$(NAME)/wand
-	chmod +x dist/$(NAME)/wand
+	chmod 755 dist/$(NAME)/wand
 	cp LICENSE README.md dist/$(NAME)/
 	tar -czf dist/$(NAME).tar.gz -C dist $(NAME)
 	cd dist && shasum -a 256 $(NAME).tar.gz > $(NAME).tar.gz.sha256
