@@ -193,6 +193,7 @@ let capabilities : J.t =
        ("hoverProvider", `Bool true);
        ("completionProvider", `Assoc [("triggerCharacters", `List [`String "."])]);
        ("codeActionProvider", `Bool true);
+       ("definitionProvider", `Bool true);
        ("documentFormattingProvider", `Bool true);
      ]);
     ("serverInfo", `Assoc [("name", `String "wand");
@@ -298,6 +299,44 @@ let hover_markdown word (typ, doc) =
   match doc with
   | Some text -> head ^ "\n\n---\n\n" ^ text
   | None -> head
+
+(* ── Definition ──────────────────────────────────────────────────────────── *)
+
+(* Standard library sources are not files on the user's machine -- they are
+   carried in the binary -- so a jump into one lands in a virtual document
+   the client asks the server to fill (`wand/stdlibSource`). The URI names
+   the module; the content comes from the same bytes the definition sites
+   were computed from. *)
+let stdlib_uri name = "wand-stdlib:/" ^ name ^ ".wand"
+
+let location target_uri (loc : Token.loc) : J.t =
+  let l = max 0 (loc.Token.line - 1) and c = max 0 (loc.Token.col - 1) in
+  `Assoc [("uri", `String target_uri); ("range", range0 l c l c)]
+
+(* Where the name under the cursor is defined: the buffer's own definition
+   sites first; a qualified name whose namespace is a standard library
+   module jumps into its virtual document (to the member, or to the top
+   when the member is not a definition -- a label, say); a bare module name
+   jumps to the module. A namespace bound by a user import falls back to
+   the binding line, which is where the path is written. *)
+let definition_of (d : doc) uri word : J.t option =
+  let defs = match d.d_check with Some sc -> sc.Runner.sc_defs | None -> [] in
+  match String.split_on_char '.' word with
+  | [ns; m] when m <> "" ->
+    (match Runner.stdlib_module_source_and_defs ns with
+     | Some (_, mdefs) ->
+       (match List.assoc_opt m mdefs with
+        | Some loc -> Some (location (stdlib_uri ns) loc)
+        | None -> Some (location (stdlib_uri ns) (Token.point 1 1 0)))
+     | None -> Option.map (location uri) (List.assoc_opt ns defs))
+  | [plain] when plain <> "" ->
+    (match List.assoc_opt plain defs with
+     | Some loc -> Some (location uri loc)
+     | None ->
+       if List.mem_assoc plain Stdlib_embed.table
+       then Some (location (stdlib_uri plain) (Token.point 1 1 0))
+       else None)
+  | _ -> None
 
 (* ── Completion ──────────────────────────────────────────────────────────── *)
 
@@ -569,6 +608,23 @@ let handle (st : state) (msg : J.t) : state * J.t list =
   | Some "textDocument/completion" ->
     at_position (fun _uri d l c line_text ->
       (st, [response id (`List (completion_items d l line_text c))]))
+  | Some "textDocument/definition" ->
+    at_position (fun uri d _l c line_text ->
+      match word_at line_text c with
+      | None -> (st, [response id `Null])
+      | Some (word, _, _) ->
+        (match definition_of d uri word with
+         | Some loc -> (st, [response id loc])
+         | None -> (st, [response id `Null])))
+  | Some "wand/stdlibSource" ->
+    (* The client's virtual-document provider asking for a module's text. *)
+    (match str (mem "uri" params) with
+     | Some u ->
+       let name = Filename.remove_extension (Filename.basename (path_of_uri u)) in
+       (match Runner.stdlib_module_source_and_defs name with
+        | Some (src, _) -> (st, [response id (`String src)])
+        | None -> (st, [response id `Null]))
+     | None -> (st, [response id `Null]))
   | Some "textDocument/codeAction" ->
     (match uri_of () with
      | Some uri ->

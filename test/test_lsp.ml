@@ -338,6 +338,64 @@ let test_formatting () =
   Alcotest.(check bool) "fixed point means no edits" true
     (response_for 21 outs = `List [])
 
+(* ── Definition ──────────────────────────────────────────────────────────── *)
+
+let test_definition_same_file () =
+  let text = "let helper x = x + 1\nlet run = helper 2\nrun\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 22 "textDocument/definition" uri 1 12]
+  in
+  match response_for 22 outs with
+  | `Null -> Alcotest.fail "expected a definition"
+  | result ->
+    Alcotest.(check string) "in the same buffer" uri (s (m "uri" result));
+    Alcotest.(check int) "on the defining line" 0
+      (int_of (m "line" (m "start" (m "range" result))))
+
+let test_definition_stdlib_member () =
+  let text = "import List\nlet y = List.map (fn x -> x) [1]\ny\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 23 "textDocument/definition" uri 1 13]
+  in
+  match response_for 23 outs with
+  | `Null -> Alcotest.fail "expected a definition"
+  | result ->
+    Alcotest.(check string) "a stdlib virtual document" "wand-stdlib:/List.wand"
+      (s (m "uri" result));
+    (* `let map` sits below the module's own imports and doc comment. *)
+    Alcotest.(check bool) "at the member, not the top" true
+      (int_of (m "line" (m "start" (m "range" result))) > 0)
+
+let test_definition_bare_module () =
+  let (_, outs) =
+    session [did_open uri "import List\nList.length [1]\n";
+             at_position 24 "textDocument/definition" uri 0 9]
+  in
+  match response_for 24 outs with
+  | `Null -> Alcotest.fail "expected a definition"
+  | result ->
+    Alcotest.(check string) "the module's document" "wand-stdlib:/List.wand"
+      (s (m "uri" result));
+    Alcotest.(check int) "at the top" 0
+      (int_of (m "line" (m "start" (m "range" result))))
+
+let test_stdlib_source_request () =
+  let (_, outs) =
+    session [request 25 "wand/stdlibSource"
+               (`Assoc [("uri", `String "wand-stdlib:/List.wand")])]
+  in
+  (match response_for 25 outs with
+   | `String src ->
+     Alcotest.(check bool) "serves the module's source" true
+       (contains src "let map")
+   | _ -> Alcotest.fail "expected the source text");
+  let (_, outs) =
+    session [request 26 "wand/stdlibSource"
+               (`Assoc [("uri", `String "wand-stdlib:/Nope.wand")])]
+  in
+  Alcotest.(check bool) "unknown module is null" true
+    (response_for 26 outs = `Null)
+
 (* ── Auto-edits on didChange (LSP.md §2.1) ───────────────────────────────── *)
 
 let apply_edits_of outs =
@@ -429,6 +487,12 @@ let () =
     ];
     "formatting", [
       Alcotest.test_case "whole document"  `Quick test_formatting;
+    ];
+    "definition", [
+      Alcotest.test_case "same file"      `Quick test_definition_same_file;
+      Alcotest.test_case "stdlib member"  `Quick test_definition_stdlib_member;
+      Alcotest.test_case "bare module"    `Quick test_definition_bare_module;
+      Alcotest.test_case "stdlib source"  `Quick test_stdlib_source_request;
     ];
     "auto-edits", [
       Alcotest.test_case "fires on completion" `Quick test_auto_import_fires_on_completion;

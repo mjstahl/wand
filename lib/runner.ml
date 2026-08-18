@@ -950,6 +950,59 @@ let stdlib_module_sig name :
     Hashtbl.replace stdlib_sig_cache name r;
     r
 
+(* Where a program's names are defined: each top-level binding, pattern
+   name, type and constructor, at its item's first token. Imports are left
+   out on purpose -- `import FS` binds FS, but the definition a jump wants
+   is the module's source, which the editor reaches through the stdlib
+   tables rather than a line that merely names it. *)
+let defs_of_program (prog : Ast.program)
+    (item_locs : (Token.loc * Token.loc) list) : (string * Token.loc) list =
+  let locs = Array.of_list item_locs in
+  List.concat
+    (List.mapi (fun i (item : Ast.top_item) ->
+       let loc =
+         if i < Array.length locs then fst locs.(i) else Token.point 1 1 0
+       in
+       let names = match item with
+         | Ast.TLLet (name, _, _) -> [name]
+         | Ast.TLLetRec bs -> List.map (fun (n, _, _) -> n) bs
+         | Ast.TLLetPat (pat, _) -> Lint.pat_names pat
+         | Ast.TLType (Ast.Variants (tname, _, ctors)) ->
+           tname :: List.map (fun (c : Ast.ctor_def) -> c.Ast.name) ctors
+         | Ast.TLImport _ | Ast.TLExpr _ -> []
+       in
+       List.map (fun n -> (n, loc)) names)
+       prog.Ast.items)
+
+(* A standard library module's source text and definition sites, for the
+   editor's go-to-definition: the jump target is a virtual document served
+   from these same bytes, so the two cannot disagree. Parse only -- no
+   inference -- and cached per process. *)
+let stdlib_src_cache :
+  (string, (string * (string * Token.loc) list) option) Hashtbl.t =
+  Hashtbl.create 8
+
+let stdlib_module_source_and_defs name :
+  (string * (string * Token.loc) list) option =
+  match Hashtbl.find_opt stdlib_src_cache name with
+  | Some r -> r
+  | None ->
+    let r =
+      if not (List.mem_assoc name Stdlib_embed.table) then None
+      else
+        match
+          let src =
+            Module_types.read_source (Module_types.resolve_stdlib name) in
+          let (prog, item_locs) =
+            Parser.parse_program_with_locs (Lexer.tokenize src) in
+          (src, defs_of_program prog item_locs)
+        with
+        | r -> Some r
+        | exception _ -> None
+    in
+    Hashtbl.replace stdlib_src_cache name r;
+    r
+
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 
 (* Wraps a program in the chosen mode. The mode handler sits inside the
@@ -1431,6 +1484,7 @@ type source_check = {
   sc_env      : Typechecker.env;         (* the file's own names *)
   sc_scope    : Typechecker.env;         (* everything in scope: own, imports, base *)
   sc_docs     : (string * string) list;  (* name -> doc string *)
+  sc_defs     : (string * Token.loc) list;  (* name -> its definition site *)
 }
 
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
@@ -1470,7 +1524,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
            sc_findings = Lint.check prog item_locs own_type_env;
            sc_env      = own_type_env;
            sc_scope    = full_type_env;
-           sc_docs     = prog.Ast.docs @ imp_docs }
+           sc_docs     = prog.Ast.docs @ imp_docs;
+           sc_defs     = defs_of_program prog item_locs }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
     | Typechecker.TypeErrorAt _ | Failure _) as e ->
