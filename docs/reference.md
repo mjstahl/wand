@@ -2982,17 +2982,18 @@ wand e "1 + 2"                        # evaluate and print result
 wand e --load config.wand "host"      # evaluate in context of a file
 wand t "List.map"                     # typecheck only
 wand d "List.map"                     # show doc string
-wand env                              # list all names and modules in scope
-wand fmt script.wand                  # format a file in place
-wand fmt stdlib/*.wand                # format multiple files in place
-wand test                             # run every test_*.wand from here down
-wand test test_deploy.wand            # run named test files
+wand v                                # list all names and modules in scope
+wand v List                           # list one module's members
+wand f script.wand                    # format a file in place
+wand f stdlib/*.wand                  # format multiple files in place
+wand s                                # run every test_*.wand from here down
+wand s test_deploy.wand               # run named test files
 wand h                                # show all commands
 wand h e                              # help for a specific command
 wand --version                        # print the version, as `wand 0.1.0`
 ```
 
-Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `fmt`/`format`, `h`/`help`.
+Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `v`/`env`, `f`/`fmt`, `s`/`test`, `h`/`help`.
 
 ### Lints
 

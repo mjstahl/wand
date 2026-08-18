@@ -6,15 +6,15 @@ let usage () =
   print_endline "       wand <file.wand> [args]";
   print_endline "";
   print_endline "Commands:";
-  print_endline "  i, interactive   Start an interactive session";
-  print_endline "  e, eval <expr>   Evaluate an expression and exit";
-  print_endline "  t, type <expr>   Typecheck an expression without evaluating";
-  print_endline "  d, doc  <name>   Print the doc string for a name";
-  print_endline "  env              List all names and modules in scope";
-  print_endline "  fmt, format <file>  Format a .wand file in place";
-  print_endline "  test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
-  print_endline "  h, help [cmd]    Show this help, or help for a command";
-  print_endline "  version          Print the version and exit (--version, -V)";
+  print_endline "  i   interactive             Start an interactive session";
+  print_endline "  e   eval <expr>             Evaluate an expression and exit";
+  print_endline "  t   type <expr>             Typecheck an expression without evaluating";
+  print_endline "  d   doc <name>              Print the doc string for a name";
+  print_endline "  v   env [module]            List names and modules in scope";
+  print_endline "  f   fmt <file>...           Format .wand files in place";
+  print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
+  print_endline "  h   help [cmd]              Show this help, or help for a command";
+  print_endline "      version                 Print the version and exit (--version, -V)";
   print_endline "";
   print_endline "Running a script:";
   print_endline "  --dry-run        Report what the script would change, without doing it";
@@ -61,16 +61,24 @@ let usage_for sub =
     print_endline "";
     print_endline "Options:";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
-  | "fmt" | "format" ->
-    print_endline "Usage: wand fmt <file.wand>...";
+  | "v" | "env" ->
+    print_endline "Usage: wand v [--load <file>]... [module]";
+    print_endline "";
+    print_endline "List all names and modules in scope, or one module's members:";
+    print_endline "wand v List shows every List export with its signature.";
+    print_endline "";
+    print_endline "Options:";
+    print_endline "  --load <file>   Load a .wand file first (repeatable)"
+  | "f" | "fmt" ->
+    print_endline "Usage: wand f <file.wand>...";
     print_endline "";
     print_endline "Format one or more .wand files in place (each file is";
     print_endline "overwritten with its formatted contents).";
     print_endline "Comments are preserved. An item with a comment inside it is";
     print_endline "left exactly as written, since moving a comment to the wrong";
     print_endline "expression is worse than leaving it where its author put it."
-  | "test" ->
-    print_endline "Usage: wand test [<file.wand>|<dir>]...";
+  | "s" | "test" ->
+    print_endline "Usage: wand s [<file.wand>|<dir>]...";
     print_endline "";
     print_endline "Run .wand test files (let [test] = import Test;";
     print_endline "test \"label\" (fn t -> t.ok/t.eq/t.raises ...)) and report";
@@ -288,7 +296,7 @@ let () =
           | None     -> Printf.printf "%s: no doc\n" name)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
-    | "env" ->
+    | "v" | "env" ->
       let (loads, rest') = parse_loads rest in
       (* `wand env <module>` needs only that module; bare `wand env` lists
          everything in scope, so it does load them all. *)
@@ -314,10 +322,10 @@ let () =
            | Wand.Typechecker.Namespace _ -> print_endline name
            | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
          ) entries)
-    | "fmt" | "format" ->
+    | "f" | "fmt" ->
       (match rest with
        | [] ->
-         Printf.eprintf "Error: expected one or more files\nRun 'wand h fmt' for usage.\n"; exit 1
+         Printf.eprintf "Error: expected one or more files\nRun 'wand h f' for usage.\n"; exit 1
        | paths ->
          let had_error = ref false in
          List.iter (fun path ->
@@ -336,7 +344,7 @@ let () =
                 had_error := true; Printf.eprintf "Error: %s: parse error: %s\n" path m)
          ) paths;
          if !had_error then exit 1)
-    | "test" ->
+    | "s" | "test" ->
       (* No argument means the directory you are standing in, which is what
          you want after editing a script: run its tests without naming them.
          A directory argument searches it the same way; a file is run as
