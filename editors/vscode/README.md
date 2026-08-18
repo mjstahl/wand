@@ -24,15 +24,18 @@ the compiler.
   setting).
 - **Go to definition**, including into the standard library — stdlib
   sources are embedded in the binary and open as read-only documents.
-- **Rehearse lens** on the `uses {...}` line: one click runs
+- **Rehearse lens** on the `uses {...}` line (or the first line, for a
+  file without a manifest): one click runs
   `wand --dry-run` on the file in the integrated terminal, showing what a
   real run would do without doing it.
 
 ## Requirements
 
-A `wand` binary on `PATH` (or point `wand.path` at one) with the
-`wand lsp` subcommand — a build from `main`, or any release after 0.12.0.
-The server ships inside the binary, so there is nothing else to install.
+A `wand` binary with the `wand lsp` subcommand — a build from `main`, or
+any release after 0.12.0. The server ships inside the binary, so there is
+nothing else to install. The extension finds it on `PATH`, or failing that
+in the places installs land (`~/.local/bin`, Homebrew's prefixes) — set
+`wand.path` only for a binary somewhere else.
 
 ## Building and installing from the repo
 
@@ -40,11 +43,12 @@ The extension is not on the Marketplace yet; build and side-load it:
 
 ```sh
 cd editors/vscode
-npm install
-npm run compile
-npx vsce package             # produces wand-<version>.vsix
-code --install-extension wand-*.vsix
+make install
 ```
+
+That runs `npm install`, compiles, packages the `.vsix`, and installs it
+with `code --install-extension`. `make package` stops after building the
+`.vsix`, for installing by hand.
 
 ## Settings
 

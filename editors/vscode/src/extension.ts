@@ -12,11 +12,32 @@ import {
 import {
   LanguageClient, LanguageClientOptions, ServerOptions,
 } from 'vscode-languageclient/node';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { delimiter, join } from 'path';
 
 let client: LanguageClient | undefined;
 
-const wandPath = () =>
-  workspace.getConfiguration('wand').get<string>('path', 'wand');
+// A GUI-launched VS Code does not carry the shell's PATH, so the bare
+// default `wand` can be unspawnable even when the terminal finds it. When
+// the setting is that default and PATH has no wand, fall back to the
+// places installs land: install.sh's ~/.local/bin, then Homebrew's.
+const wandPath = () => {
+  const configured =
+    workspace.getConfiguration('wand').get<string>('path', 'wand');
+  if (configured !== 'wand') { return configured; }
+  const onPath = (process.env.PATH ?? '').split(delimiter)
+    .some((dir) => dir !== '' && existsSync(join(dir, 'wand')));
+  if (onPath) { return configured; }
+  for (const candidate of [
+    join(homedir(), '.local', 'bin', 'wand'),
+    '/usr/local/bin/wand',
+    '/opt/homebrew/bin/wand',
+  ]) {
+    if (existsSync(candidate)) { return candidate; }
+  }
+  return configured;
+};
 
 export async function activate(context: ExtensionContext) {
   const serverOptions: ServerOptions = { command: wandPath(), args: ['lsp'] };
@@ -37,22 +58,25 @@ export async function activate(context: ExtensionContext) {
       },
     }));
 
-  // The "Rehearse" lens on the manifest line. The manifest is the first
-  // statement of a file, so only the opening lines are scanned.
+  // The "Rehearse" lens sits on the manifest line when the file has one
+  // (it is the first statement, so only the opening lines are scanned),
+  // and on the first line otherwise -- every file can be rehearsed.
   context.subscriptions.push(
     languages.registerCodeLensProvider({ language: 'wand' }, {
       provideCodeLenses(doc: TextDocument): CodeLens[] {
+        let anchor = 0;
         for (let line = 0; line < Math.min(doc.lineCount, 10); line++) {
-          const text = doc.lineAt(line).text;
-          if (/^\s*uses\s*\{/.test(text)) {
-            return [new CodeLens(new Range(line, 0, line, text.length), {
-              title: 'Rehearse (dry run)',
-              command: 'wand.rehearse',
-              arguments: [doc.uri],
-            })];
+          if (/^\s*uses\s*\{/.test(doc.lineAt(line).text)) {
+            anchor = line;
+            break;
           }
         }
-        return [];
+        const text = doc.lineAt(anchor).text;
+        return [new CodeLens(new Range(anchor, 0, anchor, text.length), {
+          title: 'Rehearse (dry run)',
+          command: 'wand.rehearse',
+          arguments: [doc.uri],
+        })];
       },
     }));
 
@@ -63,7 +87,9 @@ export async function activate(context: ExtensionContext) {
       const term = window.terminals.find((t) => t.name === 'wand rehearse')
         ?? window.createTerminal('wand rehearse');
       term.show(true);
-      term.sendText(`${wandPath()} --dry-run ${JSON.stringify(file)}`);
+      // stdin comes from /dev/null: a script that reads stdin (IO.stdin_lines)
+      // rehearses against empty input instead of blocking on the terminal.
+      term.sendText(`${wandPath()} --dry-run ${JSON.stringify(file)} < /dev/null`);
     }));
 
   await client.start();

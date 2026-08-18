@@ -2,7 +2,7 @@
   "name": "wand",
   "displayName": "wand",
   "description": "Language support for wand: diagnostics, hover with effect rows, completion with auto-import, quick fixes, formatting, and a dry-run lens.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "mjstahl",
   "license": "MIT",
   "repository": {
@@ -18,6 +18,9 @@
     "Formatters"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:wand"
+  ],
   "contributes": {
     "languages": [
       {
@@ -68,6 +71,7 @@
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
+    "@vscode/vsce": "^3.0.0",
     "@types/vscode": "^1.82.0",
     "typescript": "^5.4.0"
   }
