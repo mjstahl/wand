@@ -2960,16 +2960,16 @@ Special commands:
 
 | Command | Long form | Description |
 |---|---|---|
-| `:t <expr>` | `:type` | Show type without evaluating |
+| `:c` | `:clear` | Clear the screen |
 | `:d <name>` | `:doc` | Show doc string |
 | `:e [name]` | `:edit` | Open a definition in `$EDITOR` |
+| `:h` | `:help` | List these commands |
 | `:l <path>` | `:load` | Load a `.wand` file into the session |
 | `:r` | `:reload` | Reload the last loaded file |
-| `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
-| `:c` | `:clear` | Clear the screen |
 | `:s` | `:reset` | Clear the screen and all session bindings |
+| `:t <expr>` | `:type` | Show type without evaluating |
+| `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
 | `:x` | `:exit` | Exit interactive mode |
-| `:h` | `:help` | List these commands |
 
 Multi-line input is detected automatically (unclosed brackets, trailing `->`, `=`, `|`, etc.). A blank continuation line submits the accumulated input.
 
@@ -2978,22 +2978,22 @@ History is saved to `~/.wand_history` between sessions.
 ### One-shot commands
 
 ```
+wand d "List.map"                     # show doc string
 wand e "1 + 2"                        # evaluate and print result
 wand e --load config.wand "host"      # evaluate in context of a file
-wand t "List.map"                     # typecheck only
-wand d "List.map"                     # show doc string
-wand v                                # list all names and modules in scope
-wand v List                           # list one module's members
 wand f script.wand                    # format a file in place
 wand f stdlib/*.wand                  # format multiple files in place
-wand s                                # run every test_*.wand from here down
-wand s test_deploy.wand               # run named test files
 wand h                                # show all commands
 wand h e                              # help for a specific command
+wand s                                # run every test_*.wand from here down
+wand s test_deploy.wand               # run named test files
+wand t "List.map"                     # typecheck only
+wand v                                # list all names and modules in scope
+wand v List                           # list one module's members
 wand V                                # print the version, as `wand 0.1.0`
 ```
 
-Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `v`/`env`, `f`/`fmt`, `s`/`test`, `h`/`help`, `V`/`version`.
+Each subcommand has a full-word alias: `d`/`doc`, `e`/`eval`, `f`/`fmt`, `h`/`help`, `i`/`interactive`, `s`/`test`, `t`/`type`, `v`/`env`, `V`/`version`.
 
 ### Lints
 

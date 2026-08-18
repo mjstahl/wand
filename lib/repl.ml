@@ -246,14 +246,14 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     exit 0
   | ":h" | ":help" ->
     print_endline "Commands:";
-    print_endline "  :t <expr>    (:type)   — show type without evaluating";
+    print_endline "  :c           (:clear)  — clear the screen";
     print_endline "  :d <name>    (:doc)    — show doc string";
     print_endline "  :e [name]    (:edit)   — open definition in $EDITOR";
     print_endline "  :l <path>    (:load)   — load a .wand file into session";
     print_endline "  :r           (:reload) — reload last loaded file";
-    print_endline "  :v [module]  (:env)    — list bindings and modules; :v List shows List members";
-    print_endline "  :c           (:clear)  — clear the screen";
     print_endline "  :s           (:reset)  — clear the screen and all session bindings";
+    print_endline "  :t <expr>    (:type)   — show type without evaluating";
+    print_endline "  :v [module]  (:env)    — list bindings and modules; :v List shows List members";
     print_endline "  :x           (:exit)   — exit interactive mode";
     flush stdout;
     sess
