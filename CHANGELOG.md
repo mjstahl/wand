@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.17.0] - 2026-08-18
+
+### Changed
+
+- Change map syntax to braces: `{x = 1, y = 2}` literals, `{}` as the
+  empty map (sugar for `Map.empty`, which stays), and brace map patterns
+  that pun — `{status}` binds the key's value to a variable of its own
+  name, `{x = a}` renames, and a quoted key takes `= pat`. Import
+  destructuring follows: `let {test} = import Test`. Map values print in
+  braces, and `wand fmt` writes every bracket form back as braces
+  (`253ae90`, `1cdb76d`, `5ab4922`, `c9b793d`)
+- Change the formatter to write a single-constructor type whose
+  constructor repeats the type's name as the shorthand the parser already
+  reads: `type Container(name: String, ready: Bool)` — named fields only;
+  positional payloads, differently named constructors, and
+  multi-constructor types keep the long form (`8f2f4d5`)
+
+### Added
+
+- Add `A-MAP1`: a map still written in brackets is an advisory finding
+  carrying the flagged line with its brackets flipped, so `wand t --fix`
+  migrates a file finding by finding to a fixed point. The bracket forms
+  parse for this release and are removed in the next (`90f40eb`)
+
+[0.17.0]: https://github.com/mjstahl/wand/releases/tag/v0.17.0
+
 ## [0.16.0] - 2026-08-18
 
 ### Changed

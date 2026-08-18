@@ -1,28 +1,20 @@
-## 0.16.0 - 2026-08-18
+## 0.17.0 - 2026-08-18
 
-Two formatter changes, both about writing what you meant more plainly.
+Maps move to braces — the form your hands already know:
 
-### Changed
+    let pod = {name = "web-01", restarts = 4}
+    let {name, restarts = n} = pod        -- punning, and a rename
+    let {test} = import Test
 
-- A match nested inside another match's arm now formats as an indented
-  block: the opening paren ends the arrow's line, the nested match sits
-  two spaces deeper than the outer arm, and the closing paren returns to
-  the outer arm's column:
+`{}` is the empty map (`Map.empty` stays), map values print in braces,
+and brackets now mean lists and nothing else. The old `[x = 1]` forms
+still parse this release: `wand fmt` migrates whole files, `wand t --fix`
+applies the `A-MAP1` finding's carried fix line by line, and the brackets
+are removed in the next release.
 
-      | Some l -> (
-        match Map.get l tally with
-        | None -> Map.set l 1 tally
-        | Some n -> Map.set l (n + 1) tally
-      )
-
-  Handler arms with a match body format the same way (`44e66fe`)
-- A string escaping its quotes moves between backticks, where a quote is a
-  quote: `"say \"hi\""` becomes `` `say "hi"` ``, splices intact. The
-  quoted form stays when backticks could not reproduce the value exactly
-  and visibly — a backtick in the text, a literal `%{`, or control
-  characters (`9624144`)
-- The demos and decode examples are reformatted accordingly — inline JSON
-  in the examples loses its backslashes (`44e66fe`, `9624144`)
+Also in 0.17.0: a single-constructor type whose constructor repeats the
+type's name formats as the shorthand — `type Container(name: String,
+ready: Bool)`.
 
 ---
 
