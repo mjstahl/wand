@@ -62,6 +62,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_fix)
+ (libraries wand alcotest))
+
+(test
  (name test_wand_stdlib)
  (deps
   wand/test_path.wand

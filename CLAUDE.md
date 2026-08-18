@@ -82,16 +82,18 @@ disagrees with.
 Write the script, then let the tools drive the edits:
 
 ```bash
-wand t --file script.wand    # typecheck a file (wand t "expr" for a snippet)
-wand fmt script.wand         # format in place
-wand test                    # run every test_*.wand from here down
-wand --dry-run script.wand   # report what it would change, without doing it
-wand script.wand             # the real run
+wand t --file script.wand        # typecheck a file (wand t "expr" for a snippet)
+wand t --fix --file script.wand  # apply the fixes findings carry (manifest lines, dead imports)
+wand fmt script.wand             # format in place
+wand test                        # run every test_*.wand from here down
+wand --dry-run script.wand       # report what it would change, without doing it
+wand script.wand                 # the real run
 ```
 
 Never write effect annotations by hand. `wand t` tells you the manifest line
-to add — paste exactly what it suggests. `--dry-run` comes before any real
-run of a script that writes or deploys.
+to add, and `wand t --fix` applies it (with any other carried fixes) in
+place. `--dry-run` comes before any real run of a script that writes or
+deploys.
 
 ### Manifest and effects
 

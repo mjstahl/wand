@@ -704,7 +704,7 @@ let type_of label src =
        (match Typechecker.infer_program_full_with_own
                 ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
         | Ok (_, _, t, _) -> Ok (Typechecker.string_of_typ t)
-        | Error (_, e) -> Error e)
+        | Error (_, e, _) -> Error e)
      with
      | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
        | Typechecker.TypeErrorAt _) as e -> Error (Runner.legacy_of_exn e)

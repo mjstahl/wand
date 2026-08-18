@@ -2199,6 +2199,18 @@ let rec labels_of_typ t =
    nothing about blast radius. *)
 let manifest_relevant labels = Effect_row.EffSet.remove Effect_row.Raise labels
 
+(* When a manifest error can be corrected mechanically, the corrected line
+   rides beside the exception rather than only inside its prose -- set just
+   before the raise, collected by the entry points into the structured
+   error. Never set for widening to bare `Shell`: erasing a narrowing the
+   author wrote is not a correction a tool should make on its own. *)
+let pending_fix : Diag.fix option ref = ref None
+
+let take_pending_fix () =
+  let f = !pending_fix in
+  pending_fix := None;
+  f
+
 (* The manifest labels using a member commits a file to -- what typing
    `FS.write_file!` obliges `uses {...}` to say. Concrete labels only: a
    polymorphic row means the function passes its argument's effects
@@ -2309,6 +2321,9 @@ let check_shell_words (prog : program) =
         if not (List.mem word !words) then words := word :: !words;
         (match allow with
          | Some allow_list when not (Shell_scan.allowed ~allow:allow_list word) ->
+           (match corrected_with word with
+            | "" -> ()
+            | line -> pending_fix := Some (Diag.ReplaceLine line));
            raise (TypeErrorAt (loc, Printf.sprintf
              "this command runs '%s', which %s does not allow.\n       \
               The manifest could be:  \"%s\""
@@ -2407,12 +2422,14 @@ let check_manifest (prog : program) (own_env : env) =
         | Some (name, _) -> Printf.sprintf "'%s' " name
         | None -> ""
       in
+      let corrected = render_manifest ?shell:(shell_suggestion ()) inferred in
+      pending_fix := Some (Diag.ReplaceLine corrected);
       raise (TypeErrorAt (loc, Printf.sprintf
         "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  \"%s\""
         where
         (String.concat ", "
           (List.map Effect_row.name_of (Effect_row.EffSet.elements missing)))
-        (render_manifest ?shell:(shell_suggestion ()) inferred)))
+        corrected))
     end
 
 (* Single inference pass: builds env and returns (tenv, full_env, own_env, last_expr_typ). *)
@@ -2429,6 +2446,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   last_shell_words := [];
   last_shell_static := true;
   last_shell_allow := None;
+  pending_fix := None;
   current_eff := Effect_row.fresh_row ();
   holes := [];
   let local_tenv = List.filter_map (function
@@ -2563,14 +2581,17 @@ let string_of_scheme = function
   | Mono t | Poly (_, _, t) -> string_of_typ t
   | Namespace _           -> "<namespace>"
 
+(* The Error side is (position, message, correction): everything the raise
+   site knew, as data. *)
 let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
     ?(init_env=[]) (prog : program)
-    : (env * env * typ * typ list, Token.loc option * string) result =
+    : (env * env * typ * typ list,
+       Token.loc option * string * Diag.fix option) result =
   try
     let (_, full_env, own_env, last_t) =
       infer_program_ ~base_env ~init_tenv ~init_env prog in
     let hole_types = List.rev_map repr !holes in
     Ok (full_env, own_env, last_t, hole_types)
   with
-  | TypeError msg -> Error (None, msg)
-  | TypeErrorAt (loc, msg) -> Error (Some loc, msg)
+  | TypeError msg -> Error (None, msg, take_pending_fix ())
+  | TypeErrorAt (loc, msg) -> Error (Some loc, msg, take_pending_fix ())

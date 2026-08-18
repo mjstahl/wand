@@ -1253,7 +1253,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error (loc, msg) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
+    | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
         let seen = Hashtbl.create 16 in
@@ -1433,7 +1433,7 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     in
     match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
-    | Error (loc, msg) -> Error (Diag.error ~code:"E-TYPE" ?loc msg)
+    | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (_, own_type_env, last_t, holes) ->
       Ok { sc_type     = Typechecker.string_of_typ last_t;
            sc_holes    = List.map Typechecker.string_of_typ holes;
@@ -1491,7 +1491,7 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error (loc, msg) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
+    | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (_, own_type_env, _, _) -> Ok (Lint.check prog item_locs own_type_env)
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
@@ -1508,7 +1508,7 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error (loc, msg) -> Error (Diag.error ~code:"E-TYPE" ?loc msg)
+    | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, _, last_t, hole_types) ->
       if hole_types <> [] then
         Ok (RHoles (List.map Typechecker.string_of_typ hole_types))

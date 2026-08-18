@@ -11,6 +11,7 @@ type severity = Error | Warning
 type fix =
   | InsertLine  of string   (* a line the file lacks (the manifest) *)
   | ReplaceLine of string   (* the corrected form of the flagged line *)
+  | DeleteLine              (* the flagged line should not exist (a dead import) *)
   | Replace     of { from_ : string; to_ : string }
 
 type t = {
@@ -45,11 +46,16 @@ let drift_fixes = [
   "boolean not is '!'",           ("not", "!");
 ]
 
-let error ~code ?loc message =
+(* An explicit `fix` (a structured correction the raise site computed)
+   wins; otherwise the drift table is consulted. *)
+let error ~code ?loc ?fix message =
   let fix =
-    match List.find_opt (fun (frag, _) -> contains message frag) drift_fixes with
-    | Some (_, (from_, to_)) -> Some (Replace { from_; to_ })
-    | None -> None
+    match fix with
+    | Some _ -> fix
+    | None ->
+      (match List.find_opt (fun (frag, _) -> contains message frag) drift_fixes with
+       | Some (_, (from_, to_)) -> Some (Replace { from_; to_ })
+       | None -> None)
   in
   { severity = Error; code; loc; message; fix }
 
@@ -88,6 +94,7 @@ let escape_json s =
 let fix_json = function
   | InsertLine l  -> Printf.sprintf "{\"insert_line\":\"%s\"}" (escape_json l)
   | ReplaceLine l -> Printf.sprintf "{\"replace_line\":\"%s\"}" (escape_json l)
+  | DeleteLine    -> "{\"delete_line\":true}"
   | Replace { from_; to_ } ->
     Printf.sprintf "{\"replace\":{\"from\":\"%s\",\"to\":\"%s\"}}"
       (escape_json from_) (escape_json to_)

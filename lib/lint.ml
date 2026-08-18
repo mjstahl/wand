@@ -12,6 +12,7 @@
 type fix = Diag.fix =
   | InsertLine  of string   (* a line the file lacks (the manifest) *)
   | ReplaceLine of string   (* the corrected form of the flagged line *)
+  | DeleteLine              (* the flagged line should not exist *)
   | Replace     of { from_ : string; to_ : string }  (* drift errors only *)
 
 type finding = {
@@ -205,7 +206,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
           let this = import_display k in
           (match List.assoc_opt n !imports_seen with
            | Some (first_loc, first_mod) ->
-             add Lint_rules.V_IMP1 first_loc
+             (* The dead binding is the earlier one, so the fix deletes the
+                line the finding already points at. *)
+             add ~fix:DeleteLine Lint_rules.V_IMP1 first_loc
                (Lint_rules.imp1 ~name:n ~first:first_mod ~second:this
                   ~line:loc.Token.line)
            | None -> ());

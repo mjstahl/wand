@@ -46,6 +46,7 @@ let usage_for sub =
     print_endline "";
     print_endline "Options:";
     print_endline "  --file <file>   Typecheck a .wand file instead of an expression";
+    print_endline "  --fix           Apply the fixes the findings carry, in place (needs --file)";
     print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)";
     print_endline "  --strict        Treat violation lint findings as errors";
     print_endline "  --json          Emit lint findings as JSON instead of text";
@@ -107,16 +108,18 @@ let parse_loads args =
   go [] [] args
 
 (* --strict promotes violations to errors; --json emits findings for a
-   tool to read rather than a person. *)
+   tool to read rather than a person; --fix applies what the findings
+   carry. *)
 let parse_lint_flags args =
-  let strict = ref false and json = ref false in
+  let strict = ref false and json = ref false and fix = ref false in
   let rest = List.filter (fun a ->
     match a with
     | "--strict" -> strict := true; false
     | "--json"   -> json := true; false
+    | "--fix"    -> fix := true; false
     | _ -> true) args
   in
-  (!strict, !json, rest)
+  (!strict, !json, !fix, rest)
 
 (* Returns the exit code: lints are warnings unless --strict promotes a
    violation. *)
@@ -234,7 +237,7 @@ let () =
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h e' for usage.\n"; exit 1)
     | "t" | "type" ->
-      let (strict, json, rest) = parse_lint_flags rest in
+      let (strict, json, fix, rest) = parse_lint_flags rest in
       (* `wand t --file script.wand` checks a file; without it the argument is
          an expression. Stated rather than guessed from the argument's shape,
          since `deploy.wand` is itself a valid path expression. *)
@@ -244,6 +247,27 @@ let () =
         | [] -> (None, List.rev acc)
       in
       (match take_file [] rest with
+       | None, _ when fix ->
+         Printf.eprintf
+           "Error: --fix rewrites a file, so it needs --file\n\
+            Run 'wand h t' for usage.\n";
+         exit 1
+       | Some path, _ when fix ->
+         (match Wand.Fix.fix_file path with
+          | Error d ->
+            (* An error with no applicable fix: nothing was written. *)
+            if json then
+              (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
+            else (Printf.eprintf "Error: %s\nnothing fixed\n" (Wand.Diag.legacy d); exit 1)
+          | Ok applied ->
+            if json then
+              print_endline
+                (Wand.Diag.to_json_array ~file:path
+                   (List.map (fun a -> a.Wand.Fix.diag) applied))
+            else
+              List.iter (fun a ->
+                Printf.printf "%s: %d — %s\n"
+                  a.Wand.Fix.code a.Wand.Fix.line a.Wand.Fix.note) applied)
        | Some path, _ ->
          (match Wand.Runner.typecheck_file path with
           | Error d ->

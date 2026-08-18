@@ -3037,9 +3037,25 @@ is what catches the shape that says nothing either way. Values that are not
 its effect looks like.
 
 ```
-wand t --strict "..."     # violations become errors (exit 1)
-wand t --json "..."       # diagnostics as JSON, for tools
+wand t --strict "..."             # violations become errors (exit 1)
+wand t --json "..."               # diagnostics as JSON, for tools
+wand t --fix --file script.wand   # apply the fixes the findings carry
 ```
+
+### `--fix`
+
+`wand t --fix --file script.wand` applies every machine-applicable
+correction to the file in place, re-checks, and repeats until nothing
+more applies — a fix can unlock a further finding, as when admitting a
+new binary into `Shell(...)` reveals another that no command runs. What
+it applies is exactly the `fix` payloads `--json` reports: manifest
+creation, replacement (including the manifest type error's suggested
+line), and the dead-import deletion. One line is printed per applied
+fix (`rule: line — what changed`); with `--json`, the applied set in
+the diagnostics shape. A parse error, or a type error carrying no fix,
+refuses the whole run — nothing is written, because fixing around a
+broken file is guesswork. Findings without a fix payload are reported
+by a plain `wand t` and left alone here.
 
 ### `--json`
 
@@ -3064,8 +3080,9 @@ the exact line —
  "fix":{"insert_line":"uses {FS.Write}"}}
 ```
 
-(`A-USES1` carries `fix.replace_line` instead), and the drift errors
-whose correction is a plain substitution carry
+(`A-USES1` and the manifest type error carry `fix.replace_line`
+instead, `V-IMP1` carries `"fix":{"delete_line":true}`), and the drift
+errors whose correction is a plain substitution carry
 `"fix":{"replace":{"from":"and","to":"&&"}}`. Typed holes come as their
 own shape:
 
