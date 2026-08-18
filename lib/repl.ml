@@ -12,9 +12,7 @@ let starts_with s prefix =
   let ls = String.length s and lp = String.length prefix in
   ls >= lp && String.sub s 0 lp = prefix
 
-let is_ident_char = function
-  | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
-  | _ -> false
+let is_ident_char = Complete.is_ident_char
 
 let is_complete src =
   let depth  = ref 0 in
@@ -135,59 +133,11 @@ let flatten_for_history src =
 
 (* ── Tab completion ───────────────────────────────────────────────────────── *)
 
-let special_commands =
-  [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
-   ":load"; ":l"; ":reload"; ":r"; ":env"; ":v"; ":clear"; ":c";
-   ":reset"; ":s"; ":exit"; ":x"; ":help"; ":h"]
-
-let builtin_names = ["print"; "println"; "Ok"; "Error"]
-
-let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "; ":v "]
-
-let complete_ident_arg line prefix_end completions =
-  let n = String.length line in
-  let i = ref (n - 1) in
-  while !i >= prefix_end && is_ident_char line.[!i] do decr i done;
-  let prefix_start = !i + 1 in
-  let prefix = String.sub line prefix_start (n - prefix_start) in
-  let before  = String.sub line 0 prefix_start in
-  let sess    = !session_ref in
-  match String.split_on_char '.' prefix with
-  | [ns; member_prefix] ->
-    (match List.assoc_opt ns sess.s_type_env with
-     | Some (Typechecker.Namespace members) ->
-       List.iter (fun (name, _) ->
-         if starts_with name member_prefix then
-           LNoise.add_completion completions (before ^ ns ^ "." ^ name)
-       ) members
-     | _ -> ())
-  | [ident_prefix] ->
-    let all_names =
-      List.filter_map (fun (name, _) ->
-        if starts_with name ident_prefix then Some name else None
-      ) sess.s_type_env
-      @ List.filter (fun n -> starts_with n ident_prefix) builtin_names
-    in
-    List.iter (fun name ->
-      LNoise.add_completion completions (before ^ name)
-    ) all_names
-  | _ -> ()
-
+(* The logic lives in `Complete`, shared with the language server and
+   tested directly; only the linenoise feeding happens here. *)
 let complete_line line completions =
-  let n = String.length line in
-  if n > 0 && line.[0] = ':' then begin
-    (* Check if we're completing an argument to a command that takes an ident *)
-    let cmd_match = List.find_opt (fun cmd -> starts_with line cmd) ident_arg_commands in
-    match cmd_match with
-    | Some cmd -> complete_ident_arg line (String.length cmd) completions
-    | None ->
-      (* Command name completion *)
-      List.iter (fun cmd ->
-        if starts_with cmd line then LNoise.add_completion completions cmd
-      ) special_commands
-  end else begin
-    complete_ident_arg line 0 completions
-  end
+  List.iter (LNoise.add_completion completions)
+    (Complete.line_completions (!session_ref).Runner.s_type_env line)
 
 (* ── Editor integration ───────────────────────────────────────────────────── *)
 

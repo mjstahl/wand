@@ -1,0 +1,75 @@
+(* Completion as a pure question: given a line of input and the names in
+   scope, what could the identifier being typed become? The REPL feeds the
+   answers to linenoise; the language server will feed them to
+   textDocument/completion. Neither the terminal nor the protocol appears
+   here -- which is also what lets the logic be tested directly instead of
+   through a pty. *)
+
+let is_ident_char = function
+  | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
+  | _ -> false
+
+let has_prefix ~prefix s =
+  let lp = String.length prefix in
+  String.length s >= lp && String.sub s 0 lp = prefix
+
+(* Names that exist without an import. *)
+let builtin_names = ["print"; "println"; "Ok"; "Error"]
+
+(* What the identifier ending at the end of the line could become. `start`
+   is where the completed text begins: every candidate replaces the line
+   from `start` to its end -- the REPL rebuilds the whole line, the
+   language server turns the same pair into a text edit. *)
+type completion = { start : int; candidates : string list }
+
+(* `limit` is the offset the identifier cannot begin before -- the end of a
+   `:t `-style command prefix, or 0 for a bare line. *)
+let ident_at ?(limit = 0) (env : Typechecker.env) (line : string) : completion =
+  let n = String.length line in
+  let i = ref (n - 1) in
+  while !i >= limit && is_ident_char line.[!i] do decr i done;
+  let start = !i + 1 in
+  let prefix = String.sub line start (n - start) in
+  let candidates =
+    match String.split_on_char '.' prefix with
+    | [ns; member_prefix] ->
+      (match List.assoc_opt ns env with
+       | Some (Typechecker.Namespace members) ->
+         List.filter_map (fun (name, _) ->
+           if has_prefix ~prefix:member_prefix name
+           then Some (ns ^ "." ^ name) else None)
+           members
+       | _ -> [])
+    | [ident_prefix] ->
+      List.filter_map (fun (name, _) ->
+        if has_prefix ~prefix:ident_prefix name then Some name else None) env
+      @ List.filter (has_prefix ~prefix:ident_prefix) builtin_names
+    | _ -> []
+  in
+  { start; candidates }
+
+(* The REPL's `:` vocabulary, kept beside the logic that completes it so
+   the whole dispatch is testable. *)
+let special_commands =
+  [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
+   ":load"; ":l"; ":reload"; ":r"; ":env"; ":v"; ":clear"; ":c";
+   ":reset"; ":s"; ":exit"; ":x"; ":help"; ":h"]
+
+let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "; ":v "]
+
+(* Whole-line replacements for the line being edited -- the shape linenoise
+   consumes. A line starting with `:` completes the command name, or, past
+   a command that takes an identifier, the identifier. *)
+let line_completions (env : Typechecker.env) (line : string) : string list =
+  let ident_lines ~limit =
+    let { start; candidates } = ident_at ~limit env line in
+    let before = String.sub line 0 start in
+    List.map (fun c -> before ^ c) candidates
+  in
+  if String.length line > 0 && line.[0] = ':' then
+    match
+      List.find_opt (fun cmd -> has_prefix ~prefix:cmd line) ident_arg_commands
+    with
+    | Some cmd -> ident_lines ~limit:(String.length cmd)
+    | None -> List.filter (has_prefix ~prefix:line) special_commands
+  else ident_lines ~limit:0

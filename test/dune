@@ -58,6 +58,10 @@
  (libraries wand alcotest unix))
 
 (test
+ (name test_complete)
+ (libraries wand alcotest))
+
+(test
  (name test_wand_stdlib)
  (deps
   wand/test_path.wand
