@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.15.0] - 2026-08-18
+
+### Added
+
+- Add hover for local names: parameters, `let ... in` names, and pattern
+  variables now answer with their inferred type, at the binder and at every
+  use — including inside `%{...}` splices. Locals carry no positions, so the
+  item enclosing the cursor stands in for lexical scope, the innermost
+  binding winning when an item rebinds a name (`65319f5`)
+- Add documentation to completion items: the expandable panel shows the
+  signature as a name-over-type block with the doc string beneath — the
+  inline detail stays, but the suggest widget truncates it, so the full
+  answer is one chevron away (`65319f5`)
+- Add `make install` in `editors/vscode/`: one command runs `npm install`,
+  compiles, packages the `.vsix`, and side-loads it, finding the `code` CLI
+  in the macOS app bundle when it is not on `PATH` (`cacba1e`)
+
+### Changed
+
+- Change hover to render the name on its own line with the type beneath it,
+  so a long signature — an effect row especially — no longer wraps mid-row
+  (`65319f5`)
+- Change the extension to resolve the wand binary itself when `wand.path`
+  is the bare default and `PATH` has none: install.sh's `~/.local/bin`,
+  then Homebrew's prefixes — a Dock-launched VS Code carries no shell
+  `PATH` (`cacba1e`)
+- Change the Rehearse lens to appear on every file — on the first line when
+  there is no manifest — and to rehearse against `/dev/null`, so a script
+  that reads stdin reports on empty input instead of blocking (`cacba1e`)
+
+[0.15.0]: https://github.com/mjstahl/wand/releases/tag/v0.15.0
+
+## [0.14.0] - 2026-08-18
+
+### Added
+
+- Add `--json` to `wand d`: one object on stdout — `name`, `type`, `doc` — with a fact the session lacks reported as `null` rather than omitted, so "no doc" reads as an answer and not a schema difference (`6f12546`)
+- Add `--json` to `wand v`: an array over the scope, bindings as `{"name","type"}` and modules as `{"name","module":true}`; `wand v --json <module>` lists the members with qualified names, so an entry feeds straight into a follow-up `wand d` or `wand t` (`6f12546`)
+- Add `--json` to `wand s`: one object for the whole run — per-test entries under `tests` (a pass carries its `label`, a fail its `message`; a test that raised reports `"error"`, and both count as failed), files that would not load under `errors`, and the `passed`/`failed` counts. While the tests run their own prints go to stderr, so stdout holds nothing but the JSON; exit codes are unchanged (`6f12546`)
+
+With these, every command whose output a tool might read — `t`, `d`, `v`, `s` — has a `--json` form. Each shape is documented in the reference's `--json` section.
+
+[0.14.0]: https://github.com/mjstahl/wand/releases/tag/v0.14.0
+
 ## [0.13.1] - 2026-08-18
 
 ### Fixed
