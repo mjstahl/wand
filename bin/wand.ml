@@ -250,11 +250,14 @@ let () =
             if json then
               (print_endline (Wand.Lint.error_to_json ~file:path msg); exit 1)
             else (Printf.eprintf "Error: %s\n" msg; exit 1)
-          | Ok (ty, holes, findings) ->
+          | Ok sc ->
+            let holes    = sc.Wand.Runner.sc_holes in
+            let findings = sc.Wand.Runner.sc_findings in
             if not json then begin
               if holes <> [] then
                 List.iter (fun h -> Printf.printf "Hole: %s\n" h) holes
-              else if ty <> "Unit" then print_endline ty
+              else if sc.Wand.Runner.sc_type <> "Unit" then
+                print_endline sc.Wand.Runner.sc_type
             end;
             if json then
               print_endline

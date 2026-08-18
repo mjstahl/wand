@@ -240,7 +240,8 @@ let test_corpus_is_clean () =
       match Runner.typecheck_file path with
       | Error _ when List.mem name expected_type_errors -> ()
       | Error m -> Alcotest.failf "%s failed to typecheck: %s" path m
-      | Ok (_, _, findings) ->
+      | Ok sc ->
+        let findings = sc.Runner.sc_findings in
         let unexpected =
           List.filter
             (fun (f : Lint.finding) ->
@@ -267,10 +268,10 @@ let test_stdlib_typechecks_through_the_tool () =
       if Filename.check_suffix name ".wand" then
         match Runner.typecheck_file (Filename.concat dir name) with
         | Error m -> Alcotest.failf "%s does not typecheck as a module: %s" name m
-        | Ok (_, _, []) -> ()
-        | Ok (_, _, fs) ->
+        | Ok { Runner.sc_findings = []; _ } -> ()
+        | Ok sc ->
           Alcotest.failf "%s has findings:\n%s" name
-            (String.concat "\n" (List.map Lint.to_text fs))
+            (String.concat "\n" (List.map Lint.to_text sc.Runner.sc_findings))
     ) (Sys.readdir dir)
 
 (* And the boundary the same rule protects: a script cannot reach past a

@@ -1375,20 +1375,33 @@ let is_stdlib_file full =
        (Filename.remove_extension (Filename.basename full))
        Stdlib_embed.table
 
-let typecheck_file path : (string * string list * Lint.finding list, string) result =
+(* Everything a check of one file's text establishes, in one place. The
+   editor asks again on every keystroke, so this is also the shape a
+   language server serves hover and diagnostics from. *)
+type source_check = {
+  sc_type     : string;                  (* the file's final type *)
+  sc_holes    : string list;             (* hole types, in order *)
+  sc_findings : Lint.finding list;
+  sc_env      : Typechecker.env;         (* the file's own names *)
+  sc_docs     : (string * string) list;  (* name -> doc string *)
+}
+
+(* Checks text that need not exist on disk -- an editor's unsaved buffer.
+   `path` says where the text lives, which decides how its imports resolve
+   and whether it is checked as a stdlib module. *)
+let typecheck_source ~path (src : string) : (source_check, string) result =
   let full =
     if Filename.is_relative path
     then Filename.concat (Sys.getcwd ()) (add_ext path)
     else add_ext path
   in
   try
-    let src      = In_channel.with_open_text full In_channel.input_all in
     let tokens   = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let base_dir = Filename.dirname full in
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
-    let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+    let (imp, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
     (* A file in the stdlib is checked as what it is: a module, whose body
        calls the raw builtins the modules are built from. Checked as a
        script it fails on the first one, so nothing here could be checked
@@ -1404,15 +1417,27 @@ let typecheck_file path : (string * string list * Lint.finding list, string) res
             ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
     | Error msg -> Error ("type error: " ^ msg)
     | Ok (_, own_type_env, last_t, holes) ->
-      Ok (Typechecker.string_of_typ last_t,
-          List.map Typechecker.string_of_typ holes,
-          Lint.check prog item_locs own_type_env)
+      Ok { sc_type     = Typechecker.string_of_typ last_t;
+           sc_holes    = List.map Typechecker.string_of_typ holes;
+           sc_findings = Lint.check prog item_locs own_type_env;
+           sc_env      = own_type_env;
+           sc_docs     = prog.Ast.docs @ imp_docs }
   with
-  | Sys_error msg         -> Error ("cannot open file: " ^ msg)
   | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
   | Parser.ParseError msg -> Error ("parse error: " ^ msg)
   | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
   | Failure msg           -> Error msg
+
+let typecheck_file path : (source_check, string) result =
+  try
+    let full =
+      if Filename.is_relative path
+      then Filename.concat (Sys.getcwd ()) (add_ext path)
+      else add_ext path
+    in
+    let src = In_channel.with_open_text full In_channel.input_all in
+    typecheck_source ~path src
+  with Sys_error msg -> Error ("cannot open file: " ^ msg)
 
 (* Lint a stdlib module's own source. Module bodies are inferred against the
    raw builtins rather than the user-visible globals, so they need the same

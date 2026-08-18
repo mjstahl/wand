@@ -239,9 +239,9 @@ let with_file name contents f =
 let test_typecheck_file () =
   with_file "wand_cli_ok.wand" "let double x = x * 2\ndouble 21" (fun path ->
     match Runner.typecheck_file path with
-    | Ok (ty, holes, _) ->
-      Alcotest.(check string) "reports the file's type" "Int" ty;
-      Alcotest.(check int) "no holes" 0 (List.length holes)
+    | Ok sc ->
+      Alcotest.(check string) "reports the file's type" "Int" sc.Runner.sc_type;
+      Alcotest.(check int) "no holes" 0 (List.length sc.Runner.sc_holes)
     | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
 
 let test_typecheck_file_reports_errors () =
@@ -253,19 +253,38 @@ let test_typecheck_file_reports_errors () =
 let test_typecheck_file_reports_holes () =
   with_file "wand_cli_hole.wand" "import List\nList.fold_left ? 0 [1, 2, 3]" (fun path ->
     match Runner.typecheck_file path with
-    | Ok (_, holes, _) ->
-      Alcotest.(check int) "one hole" 1 (List.length holes);
+    | Ok sc ->
+      Alcotest.(check int) "one hole" 1 (List.length sc.Runner.sc_holes);
       (* The row variable says the function filling the hole may perform
          effects of its own -- fold_left passes through whatever it is given. *)
       Alcotest.(check string) "with its inferred type" "Int -> Int -> Int ! 'e"
-        (List.hd holes)
+        (List.hd sc.Runner.sc_holes)
     | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+
+(* The editor's case: text that exists only in a buffer. The path decides
+   where imports resolve, whether or not a file is there. *)
+let test_typecheck_source_unsaved_buffer () =
+  with_file "wand_cli_util.wand" "let answer = 42" (fun util ->
+    let buffer = Filename.concat (Filename.dirname util) "wand_cli_buffer.wand" in
+    match Runner.typecheck_source ~path:buffer
+            "let [answer] = import ./wand_cli_util\nanswer" with
+    | Ok sc ->
+      Alcotest.(check string) "the buffer sees its neighbor" "Int" sc.Runner.sc_type
+    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+
+let test_typecheck_source_own_names () =
+  match Runner.typecheck_source ~path:"wand_cli_hover.wand"
+          "let double x = x * 2\ndouble 21" with
+  | Ok sc ->
+    Alcotest.(check bool) "the file's own names are reported" true
+      (List.mem_assoc "double" sc.Runner.sc_env)
+  | Error m -> Alcotest.failf "expected it to typecheck: %s" m
 
 let test_typecheck_file_lints () =
   with_file "wand_cli_lint.wand" "let is_ready? x = x > 1\nis_ready? 2" (fun path ->
     match Runner.typecheck_file path with
-    | Ok (_, _, findings) ->
-      Alcotest.(check bool) "a lint is reported" true (findings <> [])
+    | Ok sc ->
+      Alcotest.(check bool) "a lint is reported" true (sc.Runner.sc_findings <> [])
     | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
 
 (* ── wand test: finding the files ────────────────────────────────────────── *)
@@ -341,6 +360,8 @@ let () =
       Alcotest.test_case "reports the type"   `Quick test_typecheck_file;
       Alcotest.test_case "reports errors"     `Quick test_typecheck_file_reports_errors;
       Alcotest.test_case "reports holes"      `Quick test_typecheck_file_reports_holes;
+      Alcotest.test_case "checks a buffer"    `Quick test_typecheck_source_unsaved_buffer;
+      Alcotest.test_case "reports own names"  `Quick test_typecheck_source_own_names;
       Alcotest.test_case "reports lints"      `Quick test_typecheck_file_lints;
     ];
     "test discovery", [
