@@ -55,9 +55,11 @@ let test label f =
     returns "". *)
 let with_shell mocks thunk =
   handle thunk () with
-  | Shell!run cmd k -> (match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
-  | Some (_, out) -> k out
-  | None -> k "")
+  | Shell!run cmd k -> (
+    match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
+    | Some (_, out) -> k out
+    | None -> k ""
+  )
 
 (** Return the commands `thunk` would run, in order, without running any of
     them. Every command answers with "". *)

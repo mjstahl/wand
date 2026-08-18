@@ -22,6 +22,6 @@ echo "== and the file it would have written =="
 if [ -e /etc/app/config.toml ]; then echo "  /etc/app/config.toml exists"; else echo "  /etc/app/config.toml does not exist"; fi
 
 # The point: the suite passes without the deploy ever touching production.
-assert "uses {Shell(git), FS.Write}" head -1 "$D/deploy.wand"
+assert "uses {FS.Write, Shell(git)}" head -1 "$D/deploy.wand"
 assert "0 failed" "$WAND" test "$D"
 assert_absent /etc/app/config.toml

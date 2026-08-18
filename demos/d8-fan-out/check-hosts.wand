@@ -1,4 +1,4 @@
-uses {Shell(demos/d8-fan-out/probe.sh), FS.Read, FS.Write, IO}
+uses {FS.Read, FS.Write, IO, Shell(demos/d8-fan-out/probe.sh)}
 
 import FS
 import IO

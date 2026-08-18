@@ -1,4 +1,4 @@
-uses {FS.Read, Env, IO}
+uses {Env, FS.Read, IO}
 
 import List
 import String

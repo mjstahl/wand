@@ -736,7 +736,15 @@ and case_body_tail e = match strip_located e with
 
 and emit_case_body ?col indent body =
   match case_body_tail body with
-  | Match _ | Handle _ -> "(" ^ emit_expr ?col indent body ^ ")"
+  | Match _ | Handle _ ->
+    (* The parentheses are load-bearing (a bare nested match would swallow
+       the outer arms), so give them the same block shape a multi-line Seq
+       gets: open the block on the arrow's line, the nested match two
+       deeper, the closing paren back at the arm's indent -- rather than a
+       nested match whose arms sit flush with the outer ones. *)
+    let ind = String.make indent ' ' in
+    let inner = String.make (indent + 2) ' ' in
+    "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
   | _ -> emit_expr ?col indent body
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's

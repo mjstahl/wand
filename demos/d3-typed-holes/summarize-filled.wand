@@ -12,9 +12,11 @@ let count tally line =
   let level = List.head (String.words line) in
   match level with
   | None -> tally
-  | Some l -> (match Map.get l tally with
-  | None -> Map.set l 1 tally
-  | Some n -> Map.set l (n + 1) tally)
+  | Some l -> (
+    match Map.get l tally with
+    | None -> Map.set l 1 tally
+    | Some n -> Map.set l (n + 1) tally
+  )
 
 let levels = Stream.fold_left count Map.empty (IO.stdin_lines ())
 

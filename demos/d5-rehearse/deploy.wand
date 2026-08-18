@@ -1,4 +1,4 @@
-uses {Shell(git, echo), FS.Write, Env}
+uses {Env, FS.Write, Shell(echo, git)}
 
 import FS
 import Path
