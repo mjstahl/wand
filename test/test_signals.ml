@@ -6,8 +6,9 @@ open Wand
 
    Signals cannot be tested honestly in-process: what is under test is
    whether an interrupted program unwinds, so the program has to really be
-   interrupted. Each case forks, runs a script in the child, signals it, and
-   checks from the parent that the directory the script was holding is gone.
+   interrupted. Each case starts the real wand binary on a script, signals
+   it, and checks from here that the directory the script was holding is
+   gone.
 
    The child writes the directory's name to a file the parent chose, since
    the name is generated at run time and the parent has to know what to
@@ -23,59 +24,76 @@ with FS.temp_dir "wand_sig_" as d ->
   let _ = $(sleep 2) in ()|}
     marker
 
-(* Runs `src` in a forked child, sends `signal` once the marker shows the
-   child has acquired, and returns (exit code, directory still present).
+(* Every signalled case runs the real binary rather than a forked copy of
+   this test process. What is under test is the interpreter a user runs --
+   and a fork-without-exec child of the OCaml 5 runtime is not sound ground
+   to take signals on: the runtime threads that signal delivery leans on do
+   not survive the fork, and under `dune build @runtest` load a SIGINT
+   landing mid-recursion killed such children with SIGSEGV (so nothing
+   unwound, and the release this suite exists to verify never ran), while
+   the real binary rode the same load clean, 48 runs out of 48. The Par
+   case below already ran this way because of domains; the reasoning is
+   the same.
 
-   The script waits inside a command, which is where a script usually is
-   when someone interrupts it -- and the slower case, since the interpreter
-   only regains control when the command returns. *)
-let interrupted_run ?(signal = Sys.sigint) ~marker src =
-  match Unix.fork () with
-  | 0 ->
-    (* Child: the exit code is the script's, so the parent can check it. *)
-    Runner.install_signal_handlers ();
-    let code =
-      match Runner.run_string src with
-      | _ -> 0
-      | exception Evaluator.Interrupted n -> n
-      | exception _ -> 1
-    in
-    Unix._exit code
-  | pid ->
-    (* Wait for the child to have acquired before signalling, rather than
-       guessing with a sleep -- a test that races is worse than no test. *)
-    let rec await_acquire tries =
-      let held = try In_channel.with_open_text marker In_channel.input_all with _ -> "" in
-      if String.trim held <> "" then String.trim held
-      else if tries = 0 then ""
-      else begin ignore (Unix.select [] [] [] 0.05); await_acquire (tries - 1) end
-    in
-    let dir = await_acquire 200 in
-    Unix.kill pid signal;
-    let (_, status) = Unix.waitpid [] pid in
-    let code = match status with
-      | Unix.WEXITED n -> n
-      | Unix.WSIGNALED n -> 128 + n
-      | Unix.WSTOPPED n -> 128 + n
-    in
-    let present = dir <> "" && Sys.file_exists dir in
-    if present then ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)));
-    (try Sys.remove marker with _ -> ());
-    Alcotest.(check bool) "the child acquired before being signalled" true (dir <> "");
-    (code, present)
+   The child's script waits where a script usually is when someone
+   interrupts it; the marker says it has acquired, so the signal is sent
+   then rather than after a guessed sleep -- a test that races is worse
+   than no test. *)
+let wand_binary =
+  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
+  Filename.concat (Filename.concat dir "bin") "wand.exe"
+
+let signalled_run ?(signal = Sys.sigint) ~marker src =
+  if not (Sys.file_exists wand_binary) then
+    Alcotest.failf "wand binary not found at %s" wand_binary;
+  let path = Filename.temp_file "wand_sig_script" ".wand" in
+  Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc src);
+  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0o644 in
+  let pid = Unix.create_process wand_binary [| wand_binary; path |]
+              Unix.stdin devnull devnull in
+  let rec await_acquire tries =
+    let held = try In_channel.with_open_text marker In_channel.input_all with _ -> "" in
+    if String.trim held <> "" then String.trim held
+    else if tries = 0 then ""
+    else begin ignore (Unix.select [] [] [] 0.05); await_acquire (tries - 1) end
+  in
+  let dir = await_acquire 200 in
+  Unix.kill pid signal;
+  let (_, status) = Unix.waitpid [] pid in
+  Unix.close devnull;
+  (try Sys.remove path with _ -> ());
+  let code = match status with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n -> 128 + n
+    | Unix.WSTOPPED n -> 128 + n
+  in
+  (* Kept apart from `code` because 128+n and a real exit with that code
+     are indistinguishable there -- a child killed by raw SIGINT also
+     reports 130 -- and which one happened is the first question a
+     failure raises. *)
+  let status_text = match status with
+    | Unix.WEXITED n -> Printf.sprintf "exited %d" n
+    | Unix.WSIGNALED n -> Printf.sprintf "killed by signal %d" n
+    | Unix.WSTOPPED n -> Printf.sprintf "stopped by signal %d" n
+  in
+  let present = dir <> "" && Sys.file_exists dir in
+  if present then ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)));
+  (try Sys.remove marker with _ -> ());
+  Alcotest.(check bool) "the child acquired before being signalled" true (dir <> "");
+  (code, present, status_text)
 
 let test_sigint_releases () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  let (code, present) = interrupted_run ~signal:Sys.sigint ~marker (script marker) in
-  Alcotest.(check bool) "the directory is gone" false present;
+  let (code, present, status) = signalled_run ~signal:Sys.sigint ~marker (script marker) in
+  if present then Alcotest.failf "the directory is still there (child %s)" status;
   Alcotest.(check int) "exits 130, as a shell reports an interrupt" 130 code
 
 let test_sigterm_releases () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  let (code, present) = interrupted_run ~signal:Sys.sigterm ~marker (script marker) in
-  Alcotest.(check bool) "the directory is gone" false present;
+  let (code, present, status) = signalled_run ~signal:Sys.sigterm ~marker (script marker) in
+  if present then Alcotest.failf "the directory is still there (child %s)" status;
   Alcotest.(check int) "exits 143" 143 code
 
 (* The interrupt landing inside `acquire`, rather than in the body. The
@@ -111,8 +129,9 @@ with r as h -> h|}
 let test_interrupt_during_acquire_releases () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  let (code, present) = interrupted_run ~signal:Sys.sigint ~marker (acquire_script marker) in
-  Alcotest.(check bool) "what acquire had taken is given back" false present;
+  let (code, present, status) = signalled_run ~signal:Sys.sigint ~marker (acquire_script marker) in
+  if present then
+    Alcotest.failf "what acquire had taken was not given back (child %s)" status;
   Alcotest.(check int) "exits 130" 130 code
 
 (* Nothing survives SIGKILL. Stated as a test so the limit is recorded
@@ -120,13 +139,18 @@ let test_interrupt_during_acquire_releases () =
 let test_sigkill_cannot_release () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  let (code, present) = interrupted_run ~signal:Sys.sigkill ~marker (script marker) in
+  let (code, present, _) = signalled_run ~signal:Sys.sigkill ~marker (script marker) in
   Alcotest.(check bool) "the directory is left behind, as it must be" true present;
   Alcotest.(check int) "killed, not stopped" (128 + Sys.sigkill) code
 
 (* Workers run on their own domains, so each has to see the request for
    itself; and the calling domain must not unwind until they are joined, or
    it would leave workers running and their brackets unreleased. *)
+(* The worker prefix carries this run's pid: the leftover scan below reads
+   the shared temp directory, and an unscoped prefix would count another
+   concurrently running copy of this suite's workers as our leak. *)
+let worker_prefix = Printf.sprintf "wand_sigw_%d_" (Unix.getpid ())
+
 let par_script marker =
   Printf.sprintf
     {|import FS
@@ -135,60 +159,26 @@ import Par
 with FS.temp_dir "wand_sig_" as outer ->
   let () = FS.write_file! (Path.of_string "%s") (Path.to_string outer) in
   Par.each 4 (fn n ->
-    with FS.temp_dir "wand_sigw_" as d ->
+    with FS.temp_dir "%s" as d ->
     let () = FS.write_file! (Path.of_string "%%{Path.to_string outer}/%%{n}") (Path.to_string d) in
     let _ = $(sleep 2) in ()) [1, 2, 3, 4]|}
-    marker
-
-(* Run by starting the real binary rather than by forking this test: the
-   script spawns domains, and a forked child of a program that has already
-   used them is not sound ground to spawn more from. What is under test is
-   the interpreter a user runs, so run that. *)
-let wand_binary =
-  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
-  Filename.concat (Filename.concat dir "bin") "wand.exe"
-
-let run_script_until_signalled ~marker src =
-  let path = Filename.temp_file "wand_sig_script" ".wand" in
-  Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc src);
-  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0o644 in
-  let pid = Unix.create_process wand_binary [| wand_binary; path |]
-              Unix.stdin devnull devnull in
-  let rec await tries =
-    let held = try In_channel.with_open_text marker In_channel.input_all with _ -> "" in
-    if String.trim held <> "" then String.trim held
-    else if tries = 0 then ""
-    else begin ignore (Unix.select [] [] [] 0.05); await (tries - 1) end
-  in
-  let dir = await 200 in
-  Unix.kill pid Sys.sigint;
-  let (_, status) = Unix.waitpid [] pid in
-  Unix.close devnull;
-  (try Sys.remove path with _ -> ());
-  let code = match status with
-    | Unix.WEXITED n -> n
-    | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
-  in
-  Alcotest.(check bool) "the script acquired before being signalled" true (dir <> "");
-  let present = dir <> "" && Sys.file_exists dir in
-  if present then ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote dir)));
-  (code, present)
+    marker worker_prefix
 
 let test_par_workers_release () =
   let marker = Filename.temp_file "wand_sig_m" "" in
   Sys.remove marker;
-  if not (Sys.file_exists wand_binary) then
-    Alcotest.failf "wand binary not found at %s" wand_binary;
-  let (code, present) = run_script_until_signalled ~marker (par_script marker) in
-  Alcotest.(check bool) "the caller's directory is gone" false present;
+  let (code, present, status) = signalled_run ~marker (par_script marker) in
+  if present then
+    Alcotest.failf "the caller's directory is still there (child %s)" status;
   Alcotest.(check int) "exits 130" 130 code;
   (* Each worker recorded its own directory in the caller's, which is gone
      with them -- so what is checked here is that none survived it. *)
   let leftovers =
+    let p = worker_prefix in
+    let pl = String.length p in
     Sys.readdir (Filename.get_temp_dir_name ())
     |> Array.to_list
-    |> List.filter (fun n ->
-         String.length n > 10 && String.sub n 0 10 = "wand_sigw_")
+    |> List.filter (fun n -> String.length n > pl && String.sub n 0 pl = p)
   in
   List.iter (fun n ->
     ignore (Sys.command (Printf.sprintf "rm -rf %s"
