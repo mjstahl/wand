@@ -1,31 +1,28 @@
-## 0.15.0 - 2026-08-18
+## 0.16.0 - 2026-08-18
 
-The editor answers more, more readably. Hover now types local names —
-parameters, `let ... in` names, pattern variables — at the binder and at
-every use, and renders every answer as the name over its type, so effect
-rows stay whole. Completion items carry the same block plus the doc string
-in the expandable panel. The VS Code extension (0.2.0) installs with one
-`make install`, finds the wand binary even when a Dock-launched VS Code
-has no shell `PATH`, and puts the Rehearse lens on every file without
-blocking on stdin.
-
-### Added
-
-- Hover for locals: `tally` in a reducer answers `tally` / `: Map Int`,
-  wherever it appears (`65319f5`)
-- Completion documentation: signature as name-over-type, doc string
-  beneath, one chevron away (`65319f5`)
-- `make install` in `editors/vscode/` builds, packages, and side-loads the
-  extension in one step (`cacba1e`)
+Two formatter changes, both about writing what you meant more plainly.
 
 ### Changed
 
-- Hover renders name over type; long effect rows no longer wrap mid-row (`65319f5`)
-- The extension resolves the wand binary via `~/.local/bin` and Homebrew's
-  prefixes when `PATH` has none (`cacba1e`)
-- The Rehearse lens appears on every file — first line when there is no
-  manifest — and rehearses against `/dev/null` instead of blocking on
-  stdin (`cacba1e`)
+- A match nested inside another match's arm now formats as an indented
+  block: the opening paren ends the arrow's line, the nested match sits
+  two spaces deeper than the outer arm, and the closing paren returns to
+  the outer arm's column:
+
+      | Some l -> (
+        match Map.get l tally with
+        | None -> Map.set l 1 tally
+        | Some n -> Map.set l (n + 1) tally
+      )
+
+  Handler arms with a match body format the same way (`44e66fe`)
+- A string escaping its quotes moves between backticks, where a quote is a
+  quote: `"say \"hi\""` becomes `` `say "hi"` ``, splices intact. The
+  quoted form stays when backticks could not reproduce the value exactly
+  and visibly — a backtick in the text, a literal `%{`, or control
+  characters (`9624144`)
+- The demos and decode examples are reformatted accordingly — inline JSON
+  in the examples loses its backslashes (`44e66fe`, `9624144`)
 
 ---
 

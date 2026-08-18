@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.16.0] - 2026-08-18
+
+### Changed
+
+- Change the formatter to indent a nested match as a block, the same shape
+  a multi-line `(...)` sequence gets: the opening paren ends the arrow's
+  line, the nested match sits two spaces deeper than the outer arm, and
+  the closing paren returns to the outer arm's column — instead of
+  printing the nested arms flush with the outer ones. Handler arms with a
+  match body format the same way (`44e66fe`)
+- Change the formatter to move a string that escapes its quotes between
+  backticks, where a quote is a quote: `"say \"hi\""` becomes
+  `` `say "hi"` ``, splices intact for interpolated strings. The quoted
+  form is kept when backticks could not reproduce the value exactly and
+  visibly: a backtick in the text, a literal `%{`, or control characters
+  (`9624144`)
+- The demo scripts are reformatted with the current formatter, picking up
+  0.13.0's canonical manifests; the decode examples' inline JSON loses its
+  backslashes to the backtick preference (`44e66fe`, `9624144`)
+
+[0.16.0]: https://github.com/mjstahl/wand/releases/tag/v0.16.0
+
 ## [0.15.0] - 2026-08-18
 
 ### Added
