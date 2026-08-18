@@ -49,7 +49,7 @@ release:
 	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty; commit before releasing"; exit 1; }
 	@test "$$(cat VERSION)" = "$(VERSION)" || \
 	  { echo "VERSION says $$(cat VERSION) but you asked to release $(VERSION);"; \
-	    echo "update VERSION and commit it, so \`wand --version\` matches the tag"; exit 1; }
+	    echo "update VERSION and commit it, so \`wand version\` matches the tag"; exit 1; }
 	dune build
 	dune test
 	_build/default/bin/wand.exe test test/wand

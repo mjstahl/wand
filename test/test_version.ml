@@ -1,7 +1,7 @@
 open Wand
 
 (* The version is generated from the VERSION file, and `make release` refuses
-   to tag unless the two agree -- so what `wand --version` prints is what was
+   to tag unless the two agree -- so what `wand version` prints is what was
    released. Both halves are checked here: that the generated module still
    matches the file, which a wrong dune dependency would silently break, and
    that the binary prints it in the form an installer parses. *)
@@ -40,7 +40,7 @@ let test_binary_prints_it () =
       Alcotest.(check string)
         (Printf.sprintf "wand %s" flag)
         expected (run [ flag ]))
-    [ "--version"; "-V"; "version" ]
+    [ "V"; "version" ]
 
 let () =
   Alcotest.run "version"

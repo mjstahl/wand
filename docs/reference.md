@@ -59,7 +59,7 @@ wand env                # list all names in scope
 wand fmt script.wand    # format a file in place
 wand test               # run every test_*.wand from here down
 wand h                  # help
-wand --version          # print the version
+wand V                  # print the version
 ```
 
 ---
@@ -2990,10 +2990,10 @@ wand s                                # run every test_*.wand from here down
 wand s test_deploy.wand               # run named test files
 wand h                                # show all commands
 wand h e                              # help for a specific command
-wand --version                        # print the version, as `wand 0.1.0`
+wand V                                # print the version, as `wand 0.1.0`
 ```
 
-Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `v`/`env`, `f`/`fmt`, `s`/`test`, `h`/`help`.
+Each subcommand has a full-word alias: `i`/`interactive`, `e`/`eval`, `t`/`type`, `d`/`doc`, `v`/`env`, `f`/`fmt`, `s`/`test`, `h`/`help`, `V`/`version`.
 
 ### Lints
 
