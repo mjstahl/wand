@@ -355,16 +355,22 @@ let test_every_rule_is_documented () =
 
 let test_every_documented_id_exists () =
   let text = reference_text () in
-  (* Every M-/H- token in the reference must name a rule in the catalog. *)
+  (* Every V-/A- token in the reference must name a rule in the catalog. *)
   let n = String.length text in
   let i = ref 0 in
   while !i < n - 1 do
-    if (text.[!i] = 'M' || text.[!i] = 'H') && text.[!i + 1] = '-' then begin
+    if (text.[!i] = 'V' || text.[!i] = 'A') && text.[!i + 1] = '-' then begin
       let j = ref (!i + 2) in
       while !j < n && (let c = text.[!j] in
                        (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) do incr j done;
       let code = String.sub text !i (!j - !i) in
-      if String.length code > 2 && Lint_rules.of_code code = None then
+      (* A rule code ends in a number; prose ranges like `A-Z` do not. *)
+      let ends_in_digit =
+        String.length code > 0 &&
+        (let c = code.[String.length code - 1] in c >= '0' && c <= '9')
+      in
+      if String.length code > 2 && ends_in_digit
+         && Lint_rules.of_code code = None then
         Alcotest.failf "%s cites rule %s, which is not in the catalog"
           reference_path code;
       i := !j

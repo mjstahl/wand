@@ -2998,8 +2998,8 @@ Each subcommand has a full-word alias: `d`/`doc`, `e`/`eval`, `f`/`fmt`, `h`/`he
 ### Lints
 
 `wand t` reports lint findings alongside the type. Each carries a rule ID
-whose prefix says what it will do to your build: `M-` rules must be fixed,
-and `--strict` promotes them to errors; `H-` rules are advisory and stay
+whose prefix says what it will do to your build: `V-` rules report a
+violation, and `--strict` promotes them to errors; `A-` rules are advisory and stay
 warnings however wand is run.
 
 A rule has to be decidable to be must-fix, but being decidable does not make
