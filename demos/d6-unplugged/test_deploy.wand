@@ -1,13 +1,13 @@
 uses {FS.Read, FS.Write, Shell}
 
 import Test
-let [test] = import Test
+let {test} = import Test
 import List
 import String
 import FS
 import Path
 
-let [deploy!] = import ./deploy
+let {deploy!} = import ./deploy
 
 -- Each helper holds back one family of effects, and they compose.
 let sealed thunk =

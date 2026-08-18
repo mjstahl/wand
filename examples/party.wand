@@ -1,6 +1,6 @@
 uses {Shell(whoami)}
 
-let [greet, shout] = import ./greetings
+let {greet, shout} = import ./greetings
 
 let guest = $(whoami)
 

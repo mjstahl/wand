@@ -142,10 +142,18 @@ and emit_type_atom te = match te with
    that does not lex at all. Quoting is always correct, so the bare form is
    only an economy for the keys that can afford it. *)
 let map_key k =
+  (* One trailing ? or ! is part of an identifier (predicate / bang
+     convention), matching the lexer's rule exactly -- `deploy!` is a key
+     that can afford the bare form. *)
+  let n = String.length k in
+  let core =
+    if n > 1 && (k.[n - 1] = '?' || k.[n - 1] = '!')
+    then String.sub k 0 (n - 1) else k
+  in
   let plain =
-    String.length k > 0
-    && (match k.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
-    && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) k
+    String.length core > 0
+    && (match core.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
+    && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) core
   in
   if plain then k else "\"" ^ escape_string_body k ^ "\""
 
@@ -168,7 +176,14 @@ let rec emit_pat (p : pat) : string = match p with
   | PConstrNamed (c, kvs) ->
     c ^ "(" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ emit_pat p) kvs) ^ ")"
   | PMap kvs ->
-    "[" ^ String.concat ", " (List.map (fun (k, p) -> map_key k ^ " = " ^ emit_pat p) kvs) ^ "]"
+    (* Punned whenever the key already names its variable; a quoted key has
+       no identifier to pun into, so it always carries its pattern. *)
+    let entry (k, p) =
+      match p with
+      | PVar v when v = k && map_key k = k -> k
+      | _ -> map_key k ^ " = " ^ emit_pat p
+    in
+    "{" ^ String.concat ", " (List.map entry kvs) ^ "}"
 
 and emit_pat_atom (p : pat) : string = match p with
   | PConstr (_, _ :: _) | PConstrNamed _ -> "(" ^ emit_pat p ^ ")"
@@ -474,7 +489,7 @@ and emit_expr_inner ?col indent e =
     else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
-    emit_sequence indent "[" "]"
+    emit_sequence indent "{" "}"
       (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
 
 and emit_app ?col indent e =
@@ -877,6 +892,14 @@ let emit_top_item_pretty = function
   | TLImport (UserPath p)     -> "import " ^ p
   | TLType tdef -> emit_type_def tdef
   | TLLetPat (p, e) ->
+    (* `let [test] = import Test` predates brace maps; selecting members by
+       name is keyed access, so the braces are canonical there too. *)
+    let p = match p, Module_types.import_kind_of e with
+      | PList pats, Some _
+        when List.for_all (function PVar _ -> true | _ -> false) pats ->
+        PMap (List.map (function PVar n -> (n, (PVar n : pat)) | _ -> assert false) pats)
+      | _ -> p
+    in
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in
     if fits 0 oneline then oneline

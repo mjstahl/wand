@@ -64,6 +64,20 @@ let g = "greet \"%{a}\""|};
 a|}
     {|say "hi"|}
 
+(* Braces are the canonical map syntax; the bracket forms parse but come
+   back in braces, patterns punned where the key names its variable. *)
+let test_maps_canonicalize_to_braces () =
+  fmt_eq "literal converts"
+    "let m = [x = 1, y = 2]\nm" "let m = {x = 1, y = 2}\nm";
+  fmt_eq "pattern converts and puns"
+    "let f [a = a, b = c] = a\n1" "let f {a, b = c} = a\n1";
+  fmt_eq "import destructure converts"
+    "let [test] = import Test\n1" "let {test} = import Test\n1";
+  fmt_eq "Map.empty is left as written"
+    "import Map\nlet e = Map.empty\ne" "import Map\nlet e = Map.empty\ne";
+  assert_idempotent "brace maps are a fixed point"
+    "let m = {x = 1}\nlet {x} = m\nx"
+
 (* A single constructor that is the type saying its own name again prints
    as the shorthand the parser already reads: `type Foo(fields)`. *)
 let test_single_ctor_shorthand () =
@@ -238,10 +252,10 @@ let test_one_armed_if () =
    formatter over it, which is why none existed to notice. *)
 let test_map_keys_that_are_not_identifiers () =
   Alcotest.(check string) "a key that needs quoting keeps them"
-    "let m = [\"content-type\" = 1, \"@type\" = 2, name = 3]\n"
+    "let m = {\"content-type\" = 1, \"@type\" = 2, name = 3}\n"
     (fmt "let m = [\"content-type\" = 1, \"@type\" = 2, name = 3]");
   Alcotest.(check string) "an identifier key stays bare"
-    "let m = [name = 1]\n"
+    "let m = {name = 1}\n"
     (fmt "let m = [\"name\" = 1]");
   ok_after_format "and a pattern with one still matches"
     "let f x = match x with\n| [\"a-b\" = v] -> v\n| _ -> 0\nf [\"a-b\" = 7]"
@@ -585,13 +599,13 @@ let test_manifest_wraps_past_the_budget () =
 let test_leading_imports_sorted () =
   golden "plain imports alphabetized, let-imports after, in source order"
     "import Env\nimport FS\nimport String\n\
-     let u = import CSV\nlet [test] = import Test\nlet x = 1\nx\n"
+     let u = import CSV\nlet {test} = import Test\nlet x = 1\nx\n"
     (fmt "import String\nlet u = import CSV\nimport FS\n\
           let [test] = import Test\nimport Env\nlet x = 1\nx");
   (* Let-imports are ordinary bindings: two binding the same name rebind,
      and their order is program meaning. *)
   golden "rebinding order kept"
-    "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"\n"
+    "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"\n"
     (fmt "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"");
   (* Imports past the leading region stay where they are. *)
   golden "only the leading region"
@@ -612,6 +626,7 @@ let () =
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
       Alcotest.test_case "single-constructor shorthand" `Quick test_single_ctor_shorthand;
+      Alcotest.test_case "maps canonicalize to braces" `Quick test_maps_canonicalize_to_braces;
       Alcotest.test_case "manifest order"    `Quick test_manifest_canonicalized;
       Alcotest.test_case "manifest wrapping" `Quick test_manifest_wraps_past_the_budget;
       Alcotest.test_case "import block"      `Quick test_leading_imports_sorted;
