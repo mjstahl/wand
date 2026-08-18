@@ -305,10 +305,15 @@ Each lands independently and is useful before the server exists.
    manifest suggestions ride as structured `ReplaceLine` fixes on the
    E-TYPE diagnostics (closing item 2's deferral). Drift `Replace`
    fixes and bare-`Shell` widening are deliberately not applied.
-7. **Order and formatter canonicalization** (§2.3) — alphabetical
-   `display_order` in `effect_row.ml`, import-block sorting, manifest
-   sorting and wrapping. Standalone and user-visible before any server
-   exists, like `--fix`.
+7. **Order and formatter canonicalization** (§2.3). **Done** (`9ff454e`):
+   `effect_row.ml`'s `all` is alphabetical and is the one order
+   definition; `fmt` canonicalizes the manifest (sorted labels and
+   binaries, wrapping past 92 columns) and sorts the leading plain-import
+   block (let-imports keep source order; a comment in the region pins
+   it); `corrected_with` sorts, so every suggested manifest is already
+   formatted. Corpus migrated and re-verified in the same commit.
+
+**Phase A is complete.**
 
 ---
 
