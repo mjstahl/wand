@@ -62,31 +62,65 @@ let test_hole_shape () =
 
 (* ── Errors ───────────────────────────────────────────────────────────────── *)
 
+(* Errors reach the JSON as `Diag.t` values whose position travelled from
+   the raise site as data. Nothing here (or anywhere) recovers a position
+   by parsing a message string. *)
+
+let check_error src =
+  match Runner.typecheck_source ~path:"wand_json_err.wand" src with
+  | Error d -> d
+  | Ok _ -> Alcotest.failf "expected an error from:\n%s" src
+
 let test_type_error () =
-  golden "type error with position lifted out"
+  golden "type error with its position carried as data"
     "[{\"severity\":\"error\",\"code\":\"E-TYPE\",\"line\":1,\"col\":5,\
       \"message\":\"cannot unify String with Int\"}]"
-    (Lint.error_to_json "type error: 1:5: cannot unify String with Int")
+    (Diag.to_json_array
+       [Diag.error ~code:"E-TYPE" ~loc:{ Token.line = 1; col = 5; offset = 4 }
+          "cannot unify String with Int"])
 
-let test_lex_error_without_position () =
-  golden "lex error, no position, drift fix carried"
+let test_error_without_position () =
+  golden "an error with no position reports 1:1, drift fix carried"
     "[{\"severity\":\"error\",\"code\":\"E-LEX\",\"file\":\"x.wand\",\
       \"line\":1,\"col\":1,\
       \"message\":\"cons is a single ':', not '::' -- \
       h : rest to build a list, [h : t] in a pattern\",\
       \"fix\":{\"replace\":{\"from\":\"::\",\"to\":\":\"}}}]"
-    (Lint.error_to_json ~file:"x.wand"
-       "lex error: cons is a single ':', not '::' -- \
-        h : rest to build a list, [h : t] in a pattern")
+    (Diag.to_json_array ~file:"x.wand"
+       [Diag.error ~code:"E-LEX"
+          "cons is a single ':', not '::' -- \
+           h : rest to build a list, [h : t] in a pattern"])
+
+(* End to end: the checker's answer carries the real position. *)
+
+let test_lex_error_position () =
+  let d = check_error "let x =\n  1 :: 2" in
+  Alcotest.(check string) "code" "E-LEX" d.Diag.code;
+  (match d.Diag.loc with
+   | Some l -> Alcotest.(check (pair int int)) "line/col of the '::'"
+                 (2, 5) (l.Token.line, l.Token.col)
+   | None -> Alcotest.fail "lex error lost its position");
+  (match d.Diag.fix with
+   | Some (Lint.Replace { from_ = "::"; to_ = ":" }) -> ()
+   | _ -> Alcotest.fail "drift fix not carried")
+
+let test_parse_error_position () =
+  let d = check_error "let x = (1\n" in
+  Alcotest.(check string) "code" "E-PARSE" d.Diag.code;
+  if d.Diag.loc = None then Alcotest.fail "parse error lost its position"
+
+let test_type_error_position () =
+  let d = check_error "let x = 1\nlet y = x ++ \"s\"" in
+  Alcotest.(check string) "code" "E-TYPE" d.Diag.code;
+  (match d.Diag.loc with
+   | Some l -> Alcotest.(check int) "points into line 2" 2 l.Token.line
+   | None -> Alcotest.fail "type error lost its position")
 
 let test_parse_error_drift_fix () =
-  let json =
-    Lint.error_to_json
-      "parse error: 1:6: unexpected token: and -- the boolean operator is \
-       '&&'; wand's 'and' only joins mutually recursive let bindings"
-  in
-  if not (Lint.contains json "\"code\":\"E-PARSE\",\"line\":1,\"col\":6") then
-    Alcotest.failf "parse error position not lifted:\n%s" json;
+  let d = check_error "1\nx and y" in
+  let json = Diag.to_json_array [d] in
+  if not (Lint.contains json "\"code\":\"E-PARSE\"") then
+    Alcotest.failf "expected E-PARSE:\n%s" json;
   if not (Lint.contains json
             "\"fix\":{\"replace\":{\"from\":\"and\",\"to\":\"&&\"}}") then
     Alcotest.failf "drift fix missing:\n%s" json
@@ -103,8 +137,11 @@ let () =
       Alcotest.test_case "shape" `Quick test_hole_shape;
     ];
     "errors", [
-      Alcotest.test_case "type"        `Quick test_type_error;
-      Alcotest.test_case "lex + fix"   `Quick test_lex_error_without_position;
-      Alcotest.test_case "parse + fix" `Quick test_parse_error_drift_fix;
+      Alcotest.test_case "type"            `Quick test_type_error;
+      Alcotest.test_case "no position"     `Quick test_error_without_position;
+      Alcotest.test_case "lex position"    `Quick test_lex_error_position;
+      Alcotest.test_case "parse position"  `Quick test_parse_error_position;
+      Alcotest.test_case "type position"   `Quick test_type_error_position;
+      Alcotest.test_case "parse + fix"     `Quick test_parse_error_drift_fix;
     ];
   ]

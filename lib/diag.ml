@@ -1,0 +1,114 @@
+(* One diagnostic, as every consumer sees it: the CLI's text, `--json`, and
+   the language server all render from this shape. Positions travel here as
+   data from wherever they are known -- never recovered by parsing a message
+   string, which is what this module exists to end. *)
+
+type severity = Error | Warning
+
+(* A machine-applicable correction, carried alongside the human text so a
+   tool can fix without re-parsing prose. `InsertLine`/`ReplaceLine` come
+   from lint findings; `Replace` is the drift errors' plain substitution. *)
+type fix =
+  | InsertLine  of string   (* a line the file lacks (the manifest) *)
+  | ReplaceLine of string   (* the corrected form of the flagged line *)
+  | Replace     of { from_ : string; to_ : string }
+
+type t = {
+  severity : severity;
+  code     : string;             (* "E-TYPE", "V-DROP1", ... *)
+  loc      : Token.loc option;   (* None renders as 1:1 in JSON *)
+  message  : string;             (* bare text: no label, no position *)
+  fix      : fix option;
+}
+
+(* ── Construction ────────────────────────────────────────────────────────── *)
+
+let contains msg needle =
+  let n = String.length needle and m = String.length msg in
+  let rec go i = i + n <= m && (String.sub msg i n = needle || go (i + 1)) in
+  go 0
+
+(* The drift errors name their correction in prose; where the correction is
+   a plain textual substitution, carry it as data too. Keyed on fragments
+   test_drift.ml locks, so rewording a message that breaks a key breaks a
+   test alongside it. *)
+let drift_fixes = [
+  "cons is a single ':', not '::'", ("::", ":");
+  "not '//'",                     ("//", "--");
+  "not '# ...'",                  ("#", "--");
+  "not ${...}",                   ("${", "%{");
+  "not #{...}",                   ("#{", "%{");
+  "drop the 'rec'",               ("let rec", "let");
+  "not '^'",                      ("^", "++");
+  "boolean operator is '&&'",     ("and", "&&");
+  "boolean operator is '||'",     ("or", "||");
+  "boolean not is '!'",           ("not", "!");
+]
+
+let error ~code ?loc message =
+  let fix =
+    match List.find_opt (fun (frag, _) -> contains message frag) drift_fixes with
+    | Some (_, (from_, to_)) -> Some (Replace { from_; to_ })
+    | None -> None
+  in
+  { severity = Error; code; loc; message; fix }
+
+(* ── Rendering ───────────────────────────────────────────────────────────── *)
+
+(* The error strings the CLI has always printed: "type error: 3:5: text",
+   the label dropped for a plain failure. Everything that still hands the
+   caller a string renders it from here, so the text output cannot drift
+   from the structured form. *)
+let legacy d =
+  let label = match d.code with
+    | "E-LEX"   -> "lex error: "
+    | "E-PARSE" -> "parse error: "
+    | "E-TYPE"  -> "type error: "
+    | _         -> ""
+  in
+  let pos = match d.loc with
+    | Some l -> Printf.sprintf "%d:%d: " l.Token.line l.Token.col
+    | None   -> ""
+  in
+  label ^ pos ^ d.message
+
+let escape_json s =
+  let buf = Buffer.create (String.length s + 8) in
+  String.iter (fun c ->
+    match c with
+    | '"'  -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '\n' -> Buffer.add_string buf "\\n"
+    | '\t' -> Buffer.add_string buf "\\t"
+    | c when Char.code c < 0x20 ->
+      Buffer.add_string buf (Printf.sprintf "\\u%04x" (Char.code c))
+    | c -> Buffer.add_char buf c) s;
+  Buffer.contents buf
+
+let fix_json = function
+  | InsertLine l  -> Printf.sprintf "{\"insert_line\":\"%s\"}" (escape_json l)
+  | ReplaceLine l -> Printf.sprintf "{\"replace_line\":\"%s\"}" (escape_json l)
+  | Replace { from_; to_ } ->
+    Printf.sprintf "{\"replace\":{\"from\":\"%s\",\"to\":\"%s\"}}"
+      (escape_json from_) (escape_json to_)
+
+(* The object shape is part of the CLI's contract (reference.md, "REPL and
+   CLI"): `severity`, `code`, `line`, `col`, `message`; `file` when a file
+   was named; `fix` when a correction exists. *)
+let to_json ?file d =
+  let severity = match d.severity with Error -> "error" | Warning -> "warning" in
+  let file_field = match file with
+    | None -> ""
+    | Some f -> Printf.sprintf "\"file\":\"%s\"," (escape_json f)
+  in
+  let (line, col) = match d.loc with
+    | Some l -> (l.Token.line, l.Token.col)
+    | None   -> (1, 1)
+  in
+  Printf.sprintf
+    "{\"severity\":\"%s\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
+    severity d.code file_field line col (escape_json d.message)
+    (match d.fix with None -> "" | Some fx -> ",\"fix\":" ^ fix_json fx)
+
+let to_json_array ?file ds =
+  "[" ^ String.concat "," (List.map (to_json ?file) ds) ^ "]"

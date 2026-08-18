@@ -261,7 +261,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     if rest = "" then (print_endline "Usage: :t <expr>"; sess)
     else begin
       (match Runner.typecheck_session sess rest with
-       | Error msg -> Printf.printf "Error: %s\n%!" msg
+       | Error d -> Printf.printf "Error: %s\n%!" (Diag.legacy d)
        | Ok r      -> print_result r);
       sess
     end

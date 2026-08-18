@@ -1,6 +1,13 @@
 open Ast
 
-exception ParseError of string
+(* The position rides beside the message, not baked into it: every consumer
+   that wants "3:5: " renders it, and the ones that want the numbers (the
+   JSON output, the language server) read them without re-parsing prose.
+   `None` is for the errors with no single token to point at. *)
+exception ParseError of Token.loc option * string
+
+let fail msg = raise (ParseError (None, msg))
+let fail_at loc msg = raise (ParseError (Some loc, msg))
 
 type state = {
   tokens : (Token.t * Token.loc) array;
@@ -103,10 +110,6 @@ let advance_loc s =
     s.pos <- s.pos + 1; pair
   end
 
-let loc_prefix s =
-  let l = peek_loc s in
-  Printf.sprintf "%d:%d: " l.Token.line l.Token.col
-
 (* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
 let peek_named_args s =
   let arr = s.tokens in
@@ -148,17 +151,17 @@ let keyword_hint = function
   | _ -> ""
 
 let expect s tok =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   let t = advance s in
   if not (Token.equal t tok) then
-    raise (ParseError (Format.asprintf "%sexpected %a, got %a%s"
-      loc Token.pp tok Token.pp t (keyword_hint t)))
+    fail_at loc (Format.asprintf "expected %a, got %a%s"
+      Token.pp tok Token.pp t (keyword_hint t))
 
 let expect_ident s =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   match advance s with
   | Token.Ident name -> name
-  | t -> raise (ParseError (Format.asprintf "%sexpected identifier, got %a" loc Token.pp t))
+  | t -> fail_at loc (Format.asprintf "expected identifier, got %a" Token.pp t)
 
 (* A handler case's continuation binder. `_` is allowed and means the case
    answers without resuming -- a normal thing to write now that abandoning a
@@ -166,13 +169,13 @@ let expect_ident s =
    name no expression can mention, so the intent is stated rather than
    left to a reader noticing that some `k` is never used. *)
 let expect_cont_name s =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   match advance s with
   | Token.Ident name -> name
   | Token.Underscore -> "_"
-  | t -> raise (ParseError (Format.asprintf
-      "%sexpected a name for the continuation, or _ if it is not resumed, \
-       got %a" loc Token.pp t))
+  | t -> fail_at loc (Format.asprintf
+      "expected a name for the continuation, or _ if it is not resumed, \
+       got %a" Token.pp t)
 
 (* ── Binding powers ───────────────────────────────────────────────────────── *)
 
@@ -238,9 +241,9 @@ let rec pat_ s =
         done;
         expect s Token.RParen; PTuple !ps
       end else if peek s = Token.Colon then
-        raise (ParseError (Printf.sprintf
-          "%sa cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'" (loc_prefix s)))
+        fail_at (peek_loc s)
+          "a cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'"
       else begin
         expect s Token.RParen;
         (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
@@ -288,9 +291,8 @@ let rec pat_ s =
       PConstr (name, !args)
     end
   | t ->
-    let loc = loc_prefix s in
-    raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
-      loc Token.pp t (keyword_hint t)))
+    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t))
 
 and pat_atom_ s =
   match peek s with
@@ -316,17 +318,16 @@ and pat_atom_ s =
         done;
         expect s Token.RParen; PTuple !ps
       end else if peek s = Token.Colon then
-        raise (ParseError (Printf.sprintf
-          "%sa cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'" (loc_prefix s)))
+        fail_at (peek_loc s)
+          "a cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'"
       else (expect s Token.RParen; p)
     end
   | Token.LBracket ->
     ignore (advance s); list_pat_ s
   | t ->
-    let loc = loc_prefix s in
-    raise (ParseError (Format.asprintf "%sunexpected token in pattern: %a%s"
-      loc Token.pp t (keyword_hint t)))
+    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t))
 
 and list_pat_ s =
   (* [ already consumed *)
@@ -348,7 +349,7 @@ and list_pat_ s =
         let key = match advance s with
           | Token.Ident k  -> k
           | Token.String k -> k
-          | t -> raise (ParseError (Format.asprintf "expected map key, got %a" Token.pp t))
+          | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
         in
         expect s Token.Eq;
         (key, pat_ s)
@@ -397,7 +398,7 @@ let is_type_atom_start = function
   | _ -> false
 
 let rec parse_type_atom s =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   match advance s with
   | Token.Upper name -> Ast.TEName name
   | Token.TypeVar name -> Ast.TEVar name
@@ -414,9 +415,9 @@ let rec parse_type_atom s =
       expect s Token.RParen; first   (* pure grouping *)
     end
   | Token.Ident name ->
-    raise (ParseError (Printf.sprintf "%sexpected type name, got '%s'%s"
-      loc name (Util.hint name builtin_types)))
-  | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
+    fail_at loc (Printf.sprintf "expected type name, got '%s'%s"
+      name (Util.hint name builtin_types))
+  | t -> fail_at loc (Format.asprintf "expected type name, got %a" Token.pp t)
 
 and parse_type_app s =
   let left = ref (parse_type_atom s) in
@@ -470,10 +471,10 @@ and infix_ left op s =
   | Token.Slash     -> BinOp ("/",   left, expr_ 60 s)
   | Token.Percent   -> BinOp ("%",   left, expr_ 60 s)
   | Token.Dot       -> Field (left, expect_ident s)
-  | t -> raise (ParseError (Format.asprintf "unexpected infix: %a" Token.pp t))
+  | t -> fail (Format.asprintf "unexpected infix: %a" Token.pp t)
 
 and atom_base_ s =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   match advance s with
   | Token.Int n      -> (Int n : expr)
   | Token.Float f    -> Float f
@@ -580,8 +581,8 @@ and atom_base_ s =
     (match advance s with
      | Token.Upper n -> ImportExpr (Ast.StdlibModule n)
      | Token.Path p  -> ImportExpr (Ast.UserPath p)
-     | t -> raise (ParseError (Format.asprintf "%sexpected module name or path after import, got %a"
-                loc Token.pp t)))
+     | t -> fail_at loc (Format.asprintf "expected module name or path after import, got %a"
+                Token.pp t))
   | Token.Result   -> Var "result"
   | Token.Dollar   ->
     expect s Token.LParen;
@@ -625,13 +626,13 @@ and atom_base_ s =
   | Token.Try    ->
     let body = expr_ 0 s in
     if peek s = Token.With && s.with_owners = 0 then
-      raise (ParseError (Printf.sprintf
-        "%stry takes no cases, so there is no 'try ... with': 'try e' \
+      fail_at (peek_loc s)
+        "try takes no cases, so there is no 'try ... with': 'try e' \
          yields a Result to match on -- and 'handle ... with' is what \
-         intercepts effects." (loc_prefix s)))
+         intercepts effects."
     else Ast.Try body
-  | t -> raise (ParseError (Format.asprintf "%sunexpected token: %a%s"
-      loc Token.pp t (keyword_hint t)))
+  | t -> fail_at loc (Format.asprintf "unexpected token: %a%s"
+      Token.pp t (keyword_hint t))
 
 (* `.field` binds tightly to the atom it immediately follows -- applied right
    after every atom_base_ call so `f x.y` parses as `f (x.y)`, not `(f x).y`
@@ -668,7 +669,7 @@ and list_ s =
         let key = match advance s with
           | Token.Ident k  -> k
           | Token.String k -> k
-          | t -> raise (ParseError (Format.asprintf "expected map key, got %a" Token.pp t))
+          | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
         in
         expect s Token.Eq;
         (key, expr_ 0 s)
@@ -706,15 +707,15 @@ and parse_body s =
    supported in a strict language (self-reference only works through a
    function's laziness), so `and`-bound members must be functions. *)
 and parse_fn_binding s name =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   let params = ref [] in
   while is_pat_atom_start (peek s) do
     params := !params @ [pat_atom_ s]
   done;
   if !params = [] then
-    raise (ParseError (Printf.sprintf
-      "%s'%s' in a mutually-recursive 'and' group must take at least one \
-       parameter — plain recursive values aren't supported" loc name));
+    fail_at loc (Printf.sprintf
+      "'%s' in a mutually-recursive 'and' group must take at least one \
+       parameter — plain recursive values aren't supported" name);
   let annot = if peek s = Token.Colon then
     (ignore (advance s); Some (parse_type_expr s))
   else None in
@@ -775,9 +776,9 @@ and let_ s =
   in
   match p with
   | PVar "rec" when is_pat_atom_start (peek s) ->
-    raise (ParseError (Printf.sprintf
-      "%sa let is already recursive -- drop the 'rec' (mutual \
-       recursion is 'let f ... and g ...')" (loc_prefix s)))
+    fail_at (peek_loc s)
+      "a let is already recursive -- drop the 'rec' (mutual \
+       recursion is 'let f ... and g ...')"
   | PVar name when peek s <> Token.Eq && is_pat_atom_start (peek s) ->
     (* function shorthand: let f params = body, with optional multi-equation
        and optional mutually-recursive `and` group *)
@@ -786,11 +787,11 @@ and let_ s =
       let bindings = ref [(name, params, body)] in
       while peek s = Token.And do
         ignore (advance s);
-        let and_loc = loc_prefix s in
+        let and_loc = peek_loc s in
         let name2 = match advance s with
           | Token.Ident n -> n
-          | t -> raise (ParseError (Format.asprintf
-              "%sexpected identifier after 'and', got %a" and_loc Token.pp t))
+          | t -> fail_at and_loc (Format.asprintf
+              "expected identifier after 'and', got %a" Token.pp t)
         in
         let (params2, body2) = parse_fn_binding s name2 in
         bindings := !bindings @ [(name2, params2, body2)]
@@ -845,7 +846,7 @@ and match_ s =
   let scrutinee = expr_ 0 s in
   expect s Token.With;
   s.with_owners <- s.with_owners - 1;
-  let arms_loc = loc_prefix s in
+  let arms_loc = peek_loc s in
   let cases = ref [] in
   let continue_ = ref true in
   while !continue_ do
@@ -870,9 +871,8 @@ and match_ s =
      mean is worth inferring. Left alone it typechecked as 'a -> 'b and
      bound a name whose body had silently gone missing. *)
   if !cases = [] then
-    raise (ParseError (Format.asprintf
-      "%smatch has no cases; each begins with '|', as in `| Some x -> x`"
-      arms_loc));
+    fail_at arms_loc
+      "match has no cases; each begins with '|', as in `| Some x -> x`";
   Match (scrutinee, !cases)
 
 and contract_expr_ s =
@@ -971,8 +971,8 @@ and parse_handle_ s =
           let b = Located (b_loc, expr_ 0 s) in
           Ast.EffectCase (op_name, arg_pat, cont_name, b)
         | t ->
-          raise (ParseError (Format.asprintf "%sunexpected token in handler case: %a"
-            (loc_prefix s) Token.pp t))
+          fail_at (peek_loc s) (Format.asprintf "unexpected token in handler case: %a"
+            Token.pp t)
       in
       cases := !cases @ [case]
     end else
@@ -1008,13 +1008,13 @@ let build_multi_equation name arity eqs =
 let note_top_fn s loc name arity =
   match Hashtbl.find_opt s.top_fns name with
   | Some prev_arity ->
-    raise (ParseError (Printf.sprintf
-      "%s'%s' is already defined above%s. Equations for a function must be \
+    fail_at loc (Printf.sprintf
+      "'%s' is already defined above%s. Equations for a function must be \
        consecutive — move this one up beside the others, or rename it"
-      loc name
+      name
       (if prev_arity = arity then ""
        else Printf.sprintf " (taking %d parameter%s)" prev_arity
-              (if prev_arity = 1 then "" else "s"))))
+              (if prev_arity = 1 then "" else "s")))
   | None -> Hashtbl.replace s.top_fns name arity
 
 (* Parses `params (: T)? = body` plus any `let name ...` multi-equation
@@ -1023,15 +1023,15 @@ let note_top_fn s loc name arity =
    mutual recursion isn't supported in a strict language (see the local
    `parse_fn_binding` above for why). *)
 let parse_top_fn_binding s name =
-  let loc = loc_prefix s in
+  let loc = peek_loc s in
   let params = ref [] in
   while is_pat_atom_start (peek s) do
     params := !params @ [pat_atom_ s]
   done;
   if !params = [] then
-    raise (ParseError (Printf.sprintf
-      "%s'%s' in a mutually-recursive 'and' group must take at least one \
-       parameter — plain recursive values aren't supported" loc name));
+    fail_at loc (Printf.sprintf
+      "'%s' in a mutually-recursive 'and' group must take at least one \
+       parameter — plain recursive values aren't supported" name);
   let annot = if peek s = Token.Colon then
     (ignore (advance s); Some (parse_type_expr s))
   else None in
@@ -1072,10 +1072,10 @@ let parse_expr tokens =
 let parse_type_def s =
   (* type already consumed *)
   let type_name =
-    let loc = loc_prefix s in
+    let loc = peek_loc s in
     match advance s with
     | Token.Upper n -> n
-    | t -> raise (ParseError (Format.asprintf "%sexpected type name, got %a" loc Token.pp t))
+    | t -> fail_at loc (Format.asprintf "expected type name, got %a" Token.pp t)
   in
   let params = ref [] in
   while (match peek s with Token.TypeVar _ -> true | _ -> false) do
@@ -1136,10 +1136,10 @@ let parse_type_def s =
     expect s Token.Eq;
     let parse_ctor () =
       let name =
-        let loc = loc_prefix s in
+        let loc = peek_loc s in
         match advance s with
         | Token.Upper n -> n
-        | t -> raise (ParseError (Format.asprintf "%sexpected constructor name, got %a" loc Token.pp t))
+        | t -> fail_at loc (Format.asprintf "expected constructor name, got %a" Token.pp t)
       in
       let fields = parse_ctor_fields () in
       { Ast.name; fields }
@@ -1173,15 +1173,15 @@ let parse_manifest s =
   let read_shell_args () =
     ignore (advance s);            (* ( *)
     if peek s = Token.RParen then
-      raise (ParseError (Printf.sprintf
-        "%sShell() admits nothing -- a file that runs no commands drops the \
-         label instead" (loc_prefix s)));
+      fail_at (peek_loc s)
+        "Shell() admits nothing -- a file that runs no commands drops the \
+         label instead";
     let args = ref [] in
     let read_arg () =
       let add word =
         if List.mem word !args then
-          raise (ParseError (Printf.sprintf
-            "%s'%s' is already in this Shell(...) list" (loc_prefix s) word));
+          fail_at (peek_loc s) (Printf.sprintf
+            "'%s' is already in this Shell(...) list" word);
         args := !args @ [word]
       in
       let (first, floc) = advance_loc s in
@@ -1207,10 +1207,10 @@ let parse_manifest s =
         in
         join ();
         add (Buffer.contents buf)
-      | t -> raise (ParseError (Format.asprintf
-          "%sexpected a binary name in Shell(...), got %a -- quote a name \
+      | t -> fail_at floc (Format.asprintf
+          "expected a binary name in Shell(...), got %a -- quote a name \
            wand cannot lex as one: Shell(git, \"7zip\")"
-          (loc_prefix s) Token.pp t))
+          Token.pp t)
     in
     read_arg ();
     while peek s = Token.Comma do ignore (advance s); read_arg () done;
@@ -1221,9 +1221,9 @@ let parse_manifest s =
     let rec parts acc =
       let part = match advance s with
         | Token.Upper u -> u
-        | t -> raise (ParseError (Format.asprintf
-            "%sexpected an effect name in the manifest, got %a"
-            (loc_prefix s) Token.pp t))
+        | t -> fail_at (peek_loc s) (Format.asprintf
+            "expected an effect name in the manifest, got %a"
+            Token.pp t)
       in
       let acc = acc @ [part] in
       if peek s = Token.Dot then (ignore (advance s); parts acc) else acc
@@ -1233,9 +1233,8 @@ let parse_manifest s =
       if peek s <> Token.LParen then None
       else if name = "Shell" then Some (read_shell_args ())
       else
-        raise (ParseError (Printf.sprintf
-          "%sonly Shell takes a list of binaries in a manifest"
-          (loc_prefix s)))
+        fail_at (peek_loc s)
+          "only Shell takes a list of binaries in a manifest"
     in
     labels := !labels @ [(name, allow)]
   in
@@ -1308,23 +1307,21 @@ let parse_program_generic ~on_item tokens =
                 | Token.Let | Token.LetStar | Token.Type | Token.Import
                 | Token.DocComment _ -> false
                 | _ -> true) ->
-       raise (ParseError (Printf.sprintf
-         "%d:%d: this line is indented as though it continued the definition \
+       fail_at start_loc
+         "this line is indented as though it continued the definition \
           above, but a definition ends at the end of its line.\n       \
           Put the whole expression on one line, or bracket what continues it: \
           parentheses, or a leading |> for a pipeline."
-         start_loc.Token.line start_loc.Token.col))
      | _ -> ());
     let before_items = !items in
     (match peek s with
     | Token.EOF -> continue_ := false
     | _ when looks_like_manifest s ->
       let (_, loc) = parse_manifest s in
-      raise (ParseError (Printf.sprintf
-        "%d:%d: the manifest must be the first thing in the file, before \
+      fail_at loc (Printf.sprintf
+        "the manifest must be the first thing in the file, before \
          everything but a shebang and comments%s"
-        loc.Token.line loc.Token.col
-        (if !manifest = None then "" else " (this file already has one)")))
+        (if !manifest = None then "" else " (this file already has one)"))
     | Token.DocComment doc ->
       ignore (advance s);
       pending_doc := Some doc
@@ -1349,17 +1346,16 @@ let parse_program_generic ~on_item tokens =
          end else
            items := !items @ [Ast.TLLetPat (p, body)]
        | Token.Ident _ | Token.Upper _ ->
-         let name_loc = loc_prefix s in
+         let name_loc = peek_loc s in
          let name = match advance s with
            | Token.Ident n -> n
            | Token.Upper n -> n
            | _ -> assert false
          in
          if name = "rec" && is_pat_atom_start (peek s) then
-           raise (ParseError (Printf.sprintf
-             "%sa let is already recursive -- drop the 'rec' (mutual \
-              recursion is 'let f ... and g ...')"
-             name_loc));
+           fail_at name_loc
+             "a let is already recursive -- drop the 'rec' (mutual \
+              recursion is 'let f ... and g ...')";
          let params = ref [] in
          while is_pat_atom_start (peek s) do
            params := !params @ [pat_atom_ s]
@@ -1403,17 +1399,17 @@ let parse_program_generic ~on_item tokens =
                   a mistake in this equation rather than the start of an
                   unrelated binding: report it instead of backtracking into
                   a silent shadow. *)
-               let eq_loc = loc_prefix s in
+               let eq_loc = peek_loc s in
                let ps = ref [] in
                while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
                if List.length !ps <> arity then
-                 raise (ParseError (Printf.sprintf
-                   "%sequation %d of '%s' takes %d parameter%s, but its first \
+                 fail_at eq_loc (Printf.sprintf
+                   "equation %d of '%s' takes %d parameter%s, but its first \
                     equation takes %d — every equation of a function must \
                     take the same number"
-                   eq_loc (List.length !eqs + 1) name
+                   (List.length !eqs + 1) name
                    (List.length !ps) (if List.length !ps = 1 then "" else "s")
-                   arity));
+                   arity);
                (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
                let b_loc = peek_loc s in
                let b = Ast.Located (b_loc, parse_contract_body s) in
@@ -1425,11 +1421,11 @@ let parse_program_generic ~on_item tokens =
              let bindings = ref [(name, first_params, first_body)] in
              while peek s = Token.And do
                ignore (advance s);
-               let and_loc = loc_prefix s in
+               let and_loc = peek_loc s in
                let name2 = match advance s with
                  | Token.Ident n -> n
-                 | t -> raise (ParseError (Format.asprintf
-                     "%sexpected identifier after 'and', got %a" and_loc Token.pp t))
+                 | t -> fail_at and_loc (Format.asprintf
+                     "expected identifier after 'and', got %a" Token.pp t)
                in
                let (params2, body2) = parse_top_fn_binding s name2 in
                bindings := !bindings @ [(name2, params2, body2)]
@@ -1461,8 +1457,8 @@ let parse_program_generic ~on_item tokens =
       (match advance s with
        | Token.Upper name -> items := !items @ [Ast.TLImport (Ast.StdlibModule name)]
        | Token.Path path  -> items := !items @ [Ast.TLImport (Ast.UserPath path)]
-       | t -> raise (ParseError (Format.asprintf
-           "expected module name or path after import, got %a" Token.pp t)))
+       | t -> fail (Format.asprintf
+           "expected module name or path after import, got %a" Token.pp t))
     | Token.Type ->
       ignore (advance s);
       let tdef = parse_type_def s in
@@ -1484,8 +1480,8 @@ let parse_program_generic ~on_item tokens =
          | Some id ->
            let hint = keyword_hint (Token.Ident id) in
            if hint <> "" then
-             raise (ParseError (Format.asprintf "%sunexpected '='; did you mean 'let'?%s"
-               (loc_prefix s) hint))
+             fail_at (peek_loc s) (Format.asprintf "unexpected '='; did you mean 'let'?%s"
+               hint)
          | None -> ())
       end);
     if !items != before_items then begin

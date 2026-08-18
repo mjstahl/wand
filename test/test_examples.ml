@@ -42,10 +42,9 @@ let typecheck path =
     | Ok _ -> Ok ()
     | Error msg -> Error ("type error: " ^ msg)
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
-  | Failure msg           -> Error msg
+  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    Error (Runner.legacy_of_exn e)
 
 let test_all_typecheck () =
   List.iter (fun name ->

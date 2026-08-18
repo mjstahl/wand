@@ -120,7 +120,7 @@ let test_int_too_large () =
   check "the largest there is" "4611686018427387903" [Int 4611686018427387903];
   (match Lexer.tokenize_plain "30000000000000000000" with
    | _ -> Alcotest.fail "expected a LexError for a number past max_int"
-   | exception Lexer.LexError msg ->
+   | exception Lexer.LexError (_, msg) ->
      if not (String.length msg > 0 && String.length msg > 20) then
        Alcotest.failf "expected a message naming the limit, got: %s" msg)
 

@@ -1,5 +1,21 @@
 open Evaluator
 
+(* ── Errors ───────────────────────────────────────────────────────────────── *)
+
+(* A stage failure as one structured diagnostic. The functions that still
+   answer with a string render it through `Diag.legacy`, so the text the CLI
+   prints and the data the JSON and the language server read are the same
+   fact. Anything else propagates. *)
+let diag_of_exn = function
+  | Lexer.LexError (loc, msg)          -> Diag.error ~code:"E-LEX" ~loc msg
+  | Parser.ParseError (loc, msg)       -> Diag.error ~code:"E-PARSE" ?loc msg
+  | Typechecker.TypeError msg          -> Diag.error ~code:"E-TYPE" msg
+  | Typechecker.TypeErrorAt (loc, msg) -> Diag.error ~code:"E-TYPE" ~loc msg
+  | Failure msg                        -> Diag.error ~code:"E-FAIL" msg
+  | e -> raise e
+
+let legacy_of_exn e = Diag.legacy (diag_of_exn e)
+
 (* ── Default effect handlers ──────────────────────────────────────────────── *)
 
 (* Drain a channel in blocks. Reading one byte at a time costs a call per
@@ -817,13 +833,18 @@ and load_module src_ref ~cache ~loading =
   let src = Module_types.read_source src_ref in
   let tokens =
     try Lexer.tokenize src
-    with Lexer.LexError msg ->
-      failwith ("lex error in '" ^ path ^ "': " ^ msg)
+    with Lexer.LexError (loc, msg) ->
+      failwith (Printf.sprintf "lex error in '%s': %d:%d: %s"
+                  path loc.Token.line loc.Token.col msg)
   in
   let prog =
     try Parser.parse_program tokens
-    with Parser.ParseError msg ->
-      failwith ("parse error in '" ^ path ^ "': " ^ msg)
+    with Parser.ParseError (loc, msg) ->
+      let pos = match loc with
+        | Some l -> Printf.sprintf "%d:%d: " l.Token.line l.Token.col
+        | None -> ""
+      in
+      failwith (Printf.sprintf "parse error in '%s': %s%s" path pos msg)
   in
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
@@ -1002,10 +1023,9 @@ let run_string src =
     let prog   = Parser.parse_program tokens in
     run_program ~base_dir:(Sys.getcwd ()) prog
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | EvalError msg         -> Error ("eval error: " ^ msg)
-  | Failure msg           -> Error (msg)
+  | EvalError msg -> Error ("eval error: " ^ msg)
+  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
 (* ── Stopping ─────────────────────────────────────────────────────────────── *)
 
@@ -1068,10 +1088,9 @@ let run_file ?(mode = Normal) path =
     run_program ~mode ~base_dir prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | EvalError msg         -> Error ("eval error: " ^ msg)
-  | Failure msg           -> Error (msg)
+  | EvalError msg -> Error ("eval error: " ^ msg)
+  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
 (* ── `wand test` ──────────────────────────────────────────────────────────── *)
 
@@ -1168,10 +1187,9 @@ let run_test_file path : (test_outcome list, string) result =
     run_test_program ~base_dir prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | EvalError msg         -> Error ("eval error: " ^ msg)
-  | Failure msg           -> Error (msg)
+  | EvalError msg -> Error ("eval error: " ^ msg)
+  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
 (* ── REPL session ─────────────────────────────────────────────────────────── *)
 
@@ -1235,7 +1253,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error msg -> Error ("type error: " ^ msg)
+    | Error (loc, msg) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
         let seen = Hashtbl.create 16 in
@@ -1355,10 +1373,9 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         Ok (new_sess, display)
       end
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | EvalError msg         -> Error ("runtime error: " ^ msg)
-  | Failure msg           -> Error msg
+  | EvalError msg -> Error ("runtime error: " ^ msg)
+  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
 (* Typecheck a file without running it, resolving its imports the same way
    running it would. The editing loop and CI both want an answer that costs
@@ -1388,8 +1405,9 @@ type source_check = {
 
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
    `path` says where the text lives, which decides how its imports resolve
-   and whether it is checked as a stdlib module. *)
-let typecheck_source ~path (src : string) : (source_check, string) result =
+   and whether it is checked as a stdlib module. A failure comes back as a
+   structured diagnostic; `Diag.legacy` recovers the old error string. *)
+let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
   let full =
     if Filename.is_relative path
     then Filename.concat (Sys.getcwd ()) (add_ext path)
@@ -1415,7 +1433,7 @@ let typecheck_source ~path (src : string) : (source_check, string) result =
     in
     match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
-    | Error msg -> Error ("type error: " ^ msg)
+    | Error (loc, msg) -> Error (Diag.error ~code:"E-TYPE" ?loc msg)
     | Ok (_, own_type_env, last_t, holes) ->
       Ok { sc_type     = Typechecker.string_of_typ last_t;
            sc_holes    = List.map Typechecker.string_of_typ holes;
@@ -1423,12 +1441,11 @@ let typecheck_source ~path (src : string) : (source_check, string) result =
            sc_env      = own_type_env;
            sc_docs     = prog.Ast.docs @ imp_docs }
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
-  | Failure msg           -> Error msg
+  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    Error (diag_of_exn e)
 
-let typecheck_file path : (source_check, string) result =
+let typecheck_file path : (source_check, Diag.t) result =
   try
     let full =
       if Filename.is_relative path
@@ -1437,7 +1454,8 @@ let typecheck_file path : (source_check, string) result =
     in
     let src = In_channel.with_open_text full In_channel.input_all in
     typecheck_source ~path src
-  with Sys_error msg -> Error ("cannot open file: " ^ msg)
+  with Sys_error msg ->
+    Error (Diag.error ~code:"E-FAIL" ("cannot open file: " ^ msg))
 
 (* Lint a stdlib module's own source. Module bodies are inferred against the
    raw builtins rather than the user-visible globals, so they need the same
@@ -1457,10 +1475,9 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     | Error msg -> Error ("type error: " ^ msg)
     | Ok (_, own_type_env) -> Ok (Lint.check prog item_locs own_type_env)
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
-  | Failure msg           -> Error msg
+  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
 (* Lints share the typecheck's parse and inference rather than repeating
    them: they are reported by `wand t`, so they must cost it almost nothing. *)
@@ -1474,15 +1491,14 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error msg -> Error ("type error: " ^ msg)
+    | Error (loc, msg) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (_, own_type_env, _, _) -> Ok (Lint.check prog item_locs own_type_env)
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | Typechecker.TypeError msg -> Error ("type error: " ^ msg)
-  | Failure msg           -> Error msg
+  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    Error (legacy_of_exn e)
 
-let typecheck_session (sess : session) (src : string) : (repl_result, string) result =
+let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) result =
   try
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
@@ -1492,7 +1508,7 @@ let typecheck_session (sess : session) (src : string) : (repl_result, string) re
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
-    | Error msg -> Error ("type error: " ^ msg)
+    | Error (loc, msg) -> Error (Diag.error ~code:"E-TYPE" ?loc msg)
     | Ok (full_type_env, _, last_t, hole_types) ->
       if hole_types <> [] then
         Ok (RHoles (List.map Typechecker.string_of_typ hole_types))
@@ -1509,6 +1525,5 @@ let typecheck_session (sess : session) (src : string) : (repl_result, string) re
         in
         Ok display
   with
-  | Lexer.LexError msg    -> Error ("lex error: " ^ msg)
-  | Parser.ParseError msg -> Error ("parse error: " ^ msg)
-  | Failure msg           -> Error msg
+  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+    Error (diag_of_exn e)

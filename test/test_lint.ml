@@ -255,7 +255,7 @@ let test_corpus_is_clean () =
       let name = Filename.basename path in
       match Runner.typecheck_file path with
       | Error _ when List.mem name expected_type_errors -> ()
-      | Error m -> Alcotest.failf "%s failed to typecheck: %s" path m
+      | Error d -> Alcotest.failf "%s failed to typecheck: %s" path (Diag.legacy d)
       | Ok sc ->
         let findings = sc.Runner.sc_findings in
         let unexpected =
@@ -283,7 +283,7 @@ let test_stdlib_typechecks_through_the_tool () =
     Array.iter (fun name ->
       if Filename.check_suffix name ".wand" then
         match Runner.typecheck_file (Filename.concat dir name) with
-        | Error m -> Alcotest.failf "%s does not typecheck as a module: %s" name m
+        | Error d -> Alcotest.failf "%s does not typecheck as a module: %s" name (Diag.legacy d)
         | Ok { Runner.sc_findings = []; _ } -> ()
         | Ok sc ->
           Alcotest.failf "%s has findings:\n%s" name

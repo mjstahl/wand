@@ -388,13 +388,13 @@ let type_of_expr src =
   match Lexer.tokenize src |> Parser.parse_expr |> Typechecker.infer_expr with
   | Ok t -> Ok (Typechecker.string_of_typ t)
   | Error e -> Error e
-  | exception (Lexer.LexError e | Parser.ParseError e) -> Error e
+  | exception (Lexer.LexError (_, e) | Parser.ParseError (_, e)) -> Error e
 
 let type_of_program src =
   match Lexer.tokenize src |> Parser.parse_program |> Typechecker.infer_program with
   | Ok t -> Ok (Typechecker.string_of_typ t)
   | Error e -> Error e
-  | exception (Lexer.LexError e | Parser.ParseError e) -> Error e
+  | exception (Lexer.LexError (_, e) | Parser.ParseError (_, e)) -> Error e
 
 let expr_is label src expected =
   match type_of_expr src with
@@ -570,7 +570,8 @@ let type_of_program_with_imports src =
     | Ok _ -> Ok ()
     | Error e -> Error e
   with
-  | Lexer.LexError e | Parser.ParseError e | Typechecker.TypeError e -> Error e
+  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+    | Typechecker.TypeErrorAt _) as e -> Error (Runner.legacy_of_exn e)
   | Failure e -> Error e
 
 let rejects_program label src =
@@ -701,9 +702,10 @@ let type_of label src =
        (match Typechecker.infer_program_full_with_own
                 ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
         | Ok (_, _, t, _) -> Ok (Typechecker.string_of_typ t)
-        | Error e -> Error e)
+        | Error (_, e) -> Error e)
      with
-     | Lexer.LexError e | Parser.ParseError e | Typechecker.TypeError e -> Error e
+     | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
+       | Typechecker.TypeErrorAt _) as e -> Error (Runner.legacy_of_exn e)
      | Failure e -> Error e)
   with
   | Ok t -> t

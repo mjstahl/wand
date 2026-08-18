@@ -335,7 +335,7 @@ let test_paren_seq () =
 
 let parse_error label src needle =
   match (try Ok (parse_program src) with
-         | Parser.ParseError m -> Error m
+         | Parser.ParseError (_, m) -> Error m
          | Failure m -> Error m) with
   | Ok _ -> Alcotest.failf "%s: expected a parse error" label
   | Error m ->
@@ -438,7 +438,7 @@ let test_handler_continuation_binder () =
   let ok label src =
     match case src with
     | _ -> ()
-    | exception Parser.ParseError m -> Alcotest.failf "%s: %s" label m
+    | exception Parser.ParseError (_, m) -> Alcotest.failf "%s: %s" label m
   in
   ok "a named continuation" {|handle 1 with
 | Shell!run c k -> k "x"|};
@@ -450,7 +450,7 @@ let test_handler_continuation_binder () =
   match case {|handle 1 with
 | Shell!run _ 3 -> "x"|} with
   | _ -> Alcotest.fail "expected a parse error for a literal continuation"
-  | exception Parser.ParseError m ->
+  | exception Parser.ParseError (_, m) ->
     Alcotest.(check bool) "the message says what is allowed" true
       (let sub = "or _ if it is not resumed" in
        let n = String.length sub and t = String.length m in
@@ -466,7 +466,7 @@ let test_indented_continuation () =
   let parse src = Lexer.tokenize src |> Parser.parse_program in
   (match parse "let add a b = a + b\nlet f x =\n  add\n    x\n    1\n" with
    | _ -> Alcotest.fail "expected the indented continuation to be rejected"
-   | exception Parser.ParseError m ->
+   | exception Parser.ParseError (_, m) ->
      let says sub =
        let n = String.length sub and t = String.length m in
        let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
@@ -479,7 +479,7 @@ let test_indented_continuation () =
   let ok label src =
     match parse src with
     | _ -> ()
-    | exception Parser.ParseError m -> Alcotest.failf "%s: %s" label m
+    | exception Parser.ParseError (_, m) -> Alcotest.failf "%s: %s" label m
   in
   ok "a pipeline continuation" "let n = xs\n  |> f\n";
   ok "if/else across lines" "let f x = if x then\n  1\n  else 2\n";

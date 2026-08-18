@@ -55,19 +55,19 @@ let test_type () =
   (match Runner.typecheck_session sess "1 + 2" with
    | Ok (Runner.RTypeExpr "Int") -> ()
    | Ok _ -> Alcotest.fail "type: expected RTypeExpr Int"
-   | Error m -> Alcotest.failf "type error: %s" m);
+   | Error d -> Alcotest.failf "type error: %s" (Diag.legacy d));
   (* function type *)
   (match Runner.typecheck_session sess "fn x -> x + 1" with
    | Ok (Runner.RTypeExpr t) ->
      if t <> "Int -> Int" then
        Alcotest.failf "type: expected Int -> Int, got %s" t
    | Ok _ -> Alcotest.fail "type: expected RTypeExpr"
-   | Error m -> Alcotest.failf "type fn error: %s" m);
+   | Error d -> Alcotest.failf "type fn error: %s" (Diag.legacy d));
   (* let binding type *)
   (match Runner.typecheck_session sess "let x = \"hello\"" with
    | Ok (Runner.RBind ("x", "String")) -> ()
    | Ok _ -> Alcotest.fail "type: expected RBind x String"
-   | Error m -> Alcotest.failf "type let error: %s" m);
+   | Error d -> Alcotest.failf "type let error: %s" (Diag.legacy d));
   (* type error *)
   (match Runner.typecheck_session sess "1 + true" with
    | Error _ -> ()
@@ -76,7 +76,7 @@ let test_type () =
   (match Runner.typecheck_session sess "?" with
    | Ok (Runner.RHoles [_]) -> ()
    | Ok _ -> Alcotest.fail "type hole: expected RHoles"
-   | Error m -> Alcotest.failf "type hole error: %s" m)
+   | Error d -> Alcotest.failf "type hole error: %s" (Diag.legacy d))
 
 (* ── wand d (doc) ────────────────────────────────────────────────────────── *)
 
@@ -242,7 +242,7 @@ let test_typecheck_file () =
     | Ok sc ->
       Alcotest.(check string) "reports the file's type" "Int" sc.Runner.sc_type;
       Alcotest.(check int) "no holes" 0 (List.length sc.Runner.sc_holes)
-    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+    | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))
 
 let test_typecheck_file_reports_errors () =
   with_file "wand_cli_bad.wand" "let x : Int = \"no\"\nx" (fun path ->
@@ -259,7 +259,7 @@ let test_typecheck_file_reports_holes () =
          effects of its own -- fold_left passes through whatever it is given. *)
       Alcotest.(check string) "with its inferred type" "Int -> Int -> Int ! 'e"
         (List.hd sc.Runner.sc_holes)
-    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+    | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))
 
 (* The editor's case: text that exists only in a buffer. The path decides
    where imports resolve, whether or not a file is there. *)
@@ -270,7 +270,7 @@ let test_typecheck_source_unsaved_buffer () =
             "let [answer] = import ./wand_cli_util\nanswer" with
     | Ok sc ->
       Alcotest.(check string) "the buffer sees its neighbor" "Int" sc.Runner.sc_type
-    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+    | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))
 
 let test_typecheck_source_own_names () =
   match Runner.typecheck_source ~path:"wand_cli_hover.wand"
@@ -278,14 +278,14 @@ let test_typecheck_source_own_names () =
   | Ok sc ->
     Alcotest.(check bool) "the file's own names are reported" true
       (List.mem_assoc "double" sc.Runner.sc_env)
-  | Error m -> Alcotest.failf "expected it to typecheck: %s" m
+  | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d)
 
 let test_typecheck_file_lints () =
   with_file "wand_cli_lint.wand" "let is_ready? x = x > 1\nis_ready? 2" (fun path ->
     match Runner.typecheck_file path with
     | Ok sc ->
       Alcotest.(check bool) "a lint is reported" true (sc.Runner.sc_findings <> [])
-    | Error m -> Alcotest.failf "expected it to typecheck: %s" m)
+    | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))
 
 (* ── wand test: finding the files ────────────────────────────────────────── *)
 

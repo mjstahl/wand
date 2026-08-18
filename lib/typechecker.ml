@@ -375,6 +375,13 @@ let rec occurs (tv : tv) t =
 
 exception TypeError of string
 
+(* The located form. `TypeError` is raised where only the fact is known;
+   the nearest enclosing `Located` promotes it to `TypeErrorAt`, which then
+   passes through outer handlers untouched -- so the position that wins is
+   the innermost one, and it travels as data rather than as a "3:5: "
+   prefix spliced into the message. *)
+exception TypeErrorAt of Token.loc * string
+
 let rec unify t1 t2 =
   match repr t1, repr t2 with
   | TInt,      TInt      | TFloat,    TFloat    | TString,  TString
@@ -1739,10 +1746,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     t
   | Located (loc, e) ->
     (try infer tenv env e
-     with TypeError msg ->
-       if Util.has_loc_prefix msg then raise (TypeError msg)
-       else raise (TypeError (Printf.sprintf "%d:%d: %s"
-              loc.Token.line loc.Token.col msg)))
+     with TypeError msg -> raise (TypeErrorAt (loc, msg)))
 
 and infer_binop tenv (env : env) op a b : typ =
   match op with
@@ -1801,7 +1805,10 @@ and infer_binop tenv (env : env) op a b : typ =
 
 let infer_expr (e : expr) : (typ, string) result =
   try Ok (infer [] [] e)
-  with TypeError msg -> Error msg
+  with
+  | TypeError msg -> Error msg
+  | TypeErrorAt (loc, msg) ->
+    Error (Printf.sprintf "%d:%d: %s" loc.Token.line loc.Token.col msg)
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
@@ -2290,10 +2297,10 @@ let check_shell_words (prog : program) =
         if not (List.mem word !words) then words := word :: !words;
         (match allow with
          | Some allow_list when not (Shell_scan.allowed ~allow:allow_list word) ->
-           raise (TypeError (Printf.sprintf
-             "%d:%d: this command runs '%s', which %s does not allow.\n       \
+           raise (TypeErrorAt (loc, Printf.sprintf
+             "this command runs '%s', which %s does not allow.\n       \
               The manifest could be:  \"%s\""
-             loc.Token.line loc.Token.col word
+             word
              (Shell_scan.render_label ("Shell", Some allow_list))
              (corrected_with word)))
          | _ -> ())
@@ -2302,11 +2309,11 @@ let check_shell_words (prog : program) =
         static := false;
         (match allow with
          | Some allow_list ->
-           raise (TypeError (Printf.sprintf
-             "%d:%d: this $() uses shell control flow ('%s'), which %s \
+           raise (TypeErrorAt (loc, Printf.sprintf
+             "this $() uses shell control flow ('%s'), which %s \
               cannot bound.\n       Write the loop in wand (List.each over \
               one $() per item), or declare bare Shell."
-             loc.Token.line loc.Token.col kw
+             kw
              (Shell_scan.render_label ("Shell", Some allow_list))))
          | None -> ())
     ) s.Shell_scan.words
@@ -2364,7 +2371,7 @@ let check_manifest (prog : program) (own_env : env) =
         match eff_of_label name with
         | Some e -> Effect_row.EffSet.add e acc
         | None ->
-          raise (TypeError (Printf.sprintf
+          raise (TypeErrorAt (loc, Printf.sprintf
             "'%s' is not an effect. The effects are %s" name
             (String.concat ", " (List.map Effect_row.name_of Effect_row.all))))
       ) Effect_row.EffSet.empty labels
@@ -2391,7 +2398,7 @@ let check_manifest (prog : program) (own_env : env) =
         | Some (name, _) -> Printf.sprintf "'%s' " name
         | None -> ""
       in
-      raise (TypeError (Printf.sprintf
+      raise (TypeErrorAt (loc, Printf.sprintf
         "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  \"%s\""
         where
         (String.concat ", "
@@ -2513,12 +2520,20 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   check_manifest prog own_env;
   (tenv, env, own_env, last_t))
 
+(* The string-returning entry points render the position back into the
+   message; `infer_program_full_with_own` below hands it over as data. *)
+let error_message = function
+  | TypeError msg -> msg
+  | TypeErrorAt (loc, msg) ->
+    Printf.sprintf "%d:%d: %s" loc.Token.line loc.Token.col msg
+  | _ -> assert false
+
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : (env * typ, string) result =
   try
     let (_, env, _, last_t) = infer_program_ ~init_tenv ~init_env prog in
     Ok (env, last_t)
-  with TypeError msg -> Error msg
+  with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 (* Returns (full_env, own_env); uses stdlib_type_env as base (for module loading). *)
 let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
@@ -2526,7 +2541,7 @@ let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
   try
     let (_, env, own, _) = infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env prog in
     Ok (env, own)
-  with TypeError msg -> Error msg
+  with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 let infer_program (prog : program) : (typ, string) result =
   Result.map snd (infer_program_full prog)
@@ -2541,10 +2556,12 @@ let string_of_scheme = function
 
 let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
     ?(init_env=[]) (prog : program)
-    : (env * env * typ * typ list, string) result =
+    : (env * env * typ * typ list, Token.loc option * string) result =
   try
     let (_, full_env, own_env, last_t) =
       infer_program_ ~base_env ~init_tenv ~init_env prog in
     let hole_types = List.rev_map repr !holes in
     Ok (full_env, own_env, last_t, hole_types)
-  with TypeError msg -> Error msg
+  with
+  | TypeError msg -> Error (None, msg)
+  | TypeErrorAt (loc, msg) -> Error (Some loc, msg)

@@ -246,10 +246,10 @@ let () =
       (match take_file [] rest with
        | Some path, _ ->
          (match Wand.Runner.typecheck_file path with
-          | Error msg ->
+          | Error d ->
             if json then
-              (print_endline (Wand.Lint.error_to_json ~file:path msg); exit 1)
-            else (Printf.eprintf "Error: %s\n" msg; exit 1)
+              (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
+            else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
           | Ok sc ->
             let holes    = sc.Wand.Runner.sc_holes in
             let findings = sc.Wand.Runner.sc_findings in
@@ -274,9 +274,9 @@ let () =
        | [expr] ->
          let sess = load_files ~sources:[expr] loads in
          (match Wand.Runner.typecheck_session sess expr with
-          | Error msg ->
-            if json then (print_endline (Wand.Lint.error_to_json msg); exit 1)
-            else (Printf.eprintf "Error: %s\n" msg; exit 1)
+          | Error d ->
+            if json then (print_endline (Wand.Diag.to_json_array [d]); exit 1)
+            else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
           | Ok r      ->
             if not json then Wand.Repl.print_result r;
             let holes = match r with Wand.Runner.RHoles hs -> hs | _ -> [] in
@@ -341,10 +341,9 @@ let () =
                 Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc formatted);
                 Printf.printf "formatted %s\n" path
               with
-              | Wand.Lexer.LexError m ->
-                had_error := true; Printf.eprintf "Error: %s: lex error: %s\n" path m
-              | Wand.Parser.ParseError m ->
-                had_error := true; Printf.eprintf "Error: %s: parse error: %s\n" path m)
+              | (Wand.Lexer.LexError _ | Wand.Parser.ParseError _) as e ->
+                had_error := true;
+                Printf.eprintf "Error: %s: %s\n" path (Wand.Runner.legacy_of_exn e))
          ) paths;
          if !had_error then exit 1)
     | "s" | "test" ->

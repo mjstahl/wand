@@ -6,10 +6,13 @@
    called, how it is classified, and what it says all live in `Lint_rules`. *)
 
 (* A machine-applicable correction, carried alongside the human text so a
-   tool consuming `--json` can fix without re-parsing prose. *)
-type fix =
+   tool consuming `--json` can fix without re-parsing prose. The type lives
+   in `Diag` so findings and errors share one fix representation; it is
+   re-exported here because the constructors read as lint vocabulary. *)
+type fix = Diag.fix =
   | InsertLine  of string   (* a line the file lacks (the manifest) *)
   | ReplaceLine of string   (* the corrected form of the flagged line *)
+  | Replace     of { from_ : string; to_ : string }  (* drift errors only *)
 
 type finding = {
   rule : Lint_rules.id;
@@ -345,104 +348,31 @@ let fails_strict f = Lint_rules.kind f.rule = Lint_rules.Violation
 let to_text f =
   Printf.sprintf "%d:%d: %s: %s" f.line f.col (Lint_rules.code f.rule) f.text
 
-let escape_json s =
-  let buf = Buffer.create (String.length s + 8) in
-  String.iter (fun c ->
-    match c with
-    | '"'  -> Buffer.add_string buf "\\\""
-    | '\\' -> Buffer.add_string buf "\\\\"
-    | '\n' -> Buffer.add_string buf "\\n"
-    | '\t' -> Buffer.add_string buf "\\t"
-    | c when Char.code c < 0x20 ->
-      Buffer.add_string buf (Printf.sprintf "\\u%04x" (Char.code c))
-    | c -> Buffer.add_char buf c) s;
-  Buffer.contents buf
+let contains = Diag.contains
 
 (* ── Structured diagnostics (`wand t --json`) ────────────────────────────── *)
 
-(* One JSON array on stdout, one object per diagnostic. The schema is part
-   of the CLI's contract (reference.md, "REPL and CLI"): every object has
-   `severity`, `code`, `line`, `col`, and `message`; `file` when a file was
-   named; a `fix` object when a machine-applicable correction exists; and
-   typed holes come as their own `{"kind":"hole"}` shape. *)
+(* One JSON array on stdout, one object per diagnostic, rendered by `Diag`.
+   The schema is part of the CLI's contract (reference.md, "REPL and CLI"):
+   every object has `severity`, `code`, `line`, `col`, and `message`; `file`
+   when a file was named; a `fix` object when a machine-applicable
+   correction exists; and typed holes come as their own `{"kind":"hole"}`
+   shape. *)
 
-let contains msg needle =
-  let n = String.length needle and m = String.length msg in
-  let rec go i = i + n <= m && (String.sub msg i n = needle || go (i + 1)) in
-  go 0
-
-let fix_json = function
-  | InsertLine l  -> Printf.sprintf "{\"insert_line\":\"%s\"}" (escape_json l)
-  | ReplaceLine l -> Printf.sprintf "{\"replace_line\":\"%s\"}" (escape_json l)
-
-let file_field = function
-  | None -> ""
-  | Some f -> Printf.sprintf "\"file\":\"%s\"," (escape_json f)
-
-let finding_json ~strict ?file f =
-  let severity = if strict && fails_strict f then "error" else "warning" in
-  Printf.sprintf
-    "{\"severity\":\"%s\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
-    severity (Lint_rules.code f.rule) (file_field file) f.line f.col
-    (escape_json f.text)
-    (match f.fix with None -> "" | Some fx -> ",\"fix\":" ^ fix_json fx)
+let to_diag ~strict f : Diag.t =
+  { Diag.severity = if strict && fails_strict f then Diag.Error else Diag.Warning;
+    code    = Lint_rules.code f.rule;
+    loc     = Some { Token.line = f.line; col = f.col; offset = 0 };
+    message = f.text;
+    fix     = f.fix }
 
 let hole_json t =
-  Printf.sprintf "{\"kind\":\"hole\",\"type\":\"%s\"}" (escape_json t)
-
-(* The drift errors name their correction in prose; where the correction is
-   a plain textual substitution, carry it as data too. Keyed on fragments
-   test_drift.ml locks, so rewording a message that breaks a key breaks a
-   test alongside it. *)
-let drift_fixes = [
-  "cons is a single ':', not '::'", ("::", ":");
-  "not '//'",                     ("//", "--");
-  "not '# ...'",                  ("#", "--");
-  "not ${...}",                   ("${", "%{");
-  "not #{...}",                   ("#{", "%{");
-  "drop the 'rec'",               ("let rec", "let");
-  "not '^'",                      ("^", "++");
-  "boolean operator is '&&'",     ("and", "&&");
-  "boolean operator is '||'",     ("or", "||");
-  "boolean not is '!'",           ("not", "!");
-]
-
-let error_fix_json msg =
-  match List.find_opt (fun (frag, _) -> contains msg frag) drift_fixes with
-  | None -> ""
-  | Some (_, (from_, to_)) ->
-    Printf.sprintf ",\"fix\":{\"replace\":{\"from\":\"%s\",\"to\":\"%s\"}}"
-      (escape_json from_) (escape_json to_)
-
-(* An error message arrives as "<label>: [line:col: ] text". The label
-   becomes a stable code, the position is lifted out when present. *)
-let error_json ?file msg =
-  let starts p = String.length msg >= String.length p
-                 && String.sub msg 0 (String.length p) = p in
-  let (code, rest) =
-    if starts "type error: " then ("E-TYPE", String.sub msg 12 (String.length msg - 12))
-    else if starts "parse error: " then ("E-PARSE", String.sub msg 13 (String.length msg - 13))
-    else if starts "lex error: " then ("E-LEX", String.sub msg 11 (String.length msg - 11))
-    else ("E-FAIL", msg)
-  in
-  let (line, col, text) =
-    match String.index_opt rest ' ' with
-    | Some sp ->
-      (try Scanf.sscanf (String.sub rest 0 sp) "%d:%d:"
-             (fun l c -> (l, c, String.sub rest (sp + 1) (String.length rest - sp - 1)))
-       with Scanf.Scan_failure _ | Failure _ | End_of_file -> (1, 1, rest))
-    | None -> (1, 1, rest)
-  in
-  Printf.sprintf
-    "{\"severity\":\"error\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
-    code (file_field file) line col (escape_json text) (error_fix_json text)
+  Printf.sprintf "{\"kind\":\"hole\",\"type\":\"%s\"}" (Diag.escape_json t)
 
 let diagnostics_json ~strict ?file ~holes findings =
   "[" ^ String.concat ","
     (List.map hole_json holes
-     @ List.map (finding_json ~strict ?file) findings)
+     @ List.map (fun f -> Diag.to_json ?file (to_diag ~strict f)) findings)
   ^ "]"
-
-let error_to_json ?file msg = "[" ^ error_json ?file msg ^ "]"
 
 let to_json fs = diagnostics_json ~strict:false ~holes:[] fs

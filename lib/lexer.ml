@@ -1,15 +1,26 @@
 open Token
 
-exception LexError of string
+(* Raised inside the scanner, where only the message is known. `tokenize`
+   turns it into `LexError` with the position of the token being read --
+   internal raises need not thread a location they cannot improve on. *)
+exception Fail of string
+
+exception LexError of Token.loc * string
 
 type state = {
   src  : string;
   mutable pos  : int;
   mutable line : int;
   mutable col  : int;
+  (* where the token being scanned began -- the position a failure inside
+     `next_token` is reported at, so an unterminated string points at its
+     opening quote rather than at end of file. *)
+  mutable tok_start : Token.loc;
 }
 
-let make src = { src; pos = 0; line = 1; col = 1 }
+let make src =
+  { src; pos = 0; line = 1; col = 1;
+    tok_start = Token.{ line = 1; col = 1; offset = 0 } }
 
 let len s = String.length s.src
 let is_at_end s = s.pos >= len s
@@ -64,7 +75,7 @@ let read_string s =
   let parts = ref [] in
   let buf = Buffer.create 16 in
   let rec loop () =
-    if is_at_end s then raise (LexError "unterminated string literal");
+    if is_at_end s then raise (Fail "unterminated string literal");
     match advance s with
     | '"'  ->
       if !parts = [] then String (Buffer.contents buf)
@@ -73,14 +84,14 @@ let read_string s =
       let c = match advance s with
         | 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r'
         | '\\' -> '\\' | '"' -> '"' | '$' -> '$' | '%' -> '%' | '#' -> '#'
-        | c -> raise (LexError (Printf.sprintf "unknown escape \\%c" c))
+        | c -> raise (Fail (Printf.sprintf "unknown escape \\%c" c))
       in
       Buffer.add_char buf c; loop ()
     (* A string is text, not a command line: there are no argument
        boundaries to quote for, so raw interpolation would mean exactly what
        `%{...}` already means. Rejected rather than allowed as a synonym. *)
     | '%' when peek s = '!' && peek2 s = '{' ->
-      raise (LexError "%!{...} is for shell commands, where it splices a \
+      raise (Fail "%!{...} is for shell commands, where it splices a \
                        value as shell source. A string has nothing to quote \
                        for, so write %{...} here.")
     (* `$` used to interpolate. It now means one thing -- reaching outside
@@ -89,13 +100,13 @@ let read_string s =
        `"${x}"` that quietly became the characters `${x}` is a wrong answer
        no one would look for. *)
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
-      raise (LexError "interpolation is %{...} now, not ${...}. For the \
+      raise (Fail "interpolation is %{...} now, not ${...}. For the \
                        literal text, write \\${...}")
     (* The Ruby/Elixir spelling, refused for the same reason as `${...}`:
        text that quietly stayed text is a wrong answer no one would look
        for. *)
     | '#' when peek s = '{' ->
-      raise (LexError "interpolation is %{...}, not #{...}. For the literal \
+      raise (Fail "interpolation is %{...}, not #{...}. For the literal \
                        text, write \\#{...}")
     | '%' when peek s = '{' ->
       ignore (advance s);
@@ -104,7 +115,7 @@ let read_string s =
       let expr_buf = Buffer.create 16 in
       let depth = ref 1 in
       while !depth > 0 do
-        if is_at_end s then raise (LexError "unterminated string interpolation");
+        if is_at_end s then raise (Fail "unterminated string interpolation");
         let c = advance s in
         if c = '{' then (incr depth; Buffer.add_char expr_buf c)
         else if c = '}' then begin
@@ -149,13 +160,13 @@ let read_raw_string s =
   let parts = ref [] in
   let buf = Buffer.create 32 in
   let rec loop () =
-    if is_at_end s then raise (LexError "unterminated `...` string");
+    if is_at_end s then raise (Fail "unterminated `...` string");
     match advance s with
     | '`' ->
       if !parts = [] then RawStr (Buffer.contents buf)
       else RawInterpStr (!parts, Buffer.contents buf)
     | '%' when peek s = '!' && peek2 s = '{' ->
-      raise (LexError "%!{...} is for shell commands, where it splices a \
+      raise (Fail "%!{...} is for shell commands, where it splices a \
                        value as shell source. A string has nothing to quote \
                        for, so write %{...} here.")
     | '%' when peek s = '{' ->
@@ -166,7 +177,7 @@ let read_raw_string s =
       let depth = ref 1 in
       while !depth > 0 do
         if is_at_end s then
-          raise (LexError "unterminated %{...} interpolation in a `...` \
+          raise (Fail "unterminated %{...} interpolation in a `...` \
                            string. A `...` string cannot hold a literal %{ \
                            -- for that text, use an ordinary \"...\" string \
                            and write \\%{");
@@ -191,7 +202,7 @@ let read_run_cmd s =
   let buf = Buffer.create 16 in
   let depth = ref 1 in
   let rec loop () =
-    if is_at_end s then raise (LexError "unterminated $() command");
+    if is_at_end s then raise (Fail "unterminated $() command");
     match advance s with
     | '(' ->
       incr depth; Buffer.add_char buf '('; loop ()
@@ -208,7 +219,7 @@ let read_run_cmd s =
        and `$(date)` here are text the shell will expand, and wand no longer
        competes for them. *)
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
-      raise (LexError "interpolation is %{...} now, not ${...}. For a \
+      raise (Fail "interpolation is %{...} now, not ${...}. For a \
                        variable the shell should expand, $ needs no escape \
                        -- write $NAME or ${NAME} once this release is past")
     | '%' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
@@ -220,7 +231,7 @@ let read_run_cmd s =
       let expr_buf = Buffer.create 16 in
       let idepth = ref 1 in
       while !idepth > 0 do
-        if is_at_end s then raise (LexError "unterminated command interpolation");
+        if is_at_end s then raise (Fail "unterminated command interpolation");
         let c = advance s in
         if c = '{' then (incr idepth; Buffer.add_char expr_buf c)
         else if c = '}' then begin
@@ -260,7 +271,7 @@ let read_comment s =
   let buf = Buffer.create 64 in
   let depth = ref 1 in
   while !depth > 0 do
-    if is_at_end s then raise (LexError "unterminated comment");
+    if is_at_end s then raise (Fail "unterminated comment");
     let c = advance s in
     if c = '(' && peek s = '*' then begin
       ignore (advance s); incr depth;
@@ -407,7 +418,7 @@ let read_numeric s first_char =
       Buffer.add_char seg2 (advance s)
     done;
     let s2 = Buffer.contents seg2 in
-    if s2 = "" then raise (LexError "expected digits after '.'");
+    if s2 = "" then raise (Fail "expected digits after '.'");
     (match peek s with
      | '.' when peek2 s <> '.' ->
        (* Third segment → Version or IPv4 *)
@@ -417,7 +428,7 @@ let read_numeric s first_char =
          Buffer.add_char seg3 (advance s)
        done;
        let s3 = Buffer.contents seg3 in
-       if s3 = "" then raise (LexError "expected digits in segment");
+       if s3 = "" then raise (Fail "expected digits in segment");
        (match peek s with
         | '.' when peek2 s <> '.' ->
           (* Fourth segment → IPv4 or CIDR *)
@@ -427,14 +438,14 @@ let read_numeric s first_char =
             Buffer.add_char seg4 (advance s)
           done;
           let s4 = Buffer.contents seg4 in
-          if s4 = "" then raise (LexError "expected digits in segment");
+          if s4 = "" then raise (Fail "expected digits in segment");
           let octet_ok seg =
             match int_of_string_opt seg with
             | Some n -> n >= 0 && n <= 255
             | None   -> false
           in
           if not (octet_ok first && octet_ok s2 && octet_ok s3 && octet_ok s4) then
-            raise (LexError (Printf.sprintf "invalid IPv4 address: each octet must be 0–255"));
+            raise (Fail (Printf.sprintf "invalid IPv4 address: each octet must be 0–255"));
           let ipv4 = Printf.sprintf "%s.%s.%s.%s" first s2 s3 s4 in
           if peek s = '/' && is_digit (peek2 s) then begin
             ignore (advance s);
@@ -447,7 +458,7 @@ let read_numeric s first_char =
              | Some n when n >= 0 && n <= 32 ->
                CIDR (ipv4 ^ "/" ^ prefix_str)
              | _ ->
-               raise (LexError (Printf.sprintf "invalid CIDR prefix: must be 0–32")))
+               raise (Fail (Printf.sprintf "invalid CIDR prefix: must be 0–32")))
           end else
             IPv4 ipv4
         | _ ->
@@ -519,7 +530,7 @@ let read_numeric s first_char =
        (match int_of_string_opt first with
         | Some n -> Int n
         | None ->
-          raise (LexError (Printf.sprintf
+          raise (Fail (Printf.sprintf
             "%s is too large for an Int, which holds up to %d" first max_int))))
 
 (* ── Regex literals: r/pattern/flags ────────────────────────────────────── *)
@@ -528,7 +539,7 @@ let read_regex s =
   ignore (advance s); (* consume opening '/' *)
   let buf = Buffer.create 16 in
   let rec loop () =
-    if is_at_end s then raise (LexError "unterminated regex literal");
+    if is_at_end s then raise (Fail "unterminated regex literal");
     match advance s with
     | '\\' ->
       Buffer.add_char buf '\\';
@@ -587,7 +598,7 @@ let read_port s =
   | _ ->
     (* Also the arm for a number too large to be an Int at all, which used to
        escape as an OCaml failure rather than a lex error. *)
-    raise (LexError (Printf.sprintf "invalid port :%s: must be 0-65535" digits))
+    raise (Fail (Printf.sprintf "invalid port :%s: must be 0-65535" digits))
 
 (* ── Main tokeniser ─────────────────────────────────────────────────────── *)
 
@@ -595,6 +606,7 @@ let next_token s =
   let rec scan () =
     let l = s.line and c = s.col and o = s.pos in
     let loc = Token.{ line = l; col = c; offset = o } in
+    s.tok_start <- loc;
     let ret tok = (tok, loc) in
     if is_at_end s then ret EOF
     else match advance s with
@@ -619,7 +631,7 @@ let next_token s =
       else
         ret Hole
     | '+' when peek s = '.' ->
-      raise (LexError "operators are not spelled differently for Float -- \
+      raise (Fail "operators are not spelled differently for Float -- \
                        there is no '+.'")
     | '+'  -> ret (if peek s = '+' then (ignore (advance s); PlusPlus) else Plus)
     | '*'  ->
@@ -631,7 +643,7 @@ let next_token s =
            mistake. A real glob always has more after the dot. *)
         (match read_path_body s prefix with
          | Glob "*." ->
-           raise (LexError "operators are not spelled differently for Float \
+           raise (Fail "operators are not spelled differently for Float \
                             -- there is no '*.'")
          | t -> ret t)
       else
@@ -642,19 +654,19 @@ let next_token s =
     (* `<>` is inequality in several ML dialects and in SQL, so it is a
        reasonable thing to type. Saying which operator this language uses
        costs one line and saves the reader guessing from `unexpected '>'`. *)
-    | '<' when peek s = '>' -> raise (LexError "the inequality operator is !=, not <>")
+    | '<' when peek s = '>' -> raise (Fail "the inequality operator is !=, not <>")
     | '<'  -> ret (if peek s = '=' then (ignore (advance s); LtEq)  else Lt)
     | '>'  -> ret (if peek s = '=' then (ignore (advance s); GtEq)  else Gt)
     | '&'  -> if peek s = '&' then ret (ignore (advance s); AmpAmp)
-              else raise (LexError "unexpected '&'")
+              else raise (Fail "unexpected '&'")
     | '^'  ->
-      raise (LexError "string concatenation is '++', not '^'")
+      raise (Fail "string concatenation is '++', not '^'")
     | '|'  -> ret (match peek s with
                | '>' -> ignore (advance s); PipeArrow
                | '|' -> ignore (advance s); PipePipe
                | _   -> Pipe)
     | '-' when peek s = '.' ->
-      raise (LexError "operators are not spelled differently for Float -- \
+      raise (Fail "operators are not spelled differently for Float -- \
                        there is no '-.'")
     | '-'  ->
       ret (match peek s with
@@ -662,14 +674,14 @@ let next_token s =
        | '-' -> LineComment (read_line_comment s)
        | _   -> Minus)
     | ':' when peek s = ':' ->
-      raise (LexError "cons is a single ':', not '::' -- \
+      raise (Fail "cons is a single ':', not '::' -- \
                        h : rest to build a list, [h : t] in a pattern")
     | ':' when peek s = '=' ->
-      raise (LexError "there is no mutation, so there is no ':=' -- \
+      raise (Fail "there is no mutation, so there is no ':=' -- \
                        let binds a new name instead")
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/' when peek s = '/' ->
-      raise (LexError "comments are '-- ...' to the end of the line, or \
+      raise (Fail "comments are '-- ...' to the end of the line, or \
                        '(* ... *)' -- not '//'")
     | '/'  ->
       if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
@@ -679,7 +691,7 @@ let next_token s =
            mistake. *)
         (match read_path_body s "/" with
          | Path "/." ->
-           raise (LexError "operators are not spelled differently for Float \
+           raise (Fail "operators are not spelled differently for Float \
                             -- there is no '/.'")
          | t -> ret t)
       else ret Slash
@@ -707,10 +719,10 @@ let next_token s =
       else ret Dollar
     | '~'  ->
       ret (if peek s = '/' then (ignore (advance s); read_path_body s "~/")
-           else raise (LexError "unexpected '~'"))
+           else raise (Fail "unexpected '~'"))
     | '\'' ->
       if is_at_end s || not (is_lower (peek s)) then
-        raise (LexError "expected a type variable like 'a after ''' -- and \
+        raise (Fail "expected a type variable like 'a after ''' -- and \
                          there are no character literals: a one-character \
                          string is \"x\"")
       else begin
@@ -724,13 +736,13 @@ let next_token s =
     | c when is_digit c -> ret (read_numeric s c)
     | c when is_alpha c || c = '_' -> ret (read_ident s c)
     | '\\' when is_alpha (peek s) || peek s = '_' || peek s = '(' ->
-      raise (LexError "a lambda is 'fn x -> ...', not '\\x -> ...'")
+      raise (Fail "a lambda is 'fn x -> ...', not '\\x -> ...'")
     (* The shebang on line one is handled in `tokenize`; any other `#` is a
        comment reflex from bash or Python. *)
     | '#' ->
-      raise (LexError "comments are '-- ...' to the end of the line, or \
+      raise (Fail "comments are '-- ...' to the end of the line, or \
                        '(* ... *)' -- not '# ...'")
-    | c -> raise (LexError (Printf.sprintf "unexpected character '%c'" c))
+    | c -> raise (Fail (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()
 
@@ -741,7 +753,10 @@ let tokenize src =
     while not (is_at_end s) && peek s <> '\n' do ignore (advance s) done;
   let toks = ref [] in
   let rec loop () =
-    let (t, loc) = next_token s in
+    let (t, loc) =
+      try next_token s
+      with Fail msg -> raise (LexError (s.tok_start, msg))
+    in
     toks := (t, loc) :: !toks;
     if t <> EOF then loop ()
   in

@@ -1252,7 +1252,7 @@ let lex_single s : (Token.t, string option) result =
   match Lexer.tokenize_plain s with
   | [tok; Token.EOF] -> Ok tok
   | _ -> Error None
-  | exception Lexer.LexError msg -> Error (Some msg)
+  | exception Lexer.LexError (_, msg) -> Error (Some msg)
 
 let try_lex_single s =
   match lex_single s with Ok tok -> Some tok | Error _ -> None
