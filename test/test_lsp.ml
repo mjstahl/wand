@@ -154,6 +154,228 @@ let test_close_clears () =
       (m "diagnostics" last = `List [])
   | [] -> Alcotest.fail "expected a clearing publish"
 
+(* ── Editor features ─────────────────────────────────────────────────────── *)
+
+let contains msg needle =
+  let n = String.length needle and l = String.length msg in
+  let rec go i = i + n <= l && (String.sub msg i n = needle || go (i + 1)) in
+  go 0
+
+let at_position id method_ uri line char =
+  request id method_
+    (`Assoc [("textDocument", `Assoc [("uri", `String uri)]);
+             ("position", `Assoc [("line", `Int line); ("character", `Int char)])])
+
+(* The response carrying `id`, or fail. *)
+let response_for id outs =
+  match List.find_opt (fun o -> m "id" o = `Int id) outs with
+  | Some o -> m "result" o
+  | None -> Alcotest.failf "no response with id %d" id
+
+let test_hover_stdlib_member () =
+  let text = "uses {IO}\nimport List\nlet double xs = List.map (fn x -> x * 2) xs\nprintln \"done\"\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 11 "textDocument/hover" uri 2 20]
+  in
+  match response_for 11 outs with
+  | `Null -> Alcotest.fail "expected a hover"
+  | result ->
+    let value = s (m "value" (m "contents" result)) in
+    Alcotest.(check bool) "names the member" true (contains value "List.map : ");
+    Alcotest.(check bool) "shows a signature" true (contains value "->");
+    (* The whole qualified name, 0-based, on its line. *)
+    let range = m "range" result in
+    Alcotest.(check int) "range start" 16
+      (int_of (m "character" (m "start" range)));
+    Alcotest.(check int) "range end" 24
+      (int_of (m "character" (m "end" range)))
+
+(* The flagship: the signature that can't lie, with its effect row, for a
+   member the buffer has not even imported yet. *)
+let test_hover_shows_effect_row () =
+  let (_, outs) =
+    session [did_open uri "FS.write_file! /tmp/x \"hi\"\n";
+             at_position 12 "textDocument/hover" uri 0 4]
+  in
+  match response_for 12 outs with
+  | `Null -> Alcotest.fail "expected a hover"
+  | result ->
+    let value = s (m "value" (m "contents" result)) in
+    Alcotest.(check bool) "the effect row is in the signature" true
+      (contains value "FS.Write")
+
+let test_hover_survives_a_broken_recheck () =
+  let good = "uses {IO}\nimport List\nlet d xs = List.map (fn x -> x) xs\nprintln \"x\"\n" in
+  let (_, outs) =
+    session [did_open uri good;
+             did_change uri (good ^ "(");   (* no longer parses *)
+             at_position 13 "textDocument/hover" uri 2 12]
+  in
+  (match response_for 13 outs with
+   | `Null -> Alcotest.fail "the last good scope should still answer"
+   | result ->
+     Alcotest.(check bool) "still describes List.map" true
+       (contains (s (m "value" (m "contents" result))) "List.map"))
+
+let test_hover_on_nothing () =
+  let (_, outs) =
+    session [did_open uri "let x = 1\nx\n";
+             at_position 14 "textDocument/hover" uri 0 6]  (* the '=' *)
+  in
+  Alcotest.(check bool) "null on nothing" true (response_for 14 outs = `Null)
+
+let items_of result = match result with
+  | `List items -> items
+  | _ -> Alcotest.fail "expected a completion list"
+
+let find_item label items =
+  List.find_opt (fun i -> Lsp.str (m "label" i) = Some label) items
+
+let test_completion_in_scope () =
+  let text = "import List\nlet doubled = List.ma (fn x -> x + 1) [1]\ndoubled\n" in
+  let (_, outs) =
+    session [did_open uri text;
+             (* the cursor just past "List.ma" *)
+             at_position 15 "textDocument/completion" uri 1 21]
+  in
+  let items = items_of (response_for 15 outs) in
+  match find_item "List.map" items with
+  | None -> Alcotest.fail "List.map not offered"
+  | Some item ->
+    Alcotest.(check int) "a function" 3 (int_of (m "kind" item));
+    Alcotest.(check bool) "typed detail" true (contains (s (m "detail" item)) "->");
+    let edit = m "textEdit" item in
+    Alcotest.(check int) "replaces from the name's start" 14
+      (int_of (m "character" (m "start" (m "range" edit))));
+    Alcotest.(check bool) "no auto-import for an imported module" true
+      (m "additionalTextEdits" item = `Null)
+
+let test_completion_auto_imports () =
+  let (_, outs) =
+    session [did_open uri "uses {IO}\n\nFS.wri\n";
+             at_position 16 "textDocument/completion" uri 2 6]
+  in
+  let items = items_of (response_for 16 outs) in
+  match find_item "FS.write_file!" items with
+  | None -> Alcotest.fail "FS.write_file! not offered"
+  | Some item ->
+    (match m "additionalTextEdits" item with
+     | `List [imp; man] ->
+       Alcotest.(check string) "the import rides along" "import FS\n"
+         (s (m "newText" imp));
+       Alcotest.(check string) "and the manifest label" "uses {FS.Write, IO}"
+         (s (m "newText" man))
+     | _ -> Alcotest.fail "expected the import and manifest edits")
+
+let test_completion_offers_modules () =
+  let (_, outs) =
+    session [did_open uri "let x = 1\nRege\n";
+             at_position 17 "textDocument/completion" uri 1 4]
+  in
+  let items = items_of (response_for 17 outs) in
+  match find_item "Regex" items with
+  | None -> Alcotest.fail "Regex not offered"
+  | Some item -> Alcotest.(check int) "as a module" 9 (int_of (m "kind" item))
+
+let code_action_at id uri sl el =
+  request id "textDocument/codeAction"
+    (`Assoc [("textDocument", `Assoc [("uri", `String uri)]);
+             ("range", `Assoc [
+                ("start", `Assoc [("line", `Int sl); ("character", `Int 0)]);
+                ("end",   `Assoc [("line", `Int el); ("character", `Int 0)])]);
+             ("context", `Assoc [("diagnostics", `List [])])])
+
+let test_code_action_updates_manifest () =
+  let text = "uses {IO}\nimport FS\nlet r = FS.write_file! /tmp/wand_lsp_ca \"hi\"\nprintln \"done\"\n" in
+  let (_, outs) = session [did_open uri text; code_action_at 18 uri 0 3] in
+  match items_of (response_for 18 outs) with
+  | [action] ->
+    Alcotest.(check bool) "titled as a manifest update" true
+      (contains (s (m "title" action)) "Update manifest:");
+    (match m uri (m "changes" (m "edit" action)) with
+     | `List [edit] ->
+       Alcotest.(check string) "the corrected line" "uses {FS.Write, IO}"
+         (s (m "newText" edit));
+       Alcotest.(check int) "on the manifest line" 0
+         (int_of (m "line" (m "start" (m "range" edit))))
+     | _ -> Alcotest.fail "expected one text edit")
+  | l -> Alcotest.failf "expected one action, got %d" (List.length l)
+
+let test_code_action_removes_dead_import () =
+  (* V-IMP1: the first of two let-imports binding one name is provably
+     dead, and its fix deletes the line. *)
+  let text = "let [head!] = import List\nlet [head!] = import List\nhead! [1]\n" in
+  let (_, outs) = session [did_open uri text; code_action_at 19 uri 0 0] in
+  match items_of (response_for 19 outs) with
+  | [action] ->
+    Alcotest.(check string) "titled" "Remove dead import" (s (m "title" action));
+    (match m uri (m "changes" (m "edit" action)) with
+     | `List [edit] ->
+       Alcotest.(check string) "deletes the line" "" (s (m "newText" edit));
+       Alcotest.(check int) "through the newline" 1
+         (int_of (m "line" (m "end" (m "range" edit))))
+     | _ -> Alcotest.fail "expected one text edit")
+  | l -> Alcotest.failf "expected one action, got %d" (List.length l)
+
+let formatting_req id uri =
+  request id "textDocument/formatting"
+    (`Assoc [("textDocument", `Assoc [("uri", `String uri)]);
+             ("options", `Assoc [("tabSize", `Int 2); ("insertSpaces", `Bool true)])])
+
+let test_formatting () =
+  let (_, outs) =
+    session [did_open uri "let x   =   1\nx\n"; formatting_req 20 uri]
+  in
+  (match items_of (response_for 20 outs) with
+   | [edit] ->
+     Alcotest.(check bool) "canonical spacing" true
+       (contains (s (m "newText" edit)) "let x = 1")
+   | l -> Alcotest.failf "expected one whole-document edit, got %d" (List.length l));
+  (* Already formatted: no edits, rather than a no-op rewrite. *)
+  let (_, outs) =
+    session [did_open uri "let x = 1\nx\n"; formatting_req 21 uri]
+  in
+  Alcotest.(check bool) "fixed point means no edits" true
+    (response_for 21 outs = `List [])
+
+(* ── Auto-edits on didChange (LSP.md §2.1) ───────────────────────────────── *)
+
+let apply_edits_of outs =
+  List.filter_map (fun o ->
+    if Lsp.str (m "method" o) = Some "workspace/applyEdit"
+    then Some (m "params" o) else None) outs
+
+let test_auto_import_fires_on_completion () =
+  let (_, outs) =
+    session [
+      did_open uri "uses {IO}\n\nprintln \"hi\"\n";
+      did_change uri "uses {IO}\n\nprintln \"hi\"\nFS.write_file! \n";
+    ]
+  in
+  match apply_edits_of outs with
+  | [params] ->
+    (match m uri (m "changes" (m "edit" params)) with
+     | `List [imp; man] ->
+       Alcotest.(check string) "the import" "import FS\n" (s (m "newText" imp));
+       Alcotest.(check int) "into the block position" 2
+         (int_of (m "line" (m "start" (m "range" imp))));
+       Alcotest.(check string) "the manifest" "uses {FS.Write, IO}"
+         (s (m "newText" man))
+     | _ -> Alcotest.fail "expected the import and manifest edits")
+  | l -> Alcotest.failf "expected one applyEdit, got %d" (List.length l)
+
+let test_auto_import_fires_once () =
+  let (_, outs) =
+    session [
+      did_open uri "uses {IO}\n\nprintln \"hi\"\n";
+      did_change uri "uses {IO}\n\nprintln \"hi\"\nFS.write_file! \n";
+      (* the same reference again, argument growing: nothing new completed *)
+      did_change uri "uses {IO}\n\nprintln \"hi\"\nFS.write_file! /tmp/x \n";
+    ]
+  in
+  Alcotest.(check int) "one applyEdit across the session" 1
+    (List.length (apply_edits_of outs))
+
 (* ── Framing ─────────────────────────────────────────────────────────────── *)
 
 let test_framing_round_trip () =
@@ -189,6 +411,28 @@ let () =
       Alcotest.test_case "findings warn"      `Quick test_findings_are_warnings;
       Alcotest.test_case "change republishes" `Quick test_change_republishes;
       Alcotest.test_case "close clears"       `Quick test_close_clears;
+    ];
+    "hover", [
+      Alcotest.test_case "stdlib member"   `Quick test_hover_stdlib_member;
+      Alcotest.test_case "effect row"      `Quick test_hover_shows_effect_row;
+      Alcotest.test_case "broken recheck"  `Quick test_hover_survives_a_broken_recheck;
+      Alcotest.test_case "nothing"         `Quick test_hover_on_nothing;
+    ];
+    "completion", [
+      Alcotest.test_case "in scope"        `Quick test_completion_in_scope;
+      Alcotest.test_case "auto-imports"    `Quick test_completion_auto_imports;
+      Alcotest.test_case "offers modules"  `Quick test_completion_offers_modules;
+    ];
+    "code actions", [
+      Alcotest.test_case "manifest update" `Quick test_code_action_updates_manifest;
+      Alcotest.test_case "dead import"     `Quick test_code_action_removes_dead_import;
+    ];
+    "formatting", [
+      Alcotest.test_case "whole document"  `Quick test_formatting;
+    ];
+    "auto-edits", [
+      Alcotest.test_case "fires on completion" `Quick test_auto_import_fires_on_completion;
+      Alcotest.test_case "fires once"          `Quick test_auto_import_fires_once;
     ];
     "framing", [
       Alcotest.test_case "round trip" `Quick test_framing_round_trip;

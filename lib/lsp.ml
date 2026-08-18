@@ -22,6 +22,7 @@ let mem k = function
   | _ -> `Null
 
 let str = function `String s -> Some s | _ -> None
+let int_ = function `Int n -> Some n | _ -> None
 
 (* ── Framing ─────────────────────────────────────────────────────────────── *)
 
@@ -151,10 +152,10 @@ let path_of_uri uri =
 (* What the Problems pane shows for one buffer: the check's single error,
    or its findings. Holes wait for locations (LSP.md §5.1); a diagnostic
    that cannot point anywhere is noise, not information. *)
-let diagnostics_for uri text : Diag.t list =
+let analyze uri text : Runner.source_check option * Diag.t list =
   match Runner.typecheck_source ~path:(path_of_uri uri) text with
-  | Error d -> [d]
-  | Ok sc -> List.map (Lint.to_diag ~strict:false) sc.Runner.sc_findings
+  | Error d -> (None, [d])
+  | Ok sc -> (Some sc, List.map (Lint.to_diag ~strict:false) sc.Runner.sc_findings)
 
 let publish uri diags =
   notification "textDocument/publishDiagnostics"
@@ -163,13 +164,24 @@ let publish uri diags =
 
 (* ── The protocol ────────────────────────────────────────────────────────── *)
 
-type state = {
-  docs : (string * string) list;  (* uri -> current text *)
-  shutdown_seen : bool;
-  quit : int option;              (* Some code once `exit` arrives *)
+(* One open buffer. `check` is the last *successful* check -- kept through
+   failed re-checks, because hover and completion are asked mid-keystroke,
+   exactly when the buffer is most likely to be momentarily broken; names
+   move rarely enough that the previous scope answers honestly. *)
+type doc = {
+  d_text  : string;
+  d_check : Runner.source_check option;
+  d_diags : Diag.t list;            (* as last published *)
 }
 
-let initial = { docs = []; shutdown_seen = false; quit = None }
+type state = {
+  docs : (string * doc) list;       (* uri -> buffer *)
+  shutdown_seen : bool;
+  quit : int option;                (* Some code once `exit` arrives *)
+  next_req : int;                   (* ids for server->client requests *)
+}
+
+let initial = { docs = []; shutdown_seen = false; quit = None; next_req = 1 }
 
 let capabilities : J.t =
   `Assoc [
@@ -178,17 +190,312 @@ let capabilities : J.t =
           checker consumes anyway (LSP.md §1: no incrementality). *)
        ("textDocumentSync", `Assoc [("openClose", `Bool true);
                                     ("change", `Int 1)]);
+       ("hoverProvider", `Bool true);
+       ("completionProvider", `Assoc [("triggerCharacters", `List [`String "."])]);
+       ("codeActionProvider", `Bool true);
+       ("documentFormattingProvider", `Bool true);
      ]);
     ("serverInfo", `Assoc [("name", `String "wand");
                            ("version", `String Version.value)]);
   ]
 
+(* ── Text geometry ───────────────────────────────────────────────────────── *)
+
+(* Columns here are byte indexes, like everywhere else in the pipeline; a
+   non-ASCII line can be off by the UTF-16 difference, which is the same
+   approximation the published diagnostics have always made. *)
+let lines_of = String.split_on_char '\n'
+
+let line_at lines l = List.nth_opt lines l
+
+let pos0 line character : J.t =
+  `Assoc [("line", `Int line); ("character", `Int character)]
+
+let range0 l1 c1 l2 c2 : J.t =
+  `Assoc [("start", pos0 l1 c1); ("end", pos0 l2 c2)]
+
+let text_edit range newText : J.t =
+  `Assoc [("range", range); ("newText", `String newText)]
+
+(* A line-level edit as the protocol wants it. Inserting past the last line
+   only happens when the file lacks a final newline; the text then rides in
+   after a leading newline at the end of that line. *)
+let json_of_line_edit lines (e : Autoedit.edit) : J.t =
+  let n_lines = List.length lines in
+  match e with
+  | Autoedit.Insert_line (n, text) when n > n_lines ->
+    let last = match line_at lines (n_lines - 1) with Some l -> l | None -> "" in
+    let c = String.length last in
+    text_edit (range0 (n_lines - 1) c (n_lines - 1) c) ("\n" ^ text)
+  | Autoedit.Insert_line (n, text) ->
+    text_edit (range0 (n - 1) 0 (n - 1) 0) (text ^ "\n")
+  | Autoedit.Replace_line (n, text) ->
+    let old = match line_at lines (n - 1) with Some l -> l | None -> "" in
+    text_edit (range0 (n - 1) 0 (n - 1) (String.length old)) text
+
+let workspace_edit uri edits : J.t =
+  `Assoc [("changes", `Assoc [(uri, `List edits)])]
+
+(* ── Names under the cursor ──────────────────────────────────────────────── *)
+
+let is_word_char c = Autoedit.is_ident_continuation c || c = '.'
+
+(* The (possibly qualified) name the position touches, with its extent on
+   the line: `List.map!` hovered anywhere inside answers the whole name. *)
+let word_at line_text character : (string * int * int) option =
+  let n = String.length line_text in
+  let i = min (max character 0) n in
+  let l = ref i and r = ref i in
+  while !l > 0 && is_word_char line_text.[!l - 1] do decr l done;
+  while !r < n && is_word_char line_text.[!r] do incr r done;
+  if !r <= !l then None
+  else Some (String.sub line_text !l (!r - !l), !l, !r)
+
+let scope_of (d : doc) =
+  match d.d_check with Some sc -> sc.Runner.sc_scope | None -> []
+
+let docs_of (d : doc) =
+  match d.d_check with Some sc -> sc.Runner.sc_docs | None -> []
+
+(* What a name means where the buffer stands: its scheme and doc string.
+   Scope first; a qualified name whose namespace is not in scope is
+   answered from the standard library's signature -- the same modules the
+   auto-import tier can bring in. *)
+let describe (d : doc) word : (string * string option) option =
+  let scope = scope_of d in
+  match String.split_on_char '.' word with
+  | [ns; m] when m <> "" ->
+    (match List.assoc_opt ns scope with
+     | Some (Typechecker.Namespace members) ->
+       (match List.assoc_opt m members with
+        | Some s -> Some (Typechecker.string_of_scheme s,
+                          List.assoc_opt word (docs_of d))
+        | None -> None)
+     | _ ->
+       (match Runner.stdlib_module_sig ns with
+        | Some (env, sdocs) ->
+          (match List.assoc_opt m env with
+           | Some s -> Some (Typechecker.string_of_scheme s,
+                             List.assoc_opt m sdocs)
+           | None -> None)
+        | None -> None))
+  | [plain] when plain <> "" ->
+    (match List.assoc_opt plain scope with
+     | Some (Typechecker.Namespace _) -> Some ("module", None)
+     | Some s -> Some (Typechecker.string_of_scheme s,
+                       List.assoc_opt plain (docs_of d))
+     | None ->
+       if List.mem_assoc plain Stdlib_embed.table
+       then Some ("module", None)
+       else None)
+  | _ -> None
+
+let hover_markdown word (typ, doc) =
+  let head =
+    if typ = "module" then Printf.sprintf "```wand\nmodule %s\n```" word
+    else Printf.sprintf "```wand\n%s : %s\n```" word typ
+  in
+  match doc with
+  | Some text -> head ^ "\n\n---\n\n" ^ text
+  | None -> head
+
+(* ── Completion ──────────────────────────────────────────────────────────── *)
+
+(* CompletionItemKind, the few this server distinguishes. *)
+let kind_module = 9
+let kind_function = 3
+let kind_value = 12
+
+(* Completion items at a cursor. The environment is the buffer's scope; a
+   qualified prefix whose namespace is unimported completes from the
+   standard library's signature, and accepting such an item carries the
+   auto-import (and manifest) edits the lexical tier would have made --
+   `additionalTextEdits`, so the edit happens on accept (LSP.md §2.1). *)
+let completion_items (d : doc) line_idx line_text character : J.t list =
+  let prefix_line = String.sub line_text 0 (min character (String.length line_text)) in
+  let scope = scope_of d in
+  let typed = match word_at prefix_line (String.length prefix_line) with
+    | Some (w, _, _) -> w
+    | None -> ""
+  in
+  let (ns_needs_import, env) =
+    match String.split_on_char '.' typed with
+    | [ns; _] when not (List.mem_assoc ns scope) ->
+      (match Runner.stdlib_module_sig ns with
+       | Some (sig_env, _) -> (Some ns, scope @ [(ns, Typechecker.Namespace sig_env)])
+       | None -> (None, scope))
+    | _ -> (None, scope)
+  in
+  let { Complete.start; candidates } = Complete.ident_at env prefix_line in
+  (* Bare prefixes also offer the stdlib modules themselves; typing the dot
+     then completes their members. *)
+  let module_candidates =
+    if String.contains typed '.' then []
+    else
+      List.filter_map (fun (name, _) ->
+        if Complete.has_prefix ~prefix:typed name
+           && not (List.mem_assoc name scope)
+        then Some name else None)
+        Stdlib_embed.table
+  in
+  let lines = lines_of d.d_text in
+  let item cand =
+    let is_module = List.mem cand module_candidates in
+    let described = if is_module then None else describe d cand in
+    let kind =
+      if is_module then kind_module
+      else match described with
+        | Some (t, _) when t = "module" -> kind_module
+        | Some (t, _) when Diag.contains t "->" -> kind_function
+        | Some _ -> kind_value
+        | None -> kind_value
+    in
+    let extra =
+      match String.split_on_char '.' cand, ns_needs_import with
+      | [ns; m], Some needed when ns = needed ->
+        List.map (json_of_line_edit lines)
+          (Autoedit.edits_for_member ~sig_of:Runner.stdlib_module_sig
+             ~text:d.d_text ns m)
+      | _ -> []
+    in
+    let fields =
+      [("label", `String cand);
+       ("kind", `Int kind);
+       ("textEdit",
+        text_edit (range0 line_idx start line_idx character) cand)]
+      @ (match described with
+         | Some (t, _) when t <> "module" -> [("detail", `String t)]
+         | _ -> [])
+      @ (match described with
+         | Some (_, Some doc) -> [("documentation", `String doc)]
+         | _ -> [])
+      @ (if extra = [] then [] else [("additionalTextEdits", `List extra)])
+    in
+    `Assoc fields
+  in
+  List.map item (candidates @ module_candidates)
+
+(* ── Code actions ────────────────────────────────────────────────────────── *)
+
+(* A diagnostic's fix as a workspace edit, by the same rules `wand t --fix`
+   applies it with (fix.ml) -- one representation, two consumers, and a fix
+   that behaved differently in the two paths would be a bug. Answers the
+   action's title and edits, or nothing when the fix does not apply to the
+   text as it stands. *)
+let action_edit lines text (d : Diag.t) : (string * J.t list) option =
+  let loc_line = match d.Diag.loc with Some l -> l.Token.line | None -> 1 in
+  match d.Diag.fix with
+  | Some (Diag.InsertLine t) ->
+    let n = match lines with
+      | first :: _ when String.length first >= 2
+                        && first.[0] = '#' && first.[1] = '!' -> 2
+      | _ -> 1
+    in
+    let title =
+      if Fix.is_manifest_text t then "Add manifest: " ^ t
+      else "Insert `" ^ t ^ "`"
+    in
+    Some (title, [json_of_line_edit lines (Autoedit.Insert_line (n, t))])
+  | Some (Diag.ReplaceLine t) ->
+    let n =
+      if Fix.is_manifest_text t then
+        match Fix.manifest_line lines with Some n -> n | None -> loc_line
+      else loc_line
+    in
+    (match line_at lines (n - 1) with
+     | Some old when old <> t ->
+       let title =
+         if Fix.is_manifest_text t then "Update manifest: " ^ t
+         else "Replace with `" ^ String.trim t ^ "`"
+       in
+       Some (title, [json_of_line_edit lines (Autoedit.Replace_line (n, t))])
+     | _ -> None)
+  | Some Diag.DeleteLine ->
+    (match line_at lines (loc_line - 1) with
+     | Some old ->
+       let title =
+         if d.Diag.code = "V-IMP1" then "Remove dead import"
+         else "Delete `" ^ String.trim old ^ "`"
+       in
+       (* The whole line, newline included. *)
+       Some (title, [text_edit (range0 (loc_line - 1) 0 loc_line 0) ""])
+     | None -> None)
+  | Some (Diag.Replace { from_; to_ }) ->
+    (* Only when the flagged extent is exactly the text to replace --
+       anything less would be a guess about where in the line it meant. *)
+    (match d.Diag.loc with
+     | Some l when l.Token.end_offset > l.Token.offset
+                && l.Token.end_offset <= String.length text
+                && String.sub text l.Token.offset
+                     (l.Token.end_offset - l.Token.offset) = from_ ->
+       Some (Printf.sprintf "Replace `%s` with `%s`" from_ to_,
+             [text_edit
+                (range0 (l.Token.line - 1) (l.Token.col - 1)
+                   (l.Token.end_line - 1) (l.Token.end_col - 1))
+                to_])
+     | _ -> None)
+  | None -> None
+
+(* The diagnostics whose flagged lines touch the requested range. *)
+let overlaps_range (d : Diag.t) start_line end_line =
+  match d.Diag.loc with
+  | None -> start_line = 0
+  | Some l ->
+    let dl_start = l.Token.line - 1 in
+    let dl_end =
+      (if l.Token.end_offset > l.Token.offset then l.Token.end_line else l.Token.line) - 1
+    in
+    dl_start <= end_line && dl_end >= start_line
+
+let code_actions (d : doc) uri start_line end_line : J.t list =
+  let lines = lines_of d.d_text in
+  List.filter_map (fun (diag : Diag.t) ->
+    if not (overlaps_range diag start_line end_line) then None
+    else
+      match action_edit lines d.d_text diag with
+      | None -> None
+      | Some (title, edits) ->
+        Some (`Assoc [
+          ("title", `String title);
+          ("kind", `String "quickfix");
+          ("diagnostics", `List [json_of_diag diag]);
+          ("edit", workspace_edit uri edits);
+        ]))
+    d.d_diags
+
 let handle (st : state) (msg : J.t) : state * J.t list =
   let id = mem "id" msg in
   let params = mem "params" msg in
-  let check_and_publish st uri text =
-    ({ st with docs = (uri, text) :: List.remove_assoc uri st.docs },
-     [publish uri (diagnostics_for uri text)])
+  let uri_of () = str (mem "uri" (mem "textDocument" params)) in
+  let doc_of uri = List.assoc_opt uri st.docs in
+  let position () =
+    let p = mem "position" params in
+    match int_ (mem "line" p), int_ (mem "character" p) with
+    | Some l, Some c -> Some (l, c)
+    | _ -> None
+  in
+  (* A request about a position needs the buffer and its line in hand;
+     anything missing answers null rather than guessing. *)
+  let at_position k =
+    match uri_of (), position () with
+    | Some uri, Some (l, c) ->
+      (match doc_of uri with
+       | Some d ->
+         (match line_at (lines_of d.d_text) l with
+          | Some line_text -> k uri d l c line_text
+          | None -> (st, [response id `Null]))
+       | None -> (st, [response id `Null]))
+    | _ -> (st, [response id `Null])
+  in
+  let store st uri d = { st with docs = (uri, d) :: List.remove_assoc uri st.docs } in
+  let check_and_publish st uri ?prev text =
+    let (check, diags) = analyze uri text in
+    let check = match check, prev with
+      | None, Some (p : doc) -> p.d_check   (* keep the last good scope *)
+      | c, _ -> c
+    in
+    (store st uri { d_text = text; d_check = check; d_diags = diags },
+     [publish uri diags])
   in
   match str (mem "method" msg) with
   (* After shutdown, only exit does anything; a request in between is the
@@ -206,7 +513,7 @@ let handle (st : state) (msg : J.t) : state * J.t list =
      | Some uri, Some text -> check_and_publish st uri text
      | _ -> (st, []))
   | Some "textDocument/didChange" ->
-    let uri = str (mem "uri" (mem "textDocument" params)) in
+    let uri = uri_of () in
     (* Full sync: each change carries the entire text; the last one wins. *)
     let text =
       match mem "contentChanges" params with
@@ -214,13 +521,83 @@ let handle (st : state) (msg : J.t) : state * J.t list =
       | _ -> None
     in
     (match uri, text with
-     | Some uri, Some text -> check_and_publish st uri text
+     | Some uri, Some text ->
+       let prev = doc_of uri in
+       let (st, out) = check_and_publish st uri ?prev text in
+       (* The lexical tier (LSP.md §2.1): a change that completed a
+          resolvable qualified name earns its import -- and its manifest
+          labels -- as an applyEdit, no gesture. Compared against the text
+          as it stood, so nothing fires twice and an undo is respected. *)
+       let auto =
+         match prev with
+         | Some p when p.d_text <> text ->
+           Autoedit.changes ~sig_of:Runner.stdlib_module_sig
+             ~old_text:p.d_text text
+         | _ -> []
+       in
+       if auto = [] then (st, out)
+       else
+         let lines = lines_of text in
+         let req =
+           `Assoc [("jsonrpc", `String "2.0");
+                   ("id", `Int st.next_req);
+                   ("method", `String "workspace/applyEdit");
+                   ("params", `Assoc [
+                      ("label", `String "wand: import");
+                      ("edit", workspace_edit uri
+                                 (List.map (json_of_line_edit lines) auto))])]
+         in
+         ({ st with next_req = st.next_req + 1 }, out @ [req])
      | _ -> (st, []))
   | Some "textDocument/didClose" ->
-    (match str (mem "uri" (mem "textDocument" params)) with
+    (match uri_of () with
      | Some uri ->
        ({ st with docs = List.remove_assoc uri st.docs }, [publish uri []])
      | None -> (st, []))
+  | Some "textDocument/hover" ->
+    at_position (fun _uri d l c line_text ->
+      match word_at line_text c with
+      | None -> (st, [response id `Null])
+      | Some (word, start, stop) ->
+        (match describe d word with
+         | None -> (st, [response id `Null])
+         | Some info ->
+           (st, [response id (`Assoc [
+              ("contents", `Assoc [("kind", `String "markdown");
+                                   ("value", `String (hover_markdown word info))]);
+              ("range", range0 l start l stop)])])))
+  | Some "textDocument/completion" ->
+    at_position (fun _uri d l c line_text ->
+      (st, [response id (`List (completion_items d l line_text c))]))
+  | Some "textDocument/codeAction" ->
+    (match uri_of () with
+     | Some uri ->
+       (match doc_of uri with
+        | Some d ->
+          let r = mem "range" params in
+          let sl = match int_ (mem "line" (mem "start" r)) with Some n -> n | None -> 0 in
+          let el = match int_ (mem "line" (mem "end" r)) with Some n -> n | None -> sl in
+          (st, [response id (`List (code_actions d uri sl el))])
+        | None -> (st, [response id (`List [])]))
+     | None -> (st, [response id (`List [])]))
+  | Some "textDocument/formatting" ->
+    (match uri_of () with
+     | Some uri ->
+       (match doc_of uri with
+        | Some d ->
+          (match Formatter.format_source d.d_text with
+           | exception _ -> (st, [response id `Null])  (* not parseable: no edit *)
+           | out when out = d.d_text -> (st, [response id (`List [])])
+           | out ->
+             let lines = lines_of d.d_text in
+             let last = List.length lines - 1 in
+             let last_len =
+               match line_at lines last with Some l -> String.length l | None -> 0
+             in
+             (st, [response id (`List [
+                text_edit (range0 0 0 last last_len) out])]))
+        | None -> (st, [response id `Null]))
+     | None -> (st, [response id `Null]))
   | Some _ ->
     (* Unknown notifications are ignored by contract; unknown requests are
        answered, or the client waits forever. *)
