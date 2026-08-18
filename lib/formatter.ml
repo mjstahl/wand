@@ -1018,20 +1018,95 @@ let format_source src =
                 end_line = c.c_end_line; text = c.c_text; is_comment = true }
   ) comments in
   let item_pcs = List.map (fun (_, _, _, p) -> p) items in
+  (* The leading import region -- the run of imports before the first item
+     of anything else -- is grouped: plain `import M` first, alphabetized,
+     then let-imports in source order. Plain imports may be sorted because
+     each binds only its own namespace name; let-imports are ordinary
+     bindings whose rebinding order is program meaning, so they are never
+     reordered among themselves, only hoisted below the plain block (an
+     import's right-hand side depends on nothing file-local). A region with
+     a comment in it is left as written: sorting would move lines out from
+     under the comment that explains them. *)
+  let item_pcs =
+    let items_arr = Array.of_list prog.Ast.items in
+    let kind i =
+      if i >= Array.length items_arr then None
+      else match items_arr.(i) with
+        | Ast.TLImport _ -> Some `Plain
+        | Ast.TLLet (_, [], body) when Module_types.import_kind_of body <> None ->
+          Some `Let
+        | Ast.TLLetPat (_, body) when Module_types.import_kind_of body <> None ->
+          Some `Let
+        | _ -> None
+    in
+    let rec region_len i = if kind i = None then i else region_len (i + 1) in
+    let k = region_len 0 in
+    if k < 2 then item_pcs
+    else begin
+      let region = List.filteri (fun i _ -> i < k) items in
+      let region_start = match region with (_, s, _, _) :: _ -> s | [] -> 0 in
+      let region_stop =
+        List.fold_left (fun _ (_, _, stop, _) -> stop) region_start region in
+      let untouchable =
+        List.exists (fun (v, _, _, _) -> v) region
+        || List.exists (fun c ->
+             c.c_offset >= region_start && c.c_offset < region_stop) comments
+      in
+      if untouchable then item_pcs
+      else begin
+        let texts_of which =
+          List.filteri (fun i _ -> i < k) item_pcs
+          |> List.mapi (fun i p -> (kind i, p.text))
+          |> List.filter_map (fun (ki, t) -> if ki = Some which then Some t else None)
+        in
+        let ordered =
+          List.sort compare (texts_of `Plain) @ texts_of `Let in
+        List.mapi (fun i p ->
+          if i < k then { p with text = List.nth ordered i } else p) item_pcs
+      end
+    end
+  in
   (* A manifest is not a top-level item -- it is held apart on the program,
      since it is a property of the file rather than something in it -- so it
      has to be emitted here or the formatter would silently drop it, turning
-     a bounded file into an unbounded one. *)
+     a bounded file into an unbounded one. Emission is canonical: labels in
+     display order (alphabetical, one definition with the typechecker's
+     suggestions), the binaries inside Shell(...) sorted, and the whole
+     form wrapping like any bracketed form when it passes the column
+     budget -- the newlines sit inside braces, so a wrapped manifest
+     already parses. *)
   let manifest_pcs =
     match prog.Ast.manifest with
     | None -> []
     | Some (labels, loc) ->
+      let labels =
+        List.map (fun (n, allow) -> (n, Option.map (List.sort compare) allow))
+          labels
+        |> List.sort (fun (a, _) (b, _) -> compare a b)
+      in
+      let one_line =
+        "uses {" ^ String.concat ", " (List.map Shell_scan.render_label labels)
+        ^ "}"
+      in
+      let text =
+        if String.length one_line <= max_width then one_line
+        else
+          let label_text (n, allow) =
+            let r = Shell_scan.render_label (n, allow) in
+            match allow with
+            | Some args when String.length r + 2 > max_width ->
+              "  " ^ n ^ "(\n"
+              ^ String.concat ",\n"
+                  (List.map (fun a -> "    " ^ Shell_scan.render_entry a) args)
+              ^ "\n  )"
+            | _ -> "  " ^ r
+          in
+          "uses {\n" ^ String.concat ",\n" (List.map label_text labels) ^ "\n}"
+      in
       [{ offset     = loc.Token.offset;
          start_line = loc.Token.line;
-         end_line   = loc.Token.line;
-         text       = "uses {"
-                      ^ String.concat ", " (List.map Shell_scan.render_label labels)
-                      ^ "}";
+         end_line   = loc.Token.end_line;
+         text;
          is_comment = false }]
   in
   assemble (manifest_pcs @ comment_pcs @ item_pcs)

@@ -25,7 +25,13 @@ type eff =
   | Proc      (* ends the process; nothing catches this *)
   | Raise     (* can raise instead of returning *)
 
-let all = [Shell; FsRead; FsWrite; Env; IO; Proc; Raise]
+(* Alphabetical by rendered name. This list is the one definition of
+   display order: it governs rendered rows, manifests, and the suggestion
+   path alike (through the `EffSet` compare below), so a suggested
+   manifest is always already in canonical form and a reader can predict
+   where a label sits without knowing any convention beyond the
+   alphabet. *)
+let all = [Env; FsRead; FsWrite; IO; Proc; Raise; Shell]
 
 let name_of = function
   | Shell   -> "Shell"
@@ -36,8 +42,6 @@ let name_of = function
   | Proc    -> "Proc"
   | Raise   -> "Raise"
 
-(* Display order is fixed rather than alphabetical, so the same row always
-   prints the same way and two signatures can be compared by eye. *)
 let display_order e =
   let rec index i = function
     | []      -> i

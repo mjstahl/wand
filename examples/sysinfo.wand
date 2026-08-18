@@ -1,4 +1,4 @@
-uses {Shell(hostname, uname), Env}
+uses {Env, Shell(hostname, uname)}
 
 let hostname = $(hostname)
 let os = $(uname -s)

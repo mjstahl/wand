@@ -251,7 +251,7 @@ differently in the two paths is a bug.
 
 Hover is the flagship because it is where wand differs from every other
 language a VS Code user has installed: hovering `deploy!` shows
-`String -> String ! {Shell(git, rsync), FS.Write}` — the signature that
+`String -> String ! {FS.Write, Shell(git, rsync)}` — the signature that
 can't lie, under the cursor. The same table later feeds inlay hints; not v1.
 
 Explicitly **not v1**: rename, find-references, signature help, semantic

@@ -767,9 +767,9 @@ let test_manifest_shell_binaries () =
   manifest_error "a word the list omits"
     "uses {Shell(git)}\nlet b () = $(curl x)\nb"
     "runs 'curl', which Shell(git) does not allow";
-  manifest_error "and the fix names the extended list"
+  manifest_error "and the fix names the extended list, in canonical order"
     "uses {Shell(git)}\nlet b () = $(curl x)\nb"
-    "uses {Shell(git, curl)}";
+    "uses {Shell(curl, git)}";
   manifest_error "every pipeline stage is a position"
     "uses {Shell(git)}\nlet b () = $(git log | wc -l)\nb"
     "runs 'wc'";

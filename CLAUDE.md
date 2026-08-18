@@ -100,13 +100,13 @@ deploys.
 The first line of a file that touches the world declares what it may do:
 
 ```
-uses {Shell(git, curl), FS.Read, FS.Write, Env, IO}
+uses {Env, FS.Read, FS.Write, IO, Shell(curl, git)}
 ```
 
 Those are five of the seven effect labels: `Shell` (subprocesses),
 `FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`.
 `Shell` may name the binaries the file runs — written as they are in
-`$()`: `Shell(git, docker-compose, ./probe.sh)` — and bare `Shell` means
+`$()`: `Shell(./probe.sh, docker-compose, git)` — and bare `Shell` means
 any. A literal command word the list omits is a type error; a word decided
 at run time is checked at spawn and flagged by `V-SHELL1`. Doing more than
 the manifest says is a type error; declaring more than the file does is an

@@ -6,15 +6,16 @@ import String
 
 (* One pass over stdin: each line lands in its buckets as it goes by, so
    the log never has to fit in memory. *)
-let tally (total, errors, warns, infos, first_err) line = (
-  total + 1,
-  (if String.contains? "ERROR" line then errors + 1 else errors),
-  (if String.contains? "WARN" line then warns + 1 else warns),
-  (if String.contains? "INFO" line then infos + 1 else infos),
-  (match first_err with
-   | Some e -> Some e
-   | None -> if String.contains? "ERROR" line then Some line else None)
-)
+let tally (total, errors, warns, infos, first_err) line =
+  (
+    total + 1,
+    if String.contains? "ERROR" line then errors + 1 else errors,
+    if String.contains? "WARN" line then warns + 1 else warns,
+    if String.contains? "INFO" line then infos + 1 else infos,
+    match first_err with
+  | Some e -> Some e
+  | None -> if String.contains? "ERROR" line then Some line else None
+  )
 
 let (total, errors, warns, infos, first_err) =
   Stream.fold_left tally (0, 0, 0, 0, None) (IO.stdin_lines ())

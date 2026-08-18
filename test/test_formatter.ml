@@ -502,11 +502,68 @@ let test_wide_application_breaks () =
     "let apply f x = f x\nlet add a b = a + b\napply (fn n -> add n 1) 41"
     "42"
 
+(* ── Canonicalization ────────────────────────────────────────────────────── *)
+
+let golden = Alcotest.(check string)
+
+let test_manifest_canonicalized () =
+  golden "labels in display order, binaries sorted"
+    "uses {Env, FS.Write, Shell(git, rsync)}\nlet x = 1\nx\n"
+    (fmt "uses {Shell(rsync, git), FS.Write, Env}\nlet x = 1\nx");
+  (* The typechecker's suggested line is already what fmt emits. *)
+  golden "a suggested manifest is a fixed point"
+    "uses {FS.Write}\nlet x = 1\nx\n"
+    (fmt "uses {FS.Write}\nlet x = 1\nx")
+
+let test_manifest_wraps_past_the_budget () =
+  let src =
+    "uses {Shell(zz-very-long-binary-name-one, yy-very-long-binary-name-two, \
+     xx-very-long-binary-name-three, ww-very-long-binary-name-four), FS.Read, \
+     FS.Write, Env, IO, Proc}\nlet x = 1\nx"
+  in
+  let out = fmt src in
+  Alcotest.(check bool) "one label per line" true
+    (String.length out > 0 &&
+     Lint.contains out "uses {\n  Env,\n  FS.Read,\n  FS.Write,\n  IO,\n  Proc,\n  Shell(\n");
+  Alcotest.(check bool) "one binary per line" true
+    (Lint.contains out "    ww-very-long-binary-name-four,\n");
+  assert_idempotent "wrapped manifest" src;
+  (match Runner.typecheck_source ~path:"wand_fmt_wrap.wand" out with
+   | Ok _ -> ()
+   | Error d -> Alcotest.failf "wrapped manifest does not parse: %s" (Diag.legacy d))
+
+let test_leading_imports_sorted () =
+  golden "plain imports alphabetized, let-imports after, in source order"
+    "import Env\nimport FS\nimport String\n\
+     let u = import CSV\nlet [test] = import Test\nlet x = 1\nx\n"
+    (fmt "import String\nlet u = import CSV\nimport FS\n\
+          let [test] = import Test\nimport Env\nlet x = 1\nx");
+  (* Let-imports are ordinary bindings: two binding the same name rebind,
+     and their order is program meaning. *)
+  golden "rebinding order kept"
+    "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"\n"
+    (fmt "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"");
+  (* Imports past the leading region stay where they are. *)
+  golden "only the leading region"
+    "import String\nlet x = 1\nimport FS\nx\n"
+    (fmt "import String\nlet x = 1\nimport FS\nx")
+
+let test_import_region_with_comment_left_alone () =
+  golden "a comment pins the region"
+    "import String\n-- FS does the writing\nimport FS\nlet x = 1\nx\n"
+    (fmt "import String\n-- FS does the writing\nimport FS\nlet x = 1\nx")
+
 let () =
   Alcotest.run "Formatter" [
     "idempotency", [
       Alcotest.test_case "snippets" `Quick test_idempotent_snippets;
       Alcotest.test_case "stdlib"   `Quick test_idempotent_stdlib;
+    ];
+    "canonicalization", [
+      Alcotest.test_case "manifest order"    `Quick test_manifest_canonicalized;
+      Alcotest.test_case "manifest wrapping" `Quick test_manifest_wraps_past_the_budget;
+      Alcotest.test_case "import block"      `Quick test_leading_imports_sorted;
+      Alcotest.test_case "comment pins it"   `Quick test_import_region_with_comment_left_alone;
     ];
     "behavior preserved", [
       Alcotest.test_case "behavior" `Quick test_behavior_preserved;

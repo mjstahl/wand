@@ -826,7 +826,7 @@ String.upper    String -> String
 
 | | |
 |---|---|
-| Effect labels — `{Shell, FS.Write}` | **Never written.** There is no syntax to annotate them; they are always inferred. Writing `let f : Unit -> String ! {Shell} = …` is a parse error. |
+| Effect labels — `{FS.Write, Shell}` | **Never written.** There is no syntax to annotate them; they are always inferred. Writing `let f : Unit -> String ! {Shell} = …` is a parse error. |
 | Operation names — `FS!read_file` | **Written only in a handler case**, when intercepting that operation in a test. |
 | Everything else | Ordinary wand. Effects follow from the builtins your code reaches. |
 
@@ -856,11 +856,11 @@ fit in a signature and be memorable in full.
 let fetch () = $(curl https://example.com)
 let sync ()  = fetch ()
 
-sync            -- Unit -> String ! {Shell, Raise}
+sync            -- Unit -> String ! {Raise, Shell}
 ```
 
 Nothing above is annotated. `$()` runs a command and raises on a non-zero
-exit, so it carries `{Shell, Raise}`; `$?()` hands back a `ShellResult`
+exit, so it carries `{Raise, Shell}`; `$?()` hands back a `ShellResult`
 instead and carries `{Shell}` alone. `$NAME` reads the environment, so it
 carries `{Env}` — inside a string that is written `%{$NAME}`, since a
 string's `$` is text.
@@ -880,7 +880,7 @@ countdown       -- Int -> Unit ! {IO}
 `try` converts a raise into a `Result`, so `Raise` does not escape it:
 
 ```
-fn () -> $(git status)          -- Unit -> String ! {Shell, Raise}
+fn () -> $(git status)          -- Unit -> String ! {Raise, Shell}
 fn () -> try ($(git status))    -- Unit -> Result String String ! {Shell}
 ```
 
@@ -915,7 +915,7 @@ List.map   ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
 ```
 
 `List.map` performs whatever the function it is given performs, and no more.
-Applying it to a shell command yields `{Shell, Raise}`; applying it to
+Applying it to a shell command yields `{Raise, Shell}`; applying it to
 arithmetic yields nothing.
 
 A row can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
@@ -936,7 +936,7 @@ reading: a missing effect would be a lie, an extra one is only imprecise.
 A file may declare what it is allowed to do:
 
 ```
-uses {Shell, FS.Write}
+uses {FS.Write, Shell}
 ```
 
 This is the one place a script author writes effect labels. It goes first,
@@ -1504,7 +1504,7 @@ is the caller's job, and already says so in the caller's signature.
 
 ```
 Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
--- type error: cannot unify effects {} with {Shell, Raise | ..}
+-- type error: cannot unify effects {} with {Raise, Shell | ..}
 ```
 
 ---
@@ -2304,8 +2304,8 @@ all   : Unit -> List (String, String) ! {Env}
 args  : Unit -> List String ! {Env}
 home  : Unit -> Path ! {Env}
 user  : Unit -> String ! {Env}
-read  : Path -> Result String (Map String) ! {FS.Read, Env}
-read! : Path -> Map String ! {FS.Read, Env, Raise}
+read  : Path -> Result String (Map String) ! {Env, FS.Read}
+read! : Path -> Map String ! {Env, FS.Read, Raise}
 load  : Path -> Result String Unit ! {Env}
 load! : Path -> Unit ! {Env, Raise}
 ```
@@ -3101,6 +3101,18 @@ Comments (`-- ...`, `(* ... *)`, and doc `(** ... *)`) are always preserved —
 never silently dropped, and never rewritten from one style into the other. Multi-equation function definitions
 (`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
 rather than left as the desugared `match`.
+
+The manifest is emitted canonically: labels in display order (alphabetical
+— `Env, FS.Read, FS.Write, IO, Proc, Raise, Shell`, the same order every
+rendered effect row and suggested manifest uses), the binaries inside
+`Shell(...)` sorted, and the whole form wrapping one label per line when
+it passes the column budget (an over-long `Shell(...)` list wraps one
+binary per line the same way). In the leading run of imports at the top
+of a file, plain `import M` statements come first, alphabetized, then
+let-imports (`let [test] = import Test`) in source order — let-imports
+are ordinary bindings, so their relative order is never changed, and a
+region with a comment inside it is left exactly as written. Imports past
+the leading region stay where they are.
 
 Lines are wrapped to fit 92 columns — chosen for the pane code is *read* in
 rather than the one it is written in. A split diff gives each side around

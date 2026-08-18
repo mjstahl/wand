@@ -21,7 +21,7 @@ let test_display () =
   shows "empty" pure "{}";
   shows "one" (single Shell) "{Shell}";
   shows "several, in lattice order"
-    (of_list [Raise; FsRead; Shell]) "{Shell, FS.Read, Raise}";
+    (of_list [Raise; FsRead; Shell]) "{FS.Read, Raise, Shell}";
   shows "unknown" (fresh_row ()) "{..}";
   shows "known plus unknown"
     (add Shell (fresh_row ())) "{Shell | ..}"
@@ -42,12 +42,12 @@ let test_closed_rows () =
 let test_open_takes_on_closed () =
   let r = fresh_row () in
   unifies "unknown row learns the effects" r (of_list [Shell; FsRead]);
-  shows "and is now exactly those" r "{Shell, FS.Read}";
+  shows "and is now exactly those" r "{FS.Read, Shell}";
   Alcotest.(check bool) "closed afterwards" true (is_closed r);
   (* The open side keeps what it already knew. *)
   let r2 = add Raise (fresh_row ()) in
   unifies "open with a known label" r2 (of_list [Raise; Shell]);
-  shows "gains only what was missing" r2 "{Shell, Raise}";
+  shows "gains only what was missing" r2 "{Raise, Shell}";
   (* But it cannot claim something the closed side lacks. *)
   let r3 = add Proc (fresh_row ()) in
   conflicts "open claims an effect the closed side lacks" r3 (single Shell)
@@ -67,8 +67,8 @@ let test_open_rows_merge_known_labels () =
   let a = add Shell (fresh_row ()) in
   let b = add FsRead (fresh_row ()) in
   unifies "each knows a different effect" a b;
-  shows "first sees both" a "{Shell, FS.Read | ..}";
-  shows "second sees both" b "{Shell, FS.Read | ..}"
+  shows "first sees both" a "{FS.Read, Shell | ..}";
+  shows "second sees both" b "{FS.Read, Shell | ..}"
 
 (* The case inference leans on hardest: two rows are linked while both are
    still unknown, and the facts arrive afterwards. Whatever either learns
@@ -78,8 +78,8 @@ let test_information_arrives_after_linking () =
   let b = add FsRead (fresh_row ()) in
   unifies "link two partly-known rows" a b;
   unifies "then close one of them" a (of_list [Shell; FsRead]);
-  shows "the closed one" a "{Shell, FS.Read}";
-  shows "and the other followed" b "{Shell, FS.Read}";
+  shows "the closed one" a "{FS.Read, Shell}";
+  shows "and the other followed" b "{FS.Read, Shell}";
   Alcotest.(check bool) "both are closed now" true (is_closed b)
 
 let test_three_rows_in_a_chain () =
@@ -113,8 +113,8 @@ let test_same_variable_disjoint_labels () =
   let a = Row (EffSet.singleton IO, Some v) in
   let b = Row (EffSet.singleton Shell, Some v) in
   unifies "two effects, one variable" a b;
-  shows "both sides carry both" a "{Shell, IO | ..}";
-  shows "on the other side as well" b "{Shell, IO | ..}"
+  shows "both sides carry both" a "{IO, Shell | ..}";
+  shows "on the other side as well" b "{IO, Shell | ..}"
 
 (* ── Occurs check ────────────────────────────────────────────────────────── *)
 
@@ -134,7 +134,7 @@ let test_add_remove_union () =
   shows "add is idempotent" (add Shell (single Shell)) "{Shell}";
   shows "remove" (remove Shell (of_list [Shell; Raise])) "{Raise}";
   shows "remove what is absent" (remove Proc (single Shell)) "{Shell}";
-  shows "union" (union (single Shell) (single FsRead)) "{Shell, FS.Read}";
+  shows "union" (union (single Shell) (single FsRead)) "{FS.Read, Shell}";
   shows "union with pure" (union (single Shell) pure) "{Shell}";
   (* Union keeps the row open if either side is. *)
   shows "union stays open" (union (single Shell) (fresh_row ())) "{Shell | ..}"

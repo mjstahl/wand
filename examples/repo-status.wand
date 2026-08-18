@@ -1,4 +1,4 @@
-uses {Shell(git, echo), IO}
+uses {IO, Shell(echo, git)}
 
 import Decode
 import List

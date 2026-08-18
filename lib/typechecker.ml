@@ -2301,14 +2301,18 @@ let check_shell_words (prog : program) =
   last_shell_allow := allow;
   let words = ref [] in
   let static = ref true in
+  (* Rendered in canonical form -- labels and binaries sorted -- so the
+     suggested line is always already what `wand fmt` would emit. *)
   let corrected_with word =
     match labels with
     | Some ls ->
       "uses {" ^ String.concat ", "
         (List.map (fun (n, a) ->
            Shell_scan.render_label
-             (n, if n = "Shell" then Option.map (fun ws -> ws @ [word]) a
-                 else a)) ls)
+             (n, if n = "Shell"
+                 then Option.map (fun ws -> List.sort compare (ws @ [word])) a
+                 else Option.map (List.sort compare) a))
+           (List.sort (fun (a, _) (b, _) -> compare a b) ls))
       ^ "}"
     | None -> ""
   in
