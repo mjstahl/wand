@@ -1273,6 +1273,65 @@ let run_test_file path : (test_outcome list, string) result =
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
+(* Under --json the only stdout contract is the JSON value, but a test is
+   free to print -- println is itself a thing the wand tests test. Run
+   them with stdout routed to stderr, so their prints stay visible
+   without corrupting the stream a consumer parses. *)
+let with_stdout_to_stderr f =
+  flush stdout;
+  let saved = Unix.dup Unix.stdout in
+  Unix.dup2 Unix.stderr Unix.stdout;
+  Fun.protect
+    ~finally:(fun () ->
+      flush stdout;
+      Unix.dup2 saved Unix.stdout;
+      Unix.close saved)
+    f
+
+(* `wand s --json`: one object for the whole run, printed when the run
+   completes -- a well-formed JSON value cannot stream test by test. A pass
+   carries its `label`; a fail carries `message`, where the Test module has
+   already written the label into the text ("label: reason") -- it is not
+   recovered by parsing, per the rule diag.ml states. A test that raised
+   rather than failed an assertion reports "error"; both count as failed,
+   as in the text output. A file that would not load contributes to
+   `errors` instead of `tests`. *)
+let test_results_json
+    (results : (string * (test_outcome list, string) result) list) : string =
+  let field key v = Printf.sprintf "\"%s\":\"%s\"" key (Diag.escape_json v) in
+  let tests =
+    List.concat_map (fun (path, result) ->
+      match result with
+      | Error _ -> []
+      | Ok outcomes ->
+        List.map (fun outcome ->
+          let rest = match outcome with
+            | TPass label -> [field "status" "pass"; field "label" label]
+            | TFail msg   -> [field "status" "fail"; field "message" msg]
+            | TError msg  -> [field "status" "error"; field "message" msg]
+          in
+          "{" ^ String.concat "," (field "file" path :: rest) ^ "}"
+        ) outcomes
+    ) results
+  in
+  let errors =
+    List.filter_map (fun (path, result) ->
+      match result with
+      | Error m -> Some ("{" ^ field "file" path ^ "," ^ field "message" m ^ "}")
+      | Ok _ -> None
+    ) results
+  in
+  let outcomes =
+    List.concat_map
+      (fun (_, r) -> match r with Ok os -> os | Error _ -> []) results
+  in
+  let passed =
+    List.length (List.filter (function TPass _ -> true | _ -> false) outcomes)
+  in
+  Printf.sprintf "{\"tests\":[%s],\"errors\":[%s],\"passed\":%d,\"failed\":%d}"
+    (String.concat "," tests) (String.concat "," errors)
+    passed (List.length outcomes - passed)
+
 (* ── REPL session ─────────────────────────────────────────────────────────── *)
 
 type repl_result =
@@ -1320,6 +1379,51 @@ let lookup_type (sess : session) (name : string) : string option =
      | Some s -> Some (Typechecker.string_of_scheme s)
      | None   -> None)
   | _ -> None
+
+(* ── `--json` for the query commands ──────────────────────────────────────
+   `wand d --json` and `wand v --json` print these: the same facts the text
+   output states, as one JSON value on stdout. A fact the session lacks is
+   null rather than omitted, so a consumer reads "no doc" as an answer and
+   not as a schema difference. *)
+
+let doc_json (sess : session) (name : string) : string =
+  let field key = function
+    | Some v -> Printf.sprintf "\"%s\":\"%s\"" key (Diag.escape_json v)
+    | None   -> Printf.sprintf "\"%s\":null" key
+  in
+  Printf.sprintf "{\"name\":\"%s\",%s,%s}"
+    (Diag.escape_json name)
+    (field "type" (lookup_type sess name))
+    (field "doc" (List.assoc_opt name sess.s_docs))
+
+let binding_json name scheme =
+  Printf.sprintf "{\"name\":\"%s\",\"type\":\"%s\"}"
+    (Diag.escape_json name)
+    (Diag.escape_json (Typechecker.string_of_scheme scheme))
+
+let scope_json (sess : session) : string =
+  let entries =
+    List.sort (fun (a, _) (b, _) -> String.compare a b) sess.s_type_env
+  in
+  let entry (name, s) =
+    match s with
+    | Typechecker.Namespace _ ->
+      Printf.sprintf "{\"name\":\"%s\",\"module\":true}" (Diag.escape_json name)
+    | _ -> binding_json name s
+  in
+  "[" ^ String.concat "," (List.map entry entries) ^ "]"
+
+let module_json (sess : session) (modname : string) : (string, string) result =
+  match List.assoc_opt modname sess.s_type_env with
+  | Some (Typechecker.Namespace members) ->
+    let sorted =
+      List.sort (fun (a, _) (b, _) -> String.compare a b) members
+    in
+    Ok ("[" ^ String.concat ","
+          (List.map (fun (n, s) -> binding_json (modname ^ "." ^ n) s) sorted)
+        ^ "]")
+  | Some _ -> Error (modname ^ " is a binding, not a module")
+  | None   -> Error ("Unknown module '" ^ modname ^ "'")
 
 let last_non_import prog =
   List.fold_left (fun acc item ->

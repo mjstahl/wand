@@ -72,6 +72,84 @@ let test_hole_shape () =
     "[{\"kind\":\"hole\",\"type\":\"Int -> Int -> Int ! 'e\"}]"
     (Lint.diagnostics_json ~strict:false ~holes:["Int -> Int -> Int ! 'e"] [])
 
+(* ── Query commands (`wand d --json`, `wand v --json`) ───────────────────── *)
+
+let query_sess src =
+  let sess = Runner.make_session () in
+  match Runner.run_session sess src with
+  | Ok (s, _) -> s
+  | Error m -> Alcotest.failf "session load failed: %s\nsource:\n%s" m src
+
+let test_doc_json () =
+  let sess =
+    query_sess "(** Doubles a number. *)\nlet double x = x * 2"
+  in
+  golden "doc as one object"
+    "{\"name\":\"double\",\"type\":\"Int -> Int\",\
+      \"doc\":\"Doubles a number.\"}"
+    (Runner.doc_json sess "double")
+
+let test_doc_json_absent () =
+  let sess = query_sess "let x = 1" in
+  golden "a missing doc and type are null, not omitted"
+    "{\"name\":\"nope\",\"type\":null,\"doc\":null}"
+    (Runner.doc_json sess "nope")
+
+let test_scope_json () =
+  let sess = query_sess "import List\nlet greet name = \"hi %{name}\"" in
+  let json = Runner.scope_json sess in
+  if not (Lint.contains json "{\"name\":\"List\",\"module\":true}") then
+    Alcotest.failf "module entry missing:\n%s" json;
+  if not (Lint.contains json
+            "{\"name\":\"greet\",\"type\":\"'a -> String\"}") then
+    Alcotest.failf "binding entry missing:\n%s" json
+
+let test_scope_json_empty () =
+  golden "an empty scope is an empty array"
+    "[]" (Runner.scope_json (Runner.make_session ()))
+
+let test_module_json () =
+  let sess = query_sess "import List" in
+  (match Runner.module_json sess "List" with
+   | Ok json ->
+     if not (Lint.contains json "{\"name\":\"List.length\",\"type\":") then
+       Alcotest.failf "qualified member missing:\n%s" json
+   | Error m -> Alcotest.failf "module_json List failed: %s" m);
+  (match Runner.module_json sess "Nope" with
+   | Error "Unknown module 'Nope'" -> ()
+   | Error m -> Alcotest.failf "unexpected message: %s" m
+   | Ok _ -> Alcotest.fail "expected an error for an unknown module");
+  let sess = query_sess "let x = 1" in
+  match Runner.module_json sess "x" with
+  | Error "x is a binding, not a module" -> ()
+  | Error m -> Alcotest.failf "unexpected message: %s" m
+  | Ok _ -> Alcotest.fail "expected an error for a binding"
+
+(* ── Test runs (`wand s --json`) ──────────────────────────────────────────── *)
+
+let test_run_json () =
+  golden "a test run is one object; error status still counts as failed"
+    "{\"tests\":[\
+       {\"file\":\"test_a.wand\",\"status\":\"pass\",\"label\":\"it adds\"},\
+       {\"file\":\"test_a.wand\",\"status\":\"fail\",\
+        \"message\":\"it fails: expected 4, got 3\"},\
+       {\"file\":\"test_a.wand\",\"status\":\"error\",\
+        \"message\":\"pattern match failure\"}],\
+      \"errors\":[{\"file\":\"test_b.wand\",\
+        \"message\":\"parse error: 2:1: unexpected token: EOF\"}],\
+      \"passed\":1,\"failed\":2}"
+    (Runner.test_results_json
+       [("test_a.wand",
+         Ok [Runner.TPass "it adds";
+             Runner.TFail "it fails: expected 4, got 3";
+             Runner.TError "pattern match failure"]);
+        ("test_b.wand", Error "parse error: 2:1: unexpected token: EOF")])
+
+let test_run_json_empty () =
+  golden "no tests, no errors"
+    "{\"tests\":[],\"errors\":[],\"passed\":0,\"failed\":0}"
+    (Runner.test_results_json [])
+
 (* ── Errors ───────────────────────────────────────────────────────────────── *)
 
 (* Errors reach the JSON as `Diag.t` values whose position travelled from
@@ -159,6 +237,17 @@ let () =
     ];
     "holes", [
       Alcotest.test_case "shape" `Quick test_hole_shape;
+    ];
+    "queries", [
+      Alcotest.test_case "doc"         `Quick test_doc_json;
+      Alcotest.test_case "doc absent"  `Quick test_doc_json_absent;
+      Alcotest.test_case "scope"       `Quick test_scope_json;
+      Alcotest.test_case "scope empty" `Quick test_scope_json_empty;
+      Alcotest.test_case "module"      `Quick test_module_json;
+    ];
+    "test runs", [
+      Alcotest.test_case "run"   `Quick test_run_json;
+      Alcotest.test_case "empty" `Quick test_run_json_empty;
     ];
     "errors", [
       Alcotest.test_case "type"            `Quick test_type_error;

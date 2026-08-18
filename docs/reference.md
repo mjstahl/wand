@@ -3005,6 +3005,7 @@ History is saved to `~/.wand_history` between sessions.
 
 ```
 wand d "List.map"                     # show doc string
+wand d --json "List.map"              # the same, as JSON for tools
 wand e "1 + 2"                        # evaluate and print result
 wand e --load config.wand "host"      # evaluate in context of a file
 wand f script.wand                    # format a file in place
@@ -3013,9 +3014,11 @@ wand h                                # show all commands
 wand h e                              # help for a specific command
 wand s                                # run every test_*.wand from here down
 wand s test_deploy.wand               # run named test files
+wand s --json                         # per-test results as JSON, for tools
 wand t "List.map"                     # typecheck only
 wand v                                # list all names and modules in scope
 wand v List                           # list one module's members
+wand v --json List                    # the same, as JSON for tools
 wand V                                # print the version, as `wand 0.1.0`
 ```
 
@@ -3114,6 +3117,45 @@ own shape:
 
 ```json
 {"kind":"hole","type":"Int -> Int -> Int ! 'e"}
+```
+
+The query commands take `--json` too, printing one JSON value on stdout
+in place of their text. `wand d --json <name>` prints one object —
+`name`, `type`, `doc`, where a fact the session lacks is `null` rather
+than omitted:
+
+```json
+{"name":"List.map",
+ "type":"('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e",
+ "doc":"Apply a function to every element of a list, returning a new list."}
+```
+
+`wand v --json` prints an array over the scope — a binding as
+`{"name":...,"type":...}`, a module as `{"name":...,"module":true}` —
+and `wand v --json <module>` the module's members, names qualified:
+
+```json
+[{"name":"List.all","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"},
+ {"name":"List.any","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"}]
+```
+
+`wand s --json` prints one object for the whole run, when the run
+completes (a well-formed JSON value cannot stream test by test). While
+the tests run, anything they themselves print goes to stderr, so stdout
+holds nothing but the JSON. A pass
+carries its `label`; a fail carries `message`, which already begins with
+the label — that is how the Test module writes it. A test that raised
+rather than failed an assertion has status `"error"`; both count in
+`failed`, and the exit code is unchanged. A file that would not load
+(parse error, missing import) appears under `errors` instead of `tests`:
+
+```json
+{"tests":[{"file":"test_deploy.wand","status":"pass","label":"it adds"},
+          {"file":"test_deploy.wand","status":"fail",
+           "message":"it rounds: expected 4, got 3"}],
+ "errors":[{"file":"test_broken.wand",
+            "message":"parse error: 2:1: unexpected token: EOF"}],
+ "passed":1,"failed":1}
 ```
 
 ### Formatter

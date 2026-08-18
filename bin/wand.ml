@@ -68,6 +68,7 @@ let usage_for sub =
     print_endline "Print the doc string for a name.";
     print_endline "";
     print_endline "Options:";
+    print_endline "  --json          Emit the name, type, and doc as JSON";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
   | "v" | "env" ->
     print_endline "Usage: wand v [--load <file>]... [module]";
@@ -76,6 +77,7 @@ let usage_for sub =
     print_endline "wand v List shows every List export with its signature.";
     print_endline "";
     print_endline "Options:";
+    print_endline "  --json          Emit the listing as JSON";
     print_endline "  --load <file>   Load a .wand file first (repeatable)"
   | "f" | "fmt" ->
     print_endline "Usage: wand f <file.wand>...";
@@ -86,7 +88,7 @@ let usage_for sub =
     print_endline "left exactly as written, since moving a comment to the wrong";
     print_endline "expression is worse than leaving it where its author put it."
   | "s" | "test" ->
-    print_endline "Usage: wand s [<file.wand>|<dir>]...";
+    print_endline "Usage: wand s [--json] [<file.wand>|<dir>]...";
     print_endline "";
     print_endline "Run .wand test files (let [test] = import Test;";
     print_endline "test \"label\" (fn t -> t.ok/t.eq/t.raises ...)) and report";
@@ -97,7 +99,10 @@ let usage_for sub =
     print_endline "found beside the script. A directory argument is searched the";
     print_endline "same way; a named file is run whatever it is called.";
     print_endline "_build, _opam, .git and node_modules are not searched.";
-    print_endline "Exits nonzero if any test failed or any file errored."
+    print_endline "Exits nonzero if any test failed or any file errored.";
+    print_endline "";
+    print_endline "Options:";
+    print_endline "  --json          Emit per-test results as JSON, printed when the run completes"
   | "h" | "help" ->
     print_endline "Usage: wand h [command]";
     print_endline "";
@@ -105,6 +110,11 @@ let usage_for sub =
   | _ ->
     Printf.eprintf "Unknown command: %s\nRun 'wand h' for usage.\n" sub;
     exit 1
+
+(* The query commands (`d`, `v`) and the test runner (`s`) take --json
+   alone; `t` has its own richer flag set in parse_lint_flags below. *)
+let parse_json_flag args =
+  (List.mem "--json" args, List.filter (fun a -> a <> "--json") args)
 
 let parse_loads args =
   let rec go loads rest = function
@@ -318,21 +328,27 @@ let () =
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1))
     | "d" | "doc" ->
+      let (json, rest) = parse_json_flag rest in
       let (loads, rest') = parse_loads rest in
       (match rest' with
        | [] ->
          Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
        | [name] ->
          let sess = load_files ~sources:[name] loads in
-         (match Wand.Runner.lookup_type sess name with
-          | Some t -> Printf.printf "%s : %s\n" name t
-          | None   -> ());
-         (match List.assoc_opt name sess.Wand.Runner.s_docs with
-          | Some doc -> print_endline doc
-          | None     -> Printf.printf "%s: no doc\n" name)
+         if json then
+           print_endline (Wand.Runner.doc_json sess name)
+         else begin
+           (match Wand.Runner.lookup_type sess name with
+            | Some t -> Printf.printf "%s : %s\n" name t
+            | None   -> ());
+           (match List.assoc_opt name sess.Wand.Runner.s_docs with
+            | Some doc -> print_endline doc
+            | None     -> Printf.printf "%s: no doc\n" name)
+         end
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
     | "v" | "env" ->
+      let (json, rest) = parse_json_flag rest in
       let (loads, rest') = parse_loads rest in
       (* `wand env <module>` needs only that module; bare `wand env` lists
          everything in scope, so it does load them all. *)
@@ -341,6 +357,10 @@ let () =
         | _ -> load_files ~sources:[all_stdlib_imports] loads
       in
       (match rest' with
+       | [modname] when json ->
+         (match Wand.Runner.module_json sess modname with
+          | Ok out    -> print_endline out
+          | Error msg -> Printf.eprintf "%s\n" msg; exit 1)
        | [modname] ->
          (match List.assoc_opt modname sess.Wand.Runner.s_type_env with
           | Some (Wand.Typechecker.Namespace members) ->
@@ -350,6 +370,8 @@ let () =
             ) sorted
           | Some _ -> Printf.eprintf "%s is a binding, not a module\n" modname; exit 1
           | None   -> Printf.eprintf "Unknown module '%s'\n" modname; exit 1)
+       | _ when json ->
+         print_endline (Wand.Runner.scope_json sess)
        | _ ->
          let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Wand.Runner.s_type_env in
          if entries = [] then print_endline "(empty)"
@@ -380,6 +402,7 @@ let () =
          ) paths;
          if !had_error then exit 1)
     | "s" | "test" ->
+      let (json, rest) = parse_json_flag rest in
       (* No argument means the directory you are standing in, which is what
          you want after editing a script: run its tests without naming them.
          A directory argument searches it the same way; a file is run as
@@ -404,6 +427,20 @@ let () =
             Printf.eprintf "No test files found in %s — a test file is named test_*.wand.\n"
               (String.concat ", " roots));
          exit 1
+       | paths when json ->
+         let results =
+           Wand.Runner.with_stdout_to_stderr (fun () ->
+             List.map (fun path -> (path, Wand.Runner.run_test_file path)) paths)
+         in
+         print_endline (Wand.Runner.test_results_json results);
+         let clean = List.for_all (fun (_, r) ->
+           match r with
+           | Error _ -> false
+           | Ok outcomes ->
+             List.for_all
+               (function Wand.Runner.TPass _ -> true | _ -> false) outcomes
+         ) results in
+         if not clean then exit 1
        | paths ->
          let multi = List.length paths > 1 in
          let had_error = ref false in
