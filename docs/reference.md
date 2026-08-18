@@ -278,8 +278,15 @@ let f 1 = 1     -- error: equation 2 for 'f' is unreachable
 The equations must also cover every case together, checked the same way a
 `match` is.
 
-In the REPL a later `let` for an existing function adds a clause to it
-instead, and the result is reported as `f : Int -> Int, 2 equations`.
+The REPL edits definitions where a file declares them, so neither check
+applies there. A later `let` for an existing function adds a clause to it
+instead, and the result is reported as `f : Int -> Int, 2 equations`. The
+merged function tries specific patterns before catch-alls whatever order
+they were entered in — a base case added after a catch-all still fires —
+and of two clauses with the same pattern the newer wins. Equations that do
+not yet cover every case are accepted too: the gap shows as `{Raise}` in
+the reported type, and a call that lands in it raises a pattern-match
+failure.
 
 Works locally too, with `in` — repeating `let` on each equation or not:
 
@@ -315,6 +322,21 @@ let answer =
   and is_odd n = if n == 0 then false else is_even (n - 1)
   in is_even 7
 ```
+
+In the REPL a group must be entered as one entry — the first line alone
+does not typecheck, its partner being unbound — so end it with the `and`
+rather than starting the next line with it:
+
+```
+>> let is_even n = if n == 0 then true else is_odd (n - 1) and
+   .. is_odd n = if n == 0 then false else is_even (n - 1)
+   ..
+is_even : Int -> Bool
+is_odd : Int -> Bool
+```
+
+A blank line ends the group. The `and` may sit at either end of a line
+break in a file, where the whole definition is in view at once.
 
 `and`-bound members must be functions (at least one parameter) — a plain
 value can't reference a sibling that isn't defined yet, since evaluation
@@ -2971,7 +2993,11 @@ Special commands:
 | `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
 | `:x` | `:exit` | Exit interactive mode |
 
-Multi-line input is detected automatically (unclosed brackets, trailing `->`, `=`, `|`, etc.). A blank continuation line submits the accumulated input.
+Multi-line input is detected automatically: unclosed brackets, a trailing
+`->`, `=`, `|`, `,`, or dangling keyword (`then`, `else`, `in`, `with`,
+`and`), and — within an entry already spanning lines — a `let` equation
+still awaiting its `in` or body all keep the entry open. A blank
+continuation line submits the accumulated input.
 
 History is saved to `~/.wand_history` between sessions.
 

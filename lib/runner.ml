@@ -1277,6 +1277,7 @@ let run_test_file path : (test_outcome list, string) result =
 
 type repl_result =
   | RBind     of string * string
+  | RGroup    of (string * string) list
   | RType     of string
   | RVal      of string * string
   | RTypeExpr of string
@@ -1444,6 +1445,15 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             (match equation_count name with
              | Some n -> RBind (name, Printf.sprintf "%s, %d equations" ty n)
              | None   -> RBind (name, ty))
+          | Some (Ast.TLLetRec bindings) ->
+            (* A mutual group binds several names at once; echo each, the
+               way a lone binding is echoed. *)
+            RGroup (List.map (fun (name, _, _) ->
+              let ty = match List.assoc_opt name full_type_env with
+                | Some s -> Typechecker.string_of_scheme s
+                | None   -> "?"
+              in
+              (name, ty)) bindings)
           | Some (Ast.TLLetPat _) -> RSilent
           | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) ->

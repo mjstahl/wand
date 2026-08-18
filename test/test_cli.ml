@@ -224,6 +224,22 @@ let test_repl_merges_clauses_and_announces () =
    | Ok (_, _) -> Alcotest.fail "general clause did not fire after merge"
    | Error m -> Alcotest.failf "f 5 failed: %s" m)
 
+(* A mutual group binds several names at once; each is echoed with its
+   type, the way a lone binding is. *)
+let test_repl_echoes_mutual_group () =
+  let sess = Runner.make_session () in
+  let src = "let is_even n = if n == 0 then true else is_odd (n - 1) and\n\
+             is_odd n = if n == 0 then false else is_even (n - 1)" in
+  let sess = match Runner.run_session sess src with
+    | Ok (s, Runner.RGroup [("is_even", _); ("is_odd", _)]) -> s
+    | Ok (_, _) -> Alcotest.fail "expected both names of the group echoed"
+    | Error m -> Alcotest.failf "mutual group failed: %s" m
+  in
+  match Runner.run_session sess "is_odd 3" with
+  | Ok (_, Runner.RVal ("true", _)) -> ()
+  | Ok (_, _) -> Alcotest.fail "is_odd 3 should be true"
+  | Error m -> Alcotest.failf "is_odd 3 failed: %s" m
+
 (* Checking a file without running it: what an editing loop and CI both want,
    and what a manifest violation will be reported through. The path is stated
    with --file rather than guessed from the argument, since `deploy.wand` is
@@ -372,6 +388,7 @@ let () =
     ];
     "repl", [
       Alcotest.test_case "clause merge announced" `Quick test_repl_merges_clauses_and_announces;
+      Alcotest.test_case "mutual group echoed"    `Quick test_repl_echoes_mutual_group;
     ];
     "eval", [
       Alcotest.test_case "eval expressions" `Quick test_eval;

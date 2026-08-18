@@ -58,6 +58,54 @@ let test_command_ident_arg () =
   Alcotest.(check bool) "a member after :d" true
     (contains_str lines ":d List.length")
 
+(* Multi-line entry detection -- the other pure REPL function. The local
+   multi-equation forms from the reference must stay enterable: an open
+   binding line mid-entry keeps gathering until a line supplies the body. *)
+
+let complete = Alcotest.(check bool) "complete" true
+let incomplete = Alcotest.(check bool) "incomplete" false
+
+let test_single_lines_complete () =
+  complete (Repl.is_complete "let f x = x + 1");
+  complete (Repl.is_complete "let fib 0 = 0");
+  complete (Repl.is_complete "let one = (let h y = y * 2 in h) 3")
+
+let test_dangling_eq () =
+  incomplete (Repl.is_complete "let answer =")
+
+let test_equation_chain_gathers () =
+  incomplete (Repl.is_complete "let answer =\n  let fib 0 = 0");
+  incomplete (Repl.is_complete
+    "let answer =\n  let fib 0 = 0\n  let fib 1 = 1");
+  incomplete (Repl.is_complete
+    "let answer =\n  let fib 0 = 0\n  fib 1 = 1")
+
+let test_in_line_ends_chain () =
+  complete (Repl.is_complete
+    "let answer =\n  let fib 0 = 0\n  let fib 1 = 1\n  \
+     let fib n = fib (n - 1) + fib (n - 2)\n  in fib 10");
+  complete (Repl.is_complete "let v =\n  let k = 2 in k + 1")
+
+let test_plain_body_ends_chain () =
+  complete (Repl.is_complete "let go =\n  let helper x = x * 2\n  helper 21")
+
+let test_letters_in_are_not_the_keyword () =
+  incomplete (Repl.is_complete "let p =\n  let b = /bin/ls");
+  incomplete (Repl.is_complete "let d =\n  let wait = 5min")
+
+let test_trailing_and_gathers () =
+  incomplete (Repl.is_complete
+    "let is_even n = if n == 0 then true else is_odd (n - 1) and");
+  incomplete (Repl.is_complete
+    "let is_even n = if n == 0 then true else is_odd (n - 1) and\n\
+     is_odd n = if n == 0 then false else is_even (n - 1)");
+  complete (Repl.is_complete "operand")
+
+let test_eq_in_string_or_operator () =
+  complete (Repl.is_complete "let m =\n  \"a = b\"");
+  complete (Repl.is_complete "let ok =\n  1 == 1");
+  complete (Repl.is_complete "let ok =\n  1 <= 2")
+
 let () =
   Alcotest.run "completion" [
     "identifiers", [
@@ -71,5 +119,15 @@ let () =
       Alcotest.test_case "whole line rebuilt"     `Quick test_whole_line_rebuilt;
       Alcotest.test_case "command names"          `Quick test_command_names;
       Alcotest.test_case "a command's identifier" `Quick test_command_ident_arg;
+    ];
+    "multi-line entry", [
+      Alcotest.test_case "single lines complete"    `Quick test_single_lines_complete;
+      Alcotest.test_case "dangling ="               `Quick test_dangling_eq;
+      Alcotest.test_case "equation chain gathers"   `Quick test_equation_chain_gathers;
+      Alcotest.test_case "an in-line ends it"       `Quick test_in_line_ends_chain;
+      Alcotest.test_case "a plain body ends it"     `Quick test_plain_body_ends_chain;
+      Alcotest.test_case "letters 'in', not keyword" `Quick test_letters_in_are_not_the_keyword;
+      Alcotest.test_case "trailing and gathers"     `Quick test_trailing_and_gathers;
+      Alcotest.test_case "= in string or operator"  `Quick test_eq_in_string_or_operator;
     ];
   ]

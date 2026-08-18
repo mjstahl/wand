@@ -14,6 +14,49 @@ let starts_with s prefix =
 
 let is_ident_char = Complete.is_ident_char
 
+(* A local binding chain has no closing token of its own: it ends when a
+   line supplies the body -- `in <expr>`, or a plain expression. So inside
+   a multi-line entry, a line that is itself an open binding (a bare `=`
+   at bracket depth 0 that no `in` closes) is a link in such a chain, not
+   the end of the entry. Submitting there would not even error -- a
+   chain's body may be implicit, so the prefix parses and binds Unit --
+   and the remaining equations would land in a fresh entry. *)
+let open_binding line =
+  let n = String.length line in
+  let in_str = ref false and in_raw = ref false and escape = ref false in
+  let depth  = ref 0 in
+  let has_eq = ref false and closed = ref false in
+  let i = ref 0 and stop = ref false in
+  while not !stop && !i < n do
+    let c = line.[!i] in
+    (if !escape then escape := false
+     else if !in_raw then (if c = '`' then in_raw := false)
+     else if !in_str then (
+       if c = '\\' then escape := true
+       else if c = '"' then in_str := false)
+     else match c with
+       | '"' -> in_str := true
+       | '`' -> in_raw := true
+       | '(' | '[' | '{' -> incr depth
+       | ')' | ']' | '}' -> decr depth
+       | '-' when !i + 1 < n && line.[!i + 1] = '-' -> stop := true
+       | '=' when !depth = 0 ->
+         let after_op = !i > 0 && (match line.[!i - 1] with
+           | '=' | '<' | '>' | '!' -> true | _ -> false) in
+         if !i + 1 < n && line.[!i + 1] = '=' then incr i  (* skip `==` *)
+         else if not after_op then has_eq := true
+       (* Only a whitespace-delimited `in` closes the binding: `/bin/ls`
+          and `5min` contain the letters but not the keyword. *)
+       | 'i' when !depth = 0 && !has_eq
+              && !i + 1 < n && line.[!i + 1] = 'n'
+              && (!i = 0 || line.[!i - 1] = ' ' || line.[!i - 1] = '\t')
+              && (!i + 2 >= n || line.[!i + 2] = ' ' || line.[!i + 2] = '\t') ->
+         closed := true
+       | _ -> ());
+    incr i
+  done;
+  !has_eq && not !closed
+
 let is_complete src =
   let depth  = ref 0 in
   let in_str = ref false in
@@ -66,15 +109,22 @@ let is_complete src =
         String.length last_line > 0 && last_line.[0] = '|'
         && not (starts_with last_line "|>" || starts_with last_line "||")
       in
+      (* The open-binding rule holds only mid-entry: a single-line binding
+         is an ordinary complete definition. A blank line still ends the
+         entry, as it does for match arms. *)
+      let continues_chain = String.contains s '\n' && open_binding last_line in
       not (ends_with "->" || ends_with "=" || ends_with "|" ||
            ends_with_kw "then" || ends_with_kw "else" || ends_with_kw "in" ||
-           ends_with_kw "with" || ends_with "," || opens_arm)
+           ends_with_kw "with" || ends_with_kw "and" || ends_with "," ||
+           opens_arm || continues_chain)
 
 (* ── Result display ───────────────────────────────────────────────────────── *)
 
 let print_result = function
   | Runner.RSilent        -> ()
   | Runner.RBind  (n, t)  -> Printf.printf "%s : %s\n%!" n t
+  | Runner.RGroup binds   ->
+    List.iter (fun (n, t) -> Printf.printf "%s : %s\n%!" n t) binds
   | Runner.RType  n       -> Printf.printf "type %s\n%!" n
   | Runner.RVal   (v, t)  -> Printf.printf "%s : %s\n%!" v t
   | Runner.RTypeExpr t    -> Printf.printf "%s\n%!" t
