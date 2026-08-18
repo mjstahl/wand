@@ -290,9 +290,12 @@ Each lands independently and is useful before the server exists.
    their item, and the manifest loc spans `uses {...}` exactly. `--json`
    emits `end_line`/`end_col` when a diagnostic has real width. Holes
    still have no locations (item 1's list).
-4. **Completion as a pure function** shared by REPL and LSP —
-   `complete_ident_arg` minus linenoise. Side effect: the REPL completion
-   logic finally gets direct tests, without the expect+pty rig.
+4. **Completion as a pure function** shared by REPL and LSP. **Done**
+   (`a880914`): `Complete.ident_at` returns the prefix start plus
+   candidates (the LSP's text-edit shape); `Complete.line_completions`
+   rebuilds whole lines for linenoise, `:` commands included. The REPL
+   callback is three lines of feeding, and the logic has direct tests
+   in `test_complete.ml` — no pty involved.
 5. **Effect labels of a member** — scheme → manifest-relevant label set,
    for §2.1's manifest extension. `manifest_relevant` and `render_manifest`
    exist; this is a small query over them.
