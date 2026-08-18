@@ -270,12 +270,19 @@ Each lands independently and is useful before the server exists.
    (`typecheck_file` reads from disk, `run_session` accumulates
    REPL-style). **Done** (`84b5763`): returns a `source_check` record —
    type, holes, findings, the file's own type env and docs — and
-   `typecheck_file` reads a file into it. Still to grow, as items 2–3
-   land: structured diagnostics, the def-site index, hole locations, the
-   manifest suggestion, the loc→type table.
+   `typecheck_file` reads a file into it. Still to grow, as item 3
+   lands: the def-site index, hole locations, the manifest suggestion,
+   the loc→type table.
 2. **A structured diagnostic type**, with `wand t`'s text and `--json`
-   output re-expressed over it. Today the JSON path partially re-parses
-   message strings for positions; the LSP must not.
+   output re-expressed over it. **Done** (`f06a293`): `Diag.t` carries
+   severity/code/loc/message/fix; `typecheck_source`, `typecheck_file`
+   and `typecheck_session` fail with one, and positions travel from the
+   raise sites as data (`ParseError` carries a `Token.loc option`,
+   `TypeErrorAt` is stamped by the nearest `Located`, lex errors point
+   at the failing token's start). Nothing re-parses a message string
+   for a position. Not included: the manifest suggestion is still prose
+   inside the E-TYPE message — carrying it as a `Diag.fix` lands with
+   the code-action work (§2.2) or `--fix` (§3).
 3. **End positions.** `Located` carries a start `Token.loc` only; LSP wants
    ranges. `lint.ml:160` already receives `(start, end)` pairs for
    top-level items, so half the plumbing exists. Do this now, at 13K lines
