@@ -112,7 +112,7 @@ let test_hash_comment () =
 
 let test_bash_interpolation () =
   expect_error "${x}" "let x = 1\n\"v: ${x}\""
-    "interpolation is %{...} now, not ${...}"
+    "interpolation is %{...}, not ${...}"
 
 let test_ruby_interpolation () =
   expect_error "#{x}" "let x = 1\n\"v: #{x}\""

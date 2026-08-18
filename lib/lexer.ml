@@ -99,7 +99,7 @@ let read_string s =
        `"${x}"` that quietly became the characters `${x}` is a wrong answer
        no one would look for. *)
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
-      raise (Fail "interpolation is %{...} now, not ${...}. For the \
+      raise (Fail "interpolation is %{...}, not ${...}. For the \
                        literal text, write \\${...}")
     (* The Ruby/Elixir spelling, refused for the same reason as `${...}`:
        text that quietly stayed text is a wrong answer no one would look
@@ -218,7 +218,7 @@ let read_run_cmd s =
        and `$(date)` here are text the shell will expand, and wand no longer
        competes for them. *)
     | '$' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
-      raise (Fail "interpolation is %{...} now, not ${...}. For a \
+      raise (Fail "interpolation is %{...}, not ${...}. For a \
                        variable the shell should expand, $ needs no escape \
                        -- write $NAME or ${NAME} once this release is past")
     | '%' when peek s = '{' || (peek s = '!' && peek2 s = '{') ->
