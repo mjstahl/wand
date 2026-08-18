@@ -366,6 +366,11 @@ users here, before any editor exists).
 
 **B — server core**: framing, lifecycle, `typecheck_source` wiring,
 published diagnostics. A usable "errors in the Problems pane" milestone.
+**Done** (`162ebcd`): `lib/lsp.ml`, `wand lsp` on the binary; `handle`
+is the protocol as a pure function over parsed JSON (tested in process,
+`test_lsp.ml`), `serve` the stdio instantiation. Publishes the check's
+error or findings with real ranges; clears on close. Holes wait for
+locations (§5.1); the editor-facing capabilities grow in C.
 
 **C — the loop-closers**: hover, completion, code actions, the lexical
 tier's auto-edits, formatting.
