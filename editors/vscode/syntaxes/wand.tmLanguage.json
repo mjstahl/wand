@@ -1,0 +1,252 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "wand",
+  "scopeName": "source.wand",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#manifest" },
+    { "include": "#strings" },
+    { "include": "#commands" },
+    { "include": "#regex-literal" },
+    { "include": "#domain-literals" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#definitions" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#env-vars" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.wand",
+          "begin": "\\(\\*\\*",
+          "end": "\\*\\)",
+          "patterns": [{ "include": "#block-comment" }]
+        },
+        { "include": "#block-comment" },
+        {
+          "name": "comment.line.double-dash.wand",
+          "match": "--.*$"
+        }
+      ]
+    },
+    "block-comment": {
+      "name": "comment.block.wand",
+      "begin": "\\(\\*",
+      "end": "\\*\\)",
+      "patterns": [{ "include": "#block-comment" }]
+    },
+    "manifest": {
+      "comment": "uses {Env, FS.Write, Shell(git)} — the file's declared bound",
+      "begin": "^\\s*(uses)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.manifest.wand" },
+        "2": { "name": "punctuation.definition.manifest.begin.wand" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.manifest.end.wand" }
+      },
+      "patterns": [
+        {
+          "name": "constant.language.effect.wand",
+          "match": "\\b(FS\\.Read|FS\\.Write|Shell|Env|IO|Proc|Raise)\\b"
+        },
+        { "include": "#comments" },
+        { "include": "#strings" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.wand",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.wand", "match": "\\\\." },
+            { "include": "#interpolation" }
+          ]
+        },
+        {
+          "name": "string.quoted.other.raw.wand",
+          "begin": "`",
+          "end": "`",
+          "patterns": [{ "include": "#interpolation" }]
+        }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.embedded.interpolation.wand",
+      "begin": "%\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.interpolation.begin.wand" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.interpolation.end.wand" }
+      },
+      "patterns": [{ "include": "$self" }]
+    },
+    "commands": {
+      "comment": "$(cmd) and $?(cmd): embedded shell, with %{...} splices popping back to wand",
+      "begin": "\\$\\??\\(",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.command.begin.wand" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.command.end.wand" }
+      },
+      "contentName": "meta.embedded.block.shellscript",
+      "patterns": [
+        {
+          "name": "meta.embedded.interpolation.wand",
+          "begin": "%!?\\{",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.interpolation.begin.wand" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.interpolation.end.wand" }
+          },
+          "patterns": [{ "include": "$self" }]
+        },
+        {
+          "comment": "balanced parens inside the command stay inside it",
+          "begin": "\\(",
+          "end": "\\)",
+          "patterns": [{ "include": "#commands-inner" }]
+        },
+        { "include": "source.shell" }
+      ]
+    },
+    "commands-inner": {
+      "patterns": [
+        {
+          "begin": "\\(",
+          "end": "\\)",
+          "patterns": [{ "include": "#commands-inner" }]
+        },
+        { "include": "source.shell" }
+      ]
+    },
+    "regex-literal": {
+      "name": "string.regexp.wand",
+      "begin": "\\br/",
+      "end": "/[a-z]*",
+      "patterns": [
+        { "name": "constant.character.escape.wand", "match": "\\\\." }
+      ]
+    },
+    "domain-literals": {
+      "comment": "the twelve literal types are the identity of the language: colored as constants, not identifiers",
+      "patterns": [
+        {
+          "name": "constant.other.datetime.wand",
+          "match": "\\b\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?\\b"
+        },
+        {
+          "name": "constant.other.time.wand",
+          "match": "\\b\\d{2}:\\d{2}:\\d{2}\\b"
+        },
+        {
+          "name": "constant.other.ipv4.wand",
+          "match": "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(/\\d{1,2})?\\b"
+        },
+        {
+          "name": "constant.other.version.wand",
+          "match": "\\b\\d+\\.\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.other.size.wand",
+          "match": "\\b\\d+(\\.\\d+)?(B|KB|MB|GB|TB|PB)\\b"
+        },
+        {
+          "name": "constant.other.duration.wand",
+          "match": "\\b\\d+(ms|min|s|h|d|w)(\\d+(ms|min|s|h|d|w))*\\b"
+        },
+        {
+          "name": "constant.other.port.wand",
+          "match": "(?<![\\w:])(:\\d{1,5})\\b"
+        },
+        {
+          "name": "constant.other.url.wand",
+          "match": "\\bhttps?://[^\\s,)\\]}\"]+"
+        },
+        {
+          "name": "constant.other.path.wand",
+          "match": "(?<![\\w])(~|\\.{1,2})?/[\\w.@*+-]+(/[\\w.@*+-]*)*"
+        },
+        {
+          "name": "constant.other.glob.wand",
+          "match": "(?<![\\w])[\\w.-]*\\*[\\w.*-]*"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.wand",
+          "match": "\\b(if|then|else|match|with|when|try|handle|return|for|do|end)\\b"
+        },
+        {
+          "name": "keyword.declaration.wand",
+          "match": "\\b(let\\*?|in|type|import|fn|of|as|requires|ensures|class|instance|orphan)\\b"
+        },
+        {
+          "name": "keyword.operator.word.wand",
+          "match": "\\b(and|or)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.wand",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.result.wand",
+          "match": "\\b(Ok|Error|Some|None)\\b"
+        }
+      ]
+    },
+    "definitions": {
+      "comment": "the name a let binds; ! marks raising, ? a predicate",
+      "match": "\\b(let\\*?)\\s+([a-z_][A-Za-z0-9_]*[!?]?)",
+      "captures": {
+        "1": { "name": "keyword.declaration.wand" },
+        "2": { "name": "entity.name.function.wand" }
+      }
+    },
+    "types": {
+      "name": "entity.name.type.wand",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.wand", "match": "\\b\\d+\\.\\d+\\b" },
+        { "name": "constant.numeric.integer.wand", "match": "\\b\\d+\\b" }
+      ]
+    },
+    "env-vars": {
+      "name": "constant.other.environment.wand",
+      "match": "\\$[A-Z][A-Z0-9_]*\\b"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.wand",
+          "match": "\\|>|->|\\+\\+|&&|\\|\\||==|!=|<=|>=|[+*/%<>=|]"
+        },
+        {
+          "name": "keyword.operator.hole.wand",
+          "match": "(?<![\\w!?])\\?(?![\\w?(])"
+        }
+      ]
+    }
+  }
+}

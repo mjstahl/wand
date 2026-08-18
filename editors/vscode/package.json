@@ -1,0 +1,74 @@
+{
+  "name": "wand",
+  "displayName": "wand",
+  "description": "Language support for wand: diagnostics, hover with effect rows, completion with auto-import, quick fixes, formatting, and a dry-run lens.",
+  "version": "0.1.0",
+  "publisher": "mjstahl",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mjstahl/wand"
+  },
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "wand",
+        "aliases": [
+          "wand"
+        ],
+        "extensions": [
+          ".wand"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "wand",
+        "scopeName": "source.wand",
+        "path": "./syntaxes/wand.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.shellscript": "shellscript"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "wand.rehearse",
+        "title": "wand: Rehearse (dry run)"
+      }
+    ],
+    "configuration": {
+      "title": "wand",
+      "properties": {
+        "wand.path": {
+          "type": "string",
+          "default": "wand",
+          "description": "Path to the wand binary. The language server is `wand lsp` on the same binary, so it can never disagree with the compiler."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.82.0",
+    "typescript": "^5.4.0"
+  }
+}
