@@ -86,7 +86,24 @@ let peek s =
 let peek_loc s =
   let i = ref s.pos in
   while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
-  if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.{ line = 0; col = 0; offset = 0 }
+  if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.point 0 0 0
+
+(* `start` widened to stop at the last token consumed. `peek` never moves
+   `pos`, and `advance` steps past skippables before consuming, so
+   `tokens.(pos - 1)` is always the last real token of whatever just
+   finished parsing -- which makes this the whole-expression extent a
+   `Located` wrapper wants, rather than its first token's. *)
+let span_to_here s (start : Token.loc) =
+  if s.pos = 0 || s.pos > Array.length s.tokens then start
+  else Token.span_to start (snd s.tokens.(s.pos - 1))
+
+(* Parse with `f` and wrap what it returns in a `Located` spanning
+   everything it consumed. The explicit sequencing matters: the span can
+   only be read once `f` has finished moving `pos`. *)
+let locate s f =
+  let start = peek_loc s in
+  let e = f () in
+  Ast.Located (span_to_here s start, e)
 
 let advance s =
   skip s;
@@ -104,7 +121,7 @@ let advance s =
 let advance_loc s =
   skip s;
   if s.pos >= Array.length s.tokens
-  then (Token.EOF, Token.{ line = 0; col = 0; offset = 0 })
+  then (Token.EOF, Token.point 0 0 0)
   else begin
     let pair = s.tokens.(s.pos) in
     s.pos <- s.pos + 1; pair
@@ -557,13 +574,11 @@ and atom_base_ s =
            `)` is allowed. Nested to the right so every discarded statement
            is a Seq's own first child, which is where the typechecker
            records its type for the discarded-Result lint. *)
-        let es = ref [Located (e_loc, e)] in
+        let es = ref [Located (span_to_here s e_loc, e)] in
         while peek s = Token.Semicolon do
           ignore (advance s);
-          if peek s <> Token.RParen then begin
-            let loc = peek_loc s in
-            es := Located (loc, expr_ 0 s) :: !es
-          end
+          if peek s <> Token.RParen then
+            es := locate s (fun () -> expr_ 0 s) :: !es
         done;
         expect s Token.RParen;
         (match !es with
@@ -691,11 +706,9 @@ and list_ s =
   end
 
 and parse_body s =
-  let loc = peek_loc s in
-  let e = ref (Located (loc, expr_ 0 s)) in
+  let e = ref (locate s (fun () -> expr_ 0 s)) in
   while is_expr_start (peek s) do
-    let loc = peek_loc s in
-    e := Seq (!e, Located (loc, expr_ 0 s))
+    e := Seq (!e, locate s (fun () -> expr_ 0 s))
   done;
   !e
 
@@ -721,9 +734,9 @@ and parse_fn_binding s name =
   else None in
   expect s Token.Eq;
   let body_loc = peek_loc s in
-  let body = Located (body_loc, parse_contract_body s) in
+  let body = locate s (fun () -> parse_contract_body s) in
   let body = match annot with
-    | Some te -> Located (body_loc, Annot (te, body))
+    | Some te -> Located (span_to_here s body_loc, Annot (te, body))
     | None -> body
   in
   let arity = List.length !params in
@@ -743,8 +756,7 @@ and parse_fn_binding s name =
       while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
       if List.length !ps <> arity then raise Exit;
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-      let b_loc = peek_loc s in
-      let b = Located (b_loc, parse_contract_body s) in
+      let b = locate s (fun () -> parse_contract_body s) in
       eqs := !eqs @ [(!ps, b)]
     with Exit -> s.pos <- saved; more := false)
   done;
@@ -768,8 +780,7 @@ and let_ s =
   let consume_rest () =
     if peek s = Token.In then begin
       ignore (advance s);
-      let loc = peek_loc s in
-      Located (loc, expr_ 0 s)
+      locate s (fun () -> expr_ 0 s)
     end
     else if is_expr_start (peek s) then parse_body s
     else Unit
@@ -808,25 +819,21 @@ and let_ s =
       (ignore (advance s); Some (parse_type_expr s))
     else None in
     expect s Token.Eq;
-    let body_loc = peek_loc s in
-    let body = Located (body_loc, parse_contract_body s) in
+    let body = locate s (fun () -> parse_contract_body s) in
     let e = match annot with Some te -> Annot (te, body) | None -> body in
     let rest = consume_rest () in
     Let (PVar name, e, rest)
   | _ ->
     expect s Token.Eq;
-    let e1_loc = peek_loc s in
-    let e1 = Located (e1_loc, expr_ 0 s) in
+    let e1 = locate s (fun () -> expr_ 0 s) in
     let e2 = consume_rest () in
     Let (p, e1, e2)
 
 and if_ s =
   (* if already consumed *)
-  let cond_loc = peek_loc s in
-  let cond   = Located (cond_loc, expr_ 0 s) in
+  let cond  = locate s (fun () -> expr_ 0 s) in
   expect s Token.Then;
-  let then_loc = peek_loc s in
-  let then_ = Located (then_loc, expr_ 0 s) in
+  let then_ = locate s (fun () -> expr_ 0 s) in
   (* A one-armed `if` is `else ()`. Scripting is full of conditionals that
      do something or nothing -- reporting a count only when there is one --
      and writing the empty branch out adds a line that says nothing. The
@@ -835,8 +842,7 @@ and if_ s =
   if peek s <> Token.Else then If (cond, then_, Unit)
   else begin
     ignore (advance s);
-    let else_loc = peek_loc s in
-    let else_ = Located (else_loc, expr_ 0 s) in
+    let else_ = locate s (fun () -> expr_ 0 s) in
     If (cond, then_, else_)
   end
 
@@ -856,13 +862,11 @@ and match_ s =
       let guard =
         if peek s = Token.When then begin
           ignore (advance s);
-          let loc = peek_loc s in
-          Some (Located (loc, expr_ 0 s))
+          Some (locate s (fun () -> expr_ 0 s))
         end else None
       in
       expect s Token.Arrow;
-      let body_loc = peek_loc s in
-      let body = Located (body_loc, expr_ 0 s) in
+      let body = locate s (fun () -> expr_ 0 s) in
       cases := !cases @ [(p, guard, body)]
     end else
       continue_ := false
@@ -887,16 +891,13 @@ and parse_contract_body s =
     match peek s with
     | Token.Requires ->
       ignore (advance s);
-      let loc = peek_loc s in
-      reqs := !reqs @ [Located (loc, contract_expr_ s)]
+      reqs := !reqs @ [locate s (fun () -> contract_expr_ s)]
     | Token.Ensures  ->
       ignore (advance s);
-      let loc = peek_loc s in
-      ens := !ens @ [Located (loc, contract_expr_ s)]
+      ens := !ens @ [locate s (fun () -> contract_expr_ s)]
     | _ -> continue_ := false
   done;
-  let body_loc = peek_loc s in
-  let body = Located (body_loc, expr_ 0 s) in
+  let body = locate s (fun () -> expr_ 0 s) in
   if !reqs = [] && !ens = [] then body
   else Ast.Contract (!reqs, !ens, body)
 
@@ -907,8 +908,7 @@ and fn_ s =
     params := !params @ [pat_atom_ s]
   done;
   expect s Token.Arrow;
-  let body_loc = peek_loc s in
-  Fn (!params, Located (body_loc, parse_contract_body s))
+  Fn (!params, locate s (fun () -> parse_contract_body s))
 
 (* ── Resource bracket ─────────────────────────────────────────────────────── *)
 
@@ -943,8 +943,7 @@ and parse_handle_ s =
           ignore (advance s);
           let p = pat_atom_ s in
           expect s Token.Arrow;
-          let b_loc = peek_loc s in
-          let b = Located (b_loc, expr_ 0 s) in
+          let b = locate s (fun () -> expr_ 0 s) in
           Ast.ReturnCase (p, b)
         (* `FS!read_file` reaches here as the Upper token "FS!" followed by an
            identifier, since `!` is a suffix character. Joining them gives the
@@ -959,16 +958,14 @@ and parse_handle_ s =
           let arg_pat = pat_atom_ s in
           let cont_name = expect_cont_name s in
           expect s Token.Arrow;
-          let b_loc = peek_loc s in
-          let b = Located (b_loc, expr_ 0 s) in
+          let b = locate s (fun () -> expr_ 0 s) in
           Ast.EffectCase (op_name, arg_pat, cont_name, b)
         | Token.Ident op_name ->
           ignore (advance s);
           let arg_pat = pat_atom_ s in
           let cont_name = expect_ident s in
           expect s Token.Arrow;
-          let b_loc = peek_loc s in
-          let b = Located (b_loc, expr_ 0 s) in
+          let b = locate s (fun () -> expr_ 0 s) in
           Ast.EffectCase (op_name, arg_pat, cont_name, b)
         | t ->
           fail_at (peek_loc s) (Format.asprintf "unexpected token in handler case: %a"
@@ -1037,9 +1034,9 @@ let parse_top_fn_binding s name =
   else None in
   expect s Token.Eq;
   let body_loc = peek_loc s in
-  let body = Ast.Located (body_loc, parse_contract_body s) in
+  let body = locate s (fun () -> parse_contract_body s) in
   let body = match annot with
-    | Some te -> Ast.Located (body_loc, Ast.Annot (te, body))
+    | Some te -> Ast.Located (span_to_here s body_loc, Ast.Annot (te, body))
     | None -> body
   in
   let arity = List.length !params in
@@ -1056,8 +1053,7 @@ let parse_top_fn_binding s name =
       while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
       if List.length !ps <> arity then raise Exit;
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-      let b_loc = peek_loc s in
-      let b = Ast.Located (b_loc, parse_contract_body s) in
+      let b = locate s (fun () -> parse_contract_body s) in
       eqs := !eqs @ [(!ps, b)]
     with Exit -> s.pos <- saved; more := false)
   done;
@@ -1243,7 +1239,9 @@ let parse_manifest s =
     while peek s = Token.Comma do ignore (advance s); read_label () done
   end;
   expect s Token.RBrace;
-  (!labels, loc)
+  (* The manifest's loc spans `uses` through the closing brace -- the exact
+     extent a ReplaceLine fix replaces. *)
+  (!labels, span_to_here s loc)
 
 let looks_like_manifest s =
   match peek s with
@@ -1335,13 +1333,11 @@ let parse_program_generic ~on_item tokens =
          (* Top-level pattern destructuring: let <pat> = <expr> *)
          let p = pat_ s in
          expect s Token.Eq;
-         let loc = peek_loc s in
-         let body = Ast.Located (loc, parse_contract_body s) in
+         let body = locate s (fun () -> parse_contract_body s) in
          if peek s = Token.In then begin
            (* Actually a let-in expression — backtrack and parse as TLExpr *)
            s.pos <- saved;
-           let eloc = peek_loc s in
-           let e = Ast.Located (eloc, expr_ 0 s) in
+           let e = locate s (fun () -> expr_ 0 s) in
            items := !items @ [Ast.TLExpr e]
          end else
            items := !items @ [Ast.TLLetPat (p, body)]
@@ -1365,13 +1361,12 @@ let parse_program_generic ~on_item tokens =
          else None in
          expect s Token.Eq;
          let loc = peek_loc s in
-         let body = Ast.Located (loc, parse_contract_body s) in
+         let body = locate s (fun () -> parse_contract_body s) in
          let arity = List.length !params in
          if peek s = Token.In then begin
            (* let x = e in e2 — expression, not top-level binding *)
            s.pos <- saved;
-           let loc = peek_loc s in
-           let e = Ast.Located (loc, expr_ 0 s) in
+           let e = locate s (fun () -> expr_ 0 s) in
            items := !items @ [Ast.TLExpr e]
          end else begin
          attach_doc name;
@@ -1383,7 +1378,7 @@ let parse_program_generic ~on_item tokens =
            items := !items @ [Ast.TLLet (name, [], e)]
          end else begin
            let body = match annot with
-             | Some te -> Ast.Located (loc, Ast.Annot (te, body))
+             | Some te -> Ast.Located (span_to_here s loc, Ast.Annot (te, body))
              | None -> body
            in
            let eqs = ref [(!params, body)] in
@@ -1411,8 +1406,7 @@ let parse_program_generic ~on_item tokens =
                    (List.length !ps) (if List.length !ps = 1 then "" else "s")
                    arity);
                (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
-               let b_loc = peek_loc s in
-               let b = Ast.Located (b_loc, parse_contract_body s) in
+               let b = locate s (fun () -> parse_contract_body s) in
                eqs := !eqs @ [(!ps, b)]
              with Exit -> s.pos <- saved2; more := false)
            done;
@@ -1433,8 +1427,7 @@ let parse_program_generic ~on_item tokens =
              if peek s = Token.In then begin
                (* let f = ... and g = ... in e2 — expression, not top-level *)
                s.pos <- saved;
-               let loc = peek_loc s in
-               let e = Ast.Located (loc, expr_ 0 s) in
+               let e = locate s (fun () -> expr_ 0 s) in
                items := !items @ [Ast.TLExpr e]
              end else begin
                List.iter (fun (n, ps, _) ->
@@ -1449,8 +1442,7 @@ let parse_program_generic ~on_item tokens =
          end  (* close the outer begin from peek s = Token.In check *)
        | _ ->
          s.pos <- saved;
-         let loc = peek_loc s in
-         let e = Ast.Located (loc, expr_ 0 s) in
+         let e = locate s (fun () -> expr_ 0 s) in
          items := !items @ [Ast.TLExpr e])
     | Token.Import ->
       ignore (advance s);
@@ -1465,8 +1457,7 @@ let parse_program_generic ~on_item tokens =
       (match tdef with Ast.Variants (name, _, _) -> attach_doc name);
       items := !items @ [Ast.TLType tdef]
     | _ ->
-      let loc = peek_loc s in
-      let e = Ast.Located (loc, expr_ 0 s) in
+      let e = locate s (fun () -> expr_ 0 s) in
       items := !items @ [Ast.TLExpr e];
       if peek s = Token.Eq then begin
         let rec head_ident = function

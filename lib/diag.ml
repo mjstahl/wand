@@ -105,9 +105,18 @@ let to_json ?file d =
     | Some l -> (l.Token.line, l.Token.col)
     | None   -> (1, 1)
   in
+  (* A loc with width carries its end too; a point loc (or none) keeps the
+     original object shape, so consumers that never asked for ranges see
+     exactly what they always saw. *)
+  let end_fields = match d.loc with
+    | Some l when l.Token.end_offset > l.Token.offset ->
+      Printf.sprintf "\"end_line\":%d,\"end_col\":%d,"
+        l.Token.end_line l.Token.end_col
+    | _ -> ""
+  in
   Printf.sprintf
-    "{\"severity\":\"%s\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,\"message\":\"%s\"%s}"
-    severity d.code file_field line col (escape_json d.message)
+    "{\"severity\":\"%s\",\"code\":\"%s\",%s\"line\":%d,\"col\":%d,%s\"message\":\"%s\"%s}"
+    severity d.code file_field line col end_fields (escape_json d.message)
     (match d.fix with None -> "" | Some fx -> ",\"fix\":" ^ fix_json fx)
 
 let to_json_array ?file ds =

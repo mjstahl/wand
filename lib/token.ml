@@ -107,7 +107,22 @@ type t =
   | Comment of string
   | LineComment of string   (* -- to end of line *)
 
-type loc = { line: int; col: int; offset: int }
+(* A source extent, not just a point: where it starts and where it stops.
+   The `end_*` fields are exclusive -- the first position past the extent.
+   The lexer stamps a token's true end; the parser widens a `Located`
+   wrapper's loc to the whole expression it wraps. A loc built by `point`
+   has zero width, which renderers read as "no range worth showing". *)
+type loc = {
+  line: int; col: int; offset: int;
+  end_line: int; end_col: int; end_offset: int;
+}
+
+let point line col offset =
+  { line; col; offset; end_line = line; end_col = col; end_offset = offset }
+
+(* `a` extended to stop where `b` stops. *)
+let span_to (a : loc) (b : loc) =
+  { a with end_line = b.end_line; end_col = b.end_col; end_offset = b.end_offset }
 
 let pp ppf tok =
   let s = match tok with

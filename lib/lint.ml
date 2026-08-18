@@ -16,8 +16,7 @@ type fix = Diag.fix =
 
 type finding = {
   rule : Lint_rules.id;
-  line : int;
-  col  : int;
+  loc  : Token.loc;   (* the whole item for the item-level rules *)
   text : string;
   fix  : fix option;
 }
@@ -112,7 +111,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
          let ops = shell_operators cmd in
          if ops >= shell_threshold then
            acc := { rule = Lint_rules.A_SHELL1;
-                    line = (!here).Token.line; col = (!here).Token.col;
+                    loc = !here;
                     text = Lint_rules.shell1 ~stages:ops;
                     fix = None } :: !acc
        | _ -> ());
@@ -126,7 +125,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
                  s.Shell_scan.words
          then
            acc := { rule = Lint_rules.V_SHELL1;
-                    line = (!here).Token.line; col = (!here).Token.col;
+                    loc = !here;
                     text = Lint_rules.shell1_dynamic;
                     fix = None } :: !acc);
       go inner
@@ -163,11 +162,10 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
 let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
     (own_env : Typechecker.env) : finding list =
   let locs = Array.of_list item_locs in
-  let no_loc = Token.{ line = 0; col = 0; offset = 0 } in
+  let no_loc = Token.point 0 0 0 in
   let findings = ref [] in
   let add ?fix rule loc text =
-    findings :=
-      { rule; line = loc.Token.line; col = loc.Token.col; text; fix } :: !findings
+    findings := { rule; loc; text; fix } :: !findings
   in
   (* V-IMP1 watches the leading import region -- the run of imports before
      the first item of anything else. Nothing can run between imports, so
@@ -184,7 +182,12 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
   let in_imports   = ref true in
   let imports_seen : (string * (Token.loc * string)) list ref = ref [] in
   List.iteri (fun i (item : Ast.top_item) ->
-    let loc = if i < Array.length locs then fst locs.(i) else no_loc in
+    (* An item-level finding marks the whole item, first token to last. *)
+    let loc =
+      if i < Array.length locs
+      then Token.span_to (fst locs.(i)) (snd locs.(i))
+      else no_loc
+    in
     if !in_imports then begin
       let bound = match item with
         | Ast.TLImport _ -> Some []
@@ -331,13 +334,15 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          Typechecker.render_manifest
            ?shell:(Typechecker.shell_suggestion ()) performs in
        add ~fix:(InsertLine corrected)
-         Lint_rules.A_USES2 { Token.line = 1; col = 1; offset = 0 }
+         Lint_rules.A_USES2 (Token.point 1 1 0)
          (Lint_rules.uses2
             ~performs:(String.concat ", "
               (List.map Effect_row.name_of (Effect_row.EffSet.elements performs)))
             ~corrected));
   List.stable_sort (fun a b ->
-    match compare a.line b.line with 0 -> compare a.col b.col | c -> c)
+    match compare a.loc.Token.line b.loc.Token.line with
+    | 0 -> compare a.loc.Token.col b.loc.Token.col
+    | c -> c)
     (List.rev !findings)
 
 (* ── Rendering ───────────────────────────────────────────────────────────── *)
@@ -346,7 +351,8 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
 let fails_strict f = Lint_rules.kind f.rule = Lint_rules.Violation
 
 let to_text f =
-  Printf.sprintf "%d:%d: %s: %s" f.line f.col (Lint_rules.code f.rule) f.text
+  Printf.sprintf "%d:%d: %s: %s" f.loc.Token.line f.loc.Token.col
+    (Lint_rules.code f.rule) f.text
 
 let contains = Diag.contains
 
@@ -362,7 +368,7 @@ let contains = Diag.contains
 let to_diag ~strict f : Diag.t =
   { Diag.severity = if strict && fails_strict f then Diag.Error else Diag.Warning;
     code    = Lint_rules.code f.rule;
-    loc     = Some { Token.line = f.line; col = f.col; offset = 0 };
+    loc     = Some f.loc;
     message = f.text;
     fix     = f.fix }
 

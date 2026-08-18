@@ -19,8 +19,7 @@ type state = {
 }
 
 let make src =
-  { src; pos = 0; line = 1; col = 1;
-    tok_start = Token.{ line = 1; col = 1; offset = 0 } }
+  { src; pos = 0; line = 1; col = 1; tok_start = Token.point 1 1 0 }
 
 let len s = String.length s.src
 let is_at_end s = s.pos >= len s
@@ -605,9 +604,13 @@ let read_port s =
 let next_token s =
   let rec scan () =
     let l = s.line and c = s.col and o = s.pos in
-    let loc = Token.{ line = l; col = c; offset = o } in
+    let loc = Token.point l c o in
     s.tok_start <- loc;
-    let ret tok = (tok, loc) in
+    (* `ret` runs after its argument is scanned, so the state now sits just
+       past the token -- exactly the exclusive end the loc records. *)
+    let ret tok =
+      (tok, { loc with Token.end_line = s.line; end_col = s.col;
+                       end_offset = s.pos }) in
     if is_at_end s then ret EOF
     else match advance s with
     | ' ' | '\t' | '\r' -> scan ()
@@ -755,7 +758,11 @@ let tokenize src =
   let rec loop () =
     let (t, loc) =
       try next_token s
-      with Fail msg -> raise (LexError (s.tok_start, msg))
+      with Fail msg ->
+        (* The range runs from the failing token's start to wherever the
+           scan stopped, so the whole partial token is marked. *)
+        raise (LexError ({ s.tok_start with Token.end_line = s.line;
+                           end_col = s.col; end_offset = s.pos }, msg))
     in
     toks := (t, loc) :: !toks;
     if t <> EOF then loop ()

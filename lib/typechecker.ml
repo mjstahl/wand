@@ -2226,7 +2226,7 @@ let last_shell_allow  : string list option ref = ref None
    manifest's business, which is what keeps the audit story compositional. *)
 let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
   let sites = ref [] in
-  let no_loc = Token.{ line = 1; col = 1; offset = 0 } in
+  let no_loc = Token.point 1 1 0 in
   let rec go loc (e : Ast.expr) =
     match e with
     | Located (l, inner) -> go l inner

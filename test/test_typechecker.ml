@@ -388,13 +388,15 @@ let type_of_expr src =
   match Lexer.tokenize src |> Parser.parse_expr |> Typechecker.infer_expr with
   | Ok t -> Ok (Typechecker.string_of_typ t)
   | Error e -> Error e
-  | exception (Lexer.LexError (_, e) | Parser.ParseError (_, e)) -> Error e
+  | exception ((Lexer.LexError _ | Parser.ParseError _) as e) ->
+    Error (Runner.legacy_of_exn e)
 
 let type_of_program src =
   match Lexer.tokenize src |> Parser.parse_program |> Typechecker.infer_program with
   | Ok t -> Ok (Typechecker.string_of_typ t)
   | Error e -> Error e
-  | exception (Lexer.LexError (_, e) | Parser.ParseError (_, e)) -> Error e
+  | exception ((Lexer.LexError _ | Parser.ParseError _) as e) ->
+    Error (Runner.legacy_of_exn e)
 
 let expr_is label src expected =
   match type_of_expr src with

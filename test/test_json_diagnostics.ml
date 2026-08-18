@@ -53,6 +53,18 @@ let test_file_field () =
   if not (Lint.contains json "\"code\":\"A-USES2\",\"file\":\"deploy.wand\",") then
     Alcotest.failf "file field missing or misplaced:\n%s" json
 
+(* A finding marks the whole item it is about, and the range rides along
+   as end_line/end_col. A point diagnostic (like A-USES2's line 1) keeps
+   the original object shape -- the golden above locks that. *)
+let test_finding_range () =
+  let json =
+    Lint.diagnostics_json ~strict:false ~holes:[]
+      (findings "let is_ready? x = x > 1\nis_ready? 2")
+  in
+  if not (Lint.contains json
+            "\"line\":1,\"col\":1,\"end_line\":1,\"end_col\":24,") then
+    Alcotest.failf "V-PRED2 does not span its item:\n%s" json
+
 (* ── Holes ────────────────────────────────────────────────────────────────── *)
 
 let test_hole_shape () =
@@ -76,7 +88,7 @@ let test_type_error () =
     "[{\"severity\":\"error\",\"code\":\"E-TYPE\",\"line\":1,\"col\":5,\
       \"message\":\"cannot unify String with Int\"}]"
     (Diag.to_json_array
-       [Diag.error ~code:"E-TYPE" ~loc:{ Token.line = 1; col = 5; offset = 4 }
+       [Diag.error ~code:"E-TYPE" ~loc:(Token.point 1 5 4)
           "cannot unify String with Int"])
 
 let test_error_without_position () =
@@ -116,6 +128,17 @@ let test_type_error_position () =
    | Some l -> Alcotest.(check int) "points into line 2" 2 l.Token.line
    | None -> Alcotest.fail "type error lost its position")
 
+(* The loc of a type error spans the whole expression the nearest `Located`
+   wraps, not just its first token -- `x ++ "s"` is columns 9 through 16. *)
+let test_type_error_range () =
+  let d = check_error "let x = 1\nlet y = x ++ \"s\"" in
+  match d.Diag.loc with
+  | Some l ->
+    Alcotest.(check (pair int int)) "start" (2, 9) (l.Token.line, l.Token.col);
+    Alcotest.(check (pair int int)) "end (exclusive)"
+      (2, 17) (l.Token.end_line, l.Token.end_col)
+  | None -> Alcotest.fail "type error lost its position"
+
 let test_parse_error_drift_fix () =
   let d = check_error "1\nx and y" in
   let json = Diag.to_json_array [d] in
@@ -132,6 +155,7 @@ let () =
       Alcotest.test_case "manifest replace_line" `Quick test_uses1_replace_line;
       Alcotest.test_case "strict severity"       `Quick test_strict_severity;
       Alcotest.test_case "file field"            `Quick test_file_field;
+      Alcotest.test_case "item range"            `Quick test_finding_range;
     ];
     "holes", [
       Alcotest.test_case "shape" `Quick test_hole_shape;
@@ -142,6 +166,7 @@ let () =
       Alcotest.test_case "lex position"    `Quick test_lex_error_position;
       Alcotest.test_case "parse position"  `Quick test_parse_error_position;
       Alcotest.test_case "type position"   `Quick test_type_error_position;
+      Alcotest.test_case "type range"      `Quick test_type_error_range;
       Alcotest.test_case "parse + fix"     `Quick test_parse_error_drift_fix;
     ];
   ]

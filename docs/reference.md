@@ -3050,9 +3050,13 @@ human output is unchanged when the flag is absent.
 Every finding and error carries `severity` (`"error"`/`"warning"`),
 `code` (`A-USES2`, `V-DROP1`, ...; errors get `E-TYPE`, `E-PARSE`,
 `E-LEX`), `line`, `col`, and `message`; `file` appears when a file was
-named with `--file`. Under `--strict`, must-fix findings report as
-`"error"`. When a machine-applicable correction exists it rides along as
-a `fix` object: the manifest suggestions carry the exact line —
+named with `--file`. A diagnostic that covers an extent rather than a
+point also carries `end_line` and `end_col` (exclusive): findings span
+the whole item they are about, type errors the whole expression at
+fault, lex errors the failing token. Under `--strict`, must-fix
+findings report as `"error"`. When a machine-applicable correction
+exists it rides along as a `fix` object: the manifest suggestions carry
+the exact line —
 
 ```json
 {"severity":"warning","code":"A-USES2","line":1,"col":1,
