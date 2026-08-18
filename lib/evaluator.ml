@@ -220,7 +220,7 @@ let rec show_value = function
   | VList vs    ->
     "[" ^ String.concat ", " (List.map show_value vs) ^ "]"
   | VMap kvs    ->
-    "[" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ show_value v) kvs) ^ "]"
+    "{" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ show_value v) kvs) ^ "}"
   | VRecord kvs ->
     "{ " ^ String.concat ", " (List.map (fun (k, v) ->
       k ^ " = " ^ show_value v) kvs) ^ " }"

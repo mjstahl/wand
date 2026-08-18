@@ -31,3 +31,21 @@ test "and merge keeps the order the left already had" (fn t ->
 
 test "a key merge adds goes on the end" (fn t ->
   t.eq [a = 1, b = 2] (Map.merge [a = 1] [b = 2]))
+
+(* ── Braces ──────────────────────────────────────────────────────────────── *)
+
+(* `{x = 1}` is the same map `[x = 1]` builds, `{}` is Map.empty, and a
+   map shows itself in braces. *)
+
+test "braces and brackets build the same map" (fn t ->
+  t.eq [a = 1, b = 2] {a = 1, b = 2})
+
+test "the empty braces are Map.empty" (fn t ->
+  t.eq Map.empty {})
+
+test "a map prints in braces" (fn t ->
+  t.eq "{a = 1, b = 2}" "%{{a = 1, b = 2}}")
+
+test "a brace pattern puns" (fn t ->
+  let {a, b = renamed} = {a = 5, b = 6} in
+  t.eq 11 (a + renamed))
