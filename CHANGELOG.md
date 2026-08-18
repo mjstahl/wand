@@ -7,6 +7,7 @@
 - Change a destructuring `let` to bind a list pattern's leading elements and ignore the rest, as map patterns already do with keys; `match` arms and function equations still require the exact length (`f598bc3`)
 - Change `wand h` and the REPL's `:h` to list commands short form first, alphabetized by it (`64f5f85`)
 - Change `:reset` to clear the screen along with the session's bindings (`6a01dd9`)
+- Change error reporting to carry positions as data end to end: lex errors now name their line and column (pointing at the start of the failing token), and manifest errors anchor at the manifest line — in both text and `--json` (`f06a293`)
 
 ### Added
 
