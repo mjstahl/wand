@@ -166,8 +166,46 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
     findings :=
       { rule; line = loc.Token.line; col = loc.Token.col; text; fix } :: !findings
   in
+  (* V-IMP1 watches the leading import region -- the run of imports before
+     the first item of anything else. Nothing can run between imports, so
+     when two let-imports bind the same name the earlier binding is
+     provably dead, and its module is no longer where the name comes from.
+     Past the region a rebinding may follow a genuine use, so the rule
+     stays out. The pattern can bind another name
+     (`let [parse = csv_parse] = import CSV`), so keeping both is spelled
+     by renaming, not by shadowing. *)
+  let import_display = function
+    | Ast.StdlibModule s -> s
+    | Ast.UserPath p     -> p
+  in
+  let in_imports   = ref true in
+  let imports_seen : (string * (Token.loc * string)) list ref = ref [] in
   List.iteri (fun i (item : Ast.top_item) ->
     let loc = if i < Array.length locs then fst locs.(i) else no_loc in
+    if !in_imports then begin
+      let bound = match item with
+        | Ast.TLImport _ -> Some []
+        | Ast.TLLet (name, [], body) ->
+          Option.map (fun k -> [ (name, k) ]) (Module_types.import_kind_of body)
+        | Ast.TLLetPat (pat, body) ->
+          Option.map (fun k -> List.map (fun n -> (n, k)) (pat_names pat))
+            (Module_types.import_kind_of body)
+        | _ -> None
+      in
+      match bound with
+      | None -> in_imports := false
+      | Some names ->
+        List.iter (fun (n, k) ->
+          let this = import_display k in
+          (match List.assoc_opt n !imports_seen with
+           | Some (first_loc, first_mod) ->
+             add Lint_rules.V_IMP1 first_loc
+               (Lint_rules.imp1 ~name:n ~first:first_mod ~second:this
+                  ~line:loc.Token.line)
+           | None -> ());
+          imports_seen := (n, (loc, this)) :: List.remove_assoc n !imports_seen
+        ) names
+    end;
     match item with
     | Ast.TLLet (name, params, body) ->
       (match Option.bind (List.assoc_opt name own_env) type_of_scheme with

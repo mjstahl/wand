@@ -3015,6 +3015,7 @@ it would punish the safer choice.
 | `V-BANG2` | a `!`-named function cannot raise |
 | `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
+| `V-IMP1` | two imports in the leading import block bind the same name, so the first binding is dead — rename one (`let [parse = csv_parse] = import CSV`) or drop it |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |

@@ -20,6 +20,7 @@ type id =
   | A_USES2    (* the file reaches outside itself and does not say so *)
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
+  | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -71,6 +72,9 @@ let all = [
   { id = V_DROP1;  code = "V-DROP1";
     summary = "a statement discards a Result, so a failure goes unread";
     kind = Violation };
+  { id = V_IMP1;   code = "V-IMP1";
+    summary = "an imported name is rebound by a later import before any use";
+    kind = Violation };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
@@ -117,6 +121,12 @@ let name1 ~name ~params =
     name
     (if List.length params = 1 then "" else "s")
     (String.concat ", " (List.map (fun p -> "'" ^ p ^ "'") params))
+
+let imp1 ~name ~first ~second ~line =
+  Printf.sprintf
+    "'%s' from %s is rebound by the %s import on line %d before anything \
+     uses it; drop this import, or rename one binding ([%s = other_name])"
+    name first second line name
 
 let drop1 ~typ =
   Printf.sprintf

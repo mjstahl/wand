@@ -21,6 +21,22 @@ let silent label src =
 
 (* ── Individual rules ────────────────────────────────────────────────────── *)
 
+(* Two imports fighting over one name leave the first binding dead --
+   nothing runs between imports -- and misstate where the name comes from.
+   Renaming one binding keeps both, so that's what the message suggests. *)
+let test_imp1 () =
+  fires "the same name from two modules"
+    "let [parse] = import JSON\nlet [parse] = import TOML\nparse \"x = 1\""
+    "V-IMP1";
+  silent "renamed apart"
+    "let [parse = jparse] = import JSON\nlet [parse = tparse] = import TOML\n\
+     let _ = jparse \"1\"\ntparse \"x = 1\"";
+  (* An item of anything else ends the import region: past it, a rebinding
+     may follow a genuine use of the first, so the rule stays out. *)
+  silent "a use between imports"
+    "let [parse] = import JSON\nlet j = parse \"1\"\n\
+     let [parse] = import TOML\nparse \"x = 1\""
+
 let test_pred1 () =
   fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
   silent "Bool predicate" "let big? n = n > 2\nbig? 3";
@@ -363,6 +379,7 @@ let () =
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
+      Alcotest.test_case "V-IMP1"   `Quick test_imp1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;
