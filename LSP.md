@@ -176,9 +176,12 @@ insertion discipline maintains. Three companion changes to
   same thing — and they may be hoisted above let-imports because an
   import's right-hand side depends on nothing file-local. Let-imports
   are never reordered among themselves: they are ordinary bindings, and
-  two of them may bind the same name (`let [parse] = import CSV` then
-  `let [parse] = import JSON`) — their order *is* the program. Imports
-  appearing past the leading region are left where they are.
+  two of them may bind the same name — rebinding order is program
+  meaning, and a formatter must not touch it. (In the leading region
+  that collision is also a dead first binding, which `V-IMP1` flags;
+  the formatter still doesn't reorder — it formats the program that is,
+  lint tells the author what it should be.) Imports appearing past the
+  leading region are left where they are.
 - **The manifest is canonicalized**: labels in canonical order, and the
   binaries inside `Shell(...)` sorted alphabetically. Today the formatter
   re-emits the manifest in source order (`formatter.ml:1033`), while the
