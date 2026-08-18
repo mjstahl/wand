@@ -141,6 +141,19 @@ let scoped_eff f =
    of that definition rather than the desugared match it became. *)
 let current_fn : string option ref = ref None
 
+(* Local binders -- parameters, `let ... in` names, pattern variables --
+   with the index of the top-level item that binds them. Expressions carry
+   no positions, so "which occurrence is the cursor on" cannot be answered,
+   but "this name, inside this item" is enough for an editor hover on names
+   the top-level scope never sees. Recorded head-first, so within an item
+   the most recent (innermost) binding of a shadowed name is found first.
+   The typs keep refining in place as unification proceeds; read them only
+   after inference finishes. *)
+let local_binders : (int * (string * typ)) list ref = ref []
+let current_item = ref (-1)
+let record_local name t =
+  local_binders := (!current_item, (name, t)) :: !local_binders
+
 let fresh () =
   let id = !next_id in
   incr next_id;
@@ -890,7 +903,7 @@ let rec unwrap_ctor_type t =
 
 let rec infer_pat tenv (p : pat) t (env : env) : env =
   match p with
-  | PVar name  -> (name, Mono t) :: env
+  | PVar name  -> record_local name t; (name, Mono t) :: env
   | Wild       -> env
   | Int _      -> unify t TInt;      env
   | Float _    -> unify t TFloat;    env
@@ -993,7 +1006,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
 let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
   match p with
-  | PVar name -> (name, scheme) :: env
+  | PVar name -> record_local name t; (name, scheme) :: env
   | Wild      -> env
   | _         -> infer_pat tenv p t env
 
@@ -1358,6 +1371,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        let env_rec = (name, Mono placeholder) :: env in
        let t1 = infer tenv env_rec e1 in
        unify placeholder t1;
+       record_local name t1;
        infer tenv ((name, generalize env t1) :: env) e2
      | _ ->
        let t1     = infer tenv env e1 in
@@ -1369,6 +1383,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let inferred = List.map (fun (name, params, body) ->
       let t = infer tenv env_rec (Fn (params, body)) in
       unify (List.assoc name placeholders) t;
+      record_local name t;
       (name, t)
     ) bindings in
     let env' = List.map (fun (name, t) -> (name, generalize env t)) inferred @ env in
@@ -2446,6 +2461,8 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     : typedef_env * env * env * typ =
   next_id := 0;
   expr_item_types := [];
+  local_binders := [];
+  current_item := -1;
   seq_discard_types := [];
   last_shell_words := [];
   last_shell_static := true;
@@ -2507,6 +2524,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   let (env, last_t) =
   List.fold_left (fun (env, last_t) item ->
     incr item_index;
+    current_item := !item_index;
     match item with
     | TLLet (_, [], body) when is_import_expr body ->
       (env, last_t)  (* pre-loaded by load_imports_for *)

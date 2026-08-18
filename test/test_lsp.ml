@@ -181,7 +181,8 @@ let test_hover_stdlib_member () =
   | `Null -> Alcotest.fail "expected a hover"
   | result ->
     let value = s (m "value" (m "contents" result)) in
-    Alcotest.(check bool) "names the member" true (contains value "List.map : ");
+    Alcotest.(check bool) "names the member, type on the next line" true
+      (contains value "List.map\n: ");
     Alcotest.(check bool) "shows a signature" true (contains value "->");
     (* The whole qualified name, 0-based, on its line. *)
     let range = m "range" result in
@@ -223,6 +224,20 @@ let test_hover_on_nothing () =
              at_position 14 "textDocument/hover" uri 0 6]  (* the '=' *)
   in
   Alcotest.(check bool) "null on nothing" true (response_for 14 outs = `Null)
+
+(* Locals are not in the top-level scope; the enclosing item's recorded
+   binders answer for them. *)
+let test_hover_on_a_parameter () =
+  let text = "let pick flag = if flag then 1 else 2\npick true\n" in
+  let (_, outs) =
+    session [did_open uri text;
+             at_position 15 "textDocument/hover" uri 0 20]  (* `flag` use *)
+  in
+  match response_for 15 outs with
+  | `Null -> Alcotest.fail "expected a hover on the parameter"
+  | result ->
+    Alcotest.(check bool) "the parameter's inferred type" true
+      (contains (s (m "value" (m "contents" result))) "flag\n: Bool")
 
 let items_of result = match result with
   | `List items -> items
@@ -475,6 +490,7 @@ let () =
       Alcotest.test_case "effect row"      `Quick test_hover_shows_effect_row;
       Alcotest.test_case "broken recheck"  `Quick test_hover_survives_a_broken_recheck;
       Alcotest.test_case "nothing"         `Quick test_hover_on_nothing;
+      Alcotest.test_case "parameter"       `Quick test_hover_on_a_parameter;
     ];
     "completion", [
       Alcotest.test_case "in scope"        `Quick test_completion_in_scope;

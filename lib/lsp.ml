@@ -291,10 +291,29 @@ let describe (d : doc) word : (string * string option) option =
        else None)
   | _ -> None
 
+(* A name the scope does not know: a local -- parameter, `let ... in`,
+   pattern variable. Locals carry no positions, so the item enclosing the
+   cursor stands in for lexical scope: right whenever the item does not
+   rebind the name, and the innermost binding wins when it does. *)
+let describe_local (d : doc) word line0 : (string * string option) option =
+  match d.d_check with
+  | None -> None
+  | Some sc ->
+    let line = line0 + 1 in
+    List.find_opt (fun ((loc : Token.loc), _) ->
+      loc.Token.line <= line && line <= loc.Token.end_line)
+      sc.Runner.sc_locals
+    |> Option.map snd
+    |> fun locals ->
+       Option.bind locals (List.assoc_opt word)
+       |> Option.map (fun t -> (t, None))
+
+(* The name on its own line, the type under it: long signatures (effect
+   rows especially) stay readable instead of wrapping mid-row. *)
 let hover_markdown word (typ, doc) =
   let head =
     if typ = "module" then Printf.sprintf "```wand\nmodule %s\n```" word
-    else Printf.sprintf "```wand\n%s : %s\n```" word typ
+    else Printf.sprintf "```wand\n%s\n: %s\n```" word typ
   in
   match doc with
   | Some text -> head ^ "\n\n---\n\n" ^ text
@@ -405,8 +424,14 @@ let completion_items (d : doc) line_idx line_text character : J.t list =
       @ (match described with
          | Some (t, _) when t <> "module" -> [("detail", `String t)]
          | _ -> [])
+      (* The suggest widget truncates `detail` inline; the expandable side
+         panel gets the same name-over-type block hover shows, so the full
+         signature and doc string are one chevron away. *)
       @ (match described with
-         | Some (_, Some doc) -> [("documentation", `String doc)]
+         | Some (t, doc) when t <> "module" ->
+           [("documentation",
+             `Assoc [("kind", `String "markdown");
+                     ("value", `String (hover_markdown cand (t, doc)))])]
          | _ -> [])
       @ (if extra = [] then [] else [("additionalTextEdits", `List extra)])
     in
@@ -598,7 +623,9 @@ let handle (st : state) (msg : J.t) : state * J.t list =
       match word_at line_text c with
       | None -> (st, [response id `Null])
       | Some (word, start, stop) ->
-        (match describe d word with
+        (match (match describe d word with
+                | Some info -> Some info
+                | None -> describe_local d word l) with
          | None -> (st, [response id `Null])
          | Some info ->
            (st, [response id (`Assoc [

@@ -1599,6 +1599,10 @@ type source_check = {
   sc_scope    : Typechecker.env;         (* everything in scope: own, imports, base *)
   sc_docs     : (string * string) list;  (* name -> doc string *)
   sc_defs     : (string * Token.loc) list;  (* name -> its definition site *)
+  sc_locals   : (Token.loc * (string * string) list) list;
+  (* per top-level item: its extent and the local binders typed inside it
+     (parameters, `let ... in` names, pattern variables) -- what a hover
+     answers for names sc_scope never sees. Innermost binding first. *)
 }
 
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
@@ -1639,7 +1643,15 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
            sc_env      = own_type_env;
            sc_scope    = full_type_env;
            sc_docs     = prog.Ast.docs @ imp_docs;
-           sc_defs     = defs_of_program prog item_locs }
+           sc_defs     = defs_of_program prog item_locs;
+           sc_locals   =
+             (let all = !Typechecker.local_binders in
+              List.mapi (fun i (start_loc, end_loc) ->
+                (Token.span_to start_loc end_loc,
+                 List.filter_map (fun (j, (n, t)) ->
+                   if j = i then Some (n, Typechecker.string_of_typ t)
+                   else None) all))
+                item_locs) }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
     | Typechecker.TypeErrorAt _ | Failure _) as e ->
