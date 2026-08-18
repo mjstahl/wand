@@ -297,8 +297,10 @@ Each lands independently and is useful before the server exists.
    callback is three lines of feeding, and the logic has direct tests
    in `test_complete.ml` — no pty involved.
 5. **Effect labels of a member** — scheme → manifest-relevant label set,
-   for §2.1's manifest extension. `manifest_relevant` and `render_manifest`
-   exist; this is a small query over them.
+   for §2.1's manifest extension. **Done** (`c9c496a`):
+   `Typechecker.manifest_labels_of_scheme`, also now the definition
+   `check_manifest`'s per-binding pass reads, so the two consumers
+   cannot disagree.
 6. **`wand t --fix`** (§3).
 7. **Order and formatter canonicalization** (§2.3) — alphabetical
    `display_order` in `effect_row.ml`, import-block sorting, manifest
