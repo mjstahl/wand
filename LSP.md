@@ -396,7 +396,28 @@ locations (§5.1), and go-to-definition's def-site index (Phase D).
 
 **D — the extension**: grammar, client, Rehearse lens; then definition and
 stdlib virtual documents.
+**Done** (`f527cc9`, `84936e1`). Definition first, on the server: `sc_defs`
+is the def-site index (each top-level binding, pattern name, type and
+constructor at its item's first token, from the parse the check already
+did), and a jump into the standard library lands in a `wand-stdlib:/`
+virtual document whose content the client fetches over the custom
+`wand/stdlibSource` request — content and definition sites come from the
+same bytes, so they cannot disagree. Then `editors/vscode/`: the TextMate
+grammar scopes all twelve domain literal types as constants and injects
+the shell grammar inside `$()`/`$?()` with `%{}`/`%!{}` popping back to
+wand; language configuration per §6; the client (~60 lines over
+`vscode-languageclient`) spawns `wand lsp` from `PATH` (`wand.path`
+overrides), registers the virtual-document provider, and contributes the
+Rehearse lens running `wand --dry-run` in the integrated terminal.
+Verified end to end over real stdio: hover shows `List.map`'s row,
+definition answers `wand-stdlib:/List.wand` at `let map`, `tsc` compiles
+clean and `vsce package` produces the `.vsix`. Grammar tests deferred per
+§7. Still open, deliberately: Marketplace publishing joins `release.yml`
+once the extension is stable (§6); until then the README's sideload note
+is the install path.
 
 The acceptance bar for C is the demo moment: open a new `.wand` file, type
 `FS.write_file!<space>` — the import block and the manifest update
 themselves, and hovering the name shows the effect row that explains why.
+All four phases are recorded; the document stays until the release that
+carries them ships, then it goes.
