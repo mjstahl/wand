@@ -126,6 +126,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `"hi %{name}"` interpolation | `${x}`, `#{x}`, f-strings |
 | `&&`, `\|\|`, `!` | `and`, `or`, `not` |
 | `let f n = ...` (already recursive) | `let rec` |
+| `{a = 1}` map; `{a, b = x}` pattern (puns) | `{a: 1}`, `[a = 1]` |
 | `type Shape = Circle Int \| Rect Int Int` | `Circle of Int` |
 | `try e` yields a `Result` | `try ... with`, `raise` |
 | no mutation — bind a new name | `ref`, `mutable`, `:=` |
@@ -185,8 +186,8 @@ Values are written directly; the shape carries the type:
 
 ```
 import FS                       -- a stdlib module
-let [test] = import Test        -- destructure specific names
-let [helper] = import ./util    -- another file, by path
+let {test} = import Test        -- destructure specific names
+let {helper} = import ./util    -- another file, by path
 ```
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
@@ -201,7 +202,7 @@ raises at the fold, caught with `try`.
 Tests are wand files named `test_*.wand`:
 
 ```
-let [test] = import Test
+let {test} = import Test
 test "it adds" (fn t -> t.eq 3 (1 + 2))
 test "it raises" (fn t -> t.raises (fn () -> List.head! []))
 ```

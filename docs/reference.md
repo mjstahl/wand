@@ -578,26 +578,26 @@ let sum [h : t] = h + sum t
 String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
 
 ```
-let m = [x = 1, y = 2, z = 3]   -- Map Int
+let m = {x = 1, y = 2, z = 3}   -- Map Int
 ```
 
 A key is any string. Write it quoted when it is not an identifier — which is
 most keys a document from elsewhere contains:
 
 ```
-["content-type" = "application/json", "@type" = "Pod", name = "web"]
+{"content-type" = "application/json", "@type" = "Pod", name = "web"}
 ```
 
-Quoted keys work in patterns too: `| ["content-type" = v] -> v`.
+Quoted keys work in patterns too: `| {"content-type" = v} -> v`.
 
 A key is held once. Give one twice and the last value wins, in the place the
 key first appeared — what an assignment means, and what keeps a document
 written back out in the order it came in:
 
 ```
-[a = 1, b = 2, a = 9]        -- [a = 9, b = 2]
-Map.set "b" 99 [a = 1, b = 2, c = 3]   -- [a = 1, b = 99, c = 3]
-Map.merge [a = 1, b = 2] [b = 9]       -- [a = 1, b = 9]
+{a = 1, b = 2, a = 9}        -- {a = 9, b = 2}
+Map.set "b" 99 {a = 1, b = 2, c = 3}   -- {a = 1, b = 99, c = 3}
+Map.merge {a = 1, b = 2} {b = 9}       -- {a = 1, b = 9}
 ```
 
 A JSON document *can* name a key twice, even though a `Map` cannot hold one
@@ -611,31 +611,40 @@ Using the `Map` module:
 Map.get  "x" m     -- Some(1)
 Map.get! "x" m     -- 1  (raises on missing)
 Map.has? "x" m     -- true
-Map.set  "w" 4 m   -- [w = 4, x = 1, y = 2, z = 3]
-Map.delete "x" m   -- [y = 2, z = 3]
+Map.set  "w" 4 m   -- {w = 4, x = 1, y = 2, z = 3}
+Map.delete "x" m   -- {y = 2, z = 3}
 Map.keys   m       -- ["x", "y", "z"]
 Map.values m       -- [1, 2, 3]
 Map.size   m       -- 3
 Map.to_list m      -- [("x", 1), ("y", 2), ("z", 3)]
-Map.from_list [("a", 1), ("b", 2)]   -- [a = 1, b = 2]
-Map.map    (fn x -> x * 2) m         -- [x = 2, y = 4, z = 6]
-Map.filter (fn x -> x > 1) m        -- [y = 2, z = 3]
+Map.from_list [("a", 1), ("b", 2)]   -- {a = 1, b = 2}
+Map.map    (fn x -> x * 2) m         -- {x = 2, y = 4, z = 6}
+Map.filter (fn x -> x > 1) m        -- {y = 2, z = 3}
 Map.merge m1 m2                      -- keys in m2 take precedence
 ```
 
-Map patterns (partial — only name the keys you need):
+Map patterns (partial — only name the keys you need). A bare identifier
+puns: the key binds a variable of its own name. `key = pat` matches a
+subpattern or renames; a quoted key always takes that form, having no
+identifier to pun into:
 
 ```
 match m with
-| [x = a, y = b] -> a + b    -- binds a to key x, b to key y
+| {x, y} -> x + y            -- binds x and y by name
+| {x = a, y = b} -> a + b    -- the rename form
 
-let [x = a] = m in a         -- extract just x; other keys ignored
+let {x} = m in x             -- extract just x; other keys ignored
 ```
 
 A key the map does not hold fails when it runs, as a list of the wrong
 length does — the map's keys are not part of its type either.
 
-An empty map is `Map.empty`.
+An empty map is `Map.empty`, and `{}` is the same value written as a
+literal.
+
+The bracket forms — `[x = 1]` literals and `[x = a]` patterns — still
+parse in this release; `wand fmt` rewrites them to braces, and they will
+be removed in the next.
 
 ---
 
@@ -1835,7 +1844,7 @@ the printed types:
 
 ```
 let g : (Int -> Int) -> Int = fn f -> f 1        -- parens needed for left-nesting
-let m : Map (List Int) = [a = [1, 2], b = [3]]   -- parens needed for a compound argument
+let m : Map (List Int) = {a = [1, 2], b = [3]}   -- parens needed for a compound argument
 ```
 
 `:t` prints types in exactly this syntax, so what you see there is always
@@ -1943,9 +1952,9 @@ match on differs in each — the value on the right decides:
 
 ```
 let [a, b]      = [10, 20]         -- a list: by position
-let [x = a]     = m                -- a map: by key
-let [map]       = import List      -- a module: by name
-let [map = m2]  = import List      -- a module: by name, renamed
+let {x = a}     = m                -- a map: by key
+let {map}       = import List      -- a module: by name
+let {map = m2}  = import List      -- a module: by name, renamed
 ```
 
 A list pattern is the only one that is positional, and the difference shows
@@ -2539,7 +2548,7 @@ than failing the others.
 
 ```
 Par.map 4 (fn x -> x * 2) [1, 2, 3]        -- [Ok 2, Ok 4, Ok 6]
-Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty]
+Par.map 4 (fn m -> Map.get! "k" m) [{k = 1}, Map.empty]
                                            -- [Ok 1, Error "map key not found: k"]
 ```
 
@@ -2709,7 +2718,7 @@ The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
 `raises`:
 
 ```
-let [test] = import Test
+let {test} = import Test
 
 test "add" (fn t -> t.eq 4 (2 + 2))
 test "some" (fn t -> t.ok (Option.some? (Some 1)))
@@ -2744,7 +2753,7 @@ test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 
   wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)` would
   raise while evaluating the argument itself, before `t.raises` ever runs.
 
-`let [test] = import Test` binds the one name the file uses unqualified;
+`let {test} = import Test` binds the one name the file uses unqualified;
 `import Test` alongside it gives the module's other helpers under `Test.`.
 Like every import, it brings in what it names and nothing more.
 
@@ -3179,7 +3188,7 @@ rendered effect row and suggested manifest uses), the binaries inside
 it passes the column budget (an over-long `Shell(...)` list wraps one
 binary per line the same way). In the leading run of imports at the top
 of a file, plain `import M` statements come first, alphabetized, then
-let-imports (`let [test] = import Test`) in source order — let-imports
+let-imports (`let {test} = import Test`) in source order — let-imports
 are ordinary bindings, so their relative order is never changed, and a
 region with a comment inside it is left exactly as written. Imports past
 the leading region stay where they are.
