@@ -319,7 +319,7 @@ let test_code_action_updates_manifest () =
 let test_code_action_removes_dead_import () =
   (* V-IMP1: the first of two let-imports binding one name is provably
      dead, and its fix deletes the line. *)
-  let text = "let [head!] = import List\nlet [head!] = import List\nhead! [1]\n" in
+  let text = "let {head!} = import List\nlet {head!} = import List\nhead! [1]\n" in
   let (_, outs) = session [did_open uri text; code_action_at 19 uri 0 0] in
   match items_of (response_for 19 outs) with
   | [action] ->

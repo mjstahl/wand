@@ -1,6 +1,6 @@
 uses {FS.Read, FS.Write}
 
-let [test] = import Test
+let {test} = import Test
 import FS
 import List
 import Path

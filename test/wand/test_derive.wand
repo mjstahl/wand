@@ -1,4 +1,4 @@
-let [test] = import Test
+let {test} = import Test
 import Decode
 import JSON
 import Map
@@ -12,20 +12,20 @@ import Option
    Only the flat record is covered. Nested keys, renamed keys and validation
    are what a hand-written decoder is for. *)
 
-type Pod = Pod(name: String, restarts: Int, timeout: Duration)
+type Pod(name: String, restarts: Int, timeout: Duration)
 
-let doc = JSON.parse! "{\"name\": \"web-01\", \"restarts\": 4, \"timeout\": \"30s\"}"
+let doc = JSON.parse! `{"name": "web-01", "restarts": 4, "timeout": "30s"}`
 
 test "a type is its own decoder" (fn t ->
   t.eq (Ok Pod(name = "web-01", restarts = 4, timeout = 30s)) (JSON.decode Pod.decoder doc))
 
 (* The whole point of deriving: there is no second copy to go stale. This
    type has a field the one above does not, and nothing else was written. *)
-type Pod2 = Pod2(name: String, restarts: Int, timeout: Duration, node: String)
+type Pod2(name: String, restarts: Int, timeout: Duration, node: String)
 
 test "a field added to the type is read by the decoder" (fn t ->
   let with_node =
-    JSON.parse! "{\"name\": \"a\", \"restarts\": 1, \"timeout\": \"1h\", \"node\": \"n1\"}"
+    JSON.parse! `{"name": "a", "restarts": 1, "timeout": "1h", "node": "n1"}`
   in
   t.eq
     (Ok Pod2(name = "a", restarts = 1, timeout = 1h, node = "n1"))
@@ -35,74 +35,67 @@ test "and a document missing it is refused, by name" (fn t ->
   t.eq (Error ".node: no such field") (JSON.decode Pod2.decoder doc))
 
 test "a field of the wrong type is named too" (fn t ->
-  let wrong =
-    JSON.parse! "{\"name\": \"a\", \"restarts\": \"many\", \"timeout\": \"1h\"}"
-  in
-  t.eq (Error ".restarts: expected Int, got \"many\"") (JSON.decode Pod.decoder wrong))
+  let wrong = JSON.parse! `{"name": "a", "restarts": "many", "timeout": "1h"}` in
+  t.eq (Error `.restarts: expected Int, got "many"`) (JSON.decode Pod.decoder wrong))
 
 (* A domain literal decodes as itself here as anywhere else. *)
-type Server = Server(host: IPv4, port: Port, at: Time)
+type Server(host: IPv4, port: Port, at: Time)
 
 test "domain fields decode as themselves" (fn t ->
-  let s = JSON.parse! "{\"host\": \"10.0.0.4\", \"port\": 8080, \"at\": \"14:30:00\"}" in
+  let s = JSON.parse! `{"host": "10.0.0.4", "port": 8080, "at": "14:30:00"}` in
   t.eq
     (Ok Server(host = 10.0.0.4, port = :8080, at = 14:30:00))
     (JSON.decode Server.decoder s))
 
 (* An `Option` field is the one that may be absent -- which is what the type
    says. Every other field must be there. *)
-type Job = Job(name: String, owner: Option String)
+type Job(name: String, owner: Option String)
 
 test "an Option field may be absent" (fn t ->
   t.eq
     (Ok Job(name = "build", owner = None))
-    (JSON.decode Job.decoder (JSON.parse! "{\"name\": \"build\"}")))
+    (JSON.decode Job.decoder (JSON.parse! `{"name": "build"}`)))
 
 test "and is Some when it is there" (fn t ->
   t.eq
     (Ok Job(name = "build", owner = Some "ci"))
-    (JSON.decode Job.decoder (JSON.parse! "{\"name\": \"build\", \"owner\": \"ci\"}")))
+    (JSON.decode Job.decoder (JSON.parse! `{"name": "build", "owner": "ci"}`)))
 
 test "but is still refused when it is there and wrong" (fn t ->
   t.eq
     (Error ".owner: expected String, got Int")
-    (JSON.decode Job.decoder (JSON.parse! "{\"name\": \"b\", \"owner\": 3}")))
+    (JSON.decode Job.decoder (JSON.parse! `{"name": "b", "owner": 3}`)))
 
 (* A field holding another derivable type, and the path through both. *)
-type Meta = Meta(name: String, ready: Bool)
+type Meta(name: String, ready: Bool)
 
-type Wrapper = Wrapper(metadata: Meta, replicas: Int)
+type Wrapper(metadata: Meta, replicas: Int)
 
 test "a field of another type uses that type's decoder" (fn t ->
-  let w =
-    JSON.parse! "{\"metadata\": {\"name\": \"web\", \"ready\": true}, \"replicas\": 3}"
-  in
+  let w = JSON.parse! `{"metadata": {"name": "web", "ready": true}, "replicas": 3}` in
   t.eq
     (Ok Wrapper(metadata = Meta(name = "web", ready = true), replicas = 3))
     (JSON.decode Wrapper.decoder w))
 
 test "and the path names every step of the way in" (fn t ->
-  let w = JSON.parse! "{\"metadata\": {\"name\": 1, \"ready\": true}, \"replicas\": 3}" in
+  let w = JSON.parse! `{"metadata": {"name": 1, "ready": true}, "replicas": 3}` in
   t.eq (Error ".metadata.name: expected String, got Int") (JSON.decode Wrapper.decoder w))
 
 (* A type that mentions itself. The decoders of the types a field mentions
    are found when that field is decoded, not when the decoder is built --
    which is the only reason this terminates. *)
-type Node = Node(label: String, children: List Node)
+type Node(label: String, children: List Node)
 
 test "a recursive type has a decoder" (fn t ->
   let tree =
-    JSON.parse!
-      "{\"label\": \"root\", \"children\": [{\"label\": \"a\", \"children\": []}]}"
+    JSON.parse! `{"label": "root", "children": [{"label": "a", "children": []}]}`
   in
   t.eq
     (Ok Node(label = "root", children = [Node(label = "a", children = [])]))
     (JSON.decode Node.decoder tree))
 
 test "and reports where in the tree it gave up" (fn t ->
-  let tree =
-    JSON.parse! "{\"label\": \"r\", \"children\": [{\"label\": 3, \"children\": []}]}"
-  in
+  let tree = JSON.parse! `{"label": "r", "children": [{"label": 3, "children": []}]}` in
   t.eq
     (Error ".children[0].label: expected String, got Int")
     (JSON.decode Node.decoder tree))
@@ -111,16 +104,14 @@ test "and reports where in the tree it gave up" (fn t ->
    with every combinator a hand-written one can. *)
 test "a derived decoder is a value like any other" (fn t ->
   let pods = Decode.field "items" (Decode.list Pod.decoder) in
-  let doc2 =
-    JSON.parse! "{\"items\": [{\"name\": \"a\", \"restarts\": 0, \"timeout\": \"5s\"}]}"
-  in
+  let doc2 = JSON.parse! `{"items": [{"name": "a", "restarts": 0, "timeout": "5s"}]}` in
   t.eq (Ok [Pod(name = "a", restarts = 0, timeout = 5s)]) (JSON.decode pods doc2))
 
 (* The other direction. An encoder is an ordinary function -- encoding cannot
    fail, so there is nothing for a type of its own to carry -- and it is
    derived from the same fields the decoder reads. *)
 
-type Endpoint = Endpoint(host: IPv4, port: Port, timeout: Duration, label: Option String)
+type Endpoint(host: IPv4, port: Port, timeout: Duration, label: Option String)
 
 let one = Endpoint(host = 10.0.0.4, port = :8080, timeout = 30s, label = Some "web")
 
@@ -128,14 +119,14 @@ let bare = Endpoint(host = 10.0.0.5, port = :9090, timeout = 1h, label = None)
 
 test "a type writes itself back out" (fn t ->
   t.eq
-    "{\"host\":\"10.0.0.4\",\"port\":8080,\"timeout\":\"30s\",\"label\":\"web\"}"
+    `{"host":"10.0.0.4","port":8080,"timeout":"30s","label":"web"}`
     (JSON.stringify (Endpoint.encoder one)))
 
 (* A field holding None is left out rather than written as null. Both read
    back as None; a config is tidier without the empty keys. *)
 test "an absent field is left out" (fn t ->
   t.eq
-    "{\"host\":\"10.0.0.5\",\"port\":9090,\"timeout\":\"1h\"}"
+    `{"host":"10.0.0.5","port":9090,"timeout":"1h"}`
     (JSON.stringify (Endpoint.encoder bare)))
 
 (* What the pair is for: read a document, and write back what you read. *)
@@ -145,40 +136,38 @@ test "what is decoded encodes back to itself" (fn t ->
 test "including the fields that were not there" (fn t ->
   t.eq (Ok bare) (JSON.decode Endpoint.decoder (Endpoint.encoder bare)))
 
-type Cluster = Cluster(region: String, servers: List Endpoint, counts: Map Int)
+type Cluster(region: String, servers: List Endpoint, counts: Map Int)
 
 test "and so does a document with lists, maps and nested types in it" (fn t ->
   let c =
-    Cluster(region = "eu-west", servers = [one, bare], counts = [warn = 2, error = 5])
+    Cluster(region = "eu-west", servers = [one, bare], counts = {warn = 2, error = 5})
   in
   t.eq (Ok c) (JSON.decode Cluster.decoder (Cluster.encoder c)))
 
 (* The whole point, at the level a script sees it: a document in, the same
    document out, but for the change. *)
-type Config = Config(name: String, port: Port, timeout: Duration, replicas: Int)
+type Config(name: String, port: Port, timeout: Duration, replicas: Int)
 
 test "a document read, changed, and written back" (fn t ->
-  let document =
-    "{\"name\": \"api\", \"port\": 8080, \"timeout\": \"30s\", \"replicas\": 2}"
-  in
+  let document = `{"name": "api", "port": 8080, "timeout": "30s", "replicas": 2}` in
   match JSON.decode Config.decoder (JSON.parse! document) with
   | Error why -> t.eq "decoded" why
   | Ok (Config(name = n, port = p, timeout = d, replicas = _)) -> let scaled =
     Config(name = n, port = p, timeout = d, replicas = 4)
   in
   t.eq
-    "{\"name\":\"api\",\"port\":8080,\"timeout\":\"30s\",\"replicas\":4}"
+    `{"name":"api","port":8080,"timeout":"30s","replicas":4}`
     (JSON.stringify (Config.encoder scaled)))
 
 (* A type with parameters takes one decoder for each, in the order it
    declares them, and gives back a decoder for the applied type. *)
 
-type Paged 'a = Paged(items: List 'a, total: Int)
+type Paged 'a(items: List 'a, total: Int)
 
-type Tree 'a = Tree(value: 'a, children: List (Tree 'a))
+type Tree 'a(value: 'a, children: List (Tree 'a))
 
 test "a generic type is decoded by supplying a decoder per parameter" (fn t ->
-  let doc = JSON.parse! "{\"items\": [1, 2, 3], \"total\": 3}" in
+  let doc = JSON.parse! `{"items": [1, 2, 3], "total": 3}` in
   t.eq (Ok Paged(items = [1, 2, 3], total = 3)) (JSON.decode (Paged.decoder Decode.int) doc))
 
 test "and the argument can be another derived decoder" (fn t ->
@@ -186,20 +175,18 @@ test "and the argument can be another derived decoder" (fn t ->
     (Ok Paged(items = [Meta(name = "web", ready = true)], total = 1))
     (JSON.decode
       (Paged.decoder Meta.decoder)
-      (JSON.parse! "{\"items\": [{\"name\": \"web\", \"ready\": true}], \"total\": 1}")))
+      (JSON.parse! `{"items": [{"name": "web", "ready": true}], "total": 1}`)))
 
 test "a failure inside the parameter still names its place" (fn t ->
-  let doc = JSON.parse! "{\"items\": [1, \"x\"], \"total\": 2}" in
+  let doc = JSON.parse! `{"items": [1, "x"], "total": 2}` in
   t.eq
-    (Error ".items[1]: expected Int, got \"x\"")
+    (Error `.items[1]: expected Int, got "x"`)
     (JSON.decode (Paged.decoder Decode.int) doc))
 
 (* Generic and recursive at once: the type mentions itself with the same
    argument, and the decoders are found when the field is reached. *)
 test "a generic type may mention itself" (fn t ->
-  let doc =
-    JSON.parse! "{\"value\": 1, \"children\": [{\"value\": 2, \"children\": []}]}"
-  in
+  let doc = JSON.parse! `{"value": 1, "children": [{"value": 2, "children": []}]}` in
   t.eq
     (Ok Tree(value = 1, children = [Tree(value = 2, children = [])]))
     (JSON.decode (Tree.decoder Decode.int) doc))
@@ -209,12 +196,12 @@ test "a generic type may mention itself" (fn t ->
    given. *)
 test "a generic type is encoded by supplying an encoder per parameter" (fn t ->
   t.eq
-    "{\"items\":[1,2,3],\"total\":3}"
+    `{"items":[1,2,3],"total":3}`
     (JSON.stringify (Paged.encoder JSON.of_int Paged(items = [1, 2, 3], total = 3))))
 
 test "and that encoder is the one that runs" (fn t ->
   t.eq
-    "{\"items\":[\"n=1\"],\"total\":1}"
+    `{"items":["n=1"],"total":1}`
     (JSON.stringify
       (Paged.encoder (fn n -> JSON.of_string "n=%{n}") Paged(items = [1], total = 1))))
 

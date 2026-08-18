@@ -21,6 +21,7 @@ type id =
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
+  | A_MAP1     (* a map still written in brackets; braces are canonical *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -77,6 +78,11 @@ let all = [
     kind = Violation };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
+    kind = Advisory };
+  (* Advisory because the old spelling still works this release; the code
+     names the migration, and the carried fix or `wand fmt` performs it. *)
+  { id = A_MAP1;   code = "A-MAP1";
+    summary = "a map written in brackets; braces are canonical and brackets are removed next release";
     kind = Advisory };
   (* A violation for its --strict semantics: a repo that narrows Shell can
      also insist every command word be readable from the text. *)

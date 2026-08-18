@@ -1,6 +1,6 @@
 uses {FS.Read, FS.Write}
 
-let [test] = import Test
+let {test} = import Test
 import Decode
 import JSON
 import List
@@ -26,8 +26,8 @@ test "number" (fn t ->
 
 test "string" (fn t ->
   t.eq
-    "\"hello\""
-    (match JSON.parse "\"hello\"" with
+    `"hello"`
+    (match JSON.parse `"hello"` with
     | Ok j -> JSON.stringify j
     | Error _ -> "err"))
 
@@ -67,7 +67,7 @@ test "get_int" (fn t ->
 test "get_int wrong type" (fn t ->
   t.eq
     "error"
-    (match JSON.get_int (JSON.parse! "\"hi\"") with
+    (match JSON.get_int (JSON.parse! `"hi"`) with
     | Ok _ -> "ok"
     | Error _ -> "error"))
 
@@ -88,7 +88,7 @@ test "get_float from int literal" (fn t ->
 test "get_string" (fn t ->
   t.eq
     "world"
-    (match JSON.get_string (JSON.parse! "\"world\"") with
+    (match JSON.get_string (JSON.parse! `"world"`) with
     | Ok s -> s
     | Error _ -> ""))
 
@@ -101,23 +101,23 @@ test "get_array length" (fn t ->
 
 test "get_object then field" (fn t ->
   t.eq
-    "\"v\""
-    (match JSON.get_object (JSON.parse! "{\"k\":\"v\"}") with
+    `"v"`
+    (match JSON.get_object (JSON.parse! `{"k":"v"}`) with
     | Ok m -> JSON.stringify (Map.get! "k" m)
     | Error _ -> ""))
 
 (* ── field / field! ────────────────────────────────────────────────────── *)
 
 test "field exists" (fn t ->
-  let j = JSON.parse! "{\"name\":\"Alice\",\"age\":30}" in
+  let j = JSON.parse! `{"name":"Alice","age":30}` in
   t.eq
-    "\"Alice\""
+    `"Alice"`
     (match JSON.field "name" j with
     | Ok v -> JSON.stringify v
     | Error _ -> ""))
 
 test "field missing" (fn t ->
-  let j = JSON.parse! "{\"a\":1}" in
+  let j = JSON.parse! `{"a":1}` in
   t.eq
     "error"
     (match JSON.field "z" j with
@@ -125,17 +125,17 @@ test "field missing" (fn t ->
     | Error _ -> "error"))
 
 test "field! exists" (fn t ->
-  let j = JSON.parse! "{\"x\":42}" in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
+  let j = JSON.parse! `{"x":42}` in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
 
 test "field! missing raises" (fn t ->
-  let j = JSON.parse! "{\"a\":1}" in t.raises (fn () -> JSON.field! "z" j))
+  let j = JSON.parse! `{"a":1}` in t.raises (fn () -> JSON.field! "z" j))
 
 (* ── construction ──────────────────────────────────────────────────────── *)
 
 test "of_bool" (fn t -> t.eq "true" (JSON.stringify (JSON.of_bool true)))
 test "of_int" (fn t -> t.eq "7" (JSON.stringify (JSON.of_int 7)))
 test "of_float" (fn t -> t.eq "1.5" (JSON.stringify (JSON.of_float 1.5)))
-test "of_string" (fn t -> t.eq "\"hi\"" (JSON.stringify (JSON.of_string "hi")))
+test "of_string" (fn t -> t.eq `"hi"` (JSON.stringify (JSON.of_string "hi")))
 test "of_list" (fn t ->
   t.eq "[1,2]" (JSON.stringify (JSON.of_list [JSON.of_int 1, JSON.of_int 2])))
 test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
@@ -143,7 +143,7 @@ test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 (* ── stringify_pretty ──────────────────────────────────────────────────── *)
 
 test "pretty round-trips" (fn t ->
-  let j = JSON.parse! "{\"a\":1}" in
+  let j = JSON.parse! `{"a":1}` in
   let s = JSON.stringify_pretty j in
   t.eq
     "ok"
@@ -155,13 +155,13 @@ test "pretty round-trips" (fn t ->
 
 test "read_file ok" (fn t ->
   with FS.temp_file "wand_json_rd_" ".json" as p ->
-  let () = FS.write_file! p "{\"greeting\":\"hello\"}" in
+  let () = FS.write_file! p `{"greeting":"hello"}` in
   let outcome =
     match JSON.read_file p with
     | Ok j -> JSON.stringify (JSON.field! "greeting" j)
     | Error _ -> ""
   in
-  t.eq "\"hello\"" outcome)
+  t.eq `"hello"` outcome)
 
 test "read_file missing file returns Error" (fn t ->
   t.eq
@@ -178,32 +178,32 @@ test "read_file missing file returns Error" (fn t ->
 
 test "an object is built from a Map, in the order it holds" (fn t ->
   t.eq
-    "{\"b\":2,\"a\":\"x\"}"
-    (JSON.stringify (JSON.of_map [b = JSON.of_int 2, a = JSON.of_string "x"])))
+    `{"b":2,"a":"x"}`
+    (JSON.stringify (JSON.of_map {b = JSON.of_int 2, a = JSON.of_string "x"})))
 
 test "a key that is not an identifier is written quoted" (fn t ->
   t.eq
-    "{\"content-type\":\"json\",\"@type\":1}"
+    `{"content-type":"json","@type":1}`
     (JSON.stringify
-      (JSON.of_map ["content-type" = JSON.of_string "json", "@type" = JSON.of_int 1])))
+      (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})))
 
 (* Nothing to guard against here: a Map holds a key once, so a repeat was
    resolved before it reached the writer. *)
 test "a repeated key was already resolved by the Map" (fn t ->
-  t.eq "{\"a\":9}" (JSON.stringify (JSON.of_map [a = JSON.of_int 1, a = JSON.of_int 9])))
+  t.eq `{"a":9}` (JSON.stringify (JSON.of_map {a = JSON.of_int 1, a = JSON.of_int 9})))
 
 test "an empty Map is an empty object" (fn t ->
   t.eq "{}" (JSON.stringify (JSON.of_map Map.empty)))
 
 test "objects nest, and hold arrays" (fn t ->
   t.eq
-    "{\"meta\":{\"n\":1},\"xs\":[1]}"
+    `{"meta":{"n":1},"xs":[1]}`
     (JSON.stringify
       (JSON.of_map
-        [meta = JSON.of_map [n = JSON.of_int 1], xs = JSON.of_list [JSON.of_int 1]])))
+        {meta = JSON.of_map {n = JSON.of_int 1}, xs = JSON.of_list [JSON.of_int 1]})))
 
 test "and what was read can be written back" (fn t ->
-  let doc = "{\"a\":1,\"b\":\"two\"}" in
+  let doc = `{"a":1,"b":"two"}` in
   match JSON.get_object (JSON.parse! doc) with
   | Ok m -> t.eq doc (JSON.stringify (JSON.of_map m))
   | Error why -> t.eq doc why)
@@ -213,7 +213,7 @@ test "and what was read can be written back" (fn t ->
    everywhere else do -- so no two readers of the same document in the same
    program can disagree about it. *)
 test "a document that names a key twice reads the later one, whichever way it is read" (fn t ->
-  let doc = JSON.parse! "{\"a\": 1, \"a\": 9}" in
+  let doc = JSON.parse! `{"a": 1, "a": 9}` in
   let via_field =
     match JSON.field "a" doc with
     | Ok v -> JSON.get_int v
@@ -221,9 +221,11 @@ test "a document that names a key twice reads the later one, whichever way it is
   in
   let via_object =
     match JSON.get_object doc with
-    | Ok m -> (match Map.get "a" m with
-    | Some v -> JSON.get_int v
-    | None -> Error "missing")
+    | Ok m -> (
+      match Map.get "a" m with
+      | Some v -> JSON.get_int v
+      | None -> Error "missing"
+    )
     | Error why -> Error why
   in
   t.eq

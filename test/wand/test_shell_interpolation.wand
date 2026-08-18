@@ -1,6 +1,6 @@
-uses {Shell, FS.Read, FS.Write}
+uses {FS.Read, FS.Write, Shell}
 
-let [test] = import Test
+let {test} = import Test
 import FS
 import List
 import Path
@@ -32,7 +32,7 @@ test "spaces do not split it" (fn t -> t.eq "[a b]" (quoted! "a b"))
 
 test "a tab does not split it" (fn t -> t.eq "[a\tb]" (quoted! "a\tb"))
 
-test "quotes in the value are kept" (fn t -> t.eq "[say \"hi\"]" (quoted! "say \"hi\""))
+test "quotes in the value are kept" (fn t -> t.eq `[say "hi"]` (quoted! `say "hi"`))
 
 (* The one character single quotes cannot carry is the single quote, which
    is closed, escaped and reopened. It has to survive that. *)

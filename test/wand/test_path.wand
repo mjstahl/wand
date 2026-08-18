@@ -1,4 +1,4 @@
-let [test] = import Test
+let {test} = import Test
 import Path
 
 (* ── join ──────────────────────────────────────────────────────────────── *)

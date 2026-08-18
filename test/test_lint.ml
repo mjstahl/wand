@@ -26,16 +26,32 @@ let silent label src =
    Renaming one binding keeps both, so that's what the message suggests. *)
 let test_imp1 () =
   fires "the same name from two modules"
-    "let [parse] = import JSON\nlet [parse] = import TOML\nparse \"x = 1\""
+    "let {parse} = import JSON\nlet {parse} = import TOML\nparse \"x = 1\""
     "V-IMP1";
   silent "renamed apart"
-    "let [parse = jparse] = import JSON\nlet [parse = tparse] = import TOML\n\
+    "let {parse = jparse} = import JSON\nlet {parse = tparse} = import TOML\n\
      let _ = jparse \"1\"\ntparse \"x = 1\"";
   (* An item of anything else ends the import region: past it, a rebinding
      may follow a genuine use of the first, so the rule stays out. *)
   silent "a use between imports"
-    "let [parse] = import JSON\nlet j = parse \"1\"\n\
-     let [parse] = import TOML\nparse \"x = 1\""
+    "let {parse} = import JSON\nlet j = parse \"1\"\n\
+     let {parse} = import TOML\nparse \"x = 1\""
+
+(* Brackets still parse this release; the finding names the migration and
+   carries the flipped line, so `wand t --fix` performs it. *)
+let test_map1 () =
+  fires "a bracket literal" "let m = [x = 1]\nm" "A-MAP1";
+  fires "a bracket pattern"
+    "let f x = match x with\n| [k = v] -> v\nf [k = 1]" "A-MAP1";
+  fires "a bracket import destructure"
+    "let [parse] = import JSON\nparse \"1\"" "A-MAP1";
+  silent "braces everywhere"
+    "let {parse} = import JSON\nlet m = {x = 1}\nlet {x} = m\nx";
+  (let fs = findings "let m = [x = 1]\nm" in
+   match List.find_opt (fun (f : Lint.finding) -> f.Lint.rule = Lint_rules.A_MAP1) fs with
+   | Some { fix = Some (Lint.ReplaceLine l); _ } ->
+     Alcotest.(check string) "the fix flips the brackets" "let m = {x = 1}" l
+   | _ -> Alcotest.fail "expected A-MAP1 to carry a ReplaceLine fix")
 
 let test_pred1 () =
   fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
@@ -230,7 +246,10 @@ let test_stdlib_is_clean () =
    point is an error has to contain one, and each of these is asserted by its
    own run.sh. *)
 let expected_findings =
-  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2") ]
+  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2");
+    (* Deliberate bracket maps: they pin that the old syntax still parses
+       (and equals the brace form) until the removal release. *)
+    ("test_map.wand", "A-MAP1") ]
 
 let expected_type_errors =
   [ (* D1: the same script bash would run, which wand will not. *)
@@ -386,6 +405,7 @@ let () =
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
       Alcotest.test_case "V-IMP1"   `Quick test_imp1;
+      Alcotest.test_case "A-MAP1"   `Quick test_map1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;

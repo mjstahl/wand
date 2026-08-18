@@ -1,6 +1,6 @@
-uses {FS.Read, FS.Write, Env}
+uses {Env, FS.Read, FS.Write}
 
-let [test] = import Test
+let {test} = import Test
 import Env
 import List
 import Path

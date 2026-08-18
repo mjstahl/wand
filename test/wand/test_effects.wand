@@ -1,6 +1,6 @@
 uses {IO}
 
-let [test] = import Test
+let {test} = import Test
 
 (* ── Default handler ───────────────────────────────────────────────────── *)
 

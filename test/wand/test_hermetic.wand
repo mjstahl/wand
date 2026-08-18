@@ -1,7 +1,7 @@
-uses {Shell, FS.Read, FS.Write}
+uses {FS.Read, FS.Write, Shell}
 
 import Test
-let [test] = import Test
+let {test} = import Test
 import List
 import String
 import FS

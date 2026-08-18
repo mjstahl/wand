@@ -1,4 +1,4 @@
-let [test] = import Test
+let {test} = import Test
 import String
 
 (* ── length / empty? ───────────────────────────────────────────────── *)
@@ -140,7 +140,7 @@ test "to_port takes the bare number too" (fn t ->
 test "to_port err" (fn t ->
   match String.to_port "http" with
   | Ok _ -> t.ok false
-  | Error msg -> t.eq "cannot parse \"http\" as Port" msg)
+  | Error msg -> t.eq `cannot parse "http" as Port` msg)
 
 test "to_port out of range says which rule was broken" (fn t ->
   match String.to_port ":99999" with

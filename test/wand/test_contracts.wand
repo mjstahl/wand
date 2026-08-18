@@ -1,5 +1,5 @@
-let [test] = import Test
 import String
+let {test} = import Test
 
 let try_msg thunk =
   match try thunk () with

@@ -1605,6 +1605,64 @@ type source_check = {
      answers for names sc_scope never sees. Innermost binding first. *)
 }
 
+(* A-MAP1: maps still written in brackets. The syntax is erased by parsing
+   -- braces and brackets build the same nodes -- so the parser records the
+   spans, and the bracket import destructure is read off its item. The
+   carried fix flips the two brackets in place when the span sits on one
+   line; `wand fmt` remains the whole-file migration. *)
+let bracket_map_findings src prog item_locs bracket_maps : Lint.finding list =
+  let lines = Array.of_list (String.split_on_char '\n' src) in
+  let line_at n =
+    if n >= 1 && n - 1 < Array.length lines then Some lines.(n - 1) else None in
+  let a_map1 loc fix =
+    { Lint.rule = Lint_rules.A_MAP1; loc;
+      text = "a map written in brackets; braces are canonical -- \
+              {k = v} -- and the brackets are removed next release \
+              (wand fmt migrates the whole file)";
+      fix } in
+  let span_fix (loc : Token.loc) =
+    if loc.Token.line <> loc.Token.end_line then None
+    else match line_at loc.Token.line with
+      | None -> None
+      | Some l ->
+        let b = Bytes.of_string l in
+        let put i from to_ =
+          i >= 0 && i < Bytes.length b && Bytes.get b i = from
+          && (Bytes.set b i to_; true) in
+        let opened = put (loc.Token.col - 1) '[' '{' in
+        let closed =
+          put (loc.Token.end_col - 1) ']' '}'
+          || put (loc.Token.end_col - 2) ']' '}' in
+        if opened && closed then Some (Lint.ReplaceLine (Bytes.to_string b))
+        else None
+  in
+  let from_spans = List.rev_map (fun loc -> a_map1 loc (span_fix loc)) bracket_maps in
+  let locs = Array.of_list item_locs in
+  let from_imports =
+    List.concat (List.mapi (fun i item ->
+      match item with
+      | Ast.TLLetPat (Ast.PList pats, body)
+        when Option.is_some (import_kind_of body)
+          && List.for_all (function Ast.PVar _ -> true | _ -> false) pats
+          && i < Array.length locs ->
+        let (start_loc, end_loc) = locs.(i) in
+        let loc = Token.span_to start_loc end_loc in
+        let fix =
+          match line_at loc.Token.line with
+          | Some l ->
+            (match String.index_opt l '[', String.index_opt l ']' with
+             | Some a, Some b when a < b ->
+               let bs = Bytes.of_string l in
+               Bytes.set bs a '{'; Bytes.set bs b '}';
+               Some (Lint.ReplaceLine (Bytes.to_string bs))
+             | _ -> None)
+          | None -> None
+        in
+        [a_map1 loc fix]
+      | _ -> []) prog.Ast.items)
+  in
+  from_spans @ from_imports
+
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
    `path` says where the text lives, which decides how its imports resolve
    and whether it is checked as a stdlib module. A failure comes back as a
@@ -1618,6 +1676,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
   try
     let tokens   = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
+    (* Read before load_imports_for parses other files over the ref. *)
+    let bracket_maps = !Parser.bracket_map_locs in
     let base_dir = Filename.dirname full in
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
@@ -1639,7 +1699,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     | Ok (full_type_env, own_type_env, last_t, holes) ->
       Ok { sc_type     = Typechecker.string_of_typ last_t;
            sc_holes    = List.map Typechecker.string_of_typ holes;
-           sc_findings = Lint.check prog item_locs own_type_env;
+           sc_findings = Lint.check prog item_locs own_type_env
+                         @ bracket_map_findings src prog item_locs bracket_maps;
            sc_env      = own_type_env;
            sc_scope    = full_type_env;
            sc_docs     = prog.Ast.docs @ imp_docs;
@@ -1697,6 +1758,7 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
   try
     let tokens = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
+    let bracket_maps = !Parser.bracket_map_locs in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
@@ -1704,7 +1766,9 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
-    | Ok (_, own_type_env, _, _) -> Ok (Lint.check prog item_locs own_type_env)
+    | Ok (_, own_type_env, _, _) ->
+      Ok (Lint.check prog item_locs own_type_env
+          @ bracket_map_findings src prog item_locs bracket_maps)
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
     | Typechecker.TypeErrorAt _ | Failure _) as e ->

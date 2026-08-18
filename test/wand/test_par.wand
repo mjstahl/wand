@@ -1,7 +1,7 @@
-uses {Shell, FS.Read, FS.Write}
+uses {FS.Read, FS.Write, Shell}
 
 import Test
-let [test] = import Test
+let {test} = import Test
 import Par
 import List
 import Map
@@ -29,7 +29,7 @@ test "a limit of one still works" (fn t ->
 test "a failure lands in its own position" (fn t ->
   t.eq
     [Ok 1, Error "map key not found: k", Ok 3]
-    (Par.map 4 (fn m -> Map.get! "k" m) [[k = 1], Map.empty, [k = 3]]))
+    (Par.map 4 (fn m -> Map.get! "k" m) [{k = 1}, Map.empty, {k = 3}]))
 
 test "and the error carries no source position" (fn t ->
   let results = Par.map 2 (fn m -> Map.get! "k" m) [Map.empty] in

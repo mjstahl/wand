@@ -1,6 +1,6 @@
 uses {FS.Read, FS.Write}
 
-let [test] = import Test
+let {test} = import Test
 import TOML
 import List
 import Map
@@ -111,9 +111,11 @@ test "get_array int elements" (fn t ->
   t.eq
     10
     (match TOML.get_array (TOML.field! "nums" tm) with
-    | Ok xs -> (match TOML.get_int (List.head! xs) with
-    | Ok n -> n
-    | Error _ -> -1)
+    | Ok xs -> (
+      match TOML.get_int (List.head! xs) with
+      | Ok n -> n
+      | Error _ -> -1
+    )
     | Error _ -> -1))
 
 (* ── nested tables ─────────────────────────────────────────────────────── *)
@@ -145,10 +147,12 @@ test "read_file ok" (fn t ->
   let () = FS.write_file! p "[db]\nname = \"mydb\"\n" in
   let outcome =
     match TOML.read_file p with
-    | Ok tm -> (let db = TOML.field! "db" tm in
-    match TOML.get_string (TOML.field! "name" db) with
-    | Ok s -> s
-    | Error _ -> "")
+    | Ok tm -> (
+      let db = TOML.field! "db" tm in
+      match TOML.get_string (TOML.field! "name" db) with
+      | Ok s -> s
+      | Error _ -> ""
+    )
     | Error _ -> ""
   in
   t.eq "mydb" outcome)

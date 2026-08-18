@@ -1,4 +1,4 @@
-let [test] = import Test
+let {test} = import Test
 import String
 import List
 import Regex
@@ -67,8 +67,8 @@ test "match_all digit runs" (fn t ->
   t.eq ["1", "22", "333"] (Regex.match_all r/\d+/ "a1b22c333"))
 test "match_all no matches" (fn t -> t.eq [] (Regex.match_all r/\d+/ "abc"))
 test "match_all tokenizer-style alternation" (fn t ->
-  let got = Regex.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ "block{x=\"1\"}" in
-  t.eq ["block", "{", "x", "=", "\"1\"", "}"] got)
+  let got = Regex.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ `block{x="1"}` in
+  t.eq ["block", "{", "x", "=", `"1"`, "}"] got)
 
 (* ── Regex module ──────────────────────────────────────────────────────── *)
 

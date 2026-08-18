@@ -233,6 +233,12 @@ let is_pat_atom_start = function
   | Token.LParen | Token.LBracket | Token.LBrace -> true
   | _ -> false
 
+(* Spans of maps still written in brackets -- `[k = v]` literals and
+   patterns -- for the A-MAP1 migration finding. Reset by parse_program*;
+   a caller that wants them reads the ref straight after parsing, before
+   anything else (an import, another buffer) parses over it. *)
+let bracket_map_locs : Token.loc list ref = ref []
+
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
 
 let rec pat_ s =
@@ -366,6 +372,7 @@ and list_pat_ s =
       | _ -> false
     in
     if is_map then begin
+      let start_loc = snd s.tokens.(s.pos - 1) in   (* the [ just consumed *)
       let parse_entry () =
         let key = match advance s with
           | Token.Ident k  -> k
@@ -380,6 +387,8 @@ and list_pat_ s =
         ignore (advance s); entries := !entries @ [parse_entry ()]
       done;
       expect s Token.RBracket;
+      bracket_map_locs :=
+        Token.span_to start_loc (snd s.tokens.(s.pos - 1)) :: !bracket_map_locs;
       PMap !entries
     end else begin
       let first = pat_ s in
@@ -709,6 +718,7 @@ and list_ s =
       | _ -> false
     in
     if is_map then begin
+      let start_loc = snd s.tokens.(s.pos - 1) in   (* the [ just consumed *)
       let parse_entry () =
         let key = match advance s with
           | Token.Ident k  -> k
@@ -723,6 +733,8 @@ and list_ s =
         ignore (advance s); entries := !entries @ [parse_entry ()]
       done;
       expect s Token.RBracket;
+      bracket_map_locs :=
+        Token.span_to start_loc (snd s.tokens.(s.pos - 1)) :: !bracket_map_locs;
       MapLit !entries
     end else begin
       let elems = ref [expr_ 0 s] in
@@ -1309,6 +1321,7 @@ let looks_like_manifest s =
   | _ -> false
 
 let parse_program_generic ~on_item tokens =
+  bracket_map_locs := [];
   let s = make tokens in
   let items = ref [] in
   let docs  = ref [] in

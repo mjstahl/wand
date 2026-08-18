@@ -1,6 +1,6 @@
 uses {FS.Read, FS.Write}
 
-let [test] = import Test
+let {test} = import Test
 import CSV
 import List
 import Path
@@ -15,10 +15,10 @@ test "multiple rows" (fn t -> t.eq 2 (List.length (CSV.parse "a,b\nc,d")))
 test "field count per row" (fn t -> t.eq 3 (List.length (List.head! (CSV.parse "a,b,c"))))
 
 test "quoted field with space" (fn t ->
-  t.eq "hello world" (List.head! (List.head! (CSV.parse "\"hello world\",b"))))
-test "embedded comma" (fn t -> t.eq "a,b" (List.head! (List.head! (CSV.parse "\"a,b\",c"))))
+  t.eq "hello world" (List.head! (List.head! (CSV.parse `"hello world",b`))))
+test "embedded comma" (fn t -> t.eq "a,b" (List.head! (List.head! (CSV.parse `"a,b",c`))))
 test "escaped quote" (fn t ->
-  t.eq "say \"hi\"" (List.head! (List.head! (CSV.parse "\"say \"\"hi\"\"\",b"))))
+  t.eq `say "hi"` (List.head! (List.head! (CSV.parse `"say ""hi""",b`))))
 
 (* ── parse_with ────────────────────────────────────────────────────────── *)
 
@@ -31,8 +31,7 @@ test "pipe separator second field" (fn t ->
 
 test "simple two-row output" (fn t ->
   t.eq "a,b\nc,d" (CSV.stringify [["a", "b"], ["c", "d"]]))
-test "quotes field containing comma" (fn t ->
-  t.eq "\"a,b\",c" (CSV.stringify [["a,b", "c"]]))
+test "quotes field containing comma" (fn t -> t.eq `"a,b",c` (CSV.stringify [["a,b", "c"]]))
 test "stringify_with custom separator" (fn t ->
   t.eq "x|y" (CSV.stringify_with "|" [["x", "y"]]))
 
