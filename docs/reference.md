@@ -3125,6 +3125,31 @@ Formatting it would mean deciding which expression the comment now belongs
 to, and a comment moved to the wrong one is worse than a comment left where
 its author put it. Everything else has a formatting rule.
 
+### Language server
+
+`wand lsp` starts the language server, speaking LSP over stdio. It is a
+subcommand on the compiler binary — the same inference, lint rules, and
+formatter answer in the editor, so the two cannot disagree. An editor
+connected to it gets diagnostics on every change, hover (the signature
+with its effect row, and the doc string), completion, quick fixes
+carrying the same corrections `wand t --fix` applies, whole-document
+formatting, and go to definition — a jump into the standard library
+opens the module's source from the binary as a read-only document.
+
+Typing a qualified name resolves it as you type: `FS.write_file!` in a
+buffer that has not imported `FS` inserts `import FS` into the sorted
+import block and adds `FS.Write` to the manifest. The edit fires only
+when the member resolves — a miss gets a diagnostic, never a guess — and
+it never touches `Shell`: adding a binary, widening, or narrowing that
+label is always a visible quick fix instead. A manifest is extended,
+never created uninvited.
+
+The VS Code extension lives at `editors/vscode/` in the wand repository:
+syntax highlighting (domain literals as constants, embedded shell inside
+`$()`), the client for `wand lsp`, and a "Rehearse (dry run)" code lens
+on the manifest line that runs `wand --dry-run` on the file. It is not
+on the Marketplace yet; its README shows how to build and sideload it.
+
 ---
 
 ## Building
