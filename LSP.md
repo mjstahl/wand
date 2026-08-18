@@ -374,6 +374,25 @@ locations (§5.1); the editor-facing capabilities grow in C.
 
 **C — the loop-closers**: hover, completion, code actions, the lexical
 tier's auto-edits, formatting.
+**Done** (`015ddb6`, `ac3be7f`). The groundwork: `typecheck_source` keeps
+the full environment inference computes (`sc_scope`), and
+`Runner.stdlib_module_sig` answers an embedded module's signature and
+docs without an import (exact name only, cached per process). On the
+server: hover resolves the name under the cursor through the scope —
+scheme with effect row plus doc string, stdlib fallback for unimported
+qualified names, and the last *successful* check keeps answering while
+the buffer is momentarily broken; completion rides `Complete.ident_at`,
+with unimported stdlib members carrying their import-plus-manifest as
+`additionalTextEdits` and modules themselves offered on bare prefixes;
+code actions render each structured fix by the same line rules as
+`wand t --fix`; formatting is one whole-document edit, or none at a
+fixed point. The lexical tier is `lib/autoedit.ml`, pure text-to-edits
+(the real lexer, no inference), fired from `didChange` as
+`workspace/applyEdit` and compared against the previous text so nothing
+fires twice and an undo is respected; every §2.1 limit has a direct
+test. Deferred, deliberately: the loc→type table (hover answers names,
+not arbitrary expressions — the table joins with inlay hints), hole
+locations (§5.1), and go-to-definition's def-site index (Phase D).
 
 **D — the extension**: grammar, client, Rehearse lens; then definition and
 stdlib virtual documents.
