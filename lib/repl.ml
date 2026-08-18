@@ -137,12 +137,12 @@ let flatten_for_history src =
 
 let special_commands =
   [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
-   ":load"; ":l"; ":reload"; ":r"; ":env"; ":clear"; ":reset";
-   ":exit"; ":x"; ":quit"; ":q"; ":help"; ":h"]
+   ":load"; ":l"; ":reload"; ":r"; ":env"; ":v"; ":clear"; ":c";
+   ":reset"; ":s"; ":exit"; ":x"; ":help"; ":h"]
 
 let builtin_names = ["print"; "println"; "Ok"; "Error"]
 
-let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "]
+let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "; ":v "]
 
 let complete_ident_arg line prefix_end completions =
   let n = String.length line in
@@ -241,24 +241,24 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   let rest  = String.trim (String.sub line (String.length cmd)
                              (String.length line - String.length cmd)) in
   match cmd with
-  | ":x" | ":exit" | ":q" | ":quit" ->
+  | ":x" | ":exit" ->
     ignore (LNoise.history_save ~filename:history_file);
     exit 0
   | ":h" | ":help" ->
     print_endline "Commands:";
-    print_endline "  :type <expr>   (:t)  — show type without evaluating";
-    print_endline "  :doc  <name>   (:d)  — show doc string";
-    print_endline "  :edit [name]   (:e)  — open definition in $EDITOR";
-    print_endline "  :load <path>   (:l)  — load a .wand file into session";
-    print_endline "  :reload        (:r)  — reload last loaded file";
-    print_endline "  :env [module]        — list bindings and modules; :env List shows List members";
-    print_endline "  :clear               — clear the screen";
-    print_endline "  :reset               — clear all session bindings";
-    print_endline "  :exit, :quit   (:q)  — exit";
+    print_endline "  :t <expr>    (:type)   — show type without evaluating";
+    print_endline "  :d <name>    (:doc)    — show doc string";
+    print_endline "  :e [name]    (:edit)   — open definition in $EDITOR";
+    print_endline "  :l <path>    (:load)   — load a .wand file into session";
+    print_endline "  :r           (:reload) — reload last loaded file";
+    print_endline "  :v [module]  (:env)    — list bindings and modules; :v List shows List members";
+    print_endline "  :c           (:clear)  — clear the screen";
+    print_endline "  :s           (:reset)  — clear the screen and all session bindings";
+    print_endline "  :x           (:exit)   — exit interactive mode";
     flush stdout;
     sess
   | ":t" | ":type" ->
-    if rest = "" then (print_endline "Usage: :type <expr>"; sess)
+    if rest = "" then (print_endline "Usage: :t <expr>"; sess)
     else begin
       (match Runner.typecheck_session sess rest with
        | Error msg -> Printf.printf "Error: %s\n%!" msg
@@ -266,7 +266,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
       sess
     end
   | ":d" | ":doc" ->
-    if rest = "" then (print_endline "Usage: :doc <name>"; sess)
+    if rest = "" then (print_endline "Usage: :d <name>"; sess)
     else begin
       (match Runner.lookup_type sess rest with
        | Some t -> Printf.printf "%s : %s\n" rest t
@@ -300,13 +300,14 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     in
     edit_in_editor sess content
   | ":l" | ":load" ->
-    if rest = "" then (print_endline "Usage: :load <path>"; sess)
+    if rest = "" then (print_endline "Usage: :l <path>"; sess)
     else load_file sess rest
   | ":r" | ":reload" ->
     (match sess.s_last_load with
      | None      -> print_endline "No file loaded yet."; sess
      | Some path -> load_file sess path)
-  | ":reset" ->
+  | ":s" | ":reset" ->
+    LNoise.clear_screen ();
     print_endline "Session reset.";
     let prelude = "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
                    import Duration\nimport Env\nimport Regex" in
@@ -314,9 +315,9 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     (match Runner.run_session fresh prelude with
      | Ok (s, _) -> s
      | Error _   -> fresh)
-  | ":clear" ->
+  | ":c" | ":clear" ->
     LNoise.clear_screen (); sess
-  | ":env" ->
+  | ":v" | ":env" ->
     if rest <> "" then begin
       (* :env ModuleName — show members of that namespace *)
       match List.assoc_opt rest sess.s_type_env with
@@ -342,7 +343,7 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
     flush stdout;
     sess
   | _ ->
-    Printf.printf "Unknown command '%s' — type :help for a list\n%!" cmd;
+    Printf.printf "Unknown command '%s' — type :h for a list\n%!" cmd;
     sess
 
 and loop (sess : Runner.session) =
@@ -392,7 +393,7 @@ let stdlib_prelude =
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   (* Flushed, because linenoise writes the prompt with its own `write` rather
      than through this buffer, and an unflushed banner lands after it. *)
-  Printf.printf "wand v%s interactive - :h for commands, :q to exit\n%!"
+  Printf.printf "wand v%s interactive - :h for commands, :x to exit\n%!"
     Version.value;
   LNoise.set_completion_callback complete_line;
   ignore (LNoise.history_set ~max_length:1000);

@@ -2958,15 +2958,18 @@ need an explicit `import`.
 
 Special commands:
 
-| Command | Short | Description |
+| Command | Long form | Description |
 |---|---|---|
-| `:type <expr>` | `:t` | Show type without evaluating |
-| `:doc <name>` | `:d` | Show doc string |
-| `:load <path>` | `:l` | Load a `.wand` file into the session |
-| `:reload` | `:r` | Reload the last loaded file |
-| `:env` | | List all bindings in scope |
-| `:reset` | | Clear all session bindings |
-| `:quit` | `:q` | Exit |
+| `:t <expr>` | `:type` | Show type without evaluating |
+| `:d <name>` | `:doc` | Show doc string |
+| `:e [name]` | `:edit` | Open a definition in `$EDITOR` |
+| `:l <path>` | `:load` | Load a `.wand` file into the session |
+| `:r` | `:reload` | Reload the last loaded file |
+| `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
+| `:c` | `:clear` | Clear the screen |
+| `:s` | `:reset` | Clear the screen and all session bindings |
+| `:x` | `:exit` | Exit interactive mode |
+| `:h` | `:help` | List these commands |
 
 Multi-line input is detected automatically (unclosed brackets, trailing `->`, `=`, `|`, etc.). A blank continuation line submits the accumulated input.
 
