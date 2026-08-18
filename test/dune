@@ -66,6 +66,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_lsp)
+ (libraries wand alcotest yojson))
+
+(test
  (name test_wand_stdlib)
  (deps
   wand/test_path.wand

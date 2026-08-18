@@ -11,6 +11,7 @@ let usage () =
   print_endline "  f   fmt <file>...           Format .wand files in place";
   print_endline "  h   help [cmd]              Show this help, or help for a command";
   print_endline "  i   interactive             Start an interactive session";
+  print_endline "      lsp                     Start the language server (LSP over stdio)";
   print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
   print_endline "  t   type <expr>             Typecheck an expression without evaluating";
   print_endline "  v   env [module]            List names and modules in scope";
@@ -24,6 +25,12 @@ let usage () =
 
 let usage_for sub =
   match sub with
+  | "lsp" ->
+    print_endline "Usage: wand lsp";
+    print_endline "";
+    print_endline "Start the language server, speaking the Language Server";
+    print_endline "Protocol over stdin/stdout. Meant to be spawned by an";
+    print_endline "editor, not run by hand."
   | "i" | "interactive" ->
     print_endline "Usage: wand i [--load <file>]...";
     print_endline "";
@@ -224,6 +231,8 @@ let () =
     | "i" | "interactive" ->
       let (loads, _) = parse_loads rest in
       Wand.Repl.run ~base_dir:(Sys.getcwd ()) ~loads ()
+    | "lsp" ->
+      exit (Wand.Lsp.serve stdin stdout)
     | "e" | "eval" ->
       let (loads, rest') = parse_loads rest in
       (match rest' with
