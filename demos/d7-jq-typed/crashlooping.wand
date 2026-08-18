@@ -14,13 +14,13 @@ import String
 -- its fields are. So the field names below are checked against the document
 -- rather than hoped for.
 
-type Container = Container(name: String, restartCount: Int, ready: Bool)
+type Container(name: String, restartCount: Int, ready: Bool)
 
-type Status = Status(phase: String, containerStatuses: List Container)
+type Status(phase: String, containerStatuses: List Container)
 
-type Meta = Meta(name: String, namespace: String)
+type Meta(name: String, namespace: String)
 
-type Pod = Pod(metadata: Meta, status: Status)
+type Pod(metadata: Meta, status: Status)
 
 let pods = Decode.field "items" (Decode.list Pod.decoder)
 

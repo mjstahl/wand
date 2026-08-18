@@ -6,7 +6,7 @@ import String
 type TestOutcome = Pass String | Fail String
 
 (** A handle passed into a test block, exposing assertion helpers. *)
-type Testing 'a 'b = Testing(
+type Testing 'a 'b(
   ok: (Bool -> TestOutcome),
   not_ok: (Bool -> TestOutcome),
   eq: ('a -> 'a -> TestOutcome),

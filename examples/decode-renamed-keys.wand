@@ -11,7 +11,7 @@ import JSON
 -- the decoder is written by hand -- and a hand-written one is an ordinary
 -- value, so it goes wherever a derived one goes.
 
-type Pod = Pod(name: String, restarts: Int)
+type Pod(name: String, restarts: Int)
 
 let document = `{"podName": "web-01", "restartCount": 4}`
 

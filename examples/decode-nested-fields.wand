@@ -15,11 +15,11 @@ let document =
 --    nothing is written by hand. A failure names the whole path it walked,
 --    which is the part that pays off when a document changes under you.
 
-type Meta = Meta(name: String, namespace: String)
+type Meta(name: String, namespace: String)
 
-type Status = Status(phase: String, restarts: Int)
+type Status(phase: String, restarts: Int)
 
-type Pod = Pod(metadata: Meta, status: Status)
+type Pod(metadata: Meta, status: Status)
 
 IO.println (JSON.decode Pod.decoder (JSON.parse! document))
 
@@ -32,7 +32,7 @@ IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
 --    the script ever wants a `Meta` -- reach through with nested `field`s
 --    and build the type you actually use.
 
-type Flat = Flat(name: String, restarts: Int)
+type Flat(name: String, restarts: Int)
 
 let flat =
   (Decode.map2

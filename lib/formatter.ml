@@ -839,11 +839,23 @@ let emit_ctor_fields_wrapped name fields =
   | _ -> name ^ emit_ctor_fields fields
 
 let emit_type_def (Variants (name, params, ctors)) =
-  let head =
-    "type " ^ name
+  let name_and_params =
+    name
     ^ (if params = [] then "" else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) params))
-    ^ " = "
   in
+  match ctors with
+  (* The parser reads `type Foo(fields)` as `type Foo = Foo(fields)`;
+     when the one constructor is the type saying its own name again, the
+     shorthand is the canonical form. Named fields only: a positional
+     payload prints without the parentheses the shorthand needs to
+     re-parse. *)
+  | [c] when c.name = name
+          && (match c.fields with (Some _, _) :: _ -> true | _ -> false) ->
+    let oneline = "type " ^ name_and_params ^ emit_ctor_fields c.fields in
+    if fits 0 oneline then oneline
+    else "type " ^ emit_ctor_fields_wrapped name_and_params c.fields
+  | _ ->
+  let head = "type " ^ name_and_params ^ " = " in
   let oneline =
     head ^ String.concat " | " (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
   in

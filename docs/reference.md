@@ -1642,7 +1642,9 @@ type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 Fields may be named instead of positional, and are then given and read by
 name rather than by position. For a type with one constructor there is a
 shorthand: `type Point (x : Int, y : Int)` means
-`type Point = Point (x : Int, y : Int)`.
+`type Point = Point (x : Int, y : Int)`. The shorthand is the canonical
+form — `wand fmt` writes the long spelling back to it whenever the one
+constructor bears the type's own name.
 
 A named field's type may be an application — `children : List Node`,
 `owner : Option String` — written without parentheses. A positional field may

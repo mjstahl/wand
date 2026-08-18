@@ -64,6 +64,29 @@ let g = "greet \"%{a}\""|};
 a|}
     {|say "hi"|}
 
+(* A single constructor that is the type saying its own name again prints
+   as the shorthand the parser already reads: `type Foo(fields)`. *)
+let test_single_ctor_shorthand () =
+  fmt_eq "long form converts"
+    "type Container = Container(name: String, ready: Bool)\n1"
+    "type Container(name: String, ready: Bool)\n1";
+  fmt_eq "shorthand stays"
+    "type Pod(name: String)\n1"
+    "type Pod(name: String)\n1";
+  fmt_eq "a differently named constructor keeps the long form"
+    "type Opt = Wrapped(v: Int)\n1"
+    "type Opt = Wrapped(v: Int)\n1";
+  fmt_eq "a positional payload keeps the long form"
+    "type Point = Point Int Int\n1"
+    "type Point = Point Int Int\n1";
+  assert_idempotent "shorthand with a type parameter"
+    "type Box 'a = Box(item: 'a)\n1";
+  assert_idempotent "shorthand too wide for one line"
+    "type Wide = Wide(alpha: String, beta: String, gamma: String, delta: String, epsilon: String, zeta: String)\n1";
+  ok_after_format "construction and matching still run through the shorthand"
+    "type Pair = Pair(a: Int, b: Int)\nlet p = Pair(a = 1, b = 2)\nmatch p with\n| Pair(a = x, b = y) -> x + y"
+    "3"
+
 let test_behavior_preserved () =
   ok_after_format "arithmetic" "1 + 2 * 3" "7";
   ok_after_format "multi-equation function"
@@ -588,6 +611,7 @@ let () =
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
+      Alcotest.test_case "single-constructor shorthand" `Quick test_single_ctor_shorthand;
       Alcotest.test_case "manifest order"    `Quick test_manifest_canonicalized;
       Alcotest.test_case "manifest wrapping" `Quick test_manifest_wraps_past_the_budget;
       Alcotest.test_case "import block"      `Quick test_leading_imports_sorted;
