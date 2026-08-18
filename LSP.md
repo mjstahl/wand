@@ -167,9 +167,18 @@ should be a property the blessed formatter enforces, not one that
 insertion discipline maintains. Three companion changes to
 `formatter.ml`:
 
-- **The contiguous plain-import block is sorted.** Order among plain
-  imports has no semantic weight. Destructured imports
-  (`let [test] = import Test`) are ordinary bindings and are left alone.
+- **The leading import region is grouped and the plain block sorted.**
+  In the run of imports at the top of the file (after the manifest,
+  before the first non-import item): plain `import M` statements first,
+  alphabetized, then let-imports (`let [test] = import Test`,
+  `let u = import ./util`) in source order. Plain imports may be sorted
+  because each binds only its own namespace name — no two can bind the
+  same thing — and they may be hoisted above let-imports because an
+  import's right-hand side depends on nothing file-local. Let-imports
+  are never reordered among themselves: they are ordinary bindings, and
+  two of them may bind the same name (`let [parse] = import CSV` then
+  `let [parse] = import JSON`) — their order *is* the program. Imports
+  appearing past the leading region are left where they are.
 - **The manifest is canonicalized**: labels in canonical order, and the
   binaries inside `Shell(...)` sorted alphabetically. Today the formatter
   re-emits the manifest in source order (`formatter.ml:1033`), while the
