@@ -30,8 +30,7 @@ let area s =
   | Circle r -> r * r * 3
   | Rect w h -> w * h
 
-let document =
-  "[{\"kind\": \"circle\", \"r\": 3}, {\"kind\": \"rect\", \"w\": 2, \"h\": 5}]"
+let document = `[{"kind": "circle", "r": 3}, {"kind": "rect", "w": 2, "h": 5}]`
 
 let shapes = JSON.decode (Decode.list shape) (JSON.parse! document)
 
@@ -41,9 +40,9 @@ match shapes with
 
 -- A tag nobody knows is a failure that says so, and says which element it
 -- was -- the `fail` message is reported at the path the decoder had reached.
-IO.println (JSON.decode (Decode.list shape) (JSON.parse! "[{\"kind\": \"hexagon\"}]"))
+IO.println (JSON.decode (Decode.list shape) (JSON.parse! `[{"kind": "hexagon"}]`))
 
 -- The tag field is part of the document, not of the type: nothing here
 -- assumes it is called "kind", and a document tagging by "type" or "@type"
 -- differs by one string.
-IO.println (JSON.decode shape (JSON.parse! "{\"kind\": \"rect\", \"w\": 4, \"h\": 4}"))
+IO.println (JSON.decode shape (JSON.parse! `{"kind": "rect", "w": 4, "h": 4}`))

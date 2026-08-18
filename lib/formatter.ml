@@ -80,6 +80,24 @@ let escape_string_body str =
   ) str;
   Buffer.contents buf
 
+let contains_sub s sub =
+  let n = String.length s and m = String.length sub in
+  let rec go i = i + m <= n && (String.sub s i m = sub || go (i + 1)) in
+  go 0
+
+(* Text that would come back full of backslash-escaped quotes reads better
+   between backticks, where a quote is a quote. Only when the raw form
+   reproduces the value exactly and visibly: no backtick (there is no way
+   to write one), no `%{` (it would interpolate), and no control
+   characters -- turning a spelled-out `\n` or `\t` into invisible layout
+   is a worse trade than the escaped quotes. *)
+let raw_safe s =
+  not (String.contains s '`')
+  && not (contains_sub s "%{")
+  && String.for_all (fun c -> c <> '\n' && c <> '\t' && c <> '\r') s
+
+let prefers_raw s = String.contains s '"' && raw_safe s
+
 (* `%g` drops a trailing `.0` for integral floats (`42.0` -> `"42"`), which
    then re-lexes as an Int literal, not a Float -- silently changing the
    program. Force the printed form to always look like a float. *)
@@ -304,7 +322,9 @@ and emit_expr_inner ?col indent e =
   match e with
   | Int n      -> string_of_int n
   | Float f    -> string_of_wand_float f
-  | String s   -> "\"" ^ escape_string_body s ^ "\""
+  | String s   ->
+    if prefers_raw s then "`" ^ s ^ "`"
+    else "\"" ^ escape_string_body s ^ "\""
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s | Glob s | Date s | Time s | DateTime s | Duration s
@@ -398,18 +418,27 @@ and emit_expr_inner ?col indent e =
     Buffer.add_char buf '`';
     Buffer.contents buf
   | Interp (parts, tail) ->
+    (* The same backtick preference as a plain String: when some literal
+       piece escapes a quote and every piece survives rawly, the whole
+       template moves between backticks -- `%{...}` interpolates there
+       too, so the splices carry over untouched. *)
+    let lits = List.map fst parts @ [tail] in
+    let raw = List.exists (fun s -> String.contains s '"') lits
+              && List.for_all raw_safe lits in
+    let quote = if raw then "`" else "\"" in
+    let lit_body s = if raw then s else escape_string_body s in
     let buf = Buffer.create 32 in
-    Buffer.add_char buf '"';
+    Buffer.add_string buf quote;
     List.iter (fun (lit, e) ->
-      Buffer.add_string buf (escape_string_body lit);
+      Buffer.add_string buf (lit_body lit);
       (* `$NAME` is plain text in a string now, so an env read has to be
          written out as the expression it is: `%{$HOME}`. *)
       Buffer.add_string buf "%{";
       Buffer.add_string buf (emit_expr indent e);
       Buffer.add_char buf '}'
     ) parts;
-    Buffer.add_string buf (escape_string_body tail);
-    Buffer.add_char buf '"';
+    Buffer.add_string buf (lit_body tail);
+    Buffer.add_string buf quote;
     Buffer.contents buf
   (* Only reachable inside `$()`, which `emit_cmd` handles; rendered here so
      the match is total and so a stray one is still legible. *)

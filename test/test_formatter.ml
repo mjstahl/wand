@@ -37,6 +37,33 @@ let ok_after_format label src expected =
   | Ok v -> Alcotest.(check string) label expected v
   | Error msg -> Alcotest.failf "%s: formatted code failed to run: %s\nformatted:\n%s" label msg formatted
 
+(* A string the source wrote with escaped quotes moves between backticks,
+   where a quote is a quote -- unless the raw form could not reproduce it:
+   a backtick in the text, a literal `%{`, or control characters whose
+   spelled-out escapes are the more legible form. *)
+let fmt_eq label src expected =
+  Alcotest.(check string) label (expected ^ "\n") (fmt src)
+
+let test_escaped_quotes_prefer_backticks () =
+  fmt_eq "plain string converts"
+    {|let a = "say \"hi\""|} "let a = `say \"hi\"`";
+  fmt_eq "interpolation converts, splice intact"
+    {|let n = "ada"
+let g = "greet \"%{n}\""|} "let n = \"ada\"\nlet g = `greet \"%{n}\"`";
+  fmt_eq "a backtick in the text keeps the quoted form"
+    {|let e = "tick ` quote \""|} {|let e = "tick ` quote \""|};
+  fmt_eq "a newline keeps the quoted form"
+    {|let d = "quote \" break \n"|} {|let d = "quote \" break \n"|};
+  fmt_eq "a literal percent-brace keeps the quoted form"
+    {|let f = "hold \%{x} quote \""|} {|let f = "hold \%{x} quote \""|};
+  assert_idempotent "backtick preference is a fixed point"
+    {|let a = "say \"hi\""
+let g = "greet \"%{a}\""|};
+  ok_after_format "the converted value is unchanged"
+    {|let a = "say \"hi\""
+a|}
+    {|say "hi"|}
+
 let test_behavior_preserved () =
   ok_after_format "arithmetic" "1 + 2 * 3" "7";
   ok_after_format "multi-equation function"
@@ -560,6 +587,7 @@ let () =
       Alcotest.test_case "stdlib"   `Quick test_idempotent_stdlib;
     ];
     "canonicalization", [
+      Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
       Alcotest.test_case "manifest order"    `Quick test_manifest_canonicalized;
       Alcotest.test_case "manifest wrapping" `Quick test_manifest_wraps_past_the_budget;
       Alcotest.test_case "import block"      `Quick test_leading_imports_sorted;

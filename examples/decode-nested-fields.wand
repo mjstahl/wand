@@ -44,5 +44,4 @@ IO.println (JSON.decode flat (JSON.parse! document))
 
 -- The nested form still names where it failed, so flattening the type does
 -- not flatten the error.
-(IO.println
-  (JSON.decode flat (JSON.parse! "{\"metadata\": {}, \"status\": {\"restarts\": 1}}")))
+IO.println (JSON.decode flat (JSON.parse! `{"metadata": {}, "status": {"restarts": 1}}`))
