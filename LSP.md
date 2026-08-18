@@ -283,11 +283,13 @@ Each lands independently and is useful before the server exists.
    for a position. Not included: the manifest suggestion is still prose
    inside the E-TYPE message — carrying it as a `Diag.fix` lands with
    the code-action work (§2.2) or `--fix` (§3).
-3. **End positions.** `Located` carries a start `Token.loc` only; LSP wants
-   ranges. `lint.ml:160` already receives `(start, end)` pairs for
-   top-level items, so half the plumbing exists. Do this now, at 13K lines
-   — the retrofit only gets more expensive. Fallback if deferred: extend
-   point diagnostics to the token's length by re-lexing at the point.
+3. **End positions.** **Done** (`a1f71e0`): `Token.loc` is an extent —
+   `end_line`/`end_col`/`end_offset`, exclusive — rather than a point.
+   The lexer stamps token ends, the parser widens each `Located` to the
+   whole expression it wraps (`locate`/`span_to_here`), findings span
+   their item, and the manifest loc spans `uses {...}` exactly. `--json`
+   emits `end_line`/`end_col` when a diagnostic has real width. Holes
+   still have no locations (item 1's list).
 4. **Completion as a pure function** shared by REPL and LSP —
    `complete_ident_arg` minus linenoise. Side effect: the REPL completion
    logic finally gets direct tests, without the expect+pty rig.
