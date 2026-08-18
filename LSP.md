@@ -213,9 +213,8 @@ per CLAUDE.md.
 
 ## 3. `wand t --fix`
 
-Does not exist today (`bin/wand.ml` knows `--strict` and `--json`), and the
-fix data has no CLI consumer — findings carry `InsertLine`/`ReplaceLine` and
-nothing applies them. Add `--fix`:
+Shipped with Phase A item 6 (`2ee9e25`; engine in `lib/fix.ml`). The
+shape as designed:
 
 - Applies every finding's fix to the file in place (like `fmt`), edits
   ordered bottom-up so line numbers stay valid, then **re-checks and
@@ -280,9 +279,8 @@ Each lands independently and is useful before the server exists.
    raise sites as data (`ParseError` carries a `Token.loc option`,
    `TypeErrorAt` is stamped by the nearest `Located`, lex errors point
    at the failing token's start). Nothing re-parses a message string
-   for a position. Not included: the manifest suggestion is still prose
-   inside the E-TYPE message — carrying it as a `Diag.fix` lands with
-   the code-action work (§2.2) or `--fix` (§3).
+   for a position. The one deferral — the manifest suggestion as a
+   structured `Diag.fix` — landed with item 6 (`2ee9e25`).
 3. **End positions.** **Done** (`a1f71e0`): `Token.loc` is an extent —
    `end_line`/`end_col`/`end_offset`, exclusive — rather than a point.
    The lexer stamps token ends, the parser widens each `Located` to the
@@ -301,7 +299,12 @@ Each lands independently and is useful before the server exists.
    `Typechecker.manifest_labels_of_scheme`, also now the definition
    `check_manifest`'s per-binding pass reads, so the two consumers
    cannot disagree.
-6. **`wand t --fix`** (§3).
+6. **`wand t --fix`** (§3). **Done** (`2ee9e25`): `Fix.fix_source` /
+   `fix_file` apply InsertLine/ReplaceLine/DeleteLine bottom-up and
+   re-check to a fixed point (cap 5); V-IMP1 carries `DeleteLine`; the
+   manifest suggestions ride as structured `ReplaceLine` fixes on the
+   E-TYPE diagnostics (closing item 2's deferral). Drift `Replace`
+   fixes and bare-`Shell` widening are deliberately not applied.
 7. **Order and formatter canonicalization** (§2.3) — alphabetical
    `display_order` in `effect_row.ml`, import-block sorting, manifest
    sorting and wrapping. Standalone and user-visible before any server
