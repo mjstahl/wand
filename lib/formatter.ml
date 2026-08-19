@@ -356,7 +356,7 @@ and emit_expr_inner ?col indent e =
   | Let (p, e1, e2) -> emit_let ~col indent p e1 e2
   | LetRec (bindings, e2) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if ~col indent c t el
-  | Match (scr, cases) -> emit_match indent scr cases
+  | Match (scr, cases) -> emit_match ~col indent scr cases
   | BinOp (op, a, b) -> emit_binop ~col indent op a b
   | UnOp (op, e) -> op ^ emit_atom indent e
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr indent) es)
@@ -466,14 +466,17 @@ and emit_expr_inner ?col indent e =
     Buffer.add_string buf tail;
     Buffer.contents buf
   | Handle (body, cases) ->
+    (* Same stepping rule as emit_match: arms of a `handle` that starts
+       mid-line indent past the line that introduced it. *)
+    let arm_indent = if col > indent then indent + 2 else indent in
     let emit_arm = function
       | EffectCase (op, p, k, b) ->
-        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_case_body indent b)
+        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_case_body arm_indent b)
       | ReturnCase (p, b) ->
-        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_case_body indent b)
+        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_case_body arm_indent b)
     in
     "handle " ^ emit_expr indent body ^ " with\n"
-    ^ String.make indent ' ' ^ String.concat ("\n" ^ String.make indent ' ')
+    ^ String.make arm_indent ' ' ^ String.concat ("\n" ^ String.make arm_indent ' ')
         (List.map emit_arm cases)
   | Try e -> "try " ^ emit_expr indent e
   (* The body stays at the bracket's own indentation rather than stepping in.
@@ -754,8 +757,22 @@ and emit_if ?col indent c t el =
     let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
     if fits col oneline then oneline
     else
-      let ind = String.make indent ' ' in
-      Printf.sprintf "if %s then %s\n%selse %s" cs ts ind es
+      (* An `if` that starts mid-line -- after `x = ` or `fn a -> ` -- owns
+         none of the text to its left, so its `else` steps in rather than
+         landing flush with the line that introduced it. An else-if chain
+         is one ladder: every clause lands at that same indent, instead of
+         each else stepping past the one before it. *)
+      let cont = if col > indent then indent + 2 else indent in
+      let ind = String.make cont ' ' in
+      let rec ladder c t el =
+        let clause =
+          Printf.sprintf "if %s then %s" (emit_expr cont c) (emit_expr cont t) in
+        match strip_located el with
+        | Unit -> [clause]
+        | If (c2, t2, el2) -> clause :: ladder c2 t2 el2
+        | _ -> [clause; emit_expr ~col:(cont + 5) cont el]
+      in
+      String.concat ("\n" ^ ind ^ "else ") (ladder c t el)
 
 (* A `match`/`handle` case body ends only where the next `|`-prefixed case
    begins -- there's no other terminator. So an unparenthesized Match or
@@ -795,17 +812,21 @@ and emit_scrutinee indent scr =
   | Match _ -> "(" ^ emit_expr indent scr ^ ")"
   | _ -> emit_expr indent scr
 
-and emit_match indent scr cases =
-  let ind = String.make indent ' ' in
+and emit_match ?col indent scr cases =
+  let col = match col with Some c -> c | None -> indent in
+  (* Arms of a `match` that starts mid-line step in, as an `if`'s else
+     does, instead of landing flush with the line that introduced it. *)
+  let arm_indent = if col > indent then indent + 2 else indent in
+  let ind = String.make arm_indent ' ' in
   let emit_case (p, guard, body) =
     let guard_s = match guard with
       | None -> ""
-      | Some g -> " when " ^ emit_expr indent g
+      | Some g -> " when " ^ emit_expr arm_indent g
     in
     (* The body starts after the pattern and the arrow, not at the case's
        indent -- which is the whole of this bug. *)
     let prefix = ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " in
-    prefix ^ emit_case_body ~col:(String.length prefix) indent body
+    prefix ^ emit_case_body ~col:(String.length prefix) arm_indent body
   in
   "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)

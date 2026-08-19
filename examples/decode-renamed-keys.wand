@@ -30,7 +30,7 @@ let checked_pod =
   (Decode.and_then
     (fn n -> Decode.and_then
       (fn r -> if r < 0 then Decode.fail "restartCount cannot be negative"
-      else Decode.succeed Pod(name = n, restarts = r))
+        else Decode.succeed Pod(name = n, restarts = r))
       (Decode.field "restartCount" Decode.int))
     (Decode.field "podName" Decode.string))
 

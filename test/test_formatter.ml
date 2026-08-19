@@ -280,6 +280,22 @@ let test_width_is_measured_from_the_start_column () =
     "type Opt = None | Some Int\nlet plus n = n + 1\nlet f x =\n  match x with\n     | Some averylongconstructorpattern -> let y = plus averylongconstructorpattern in y\n     | None -> 0\nf (Some 41)"
     "42"
 
+(* An `if` or `match` that starts mid-line -- after `x = ` or `fn a -> ` --
+   owns none of the text to its left, so when it breaks, its `else` and its
+   cases step in rather than landing flush with the line that introduced
+   them. An else-if chain is one ladder: the clauses all land at that same
+   depth, instead of each else stepping past the one before it. *)
+let test_midline_breaks_step_in () =
+  fmt_eq "a mid-line else and mid-line cases step in"
+    "type TestOutcome = Pass String | Fail String\nlet make label = Testing(not_ok = fn cond -> if cond then Fail \"%{label}: expected the assertion to fail here\" else Pass label, raises = fn thunk -> match try thunk () with | Ok _ -> Fail \"%{label}: expected a raise, but it completed normally\" | Error _ -> Pass label)"
+    "type TestOutcome = Pass String | Fail String\nlet make label =\n  Testing(\n    not_ok = fn cond -> if cond then Fail \"%{label}: expected the assertion to fail here\"\n      else Pass label,\n    raises = fn thunk -> match try thunk () with\n      | Ok _ -> Fail \"%{label}: expected a raise, but it completed normally\"\n      | Error _ -> Pass label\n  )";
+  fmt_eq "a ladder that starts its own line stays flush"
+    "let grade score = let describe s = if s > 90 then \"an excellent score, top marks all around\" else if s > 75 then \"a good score, comfortably above the line\" else \"a score that needs another attempt\" in describe score"
+    "let grade score =\n  let describe s =\n    if s > 90 then \"an excellent score, top marks all around\"\n    else if s > 75 then \"a good score, comfortably above the line\"\n    else \"a score that needs another attempt\"\n  in describe score";
+  fmt_eq "a mid-line ladder steps in once and holds"
+    "let pick = (fn kind -> if kind == \"circle\" then \"a shape with no corners at all\" else if kind == \"rect\" then \"a shape with four of them\" else \"a shape nobody here has heard of\")"
+    "let pick =\n  fn kind -> if kind == \"circle\" then \"a shape with no corners at all\"\n    else if kind == \"rect\" then \"a shape with four of them\"\n    else \"a shape nobody here has heard of\""
+
 (* A binding's value may run onto the next line, but not as a bare
    application: the definition ends at the first line, loudly at the top
    level and silently inside a `let ... in`. Every other wrapped form carries
@@ -635,6 +651,7 @@ let () =
       Alcotest.test_case "one-armed if" `Quick test_one_armed_if;
       Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
       Alcotest.test_case "width from the start column" `Quick test_width_is_measured_from_the_start_column;
+      Alcotest.test_case "mid-line breaks step in" `Quick test_midline_breaks_step_in;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
     ];
     "formerly verbatim", [

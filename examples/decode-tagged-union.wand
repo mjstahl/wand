@@ -18,11 +18,11 @@ type Shape = Circle Int | Rect Int Int
 let shape =
   (Decode.and_then
     (fn kind -> if kind == "circle" then Decode.map (fn r -> Circle r) (Decode.field "r" Decode.int)
-    else if kind == "rect" then Decode.map2
-      (fn w h -> Rect w h)
-      (Decode.field "w" Decode.int)
-      (Decode.field "h" Decode.int)
-    else Decode.fail "unknown kind: %{kind}")
+      else if kind == "rect" then Decode.map2
+        (fn w h -> Rect w h)
+        (Decode.field "w" Decode.int)
+        (Decode.field "h" Decode.int)
+      else Decode.fail "unknown kind: %{kind}")
     (Decode.field "kind" Decode.string))
 
 let area s =
