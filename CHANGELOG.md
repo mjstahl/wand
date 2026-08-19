@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0] - 2026-08-19
+
+### Removed
+
+- Remove the bracket map forms: `[x = 1]` literals, `[x = a]` patterns,
+  and `let [test] = import Test` no longer parse, each refused with an
+  error naming the brace spelling — "a map is written in braces --
+  {k = v}, not [k = v]". The `A-MAP1` finding and its migration machinery
+  retire with the syntax (`ba63d5c`)
+
+### Fixed
+
+- Fix `<=` and `>=` to order strings, as `<` and `>` always did —
+  `"a" <= "b"` typechecked and then failed at run time (`7359637`)
+
+[0.18.0]: https://github.com/mjstahl/wand/releases/tag/v0.18.0
+
 ## [0.17.0] - 2026-08-18
 
 ### Changed
