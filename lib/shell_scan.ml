@@ -223,3 +223,87 @@ let render_label = function
   | (name, None) -> name
   | (name, Some args) ->
     name ^ "(" ^ String.concat ", " (List.map render_entry args) ^ ")"
+
+(* ── The direct-exec fast path ────────────────────────────────────────────
+   make's optimization: a command line in which a shell would find nothing
+   to do means exactly what its words say, so the runner can exec it
+   directly instead of paying a shell startup per spawn (~5ms on macOS,
+   whose /bin/sh is bash). This classifier says when that is safe.
+
+   The rules err toward the shell. Refused anywhere outside single quotes:
+   every operator, expansion, quote and escape character a shell reads --
+   the set is `sh_metachars` below -- and a newline. Refused in command
+   position: a shell builtin or reserved word (whose meaning the shell
+   supplies -- exec'ing /bin/echo is not running `echo`), and a word
+   containing `=` (an assignment or environment prefix). A character on
+   the list that is merely literal to a modern sh -- a caret, an argument
+   `!` -- costs the fast path, never correctness.
+
+   Single-quoted spans are handled rather than refused because `%{}`
+   interpolation writes them: to sh every character inside is itself, and
+   that is exactly how they are read here, so an interpolated argument
+   still takes the fast path. Adjacent segments join into one word and
+   `''` is a real, empty argument -- both as sh would. *)
+
+let sh_metachars = "#;\"*?[]&|<>(){}$`\\~!^\n"
+
+(* Names whose meaning in command position comes from the shell itself:
+   POSIX special builtins, the utilities sh implements as builtins, and
+   bash's own, since macOS /bin/sh is bash. The control-flow words are in
+   `reserved` above. *)
+let sh_builtins = [
+  "."; ":"; "["; "alias"; "bg"; "bind"; "break"; "builtin"; "caller";
+  "cd"; "command"; "compgen"; "complete"; "continue"; "declare"; "dirs";
+  "disown"; "echo"; "enable"; "eval"; "exec"; "exit"; "export"; "false";
+  "fc"; "fg"; "getopts"; "hash"; "help"; "history"; "in"; "jobs"; "kill";
+  "let"; "local"; "logout"; "popd"; "printf"; "pushd"; "pwd"; "read";
+  "readonly"; "return"; "select"; "set"; "shift"; "shopt"; "source";
+  "suspend"; "test"; "time"; "times"; "trap"; "true"; "type"; "typeset";
+  "ulimit"; "umask"; "unalias"; "unset"; "wait";
+]
+
+(* The command's words when a shell would only ever split and run them, or
+   None when anything shell-special appears. `Some ws` is never empty. *)
+let direct_words cmd : string list option =
+  let n = String.length cmd in
+  let words = ref [] in
+  let buf = Buffer.create 16 in
+  let in_word = ref false in
+  let ok = ref true in
+  let flush () =
+    if !in_word then begin
+      words := Buffer.contents buf :: !words;
+      Buffer.clear buf;
+      in_word := false
+    end
+  in
+  let i = ref 0 in
+  while !ok && !i < n do
+    (match cmd.[!i] with
+     | '\'' ->
+       (* A single-quoted span: every character until the closing quote is
+          itself. Unclosed is sh's error to report, so it is refused. *)
+       in_word := true;
+       incr i;
+       let closed = ref false in
+       while not !closed && !i < n do
+         if cmd.[!i] = '\'' then closed := true
+         else Buffer.add_char buf cmd.[!i];
+         incr i
+       done;
+       if not !closed then ok := false
+     | ' ' | '\t' -> flush (); incr i
+     | c when String.contains sh_metachars c -> ok := false
+     | c -> in_word := true; Buffer.add_char buf c; incr i)
+  done;
+  if not !ok then None
+  else begin
+    flush ();
+    match List.rev !words with
+    | [] -> None
+    | (w0 :: _) as ws ->
+      if String.contains w0 '='
+         || List.mem w0 sh_builtins || List.mem w0 reserved
+      then None
+      else Some ws
+  end

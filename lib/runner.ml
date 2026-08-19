@@ -69,7 +69,24 @@ let stop_children signal =
   List.iter (fun pid -> try Unix.kill pid signal with Unix.Unix_error _ -> ())
     (Atomic.get children)
 
-let sh_argv cmd = [| "/bin/sh"; "-c"; cmd |]
+(* A command with nothing shell-special in it is exec'd directly rather
+   than through `/bin/sh -c` -- make's optimization, decided by
+   `Shell_scan.direct_words`, worth ~5ms per spawn on macOS where /bin/sh
+   is bash. Semantics stay the shell's: `create_process` searches PATH as
+   sh would, and a spawn the direct path cannot make -- the program
+   missing being the common case -- is retried through sh, which reports
+   it exactly as it always has (its own line on stderr, exit 127) instead
+   of surfacing a Unix_error the sh path never raised. *)
+let create_process_for cmd stdin stdout stderr =
+  let via_sh () =
+    Unix.create_process "/bin/sh" [| "/bin/sh"; "-c"; cmd |]
+      stdin stdout stderr
+  in
+  match Shell_scan.direct_words cmd with
+  | Some (w0 :: _ as ws) ->
+    (try Unix.create_process w0 (Array.of_list ws) stdin stdout stderr
+     with Unix.Unix_error _ -> via_sh ())
+  | _ -> via_sh ()
 
 (* The ends wand keeps are close-on-exec, or one command's pipe would be
    inherited by the next command's process: with several running at once,
@@ -78,7 +95,7 @@ let sh_argv cmd = [| "/bin/sh"; "-c"; cmd |]
    are duplicated onto the child's stdio, which clears the flag. *)
 let spawn_in cmd =
   let (r, w) = Unix.pipe ~cloexec:true () in
-  let pid = Unix.create_process "/bin/sh" (sh_argv cmd) Unix.stdin w Unix.stderr in
+  let pid = create_process_for cmd Unix.stdin w Unix.stderr in
   Unix.close w;
   remember pid;
   (pid, Unix.in_channel_of_descr r)
@@ -87,7 +104,7 @@ let spawn_full cmd =
   let (out_r, out_w) = Unix.pipe ~cloexec:true () in
   let (err_r, err_w) = Unix.pipe ~cloexec:true () in
   let (in_r,  in_w)  = Unix.pipe ~cloexec:true () in
-  let pid = Unix.create_process "/bin/sh" (sh_argv cmd) in_r out_w err_w in
+  let pid = create_process_for cmd in_r out_w err_w in
   Unix.close out_w; Unix.close err_w; Unix.close in_r;
   remember pid;
   (pid,

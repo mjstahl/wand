@@ -56,3 +56,22 @@ test "mock process_run" (fn t ->
     | Shell!run _ k -> k "mocked"
   in
   t.eq "mocked" outcome)
+
+(* ── The direct-exec fast path ─────────────────────────────────────────── *)
+
+(* A command with nothing shell-special in it is exec'd without /bin/sh
+   (Shell_scan.direct_words). The point of these is indistinguishability:
+   the same answers arrive whichever side of the classifier's line the
+   command falls on. *)
+
+test "a plain command runs without the shell" (fn t ->
+  t.eq "hi there" $(/bin/echo hi there))
+
+test "an interpolated value is still one argument on the fast path" (fn t ->
+  let v = "a b" in t.eq "a b" $(/bin/echo %{v}))
+
+test "stdin still arrives on the fast path" (fn t ->
+  t.eq "hello" ("hello" |> $(cat)))
+
+test "a missing program is exit 127 on either path" (fn t ->
+  let r = $?(/usr/bin/wand-no-such-program) in t.eq 127 r.code)

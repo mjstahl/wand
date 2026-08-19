@@ -162,6 +162,47 @@ let test_spawn_check () =
      List.map show outcomes |> (fn ws -> String.join \",\" ws)"
     "hi,refused,hi"
 
+(* The direct-exec fast path: which command lines mean exactly their words,
+   so the runner may execvp them instead of paying a shell startup. Every
+   refusal is a command the shell must keep -- the classifier can only cost
+   speed, never meaning. *)
+let check_direct label text expected =
+  Alcotest.(check (option (list string))) label expected (direct_words text)
+
+let test_direct_words () =
+  check_direct "plain words" "git status --short"
+    (Some ["git"; "status"; "--short"]);
+  check_direct "path-qualified" "/usr/bin/true" (Some ["/usr/bin/true"]);
+  check_direct "tabs separate" "git\tstatus" (Some ["git"; "status"]);
+  (* The single quotes %{} interpolation writes: literal spans, adjacent
+     segments joining, an empty pair still an argument. *)
+  check_direct "quoted argument" "git commit -m 'two words'"
+    (Some ["git"; "commit"; "-m"; "two words"]);
+  check_direct "quoted metacharacters are literal" "grep '^a|b$' notes.txt"
+    (Some ["grep"; "^a|b$"; "notes.txt"]);
+  check_direct "adjacent segments join" "tar -C a'b c'd"
+    (Some ["tar"; "-C"; "ab cd"]);
+  check_direct "an empty quoted argument survives" "run-thing '' x"
+    (Some ["run-thing"; ""; "x"]);
+  check_direct "equals in an argument is not an assignment"
+    "git log --pretty=oneline" (Some ["git"; "log"; "--pretty=oneline"]);
+  (* Anything the shell would act on keeps the shell. *)
+  check_direct "pipe" "ls | wc" None;
+  check_direct "redirect" "ls > out" None;
+  check_direct "glob" "ls *.txt" None;
+  check_direct "variable" "ls $HOME" None;
+  check_direct "substitution" "ls `pwd`" None;
+  check_direct "double quotes" "ls \"a b\"" None;
+  check_direct "backslash" "ls a\\ b" None;
+  check_direct "tilde" "ls ~/x" None;
+  check_direct "newline" "ls\nls" None;
+  check_direct "unclosed quote" "ls 'a" None;
+  check_direct "builtin in command position" "echo hi" None;
+  check_direct "reserved word in command position" "if true" None;
+  check_direct "assignment prefix" "FOO=1 env" None;
+  check_direct "empty" "" None;
+  check_direct "spaces only" "   " None
+
 (* The manifest checks cover $() and $?(), and those are the only spawn
    forms a script can write: the raw process builtins are not in a
    script's scope, and the Shell module only parses output. If this test
@@ -196,6 +237,9 @@ let () =
     "allowlist", [
       Alcotest.test_case "matching" `Quick test_allowed;
       Alcotest.test_case "render"   `Quick test_render_entry;
+    ];
+    "direct exec", [
+      Alcotest.test_case "classification" `Quick test_direct_words;
     ];
     "spawn check", [
       Alcotest.test_case "end to end" `Quick test_spawn_check;
