@@ -642,9 +642,9 @@ length does — the map's keys are not part of its type either.
 An empty map is `Map.empty`, and `{}` is the same value written as a
 literal.
 
-The bracket forms — `[x = 1]` literals and `[x = a]` patterns — still
-parse in this release; `wand fmt` rewrites them to braces, and they will
-be removed in the next.
+Brackets mean lists and nothing else. The pre-0.17 map forms — `[x = 1]`
+literals and `[x = a]` patterns — are refused with an error naming the
+brace spelling.
 
 ---
 
@@ -1926,28 +1926,28 @@ utils.greeting
 
 ### Destructured imports
 
-Import specific names from a module by naming them in brackets:
+Import specific names from a module by naming them in braces:
 
 ```
-let [foo = bar]            = import ./utils   -- bind utils.foo as bar
-let [foo = a, bar = b]     = import ./utils   -- and utils.bar as b
+let {foo = bar}            = import ./utils   -- bind utils.foo as bar
+let {foo = a, bar = b}     = import ./utils   -- and utils.bar as b
 ```
 
 The name on the left of the `=` is the module's; the name on the right is
 what it is called here.
 
-Or bind names under their own names:
+Or bind names under their own names — the same punning a map pattern has:
 
 ```
-let [foo, bar] = import ./utils         -- bind foo and bar
+let {foo, bar} = import ./utils         -- bind foo and bar
 ```
 
-One form or the other — renaming and plain names cannot be mixed in a
-single destructure.
+Punned and renamed entries mix freely, exactly as they do in a map
+pattern.
 
-#### What the brackets bind by
+#### What a destructure binds by
 
-The same brackets destructure a list, a map and a module, and what they
+Brackets destructure a list, braces a map or a module, and what they
 match on differs in each — the value on the right decides:
 
 ```
@@ -1963,7 +1963,7 @@ swap with them; swap them in a module's and nothing moves, because there is
 no order to follow:
 
 ```
-let [filter, map] = import List
+let {filter, map} = import List
 map (fn x -> x * 2) [1, 2]     -- [2, 4] — still List.map
 ```
 
@@ -3057,7 +3057,6 @@ it would punish the safer choice.
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
 | `V-IMP1` | two imports in the leading import block bind the same name, so the first binding is dead — rename one (`let {parse = csv_parse} = import CSV`) or drop it |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
-| `A-MAP1` | a map written in brackets (`[k = v]`); braces are canonical, the carried fix or `wand fmt` migrates, and the brackets are removed next release |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `A-USES2` | a file performs effects and declares no manifest |

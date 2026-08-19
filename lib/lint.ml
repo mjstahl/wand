@@ -171,7 +171,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
      provably dead, and its module is no longer where the name comes from.
      Past the region a rebinding may follow a genuine use, so the rule
      stays out. The pattern can bind another name
-     (`let [parse = csv_parse] = import CSV`), so keeping both is spelled
+     (`let {parse = csv_parse} = import CSV`), so keeping both is spelled
      by renaming, not by shadowing. *)
   let import_display = function
     | Ast.StdlibModule s -> s

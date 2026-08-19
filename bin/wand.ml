@@ -90,7 +90,7 @@ let usage_for sub =
   | "s" | "test" ->
     print_endline "Usage: wand s [--json] [<file.wand>|<dir>]...";
     print_endline "";
-    print_endline "Run .wand test files (let [test] = import Test;";
+    print_endline "Run .wand test files (let {test} = import Test;";
     print_endline "test \"label\" (fn t -> t.ok/t.eq/t.raises ...)) and report";
     print_endline "pass/fail.";
     print_endline "";

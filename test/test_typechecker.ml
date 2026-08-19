@@ -32,7 +32,7 @@ let err_contains label input needle =
 
 let test_map_dot_access_rejected () =
   err_contains "dot access on a Map"
-    "let m = [x = 1, y = 2] in m.x"
+    "let m = {x = 1, y = 2} in m.x"
     "cannot use dot access on a Map"
 
 let test_named_field_access_checked () =
@@ -185,9 +185,9 @@ match M(a = 1, b = 2) with
 
 let test_map_patterns_still_work () =
   ok "map pattern binds a key"
-    {|let m = [x = 1, y = 2] in
+    {|let m = {x = 1, y = 2} in
 match m with
-| [x = a] -> a|}
+| {x = a} -> a|}
     "1"
 
 (* ── Named-field types are built and matched by name ─────────────────────── *)
@@ -542,7 +542,7 @@ let test_type_annotations () =
 let test_type_annotation_syntax () =
   prog_is "tuple annot" "let x : (Int, Int) = (1, 2); x" "(Int, Int)";
   prog_is "list annot matches inference" "let xs : List Int = [1, 2, 3]; xs" "List Int";
-  prog_is "map annot matches inference" "let m : Map Int = [x = 1, y = 2]; m" "Map Int";
+  prog_is "map annot matches inference" "let m : Map Int = {x = 1, y = 2}; m" "Map Int";
   prog_is "result annot matches inference" "let r : Result String Int = Ok 1; r" "Result String Int";
   prog_is "function annot" "let f : Int -> Int = fn x -> x + 1; f 1" "Int";
   prog_is "left-nested function annot" "let g : (Int -> Int) -> Int = fn f -> f 1; g (fn x -> x + 1)" "Int";

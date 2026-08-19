@@ -31,7 +31,7 @@ utils._secret|} path))
 let test_destructure_missing_field () =
   with_named "utils" {|let foo = 1|} (fun path ->
     err "missing field gives error"
-      (Printf.sprintf {|let [bar = x] = import %s
+      (Printf.sprintf {|let {bar = x} = import %s
 x|} path))
 
 (* ── User-path imports must state their binding ──────────────────────────── *)
@@ -59,7 +59,7 @@ let test_destructured_binding_works () =
     Alcotest.(check (result string string))
       "destructured import resolves"
       (Ok "1")
-      (run (Printf.sprintf {|let [public] = import %s
+      (run (Printf.sprintf {|let {public} = import %s
 public|} path)))
 
 (* ── An import brings in what it names, and nothing else ─────────────────── *)
@@ -79,7 +79,7 @@ let test_destructuring_binds_only_what_it_names () =
   with_named "utils" {|let foo = 1
 let bar = 2|} (fun path ->
     err "an unnamed field is not in scope"
-      (Printf.sprintf {|let [foo] = import %s
+      (Printf.sprintf {|let {foo} = import %s
 bar|} path))
 
 (* A module's own imports are its business. *)

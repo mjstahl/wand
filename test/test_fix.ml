@@ -60,16 +60,12 @@ let test_shell_fixed_point () =
     ["E-TYPE"; "A-USES1"] (codes applied)
 
 let test_dead_import_deleted () =
-  (* The fixed point also migrates the surviving bracket import to braces
-     (A-MAP1), so one --fix answers both findings. *)
   let (fixed, applied) =
-    fix "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"\n" in
-  Alcotest.(check string) "first binding gone, second in braces"
+    fix "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"\n" in
+  Alcotest.(check string) "first binding gone"
     "let {parse} = import TOML\nparse \"x = 1\"\n" fixed;
   Alcotest.(check bool) "V-IMP1 among the fixes" true
-    (List.mem "V-IMP1" (codes applied));
-  Alcotest.(check bool) "A-MAP1 among the fixes" true
-    (List.mem "A-MAP1" (codes applied))
+    (List.mem "V-IMP1" (codes applied))
 
 let test_nothing_to_fix () =
   let src = "let double x = x * 2\ndouble 21\n" in

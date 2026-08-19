@@ -106,7 +106,7 @@ let test_map () =
   ok "map pattern never flagged"
     {|import Map
       let m = Map.from_list [("a", 1)]
-      match m with | [a = x] -> x|}
+      match m with | {a = x} -> x|}
     "1"
 
 (* ── Suite ────────────────────────────────────────────────────────────────── *)

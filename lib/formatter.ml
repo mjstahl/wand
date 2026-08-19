@@ -888,14 +888,6 @@ let emit_top_item_pretty = function
   | TLImport (UserPath p)     -> "import " ^ p
   | TLType tdef -> emit_type_def tdef
   | TLLetPat (p, e) ->
-    (* `let [test] = import Test` predates brace maps; selecting members by
-       name is keyed access, so the braces are canonical there too. *)
-    let p = match p, Module_types.import_kind_of e with
-      | PList pats, Some _
-        when List.for_all (function PVar _ -> true | _ -> false) pats ->
-        PMap (List.map (function PVar n -> (n, (PVar n : pat)) | _ -> assert false) pats)
-      | _ -> p
-    in
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in
     if fits 0 oneline then oneline

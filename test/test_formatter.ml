@@ -64,15 +64,11 @@ let g = "greet \"%{a}\""|};
 a|}
     {|say "hi"|}
 
-(* Braces are the canonical map syntax; the bracket forms parse but come
-   back in braces, patterns punned where the key names its variable. *)
+(* Braces are the only map syntax; a pattern puns where the key names its
+   variable, and neither form is disturbed by a reformat. *)
 let test_maps_canonicalize_to_braces () =
-  fmt_eq "literal converts"
-    "let m = [x = 1, y = 2]\nm" "let m = {x = 1, y = 2}\nm";
-  fmt_eq "pattern converts and puns"
-    "let f [a = a, b = c] = a\n1" "let f {a, b = c} = a\n1";
-  fmt_eq "import destructure converts"
-    "let [test] = import Test\n1" "let {test} = import Test\n1";
+  fmt_eq "a punnable pattern comes back punned"
+    "let f {a = a, b = c} = a\n1" "let f {a, b = c} = a\n1";
   fmt_eq "Map.empty is left as written"
     "import Map\nlet e = Map.empty\ne" "import Map\nlet e = Map.empty\ne";
   assert_idempotent "brace maps are a fixed point"
@@ -253,12 +249,12 @@ let test_one_armed_if () =
 let test_map_keys_that_are_not_identifiers () =
   Alcotest.(check string) "a key that needs quoting keeps them"
     "let m = {\"content-type\" = 1, \"@type\" = 2, name = 3}\n"
-    (fmt "let m = [\"content-type\" = 1, \"@type\" = 2, name = 3]");
-  Alcotest.(check string) "an identifier key stays bare"
+    (fmt "let m = {\"content-type\" = 1, \"@type\" = 2, name = 3}");
+  Alcotest.(check string) "an identifier key written quoted comes back bare"
     "let m = {name = 1}\n"
-    (fmt "let m = [\"name\" = 1]");
+    (fmt "let m = {\"name\" = 1}");
   ok_after_format "and a pattern with one still matches"
-    "let f x = match x with\n| [\"a-b\" = v] -> v\n| _ -> 0\nf [\"a-b\" = 7]"
+    "let f x = match x with\n| {\"a-b\" = v} -> v\n| _ -> 0\nf {\"a-b\" = 7}"
     "7"
 
 (* Width is measured from the column the text starts at, which is not the
@@ -601,12 +597,12 @@ let test_leading_imports_sorted () =
     "import Env\nimport FS\nimport String\n\
      let u = import CSV\nlet {test} = import Test\nlet x = 1\nx\n"
     (fmt "import String\nlet u = import CSV\nimport FS\n\
-          let [test] = import Test\nimport Env\nlet x = 1\nx");
+          let {test} = import Test\nimport Env\nlet x = 1\nx");
   (* Let-imports are ordinary bindings: two binding the same name rebind,
      and their order is program meaning. *)
   golden "rebinding order kept"
     "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"\n"
-    (fmt "let [parse] = import CSV\nlet [parse] = import TOML\nparse \"x = 1\"");
+    (fmt "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"");
   (* Imports past the leading region stay where they are. *)
   golden "only the leading region"
     "import String\nlet x = 1\nimport FS\nx\n"

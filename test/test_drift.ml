@@ -164,6 +164,21 @@ let test_discovery_pointers () =
   expect_error "unknown member" "import String\nString.frobnicate \"x\""
     "'wand env String' lists its members"
 
+(* ── wand's own past ──────────────────────────────────────────────────────── *)
+
+(* The 0.17 bracket maps. Code that learned wand before the braces landed --
+   or a model trained on it -- still writes `[x = 1]`, and the correction has
+   to be named the same way any other dialect's is. *)
+let test_bracket_maps () =
+  expect_error "bracket map literal" "let m = [x = 1]\nm"
+    "a map is written in braces -- {k = v}, not [k = v]";
+  expect_error "bracket map pattern"
+    "let f x = match x with | [k = v] -> v\nf {k = 1}"
+    "a map pattern is written in braces -- {k = v}, not [k = v]";
+  expect_error "bracket import destructure"
+    "let [parse] = import JSON\nparse \"1\""
+    "an import is destructured with braces"
+
 (* ── Still-legal neighbours ───────────────────────────────────────────────── *)
 
 (* Every drift check sits next to syntax that must keep working. *)
@@ -178,7 +193,11 @@ let test_neighbours_still_parse () =
   ok "globs still lex" "let g = *.wand\ng";
   ok "type variables still lex" "let id x : 'a = x\nid 1";
   ok "subtraction still works" "5 - 2";
-  ok "addition still works" "5 + 2"
+  ok "addition still works" "5 + 2";
+  (* The bracket-map refusal keys on `ident =` after `[`; a name or an
+     equality inside a list is not a map and must stay one. *)
+  ok "a list of names" "let x = 1\n[x, 2]";
+  ok "equality inside a list" "let x = 1\n[x == 1]"
 
 let () =
   Alcotest.run "drift" [
@@ -215,6 +234,9 @@ let () =
       Alcotest.test_case "bash"          `Quick test_bash_interpolation;
       Alcotest.test_case "ruby"          `Quick test_ruby_interpolation;
       Alcotest.test_case "backtick %{"   `Quick test_backtick_literal_percent_brace;
+    ];
+    "wand's own past", [
+      Alcotest.test_case "bracket maps" `Quick test_bracket_maps;
     ];
     "neighbours", [
       Alcotest.test_case "still parse" `Quick test_neighbours_still_parse;

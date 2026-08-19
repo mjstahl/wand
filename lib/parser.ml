@@ -233,12 +233,6 @@ let is_pat_atom_start = function
   | Token.LParen | Token.LBracket | Token.LBrace -> true
   | _ -> false
 
-(* Spans of maps still written in brackets -- `[k = v]` literals and
-   patterns -- for the A-MAP1 migration finding. Reset by parse_program*;
-   a caller that wants them reads the ref straight after parsing, before
-   anything else (an import, another buffer) parses over it. *)
-let bracket_map_locs : Token.loc list ref = ref []
-
 (* A multi-equation definition folded into one binding: synthetic `_p0.._pN`
    parameters and a `Match` over them, one case per equation. Shared by the
    local and top-level binding parsers. *)
@@ -378,7 +372,10 @@ and list_pat_ s =
   (* [ already consumed *)
   if peek s = Token.RBracket then (ignore (advance s); PList [])
   else begin
-    (* Disambiguate: [ident = pat, ...] is PMap; otherwise PList/PCons *)
+    (* `[k = pat]` was a map pattern until 0.17; brackets are lists alone
+       now. Refused with the correction rather than read on as a list,
+       because `k = pat` is no list element and the generic error would
+       point nowhere near the mistake. *)
     let is_map =
       match peek s with
       | Token.Ident _ | Token.String _ ->
@@ -389,26 +386,10 @@ and list_pat_ s =
         result
       | _ -> false
     in
-    if is_map then begin
-      let start_loc = snd s.tokens.(s.pos - 1) in   (* the [ just consumed *)
-      let parse_entry () =
-        let key = match advance s with
-          | Token.Ident k  -> k
-          | Token.String k -> k
-          | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
-        in
-        expect s Token.Eq;
-        (key, pat_ s)
-      in
-      let entries = ref [parse_entry ()] in
-      while peek s = Token.Comma do
-        ignore (advance s); entries := !entries @ [parse_entry ()]
-      done;
-      expect s Token.RBracket;
-      bracket_map_locs :=
-        Token.span_to start_loc (snd s.tokens.(s.pos - 1)) :: !bracket_map_locs;
-      PMap !entries
-    end else begin
+    if is_map then
+      fail_at (snd s.tokens.(s.pos - 1))
+        "a map pattern is written in braces -- {k = v}, not [k = v]"
+    else begin
       let first = pat_ s in
       if peek s = Token.Colon then begin
         ignore (advance s);
@@ -435,9 +416,9 @@ and list_pat_ s =
     end
   end
 
-(* `{status = s, phase}` -- the brace form of a map pattern. A bare
-   identifier puns: the key binds a variable of its own name. A quoted key
-   has no identifier to pun into, so it takes `= pat` like any rename. *)
+(* `{status = s, phase}` -- a map pattern. A bare identifier puns: the key
+   binds a variable of its own name. A quoted key has no identifier to pun
+   into, so it takes `= pat` like any rename. *)
 and brace_map_pat_ s =
   (* { already consumed *)
   if peek s = Token.RBrace then (ignore (advance s); PMap [])
@@ -724,7 +705,8 @@ and list_ s =
   (* [ already consumed *)
   if peek s = Token.RBracket then (ignore (advance s); List [])
   else begin
-    (* Disambiguate: [ident = expr, ...] is MapLit; otherwise List *)
+    (* `[k = v]` was a map until 0.17; brackets are lists alone now. Same
+       refusal as the pattern side, for the same reason. *)
     let is_map =
       match peek s with
       | Token.Ident _ | Token.String _ ->
@@ -735,26 +717,10 @@ and list_ s =
         result
       | _ -> false
     in
-    if is_map then begin
-      let start_loc = snd s.tokens.(s.pos - 1) in   (* the [ just consumed *)
-      let parse_entry () =
-        let key = match advance s with
-          | Token.Ident k  -> k
-          | Token.String k -> k
-          | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
-        in
-        expect s Token.Eq;
-        (key, expr_ 0 s)
-      in
-      let entries = ref [parse_entry ()] in
-      while peek s = Token.Comma do
-        ignore (advance s); entries := !entries @ [parse_entry ()]
-      done;
-      expect s Token.RBracket;
-      bracket_map_locs :=
-        Token.span_to start_loc (snd s.tokens.(s.pos - 1)) :: !bracket_map_locs;
-      MapLit !entries
-    end else begin
+    if is_map then
+      fail_at (snd s.tokens.(s.pos - 1))
+        "a map is written in braces -- {k = v}, not [k = v]"
+    else begin
       let elems = ref [expr_ 0 s] in
       while peek s = Token.Comma do
         ignore (advance s); elems := !elems @ [expr_ 0 s]
@@ -764,9 +730,8 @@ and list_ s =
     end
   end
 
-(* `{x = 1, y = 2}` -- the brace form of a map literal. `{}` is the empty
-   map, sugar for `Map.empty`. Keys are identifiers or quoted strings, as
-   in the bracket form. *)
+(* `{x = 1, y = 2}` -- a map literal. `{}` is the empty map, sugar for
+   `Map.empty`. Keys are identifiers or quoted strings. *)
 and brace_map_ s =
   (* { already consumed *)
   if peek s = Token.RBrace then (ignore (advance s); MapLit [])
@@ -1312,7 +1277,6 @@ let looks_like_manifest s =
   | _ -> false
 
 let parse_program_generic ~on_item tokens =
-  bracket_map_locs := [];
   let s = make tokens in
   let items = ref [] in
   let docs  = ref [] in

@@ -283,7 +283,7 @@ let test_typecheck_source_unsaved_buffer () =
   with_file "wand_cli_util.wand" "let answer = 42" (fun util ->
     let buffer = Filename.concat (Filename.dirname util) "wand_cli_buffer.wand" in
     match Runner.typecheck_source ~path:buffer
-            "let [answer] = import ./wand_cli_util\nanswer" with
+            "let {answer} = import ./wand_cli_util\nanswer" with
     | Ok sc ->
       Alcotest.(check string) "the buffer sees its neighbor" "Int" sc.Runner.sc_type
     | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))

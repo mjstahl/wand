@@ -18,7 +18,6 @@ let test_brace_map_literal () =
   e "brace map" "{x = 1, y = 2}" (MapLit [("x", Int 1); ("y", Int 2)]);
   e "empty map" "{}" (MapLit []);
   e "quoted key" {|{"two words" = 1}|} (MapLit [("two words", Int 1)]);
-  e "same value as brackets" "[x = 1]" (MapLit [("x", Int 1)]);
   e "nested in interpolation" {|"%{f {x = 1}}"|}
     (Interp ([("", App (Var "f", MapLit [("x", Int 1)]))], ""))
 

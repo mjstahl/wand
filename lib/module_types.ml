@@ -121,7 +121,7 @@ let namespace_name_of = function
   | Ast.UserPath path ->
     failwith (Printf.sprintf
       "bare `import %s` does not bind a name; write `let name = import %s` \
-       or destructure it: `let [foo, bar] = import %s`" path path path)
+       or destructure it: `let {foo, bar} = import %s`" path path path)
 
 let strip_located = Ast.strip_located
 
