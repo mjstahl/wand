@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A hung runner should fail in minutes, not sit for GitHub's six-hour
+    # default: a cold-cache toolchain setup fits inside this severalfold,
+    # and setup-ocaml has hung indefinitely (2026-08-19).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
