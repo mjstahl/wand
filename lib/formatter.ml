@@ -44,9 +44,7 @@ let let_keyword = "let"
 
 let name_column indent keyword = indent + String.length keyword + 1
 
-let rec strip_located e = match e with
-  | Located (_, e) -> strip_located e
-  | e -> e
+let strip_located = Ast.strip_located
 
 (* The lexer drops a newline written straight after the opening backtick, so
    whether one was there is not in the text. A literal spanning lines gets
@@ -511,7 +509,6 @@ and emit_app ?col indent e =
       (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
          -> ...)` -- and reads best with its body on the next line, the way
          it would have been written by hand. *)
-      let ind = String.make indent ' ' in
       let inner = String.make (indent + 2) ' ' in
       let rec split_last acc = function
         | [x]     -> (List.rev acc, Some x)
@@ -532,8 +529,7 @@ and emit_app ?col indent e =
           | _ ->
             (* Otherwise one argument per line, under the head. *)
             emit_atom indent head ^ "\n" ^ inner
-            ^ String.concat ("\n" ^ inner) (emit_args (indent + 2))
-            ^ (if ind = "" then "" else ""))
+            ^ String.concat ("\n" ^ inner) (emit_args (indent + 2)))
        | _, None -> oneline)
 
 (* A command's text, with interpolations left as %{...} and nothing quoted. *)
@@ -1013,13 +1009,11 @@ let rstrip_ws raw =
   String.sub raw 0 !j
 
 (* For each item, decide its rendered text and its [start_offset, stop)
-   span. An item falls back to an exact verbatim source slice whenever it
-   contains a follow-up-tier construct (Contract/Handle/RunCmd/RunQuery/
-   Try/RegexLit -- no dedicated formatting rule yet) OR contains a comment
-   inside its own span (multi-equation clauses, or a comment inside a
-   function body): pretty-printing would otherwise have to either drop
-   that comment or relocate it outside the item, so the safe fallback is
-   to leave the whole item exactly as written. *)
+   span. An item falls back to an exact verbatim source slice only when a
+   comment sits inside its own span (multi-equation clauses, or a comment
+   inside a function body): pretty-printing would otherwise have to either
+   drop that comment or relocate it outside the item, so the safe fallback
+   is to leave the whole item exactly as written. *)
 let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.loc) list)
     (comments : comment_tok list) =
   let items = Array.of_list prog.items in

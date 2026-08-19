@@ -57,7 +57,7 @@ and tv = {
    itself carries no effect until it is seeded. *)
 let ( @-> ) a b = TFun (a, b, Effect_row.fresh_row ())
 
-(* `a @! effs $ b` reads "a to b, performing effs". Only the arrow that is
+(* `effs es a b` is "a to b, performing es". Only the arrow that is
    actually applied last carries them: reading a file happens when the path
    *and* the contents have arrived, not when the first argument does. *)
 let effs es a b = TFun (a, b, Effect_row.of_list es)
@@ -894,6 +894,13 @@ let tenv_to_ctor_env (tenv : typedef_env) : env =
 
 (* ── Pattern inference ────────────────────────────────────────────────────── *)
 
+(* Ok and Error are built in rather than declared, so their schemes are made
+   here -- fresh per use, exactly as instantiation would. *)
+let builtin_result_scheme = function
+  | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (t @-> TResult (e, t)))
+  | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (e @-> TResult (e, t)))
+  | _ -> None
+
 let rec unwrap_ctor_type t =
   match repr t with
   | TFun (arg, rest, _) ->
@@ -969,12 +976,9 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     infer_pat tenv tp (TList elem_t) env'
   | PConstr (name, pats) ->
     let ctor_env = tenv_to_ctor_env tenv in
-    let builtin_result_ctor = match name with
-      | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (t @-> TResult (e, t)))
-      | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (e @-> TResult (e, t)))
-      | _       -> None
-    in
-    (match Option.fold ~none:(List.assoc_opt name ctor_env) ~some:Option.some builtin_result_ctor with
+    (match (match builtin_result_scheme name with
+            | Some _ as s -> s
+            | None -> List.assoc_opt name ctor_env) with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
      | Some s ->
        let ctor_t = instantiate s in
@@ -1021,11 +1025,6 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
 let is_wild_pat = function
   | PVar _ | Wild -> true
   | _ -> false
-
-let builtin_result_scheme = function
-  | "Ok"    -> let e = fresh () in let t = fresh () in Some (Mono (t @-> TResult (e, t)))
-  | "Error" -> let e = fresh () in let t = fresh () in Some (Mono (e @-> TResult (e, t)))
-  | _ -> None
 
 (* A generic type like `Option 'a` instantiates to `TApp (TName "Option", arg)`;
    peel the TApp chain down to the underlying type-def name. *)
@@ -1127,17 +1126,15 @@ and render_witness_arg (Witness (name, args) as w : witness) : string =
    an unreachable case in a hand-written match can be deliberate, but a dead
    equation is always a mistake, since nothing about the definition hints
    that an earlier line already answered for it. *)
-let rec strip_loc_expr e = match e with
-  | Located (_, x) -> strip_loc_expr x
-  | x -> x
+let strip_located = Ast.strip_located
 
 let is_equation_group (scrutinee : expr) (arity : int) =
   let synthetic i = Printf.sprintf "_p%d" i in
-  match strip_loc_expr scrutinee with
+  match strip_located scrutinee with
   | Var v when arity = 1 -> v = synthetic 0
   | Tuple vs ->
     List.length vs = arity &&
-    List.for_all2 (fun v i -> match strip_loc_expr v with
+    List.for_all2 (fun v i -> match strip_located v with
       | Var name -> name = synthetic i
       | _ -> false) vs (List.init arity (fun i -> i))
   | _ -> false
@@ -1207,10 +1204,6 @@ let check_exhaustive tenv (scrutinee_t : typ) (pats : pat list) : string option 
   | Some (w :: _) -> Some (render_witness w)
 
 (* ── Expression inference ─────────────────────────────────────────────────── *)
-
-let rec strip_located = function
-  | Located (_, e) -> strip_located e
-  | e -> e
 
 let is_import_expr e = match strip_located e with ImportExpr _ -> true | _ -> false
 
@@ -1298,8 +1291,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (* `Rect (3, 4)` reads naturally but means "apply Rect to a tuple", and
        Rect takes two arguments. The constructor's arity is known here even
        when it was declared in another file, so say what to write. *)
-    (match (let rec strip = function Located (_, e) -> strip e | e -> e in
-            strip f, strip x) with
+    (match strip_located f, strip_located x with
      | Constr name, Tuple es when List.length es > 1 ->
        (match find_ctor_in_tenv tenv name with
         | Some (_, ctor)
@@ -1324,7 +1316,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
          "'%s%s' should be written as './%s%s'" name g name g))
      | _ -> ());
     let tf = infer tenv env f in
-    (match (let rec strip = function Located (_, e) -> strip e | e -> e in strip x) with
+    (match strip_located x with
      | Fn (params, body) ->
        (* Propagate f's expected argument type into a literal lambda
           argument's params before inferring its body, so the body can
@@ -1407,7 +1399,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Match (scrutinee, cases) ->
     let ts       = infer tenv env scrutinee in
     let result_t = fresh () in
-    List.iteri (fun _ (p, guard, body) ->
+    List.iter (fun (p, guard, body) ->
       let env' = infer_pat tenv p ts env in
       (match guard with
        | None   -> ()
@@ -1418,7 +1410,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       match guard with None -> Some p | Some _ -> None) cases in
     (* Phrase failures as equations when this match is a desugared
        multi-equation definition -- `_p0` means nothing to its author. *)
-    let arity = match strip_loc_expr scrutinee with
+    let arity = match strip_located scrutinee with
       | Tuple vs -> List.length vs
       | _ -> 1
     in
@@ -1520,7 +1512,6 @@ let rec infer tenv (env : env) (e : expr) : typ =
        result_t)
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
-    let rec unwrap_loc = function Located (_, x) -> unwrap_loc x | x -> x in
     let lookup_ns ns_name =
       match List.assoc_opt ns_name env with
       | Some (Namespace ns_env) ->
@@ -1539,13 +1530,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
               "namespace '%s' has no member '%s'%s" ns_name label hint)))
       | _ -> None
     in
-    let ns_result = match unwrap_loc e with
+    let ns_result = match strip_located e with
       | Constr ns_name | Var ns_name -> lookup_ns ns_name
       | _ -> None
     in
     (* `Pod.decoder`, when `Pod` is a type rather than a module. Checked after
        the namespace lookup, so a module of the same name keeps its member. *)
-    let derived = match ns_result, unwrap_loc e, label with
+    let derived = match ns_result, strip_located e, label with
       | None, Constr tname, (("decoder" | "encoder") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
@@ -2436,7 +2427,6 @@ let check_manifest (prog : program) (own_env : env) =
           | _ -> Some (name, overlap)
         ) None (List.rev per_binding)
       in
-      let culprit = Option.map (fun (n, _) -> (n, ())) culprit in
       let where = match culprit with
         | Some (name, _) -> Printf.sprintf "'%s' " name
         | None -> ""

@@ -147,7 +147,7 @@ let peek_named_args s =
 
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn"; "fun";
-  "type"; "start"; "import"; "when"; "of"; "and"; "or";
+  "type"; "import"; "when"; "of"; "and"; "or";
   "handle"; "return"
 ]
 
@@ -238,6 +238,24 @@ let is_pat_atom_start = function
    a caller that wants them reads the ref straight after parsing, before
    anything else (an import, another buffer) parses over it. *)
 let bracket_map_locs : Token.loc list ref = ref []
+
+(* A multi-equation definition folded into one binding: synthetic `_p0.._pN`
+   parameters and a `Match` over them, one case per equation. Shared by the
+   local and top-level binding parsers. *)
+let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
+  match eqs with
+  | [(p, b)] -> (p, b)
+  | eqs ->
+    let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
+    let scrutinee = match fresh with
+      | [v] -> Ast.Var v
+      | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
+    in
+    let cases = List.map (fun (pats, body) ->
+      let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
+      (pat, None, body)
+    ) eqs in
+    (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
 
@@ -825,19 +843,7 @@ and parse_fn_binding s name =
       eqs := !eqs @ [(!ps, b)]
     with Exit -> s.pos <- saved; more := false)
   done;
-  match !eqs with
-  | [(ps, b)] -> (ps, b)
-  | eqs ->
-    let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
-    let scrutinee = match fresh with
-      | [v] -> Var v
-      | vs  -> Tuple (List.map (fun v -> Var v) vs)
-    in
-    let cases = List.map (fun (pats, b) ->
-      let pat = match pats with [p] -> p | ps -> PTuple ps in
-      (pat, None, b)
-    ) eqs in
-    (List.map (fun v -> PVar v) fresh, Match (scrutinee, cases))
+  collapse_multi_equation arity !eqs
 
 and let_ s =
   (* let already consumed *)
@@ -1041,21 +1047,6 @@ and parse_handle_ s =
       continue_ := false
   done;
   Ast.Handle (body, !cases)
-
-let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
-  match eqs with
-  | [(p, b)] -> (p, b)
-  | eqs ->
-    let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
-    let scrutinee = match fresh with
-      | [v] -> Ast.Var v
-      | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
-    in
-    let cases = List.map (fun (pats, body) ->
-      let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
-      (pat, None, body)
-    ) eqs in
-    (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
 let build_multi_equation name arity eqs =
   let (p, b) = collapse_multi_equation arity eqs in

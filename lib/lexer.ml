@@ -209,8 +209,7 @@ let read_run_cmd s =
       decr depth;
       if !depth > 0 then (Buffer.add_char buf ')'; loop ())
       else (* closing paren — done *)
-        if !parts = [] then RunCmdRaw ([], Buffer.contents buf)
-        else RunCmdRaw (!parts, Buffer.contents buf)
+        RunCmdRaw (!parts, Buffer.contents buf)
     (* `%{x}` quotes, `%!{x}` splices. Both read the same expression source;
        they differ only in what the evaluator does with the value.
 
@@ -303,7 +302,7 @@ let read_comment s =
 let read_path_body s prefix =
   let buf = Buffer.create 16 in
   Buffer.add_string buf prefix;
-  let has_glob = ref (String.exists (fun c -> c = '*' || c = '?' || c = '[') prefix) in
+  let has_glob = ref (String.exists is_glob_char prefix) in
   let rec loop () =
     if not (is_at_end s) then
       let c = peek s in
@@ -444,7 +443,7 @@ let read_numeric s first_char =
             | None   -> false
           in
           if not (octet_ok first && octet_ok s2 && octet_ok s3 && octet_ok s4) then
-            raise (Fail (Printf.sprintf "invalid IPv4 address: each octet must be 0–255"));
+            raise (Fail "invalid IPv4 address: each octet must be 0–255");
           let ipv4 = Printf.sprintf "%s.%s.%s.%s" first s2 s3 s4 in
           if peek s = '/' && is_digit (peek2 s) then begin
             ignore (advance s);
@@ -457,7 +456,7 @@ let read_numeric s first_char =
              | Some n when n >= 0 && n <= 32 ->
                CIDR (ipv4 ^ "/" ^ prefix_str)
              | _ ->
-               raise (Fail (Printf.sprintf "invalid CIDR prefix: must be 0–32")))
+               raise (Fail "invalid CIDR prefix: must be 0–32"))
           end else
             IPv4 ipv4
         | _ ->

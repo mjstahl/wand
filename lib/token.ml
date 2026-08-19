@@ -85,12 +85,12 @@ type t =
      all. *)
   | RawStr       of string
   | RawInterpStr of (string * string) list * string
-  (* A command's interpolations carry how they are to be inserted: `${x}`
-     quotes the value into one argument, `$!{x}` splices it as shell source.
+  (* A command's interpolations carry how they are to be inserted: `%{x}`
+     quotes the value into one argument, `%!{x}` splices it as shell source.
      `true` is raw. Strings have no such distinction -- there is nothing to
      quote for -- so `InterpStr` keeps its pairs. *)
-  | RunCmdRaw    of (string * string * bool) list * string  (* $(cmd ${var} ...) *)
-  | RunQueryRaw  of (string * string * bool) list * string  (* $?(cmd ${var} ...) *)
+  | RunCmdRaw    of (string * string * bool) list * string  (* $(cmd %{var} ...) *)
+  | RunQueryRaw  of (string * string * bool) list * string  (* $?(cmd %{var} ...) *)
   | Regex        of string * string                  (* r/pattern/flags *)
   (* Delimiters *)
   | LParen             (* ( *)

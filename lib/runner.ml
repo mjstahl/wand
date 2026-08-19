@@ -130,16 +130,17 @@ let attempt f =
   | EvalError _ as e -> Error e
   | Evaluator.Interrupted _ as e -> Error e
 
+let strip_trailing_newline s =
+  let n = String.length s in
+  let i = ref n in
+  while !i > 0 && s.[!i - 1] = '\n' do decr i done;
+  String.sub s 0 !i
+
 let exec_command cmd =
   let (pid, ic) = spawn_in cmd in
   let output = drain_channel ic in
   let status = reap pid [(fun () -> close_in ic)] in
-  let output =
-    let n = String.length output in
-    let i = ref n in
-    while !i > 0 && output.[!i - 1] = '\n' do decr i done;
-    String.sub output 0 !i
-  in
+  let output = strip_trailing_newline output in
   match status with
   | Unix.WEXITED 0   -> output
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
@@ -163,19 +164,11 @@ let exec_command_exit_code cmd =
   | Unix.WSIGNALED _ -> 128
   | Unix.WSTOPPED  _ -> 128
 
-let read_all ic = drain_channel ic
-
-let strip_trailing_newline s =
-  let n = String.length s in
-  let i = ref n in
-  while !i > 0 && s.[!i - 1] = '\n' do decr i done;
-  String.sub s 0 !i
-
 let exec_command_stdin cmd stdin =
   let (pid, ic, oc, ec) = spawn_full cmd in
   output_string oc stdin; close_out oc;
-  let stdout = strip_trailing_newline (read_all ic) in
-  let _stderr = read_all ec in
+  let stdout = strip_trailing_newline (drain_channel ic) in
+  let _stderr = drain_channel ec in
   match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
   | Unix.WEXITED 0   -> stdout
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
@@ -185,8 +178,8 @@ let exec_command_stdin cmd stdin =
 let exec_command_full cmd =
   let (pid, ic, oc, ec) = spawn_full cmd in
   close_out oc;
-  let stdout = strip_trailing_newline (read_all ic) in
-  let stderr = read_all ec in
+  let stdout = strip_trailing_newline (drain_channel ic) in
+  let stderr = drain_channel ec in
   let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
@@ -197,8 +190,8 @@ let exec_command_full cmd =
 let exec_command_full_stdin cmd stdin =
   let (pid, ic, oc, ec) = spawn_full cmd in
   output_string oc stdin; close_out oc;
-  let stdout = strip_trailing_newline (read_all ic) in
-  let stderr = read_all ec in
+  let stdout = strip_trailing_newline (drain_channel ic) in
+  let stderr = drain_channel ec in
   let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
@@ -411,12 +404,6 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("write_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect ("fs_mkdir", VString path) ->
-            Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Unix.mkdir path 0o755; Ok ()
-                     with Unix.Unix_error (e, _, _) -> Error ("mkdir: " ^ Unix.error_message e)) with
-              | Ok ()   -> Effect.Deep.continue    k VUnit
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!mkdir", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rec mkdir_p p =
@@ -560,19 +547,6 @@ let run_with_default_handler (thunk : unit -> value) : value =
                         | Unix.Unix_error (e, _, _) -> Error ("remove: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          | WandEffect (("io_print_err" | "print_err"), v) ->
-            Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              output_string stderr (show_value v);
-              Effect.Deep.continue k VUnit)
-          | WandEffect (("io_println_err" | "println_err"), v) ->
-            Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              output_string stderr (show_value v ^ "\n");
-              Effect.Deep.continue k VUnit)
-          | WandEffect (("io_read_line" | "read_line"), VUnit) ->
-            Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Ok (input_line stdin) with End_of_file -> Error "end of input") with
-              | Ok s    -> Effect.Deep.continue    k (VString s)
-              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("IO!read_all", VUnit) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               Effect.Deep.continue k (VString (In_channel.input_all stdin)))
@@ -619,12 +593,6 @@ type import_env = {
 }
 
 let empty_import_env = { tenv = []; type_env = []; eval_env = [] }
-
-let merge_import_env a b = {
-  tenv     = b.tenv @ a.tenv;
-  type_env = b.type_env @ a.type_env;
-  eval_env = b.eval_env @ a.eval_env;
-}
 
 (* ── Multi-clause merging ─────────────────────────────────────────────────── *)
 

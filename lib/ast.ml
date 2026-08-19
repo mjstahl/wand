@@ -87,8 +87,8 @@ type expr =
      the formatter can give one back as one. *)
   | RawString of string
   | RawInterp of (string * expr) list * string
-  (* A command's interpolations, each saying how it goes in: `${x}` quotes
-     the value into one argument, `$!{x}` splices it as shell source. Kept
+  (* A command's interpolations, each saying how it goes in: `%{x}` quotes
+     the value into one argument, `%!{x}` splices it as shell source. Kept
      apart from `Interp` because a string has no argument boundaries and so
      nothing to quote for. `true` is raw. *)
   | CmdInterp of (string * expr * bool) list * string
@@ -108,6 +108,12 @@ and handle_case =
   | ReturnCase of pat * expr
 
 (* ── Pretty-print ─────────────────────────────────────────────────────────── *)
+
+(* The expression under any `Located` wrappers. Shared here because nearly
+   every stage wants it, and each keeping its own copy is how they drift. *)
+let rec strip_located = function
+  | Located (_, e) -> strip_located e
+  | e -> e
 
 let rec show_pat : pat -> string = function
   | Int n      -> string_of_int n
@@ -137,7 +143,7 @@ let rec show_pat : pat -> string = function
     Printf.sprintf "(%s %s)" c (String.concat ", "
       (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
   | PMap kvs ->
-    "[" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "]"
+    "{" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "}"
 
 let rec show : expr -> string = function
   | Int n      -> string_of_int n
@@ -217,7 +223,7 @@ let rec show : expr -> string = function
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e, raw) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "$!{" else "${");
+      Buffer.add_string buf (if raw then "%!{" else "%{");
       Buffer.add_string buf (show e);
       Buffer.add_char buf '}'
     ) parts;
@@ -242,7 +248,7 @@ let rec show : expr -> string = function
     Printf.sprintf "(with %s as %s -> %s)" (show r) (show_pat p) (show b)
   | Annot (_, e) -> show e
   | MapLit kvs ->
-    "[" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ show e) kvs) ^ "]"
+    "{" ^ String.concat ", " (List.map (fun (k, e) -> k ^ " = " ^ show e) kvs) ^ "}"
 
 and show_cases cs = String.concat " " (List.map show_case cs)
 

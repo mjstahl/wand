@@ -22,10 +22,7 @@ type finding = {
   fix  : fix option;
 }
 
-let rec strip_located e =
-  match e with
-  | Ast.Located (_, x) -> strip_located x
-  | x -> x
+let strip_located = Ast.strip_located
 
 let ends_with s c = String.length s > 0 && s.[String.length s - 1] = c
 

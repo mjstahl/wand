@@ -123,9 +123,7 @@ let namespace_name_of = function
       "bare `import %s` does not bind a name; write `let name = import %s` \
        or destructure it: `let [foo, bar] = import %s`" path path path)
 
-let rec strip_located = function
-  | Ast.Located (_, e) -> strip_located e
-  | e -> e
+let strip_located = Ast.strip_located
 
 let import_kind_of e = match strip_located e with
   | Ast.ImportExpr k -> Some k

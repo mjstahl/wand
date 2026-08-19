@@ -73,6 +73,12 @@ test "gt" (fn t -> t.eq true (3 > 2))
 test "lte" (fn t -> t.eq true (2 <= 2))
 test "gte" (fn t -> t.eq false (3 >= 4))
 
+(* Strings order lexicographically under all four operators -- `<=` and `>=`
+   once accepted only numbers while `<` and `>` took strings too. *)
+test "string lt" (fn t -> t.eq true ("apple" < "banana"))
+test "string lte" (fn t -> t.eq true ("apple" <= "apple"))
+test "string gte" (fn t -> t.eq false ("apple" >= "banana"))
+
 test "and tt" (fn t -> t.eq true (true && true))
 test "and tf" (fn t -> t.eq false (true && false))
 test "or tf" (fn t -> t.eq true (true || false))

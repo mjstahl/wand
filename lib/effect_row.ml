@@ -128,13 +128,13 @@ let union a b =
     Row (labels, ta)
 
 (* Whether `v` appears in `r`'s tail, so unification cannot build a row that
-   contains itself. *)
-let rec occurs v r =
+   contains itself. `tail_of` goes through `repr`, which flattens every
+   bound tail away, so the variable it answers with is always unbound --
+   one comparison decides. *)
+let occurs v r =
   match tail_of r with
   | None -> false
-  | Some v' ->
-    v'.rid = v.rid ||
-    (match v'.rdef with None -> false | Some inner -> occurs v inner)
+  | Some v' -> v'.rid = v.rid
 
 let bind v r =
   if occurs v r then
@@ -241,11 +241,10 @@ let subst_row subst r =
      | Some v' -> Row (labels, Some v')
      | None    -> Row (labels, Some v))
 
-(* Every row variable reachable from `r`, so schemes can quantify them. *)
-let rec free_rowvars r =
+(* Every row variable reachable from `r`, so schemes can quantify them. The
+   tail `tail_of` answers with is always unbound (see `occurs`), so it is
+   the one free variable a row can have. *)
+let free_rowvars r =
   match tail_of r with
   | None -> []
-  | Some v ->
-    (match v.rdef with
-     | None       -> [v.rid]
-     | Some inner -> free_rowvars inner)
+  | Some v -> [v.rid]

@@ -604,8 +604,7 @@ let rec eval (env : env) (e : expr) : value =
     (* A type's derived decoder: `Pod.decoder`. Resolved from the type's own
        definition rather than bound as a value, so it costs nothing until it
        is named and a recursive type can still have one. *)
-    let rec bare x = match x with Located (_, y) -> bare y | y -> y in
-    (match bare e, label with
+    (match strip_located e, label with
      | Constr tname, "decoder" when Hashtbl.mem derivable tname ->
        !derive_decoder tname
      | Constr tname, "encoder" when Hashtbl.mem derivable tname ->
@@ -838,8 +837,7 @@ and apply vf vx =
 and bind_pat ?(prefix = false) (p : pat) v (env : env) : env =
   match try_match ~prefix p v env with
   | Some env' -> env'
-  | None      ->
-    raise (EvalError (Printf.sprintf "pattern match failure"))
+  | None      -> raise (EvalError "pattern match failure")
 
 and eval_match (env : env) sv cases =
   match cases with
@@ -913,11 +911,13 @@ and eval_binop (env : env) op a b : value =
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VBool (x <= y)
      | VFloat x, VFloat y -> VBool (x <= y)
+     | VString x, VString y -> VBool (x <= y)
      | _ -> raise (EvalError "'<=' requires comparable types"))
   | ">=" ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VBool (x >= y)
      | VFloat x, VFloat y -> VBool (x >= y)
+     | VString x, VString y -> VBool (x >= y)
      | _ -> raise (EvalError "'>=' requires comparable types"))
   | "&&" ->
     (match eval env a with
@@ -956,12 +956,6 @@ and eval_binop (env : env) op a b : value =
        let vf = eval env b in
        apply vf va)
   | op -> raise (EvalError (Printf.sprintf "unknown operator '%s'" op))
-
-(* ── Public API ───────────────────────────────────────────────────────────── *)
-
-let eval_expr (e : expr) : (value, string) result =
-  try Ok (eval [] e)
-  with EvalError msg -> Error msg
 
 (* Builtins that reach outside the program perform an effect rather than
    acting directly, so a handler can see, log, or replace what they do.
@@ -1166,6 +1160,39 @@ let path_normalize s =
   else joined
 
 let exe_args_ref : string list ref = ref []
+
+(* One dotenv source into its (key, value) pairs: `export ` stripped, blank
+   and `#` lines skipped, a quoted value unquoted. Shared by
+   `Env.parse_dotenv` and `Env.load_file`, so the two cannot read the same
+   file differently. *)
+let dotenv_pairs src =
+  List.filter_map (fun line ->
+    let line = String.trim line in
+    let line =
+      if String.length line > 7 && String.sub line 0 7 = "export " then
+        String.trim (String.sub line 7 (String.length line - 7))
+      else line
+    in
+    if line = "" || line.[0] = '#' then None
+    else match String.split_on_char '=' line with
+      | [] | [""] -> None
+      | key :: rest ->
+        let key = String.trim key in
+        if key = "" then None
+        else
+          let raw = String.concat "=" rest in
+          let value =
+            let n = String.length raw in
+            if n >= 2 && ((raw.[0] = '"' && raw.[n-1] = '"')
+                       || (raw.[0] = '\'' && raw.[n-1] = '\'')) then
+              String.sub raw 1 (n - 2)
+            else raw
+          in
+          Some (key, value))
+    (String.split_on_char '\n' src)
+
+(* Slurp a file whole; a `Sys_error` is the caller's to catch. *)
+let read_whole_file path = In_channel.with_open_text path In_channel.input_all
 
 (* ── CSV helpers ──────────────────────────────────────────────────────────── *)
 
@@ -2042,33 +2069,8 @@ let stdlib_eval_env : env = [
   (* Env primitives *)
   ("env_read_dotenv", performing "Env!parse_dotenv" (function
     | VString src | VPath src ->
-      let parse_dotenv s =
-        List.filter_map (fun line ->
-          let line = String.trim line in
-          let line =
-            if String.length line > 7 && String.sub line 0 7 = "export " then
-              String.trim (String.sub line 7 (String.length line - 7))
-            else line
-          in
-          if line = "" || line.[0] = '#' then None
-          else match String.split_on_char '=' line with
-            | [] | [""] -> None
-            | key :: rest ->
-              let key = String.trim key in
-              if key = "" then None
-              else
-                let raw = String.concat "=" rest in
-                let value =
-                  let n = String.length raw in
-                  if n >= 2 && ((raw.[0] = '"' && raw.[n-1] = '"')
-                             || (raw.[0] = '\'' && raw.[n-1] = '\'')) then
-                    String.sub raw 1 (n - 2)
-                  else raw
-                in
-                Some (VTuple [VString key; VString value]))
-          (String.split_on_char '\n' s)
-      in
-      VList (parse_dotenv src)
+      VList (List.map (fun (k, v) -> VTuple [VString k; VString v])
+               (dotenv_pairs src))
     | _ -> raise (EvalError "env_read_dotenv: expected String or Path")));
   ("env_load_file", VBuiltin (function
     | VString path | VPath path ->
@@ -2079,36 +2081,12 @@ let stdlib_eval_env : env = [
         | VString s -> s
         | _ -> raise (EvalError "env_load_file: expected file contents")
       in
-      let pairs = List.filter_map (fun line ->
-        let line = String.trim line in
-        let line =
-          if String.length line > 7 && String.sub line 0 7 = "export " then
-            String.trim (String.sub line 7 (String.length line - 7))
-          else line
-        in
-        if line = "" || line.[0] = '#' then None
-        else match String.split_on_char '=' line with
-          | [] | [""] -> None
-          | key :: rest ->
-            let key = String.trim key in
-            if key = "" then None
-            else
-              let raw = String.concat "=" rest in
-              let value =
-                let n = String.length raw in
-                if n >= 2 && ((raw.[0] = '"' && raw.[n-1] = '"')
-                           || (raw.[0] = '\'' && raw.[n-1] = '\'')) then
-                  String.sub raw 1 (n - 2)
-                else raw
-              in
-              Some (key, value))
-        (String.split_on_char '\n' src)
-      in
       (* One env_set per variable, so a rehearsal names each one rather than
          reporting that a file was loaded. *)
       List.iter (fun (k, v) ->
         ignore (Effect.perform
-          (WandEffect ("Env!set", VTuple [VString k; VString v])))) pairs;
+          (WandEffect ("Env!set", VTuple [VString k; VString v]))))
+        (dotenv_pairs src);
       VUnit
     | _ -> raise (EvalError "env_load_file: expected Path")));
 
@@ -2176,11 +2154,7 @@ let stdlib_eval_env : env = [
   ("csv_read_file", VBuiltin (function
     | VString path | VPath path ->
       (try
-        let ic = open_in path in
-        let n = in_channel_length ic in
-        let s = Bytes.create n in
-        really_input ic s 0 n; close_in ic;
-        let rows = csv_parse_string "," (Bytes.to_string s) in
+        let rows = csv_parse_string "," (read_whole_file path) in
         let v = VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows) in
         VConstr ("Ok", [v])
       with Sys_error msg -> VConstr ("Error", [VString msg]))
@@ -2188,11 +2162,7 @@ let stdlib_eval_env : env = [
   ("csv_read_file_exn", VBuiltin (function
     | VString path | VPath path ->
       (try
-        let ic = open_in path in
-        let n = in_channel_length ic in
-        let s = Bytes.create n in
-        really_input ic s 0 n; close_in ic;
-        let rows = csv_parse_string "," (Bytes.to_string s) in
+        let rows = csv_parse_string "," (read_whole_file path) in
         VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows)
       with Sys_error msg -> raise (EvalError ("csv_read_file: " ^ msg)))
     | _ -> raise (EvalError "csv_read_file_exn: expected Path")));
@@ -2313,11 +2283,7 @@ let stdlib_eval_env : env = [
   ("toml_read_file", VBuiltin (function
     | VString path | VPath path ->
       (try
-        let ic = open_in path in
-        let n = in_channel_length ic in
-        let s = Bytes.create n in
-        really_input ic s 0 n; close_in ic;
-        (match Toml.Parser.from_string (Bytes.to_string s) with
+        (match Toml.Parser.from_string (read_whole_file path) with
          | `Ok tbl -> VConstr ("Ok", [VToml (Toml.Types.TTable tbl)])
          | `Error (msg, _) -> VConstr ("Error", [VString msg]))
       with Sys_error msg -> VConstr ("Error", [VString msg]))
@@ -2325,11 +2291,7 @@ let stdlib_eval_env : env = [
   ("toml_read_file_exn", VBuiltin (function
     | VString path | VPath path ->
       (try
-        let ic = open_in path in
-        let n = in_channel_length ic in
-        let s = Bytes.create n in
-        really_input ic s 0 n; close_in ic;
-        (match Toml.Parser.from_string (Bytes.to_string s) with
+        (match Toml.Parser.from_string (read_whole_file path) with
          | `Ok tbl -> VToml (Toml.Types.TTable tbl)
          | `Error (msg, _) -> raise (EvalError ("toml_read_file: " ^ msg)))
       with Sys_error msg -> raise (EvalError ("toml_read_file: " ^ msg)))

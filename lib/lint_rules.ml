@@ -100,10 +100,6 @@ let of_code c =
   | Some r -> Some r.id
   | None   -> None
 
-let kind_name = function
-  | Violation  -> "violation"
-  | Advisory -> "advisory"
-
 (* ── Messages ────────────────────────────────────────────────────────────── *)
 
 (* Each message says what is wrong and what the author probably meant, in
