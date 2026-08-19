@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.1] - 2026-08-19
+
+### Changed
+
+- Change `$()`/`$?()` to exec a command directly when the shell would
+  find nothing to do in it — no operators, expansions, quotes, or
+  builtins — skipping `/bin/sh`'s startup per spawn (~5ms on macOS,
+  whose /bin/sh is bash). Anything shell-shaped still runs through
+  `/bin/sh`, and a missing program reports exit 127 with sh's stderr
+  line on either path (`c678a8e`)
+
+[0.18.1]: https://github.com/mjstahl/wand/releases/tag/v0.18.1
+
 ## [0.18.0] - 2026-08-19
 
 ### Removed

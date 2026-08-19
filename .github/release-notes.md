@@ -1,14 +1,11 @@
-## 0.18.0 - 2026-08-19
+## 0.18.1 - 2026-08-19
 
-Brackets mean lists and nothing else. The pre-0.17 map forms — `[x = 1]`
-literals, `[x = a]` patterns, and `let [test] = import Test` — no longer
-parse.
-
-    a map is written in braces -- {k = v}, not [k = v]
-
-The `A-MAP1` finding retires with the syntax.
-
-`<=` and `>=` order strings, as `<` and `>` always did.
+Running commands got faster. A `$()` in which the shell would find
+nothing to do — no operators, expansions, quotes, or builtins — is
+exec'd directly, skipping `/bin/sh`'s startup on every spawn: 200 spawns
+of a trivial command drop from 1.6s to 0.5s, ahead of the same loop
+written in bash. Anything the shell might act on runs through `/bin/sh`
+exactly as before, and the two are indistinguishable in meaning.
 
 ---
 
