@@ -238,8 +238,8 @@ them. A handler case for either is legal and will never fire.
 ### Changed
 
 - Change hover to render the name on its own line with the type beneath it,
-  so a long signature — an effect row especially — no longer wraps mid-row
-  (`65319f5`)
+  so a long signature — a wide effect set especially — no longer wraps
+  mid-type (`65319f5`)
 - Change the extension to resolve the wand binary itself when `wand.path`
   is the bare default and `PATH` has none: install.sh's `~/.local/bin`,
   then Homebrew's prefixes — a Dock-launched VS Code carries no shell
@@ -288,7 +288,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 ### Added
 
 - Add `wand t --fix`: apply every machine-applicable correction to the file in place — the suggested manifest line, dead imports, corrected lines — re-checking to a fixed point; a parse error, or a type error carrying no fix, refuses the whole run and nothing is written (`2ee9e25`)
-- Add `wand lsp`: the language server, a subcommand on the compiler binary so the editor can never disagree with `wand t`. Diagnostics as you type, hover showing the signature with its effect row plus the doc string, completion (a member of an unimported stdlib module carries its `import` on accept), quick fixes from every finding that knows its correction, whole-document formatting, and go to definition — including into the standard library, opened from the binary as read-only documents (`162ebcd`, `ac3be7f`, `f527cc9`)
+- Add `wand lsp`: the language server, a subcommand on the compiler binary so the editor can never disagree with `wand t`. Diagnostics as you type, hover showing the signature with its effects plus the doc string, completion (a member of an unimported stdlib module carries its `import` on accept), quick fixes from every finding that knows its correction, whole-document formatting, and go to definition — including into the standard library, opened from the binary as read-only documents (`162ebcd`, `ac3be7f`, `f527cc9`)
 - Add editor auto-import: typing `FS.write_file!` in a buffer that has not imported `FS` inserts `import FS` into the sorted block and puts `FS.Write` into the manifest, with no gesture; `Shell` is never changed automatically — those edits stay one visible click away as quick fixes (`ac3be7f`)
 - Add the VS Code extension at `editors/vscode/`: domain literals highlighted as the constants they are, embedded shell highlighting inside `$()`/`$?()` with `%{...}` splices back to wand, and a "Rehearse (dry run)" code lens on the `uses {...}` line; not on the Marketplace yet — its README shows how to build and sideload (`84936e1`)
 

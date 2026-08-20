@@ -28,7 +28,7 @@ let test_display () =
 
 (* ── Closed sets ─────────────────────────────────────────────────────────── *)
 
-let test_closed_rows () =
+let test_closed_sets () =
   unifies "identical" (of_list [Shell; Raise]) (of_list [Raise; Shell]);
   unifies "both empty" pure pure;
   conflicts "different labels" (single Shell) (single Proc);
@@ -82,7 +82,7 @@ let test_information_arrives_after_linking () =
   shows "and the other followed" b "{FS.Read, Shell}";
   Alcotest.(check bool) "both are closed now" true (is_closed b)
 
-let test_three_rows_in_a_chain () =
+let test_three_sets_in_a_chain () =
   let a = unknown () and b = unknown () and c = unknown () in
   unifies "a with b" a b;
   unifies "b with c" b c;
@@ -91,7 +91,7 @@ let test_three_rows_in_a_chain () =
   shows "b" b "{Proc}";
   shows "c" c "{Proc}"
 
-let test_unifying_a_row_with_itself () =
+let test_unifying_a_set_with_itself () =
   let r = add Shell (unknown ()) in
   unifies "a set with itself" r r;
   shows "unchanged" r "{Shell | ..}"
@@ -161,13 +161,13 @@ let () =
       Alcotest.test_case "rendering" `Quick test_display;
     ];
     "unification", [
-      Alcotest.test_case "closed"            `Quick test_closed_rows;
+      Alcotest.test_case "closed"            `Quick test_closed_sets;
       Alcotest.test_case "open takes closed" `Quick test_open_takes_on_closed;
       Alcotest.test_case "open sets link"    `Quick test_open_sets_link;
       Alcotest.test_case "open sets merge"   `Quick test_open_sets_merge_known_labels;
       Alcotest.test_case "late information"  `Quick test_information_arrives_after_linking;
-      Alcotest.test_case "chain of three"    `Quick test_three_rows_in_a_chain;
-      Alcotest.test_case "self-unification"  `Quick test_unifying_a_row_with_itself;
+      Alcotest.test_case "chain of three"    `Quick test_three_sets_in_a_chain;
+      Alcotest.test_case "self-unification"  `Quick test_unifying_a_set_with_itself;
       Alcotest.test_case "recursive equation" `Quick test_same_variable_different_labels;
       Alcotest.test_case "disjoint, one var"  `Quick test_same_variable_disjoint_labels;
       Alcotest.test_case "occurs check"      `Quick test_occurs_check;

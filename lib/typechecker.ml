@@ -349,18 +349,18 @@ let rec repr t =
 
 (* Every effect variable in `t`, with repeats, so display can tell one that
    links two places apart from one that is merely undetermined. *)
-let rec collect_rowvars t =
+let rec collect_evars t =
   match repr t with
   | TFun (a, b, r) ->
-    collect_rowvars a @ collect_rowvars b @ Effect_set.free_vars r
-  | TTuple ts   -> List.concat_map collect_rowvars ts
-  | TList t     -> collect_rowvars t
-  | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
-  | TResource (r, t) -> Effect_set.free_vars r @ collect_rowvars t
-  | TStream (r, t) -> Effect_set.free_vars r @ collect_rowvars t
-  | TDecoder t  -> collect_rowvars t
-  | TMap t      -> collect_rowvars t
-  | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
+    collect_evars a @ collect_evars b @ Effect_set.free_vars r
+  | TTuple ts   -> List.concat_map collect_evars ts
+  | TList t     -> collect_evars t
+  | TResult (e, t) -> collect_evars e @ collect_evars t
+  | TResource (r, t) -> Effect_set.free_vars r @ collect_evars t
+  | TStream (r, t) -> Effect_set.free_vars r @ collect_evars t
+  | TDecoder t  -> collect_evars t
+  | TMap t      -> collect_evars t
+  | TApp (f, a) -> collect_evars f @ collect_evars a
   | _           -> []
 
 let string_of_typ t =
@@ -373,7 +373,7 @@ let string_of_typ t =
       let n = Printf.sprintf "'%c" (Char.chr (Char.code 'a' + !counter)) in
       incr counter; Hashtbl.add names id n; n
   in
-  let linking_rows = collect_rowvars t in
+  let linking_sets = collect_evars t in
   let var_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
   let var_counter = ref 0 in
   let var_name_of rid =
@@ -408,7 +408,7 @@ let string_of_typ t =
       let labels = Effect_set.labels_of eff in
       let var_name =
         match Effect_set.free_vars eff with
-        | [rid] when List.length (List.filter (( = ) rid) linking_rows) > 1 ->
+        | [rid] when List.length (List.filter (( = ) rid) linking_sets) > 1 ->
           Some (var_name_of rid)
         | _ -> None
       in
@@ -660,18 +660,18 @@ let rec free_tvars t =
   | TApp (f, a) -> free_tvars f @ free_tvars a
   | _           -> []
 
-let rec free_rowvars_typ t =
+let rec free_evars_typ t =
   match repr t with
   | TFun (a, b, r) ->
-    free_rowvars_typ a @ free_rowvars_typ b @ Effect_set.free_vars r
-  | TTuple ts   -> List.concat_map free_rowvars_typ ts
-  | TList t     -> free_rowvars_typ t
-  | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
-  | TResource (r, t) -> Effect_set.free_vars r @ free_rowvars_typ t
-  | TStream (r, t) -> Effect_set.free_vars r @ free_rowvars_typ t
-  | TDecoder t  -> free_rowvars_typ t
-  | TMap t      -> free_rowvars_typ t
-  | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
+    free_evars_typ a @ free_evars_typ b @ Effect_set.free_vars r
+  | TTuple ts   -> List.concat_map free_evars_typ ts
+  | TList t     -> free_evars_typ t
+  | TResult (e, t) -> free_evars_typ e @ free_evars_typ t
+  | TResource (r, t) -> Effect_set.free_vars r @ free_evars_typ t
+  | TStream (r, t) -> Effect_set.free_vars r @ free_evars_typ t
+  | TDecoder t  -> free_evars_typ t
+  | TMap t      -> free_evars_typ t
+  | TApp (f, a) -> free_evars_typ f @ free_evars_typ a
   | _           -> []
 
 let free_tvars_scheme = function
@@ -679,16 +679,16 @@ let free_tvars_scheme = function
   | Poly (ids, _, t) -> List.filter (fun id -> not (List.mem id ids)) (free_tvars t)
   | Namespace _      -> []
 
-let free_rowvars_scheme = function
-  | Mono t            -> free_rowvars_typ t
-  | Poly (_, evar_ids, t) -> List.filter (fun id -> not (List.mem id evar_ids)) (free_rowvars_typ t)
+let free_evars_scheme = function
+  | Mono t            -> free_evars_typ t
+  | Poly (_, evar_ids, t) -> List.filter (fun id -> not (List.mem id evar_ids)) (free_evars_typ t)
   | Namespace _       -> []
 
 let free_tvars_env (env : env) =
   List.concat_map (fun (_, s) -> free_tvars_scheme s) env
 
-let free_rowvars_env (env : env) =
-  List.concat_map (fun (_, s) -> free_rowvars_scheme s) env
+let free_evars_env (env : env) =
+  List.concat_map (fun (_, s) -> free_evars_scheme s) env
 
 (* ── Generalization and instantiation ────────────────────────────────────── *)
 
@@ -699,14 +699,14 @@ let generalize (env : env) t =
     |> List.sort_uniq compare
     |> List.filter (fun id -> not (List.mem id env_free))
   in
-  let env_free_rows = free_rowvars_env env in
-  let quantify_rows =
-    free_rowvars_typ t
+  let env_free_evars = free_evars_env env in
+  let quantify_evars =
+    free_evars_typ t
     |> List.sort_uniq compare
-    |> List.filter (fun id -> not (List.mem id env_free_rows))
+    |> List.filter (fun id -> not (List.mem id env_free_evars))
   in
-  if quantify = [] && quantify_rows = [] then Mono t
-  else Poly (quantify, quantify_rows, t)
+  if quantify = [] && quantify_evars = [] then Mono t
+  else Poly (quantify, quantify_evars, t)
 
 (* ── Reading a scheme back from a cache ───────────────────────────────────
    A scheme carries unification variables, and `instantiate` tells them apart

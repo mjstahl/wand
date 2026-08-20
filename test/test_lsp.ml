@@ -193,7 +193,7 @@ let test_hover_stdlib_member () =
 
 (* The flagship: the signature that can't lie, with its effect set, for a
    member the buffer has not even imported yet. *)
-let test_hover_shows_effect_row () =
+let test_hover_shows_effects () =
   let (_, outs) =
     session [did_open uri "FS.write_file! /tmp/x \"hi\"\n";
              at_position 12 "textDocument/hover" uri 0 4]
@@ -487,7 +487,7 @@ let () =
     ];
     "hover", [
       Alcotest.test_case "stdlib member"   `Quick test_hover_stdlib_member;
-      Alcotest.test_case "effect set"      `Quick test_hover_shows_effect_row;
+      Alcotest.test_case "effect set"      `Quick test_hover_shows_effects;
       Alcotest.test_case "broken recheck"  `Quick test_hover_survives_a_broken_recheck;
       Alcotest.test_case "nothing"         `Quick test_hover_on_nothing;
       Alcotest.test_case "parameter"       `Quick test_hover_on_a_parameter;

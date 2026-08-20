@@ -19,7 +19,7 @@ examples. Most tasks need only one part.
 - `lib/` — the pipeline, one stage per module:
   - `token.ml`, `lexer.ml` — tokens and lexing, including domain literals (paths, globs, durations, sizes) and the string/command interpolation forms.
   - `parser.ml`, `ast.ml` — recursive-descent parser. Newlines end statements only at bracket depth 0; a definition ends at the end of its line.
-  - `typechecker.ml`, `effect_row.ml` — Hindley-Milner inference extended with effect rows (the seven labels below); manifests are checked against inferred effects here.
+  - `typechecker.ml`, `effect_set.ml` — Hindley-Milner inference extended with effect sets (the seven labels below); manifests are checked against inferred effects here.
   - `evaluator.ml` — tree-walking interpreter; effect handlers, `Par`, signals, shell execution.
   - `lint.ml`, `lint_rules.ml` — the `V-*`/`A-*` rules `wand t` reports.
   - `formatter.ml` — `wand f`; comments are never dropped or restyled.
