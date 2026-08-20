@@ -16,11 +16,11 @@ let check_edits name expected edits =
 let scheme_with labels =
   Typechecker.Mono
     (Typechecker.TFun (Typechecker.TString, Typechecker.TString,
-                       Effect_row.of_list labels))
+                       Effect_set.of_list labels))
 
 let fake_sig = function
-  | "FS" -> Some ([("write_file!", scheme_with [Effect_row.FsWrite; Effect_row.Raise])], [])
-  | "Sh" -> Some ([("run!", scheme_with [Effect_row.Shell; Effect_row.Raise])], [])
+  | "FS" -> Some ([("write_file!", scheme_with [Effect_set.FsWrite; Effect_set.Raise])], [])
+  | "Sh" -> Some ([("run!", scheme_with [Effect_set.Shell; Effect_set.Raise])], [])
   | "List" -> Some ([("map", scheme_with [])], [])
   | _ -> None
 

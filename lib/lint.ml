@@ -51,11 +51,11 @@ let rec informationless_error (t : Typechecker.typ) =
   | _ -> false
 
 (* Whether any arrow in the type can raise. A curried function's arrows share
-   one row, so it does not matter which is asked. *)
+   one effect set, so it does not matter which is asked. *)
 let rec type_raises (t : Typechecker.typ) =
   match Typechecker.repr t with
   | Typechecker.TFun (a, b, r) ->
-    Effect_row.mem Effect_row.Raise r || type_raises a || type_raises b
+    Effect_set.mem Effect_set.Raise r || type_raises a || type_raises b
   | Typechecker.TTuple ts -> List.exists type_raises ts
   | Typechecker.TList t | Typechecker.TMap t -> type_raises t
   | Typechecker.TResult (e, t) -> type_raises e || type_raises t
@@ -290,10 +290,10 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
      that covers the opposite case. *)
   (match !Typechecker.last_manifest with
    | Some (declared, inferred, loc) ->
-     let unused = Effect_row.EffSet.diff declared inferred in
-     if not (Effect_row.EffSet.is_empty unused) then begin
+     let unused = Effect_set.EffSet.diff declared inferred in
+     if not (Effect_set.EffSet.is_empty unused) then begin
        let corrected =
-         if Effect_row.EffSet.is_empty inferred then None
+         if Effect_set.EffSet.is_empty inferred then None
          else
            Some (Typechecker.render_manifest
                    ?shell:(Typechecker.shell_suggestion ()) inferred)
@@ -302,7 +302,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          Lint_rules.A_USES1 loc
          (Lint_rules.uses1
             ~unused:(String.concat ", "
-              (List.map Effect_row.name_of (Effect_row.EffSet.elements unused)))
+              (List.map Effect_set.name_of (Effect_set.EffSet.elements unused)))
             ~corrected)
      end
      else begin
@@ -336,7 +336,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
      (* No manifest at all. A file that reaches outside itself is told what
         it could declare; a file that does not has nothing to say. *)
      let performs = !Typechecker.last_file_effects in
-     if not (Effect_row.EffSet.is_empty performs) then
+     if not (Effect_set.EffSet.is_empty performs) then
        let corrected =
          Typechecker.render_manifest
            ?shell:(Typechecker.shell_suggestion ()) performs in
@@ -344,7 +344,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          Lint_rules.A_USES2 (Token.point 1 1 0)
          (Lint_rules.uses2
             ~performs:(String.concat ", "
-              (List.map Effect_row.name_of (Effect_row.EffSet.elements performs)))
+              (List.map Effect_set.name_of (Effect_set.EffSet.elements performs)))
             ~corrected));
   List.stable_sort (fun a b ->
     match compare a.loc.Token.line b.loc.Token.line with

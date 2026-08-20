@@ -475,7 +475,7 @@ let test_functions () =
   expr_is "const" "fn x -> fn y -> x" "'a -> 'b -> 'a";
   expr_is "flip" "fn x -> fn y -> y" "'a -> 'b -> 'b";
   (* Applying a function performs whatever that function performs, so the
-     row variable links the argument to the result. *)
+     effect variable links the argument to the result. *)
   expr_is "compose" "fn f -> fn x -> f x" "('a -> 'b ! 'e) -> 'a -> 'b ! 'e"
 
 let test_application () =
@@ -721,7 +721,7 @@ let test_handler_discharges_its_operation () =
        "fn () -> handle $(git push) with\n| Shell!run _ k -> k \"ok\"")
 
 (* The Raise that survives above is $()'s own check on a non-zero exit, which
-   a handler supplying the output does prevent -- but a row records which
+   a handler supplying the output does prevent -- but an effect set records which
    effects occurred, not which operation caused them, and the same Raise is
    indistinguishable from one a raising call inside the body performed.
    Discharging it would therefore drop that one too, so it stays. Keeping an
@@ -870,13 +870,13 @@ let test_manifest_labels_of_member () =
   in
   let labels s =
     Typechecker.manifest_labels_of_scheme s
-    |> Effect_row.EffSet.elements |> List.map Effect_row.name_of
+    |> Effect_set.EffSet.elements |> List.map Effect_set.name_of
   in
   Alcotest.(check (list string)) "write_file! implies FS.Write, not Raise"
     ["FS.Write"] (labels (member "FS" "write_file!"));
   Alcotest.(check (list string)) "read_file implies FS.Read"
     ["FS.Read"] (labels (member "FS" "read_file"));
-  Alcotest.(check (list string)) "a polymorphic row commits to nothing"
+  Alcotest.(check (list string)) "a polymorphic effect set commits to nothing"
     [] (labels (member "List" "map"));
   Alcotest.(check (list string)) "a namespace itself commits to nothing"
     [] (labels (List.assoc "FS" env))

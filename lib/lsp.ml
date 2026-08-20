@@ -272,7 +272,7 @@ let describe_operation name : (string * string option) option =
   match Typechecker.find_operation name with
   | None -> None
   | Some op ->
-    let effect_name = Effect_row.name_of op.Typechecker.op_effect in
+    let effect_name = Effect_set.name_of op.Typechecker.op_effect in
     let detail =
       match op.Typechecker.op_types () with
       | Some (payload, resume) ->
@@ -362,8 +362,8 @@ let describe_local (d : doc) word line0 : (string * string option) option =
        Option.bind locals (List.assoc_opt word)
        |> Option.map (fun t -> (t, None))
 
-(* The name on its own line, the type under it: long signatures (effect
-   rows especially) stay readable instead of wrapping mid-row. *)
+(* The name on its own line, the type under it: long signatures (a wide
+   effect set especially) stay readable instead of wrapping mid-type. *)
 let hover_markdown word (typ, doc) =
   let head =
     if typ = "module" then Printf.sprintf "```wand\nmodule %s\n```" word

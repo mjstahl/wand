@@ -89,7 +89,7 @@
  (libraries wand alcotest))
 
 (test
- (name test_effect_row)
+ (name test_effect_set)
  (libraries wand alcotest))
 
 (test

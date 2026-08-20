@@ -10,15 +10,15 @@ open Wand
    here without anyone remembering to add it. *)
 
 let outside_world_effects =
-  [Effect_row.Shell; Effect_row.FsRead; Effect_row.FsWrite;
-   Effect_row.Env; Effect_row.Proc]
+  [Effect_set.Shell; Effect_set.FsRead; Effect_set.FsWrite;
+   Effect_set.Env; Effect_set.Proc]
 
 (* The effects a builtin's signature claims, ignoring Raise: raising is not
    an interaction with the outside world and nothing intercepts it. *)
 let rec claimed_effects (t : Typechecker.typ) =
   match Typechecker.repr t with
   | Typechecker.TFun (a, b, r) ->
-    List.filter (fun e -> Effect_row.mem e r) outside_world_effects
+    List.filter (fun e -> Effect_set.mem e r) outside_world_effects
     @ claimed_effects a @ claimed_effects b
   | _ -> []
 
@@ -78,7 +78,7 @@ let test_effectful_builtins_are_interceptable () =
             | _ -> false) [0; 1; 2; 3]
         in
         if not performed then
-          offenders := (name, List.map Effect_row.name_of effects) :: !offenders
+          offenders := (name, List.map Effect_set.name_of effects) :: !offenders
       end
   ) Typechecker.stdlib_type_env;
   match !offenders with

@@ -224,8 +224,8 @@ let edits_for ~sig_of ~text refs : edit list =
   let labels =
     List.sort_uniq compare
       (List.concat_map (fun (_, scheme) ->
-         List.map Effect_row.name_of
-           (Effect_row.EffSet.elements
+         List.map Effect_set.name_of
+           (Effect_set.EffSet.elements
               (Typechecker.manifest_labels_of_scheme scheme)))
          usable)
   in

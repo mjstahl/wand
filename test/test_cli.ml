@@ -271,7 +271,7 @@ let test_typecheck_file_reports_holes () =
     match Runner.typecheck_file path with
     | Ok sc ->
       Alcotest.(check int) "one hole" 1 (List.length sc.Runner.sc_holes);
-      (* The row variable says the function filling the hole may perform
+      (* The effect variable says the function filling the hole may perform
          effects of its own -- fold_left passes through whatever it is given. *)
       Alcotest.(check string) "with its inferred type" "Int -> Int -> Int ! 'e"
         (List.hd sc.Runner.sc_holes)

@@ -185,7 +185,7 @@ let test_every_module_is_listed_in_contents () =
       (String.concat "\n  " missing)
 
 (* The reference's table of interceptable operations, which had fallen four
-   behind the binary before anything enumerated them. Each row reads
+   behind the binary before anything enumerated them. Each line reads
    `| `FS` | `read_file`, ... |`, so the family and the backticked verbs on
    that line rebuild the `Family!verb` names to compare. *)
 let documented_operations () =

@@ -238,7 +238,7 @@ exception EvalError of string
    now fails the way `1 / 0` does.
 
    A runtime error, not the Raise effect. Overflow is possible in any `+`, so
-   making it an effect would put Raise in the row of every function that adds
+   making it an effect would put Raise on every function that adds
    two numbers, which says nothing about that function -- the same reason
    division by zero is a runtime error today. *)
 let overflow op =
@@ -1233,7 +1233,7 @@ let csv_parse_string sep src =
     row := Buffer.contents field :: !row;
     Buffer.clear field
   in
-  let commit_row () =
+  let commit () =
     commit_field ();
     rows := List.rev !row :: !rows;
     row := []
@@ -1258,13 +1258,13 @@ let csv_parse_string sep src =
     end else if c = sep_char then begin
       commit_field (); incr i
     end else if c = '\n' then begin
-      commit_row (); incr i
+      commit (); incr i
     end else begin
       Buffer.add_char field c; incr i
     end
   done;
   (* commit trailing content (file may not end with newline) *)
-  if Buffer.length field > 0 || !row <> [] then commit_row ();
+  if Buffer.length field > 0 || !row <> [] then commit ();
   List.rev !rows
 
 let csv_stringify_rows sep rows =

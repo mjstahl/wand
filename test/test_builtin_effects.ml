@@ -65,8 +65,8 @@ let performed_ops src =
 let labels_of_ops ops =
   List.fold_left (fun acc op ->
     match Typechecker.effect_of_operation op with
-    | Some e -> Effect_row.EffSet.add e acc
-    | None   -> acc) Effect_row.EffSet.empty ops
+    | Some e -> Effect_set.EffSet.add e acc
+    | None   -> acc) Effect_set.EffSet.empty ops
 
 let declared_labels name =
   match List.assoc_opt name Typechecker.stdlib_type_env with
@@ -74,8 +74,8 @@ let declared_labels name =
   | None -> None
 
 let show set =
-  Effect_row.EffSet.elements set
-  |> List.map Effect_row.name_of
+  Effect_set.EffSet.elements set
+  |> List.map Effect_set.name_of
   |> String.concat ", "
 
 (* Without this the suite passes by finding nothing to check. *)
@@ -106,8 +106,8 @@ let test_declared_covers_performed () =
     | None -> ()  (* not a primitive with hand-written effects; nothing to check *)
     | Some declared ->
       let performed = labels_of_ops ops in
-      let missing = Effect_row.EffSet.diff performed declared in
-      if not (Effect_row.EffSet.is_empty missing) then
+      let missing = Effect_set.EffSet.diff performed declared in
+      if not (Effect_set.EffSet.is_empty missing) then
         Alcotest.failf
           "%s performs %s but declares only %s -- missing %s.\n\
            A file calling it would typecheck without declaring %s."
@@ -121,7 +121,7 @@ let test_env_load_file_declares_fs_read () =
   | Some declared ->
     Alcotest.(check bool)
       "env_load_file reads a file, so it declares FS.Read" true
-      (Effect_row.EffSet.mem Effect_row.FsRead declared)
+      (Effect_set.EffSet.mem Effect_set.FsRead declared)
 
 let () =
   Alcotest.run "Builtin effects" [

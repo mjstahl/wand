@@ -191,7 +191,7 @@ let test_hover_stdlib_member () =
     Alcotest.(check int) "range end" 24
       (int_of (m "character" (m "end" range)))
 
-(* The flagship: the signature that can't lie, with its effect row, for a
+(* The flagship: the signature that can't lie, with its effect set, for a
    member the buffer has not even imported yet. *)
 let test_hover_shows_effect_row () =
   let (_, outs) =
@@ -202,7 +202,7 @@ let test_hover_shows_effect_row () =
   | `Null -> Alcotest.fail "expected a hover"
   | result ->
     let value = s (m "value" (m "contents" result)) in
-    Alcotest.(check bool) "the effect row is in the signature" true
+    Alcotest.(check bool) "the effect set is in the signature" true
       (contains value "FS.Write")
 
 let test_hover_survives_a_broken_recheck () =
@@ -487,7 +487,7 @@ let () =
     ];
     "hover", [
       Alcotest.test_case "stdlib member"   `Quick test_hover_stdlib_member;
-      Alcotest.test_case "effect row"      `Quick test_hover_shows_effect_row;
+      Alcotest.test_case "effect set"      `Quick test_hover_shows_effect_row;
       Alcotest.test_case "broken recheck"  `Quick test_hover_survives_a_broken_recheck;
       Alcotest.test_case "nothing"         `Quick test_hover_on_nothing;
       Alcotest.test_case "parameter"       `Quick test_hover_on_a_parameter;

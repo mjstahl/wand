@@ -18,7 +18,7 @@ type typ =
   | TPath | TGlob | TDate | TTime | TDateTime | TDuration
   | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TVar    of tv
-  | TFun    of typ * typ * Effect_row.row  (* arg, result, effects of calling *)
+  | TFun    of typ * typ * Effect_set.t  (* arg, result, effects of calling *)
   | TTuple  of typ list
   | TList   of typ
   | TResult of typ * typ  (* error type, value type *)
@@ -26,15 +26,15 @@ type typ =
   | TApp    of typ * typ  (* user-defined generic type application *)
   | TRegex
   (* A resource: how to acquire an 'a and give it back, and what doing
-     either performs. The row is carried rather than hidden -- a bracket
+     either performs. The effects are carried rather than hidden -- a bracket
      that concealed its own effects would let a file take a lock and
      report a signature that never mentions it. *)
-  | TResource of Effect_row.row * typ
-  (* A stream: an inert description of a source and its stages, whose row
-     is what a terminal operation performs when it reads the source. Like
+  | TResource of Effect_set.t * typ
+  (* A stream: an inert description of a source and its stages, whose
+     effects are what a terminal operation performs when it reads the source. Like
      a Resource, it describes; it is never the open thing. *)
-  | TStream of Effect_row.row * typ
-  (* How to read an 'a out of data that arrived untyped. No row: decoding is
+  | TStream of Effect_set.t * typ
+  (* How to read an 'a out of data that arrived untyped. No effects: decoding is
      a function from something already read, so a decoder that could perform
      effects would be a second way to run a script's I/O. *)
   | TDecoder of typ
@@ -55,12 +55,12 @@ and tv = {
 (* Builtin signatures are written with `@->` so the tables stay readable.
    Every builtin's *own* latent effect is filled in separately; the arrow
    itself carries no effect until it is seeded. *)
-let ( @-> ) a b = TFun (a, b, Effect_row.fresh_row ())
+let ( @-> ) a b = TFun (a, b, Effect_set.unknown ())
 
 (* `effs es a b` is "a to b, performing es". Only the arrow that is
    actually applied last carries them: reading a file happens when the path
    *and* the contents have arrived, not when the first argument does. *)
-let effs es a b = TFun (a, b, Effect_row.of_list es)
+let effs es a b = TFun (a, b, Effect_set.of_list es)
 
 (* ── Fresh variable generation ────────────────────────────────────────────── *)
 
@@ -94,7 +94,7 @@ let rec pat_is_refutable (p : pat) =
 
    Evaluation is strict and left to right, so the effects of an expression
    are just the union of everything evaluated along the way -- which an
-   accumulator expresses directly, rather than threading a row out of all
+   accumulator expresses directly, rather than threading a set out of all
    forty-nine cases of `infer` and unioning it back together by hand.
 
    Only two places touch it: applying a function adds that function's latent
@@ -102,17 +102,17 @@ let rec pat_is_refutable (p : pat) =
    function performs nothing. *)
 (* A scope's effects start undetermined rather than empty: a function that
    performs nothing of its own still passes on whatever its arguments do,
-   and an open row is what lets that be generalised into effect
+   and an open set is what lets that be generalised into effect
    polymorphism. *)
-let current_eff : Effect_row.row ref = ref (Effect_row.fresh_row ())
+let current_eff : Effect_set.t ref = ref (Effect_set.unknown ())
 
-let performs r = current_eff := Effect_row.absorb ~ambient:!current_eff r
+let performs r = current_eff := Effect_set.absorb ~ambient:!current_eff r
 
 (* Run `f` with its own effect accumulator, returning what it performed
    alongside its result and leaving the enclosing accumulator untouched. *)
 let scoped_eff f =
   let saved = !current_eff in
-  current_eff := Effect_row.fresh_row ();
+  current_eff := Effect_set.unknown ();
   let result = (try f () with e -> current_eff := saved; raise e) in
   let inner = !current_eff in
   current_eff := saved;
@@ -184,7 +184,7 @@ let fresh_num () =
    it is standing, so it performs `FS!cwd`) is not repeated here. *)
 type operation = {
   op_name : string;
-  op_effect : Effect_row.eff;
+  op_effect : Effect_set.eff;
   (* Payload and resume types, behind a thunk: two operations answer with a
      fresh type variable, and every mention has to get its own or the first
      handler in a file would pin the rest. `None` leaves both open. *)
@@ -195,7 +195,7 @@ type operation = {
 let operations : operation list =
   let path = TPath and str = TString in
   let t p r = fun () -> Some (p, r) in
-  let open Effect_row in
+  let open Effect_set in
   [
     (* Reading. *)
     { op_name = "FS!read_file"; op_effect = FsRead; op_types = t path str;
@@ -347,17 +347,17 @@ let rec repr t =
 
 (* ── string_of_typ ────────────────────────────────────────────────────────── *)
 
-(* Every row variable in `t`, with repeats, so display can tell a row that
+(* Every effect variable in `t`, with repeats, so display can tell one that
    links two places apart from one that is merely undetermined. *)
 let rec collect_rowvars t =
   match repr t with
   | TFun (a, b, r) ->
-    collect_rowvars a @ collect_rowvars b @ Effect_row.free_rowvars r
+    collect_rowvars a @ collect_rowvars b @ Effect_set.free_vars r
   | TTuple ts   -> List.concat_map collect_rowvars ts
   | TList t     -> collect_rowvars t
   | TResult (e, t) -> collect_rowvars e @ collect_rowvars t
-  | TResource (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
-  | TStream (r, t) -> Effect_row.free_rowvars r @ collect_rowvars t
+  | TResource (r, t) -> Effect_set.free_vars r @ collect_rowvars t
+  | TStream (r, t) -> Effect_set.free_vars r @ collect_rowvars t
   | TDecoder t  -> collect_rowvars t
   | TMap t      -> collect_rowvars t
   | TApp (f, a) -> collect_rowvars f @ collect_rowvars a
@@ -374,17 +374,17 @@ let string_of_typ t =
       incr counter; Hashtbl.add names id n; n
   in
   let linking_rows = collect_rowvars t in
-  let row_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
-  let row_counter = ref 0 in
-  let row_name_of rid =
-    match Hashtbl.find_opt row_names rid with
+  let var_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
+  let var_counter = ref 0 in
+  let var_name_of rid =
+    match Hashtbl.find_opt var_names rid with
     | Some n -> n
     | None   ->
       (* Written like a type variable, because that is what it is: one that
          ranges over effects rather than types. *)
-      let n = if !row_counter = 0 then "'e"
-              else Printf.sprintf "'e%d" !row_counter in
-      incr row_counter; Hashtbl.add row_names rid n; n
+      let n = if !var_counter = 0 then "'e"
+              else Printf.sprintf "'e%d" !var_counter in
+      incr var_counter; Hashtbl.add var_names rid n; n
   in
   let rec go t =
     match repr t with
@@ -400,24 +400,24 @@ let string_of_typ t =
     | TName n   -> n
     | TVar tv   -> if tv.numeric then "Num" else name_of tv.id
     | TFun (a, b, eff) ->
-      (* A row prints when it says something. Known effects always do. A row
+      (* A set prints when it says something. Known effects always do. A set
          variable does only when it appears more than once, because then it
          is linking argument to result -- `List.map`'s says the list is
          processed with whatever effects the given function has. A variable
          appearing once means "undetermined", which is not information. *)
-      let labels = Effect_row.labels_of eff in
+      let labels = Effect_set.labels_of eff in
       let var_name =
-        match Effect_row.free_rowvars eff with
+        match Effect_set.free_vars eff with
         | [rid] when List.length (List.filter (( = ) rid) linking_rows) > 1 ->
-          Some (row_name_of rid)
+          Some (var_name_of rid)
         | _ -> None
       in
       let names =
         String.concat ", "
-          (List.map Effect_row.name_of (Effect_row.EffSet.elements labels))
+          (List.map Effect_set.name_of (Effect_set.EffSet.elements labels))
       in
       let suffix =
-        match Effect_row.EffSet.is_empty labels, var_name with
+        match Effect_set.EffSet.is_empty labels, var_name with
         | true,  None   -> ""
         | true,  Some v -> " ! " ^ v
         (* An unnamed tail is one that appears once: undetermined, and so
@@ -427,7 +427,7 @@ let string_of_typ t =
       in
       let sa = match repr a with TFun _ -> "(" ^ go a ^ ")" | _ -> go a in
       let rendered_b = go b in
-      (* Each arrow of a curried function has its own row, but partial
+      (* Each arrow of a curried function has its own effects, but partial
          application ties them to the same one, so a chain would otherwise
          repeat itself: `a -> b -> c ! e ! e`. Print it once. *)
       let ends_with s suf =
@@ -455,13 +455,13 @@ let string_of_typ t =
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
         | _ -> go x
       in
-      "Resource " ^ Effect_row.string_of_row r ^ " " ^ wrap t
+      "Resource " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TStream (r, t) ->
       let wrap x = match repr x with
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
         | _ -> go x
       in
-      "Stream " ^ Effect_row.string_of_row r ^ " " ^ wrap t
+      "Stream " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TDecoder t ->
       let s = match repr t with
         | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
@@ -546,18 +546,18 @@ let rec unify t1 t2 =
   | TFun (a1, res1, eff1), TFun (a2, res2, eff2) ->
     unify a1 a2; unify res1 res2;
     (* Two functions are the same only if calling them does the same. A
-       row conflict is a type error like any other. *)
-    (try Effect_row.unify eff1 eff2
-     with Effect_row.RowError msg -> raise (TypeError msg))
+       conflict in effects is a type error like any other. *)
+    (try Effect_set.unify eff1 eff2
+     with Effect_set.Mismatch msg -> raise (TypeError msg))
   | TTuple ts1, TTuple ts2 when List.length ts1 = List.length ts2 ->
     List.iter2 unify ts1 ts2
   | TList t1,   TList t2   -> unify t1 t2
   | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
   | TResource (r1, t1), TResource (r2, t2) ->
-    Effect_row.unify r1 r2; unify t1 t2
+    Effect_set.unify r1 r2; unify t1 t2
   | TStream (r1, t1), TStream (r2, t2) ->
-    (try Effect_row.unify r1 r2
-     with Effect_row.RowError msg -> raise (TypeError msg));
+    (try Effect_set.unify r1 r2
+     with Effect_set.Mismatch msg -> raise (TypeError msg));
     unify t1 t2
   | TDecoder t1, TDecoder t2 -> unify t1 t2
   | TMap t1,    TMap t2    -> unify t1 t2
@@ -570,7 +570,7 @@ let rec unify t1 t2 =
 
 type scheme =
   | Mono of typ
-  | Poly of int list * int list * typ   (* type vars, row vars, body *)
+  | Poly of int list * int list * typ   (* type vars, effect vars, body *)
   | Namespace of env
 
 and env = (string * scheme) list
@@ -663,12 +663,12 @@ let rec free_tvars t =
 let rec free_rowvars_typ t =
   match repr t with
   | TFun (a, b, r) ->
-    free_rowvars_typ a @ free_rowvars_typ b @ Effect_row.free_rowvars r
+    free_rowvars_typ a @ free_rowvars_typ b @ Effect_set.free_vars r
   | TTuple ts   -> List.concat_map free_rowvars_typ ts
   | TList t     -> free_rowvars_typ t
   | TResult (e, t) -> free_rowvars_typ e @ free_rowvars_typ t
-  | TResource (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
-  | TStream (r, t) -> Effect_row.free_rowvars r @ free_rowvars_typ t
+  | TResource (r, t) -> Effect_set.free_vars r @ free_rowvars_typ t
+  | TStream (r, t) -> Effect_set.free_vars r @ free_rowvars_typ t
   | TDecoder t  -> free_rowvars_typ t
   | TMap t      -> free_rowvars_typ t
   | TApp (f, a) -> free_rowvars_typ f @ free_rowvars_typ a
@@ -681,7 +681,7 @@ let free_tvars_scheme = function
 
 let free_rowvars_scheme = function
   | Mono t            -> free_rowvars_typ t
-  | Poly (_, rids, t) -> List.filter (fun id -> not (List.mem id rids)) (free_rowvars_typ t)
+  | Poly (_, evar_ids, t) -> List.filter (fun id -> not (List.mem id evar_ids)) (free_rowvars_typ t)
   | Namespace _       -> []
 
 let free_tvars_env (env : env) =
@@ -720,7 +720,7 @@ let generalize (env : env) t =
    a single entry even when they collide across entries. *)
 let refresh_scheme (sch : scheme) : scheme =
   let tmap : (int, typ) Hashtbl.t = Hashtbl.create 16 in
-  let rmap : (int, Effect_row.rowvar) Hashtbl.t = Hashtbl.create 16 in
+  let evar_map : (int, Effect_set.evar) Hashtbl.t = Hashtbl.create 16 in
   let tvar_for (tv : tv) =
     match Hashtbl.find_opt tmap tv.id with
     | Some t -> t
@@ -728,28 +728,28 @@ let refresh_scheme (sch : scheme) : scheme =
       let t = if tv.numeric then fresh_num () else fresh () in
       Hashtbl.add tmap tv.id t; t
   in
-  let rowvar_for (v : Effect_row.rowvar) =
-    match Hashtbl.find_opt rmap v.Effect_row.rid with
+  let var_for (v : Effect_set.evar) =
+    match Hashtbl.find_opt evar_map v.Effect_set.id with
     | Some v' -> v'
     | None ->
-      let v' = Effect_row.fresh_rowvar () in
-      Hashtbl.add rmap v.Effect_row.rid v'; v'
+      let v' = Effect_set.fresh_var () in
+      Hashtbl.add evar_map v.Effect_set.id v'; v'
   in
-  let row r =
-    let (Effect_row.Row (labels, tail)) = Effect_row.repr r in
+  let effects r =
+    let (Effect_set.Set (labels, tail)) = Effect_set.repr r in
     match tail with
-    | None -> Effect_row.Row (labels, None)
-    | Some v -> Effect_row.Row (labels, Some (rowvar_for v))
+    | None -> Effect_set.Set (labels, None)
+    | Some v -> Effect_set.Set (labels, Some (var_for v))
   in
   let rec go t =
     match repr t with
     | TVar tv -> tvar_for tv
-    | TFun (a, b, r) -> TFun (go a, go b, row r)
+    | TFun (a, b, r) -> TFun (go a, go b, effects r)
     | TTuple ts -> TTuple (List.map go ts)
     | TList t -> TList (go t)
     | TResult (e, t) -> TResult (go e, go t)
-    | TResource (r, t) -> TResource (row r, go t)
-    | TStream (r, t) -> TStream (row r, go t)
+    | TResource (r, t) -> TResource (effects r, go t)
+    | TStream (r, t) -> TStream (effects r, go t)
     | TDecoder t -> TDecoder (go t)
     | TMap t -> TMap (go t)
     | TApp (f, a) -> TApp (go f, go a)
@@ -759,7 +759,7 @@ let refresh_scheme (sch : scheme) : scheme =
   match sch with
   | Namespace _ -> sch
   | Mono t -> Mono (go t)
-  | Poly (ids, rids, t) ->
+  | Poly (ids, evar_ids, t) ->
     let body = go t in
     let ids' = List.filter_map (fun id ->
       (* A quantified id was replaced while walking the body; one that
@@ -770,20 +770,20 @@ let refresh_scheme (sch : scheme) : scheme =
       | None ->
         let t = fresh () in
         Hashtbl.add tmap id t; id_of t) ids in
-    let rids' =
+    let evar_ids' =
       List.map (fun rid ->
-        match Hashtbl.find_opt rmap rid with
-        | Some v -> v.Effect_row.rid
+        match Hashtbl.find_opt evar_map rid with
+        | Some v -> v.Effect_set.id
         | None ->
-          let v = Effect_row.fresh_rowvar () in
-          Hashtbl.add rmap rid v; v.Effect_row.rid) rids
+          let v = Effect_set.fresh_var () in
+          Hashtbl.add evar_map rid v; v.Effect_set.id) evar_ids
     in
-    Poly (ids', rids', body)
+    Poly (ids', evar_ids', body)
 
 let instantiate = function
   | Namespace _ -> TUnit
   | Mono t -> t
-  | Poly (ids, rids, t) ->
+  | Poly (ids, evar_ids, t) ->
     (* Replacements are made per variable rather than precomputed per id,
        so a numeric variable's replacement is numeric too -- the record
        being replaced is what knows. *)
@@ -795,17 +795,17 @@ let instantiate = function
         let t' = if tv.numeric then fresh_num () else fresh () in
         Hashtbl.add tbl tv.id t'; t'
     in
-    let rsubst = List.map (fun id -> (id, Effect_row.fresh_rowvar ())) rids in
+    let evar_subst = List.map (fun id -> (id, Effect_set.fresh_var ())) evar_ids in
     let rec inst t =
       match repr t with
       | TVar tv ->
         if List.mem tv.id ids then subst_for tv else TVar tv
-      | TFun (a, b, r) -> TFun (inst a, inst b, Effect_row.subst_row rsubst r)
+      | TFun (a, b, r) -> TFun (inst a, inst b, Effect_set.subst evar_subst r)
       | TTuple ts   -> TTuple (List.map inst ts)
       | TList t     -> TList (inst t)
       | TResult (e, t) -> TResult (inst e, inst t)
-      | TResource (r, t) -> TResource (Effect_row.subst_row rsubst r, inst t)
-      | TStream (r, t) -> TStream (Effect_row.subst_row rsubst r, inst t)
+      | TResource (r, t) -> TResource (Effect_set.subst evar_subst r, inst t)
+      | TStream (r, t) -> TStream (Effect_set.subst evar_subst r, inst t)
       | TDecoder t  -> TDecoder (inst t)
       | TMap t      -> TMap (inst t)
       | TApp (f, a) -> TApp (inst f, inst a)
@@ -876,7 +876,7 @@ let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
       (match Hashtbl.find_opt vars name with
        | Some t -> t
        | None -> let t = fresh () in Hashtbl.add vars name t; t)
-    | TEFun (a, b) -> TFun (go a, go b, Effect_row.fresh_row ())
+    | TEFun (a, b) -> TFun (go a, go b, Effect_set.unknown ())
     | TETuple ts    -> TTuple (List.map go ts)
     | TEApp (TEName "List", arg)   -> TList   (go arg)
     | TEApp (TEName "Decoder", arg) -> TDecoder (go arg)
@@ -904,7 +904,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
              "type variable ''%s' is not declared as a parameter of type '%s'"
              name tname)))
       | TEName _ as te -> type_of_te te
-      | TEFun (a, b) -> TFun (conv a, conv b, Effect_row.fresh_row ())
+      | TEFun (a, b) -> TFun (conv a, conv b, Effect_set.unknown ())
       | TETuple ts -> TTuple (List.map conv ts)
       | TEApp (TEName "List", arg)   -> TList   (conv arg)
       | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
@@ -1369,7 +1369,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
           raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
             name (Util.hint name (List.map fst ctor_env))))))
   (* $NAME reads the environment. *)
-  | EnvVar _ -> performs (Effect_row.single Effect_row.Env); TString
+  | EnvVar _ -> performs (Effect_set.single Effect_set.Env); TString
   | Hole ->
     let t = fresh () in
     holes := t :: !holes;
@@ -1387,19 +1387,19 @@ let rec infer tenv (env : env) (e : expr) : typ =
         (ts @ [t], infer_pat tenv p t env)
       ) ([], env) params
     in
-    let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
-    let body_row =
+    let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
+    let body_effects =
       if List.exists pat_is_refutable params
-      then Effect_row.add Effect_row.Raise body_row
-      else body_row
+      then Effect_set.add Effect_set.Raise body_effects
+      else body_effects
     in
     (* Only the innermost arrow carries the body's effects: supplying one
        argument of a curried function does nothing until the last one
        arrives. *)
     let rec build = function
       | []      -> body_t
-      | [t]     -> TFun (t, body_t, body_row)
-      | t :: tl -> TFun (t, build tl, Effect_row.fresh_row ())
+      | [t]     -> TFun (t, body_t, body_effects)
+      | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
     in
     build param_ts
   | App (f, x) ->
@@ -1440,34 +1440,34 @@ let rec infer tenv (env : env) (e : expr) : typ =
           known from how this call site uses it. *)
        let param_ts = List.map (fun _ -> fresh ()) params in
        let body_result_t = fresh () in
-       let arg_row = Effect_row.fresh_row () in
+       let arg_effects = Effect_set.unknown () in
        let fn_arg_t =
          let rec build = function
            | []      -> body_result_t
-           | [t]     -> TFun (t, body_result_t, arg_row)
-           | t :: tl -> TFun (t, build tl, Effect_row.fresh_row ())
+           | [t]     -> TFun (t, body_result_t, arg_effects)
+           | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
          in
          build param_ts
        in
        let tr = fresh () in
-       let latent = Effect_row.fresh_row () in
+       let latent = Effect_set.unknown () in
        unify tf (TFun (fn_arg_t, tr, latent));
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
-       let (body_t, body_row) = scoped_eff (fun () -> infer tenv env' body) in
-    let body_row =
+       let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
+    let body_effects =
       if List.exists pat_is_refutable params
-      then Effect_row.add Effect_row.Raise body_row
-      else body_row
+      then Effect_set.add Effect_set.Raise body_effects
+      else body_effects
     in
        unify body_t body_result_t;
-       (try Effect_row.unify arg_row body_row
-        with Effect_row.RowError msg -> raise (TypeError msg));
+       (try Effect_set.unify arg_effects body_effects
+        with Effect_set.Mismatch msg -> raise (TypeError msg));
        performs latent;
        tr
      | _ ->
        let tx = infer tenv env x in
        let tr = fresh () in
-       let latent = Effect_row.fresh_row () in
+       let latent = Effect_set.unknown () in
        unify tf (TFun (tx, tr, latent));
        performs latent;
        tr)
@@ -1670,14 +1670,14 @@ let rec infer tenv (env : env) (e : expr) : typ =
                  there is nothing for a type of its own to carry. *)
               let result =
                 if which = "decoder" then TDecoder applied
-                else TFun (applied, TJson, Effect_row.pure)
+                else TFun (applied, TJson, Effect_set.pure)
               in
               Some (List.fold_right (fun v acc ->
                 let arg =
                   if which = "decoder" then TDecoder v
-                  else TFun (v, TJson, Effect_row.pure)
+                  else TFun (v, TJson, Effect_set.pure)
                 in
-                TFun (arg, acc, Effect_row.pure)) vars result)
+                TFun (arg, acc, Effect_set.pure)) vars result)
             | Error why ->
               raise (TypeError (Printf.sprintf
                 "type '%s' has no derived %s: %s" tname which why)))
@@ -1766,28 +1766,28 @@ let rec infer tenv (env : env) (e : expr) : typ =
      a ShellResult instead, so it cannot. *)
   | RunCmd    (e, _)  ->
     unify (infer tenv env e) TString;
-    performs (Effect_row.of_list [Effect_row.Shell; Effect_row.Raise]);
+    performs (Effect_set.of_list [Effect_set.Shell; Effect_set.Raise]);
     TString
   | RunQuery  (e, _)  ->
     unify (infer tenv env e) TString;
-    performs (Effect_row.single Effect_row.Shell);
+    performs (Effect_set.single Effect_set.Shell);
     TName "ShellResult"
   | RegexLit  _       -> TRegex
   | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
   | Handle (body_expr, cases) ->
-    let (body_t, body_row) = scoped_eff (fun () -> infer tenv env body_expr) in
+    let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env body_expr) in
     (* An case intercepts an operation, so the handled expression no longer
        performs it: handling process_run is what makes a deploy script
        testable with the network unplugged, and the signature should say so. *)
     let discharged =
-      List.fold_left (fun row case ->
+      List.fold_left (fun effects case ->
         match case with
         | Ast.EffectCase (op, _, _, _) ->
           (match effect_of_operation op with
-           | Some e -> Effect_row.remove e row
-           | None   -> row)
-        | Ast.ReturnCase _ -> row
-      ) body_row cases
+           | Some e -> Effect_set.remove e effects
+           | None   -> effects)
+        | Ast.ReturnCase _ -> effects
+      ) body_effects cases
     in
     performs discharged;
     let result_t = fresh () in
@@ -1813,8 +1813,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
         let env' = infer_pat tenv arg_pat arg_t env in
         (* Resuming a handler's continuation runs the rest of the handled
            expression, whose effects the handler is in the middle of
-           deciding, so its row is left to inference. *)
-        let cont_t = TFun (cont_arg_t, result_t, Effect_row.fresh_row ()) in
+           deciding, so its effects are left to inference. *)
+        let cont_t = TFun (cont_arg_t, result_t, Effect_set.unknown ()) in
         let env'' = (cont_name, Mono cont_t) :: env' in
         unify result_t (infer tenv env'' case_body)
     ) cases;
@@ -1841,24 +1841,24 @@ let rec infer tenv (env : env) (e : expr) : typ =
     body_t
   | Try e ->
     (* try turns a raise into a Result, so Raise does not escape it.
-       Subtracting from an open row can only remove what is already known:
+       Subtracting from an open set can only remove what is already known:
        if the body's effects are still undetermined here, a Raise that
-       surfaces later stays in the row. That over-reports rather than
+       surfaces later stays in the set. That over-reports rather than
        hiding an effect, which is the direction that keeps a signature
        trustworthy. *)
-    let (t, row) = scoped_eff (fun () -> infer tenv env e) in
-    performs (Effect_row.remove Effect_row.Raise row);
+    let (t, effects) = scoped_eff (fun () -> infer tenv env e) in
+    performs (Effect_set.remove Effect_set.Raise effects);
     TResult (TString, t)
   | With (resource, p, body) ->
     (* The resource says what acquiring and releasing perform; the bracket
        performs all of it, plus whatever the body does. Nothing here is
        discharged -- a bracket is not a handler, it just guarantees the
-       release runs -- so every row is folded into the enclosing scope and
+       release runs -- so every one is folded into the enclosing scope and
        a file that takes a lock says so in its signature. *)
     let held = fresh () in
-    let row = Effect_row.fresh_row () in
-    unify (infer tenv env resource) (TResource (row, held));
-    performs row;
+    let effects = Effect_set.unknown () in
+    unify (infer tenv env resource) (TResource (effects, held));
+    performs effects;
     let env' = infer_pat tenv p held env in
     infer tenv env' body
   | Annot (te, e) ->
@@ -1916,7 +1916,7 @@ and infer_binop tenv (env : env) op a b : typ =
      | _ ->
        let tb = infer tenv env b in
        let tr = fresh () in
-       let latent = Effect_row.fresh_row () in
+       let latent = Effect_set.unknown () in
        unify tb (TFun (ta, tr, latent));
        performs latent;
        tr)
@@ -1933,15 +1933,15 @@ let infer_expr (e : expr) : (typ, string) result =
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
-  ("print",      let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
-  ("println",    let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
-  ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_row.Proc] (TInt) (a)));
-  ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_row.Raise] (TUnit) (a)));
+  ("print",      let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
+  ("println",    let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
+  ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_set.Proc] (TInt) (a)));
+  ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TUnit) (a)));
   (* A file is named by a Path, like every other filesystem operation. These
      two took a String, so a script holding a Path had to convert away from
      the domain type at the one boundary the domain type is for. *)
-  ("read_file",  generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TString)));
-  ("write_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
+  ("read_file",  generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TString)));
+  ("write_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TString @-> TUnit))));
   (* String primitives *)
   ("str_length",     generalize [] ((TString @-> TInt)));
   ("str_upper",      generalize [] ((TString @-> TString)));
@@ -1986,71 +1986,71 @@ let stdlib_type_env : env = [
   ("regex_split",       generalize [] ((TRegex @-> (TString @-> TList TString))));
   ("regex_find_all",    generalize [] ((TRegex @-> (TString @-> TList TString))));
   ("resource_make",
-   (* Acquire and release share one row: a resource performs what either of
+   (* Acquire and release share one set: a resource performs what either of
       them performs, and `with` folds that into its caller. *)
    let a = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TFun (TUnit, a, e),
-            TFun (TFun (a, TUnit, e), TResource (e, a), Effect_row.pure),
-            Effect_row.pure)));
-  (* Stream primitives. A source's row is what enumerating it performs --
-     open (a tail variable), so a terminal operation's closure row can join
-     it; the terminals share one row with the stream and the closure, the
+            TFun (TFun (a, TUnit, e), TResource (e, a), Effect_set.pure),
+            Effect_set.pure)));
+  (* Stream primitives. A source's effects are what enumerating it performs
+     -- open (a tail variable), so a terminal operation's closure can join
+     it; the terminals share one set with the stream and the closure, the
      same sharing resource_make uses. Construction itself is pure:
      nothing is read until a terminal operation. *)
   ("fs_stream_lines",
-   let r = Effect_row.Row
-       (Effect_row.EffSet.of_list [Effect_row.FsRead; Effect_row.Raise],
-        Some (Effect_row.fresh_rowvar ())) in
-   generalize [] (TFun (TPath, TStream (r, TString), Effect_row.pure)));
+   let r = Effect_set.Set
+       (Effect_set.EffSet.of_list [Effect_set.FsRead; Effect_set.Raise],
+        Some (Effect_set.fresh_var ())) in
+   generalize [] (TFun (TPath, TStream (r, TString), Effect_set.pure)));
   ("io_stdin_lines",
-   let r = Effect_row.Row
-       (Effect_row.EffSet.of_list [Effect_row.IO; Effect_row.Raise],
-        Some (Effect_row.fresh_rowvar ())) in
-   generalize [] (TFun (TUnit, TStream (r, TString), Effect_row.pure)));
+   let r = Effect_set.Set
+       (Effect_set.EffSet.of_list [Effect_set.IO; Effect_set.Raise],
+        Some (Effect_set.fresh_var ())) in
+   generalize [] (TFun (TUnit, TStream (r, TString), Effect_set.pure)));
   ("stream_of_list",
    let a = fresh () in
-   let r = Effect_row.fresh_row () in
-   generalize [] (TFun (TList a, TStream (r, a), Effect_row.pure)));
+   let r = Effect_set.unknown () in
+   generalize [] (TFun (TList a, TStream (r, a), Effect_set.pure)));
   ("stream_map",
    let a = fresh () and b = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TFun (a, b, e),
-            TFun (TStream (e, a), TStream (e, b), Effect_row.pure),
-            Effect_row.pure)));
+            TFun (TStream (e, a), TStream (e, b), Effect_set.pure),
+            Effect_set.pure)));
   ("stream_filter",
    let a = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TFun (a, TBool, e),
-            TFun (TStream (e, a), TStream (e, a), Effect_row.pure),
-            Effect_row.pure)));
+            TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
+            Effect_set.pure)));
   ("stream_take",
    let a = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TInt,
-            TFun (TStream (e, a), TStream (e, a), Effect_row.pure),
-            Effect_row.pure)));
+            TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
+            Effect_set.pure)));
   ("stream_fold",
    let acc = fresh () and b = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TFun (acc, TFun (b, acc, e), e),
-            TFun (acc, TFun (TStream (e, b), acc, e), Effect_row.pure),
-            Effect_row.pure)));
+            TFun (acc, TFun (TStream (e, b), acc, e), Effect_set.pure),
+            Effect_set.pure)));
   ("stream_each",
    let a = fresh () and b = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize []
      (TFun (TFun (a, b, e),
             TFun (TStream (e, a), TUnit, e),
-            Effect_row.pure)));
+            Effect_set.pure)));
   ("stream_to_list",
    let a = fresh () in
-   let e = Effect_row.fresh_row () in
+   let e = Effect_set.unknown () in
    generalize [] (TFun (TStream (e, a), TList a, e)));
   ("regex_compile",     generalize [] ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
@@ -2078,51 +2078,51 @@ let stdlib_type_env : env = [
   ("path_of_string",      generalize [] ((TString @-> TPath)));
   ("path_components",     generalize [] ((TPath @-> TList TString)));
   (* FS primitives *)
-  ("fs_exists",  generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_is_file", generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_is_dir",  generalize [] (effs [Effect_row.FsRead] (TPath) (TBool)));
-  ("fs_mkdir",   generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_ls",      generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TList TPath)));
-  ("fs_remove",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_append",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TString @-> TUnit))));
-  ("fs_create",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) (TUnit)));
-  ("fs_temp_file", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) ((TString @-> TPath))));
-  ("fs_temp_dir",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TString) TPath));
-  ("fs_delete_tree", generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) TUnit));
-  ("fs_rename",  generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
-  ("fs_copy",    generalize [] (effs [Effect_row.FsWrite; Effect_row.Raise] (TPath) ((TPath @-> TUnit))));
-  ("fs_cwd",     generalize [] (effs [Effect_row.FsRead] (TUnit) (TPath)));
-  ("fs_mtime",   generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TDateTime)));
-  ("fs_size",    generalize [] (effs [Effect_row.FsRead; Effect_row.Raise] (TPath) (TInt)));
-  ("fs_glob",    generalize [] (effs [Effect_row.FsRead] (TGlob) ((TPath @-> TList TPath))));
+  ("fs_exists",  generalize [] (effs [Effect_set.FsRead] (TPath) (TBool)));
+  ("fs_is_file", generalize [] (effs [Effect_set.FsRead] (TPath) (TBool)));
+  ("fs_is_dir",  generalize [] (effs [Effect_set.FsRead] (TPath) (TBool)));
+  ("fs_mkdir",   generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TUnit)));
+  ("fs_ls",      generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TList TPath)));
+  ("fs_remove",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TUnit)));
+  ("fs_append",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TString @-> TUnit))));
+  ("fs_create",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TUnit)));
+  ("fs_temp_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) ((TString @-> TPath))));
+  ("fs_temp_dir",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) TPath));
+  ("fs_delete_tree", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) TUnit));
+  ("fs_rename",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_copy",    generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));
+  ("fs_cwd",     generalize [] (effs [Effect_set.FsRead] (TUnit) (TPath)));
+  ("fs_mtime",   generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TDateTime)));
+  ("fs_size",    generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TInt)));
+  ("fs_glob",    generalize [] (effs [Effect_set.FsRead] (TGlob) ((TPath @-> TList TPath))));
   (* IO primitives *)
-  ("io_print_err",   generalize [] (effs [Effect_row.IO] (TString) (TUnit)));
-  ("io_println_err", generalize [] (effs [Effect_row.IO] (TString) (TUnit)));
-  ("io_read_line",   generalize [] (effs [Effect_row.IO; Effect_row.Raise] (TUnit) (TString)));
-  ("io_read_all",    generalize [] (effs [Effect_row.IO; Effect_row.Raise] (TUnit) (TString)));
-  ("io_flush",       generalize [] (effs [Effect_row.IO] (TUnit) (TUnit)));
+  ("io_print_err",   generalize [] (effs [Effect_set.IO] (TString) (TUnit)));
+  ("io_println_err", generalize [] (effs [Effect_set.IO] (TString) (TUnit)));
+  ("io_read_line",   generalize [] (effs [Effect_set.IO; Effect_set.Raise] (TUnit) (TString)));
+  ("io_read_all",    generalize [] (effs [Effect_set.IO; Effect_set.Raise] (TUnit) (TString)));
+  ("io_flush",       generalize [] (effs [Effect_set.IO] (TUnit) (TUnit)));
   (* Process primitives *)
-  ("process_run",       generalize [] (effs [Effect_row.Shell; Effect_row.Raise] (TString) (TString)));
-  ("process_run_quiet", generalize [] (effs [Effect_row.Shell] (TString) (TUnit)));
-  ("process_exit_code", generalize [] (effs [Effect_row.Shell] (TString) (TInt)));
+  ("process_run",       generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TString) (TString)));
+  ("process_run_quiet", generalize [] (effs [Effect_set.Shell] (TString) (TUnit)));
+  ("process_exit_code", generalize [] (effs [Effect_set.Shell] (TString) (TInt)));
   (* Env primitives *)
-  ("env_read_dotenv", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TList (TTuple [TString; TString]))));
+  ("env_read_dotenv", generalize [] (effs [Effect_set.Env; Effect_set.Raise] (TString) (TList (TTuple [TString; TString]))));
   (* Reads the file and sets each variable, so it performs FS.Read as well as
      Env and has to declare both. It declared only Env for long enough that a
      file whose whole manifest was `uses {Env}` could read any path on disk
      and typecheck, with A-USES1 advising the honest manifest be trimmed back
      to the lie. The sibling `Env.read!` is written in wand over `read_file`
      and inferred, which is why it was right all along. *)
-  ("env_load_file",   generalize [] (effs [Effect_row.Env; Effect_row.FsRead; Effect_row.Raise] (TPath) (TUnit)));
+  ("env_load_file",   generalize [] (effs [Effect_set.Env; Effect_set.FsRead; Effect_set.Raise] (TPath) (TUnit)));
   (* CSV primitives *)
   ("csv_parse",         generalize [] ((TString @-> (TString @-> TList (TList TString)))));
   ("csv_stringify",     generalize [] ((TString @-> (TList (TList TString) @-> TString))));
   (* JSON primitives *)
   ("json_parse",         generalize [] ((TString @-> TResult (TString, TJson))));
-  ("json_parse_exn",     generalize [] (effs [Effect_row.Raise] (TString) (TJson)));
+  ("json_parse_exn",     generalize [] (effs [Effect_set.Raise] (TString) (TJson)));
   ("json_stringify",     generalize [] ((TJson @-> TString)));
   ("json_stringify_pretty", generalize [] ((TJson @-> TString)));
-  ("json_field_exn",     generalize [] (effs [Effect_row.Raise] (TString) ((TJson @-> TJson))));
+  ("json_field_exn",     generalize [] (effs [Effect_set.Raise] (TString) ((TJson @-> TJson))));
   ("json_null",         Mono TJson);
   ("json_of_bool",      generalize [] ((TBool @-> TJson)));
   ("json_of_int",       generalize [] ((TInt @-> TJson)));
@@ -2140,7 +2140,7 @@ let stdlib_type_env : env = [
   ("json_field",        generalize [] ((TString @-> (TJson @-> TResult (TString, TJson)))));
   (* Decoder primitives.
      Decoding is pure by construction: the functions a decoder is built from
-     carry the empty row, so a decoder cannot read a file or run a command on
+     carry the empty set, so a decoder cannot read a file or run a command on
      the way past. Getting the data is the caller's job and already says so
      in the caller's signature. *)
   ("decode_int",      Mono (TDecoder TInt));
@@ -2175,11 +2175,11 @@ let stdlib_type_env : env = [
                         (TDecoder a @-> TDecoder (TApp (TName "Option", a))));
   ("decode_map2",     let a = fresh () in let b = fresh () in let c = fresh () in
                       generalize []
-                        (TFun (a, TFun (b, c, Effect_row.pure), Effect_row.pure)
+                        (TFun (a, TFun (b, c, Effect_set.pure), Effect_set.pure)
                          @-> (TDecoder a @-> (TDecoder b @-> TDecoder c))));
   ("decode_and_then", let a = fresh () in let b = fresh () in
                       generalize []
-                        (TFun (a, TDecoder b, Effect_row.pure)
+                        (TFun (a, TDecoder b, Effect_set.pure)
                          @-> (TDecoder a @-> TDecoder b)));
   ("decode_one_of",   let a = fresh () in
                       generalize [] (TList (TDecoder a) @-> TDecoder a));
@@ -2198,12 +2198,12 @@ let stdlib_type_env : env = [
   ("csv_rows",        let a = fresh () in
                       generalize []
                         (TDecoder a @-> (TString @-> TResult (TString, TList a))));
-  (* Par primitives. The row on the last arrow is the same variable as the
+  (* Par primitives. The effects on the last arrow are the same variable as the
      one on the supplied function, so calling par_map performs exactly what
      that function performs -- the work happens inside, where inference
      cannot otherwise see it. *)
   ("par_map",  let a = fresh () in let b = fresh () in
-               let e = Effect_row.fresh_row () in
+               let e = Effect_set.unknown () in
                generalize [] (TInt @-> (TFun (a, b, e)
                  @-> TFun (TList a, TList (TResult (TString, b)), e))));
   (* Like `List.each`, what the worker returns is dropped: a command run for
@@ -2211,12 +2211,12 @@ let stdlib_type_env : env = [
      call site with a discard that said nothing. *)
   ("par_each", let a = fresh () in
                let b = fresh () in
-               let e = Effect_row.fresh_row () in
+               let e = Effect_set.unknown () in
                generalize [] (TInt @-> (TFun (a, b, e)
                  @-> TFun (TList a, TUnit, e))));
   (* TOML primitives *)
   ("toml_parse",        generalize [] ((TString @-> TResult (TString, TToml))));
-  ("toml_parse_exn",    generalize [] (effs [Effect_row.Raise] (TString) (TToml)));
+  ("toml_parse_exn",    generalize [] (effs [Effect_set.Raise] (TString) (TToml)));
   ("toml_stringify",    generalize [] ((TToml @-> TString)));
   ("toml_is_table",     generalize [] ((TToml @-> TBool)));
   ("toml_is_array",     generalize [] ((TToml @-> TBool)));
@@ -2227,17 +2227,17 @@ let stdlib_type_env : env = [
   ("toml_get_array",    generalize [] ((TToml @-> TResult (TString, (TList TToml)))));
   ("toml_get_table",    generalize [] ((TToml @-> TResult (TString, (TMap TToml)))));
   ("toml_field",        generalize [] ((TString @-> (TToml @-> TResult (TString, TToml)))));
-  ("toml_field_exn",    generalize [] (effs [Effect_row.Raise] (TString) ((TToml @-> TToml))));
-  ("env_get_exn", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TString)));
-  ("env_set",     generalize [] (effs [Effect_row.Env] (TString) ((TString @-> TUnit))));
-  ("env_clear",   generalize [] (effs [Effect_row.Env] (TString) (TUnit)));
-  ("env_all",     generalize [] (effs [Effect_row.Env] (TUnit) (TList (TTuple [TString; TString]))));
-  ("env_args",    generalize [] (effs [Effect_row.Env] (TUnit) (TList TString)));
-  ("env_home",    generalize [] (effs [Effect_row.Env] (TUnit) (TPath)));
-  ("env_user",    generalize [] (effs [Effect_row.Env] (TUnit) (TString)));
+  ("toml_field_exn",    generalize [] (effs [Effect_set.Raise] (TString) ((TToml @-> TToml))));
+  ("env_get_exn", generalize [] (effs [Effect_set.Env; Effect_set.Raise] (TString) (TString)));
+  ("env_set",     generalize [] (effs [Effect_set.Env] (TString) ((TString @-> TUnit))));
+  ("env_clear",   generalize [] (effs [Effect_set.Env] (TString) (TUnit)));
+  ("env_all",     generalize [] (effs [Effect_set.Env] (TUnit) (TList (TTuple [TString; TString]))));
+  ("env_args",    generalize [] (effs [Effect_set.Env] (TUnit) (TList TString)));
+  ("env_home",    generalize [] (effs [Effect_set.Env] (TUnit) (TPath)));
+  ("env_user",    generalize [] (effs [Effect_set.Env] (TUnit) (TString)));
   (* List primitives *)
   ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TResult (TString, a)))));
-  ("list_get_exn", let a = fresh () in generalize [] (TInt @-> effs [Effect_row.Raise] (TList a) (a)));
+  ("list_get_exn", let a = fresh () in generalize [] (TInt @-> effs [Effect_set.Raise] (TList a) (a)));
   ("list_sort",    let a = fresh () in generalize [] ((TList a @-> TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
                    generalize [] (((a @-> b) @-> (TList a @-> TList a))));
@@ -2248,7 +2248,7 @@ let stdlib_type_env : env = [
   (* Map builtins *)
   ("map_empty",    let a = fresh () in generalize [] (TMap a));
   ("map_get",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TResult (TString, a)))));
-  ("map_get_exn",  let a = fresh () in generalize [] (TString @-> effs [Effect_row.Raise] (TMap a) (a)));
+  ("map_get_exn",  let a = fresh () in generalize [] (TString @-> effs [Effect_set.Raise] (TMap a) (a)));
   ("map_set",      let a = fresh () in generalize [] ((TString @-> (a @-> (TMap a @-> TMap a)))));
   ("map_delete",   let a = fresh () in generalize [] ((TString @-> (TMap a @-> TMap a))));
   ("map_has",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TBool))));
@@ -2278,20 +2278,20 @@ let builtin_tenv : typedef_env = [
 
 (* User-visible globals — the only names available without an import *)
 let builtin_type_env : env = [
-  ("print",   let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
-  ("println", let a = fresh () in generalize [] (effs [Effect_row.IO] (a) (TUnit)));
+  ("print",   let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
+  ("println", let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
 ]
 
 (* ── Manifests ────────────────────────────────────────────────────────────── *)
 
 let eff_of_label = function
-  | "Shell"    -> Some Effect_row.Shell
-  | "FS.Read"  -> Some Effect_row.FsRead
-  | "FS.Write" -> Some Effect_row.FsWrite
-  | "Env"      -> Some Effect_row.Env
-  | "IO"       -> Some Effect_row.IO
-  | "Proc"     -> Some Effect_row.Proc
-  | "Raise"    -> Some Effect_row.Raise
+  | "Shell"    -> Some Effect_set.Shell
+  | "FS.Read"  -> Some Effect_set.FsRead
+  | "FS.Write" -> Some Effect_set.FsWrite
+  | "Env"      -> Some Effect_set.Env
+  | "IO"       -> Some Effect_set.IO
+  | "Proc"     -> Some Effect_set.Proc
+  | "Raise"    -> Some Effect_set.Raise
   | _          -> None
 
 (* Every effect anywhere in a type, including the arrows nested inside it: a
@@ -2300,25 +2300,25 @@ let eff_of_label = function
 let rec labels_of_typ t =
   match repr t with
   | TFun (a, b, r) ->
-    Effect_row.EffSet.union (Effect_row.labels_of r)
-      (Effect_row.EffSet.union (labels_of_typ a) (labels_of_typ b))
+    Effect_set.EffSet.union (Effect_set.labels_of r)
+      (Effect_set.EffSet.union (labels_of_typ a) (labels_of_typ b))
   | TTuple ts -> List.fold_left (fun acc t ->
-      Effect_row.EffSet.union acc (labels_of_typ t)) Effect_row.EffSet.empty ts
+      Effect_set.EffSet.union acc (labels_of_typ t)) Effect_set.EffSet.empty ts
   | TList t | TMap t -> labels_of_typ t
-  | TResult (e, t) -> Effect_row.EffSet.union (labels_of_typ e) (labels_of_typ t)
+  | TResult (e, t) -> Effect_set.EffSet.union (labels_of_typ e) (labels_of_typ t)
   | TResource (r, t) ->
-    Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
+    Effect_set.EffSet.union (Effect_set.labels_of r) (labels_of_typ t)
   | TStream (r, t) ->
-    Effect_row.EffSet.union (Effect_row.labels_of r) (labels_of_typ t)
+    Effect_set.EffSet.union (Effect_set.labels_of r) (labels_of_typ t)
   | TDecoder t -> labels_of_typ t
-  | TApp (f, a) -> Effect_row.EffSet.union (labels_of_typ f) (labels_of_typ a)
-  | _ -> Effect_row.EffSet.empty
+  | TApp (f, a) -> Effect_set.EffSet.union (labels_of_typ f) (labels_of_typ a)
+  | _ -> Effect_set.EffSet.empty
 
 (* A manifest bounds what a file can do to the machine. Raise is control
    flow, not reach: it is already visible in a `!` name and in a signature,
    and including it would put Raise in almost every manifest while saying
    nothing about blast radius. *)
-let manifest_relevant labels = Effect_row.EffSet.remove Effect_row.Raise labels
+let manifest_relevant labels = Effect_set.EffSet.remove Effect_set.Raise labels
 
 (* When a manifest error can be corrected mechanically, the corrected line
    rides beside the exception rather than only inside its prose -- set just
@@ -2334,15 +2334,15 @@ let take_pending_fix () =
 
 (* The manifest labels using a member commits a file to -- what typing
    `FS.write_file!` obliges `uses {...}` to say. Concrete labels only: a
-   polymorphic row means the function passes its argument's effects
+   a polymorphic set means the function passes its argument's effects
    through, which commits the caller to nothing by itself. `Raise` is
    excluded like everywhere manifests are concerned. Serves the editor's
    auto-import tier (LSP.md §2.1) and the manifest check below, so the two
    cannot disagree about what a member implies. *)
-let manifest_labels_of_scheme (s : scheme) : Effect_row.EffSet.t =
+let manifest_labels_of_scheme (s : scheme) : Effect_set.EffSet.t =
   match s with
   | Mono t | Poly (_, _, t) -> manifest_relevant (labels_of_typ t)
-  | Namespace _ -> Effect_row.EffSet.empty
+  | Namespace _ -> Effect_set.EffSet.empty
 
 (* `?shell` narrows the Shell label to the binaries the file was seen to
    run: `uses {Shell(git, curl), FS.Write}`. Passed only when every command
@@ -2351,10 +2351,10 @@ let manifest_labels_of_scheme (s : scheme) : Effect_row.EffSet.t =
 let render_manifest ?shell labels =
   "uses {" ^ String.concat ", "
     (List.map (fun e ->
-       match Effect_row.name_of e, shell with
+       match Effect_set.name_of e, shell with
        | "Shell", Some ws -> Shell_scan.render_label ("Shell", Some ws)
        | n, _ -> n)
-     (Effect_row.EffSet.elements labels)) ^ "}"
+     (Effect_set.EffSet.elements labels)) ^ "}"
 
 (* ── Shell command words ─────────────────────────────────────────────────── *)
 
@@ -2486,14 +2486,14 @@ let shell_suggestion () =
    what the file actually uses, and where the manifest sits. Reported as a
    warning rather than an error -- permitting more than you use is the safe
    direction, and failing a build over it would punish caution. *)
-let last_manifest : (Effect_row.EffSet.t * Effect_row.EffSet.t * Token.loc) option ref =
+let last_manifest : (Effect_set.EffSet.t * Effect_set.EffSet.t * Token.loc) option ref =
   ref None
 
 (* What the file reaches outside itself to do, whether or not it says so.
    Recorded for every file, because the linter's question about a file with
    no manifest is exactly this set: a file that does nothing outward has
    nothing to declare, and one that does should say what. *)
-let last_file_effects : Effect_row.EffSet.t ref = ref Effect_row.EffSet.empty
+let last_file_effects : Effect_set.EffSet.t ref = ref Effect_set.EffSet.empty
 
 let check_manifest (prog : program) (own_env : env) =
   last_manifest := None;
@@ -2504,12 +2504,12 @@ let check_manifest (prog : program) (own_env : env) =
   let per_binding =
     List.filter_map (fun (name, scheme) ->
       let ls = manifest_labels_of_scheme scheme in
-      if Effect_row.EffSet.is_empty ls then None else Some (name, ls)
+      if Effect_set.EffSet.is_empty ls then None else Some (name, ls)
     ) own_env
   in
   let inferred =
-    List.fold_left (fun acc (_, ls) -> Effect_row.EffSet.union acc ls)
-      (manifest_relevant (Effect_row.labels_of !current_eff)) per_binding
+    List.fold_left (fun acc (_, ls) -> Effect_set.EffSet.union acc ls)
+      (manifest_relevant (Effect_set.labels_of !current_eff)) per_binding
   in
   last_file_effects := inferred;
   match prog.manifest with
@@ -2518,16 +2518,16 @@ let check_manifest (prog : program) (own_env : env) =
     let declared =
       List.fold_left (fun acc (name, _) ->
         match eff_of_label name with
-        | Some e -> Effect_row.EffSet.add e acc
+        | Some e -> Effect_set.EffSet.add e acc
         | None ->
           raise (TypeErrorAt (loc, Printf.sprintf
             "'%s' is not an effect. The effects are %s" name
-            (String.concat ", " (List.map Effect_row.name_of Effect_row.all))))
-      ) Effect_row.EffSet.empty labels
+            (String.concat ", " (List.map Effect_set.name_of Effect_set.all))))
+      ) Effect_set.EffSet.empty labels
     in
     last_manifest := Some (declared, inferred, loc);
-    let missing = Effect_row.EffSet.diff inferred declared in
-    if not (Effect_row.EffSet.is_empty missing) then begin
+    let missing = Effect_set.EffSet.diff inferred declared in
+    if not (Effect_set.EffSet.is_empty missing) then begin
       (* Name a binding that needs one of the missing effects, so the reader
          is pointed at the code rather than only told the total is wrong. *)
       (* Name the binding that accounts for most of what is missing, rather
@@ -2535,7 +2535,7 @@ let check_manifest (prog : program) (own_env : env) =
       let culprit =
         List.fold_left (fun best (name, ls) ->
           let overlap =
-            Effect_row.EffSet.cardinal (Effect_row.EffSet.inter ls missing) in
+            Effect_set.EffSet.cardinal (Effect_set.EffSet.inter ls missing) in
           match best with
           | Some (_, n) when n >= overlap -> best
           | _ when overlap = 0 -> best
@@ -2552,7 +2552,7 @@ let check_manifest (prog : program) (own_env : env) =
         "%sperforms %s, which the manifest does not allow.\n       The manifest should be:  \"%s\""
         where
         (String.concat ", "
-          (List.map Effect_row.name_of (Effect_row.EffSet.elements missing)))
+          (List.map Effect_set.name_of (Effect_set.EffSet.elements missing)))
         corrected))
     end
 
@@ -2573,7 +2573,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   last_shell_static := true;
   last_shell_allow := None;
   pending_fix := None;
-  current_eff := Effect_row.fresh_row ();
+  current_eff := Effect_set.unknown ();
   holes := [];
   let local_tenv = List.filter_map (function
     | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)
