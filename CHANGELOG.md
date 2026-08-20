@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.20.0] - 2026-08-19
+
+### Changed
+
+- **Breaking:** `JSON.read_file`, `CSV.read_file` and `TOML.read_file`
+  reached the disk through builtins of their own, declaring no effects
+  at all — so a script read a file with nothing in its manifest saying
+  so, a handler mocking the filesystem did not stand in for them, and
+  `--dry-run` could not see them. All six now read through the same
+  `FS!read_file` every other reader performs and parse the string with
+  the parser each module already had, gaining `! {FS.Read}` and, for
+  the `!` siblings, `! {FS.Read, Raise}`. A script that reads a config
+  through any of them must now say `FS.Read`; `wand t --fix` writes the
+  line. Error text for a missing file is now `FS.read_file`'s rather
+  than each parser's (`507c134`)
+- Change `wand f` to close a bracket that ran onto more lines on a line
+  of its own, at the indent that opened it, rather than wherever the
+  last line happened to end (`2cde06b`)
+- Change `wand f` to stand a manifest and the leading block of plain
+  imports off from what follows them, whether or not the source did,
+  and to collapse several blank lines to one (`6fcae4c`)
+
+### Added
+
+- Add completion for effect operations: typing `FS!` in an editor lists
+  all twenty, each with what a case binds and resumes with and the
+  sentence a handler author wants — "handles the `FS.Write` effect of
+  `FS.write_file` and `FS.write_file!`". Nothing was offered before, so
+  what appeared came from the editor's own guess at words in the buffer
+  (`6bb3f40`)
+- Add an operations table as one definition of what a handler can catch.
+  `effect_of_operation` and `operation_types` read from it, and it can
+  be enumerated, which is what the editor needed. `test_operations.wand`
+  proves every claim in it by running each performer under a handler for
+  its operation (`6bb3f40`)
+
+### Fixed
+
+- Fix `wand f` emitting source that does not parse, at three sites: a
+  wrapped application in a match case body, in a single-clause
+  `let f x = ...`, and in a `let ... and ...` group. Each ends at its
+  first line, so the argument below it read as something new. Bindings
+  written as multiple equations have been guarded since the beginning;
+  these paths never were (`a132dda`, `2cde06b`)
+- Fix the format gate to cover `test/wand/` and `examples/` as well as
+  `stdlib/` — 69 files against 22. Nothing was checking the other two,
+  so seven fixtures had drifted. `tools/check_stdlib_fmt.wand` is
+  `tools/check_fmt.wand` now (`a132dda`)
+- Fix `wand f` measuring a list's and a tuple's items from the wrong
+  column, so an item that broke internally wrapped to the left of the
+  item itself (`2cde06b`)
+- Fix the reference's table of interceptable operations, which had
+  fallen four behind the binary. A drift test holds it there (`6bb3f40`)
+
+### Note
+
+`Shell!run_quiet` and `Shell!exit_code` have builtins behind them and
+are answered by `--dry-run`, but nothing a script can write reaches
+them. A handler case for either is legal and will never fire.
+
+[0.20.0]: https://github.com/mjstahl/wand/releases/tag/v0.20.0
+
 ## [0.19.0] - 2026-08-19
 
 ### Added
