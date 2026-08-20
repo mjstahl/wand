@@ -311,6 +311,23 @@ let test_manifest_is_followed_by_a_blank_line () =
     "uses {FS.Read}\n-- why this file reads\nimport FS\nlet read p = FS.read_file! p"
     "uses {FS.Read}\n\n-- why this file reads\nimport FS\n\nlet read p = FS.read_file! p"
 
+(* A case body wide enough to wrap needs its parentheses back, for the same
+   reason a binding's does: the application ends where its first line does,
+   and the argument left below is read as continuing the definition the
+   whole match belongs to. Without them `wand f` turned tools/check_fmt.wand
+   into a file that would not parse -- the worst thing a formatter can do,
+   so this checks the output runs and not merely that it reads a certain
+   way. *)
+let test_a_wrapped_case_body_keeps_its_brackets () =
+  ok_after_format "a wrapped application in a case body still parses"
+    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf []"
+    "A CONSIDERABLE MESSAGE HERE, QUITE LONG ENOUGH TO WRAP PAST THE MARGIN";
+  ok_after_format "and the other arm is unaffected"
+    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf [1]"
+    "some";
+  assert_idempotent "bracketing a wrapped case body is a fixed point"
+    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf []"
+
 (* The block of plain imports stands off from whatever follows it, whether
    that is a destructured import or the first definition. *)
 let test_import_block_is_followed_by_a_blank_line () =
@@ -711,6 +728,7 @@ let () =
       Alcotest.test_case "mid-line breaks step in" `Quick test_midline_breaks_step_in;
       Alcotest.test_case "manifest blank line" `Quick test_manifest_is_followed_by_a_blank_line;
       Alcotest.test_case "import block blank line" `Quick test_import_block_is_followed_by_a_blank_line;
+      Alcotest.test_case "wrapped case body brackets" `Quick test_a_wrapped_case_body_keeps_its_brackets;
       Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;

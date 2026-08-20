@@ -74,10 +74,10 @@ jobs:
       # rather than earlier: the binary it uses is the one this build just
       # produced, so anything ahead of it has to be able to fail without a
       # wand script running at all.
-      - name: Check the stdlib is formatted
+      - name: Check the tree is formatted
         env:
           WAND: ${{ github.workspace }}/_build/default/bin/wand.exe
-        run: $WAND tools/check_stdlib_fmt.wand
+        run: $WAND tools/check_fmt.wand
 
       # setup-wand's test suite is written in wand and is the only wand code
       # that exercises an installed binary the way a user meets it. Nothing

@@ -7,6 +7,7 @@ import List
 import Option
 import Path
 import Proc
+import String
 
 (* `wand f` is the canonical form: running it over a formatted tree changes
    nothing. Checked on a copy, so a failure reports rather than rewrites --
@@ -22,16 +23,28 @@ import Proc
    running this by hand. *)
 let wand = Env.get "WAND" |> Option.default "wand"
 
-let sources = FS.glob_in *.wand (Path.of_string "stdlib")
+(* Everything the formatter is the authority on: the standard library, the
+   wand-level tests, and the examples. The tests and examples were outside
+   this gate and drifted -- nothing was checking them, so a formatter change
+   left them behind and only a reader noticed. *)
+let checked_dirs = ["stdlib", "test/wand", "examples"]
 
-let copy_of dir src = Path.join dir (Path.basename src)
+let sources =
+  checked_dirs |> List.map (fn d -> FS.glob_in *.wand (Path.of_string d)) |> List.flatten
+
+(* The copies go in one flat directory, so the name carries the path it came
+   from: `test/wand/test_fs.wand` becomes `test_wand_test_fs.wand`. Two
+   directories are free to hold the same file name, and a copy named after
+   the basename alone would let one silently stand in for the other. *)
+let copy_of dir src =
+  Path.join dir (Path.of_string (String.replace "/" "_" (Path.to_string src)))
 
 let copy_into! dir = sources |> List.each (fn src -> FS.copy! src (copy_of dir src))
 
 (* One file per call rather than a glob. `%{dir}/*.wand` does not parse --
    `*.wand` is a glob literal, so the `/` reads as division -- and passing
    each path is clearer than relying on the shell to expand one. *)
-let format_in! dir = sources |> List.each (fn src -> $(%{wand} fmt %{copy_of dir src}))
+let format_in! dir = sources |> List.each (fn src -> $(%{wand} f %{copy_of dir src}))
 
 (* A file that changed is one `wand f` would rewrite, which means the tree
    checked in is not what the formatter produces. Every one of them is
@@ -50,7 +63,8 @@ let main! () =
   let () = copy_into! dir in
   let () = format_in! dir in
   match rewritten! dir with
-  | [] -> IO.println "stdlib is a wand f fixed point (%{List.length sources} files)"
+  | [] -> (IO.println
+    "stdlib, tests and examples are a wand f fixed point (%{List.length sources} files)")
   | changed -> report changed
 
 main! ()

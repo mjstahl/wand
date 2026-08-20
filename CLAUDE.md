@@ -26,7 +26,7 @@ examples. Most tasks need only one part.
   - `runner.ml` — the public API (`Runner.run_string`, `typecheck_file`, sessions); `repl.ml`; `compile_cache.ml`; `module_types.ml`; `util.ml`.
 - `stdlib/*.wand` — the standard library, written in wand, embedded into the binary at build time by `tools/gen_stdlib_embed.ml`.
 - `test/` — Alcotest suites (`test_*.ml`, one per area) plus `test/wand/*.wand`, which are wand-language tests run by `wand s`.
-- `tools/check_stdlib_fmt.wand` — CI gate that the stdlib is a formatter fixed point. Run it locally as shown below.
+- `tools/check_fmt.wand` — CI gate that `stdlib/`, `test/wand/` and `examples/` are formatter fixed points. Run it locally as shown below.
 - `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands.
 - `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
 
@@ -44,7 +44,7 @@ _build/default/bin/wand.exe s test/wand               # the wand-level tests
 for d in demos/d1* … demos/d8*; do $d/run.sh; done    # each exit code
 N=500 demos/d9-fork-overhead/run.sh                   # ten seconds
 WAND=$PWD/_build/default/bin/wand.exe \
-  $PWD/_build/default/bin/wand.exe tools/check_stdlib_fmt.wand
+  $PWD/_build/default/bin/wand.exe tools/check_fmt.wand
 dune build @fmt                                       # dune files
 ```
 

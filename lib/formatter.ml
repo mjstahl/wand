@@ -824,7 +824,12 @@ and emit_case_body ?col indent body =
     let ind = String.make indent ' ' in
     let inner = String.make (indent + 2) ' ' in
     "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
-  | _ -> emit_expr ?col indent body
+  (* An application wide enough to wrap needs its parentheses back here for
+     the same reason a binding's does: it ends where its first line does,
+     and the argument left below is read as continuing the definition the
+     whole match belongs to. Without them the formatter turned a working
+     file into one that does not parse. *)
+  | _ -> bracket_if_wrapped_app body (emit_expr ?col indent body)
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's
    "with", so an unparenthesized nested Match there is fragile even when
