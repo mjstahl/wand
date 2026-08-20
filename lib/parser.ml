@@ -479,10 +479,72 @@ and parse_type_app s =
   done;
   !left
 
+(* The `! ...` after an arrow. Four shapes, matching what the printer emits
+   so a signature `wand t` reports can be pasted back as an annotation:
+
+     ! 'e              a variable, and nothing known
+     ! {Shell, IO}     exactly these
+     ! {Shell | 'e}    at least Shell, plus whatever 'e stands for
+     (absent)          left to inference
+
+   An effect name is the same dotted Upper word a manifest uses, so
+   `FS.Read` reads here as it reads there. *)
+and parse_te_effect_name s =
+  let rec parts acc =
+    let part = match advance s with
+      | Token.Upper u -> u
+      | t -> fail_at (peek_loc s) (Format.asprintf
+          "expected an effect name after '!', got %a" Token.pp t)
+    in
+    let acc = acc @ [part] in
+    if peek s = Token.Dot then (ignore (advance s); parts acc) else acc
+  in
+  String.concat "." (parts [])
+
+and parse_te_effects s =
+  ignore (advance s);   (* the ! *)
+  match peek s with
+  | Token.TypeVar v ->
+    ignore (advance s);
+    { Ast.te_labels = []; te_var = Some v }
+  | Token.LBrace ->
+    ignore (advance s);
+    let labels = ref [] and var = ref None in
+    if peek s <> Token.RBrace then begin
+      labels := [parse_te_effect_name s];
+      while peek s = Token.Comma do
+        ignore (advance s);
+        labels := !labels @ [parse_te_effect_name s]
+      done;
+      if peek s = Token.Pipe then begin
+        ignore (advance s);
+        match advance s with
+        | Token.TypeVar v -> var := Some v
+        | t -> fail_at (peek_loc s) (Format.asprintf
+            "expected an effect variable after '|', got %a" Token.pp t)
+      end
+    end;
+    expect s Token.RBrace;
+    { Ast.te_labels = !labels; te_var = !var }
+  | t ->
+    fail_at (peek_loc s) (Format.asprintf
+      "expected an effect set or variable after '!', got %a" Token.pp t)
+
 and parse_type_expr s =
   let left = parse_type_app s in
-  if peek s = Token.Arrow then
-    (ignore (advance s); Ast.TEFun (left, parse_type_expr s))
+  if peek s = Token.Arrow then begin
+    ignore (advance s);
+    let right = parse_type_expr s in
+    (* The effects belong to the innermost arrow. If the right side is
+       already an arrow it has taken any `!` for itself, so this one is a
+       step in a curried type and carries nothing. *)
+    let eff =
+      match right with
+      | Ast.TEFun _ -> None
+      | _ -> if peek s = Token.Bang then Some (parse_te_effects s) else None
+    in
+    Ast.TEFun (left, right, eff)
+  end
   else left
 
 (* ── Expression parsing (Pratt) ───────────────────────────────────────────── *)

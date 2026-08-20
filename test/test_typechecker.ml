@@ -714,6 +714,56 @@ let type_of label src =
   | Error e -> Alcotest.failf "%s: %s" label e
 
 (* A handler removes the effect of the operation it intercepts. *)
+(* A written type may carry effects. The printer emitted four shapes the
+   grammar could not read back, so a signature `wand t` reported was not one
+   you could paste into an annotation. *)
+let test_written_effects_round_trip () =
+  let annotated ty body expected =
+    Alcotest.(check string) ty expected
+      (type_of ty (Printf.sprintf "let f : %s = %s in f" ty body))
+  in
+  annotated "Unit -> String ! {Raise, Shell}" "fn () -> $(git status)"
+    "Unit -> String ! {Raise, Shell}";
+  annotated "Unit -> String ! {Shell | 'e}" "fn () -> $(git status)"
+    "Unit -> String ! {Raise, Shell}";
+  annotated "'a -> 'a ! 'e" "fn x -> x" "'a -> 'a";
+  annotated "Int -> Int" "fn n -> n" "Int -> Int"
+
+(* Written effects are checked, not assumed: an annotation cannot quietly
+   narrow what a function does. This is what makes writing them safe to
+   allow at all. *)
+let test_written_effects_are_checked () =
+  err_contains "declaring fewer effects than the body performs"
+    "let f : Unit -> String ! {Shell} = fn () -> $(git status) in f"
+    "cannot unify effects";
+  err_contains "declaring none at all"
+    "let f : Unit -> String ! {} = fn () -> $(git status) in f"
+    "cannot unify effects";
+  err_contains "an effect that does not exist"
+    "let f : Unit -> Unit ! {Netwrk} = fn () -> () in f"
+    "unknown effect 'Netwrk'"
+
+(* The reason the grammar earns its place, and it only shows across a module
+   boundary. Inside one file the implementation supplies the link: writing
+   `R (fn thunk -> thunk ())` makes inference tie the thunk's effects to the
+   call's, and a field variable nobody wrote is monomorphic, so the link
+   survives to the match.
+
+   A constructor reached through an import has no implementation to look at
+   -- its scheme is rebuilt from the declaration -- so the link exists only
+   if the declaration states it. `Testing`'s `raises` is the case: without
+   `'e` on both sides, `t.raises (fn () -> $(cmd))` typechecked in a file
+   whose manifest was `uses {}` and ran the command. *)
+let test_written_effects_relate_a_field_across_a_module () =
+  match type_of_program_with_imports
+          "uses {}\nlet {test} = import Test\n\
+           test \"t\" (fn t -> t.raises (fn () -> $(git status)))" with
+  | Ok () ->
+    Alcotest.fail "the thunk's effects should reach the caller's manifest"
+  | Error m ->
+    if not (contains m "performs Shell") then
+      Alcotest.failf "expected Shell to surface, got: %s" m
+
 (* A function stored in a constructor field carries its effects with it. The
    field's effects are not written down -- the grammar has no place for them
    -- so they are inferred at construction, and the match that takes the
@@ -1056,6 +1106,9 @@ let () =
       Alcotest.test_case "polymorphic arithmetic" `Quick test_num_arithmetic;
     ];
     "effects", [
+      Alcotest.test_case "written effects round-trip"   `Quick test_written_effects_round_trip;
+      Alcotest.test_case "written effects are checked"   `Quick test_written_effects_are_checked;
+      Alcotest.test_case "written effects relate a field"  `Quick test_written_effects_relate_a_field_across_a_module;
       Alcotest.test_case "constructor field keeps effects" `Quick test_constructor_field_keeps_its_effects;
       Alcotest.test_case "constructing is pure"         `Quick test_constructing_performs_nothing;
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;

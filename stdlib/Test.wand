@@ -14,7 +14,7 @@ type Testing 'a 'b(
   not_ok: (Bool -> TestOutcome),
   eq: ('a -> 'a -> TestOutcome),
   not_eq: ('a -> 'a -> TestOutcome),
-  raises: ((Unit -> 'b) -> TestOutcome),
+  raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e),
   fail: (String -> TestOutcome)
 )
 
@@ -32,7 +32,12 @@ type Testing 'a 'b(
     
     A raise inside the block -- outside `t.raises` -- is this test
     failing, not the file breaking: it comes back as a Fail carrying the
-    label, and the tests after it still run. *)
+    label, and the tests after it still run.
+    
+    `raises` says `! 'e` on both the thunk and itself, so calling it
+    performs whatever the thunk performs: a test whose thunk shells out
+    declares `Shell` like any other code. Without that the two sides would
+    be unrelated and the thunk's effects would stop at the field. *)
 let test label f =
   let t =
     Testing(

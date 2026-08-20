@@ -522,8 +522,63 @@ let test_indented_continuation () =
   ok "an indented definition" "let a = 1\n     let b = 2\n     b\n";
   ok "definitions separated by ;" "let f b = match b with | true -> 1 | false -> 0; f true"
 
+
+(* ── Effects in a written type ───────────────────────────────────────────── *)
+
+(* The printer emits four shapes; the grammar has to read all four back, or a
+   signature `wand t` reports is not one you can paste into an annotation. *)
+
+let te_of src =
+  match parse_program src with
+  | { items = [TLLet (_, _, Ast.Annot (te, _))]; _ } -> te
+  | _ -> Alcotest.failf "expected one annotated let, from: %s" src
+
+let ann ty = Printf.sprintf "let f : %s = g" ty
+
+let test_written_effects_shapes () =
+  Alcotest.(check bool) "a labelled set" true
+    (te_of (ann "Unit -> String ! {Shell}")
+     = TEFun (TEName "Unit", TEName "String",
+              Some { te_labels = ["Shell"]; te_var = None }));
+  Alcotest.(check bool) "several labels, dotted" true
+    (te_of (ann "Unit -> String ! {FS.Read, Shell}")
+     = TEFun (TEName "Unit", TEName "String",
+              Some { te_labels = ["FS.Read"; "Shell"]; te_var = None }));
+  Alcotest.(check bool) "a variable alone" true
+    (te_of (ann "'a -> 'a ! 'e")
+     = TEFun (TEVar "a", TEVar "a",
+              Some { te_labels = []; te_var = Some "e" }));
+  Alcotest.(check bool) "labels and a tail" true
+    (te_of (ann "Unit -> Unit ! {Shell | 'e}")
+     = TEFun (TEName "Unit", TEName "Unit",
+              Some { te_labels = ["Shell"]; te_var = Some "e" }));
+  Alcotest.(check bool) "nothing written stays inferred" true
+    (te_of (ann "Int -> Int")
+     = TEFun (TEName "Int", TEName "Int", None))
+
+(* Only the innermost arrow carries them, as in an inferred type: supplying
+   one argument of several does nothing until the last arrives. *)
+let test_written_effects_land_on_the_inner_arrow () =
+  Alcotest.(check bool) "a curried type" true
+    (te_of (ann "Int -> Int -> Int ! {IO}")
+     = TEFun (TEName "Int",
+              TEFun (TEName "Int", TEName "Int",
+                     Some { te_labels = ["IO"]; te_var = None }),
+              None));
+  (* Parenthesised, the effects belong to the argument's own arrow. *)
+  Alcotest.(check bool) "an effectful argument" true
+    (te_of (ann "(Unit -> Int ! 'e) -> Int ! 'e")
+     = TEFun (TEFun (TEName "Unit", TEName "Int",
+                     Some { te_labels = []; te_var = Some "e" }),
+              TEName "Int",
+              Some { te_labels = []; te_var = Some "e" }))
+
 let () =
   Alcotest.run "Parser" [
+    "written effects", [
+      Alcotest.test_case "the four shapes"     `Quick test_written_effects_shapes;
+      Alcotest.test_case "innermost arrow"     `Quick test_written_effects_land_on_the_inner_arrow;
+    ];
     "layout", [
       Alcotest.test_case "indented continuation" `Quick test_indented_continuation;
     ];

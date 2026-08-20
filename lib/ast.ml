@@ -1,9 +1,25 @@
+(* What a written type says an arrow performs: the `! {Shell, IO}` or
+   `! 'e` after it. Absent when nothing was written, which leaves it to
+   inference -- the effects of a function are read back from its body, and a
+   type only has to say so where it is describing a relationship inference
+   cannot see for itself.
+
+   `{Shell | 'e}` is both at once: at least Shell, plus whatever 'e stands
+   for. The printer emits all four shapes, so the grammar reads all four. *)
+type te_effects = {
+  te_labels : string list;    (* Shell, FS.Read, ... ; [] for `! 'e` alone *)
+  te_var    : string option;  (* Some "e" for 'e *)
+}
+
 type type_expr =
   | TEName  of string
   | TEVar   of string                    (* 'a — type variable *)
   | TEApp   of type_expr * type_expr    (* List Int, Result Int *)
   | TETuple of type_expr list            (* (Int, Int), 2+ elements *)
-  | TEFun   of type_expr * type_expr     (* Int -> Int *)
+  (* Int -> Int, and what calling it performs. Only the innermost arrow of a
+     curried type carries them, as in an inferred one: supplying one argument
+     of several does nothing until the last arrives. *)
+  | TEFun   of type_expr * type_expr * te_effects option
 
 type import_kind =
   | StdlibModule of string   (* import List        — resolves to stdlib/List.wand *)

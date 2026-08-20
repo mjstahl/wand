@@ -127,8 +127,22 @@ let string_of_wand_float f =
 
 (* ── Type expressions ────────────────────────────────────────────────────── *)
 
+(* `! {Shell, IO}`, `! 'e`, `! {Shell | 'e}` -- written back exactly as the
+   author wrote it and as the printer emits it, so a formatted signature is
+   still one the grammar reads. *)
+let emit_te_effects = function
+  | None -> ""
+  | Some { te_labels = []; te_var = None } -> " ! {}"
+  | Some { te_labels = []; te_var = Some v } -> " ! '" ^ v
+  | Some { te_labels; te_var } ->
+    let names = String.concat ", " te_labels in
+    (match te_var with
+     | None   -> " ! {" ^ names ^ "}"
+     | Some v -> " ! {" ^ names ^ " | '" ^ v ^ "}")
+
 let rec emit_type_expr te = match te with
-  | TEFun (a, b) -> emit_type_operand a ^ " -> " ^ emit_type_expr b
+  | TEFun (a, b, eff) ->
+    emit_type_operand a ^ " -> " ^ emit_type_expr b ^ emit_te_effects eff
   | _ -> emit_type_app_expr te
 and emit_type_operand te = match te with
   | TEFun _ -> "(" ^ emit_type_expr te ^ ")"

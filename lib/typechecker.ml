@@ -846,9 +846,46 @@ let with_known_type_names names f =
   known_type_names := Some names;
   Fun.protect ~finally:(fun () -> known_type_names := saved) f
 
+(* An effect name as a manifest or a signature writes it. *)
+let eff_of_written name =
+  match Effect_set.of_name name with
+  | Some e -> e
+  | None ->
+    raise (TypeError (Printf.sprintf "unknown effect '%s'%s" name
+      (Util.hint name (List.map Effect_set.name_of Effect_set.all))))
+
+(* Which effect variables a written type named. They are the ones safe to
+   generalise: a written `'e` says how the effects of one part of a type
+   relate to another, and instantiating it afresh per use is what makes that
+   relationship hold. An effect variable nobody wrote is inference's own, and
+   generalising it throws away what inference learned -- see `ctor_schemes`. *)
+let written_evars : int list ref = ref []
+
 let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
   let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
   List.iter (fun (n, t) -> Hashtbl.replace vars n t) bound;
+  (* One table per written type, so `'e` twice in one signature is one
+     variable -- which is the entire point of being able to write it. *)
+  let evars : (string, Effect_set.t) Hashtbl.t = Hashtbl.create 4 in
+  let effects_of (spec : te_effects option) =
+    match spec with
+    | None -> Effect_set.unknown ()
+    | Some { te_labels; te_var } ->
+      let base =
+        match te_var with
+        | None -> Effect_set.pure
+        | Some v ->
+          (match Hashtbl.find_opt evars v with
+           | Some r -> r
+           | None ->
+             let r = Effect_set.unknown () in
+             Hashtbl.replace evars v r;
+             written_evars := free_evars_typ (TFun (TUnit, TUnit, r)) @ !written_evars;
+             r)
+      in
+      List.fold_left (fun acc name -> Effect_set.add (eff_of_written name) acc)
+        base te_labels
+  in
   let rec go = function
     | TEName name ->
       (match name with
@@ -876,7 +913,7 @@ let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
       (match Hashtbl.find_opt vars name with
        | Some t -> t
        | None -> let t = fresh () in Hashtbl.add vars name t; t)
-    | TEFun (a, b) -> TFun (go a, go b, Effect_set.unknown ())
+    | TEFun (a, b, eff) -> TFun (go a, go b, effects_of eff)
     | TETuple ts    -> TTuple (List.map go ts)
     | TEApp (TEName "List", arg)   -> TList   (go arg)
     | TEApp (TEName "Decoder", arg) -> TDecoder (go arg)
@@ -896,6 +933,29 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
     let result =
       List.fold_left (fun acc (_, v) -> TApp (acc, v)) (TName tname) var_table
     in
+    (* One table for the whole declaration, so `'e` written twice in a field
+       is one variable and the relationship it states actually holds. *)
+    let evars : (string, Effect_set.t) Hashtbl.t = Hashtbl.create 4 in
+    let written = ref [] in
+    let effects_of (spec : te_effects option) =
+      match spec with
+      | None -> Effect_set.unknown ()
+      | Some { te_labels; te_var } ->
+        let base =
+          match te_var with
+          | None -> Effect_set.pure
+          | Some v ->
+            (match Hashtbl.find_opt evars v with
+             | Some r -> r
+             | None ->
+               let r = Effect_set.unknown () in
+               Hashtbl.replace evars v r;
+               written := free_evars_typ (TFun (TUnit, TUnit, r)) @ !written;
+               r)
+        in
+        List.fold_left (fun acc name -> Effect_set.add (eff_of_written name) acc)
+          base te_labels
+    in
     let rec conv = function
       | TEVar name ->
         (match List.assoc_opt name var_table with
@@ -904,7 +964,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
              "type variable ''%s' is not declared as a parameter of type '%s'"
              name tname)))
       | TEName _ as te -> type_of_te te
-      | TEFun (a, b) -> TFun (conv a, conv b, Effect_set.unknown ())
+      | TEFun (a, b, eff) -> TFun (conv a, conv b, effects_of eff)
       | TETuple ts -> TTuple (List.map conv ts)
       | TEApp (TEName "List", arg)   -> TList   (conv arg)
       | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
@@ -925,14 +985,24 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
            let a = Action (fn () -> $(touch /tmp/x))
            let fire x = match x with | Action f -> f ()
 
-       That typechecked under `uses {}` and ran the command. So only the
-       effect variables the result type mentions are quantified; the rest
-       stay monomorphic, shared by every use of the constructor, and what
-       construction learns is still there at the match.
+       That typechecked under `uses {}` and ran the command.
+
+       So an effect variable is quantified only when it was written or when
+       the result type mentions it. A written one says how the effects of
+       one part of the type relate to another --
+
+           raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e)
+
+       -- and instantiating it afresh per use is what makes that
+       relationship hold for each caller. A variable nobody wrote is
+       inference's own: it holds what construction found out, and
+       quantifying it is exactly the throwing-away above. Those stay
+       monomorphic, shared by every use of the constructor.
 
        Type variables generalise as they always did: those the result does
        mention are what makes `Box 'a` usable at two types. *)
-    let result_evars = free_evars_typ result |> List.sort_uniq compare in
+    let quantifiable =
+      (free_evars_typ result @ !written) |> List.sort_uniq compare in
     List.map (fun ctor ->
       (* Applying a constructor performs nothing, so its own arrows are pure.
          `@->` would give each an effect variable instead, and since these
@@ -948,7 +1018,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
       let evars =
         free_evars_typ t
         |> List.sort_uniq compare
-        |> List.filter (fun id -> List.mem id result_evars)
+        |> List.filter (fun id -> List.mem id quantifiable)
       in
       let scheme = if tvars = [] && evars = [] then Mono t else Poly (tvars, evars, t) in
       (ctor.name, scheme)
@@ -2419,15 +2489,9 @@ let builtin_type_env : env = [
 
 (* ── Manifests ────────────────────────────────────────────────────────────── *)
 
-let eff_of_label = function
-  | "Shell"    -> Some Effect_set.Shell
-  | "FS.Read"  -> Some Effect_set.FsRead
-  | "FS.Write" -> Some Effect_set.FsWrite
-  | "Env"      -> Some Effect_set.Env
-  | "IO"       -> Some Effect_set.IO
-  | "Proc"     -> Some Effect_set.Proc
-  | "Raise"    -> Some Effect_set.Raise
-  | _          -> None
+(* One spelling of every effect, in Effect_set, so a manifest and a written
+   signature cannot drift apart from a printed one. *)
+let eff_of_label = Effect_set.of_name
 
 (* Every effect anywhere in a type, including the arrows nested inside it: a
    function that returns a function still performs what the inner one does
@@ -2733,7 +2797,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | TEVar _      -> []
     | TEApp (f, a) -> te_names f @ te_names a
     | TETuple ts   -> List.concat_map te_names ts
-    | TEFun (a, b) -> te_names a @ te_names b
+    | TEFun (a, b, _) -> te_names a @ te_names b
   in
   List.iter (function
     | TLType (Variants (tname, params, ctors)) ->

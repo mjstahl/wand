@@ -857,12 +857,44 @@ String.upper    String -> String
 
 | | |
 |---|---|
-| Effect labels — `{FS.Write, Shell}` | **Never written.** There is no syntax to annotate them; they are always inferred. Writing `let f : Unit -> String ! {Shell} = …` is a parse error. |
+| Effect labels — `{FS.Write, Shell}` | **Rarely written.** They are inferred from the builtins your code reaches, and a script normally writes none. Written, they are checked rather than assumed — see below. |
 | Operation names — `FS!read_file` | **Written only in a handler case**, when intercepting that operation in a test. |
 | Everything else | Ordinary wand. Effects follow from the builtins your code reaches. |
 
 So writing a script means writing no effects at all. You read them back from
 `wand t`, `wand d`, and the interactive session.
+
+### Writing them down
+
+A written type may carry effects, in the four shapes the printer emits — so
+a signature `wand t` reports pastes back as an annotation:
+
+```
+Unit -> String ! {Shell}          exactly these
+Unit -> String ! {Shell | 'e}     at least Shell, plus whatever 'e is
+'a -> 'a ! 'e                     a variable, and nothing known
+Int -> Int                        nothing written: inferred, as usual
+```
+
+Only the innermost arrow of a curried type carries them, as in an inferred
+one: supplying one argument of several does nothing until the last arrives.
+
+Written effects are **checked, not assumed**. Declaring fewer than the body
+performs is a type error, so an annotation cannot quietly narrow what a
+function does:
+
+```
+let f : Unit -> String ! {Shell} = fn () -> $(git status)
+-- type error: cannot unify effects {Shell} with {Raise, Shell | ..}
+```
+
+Reach for this in one place: when a type has to say that the effects of one
+part of it are *the same as* another's. Naming the same variable twice is
+what states that, and there is no other way to say it — inference cannot
+see a relationship the type never mentions. A field holding a function is
+the case that needs it; see
+[A function kept in a field keeps its effects](#a-function-kept-in-a-field-keeps-its-effects).
+Everywhere else, leave them out and let them be inferred.
 
 ### The labels
 
@@ -981,15 +1013,20 @@ The effects are taken from the value the field is built with, so `fire`
 performs `Shell`, and a file calling it declares `Shell`. The same holds for
 a named field read back by dot access or by matching on it.
 
-**A known gap.** Because the effects are not written down, a declaration
-cannot say that one field's effects are *the same as* another part of the
-type. A field of type `(Unit -> 'a) -> Bool` cannot say that calling it
-performs whatever the thunk performs, the way an ordinary signature says
-`'e` twice. Where a type needs that — `Test`'s `raises` is the one in the
-standard library — the effects of the function passed in are not carried out
-to the caller, and a test whose thunk shells out can typecheck under a
-manifest that does not declare `Shell`. Writing the assertion as a plain
-call rather than through the record avoids it.
+Where a field takes a function and passes its effects on, say so by naming
+the same variable twice — the effects of a written type are part of it:
+
+```
+type Testing 'a 'b(
+  raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e),
+  ...
+)
+```
+
+Calling `t.raises` now performs whatever the thunk performs, so a test whose
+thunk shells out declares `Shell` like any other code. Without the `'e` the
+two sides are unrelated, and the effects of the function passed in stop at
+the field.
 
 ### Effect variables
 

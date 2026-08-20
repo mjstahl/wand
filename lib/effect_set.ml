@@ -46,6 +46,11 @@ let name_of = function
   | Proc    -> "Proc"
   | Raise   -> "Raise"
 
+(* The inverse of `name_of`, derived from it rather than written out again:
+   a manifest, a written signature and a printed one all spell an effect the
+   same way, and a second list would be a second thing to keep in step. *)
+let of_name name = List.find_opt (fun e -> name_of e = name) all
+
 let display_order e =
   let rec index i = function
     | []      -> i
