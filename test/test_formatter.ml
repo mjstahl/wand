@@ -296,6 +296,35 @@ let test_midline_breaks_step_in () =
     "let pick = (fn kind -> if kind == \"circle\" then \"a shape with no corners at all\" else if kind == \"rect\" then \"a shape with four of them\" else \"a shape nobody here has heard of\")"
     "let pick =\n  fn kind -> if kind == \"circle\" then \"a shape with no corners at all\"\n    else if kind == \"rect\" then \"a shape with four of them\"\n    else \"a shape nobody here has heard of\""
 
+(* A value that carries its own opening bracket keeps it on the line that
+   introduces it, and the items carry the break. Given a line of its own the
+   bracket says nothing -- the items sit at the same column either way --
+   while costing a line at the top of every list, map and tuple wide enough
+   to wrap. All three bracket forms follow the rule. *)
+let test_bracketed_values_cuddle_their_opener () =
+  fmt_eq "a list opens on the binding's line"
+    "let a_list = [\"a considerable string here\", \"another considerable string\", \"and a third one\"]"
+    "let a_list = [\n  \"a considerable string here\",\n  \"another considerable string\",\n  \"and a third one\"\n]";
+  fmt_eq "a map does too"
+    "let a_map = {alpha = \"a considerable string\", beta = \"another considerable one\", gamma = \"third\"}"
+    "let a_map = {\n  alpha = \"a considerable string\",\n  beta = \"another considerable one\",\n  gamma = \"third\"\n}";
+  fmt_eq "and a tuple"
+    "let a_tuple = (\"a considerable string here\", \"another considerable string\", \"and a third one\")"
+    "let a_tuple = (\n  \"a considerable string here\",\n  \"another considerable string\",\n  \"and a third one\"\n)";
+  (* The two positions a group body puts it in: after `in`, and as the
+     body of a trailing lambda. *)
+  fmt_eq "a bracketed tail after `in`, and a trailing lambda's bracketed body"
+    "import String\nlet build = group \"the report\" (fn () -> let lines = String.lines report in [check \"a considerable assertion here\", check \"another considerable one\"])"
+    "import String\nlet build =\n  group \"the report\" (fn () ->\n    let lines = String.lines report in [\n      check \"a considerable assertion here\",\n      check \"another considerable one\"\n    ])"
+
+(* An item is placed two columns in, so that is the indent it wraps to.
+   Rendered at the sequence's own indent, an item's continuation lines
+   landed to the left of the item itself. *)
+let test_sequence_items_wrap_to_their_own_column () =
+  fmt_eq "a match inside a tuple keeps its arms under it"
+    "let tally first_err line = (1, match first_err with | Some e -> Some e | None -> if String.contains? \"ERROR\" line then Some line else None)"
+    "let tally first_err line = (\n  1,\n  match first_err with\n  | Some e -> Some e\n  | None -> if String.contains? \"ERROR\" line then Some line else None\n)"
+
 (* A binding's value may run onto the next line, but not as a bare
    application: the definition ends at the first line, loudly at the top
    level and silently inside a `let ... in`. Every other wrapped form carries
@@ -652,6 +681,8 @@ let () =
       Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
       Alcotest.test_case "width from the start column" `Quick test_width_is_measured_from_the_start_column;
       Alcotest.test_case "mid-line breaks step in" `Quick test_midline_breaks_step_in;
+      Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
+      Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
     ];
     "formerly verbatim", [

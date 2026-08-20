@@ -254,6 +254,16 @@ let is_binop_or_unop e = match strip_located e with
   | BinOp _ | UnOp _ -> true
   | _ -> false
 
+(* A value that carries its own opening bracket: `(`, `[`, `{`, or the
+   parenthesis of a statement sequence. When one of these is what a binding
+   binds, the bracket opens on the binding's line and the items carry the
+   break. Given a line of its own the bracket says nothing -- the items sit
+   at the same column either way -- while costing a line at the top of
+   every list, map, and tuple wide enough to wrap. *)
+let opens_a_bracket e = match strip_located e with
+  | Seq _ | List _ | Tuple _ | MapLit _ -> true
+  | _ -> false
+
 (* A nested `App` used as another App's argument/target must be wrapped --
    without parens, juxtaposition would flatten it into the outer call's
    argument list instead of nesting it (`f (g x) y` vs `f g x y`). *)
@@ -359,8 +369,11 @@ and emit_expr_inner ?col indent e =
   | Match (scr, cases) -> emit_match ~col indent scr cases
   | BinOp (op, a, b) -> emit_binop ~col indent op a b
   | UnOp (op, e) -> op ^ emit_atom indent e
-  | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr indent) es)
-  | List es  -> emit_sequence ~col indent "[" "]" (List.map (emit_expr indent) es)
+  (* An item is placed two columns in, so that is the indent it wraps to --
+     rendering it at the sequence's own indent puts an item's continuation
+     lines to the left of the item itself. *)
+  | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
+  | List es  -> emit_sequence ~col indent "[" "]" (List.map (emit_expr (indent + 2)) es)
   | ConstrApp (name, kvs) ->
     let field (k, v) =
       (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
@@ -490,7 +503,10 @@ and emit_expr_inner ?col indent e =
     else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
-    emit_sequence indent "{" "}"
+    (* Measured from where the brace actually lands, as the other two
+       bracket forms are: a map cuddled onto a binding's line starts well
+       right of the indent it wraps to. *)
+    emit_sequence ~col indent "{" "}"
       (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
 
 and emit_app ?col indent e =
@@ -527,8 +543,13 @@ and emit_app ?col indent e =
                 (emit_atom indent head
                  :: List.map (fun a -> emit_arg ~last:false indent a) before)
             in
-            prefix ^ " (fn " ^ String.concat " " (List.map emit_pat_atom ps)
-            ^ " ->\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
+            let head_s =
+              prefix ^ " (fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " ->" in
+            (* A bracketed body opens on the arrow's line, as it does after
+               an `=`, rather than spending a line on a bracket alone. *)
+            if opens_a_bracket body then
+              head_s ^ " " ^ emit_expr ~col:(indent + String.length head_s + 1) indent body ^ ")"
+            else head_s ^ "\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
           | _ ->
             (* Otherwise one argument per line, under the head. *)
             emit_atom indent head ^ "\n" ^ inner
@@ -674,15 +695,13 @@ and emit_let ?col indent p e1 e2 =
       let clause_col = if i = 0 then col else ci in
       let oneline = head ^ " = " ^ emit_expr ci body in
       if fits clause_col oneline then oneline
-      else begin match strip_located body with
-        (* A sequence body opens its parenthesis on the `=` line, so the
-           block reads brace-style; the Seq emitter, told its true starting
-           column, cannot fit and takes its multiline form. *)
-        | Seq _ ->
-          head ^ " = "
-          ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
-        | _ -> head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
-      end
+      else if opens_a_bracket body then
+        (* A bracketed body opens on the `=` line, so the block reads
+           brace-style; the emitter, told its true starting column, cannot
+           fit and takes its multiline form. *)
+        head ^ " = "
+        ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
+      else head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
     ) clauses in
     let joined =
       String.concat "\n"
@@ -717,12 +736,15 @@ and emit_let ?col indent p e1 e2 =
        room the measurement assumed, and wraps on its own terms. *)
     let bound = Printf.sprintf "let %s = %s in" (emit_pat p) e1s in
     if fits col bound then
-      (match strip_located e2 with
-       (* A sequence after `in` opens its parenthesis on the same line,
-          brace-style, like a sequence after `=`. *)
-       | Seq _ ->
+      (* A bracketed tail after `in` opens on the same line, brace-style,
+         like a bracketed value after `=`. *)
+      (if opens_a_bracket e2 then
          bound ^ " " ^ emit_expr ~col:(col + String.length bound + 1) indent e2
-       | _ -> bound ^ "\n" ^ ind ^ e2s)
+       else bound ^ "\n" ^ ind ^ e2s)
+    else if opens_a_bracket e1 then
+      let head = "let " ^ emit_pat p ^ " = " in
+      head ^ emit_expr ~col:(col + String.length head) indent e1
+      ^ "\n" ^ ind ^ "in\n" ^ ind ^ e2s
     else
       Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
         (emit_pat p) ind (emit_expr (indent + 2) e1) ind ind e2s
@@ -836,6 +858,8 @@ let emit_one_equation head_kw pats body =
   let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
   let oneline = head ^ " = " ^ emit_expr 0 body in
   if fits 0 oneline then oneline
+  else if opens_a_bracket body then
+    head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
   else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
@@ -923,11 +947,16 @@ let emit_top_item_pretty = function
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys in
     if fits 0 oneline then oneline
+    else if opens_a_bracket body then
+      head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
     else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
   | TLLet (name, [], e) ->
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" name body in
     if fits 0 oneline then oneline
+    else if opens_a_bracket e then
+      let head = "let " ^ name ^ " = " in
+      head ^ emit_expr ~col:(String.length head) 0 e
     else Printf.sprintf "let %s =\n  %s" name (bracket_if_wrapped_app e (emit_expr 2 e))
   | TLLet (name, params, e) ->
     (match try_multi_equation params e with
@@ -939,13 +968,11 @@ let emit_top_item_pretty = function
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        let oneline = head ^ " = " ^ emit_expr 0 e in
        if fits 0 oneline then oneline
-       else begin match strip_located e with
-         (* A sequence body opens its parenthesis on the `=` line, so the
-            block reads brace-style. *)
-         | Seq _ ->
-           head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 e
-         | _ -> head ^ " =\n  " ^ emit_expr 2 e
-       end)
+       (* A bracketed body opens on the `=` line, so the block reads
+          brace-style. *)
+       else if opens_a_bracket e then
+         head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 e
+       else head ^ " =\n  " ^ emit_expr 2 e)
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
@@ -954,6 +981,8 @@ let emit_top_item_pretty = function
         ^ annot_s in
       let oneline = head ^ " = " ^ emit_expr 0 body in
       if fits 0 oneline then oneline
+      else if opens_a_bracket body then
+        head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
       else head ^ " =\n  " ^ emit_expr 2 body
     in
     (match bindings with

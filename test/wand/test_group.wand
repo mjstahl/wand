@@ -6,12 +6,10 @@ import String
 -- which is the integration the OCaml runner tests pin down.
 group "shared bindings" (fn () ->
   let n = 40 + 2 in
-  let s = String.upper "hi" in
-  [
+  let s = String.upper "hi" in [
     test "an Int child" (fn t -> t.eq 42 n),
     test "a String child sharing the same body" (fn t -> t.eq "HI" s)
-  ]
-)
+  ])
 
 group "nesting" (fn () -> [
   test "a leaf" (fn t -> t.ok true),
@@ -21,16 +19,16 @@ group "nesting" (fn () -> [
 -- A group's value is data, so a test can take one apart.
 test "a group is a Suite of its children" (fn t ->
   match group "g" (fn () -> [test "a" (fn tt -> tt.ok true)]) with
-  | Suite l [Pass a] -> t.eq ("g", "a") ((l, a))
-  | _ -> t.fail "expected Suite \"g\" [Pass \"a\"]")
+  | Suite l [Pass a] -> t.eq ("g", "a") (l, a)
+  | _ -> t.fail `expected Suite "g" [Pass "a"]`)
 
 test "a raising child fails alone, and its sibling still runs" (fn t ->
   match group "g" (fn () -> [
     test "boom" (fn tt -> tt.eq (1 / 0) 0),
     test "fine" (fn tt -> tt.ok true)
   ]) with
-  | Suite _ [Fail m, Pass _] ->
-    t.ok (String.contains? "boom: raised:" m && String.contains? "division by zero" m)
+  | Suite _ [Fail m, Pass _] -> t.ok
+    (String.contains? "boom: raised:" m && String.contains? "division by zero" m)
   | _ -> t.fail "expected one Fail then one Pass")
 
 test "a raising body is the group's one failure" (fn t ->

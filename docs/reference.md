@@ -2770,12 +2770,10 @@ a trailing application argument.
 let {test, group} = import Test
 
 group "the report" (fn () ->
-  let lines = String.lines (build_report ()) in
-  [
+  let lines = String.lines (build_report ()) in [
     test "has a header" (fn t -> t.eq "# Report" (List.head! lines)),
     test "is short" (fn t -> t.ok (List.length lines < 40))
-  ]
-)
+  ])
 ```
 
 Each child is printed under the path of labels that led to it — `ok   the
