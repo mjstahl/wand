@@ -34,12 +34,9 @@ test "a key merge adds goes on the end" (fn t ->
 
 (* ── Braces ──────────────────────────────────────────────────────────────── *)
 
-test "the empty braces are Map.empty" (fn t ->
-  t.eq Map.empty {})
+test "the empty braces are Map.empty" (fn t -> t.eq Map.empty {})
 
-test "a map prints in braces" (fn t ->
-  t.eq "{a = 1, b = 2}" "%{{a = 1, b = 2}}")
+test "a map prints in braces" (fn t -> t.eq "{a = 1, b = 2}" "%{{a = 1, b = 2}}")
 
 test "a brace pattern puns" (fn t ->
-  let {a, b = renamed} = {a = 5, b = 6} in
-  t.eq 11 (a + renamed))
+  let {a, b = renamed} = {a = 5, b = 6} in t.eq 11 (a + renamed))

@@ -78,8 +78,8 @@ type ParseError = UnexpectedToken String | UnexpectedEof
 let gparse s : Result ParseError Int =
   if s == "" then Error UnexpectedEof
   else match String.to_int s with
-  | Ok n -> Ok n
-  | Error _ -> Error (UnexpectedToken s)
+    | Ok n -> Ok n
+    | Error _ -> Error (UnexpectedToken s)
 
 test "custom error type" (fn t ->
   t.eq

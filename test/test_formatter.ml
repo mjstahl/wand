@@ -70,7 +70,7 @@ let test_maps_canonicalize_to_braces () =
   fmt_eq "a punnable pattern comes back punned"
     "let f {a = a, b = c} = a\n1" "let f {a, b = c} = a\n1";
   fmt_eq "Map.empty is left as written"
-    "import Map\nlet e = Map.empty\ne" "import Map\nlet e = Map.empty\ne";
+    "import Map\nlet e = Map.empty\ne" "import Map\n\nlet e = Map.empty\ne";
   assert_idempotent "brace maps are a fixed point"
     "let m = {x = 1}\nlet {x} = m\nx"
 
@@ -296,6 +296,34 @@ let test_midline_breaks_step_in () =
     "let pick = (fn kind -> if kind == \"circle\" then \"a shape with no corners at all\" else if kind == \"rect\" then \"a shape with four of them\" else \"a shape nobody here has heard of\")"
     "let pick =\n  fn kind -> if kind == \"circle\" then \"a shape with no corners at all\"\n    else if kind == \"rect\" then \"a shape with four of them\"\n    else \"a shape nobody here has heard of\""
 
+(* A manifest is a statement about the whole file rather than a line of it,
+   so it stands off from the code whether or not the source did. Left to the
+   source, one `wand t --fix` had just inserted stayed jammed against the
+   first import and no amount of `wand f` would separate it. *)
+let test_manifest_is_followed_by_a_blank_line () =
+  fmt_eq "a manifest with nothing after it gains the blank line"
+    "uses {FS.Read}\nimport FS\nlet read p = FS.read_file! p"
+    "uses {FS.Read}\n\nimport FS\n\nlet read p = FS.read_file! p";
+  fmt_eq "and one already spaced off keeps exactly one"
+    "uses {FS.Read}\n\n\n\nimport FS\nlet read p = FS.read_file! p"
+    "uses {FS.Read}\n\nimport FS\n\nlet read p = FS.read_file! p";
+  fmt_eq "a comment after the manifest is what follows it"
+    "uses {FS.Read}\n-- why this file reads\nimport FS\nlet read p = FS.read_file! p"
+    "uses {FS.Read}\n\n-- why this file reads\nimport FS\n\nlet read p = FS.read_file! p"
+
+(* The block of plain imports stands off from whatever follows it, whether
+   that is a destructured import or the first definition. *)
+let test_import_block_is_followed_by_a_blank_line () =
+  fmt_eq "a destructured import is separated from the block above it"
+    "import FS\nimport Path\nlet {test} = import Test\ntest \"x\" (fn t -> t.ok true)"
+    "import FS\nimport Path\n\nlet {test} = import Test\ntest \"x\" (fn t -> t.ok true)";
+  fmt_eq "so is the first definition when there is no destructured import"
+    "import FS\nimport Path\nlet read p = FS.read_file! p"
+    "import FS\nimport Path\n\nlet read p = FS.read_file! p";
+  fmt_eq "a manifest and an import block each get their own blank line"
+    "uses {FS.Read}\nimport FS\nlet {test} = import Test\ntest \"x\" (fn t -> t.ok true)"
+    "uses {FS.Read}\n\nimport FS\n\nlet {test} = import Test\ntest \"x\" (fn t -> t.ok true)"
+
 (* A value that carries its own opening bracket keeps it on the line that
    introduces it, and the items carry the break. Given a line of its own the
    bracket says nothing -- the items sit at the same column either way --
@@ -315,7 +343,7 @@ let test_bracketed_values_cuddle_their_opener () =
      body of a trailing lambda. *)
   fmt_eq "a bracketed tail after `in`, and a trailing lambda's bracketed body"
     "import String\nlet build = group \"the report\" (fn () -> let lines = String.lines report in [check \"a considerable assertion here\", check \"another considerable one\"])"
-    "import String\nlet build =\n  group \"the report\" (fn () ->\n    let lines = String.lines report in [\n      check \"a considerable assertion here\",\n      check \"another considerable one\"\n    ])"
+    "import String\n\nlet build =\n  group \"the report\" (fn () ->\n    let lines = String.lines report in [\n      check \"a considerable assertion here\",\n      check \"another considerable one\"\n    ])"
 
 (* An item is placed two columns in, so that is the indent it wraps to.
    Rendered at the sequence's own indent, an item's continuation lines
@@ -609,15 +637,15 @@ let test_wide_application_breaks () =
 
 (* ── Canonicalization ────────────────────────────────────────────────────── *)
 
-let golden = Alcotest.(check string)
+let regression = Alcotest.(check string)
 
 let test_manifest_canonicalized () =
-  golden "labels in display order, binaries sorted"
-    "uses {Env, FS.Write, Shell(git, rsync)}\nlet x = 1\nx\n"
+  regression "labels in display order, binaries sorted"
+    "uses {Env, FS.Write, Shell(git, rsync)}\n\nlet x = 1\nx\n"
     (fmt "uses {Shell(rsync, git), FS.Write, Env}\nlet x = 1\nx");
   (* The typechecker's suggested line is already what fmt emits. *)
-  golden "a suggested manifest is a fixed point"
-    "uses {FS.Write}\nlet x = 1\nx\n"
+  regression "a suggested manifest is a fixed point"
+    "uses {FS.Write}\n\nlet x = 1\nx\n"
     (fmt "uses {FS.Write}\nlet x = 1\nx")
 
 let test_manifest_wraps_past_the_budget () =
@@ -638,24 +666,24 @@ let test_manifest_wraps_past_the_budget () =
    | Error d -> Alcotest.failf "wrapped manifest does not parse: %s" (Diag.legacy d))
 
 let test_leading_imports_sorted () =
-  golden "plain imports alphabetized, let-imports after, in source order"
-    "import Env\nimport FS\nimport String\n\
+  regression "plain imports alphabetized, let-imports after, in source order"
+    "import Env\nimport FS\nimport String\n\n\
      let u = import CSV\nlet {test} = import Test\nlet x = 1\nx\n"
     (fmt "import String\nlet u = import CSV\nimport FS\n\
           let {test} = import Test\nimport Env\nlet x = 1\nx");
   (* Let-imports are ordinary bindings: two binding the same name rebind,
      and their order is program meaning. *)
-  golden "rebinding order kept"
+  regression "rebinding order kept"
     "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"\n"
     (fmt "let {parse} = import CSV\nlet {parse} = import TOML\nparse \"x = 1\"");
   (* Imports past the leading region stay where they are. *)
-  golden "only the leading region"
-    "import String\nlet x = 1\nimport FS\nx\n"
+  regression "only the leading region"
+    "import String\n\nlet x = 1\nimport FS\nx\n"
     (fmt "import String\nlet x = 1\nimport FS\nx")
 
 let test_import_region_with_comment_left_alone () =
-  golden "a comment pins the region"
-    "import String\n-- FS does the writing\nimport FS\nlet x = 1\nx\n"
+  regression "a comment pins the region"
+    "import String\n-- FS does the writing\nimport FS\n\nlet x = 1\nx\n"
     (fmt "import String\n-- FS does the writing\nimport FS\nlet x = 1\nx")
 
 let () =
@@ -681,6 +709,8 @@ let () =
       Alcotest.test_case "map keys needing quotes" `Quick test_map_keys_that_are_not_identifiers;
       Alcotest.test_case "width from the start column" `Quick test_width_is_measured_from_the_start_column;
       Alcotest.test_case "mid-line breaks step in" `Quick test_midline_breaks_step_in;
+      Alcotest.test_case "manifest blank line" `Quick test_manifest_is_followed_by_a_blank_line;
+      Alcotest.test_case "import block blank line" `Quick test_import_block_is_followed_by_a_blank_line;
       Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;

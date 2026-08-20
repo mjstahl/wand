@@ -1,11 +1,11 @@
 open Wand
 
 (* `wand t --json` is consumed by machines, so the schema is locked here as
-   golden strings: severity, code, file, line, col, message, and a `fix`
+   exact strings: severity, code, file, line, col, message, and a `fix`
    payload wherever the compiler already computes the correction. Breaking
    one of these strings means breaking every consumer. *)
 
-let golden = Alcotest.(check string)
+let regression = Alcotest.(check string)
 
 let findings src =
   let sess = Runner.make_session () in
@@ -16,7 +16,7 @@ let findings src =
 (* ── Findings ─────────────────────────────────────────────────────────────── *)
 
 let test_manifest_fix () =
-  golden "A-USES2 carries insert_line"
+  regression "A-USES2 carries insert_line"
     "[{\"severity\":\"warning\",\"code\":\"A-USES2\",\"line\":1,\"col\":1,\
       \"message\":\"this file performs FS.Write and does not say so; it \
       could declare \\\"uses {FS.Write}\\\"\",\
@@ -55,7 +55,7 @@ let test_file_field () =
 
 (* A finding marks the whole item it is about, and the range rides along
    as end_line/end_col. A point diagnostic (like A-USES2's line 1) keeps
-   the original object shape -- the golden above locks that. *)
+   the original object shape -- the check above locks that. *)
 let test_finding_range () =
   let json =
     Lint.diagnostics_json ~strict:false ~holes:[]
@@ -68,7 +68,7 @@ let test_finding_range () =
 (* ── Holes ────────────────────────────────────────────────────────────────── *)
 
 let test_hole_shape () =
-  golden "a typed hole is its own shape"
+  regression "a typed hole is its own shape"
     "[{\"kind\":\"hole\",\"type\":\"Int -> Int -> Int ! 'e\"}]"
     (Lint.diagnostics_json ~strict:false ~holes:["Int -> Int -> Int ! 'e"] [])
 
@@ -84,14 +84,14 @@ let test_doc_json () =
   let sess =
     query_sess "(** Doubles a number. *)\nlet double x = x * 2"
   in
-  golden "doc as one object"
+  regression "doc as one object"
     "{\"name\":\"double\",\"type\":\"Int -> Int\",\
       \"doc\":\"Doubles a number.\"}"
     (Runner.doc_json sess "double")
 
 let test_doc_json_absent () =
   let sess = query_sess "let x = 1" in
-  golden "a missing doc and type are null, not omitted"
+  regression "a missing doc and type are null, not omitted"
     "{\"name\":\"nope\",\"type\":null,\"doc\":null}"
     (Runner.doc_json sess "nope")
 
@@ -105,7 +105,7 @@ let test_scope_json () =
     Alcotest.failf "binding entry missing:\n%s" json
 
 let test_scope_json_empty () =
-  golden "an empty scope is an empty array"
+  regression "an empty scope is an empty array"
     "[]" (Runner.scope_json (Runner.make_session ()))
 
 let test_module_json () =
@@ -128,7 +128,7 @@ let test_module_json () =
 (* ── Test runs (`wand s --json`) ──────────────────────────────────────────── *)
 
 let test_run_json () =
-  golden "a test run is one object; error status still counts as failed"
+  regression "a test run is one object; error status still counts as failed"
     "{\"tests\":[\
        {\"file\":\"test_a.wand\",\"status\":\"pass\",\"label\":\"it adds\"},\
        {\"file\":\"test_a.wand\",\"status\":\"fail\",\
@@ -146,7 +146,7 @@ let test_run_json () =
         ("test_b.wand", Error "parse error: 2:1: unexpected token: EOF")])
 
 let test_run_json_empty () =
-  golden "no tests, no errors"
+  regression "no tests, no errors"
     "{\"tests\":[],\"errors\":[],\"passed\":0,\"failed\":0}"
     (Runner.test_results_json [])
 
@@ -162,7 +162,7 @@ let check_error src =
   | Ok _ -> Alcotest.failf "expected an error from:\n%s" src
 
 let test_type_error () =
-  golden "type error with its position carried as data"
+  regression "type error with its position carried as data"
     "[{\"severity\":\"error\",\"code\":\"E-TYPE\",\"line\":1,\"col\":5,\
       \"message\":\"cannot unify String with Int\"}]"
     (Diag.to_json_array
@@ -170,7 +170,7 @@ let test_type_error () =
           "cannot unify String with Int"])
 
 let test_error_without_position () =
-  golden "an error with no position reports 1:1, drift fix carried"
+  regression "an error with no position reports 1:1, drift fix carried"
     "[{\"severity\":\"error\",\"code\":\"E-LEX\",\"file\":\"x.wand\",\
       \"line\":1,\"col\":1,\
       \"message\":\"cons is a single ':', not '::' -- \

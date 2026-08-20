@@ -2,6 +2,7 @@ uses {Proc}
 
 import IO
 import Proc
+
 let {test} = import Test
 
 test "IO.print_err" (fn t ->

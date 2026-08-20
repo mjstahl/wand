@@ -1,6 +1,7 @@
-let {test, group} = import Test
 import List
 import String
+
+let {test, group} = import Test
 
 -- A real group: these children run and report through `wand s`,
 -- which is the integration the OCaml runner tests pin down.

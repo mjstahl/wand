@@ -1009,6 +1009,13 @@ type piece = {
   end_line   : int;
   text       : string;
   is_comment : bool;
+  (* A blank line after this piece whether or not the source had one. Only
+     the manifest sets it: it is a statement about the whole file rather
+     than a line of it, and every file that carries one stands it off from
+     the code. Left to the source, a manifest `wand t --fix` had just
+     inserted stayed jammed against the first import, and no amount of
+     `wand f` would separate them. *)
+  blank_after : bool;
 }
 
 type comment_tok = { c_offset : int; c_start_line : int; c_end_line : int; c_text : string }
@@ -1087,7 +1094,7 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
       else end_loc.line
     in
     let piece = { offset = start_loc.offset; start_line = start_loc.line;
-                  end_line; text; is_comment = false } in
+                  end_line; text; is_comment = false; blank_after = false } in
     (is_verbatim, start_loc.offset, stop, piece))
 
 let assemble pieces =
@@ -1097,6 +1104,7 @@ let assemble pieces =
   let sorted = List.sort (fun a b -> compare a.offset b.offset) pieces in
   let buf = Buffer.create 1024 in
   let prev_end = ref None in
+  let prev_blank_after = ref false in
   List.iter (fun p ->
     (match !prev_end with
      | None -> ()
@@ -1105,10 +1113,12 @@ let assemble pieces =
          Buffer.add_string buf "  "
        else begin
          Buffer.add_char buf '\n';
-         if p.start_line - pel - 1 > 0 then Buffer.add_char buf '\n'
+         if !prev_blank_after || p.start_line - pel - 1 > 0 then
+           Buffer.add_char buf '\n'
        end);
     Buffer.add_string buf p.text;
-    prev_end := Some p.end_line
+    prev_end := Some p.end_line;
+    prev_blank_after := p.blank_after
   ) sorted;
   if Buffer.length buf > 0 then Buffer.add_char buf '\n';
   Buffer.contents buf
@@ -1123,7 +1133,8 @@ let format_source src =
   let comment_pcs = List.filter_map (fun c ->
     if in_any_span c.c_offset then None
     else Some { offset = c.c_offset; start_line = c.c_start_line;
-                end_line = c.c_end_line; text = c.c_text; is_comment = true }
+                end_line = c.c_end_line; text = c.c_text; is_comment = true;
+                blank_after = false }
   ) comments in
   let item_pcs = List.map (fun (_, _, _, p) -> p) items in
   (* The leading import region -- the run of imports before the first item
@@ -1135,20 +1146,20 @@ let format_source src =
      import's right-hand side depends on nothing file-local). A region with
      a comment in it is left as written: sorting would move lines out from
      under the comment that explains them. *)
+  let items_arr = Array.of_list prog.Ast.items in
+  let kind i =
+    if i >= Array.length items_arr then None
+    else match items_arr.(i) with
+      | Ast.TLImport _ -> Some `Plain
+      | Ast.TLLet (_, [], body) when Module_types.import_kind_of body <> None ->
+        Some `Let
+      | Ast.TLLetPat (_, body) when Module_types.import_kind_of body <> None ->
+        Some `Let
+      | _ -> None
+  in
+  let rec region_len i = if kind i = None then i else region_len (i + 1) in
+  let k = region_len 0 in
   let item_pcs =
-    let items_arr = Array.of_list prog.Ast.items in
-    let kind i =
-      if i >= Array.length items_arr then None
-      else match items_arr.(i) with
-        | Ast.TLImport _ -> Some `Plain
-        | Ast.TLLet (_, [], body) when Module_types.import_kind_of body <> None ->
-          Some `Let
-        | Ast.TLLetPat (_, body) when Module_types.import_kind_of body <> None ->
-          Some `Let
-        | _ -> None
-    in
-    let rec region_len i = if kind i = None then i else region_len (i + 1) in
-    let k = region_len 0 in
     if k < 2 then item_pcs
     else begin
       let region = List.filteri (fun i _ -> i < k) items in
@@ -1173,6 +1184,34 @@ let format_source src =
           if i < k then { p with text = List.nth ordered i } else p) item_pcs
       end
     end
+  in
+  (* The block of plain imports stands off from whatever follows it -- the
+     destructured imports under it, or the first definition. Every file that
+     has an import block already reads that way; left to the source, one
+     written without the blank line kept it. Only the leading region counts:
+     an import further down the file is where its author put it, and is not
+     the top of anything. *)
+  let item_pcs =
+    let is_plain_import p =
+      (not p.is_comment)
+      && String.length p.text >= 7
+      && String.sub p.text 0 7 = "import "
+    in
+    (* Found by emitted text rather than by original position: the region may
+       have just been sorted, which moves the plain imports to the front of
+       it, so where the last one started out says nothing about where it
+       ends up. *)
+    let last_plain =
+      snd (List.fold_left
+             (fun (i, best) p ->
+                (i + 1, if i < k && is_plain_import p then Some i else best))
+             (0, None) item_pcs)
+    in
+    match last_plain with
+    | None -> item_pcs
+    | Some li ->
+      List.mapi (fun i p -> if i = li then { p with blank_after = true } else p)
+        item_pcs
   in
   (* A manifest is not a top-level item -- it is held apart on the program,
      since it is a property of the file rather than something in it -- so it
@@ -1215,6 +1254,7 @@ let format_source src =
          start_line = loc.Token.line;
          end_line   = loc.Token.end_line;
          text;
-         is_comment = false }]
+         is_comment = false;
+         blank_after = true }]
   in
   assemble (manifest_pcs @ comment_pcs @ item_pcs)

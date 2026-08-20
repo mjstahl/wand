@@ -1,5 +1,5 @@
 uses {Env, FS.Read}
-let {test, group} = import Test
+
 import CSV
 import Env
 import FS
@@ -9,6 +9,8 @@ import Path
 import Proc
 import Stream
 import TOML
+
+let {test, group} = import Test
 
 (* Every `op_performers` entry in the operations table (typechecker.ml)
    claims that calling something performs a particular operation. The claim
