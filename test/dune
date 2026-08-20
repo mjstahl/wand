@@ -154,3 +154,10 @@
 (test
  (name test_test_runner)
  (libraries wand alcotest))
+
+(test
+ (name test_builtin_effects)
+ ; Reads lib/evaluator.ml: the operations a builtin performs live inside its
+ ; closure, so the only place to see them is the source.
+ (deps ../lib/evaluator.ml)
+ (libraries wand alcotest re))

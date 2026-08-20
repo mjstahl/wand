@@ -2344,8 +2344,8 @@ home  : Unit -> Path ! {Env}
 user  : Unit -> String ! {Env}
 read  : Path -> Result String (Map String) ! {Env, FS.Read}
 read! : Path -> Map String ! {Env, FS.Read, Raise}
-load  : Path -> Result String Unit ! {Env}
-load! : Path -> Unit ! {Env, Raise}
+load  : Path -> Result String Unit ! {Env, FS.Read}
+load! : Path -> Unit ! {Env, FS.Read, Raise}
 ```
 
 `args` is the arguments the script was given, without the program name:

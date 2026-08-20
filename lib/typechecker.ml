@@ -2107,7 +2107,13 @@ let stdlib_type_env : env = [
   ("process_exit_code", generalize [] (effs [Effect_row.Shell] (TString) (TInt)));
   (* Env primitives *)
   ("env_read_dotenv", generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TString) (TList (TTuple [TString; TString]))));
-  ("env_load_file",   generalize [] (effs [Effect_row.Env; Effect_row.Raise] (TPath) (TUnit)));
+  (* Reads the file and sets each variable, so it performs FS.Read as well as
+     Env and has to declare both. It declared only Env for long enough that a
+     file whose whole manifest was `uses {Env}` could read any path on disk
+     and typecheck, with A-USES1 advising the honest manifest be trimmed back
+     to the lie. The sibling `Env.read!` is written in wand over `read_file`
+     and inferred, which is why it was right all along. *)
+  ("env_load_file",   generalize [] (effs [Effect_row.Env; Effect_row.FsRead; Effect_row.Raise] (TPath) (TUnit)));
   (* CSV primitives *)
   ("csv_parse",         generalize [] ((TString @-> (TString @-> TList (TList TString)))));
   ("csv_stringify",     generalize [] ((TString @-> (TList (TList TString) @-> TString))));
