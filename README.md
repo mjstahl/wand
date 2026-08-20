@@ -152,7 +152,10 @@ Runnable, in [`demos/`](demos/):
 - **[The signature that cannot lie](demos/04-signatures/)** — one line added three helpers deep changes the signature; a manifest turns that into a compile error
 - **[Rehearse the deploy](demos/05-rehearse/)** — `--dry-run` reports what a deploy would do, touches nothing, then the real run matches
 - **[Unit-test a deploy with the network unplugged](demos/06-unplugged/)** — a script that pushes to production, fully tested, pushing nothing
+- **[jq, typed](demos/07-jq-typed/)** — the same question asked of a JSON document through jq and awk, and through a type that already knows how to read itself
+- **[Fan out without fear](demos/08-fan-out/)** — twenty hosts checked eight at a time, three unreachable, and what the run is holding countable from outside it
 - **[Where the time goes](demos/09-fork-overhead/)** — the same task in bash, Python and wand, and what forking per line costs
+- **[Read through, not in](demos/10-streams/)** — a million lines counted in bounded memory, and `take` stopping a source that never ends
 
 ---
 
