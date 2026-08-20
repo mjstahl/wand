@@ -7,17 +7,17 @@ source "$(dirname "$0")/../assert.sh"
 unset STAGING_DIR
 
 echo "== bash =="
-demos/d1-unset-variable/cleanup.sh
+demos/01-unset-variable/cleanup.sh
 
 echo
 echo "== wand, written the same way =="
-"$WAND" demos/d1-unset-variable/unsafe.wand 2>&1 || true
+"$WAND" demos/01-unset-variable/unsafe.wand 2>&1 || true
 
 echo
 echo "== wand, once the missing case is answered =="
-"$WAND" demos/d1-unset-variable/cleanup.wand
+"$WAND" demos/01-unset-variable/cleanup.wand
 
 # The point: bash expands an unset variable into `rm -rf /`, and wand will
 # not run the same script until the missing case is answered.
 assert "cannot unify String with Option String" \
-  "$WAND" demos/d1-unset-variable/unsafe.wand
+  "$WAND" demos/01-unset-variable/unsafe.wand

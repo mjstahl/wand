@@ -104,7 +104,7 @@ let test_render_entry () =
   quoted "7zip";           (* leading digit lexes as a number *)
   quoted "my tool";        (* whitespace *)
   bare "/opt/bin/deploy";
-  bare "demos/d8-fan-out/probe.sh";
+  bare "demos/08-fan-out/probe.sh";
   bare "./probe.sh";
   quoted "a--b";           (* -- starts a comment *)
   quoted "do";             (* a keyword, not an Ident *)

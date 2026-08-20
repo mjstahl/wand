@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d6-unplugged
+D=demos/06-unplugged
 
 echo "== the script under test =="
 sed -n '9,14p' "$D/deploy.wand" | sed 's/^/  /'

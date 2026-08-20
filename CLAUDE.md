@@ -41,8 +41,8 @@ dune build                                            # exit code
 dune build @runtest --force                           # exit code
 dune exec test/test_parser.exe                        # one OCaml suite
 _build/default/bin/wand.exe s test/wand               # the wand-level tests
-for d in demos/d1* … demos/d8*; do $d/run.sh; done    # each exit code
-N=500 demos/d9-fork-overhead/run.sh                   # ten seconds
+for d in demos/0[1-8]-* demos/10-*; do $d/run.sh; done # each exit code
+N=500 demos/09-fork-overhead/run.sh                   # ten seconds
 WAND=$PWD/_build/default/bin/wand.exe \
   $PWD/_build/default/bin/wand.exe tools/check_fmt.wand
 dune build @fmt                                       # dune files

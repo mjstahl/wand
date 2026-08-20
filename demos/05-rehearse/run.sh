@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d5-rehearse
+D=demos/05-rehearse
 TARGET=/tmp/wand-demo-deploy
 
 rm -rf "$TARGET"

@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d4-signatures
+D=demos/04-signatures
 
 echo "== a backup script, nothing annotated =="
 sed -n '7,12p' "$D/backup.wand"

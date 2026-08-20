@@ -45,27 +45,28 @@ jobs:
           printf 'INFO a\nERROR b\n' | "$WAND" examples/log-summary.wand
 
       # The demos are acceptance tests: if one stops making its point,
-      # something regressed. D9 is left out -- it deliberately runs a bash
-      # loop that takes half a minute.
+      # something regressed. 09 is left out of this step -- it deliberately
+      # runs a bash loop that takes half a minute -- and runs below instead.
       - name: Run demos
         run: |
           set -euo pipefail
-          demos/d1-unset-variable/run.sh
-          demos/d2-domain-types/run.sh
-          demos/d3-typed-holes/run.sh
-          demos/d4-signatures/run.sh
-          demos/d5-rehearse/run.sh
-          demos/d6-unplugged/run.sh
-          demos/d7-jq-typed/run.sh
-          demos/d8-fan-out/run.sh
+          demos/01-unset-variable/run.sh
+          demos/02-domain-types/run.sh
+          demos/03-typed-holes/run.sh
+          demos/04-signatures/run.sh
+          demos/05-rehearse/run.sh
+          demos/06-unplugged/run.sh
+          demos/07-jq-typed/run.sh
+          demos/08-fan-out/run.sh
+          demos/10-streams/run.sh
 
-      # D9 at a tenth of its usual input. Its point -- a bash loop losing to
+      # 09 at a tenth of its usual input. Its point -- a bash loop losing to
       # everything by orders of magnitude -- is visible at any size; the big
       # number is for a human reading it. Ninety-six seconds was why it was
       # skipped, and being skipped is why it rotted under a signature change
       # with nothing noticing.
-      - name: Run D9 at a size CI can afford
-        run: N=500 demos/d9-fork-overhead/run.sh
+      - name: Run demo 09 at a size CI can afford
+        run: N=500 demos/09-fork-overhead/run.sh
 
       # wand f is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.

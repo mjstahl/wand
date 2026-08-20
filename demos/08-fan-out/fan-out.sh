@@ -8,7 +8,7 @@
 # leases, and a trap here does not run there.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
-LEASES=/tmp/wand-demo-d8-leases-bash
+LEASES=/tmp/wand-demo-08-leases-bash
 RESULTS=$(mktemp)
 trap 'rm -f "$RESULTS"' EXIT INT
 
@@ -17,7 +17,7 @@ rm -rf "$LEASES"; mkdir -p "$LEASES"
 check() {
   host=$1
   touch "$LEASES/$host"
-  if out=$(demos/d8-fan-out/probe.sh "$host"); then
+  if out=$(demos/08-fan-out/probe.sh "$host"); then
     echo "  ok    $host  $out" >> "$RESULTS"
   else
     echo "  FAIL  $host  $out" >> "$RESULTS"

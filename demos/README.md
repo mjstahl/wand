@@ -4,22 +4,22 @@ Each demo is a script you can run, not a transcript. They double as
 acceptance tests: if one stops making its point, something regressed.
 
 ```
-demos/d1-unset-variable/run.sh
-demos/d2-domain-types/run.sh
-demos/d3-typed-holes/run.sh
-demos/d4-signatures/run.sh
-demos/d5-rehearse/run.sh
-demos/d6-unplugged/run.sh
-demos/d7-jq-typed/run.sh
-demos/d8-fan-out/run.sh
-demos/d9-fork-overhead/run.sh      # ~1½ minutes: it runs a deliberately bad bash loop
-                                   # N=500 demos/d9-fork-overhead/run.sh takes ten seconds
-demos/d10-streams/run.sh
+demos/01-unset-variable/run.sh
+demos/02-domain-types/run.sh
+demos/03-typed-holes/run.sh
+demos/04-signatures/run.sh
+demos/05-rehearse/run.sh
+demos/06-unplugged/run.sh
+demos/07-jq-typed/run.sh
+demos/08-fan-out/run.sh
+demos/09-fork-overhead/run.sh      # ~1½ minutes: it runs a deliberately bad bash loop
+                                   # N=500 demos/09-fork-overhead/run.sh takes ten seconds
+demos/10-streams/run.sh
 ```
 
 ---
 
-## D1 — The unset variable
+## 01 — The unset variable
 
 The oldest bug in shell scripting. `STAGING_DIR` is not set, so
 `rm -rf "${STAGING_DIR}/"` expands to `rm -rf /` and runs.
@@ -34,7 +34,7 @@ Error: type error: 9:1: cannot unify String with Option String
 The `None` case has to go somewhere. Once it does, the script says what it
 will do instead of doing something catastrophic.
 
-## D2 — Literals that know what they are
+## 02 — Literals that know what they are
 
 `30s` is a `Duration`, `*.wand` is a `Glob`, `10.0.0.0/24` is a `CIDR` — all
 written literally, all distinct types. So the mistakes below are type errors
@@ -46,7 +46,7 @@ FS.glob /etc/hosts       cannot unify Glob with Path
 Path.basename *.wand     cannot unify Path with Glob
 ```
 
-## D3 — Ask the type system what to write
+## 03 — Ask the type system what to write
 
 Leave `?` where you have not decided yet, and typecheck:
 
@@ -62,7 +62,7 @@ Hole: Map 'a -> String -> Map 'a ! {IO, Raise | 'e}
 That is the signature of the function to write, derived from how the hole is
 used. `summarize-filled.wand` is the same script with the hole filled in.
 
-## D4 — The signature that cannot lie
+## 04 — The signature that cannot lie
 
 A backup script, nothing annotated:
 
@@ -95,7 +95,7 @@ Error: type error: 'backup_one!' performs Shell, which the manifest does not all
        The manifest should be:  "uses {Shell(curl), FS.Read, FS.Write}"
 ```
 
-## D5 — Rehearse the deploy
+## 05 — Rehearse the deploy
 
 A deploy that builds, writes a config, syncs and purges a cache. Run it with
 `--dry-run` and it reports what it would do:
@@ -118,7 +118,7 @@ real run writes 20, because a withheld command returned `""` and that steered
 the contents. A rehearsal says what it substituted rather than pretending the
 values were real — it cannot rehearse a read of something it did not write.
 
-## D6 — Unit-test a deploy with the network unplugged
+## 06 — Unit-test a deploy with the network unplugged
 
 ```
 deploy! : Unit -> String ! {Shell, FS.Write, Raise}
@@ -139,7 +139,7 @@ The assertions are about what the script *attempted*, not only what it
 returned — the commands it would run, in order, and the paths it would write.
 The last line checks the file is still absent.
 
-## D7 — jq, typed
+## 07 — jq, typed
 
 Which pods are restarting too often? Through jq and awk:
 
@@ -181,7 +181,7 @@ renamed field does run, because the code is consistent with itself and only
 the document disagrees — that one fails at the boundary where the document
 is read, and says which field, in which container, of which pod.
 
-## D8 — Fan out without fear
+## 08 — Fan out without fear
 
 Twenty hosts, checked eight at a time, three of them unreachable. Every check
 takes a lease before it starts and gives it back when it is done, so what the
@@ -196,7 +196,7 @@ back in the order they were asked, not the order they arrived:
 
 ```
   ok    web-03  ok
-  FAIL  web-04  command exited with code 1: demos/d8-fan-out/probe.sh web-04
+  FAIL  web-04  command exited with code 1: demos/08-fan-out/probe.sh web-04
   ok    web-05  ok
 
 17 reachable, 3 not, and none of it fatal
@@ -234,7 +234,7 @@ there. That is the difference: not that bash forgot to clean up, but that the
 cleanup and the thing to be cleaned up are in different processes. A `with`
 puts them in the same one.
 
-## D9 — Where the time goes
+## 09 — Where the time goes
 
 The same task — count log lines by level — written four ways. Measured on
 5,000 lines:
@@ -263,7 +263,7 @@ So the case for doing the work in wand no longer needs the second argument.
 It is as fast as the pipeline, and the alternative once a script outgrows a
 single pipeline is usually the loop.
 
-## D10 — Read through, not in
+## 10 — Read through, not in
 
 A stream reads nothing until the fold runs it: the fold opens the file,
 reads a line at a time, and closes on the way out. Two claims are on
@@ -287,4 +287,4 @@ come back:
 FS.stream_lines source |> Stream.take 5 |> Stream.each IO.println
 ```
 
-Run `demos/d10-streams/run.sh`.
+Run `demos/10-streams/run.sh`.

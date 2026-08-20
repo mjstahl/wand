@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
-D=demos/d9-fork-overhead
+D=demos/09-fork-overhead
 N=${N:-5000}
 LOG=${LOG:-/tmp/wand-demo-$N.log}
 

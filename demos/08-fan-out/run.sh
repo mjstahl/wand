@@ -19,9 +19,9 @@ set -uo pipefail -m
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d8-fan-out
-LEASES=/tmp/wand-demo-d8-leases
-BASH_LEASES=/tmp/wand-demo-d8-leases-bash
+D=demos/08-fan-out
+LEASES=/tmp/wand-demo-08-leases
+BASH_LEASES=/tmp/wand-demo-08-leases-bash
 
 # Every check holds a lease file while it runs, so what is in flight -- and
 # what is left behind -- can be counted from outside the script.

@@ -1,4 +1,4 @@
-uses {FS.Read, FS.Write, IO, Shell(demos/d8-fan-out/probe.sh)}
+uses {FS.Read, FS.Write, IO, Shell(demos/08-fan-out/probe.sh)}
 
 import FS
 import IO
@@ -37,7 +37,7 @@ let hosts = [
   "edge-04"
 ]
 
-let leases = "/tmp/wand-demo-d8-leases"
+let leases = "/tmp/wand-demo-08-leases"
 
 let lease host =
   let acquire =
@@ -47,7 +47,7 @@ let lease host =
   Resource.make acquire release
 
 let check! host =
-  with lease host as h -> let out = $(demos/d8-fan-out/probe.sh %{h}) in String.trim out
+  with lease host as h -> let out = $(demos/08-fan-out/probe.sh %{h}) in String.trim out
 
 let failed? r =
   match r with

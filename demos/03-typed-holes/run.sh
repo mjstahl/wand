@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d3-typed-holes
+D=demos/03-typed-holes
 
 echo "== the sketch =="
 sed -n '8,12p' "$D/summarize.wand"

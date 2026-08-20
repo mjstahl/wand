@@ -14,6 +14,6 @@ import Stream
 let source =
   match List.head (Env.args ()) with
   | Some p -> Path.of_string p
-  | None -> /tmp/wand-demo-d10.fifo
+  | None -> /tmp/wand-demo-10.fifo
 
 FS.stream_lines source |> Stream.take 5 |> Stream.each (fn l -> IO.println l)

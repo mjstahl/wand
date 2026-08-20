@@ -146,13 +146,13 @@ wand h                  # help
 
 Runnable, in [`demos/`](demos/):
 
-- **[The unset variable](demos/d1-unset-variable/)** — `rm -rf "%{STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
-- **[Literals that know what they are](demos/d2-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
-- **[Ask the type system what to write](demos/d3-typed-holes/)** — leave `?`, get back the signature that belongs there
-- **[The signature that cannot lie](demos/d4-signatures/)** — one line added three helpers deep changes the signature; a manifest turns that into a compile error
-- **[Rehearse the deploy](demos/d5-rehearse/)** — `--dry-run` reports what a deploy would do, touches nothing, then the real run matches
-- **[Unit-test a deploy with the network unplugged](demos/d6-unplugged/)** — a script that pushes to production, fully tested, pushing nothing
-- **[Where the time goes](demos/d9-fork-overhead/)** — the same task in bash, Python and wand, and what forking per line costs
+- **[The unset variable](demos/01-unset-variable/)** — `rm -rf "%{STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
+- **[Literals that know what they are](demos/02-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
+- **[Ask the type system what to write](demos/03-typed-holes/)** — leave `?`, get back the signature that belongs there
+- **[The signature that cannot lie](demos/04-signatures/)** — one line added three helpers deep changes the signature; a manifest turns that into a compile error
+- **[Rehearse the deploy](demos/05-rehearse/)** — `--dry-run` reports what a deploy would do, touches nothing, then the real run matches
+- **[Unit-test a deploy with the network unplugged](demos/06-unplugged/)** — a script that pushes to production, fully tested, pushing nothing
+- **[Where the time goes](demos/09-fork-overhead/)** — the same task in bash, Python and wand, and what forking per line costs
 
 ---
 

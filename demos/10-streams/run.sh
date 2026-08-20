@@ -11,9 +11,9 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 WAND=_build/default/bin/wand.exe
 source "$(dirname "$0")/../assert.sh"
-D=demos/d10-streams
-LOG=/tmp/wand-demo-d10.log
-FIFO=/tmp/wand-demo-d10.fifo
+D=demos/10-streams
+LOG=/tmp/wand-demo-10.log
+FIFO=/tmp/wand-demo-10.fifo
 
 # awk generates directly: macOS seq drifts into scientific notation at a
 # million and pads an extra line.
