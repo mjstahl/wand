@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.19.0] - 2026-08-19
+
+### Added
+
+- Add `Test.group`: child tests that share the group's label and
+  whatever its body binds, nesting to any depth — a `Suite` is a third
+  `TestOutcome` constructor, and `wand s` prints each child under the
+  path of labels that led to it. Setup is the bindings above the child
+  list, teardown a `with` bracket around it; a raise in the body is the
+  group's one failure (`c0871aa`)
+
+### Changed
+
+- Change `Test.test` to catch a raise in its own block and return it as
+  that test's labeled failure — `label: raised: <why>` — where it used
+  to escape as an error carrying no label. A raising child no longer
+  takes its siblings down with it (`c0871aa`)
+- Change `wand f` to step in the continuation lines of an `if`,
+  `match`, or `handle` that starts mid-line, rather than landing its
+  `else` or its cases flush with the line that introduced it; an else-if
+  chain stays one flat ladder (`ab28876`)
+- Change `wand f` to open a list, map, tuple or sequence bracket on
+  the line that introduces it — after `=`, after `in`, and after a
+  trailing lambda's `->` — instead of giving the bracket a line of its
+  own (`04c60f7`)
+
+### Fixed
+
+- Fix `wand f` measuring a map's width from the indent it wraps to
+  rather than the column its brace lands at, which let a map run past
+  the margin (`04c60f7`)
+- Fix `wand f` rendering a list's and a tuple's items at the
+  sequence's own indent while placing them two columns in, so an item
+  that broke internally wrapped to the left of the item itself
+  (`04c60f7`)
+- Fix the unbound-name hints to name the command as the usage output
+  lists it: an unknown name points at `wand v`, not `wand env`. The
+  documentation follows throughout — every command is written in the
+  short form that heads its usage line. Both spellings still dispatch
+  (`2332623`)
+
+[0.19.0]: https://github.com/mjstahl/wand/releases/tag/v0.19.0
+
 ## [0.18.1] - 2026-08-19
 
 ### Changed
