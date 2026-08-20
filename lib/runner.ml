@@ -1161,13 +1161,16 @@ let run_file ?(mode = Normal) path =
 (* ── `wand test` ──────────────────────────────────────────────────────────── *)
 
 (* A test file's top-level expressions are the `stdlib/Test.wand` module's
-   `Pass`/`Fail` constructors (see Test.wand's `test` function); a raised
-   runtime error is reported the same way a deliberate Fail would be, just
-   without a caller-chosen message. Any other top-level expression's value
-   is simply not a test outcome and is ignored (still executed normally,
-   e.g. ordinary setup code/side effects). Only lex/parse/type errors for
-   the whole file are fatal -- each TLExpr's *evaluation* is isolated so
-   one failing/raising test doesn't stop the rest of the file. *)
+   `Pass`/`Fail` constructors (see Test.wand's `test` function), or a
+   `Suite` -- a group's label over its children, nested arbitrarily --
+   which lands here as one leaf outcome per child, labeled with the path
+   of group labels that led to it. A raised runtime error is reported the
+   same way a deliberate Fail would be, just without a caller-chosen
+   message. Any other top-level expression's value is simply not a test
+   outcome and is ignored (still executed normally, e.g. ordinary setup
+   code/side effects). Only lex/parse/type errors for the whole file are
+   fatal -- each TLExpr's *evaluation* is isolated so one failing/raising
+   test doesn't stop the rest of the file. *)
 type test_outcome = TPass of string | TFail of string | TError of string
 
 let run_test_program ~base_dir prog : (test_outcome list, string) result =
@@ -1188,10 +1191,18 @@ let run_test_program ~base_dir prog : (test_outcome list, string) result =
             | EvalError msg -> Error msg
             | Failure msg   -> Error msg
           in
+          let with_path path s = String.concat " / " (path @ [s]) in
+          let rec collect path v = match v with
+            | VConstr ("Pass", [VString label]) ->
+              outcomes := !outcomes @ [TPass (with_path path label)]
+            | VConstr ("Fail", [VString msg]) ->
+              outcomes := !outcomes @ [TFail (with_path path msg)]
+            | VConstr ("Suite", [VString label; VList children]) ->
+              List.iter (collect (path @ [label])) children
+            | _ -> ()
+          in
           (match result with
-           | Ok (VConstr ("Pass", [VString label])) -> outcomes := !outcomes @ [TPass label]
-           | Ok (VConstr ("Fail", [VString msg]))   -> outcomes := !outcomes @ [TFail msg]
-           | Ok _    -> ()
+           | Ok v    -> collect [] v
            | Error m -> outcomes := !outcomes @ [TError m]);
           env
         | _ -> run_item env item

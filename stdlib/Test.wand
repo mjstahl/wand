@@ -2,8 +2,11 @@ import List
 import String
 
 (** The outcome of a single assertion: Pass carries the test's label,
-    Fail carries a message that already includes the label. *)
-type TestOutcome = Pass String | Fail String
+    Fail carries a message that already includes the label. A Suite is a
+    group's outcome -- its label over its children, kept as a tree so
+    `wand test` can print each child under the path of labels that led
+    to it. *)
+type TestOutcome = Pass String | Fail String | Suite String (List TestOutcome)
 
 (** A handle passed into a test block, exposing assertion helpers. *)
 type Testing 'a 'b(
@@ -25,7 +28,11 @@ type Testing 'a 'b(
     (2 + 2) |> t.eq 4
     
     Either way a failure reads `expected 4, got 5`, with `got` naming the
-    code under test. *)
+    code under test.
+    
+    A raise inside the block -- outside `t.raises` -- is this test
+    failing, not the file breaking: it comes back as a Fail carrying the
+    label, and the tests after it still run. *)
 let test label f =
   let t =
     Testing(
@@ -42,7 +49,26 @@ let test label f =
       fail = fn why -> Fail "%{label}: %{why}"
     )
   in
-  f t
+  match try f t with
+  | Ok outcome -> outcome
+  | Error why -> Fail "%{label}: raised: %{why}"
+
+(** Run child tests that share this label and whatever the body binds:
+    
+    group "parse" (fn () -> let doc = JSON.parse! source in
+    [test "has a name" (fn t -> t.ok (JSON.field? "name" doc))])
+    
+    The body is ordinary code, which is the whole design: bindings above
+    the child list are setup shared by every child, `with r as x -> [...]`
+    is teardown that releases however the body ends, and a handler around
+    the list mocks every child at once. Groups nest -- a `group` is one
+    more child -- and `wand test` prints each test under the path of
+    labels that led to it. A raise in the body itself is the group's one
+    failure; the children it prevented are not invented. *)
+let group label thunk =
+  match try thunk () with
+  | Ok children -> Suite label children
+  | Error why -> Suite label [Fail "setup raised: %{why}"]
 
 (* ── Testing effectful code ─────────────────────────────────────────────
    A script's risky parts are the ones that reach outside it, which is

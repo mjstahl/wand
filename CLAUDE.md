@@ -202,10 +202,15 @@ raises at the fold, caught with `try`.
 Tests are wand files named `test_*.wand`:
 
 ```
-let {test} = import Test
+let {test, group} = import Test
 test "it adds" (fn t -> t.eq 3 (1 + 2))
 test "it raises" (fn t -> t.raises (fn () -> List.head! []))
+group "shared" (fn () -> let n = 6 * 7 in [test "n" (fn t -> t.eq 42 n)])
 ```
+
+`group` children share the body's bindings and print under the group's
+label (`shared / n`); groups nest. Setup is the code above the child
+list, teardown a `with` bracket around it — no other lifecycle exists.
 
 Cleanup uses `with r as x -> body` (released however the body ends);
 parallelism is `Par.map`; JSON decoding derives from type definitions

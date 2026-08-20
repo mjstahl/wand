@@ -2666,7 +2666,8 @@ the front to skip, as there would be with bash's `$0` or C's `argv[0]`.
 ### `Test`
 
 ```
-test           : String -> (Testing 'b 'a -> 'c ! 'e) -> 'c ! 'e
+test           : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
+group          : String -> (Unit -> List TestOutcome ! 'e) -> TestOutcome ! 'e
 with_shell     : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
 shell_calls    : (Unit -> 'a ! 'e) -> List 'b ! 'e
 without_writes : (Unit -> 'a ! 'e) -> 'a ! 'e
@@ -2761,6 +2762,48 @@ Each `test` call needs explicit parens around its `fn` argument
 (`test "x" (fn t -> ...)`) — wand doesn't currently allow a bare `fn` as
 a trailing application argument.
 
+### Child tests
+
+`group` runs child tests that share a label and whatever its body binds:
+
+```
+let {test, group} = import Test
+
+group "the report" (fn () ->
+  let lines = String.lines (build_report ()) in
+  [
+    test "has a header" (fn t -> t.eq "# Report" (List.head! lines)),
+    test "is short" (fn t -> t.ok (List.length lines < 40))
+  ]
+)
+```
+
+Each child is printed under the path of labels that led to it — `ok   the
+report / has a header` — and groups nest to any depth: a `group` is one
+more child in the list.
+
+The body is ordinary code, which is why there is no `before`/`after`
+machinery to learn:
+
+- Setup is the code above the list: it runs once, and its bindings are
+  shared by every child. Values are immutable, so sharing them cannot let
+  one child contaminate another.
+- Teardown is a bracket around the list — `with (FS.temp_dir ()) as dir ->
+  [...]` — released however the body ends, exactly as in any other script.
+- Mocks wrap the children like any other code:
+  `group "pushes" (fn () -> Test.with_shell mocks (fn () -> [...]))`.
+- Per-child setup, where each test wants fresh state, is a function:
+
+  ```
+  let with_scratch label f =
+    test label (fn t -> with (FS.temp_dir ()) as dir -> f t dir)
+  ```
+
+A raise in the body itself — setup breaking, rather than a child failing —
+is reported as the group's one failure under its label, and the children
+it prevented are not invented. A raise inside a child is that child's own
+failure; its siblings still run.
+
 Run test files with `wand test`:
 
 ```
@@ -2778,9 +2821,10 @@ editing a script and running its tests takes no path. `_build`, `_opam`,
 line runs whatever it is called.
 
 Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
-test whose body raises outside of `t.raises` is reported as a failure
-without stopping the rest of the file. `wand test` exits nonzero if any
-test failed or any file had a lex/parse/type error.
+test whose body raises outside of `t.raises` is reported as that test's
+failure — `label: raised: <why>` — without stopping the rest of the
+file. `wand test` exits nonzero if any test failed or any file had a
+lex/parse/type error.
 
 ---
 

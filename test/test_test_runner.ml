@@ -43,13 +43,6 @@ let check_fail_contains label needle = function
   | Runner.TPass l -> Alcotest.failf "%s: expected Fail, got Pass: %s" label l
   | Runner.TError m -> Alcotest.failf "%s: expected Fail, got Error: %s" label m
 
-let check_error_contains label needle = function
-  | Runner.TError m ->
-    if not (contains m needle) then
-      Alcotest.failf "%s: expected %S in error message, got: %s" label needle m
-  | Runner.TPass l -> Alcotest.failf "%s: expected Error, got Pass: %s" label l
-  | Runner.TFail m -> Alcotest.failf "%s: expected Error, got Fail: %s" label m
-
 (* ── ok / eq ──────────────────────────────────────────────────────────────── *)
 
 let test_pass () =
@@ -103,14 +96,50 @@ test "valid index" (fn t -> t.raises (fn () -> List.get! 0 [1, 2, 3]))|}
 
 (* ── isolation: a raise outside t.raises is caught and doesn't stop the file ── *)
 
+(* `test` catches the raise itself, so it comes back as that test's own
+   labeled failure rather than an anonymous error. *)
 let test_raise_outside_raises_isolated () =
   match outcomes_of {|let {test} = import Test
 test "boom" (fn t -> t.eq (1 / 0) 0)
 test "after boom" (fn t -> t.eq 1 1)|}
   with
   | [o1; o2] ->
-    check_error_contains "boom" "division by zero" o1;
+    check_fail_contains "boom" "boom: raised:" o1;
+    check_fail_contains "boom" "division by zero" o1;
     check_pass "after boom" o2
+  | os -> Alcotest.failf "expected 2 outcomes, got %d" (List.length os)
+
+(* ── groups: a Suite lands as one outcome per child, labeled with its path ── *)
+
+let test_group_children_counted () =
+  match outcomes_of {|let {test, group} = import Test
+group "g" (fn () -> [
+  test "a" (fn t -> t.eq 1 1),
+  test "b" (fn t -> t.eq 2 2)
+])|}
+  with
+  | [o1; o2] ->
+    check_pass "g / a" o1;
+    check_pass "g / b" o2
+  | os -> Alcotest.failf "expected 2 outcomes, got %d" (List.length os)
+
+let test_nested_group_labels_are_a_path () =
+  match outcomes_of {|let {test, group} = import Test
+group "outer" (fn () -> [
+  group "inner" (fn () -> [test "leaf" (fn t -> t.eq 1 1)])
+])|}
+  with
+  | [o] -> check_pass "outer / inner / leaf" o
+  | os -> Alcotest.failf "expected 1 outcome, got %d" (List.length os)
+
+let test_group_body_raise_is_its_one_failure () =
+  match outcomes_of {|let {test, group} = import Test
+group "g" (fn () -> (1 / 0; []))
+test "after" (fn t -> t.eq 1 1)|}
+  with
+  | [o1; o2] ->
+    check_fail_contains "g" "g / setup raised:" o1;
+    check_pass "after" o2
   | os -> Alcotest.failf "expected 2 outcomes, got %d" (List.length os)
 
 (* ── non-test expressions are ignored, not counted ───────────────────────── *)
@@ -152,6 +181,11 @@ let () =
     "isolation", [
       Alcotest.test_case "raise outside raises isolated" `Quick test_raise_outside_raises_isolated;
       Alcotest.test_case "non-test expr ignored"          `Quick test_non_test_expression_ignored;
+    ];
+    "groups", [
+      Alcotest.test_case "children counted"      `Quick test_group_children_counted;
+      Alcotest.test_case "nested labels path"    `Quick test_nested_group_labels_are_a_path;
+      Alcotest.test_case "body raise is a fail"  `Quick test_group_body_raise_is_its_one_failure;
     ];
     "file-level errors", [
       Alcotest.test_case "type error"    `Quick test_type_error_is_file_level;
