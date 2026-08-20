@@ -1,8 +1,4 @@
 (test
- (name test_wand)
- (libraries wand))
-
-(test
  (name test_lexer)
  (libraries wand alcotest))
 
@@ -31,17 +27,7 @@
  (libraries wand alcotest))
 
 (test
- (name test_wand_string)
- (deps wand/test_string.wand)
- (libraries wand alcotest))
-
-(test
  (name test_fs)
- (libraries wand alcotest))
-
-(test
- (name test_wand_list)
- (deps wand/test_list.wand)
  (libraries wand alcotest))
 
 (test
@@ -75,34 +61,10 @@
 
 (test
  (name test_wand_stdlib)
- (deps
-  wand/test_path.wand
-  wand/test_duration.wand
-  wand/test_regex.wand
-  wand/test_fs.wand
-  wand/test_csv.wand
-  wand/test_json.wand
-  wand/test_toml.wand
-  wand/test_glob.wand
-  wand/test_imports.wand
-  wand/imports_fixture.wand
-  wand/test_eval.wand
-  wand/test_script.wand
-  wand/test_typedef.wand
-  wand/test_generics.wand
-  wand/test_contracts.wand
-  wand/test_process.wand
-  wand/test_strings.wand
-  wand/test_effects.wand
-  wand/test_list_patterns.wand
-  wand/test_io.wand
-  wand/test_env.wand
-  wand/test_hermetic.wand
-  wand/test_par.wand
-  wand/test_resource.wand
-  wand/test_decode.wand
-  wand/test_derive.wand
-  wand/test_map.wand)
+ ; The whole fixture tree, because the suite discovers what to run rather
+ ; than naming each file -- an enumeration here would drift from the
+ ; directory exactly as the one in test_wand_stdlib.ml did.
+ (deps (source_tree wand))
  (libraries wand alcotest))
 
 (test

@@ -120,6 +120,40 @@ let test_drop1 () =
   silent "a seq whose value is the Result"
     "uses {FS.Write}\nimport FS\nlet go () = ((); FS.write_file /tmp/x.txt \"hi\")\ngo ()"
 
+(* A test block answers with one outcome, so an assertion sequenced before
+   another is thrown away and the test reports a pass however it went. The
+   framework cannot notice -- the value is gone before it is asked for -- so
+   the rule is the only thing between a green run and a lie. *)
+let test_drop2 () =
+  fires "an assertion discarded by `;`"
+    "let {test} = import Test\ntest \"t\" (fn t -> (t.eq 1 2; t.eq 3 3))"
+    "V-DROP2";
+  (* Three or more: still one finding per discarded assertion, and the last
+     one is the block's answer rather than a discard. *)
+  fires "several discarded assertions"
+    "let {test} = import Test\n\
+     test \"t\" (fn t -> (t.ok true; t.ok false; t.eq 1 1))"
+    "V-DROP2";
+  (* The ordinary shape: one assertion, returned. *)
+  silent "a single assertion"
+    "let {test} = import Test\ntest \"t\" (fn t -> t.eq 3 (1 + 2))";
+  (* A top-level `test` statement is discarded too, but the runner collects
+     those -- that is how the framework is used, not a mistake. *)
+  silent "top-level test statements"
+    "let {test} = import Test\n\
+     test \"a\" (fn t -> t.ok true)\ntest \"b\" (fn t -> t.ok true)";
+  (* The remedy the message names has to lint clean, or it is not a remedy. *)
+  silent "assertions split across a group"
+    "let {test, group} = import Test\n\
+     group \"g\" (fn () -> let n = 6 * 7 in [\n\
+     test \"a\" (fn t -> t.eq 42 n),\n\
+     test \"b\" (fn t -> t.ok (n > 0))])";
+  (* Setup before the assertion is ordinary sequencing, not a discard: only
+     a discarded TestOutcome is worth a finding. *)
+  silent "a non-assertion statement before the assertion"
+    "uses {IO}\nlet {test} = import Test\nimport IO\n\
+     test \"t\" (fn t -> (IO.println \"setting up\"; t.ok true))"
+
 (* A narrowed Shell with a command word only the run decides: legal, said
    out loud, and an error under --strict. *)
 let test_shell1_dynamic () =
@@ -385,6 +419,7 @@ let () =
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
+      Alcotest.test_case "V-DROP2"  `Quick test_drop2;
       Alcotest.test_case "V-IMP1"   `Quick test_imp1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;

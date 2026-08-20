@@ -19,6 +19,7 @@ type id =
   | A_USES1    (* the manifest permits more than the file needs *)
   | A_USES2    (* the file reaches outside itself and does not say so *)
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
+  | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
 
@@ -71,6 +72,13 @@ let all = [
     kind = Advisory };
   { id = V_DROP1;  code = "V-DROP1";
     summary = "a statement discards a Result, so a failure goes unread";
+    kind = Violation };
+  (* A test block answers with one outcome, so an assertion before the last
+     one is discarded and the test reports a pass however it went. The same
+     shape as V-DROP1 and the same remedy shape, but its own rule: what is
+     lost is the whole verdict, not the failure inside a value. *)
+  { id = V_DROP2;  code = "V-DROP2";
+    summary = "a statement discards an assertion, so the test cannot fail";
     kind = Violation };
   { id = V_IMP1;   code = "V-IMP1";
     summary = "an imported name is rebound by a later import before any use";
@@ -130,6 +138,12 @@ let drop1 ~typ =
      is lost; match it, call the `!` sibling, or bind it to `_` to say the \
      failure does not matter"
     typ
+
+let drop2 =
+  "this statement is an assertion and nothing reads its outcome, so the test \
+   passes however this assertion went; a test block answers with one outcome \
+   -- return this one, or give each assertion its own `test` inside a `group` \
+   so every one of them is reported"
 
 let pred2 ~name =
   let bare = String.sub name 3 (String.length name - 3) in

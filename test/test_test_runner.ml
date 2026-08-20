@@ -164,6 +164,26 @@ let test_missing_file_is_error () =
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected an error for a missing file"
 
+(* Sequencing assertions throws away every one but the last, so the file
+   would report a pass whatever happened -- `1 passed, 0 failed` for a run
+   in which `1 == 2` was asserted. There is nothing left for the runner to
+   observe by then, so it refuses the file instead of publishing a verdict
+   it does not have. *)
+let test_discarded_assertion_is_refused () =
+  let msg = file_error_of {|let {test} = import Test
+test "swallows" (fn t -> (t.eq 1 2; t.eq 3 3))|} in
+  Alcotest.(check bool) "names the rule" true (contains msg "V-DROP2");
+  Alcotest.(check bool) "points at the assertion" true (contains msg "2:")
+
+(* The refusal is specific to a discarded assertion: an ordinary file still
+   runs, or the gate would be worse than the bug. *)
+let test_ordinary_file_still_runs () =
+  match outcomes_of {|let {test} = import Test
+test "a" (fn t -> t.ok true)
+test "b" (fn t -> t.eq 3 (1 + 2))|} with
+  | [a; b] -> check_pass "a" a; check_pass "b" b
+  | os -> Alcotest.failf "expected 2 outcomes, got %d" (List.length os)
+
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -190,5 +210,9 @@ let () =
     "file-level errors", [
       Alcotest.test_case "type error"    `Quick test_type_error_is_file_level;
       Alcotest.test_case "missing file"  `Quick test_missing_file_is_error;
+      Alcotest.test_case "discarded assertion refused"
+        `Quick test_discarded_assertion_is_refused;
+      Alcotest.test_case "ordinary file still runs"
+        `Quick test_ordinary_file_still_runs;
     ];
   ]

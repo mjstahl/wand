@@ -1173,13 +1173,32 @@ let run_file ?(mode = Normal) path =
    test doesn't stop the rest of the file. *)
 type test_outcome = TPass of string | TFail of string | TError of string
 
-let run_test_program ~base_dir prog : (test_outcome list, string) result =
+(* A test file whose assertions are discarded reports a pass however the run
+   went, so running it answers a question it cannot actually answer. The
+   runner refuses it rather than printing a verdict it does not have --
+   `wand t` says the same thing, but nobody runs `wand t` on a file they are
+   about to run. *)
+let drop2_refusals findings =
+  List.filter_map (fun (f : Lint.finding) ->
+    if f.Lint.rule = Lint_rules.V_DROP2 then
+      Some (Printf.sprintf "%d:%d: %s: %s"
+              f.Lint.loc.Token.line f.Lint.loc.Token.col
+              (Lint_rules.code Lint_rules.V_DROP2) f.Lint.text)
+    else None) findings
+
+let run_test_program ~base_dir ?(item_locs = []) prog
+  : (test_outcome list, string) result =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
   let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
-  match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+  match Typechecker.infer_program_env_with_own
+          ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
   | Error msg -> Error ("type error: " ^ msg)
-  | Ok _ ->
+  | Ok (_, own_type_env) ->
+    match drop2_refusals (Lint.check prog item_locs own_type_env) with
+    | _ :: _ as refusals -> Error (String.concat "\n" refusals)
+    | [] ->
+    (* Nothing is discarded, so the outcomes below are the whole verdict. *)
     let outcomes = ref [] in
     ignore (run_with_default_handler (fun () ->
       ignore (List.fold_left (fun env item ->
@@ -1259,9 +1278,9 @@ let run_test_file path : (test_outcome list, string) result =
   try
     let src      = In_channel.with_open_text full In_channel.input_all in
     let tokens   = Lexer.tokenize src in
-    let prog     = Parser.parse_program tokens in
+    let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let base_dir = Filename.dirname full in
-    run_test_program ~base_dir prog
+    run_test_program ~base_dir ~item_locs prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
   | EvalError msg -> Error ("eval error: " ^ msg)

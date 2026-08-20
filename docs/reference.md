@@ -3102,6 +3102,7 @@ it would punish the safer choice.
 | `V-BANG2` | a `!`-named function cannot raise |
 | `V-NAME1` | a signature exposes a parameter whose name ends in `_` |
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
+| `V-DROP2` | a statement's value is a `TestOutcome` nothing reads, so the test cannot fail |
 | `V-IMP1` | two imports in the leading import block bind the same name, so the first binding is dead — rename one (`let {parse = csv_parse} = import CSV`) or drop it |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
@@ -3122,6 +3123,28 @@ failure genuinely does not matter. Writing the statement as
 is what catches the shape that says nothing either way. Values that are not
 `Result` are left alone: discarding a `String` is what running a command for
 its effect looks like.
+
+`V-DROP2` is the same mistake with a worse ending. A test block answers with
+one outcome, so sequencing assertions discards all but the last:
+
+```
+test "parses" (fn t -> (t.eq 1 got_a; t.eq 2 got_b))
+```
+
+`t.eq 1 got_a` is thrown away, and the test reports a pass however that
+first assertion went. Return the one outcome the block is answering with, or
+give each assertion its own `test` and share the setup with `group`:
+
+```
+group "parses" (fn () -> let doc = parse! source in [
+  test "a" (fn t -> t.eq 1 (field_a doc)),
+  test "b" (fn t -> t.eq 2 (field_b doc))
+])
+```
+
+`wand s` refuses a file this rule fires on rather than printing a verdict it
+does not have — a run whose assertions are discarded cannot answer the
+question it was asked.
 
 ```
 wand t --strict "..."             # violations become errors (exit 1)

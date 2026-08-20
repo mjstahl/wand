@@ -31,6 +31,17 @@ jobs:
       - name: Test
         run: opam exec -- dune test
 
+      # The same fixtures `dune test` gates, run the other way: through the
+      # binary's own `wand s`, which is what CLAUDE.md tells a developer to
+      # run and what a user of the language runs. `dune test` reaches them
+      # through the library API, so a break confined to the CLI path -- the
+      # runner refusing a file, the exit code, the discovery -- would not show
+      # up there. Cheap, and it keeps the documented loop honest.
+      - name: Run the wand-level suite through the CLI
+        run: |
+          set -euo pipefail
+          _build/default/bin/wand.exe s test/wand
+
       # The shell-dependent examples are only typechecked by the suite, since
       # the test sandbox is not a git repository. Here the checkout is one, so
       # they can be run for real.
