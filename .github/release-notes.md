@@ -1,49 +1,37 @@
-## 0.20.0 - 2026-08-19
+## 0.20.1 - 2026-08-20
 
-Reading a file is `FS.Read`, whichever module parses it. `JSON.read_file`,
-`CSV.read_file` and `TOML.read_file` reached the disk through builtins of
-their own and declared no effects at all, so this typechecked, asked for
-nothing, and read the file:
+A repair release for `wand f`. Three bugs had shipped where it emitted
+source that would not parse, and each of them waited for someone to write
+a line long enough to wrap before it showed. Rather than wait for the
+next one, the formatter's tests now format all 69 corpus files at 20, 30,
+40, 60 and 92 columns and ask only that the result is still a program.
+Layout at twenty columns is nobody's idea of readable; it still has to
+parse, and formatting it again still has to change nothing.
 
-    import JSON
+That found seven more. Each is a place where an expression that wrapped
+was written without the brackets that hold it together — the `in` tail of
+a `let` and its value, a lambda's body, an operand, a branch of an `if`,
+a `match` scrutinee, a `with` resource, a pipeline stage.
 
-    match JSON.read_file (Path.of_string "/etc/passwd") with ...
+Two of them did something worse than fail: they changed what the code
+meant. A value could be reformatted into a different program. And a
+splice that wrapped inside `%{...}` dropped its argument, because a
+newline there ends the string as far as the lexer is concerned:
 
-That is the manifest's whole promise broken. It also meant a handler
-mocking the filesystem did not stand in for them, and `--dry-run` could
-not see them. All six now read through the same operation every other
-reader performs, so the effect is real rather than declared.
+    "%{show_opt None}, %{show_opt
+      (Some 42)}"     -- reformatted to %{show_opt}, the argument gone
 
-**This is breaking.** The three modules gain `! {FS.Read}`, and their `!`
-siblings `! {FS.Read, Raise}`. A script that reads a config through any
-of them needs `FS.Read` in its manifest, and `wand t --fix` writes the
-line.
+Splices now come back on one line however long they are.
 
-An editor can now say what an effect operation is. Typing `FS!` lists all
-twenty, with what a case binds and resumes with, and the sentence a
-handler author actually wants:
+The new brackets are conservative: they go in wherever a wrapped
+application could be misread, and inside a bracket it could not, so some
+files gain parentheses they do not strictly need. Nothing you have
+written changes meaning, and `wand f` will add them the next time it runs
+over your files.
 
-    FS!write_file
-    : (Path, String) -> Unit
-
-    Handles the FS.Write effect of FS.write_file and FS.write_file!.
-
-Nothing was offered before, so whatever appeared came from the editor's
-own guess at the words in your buffer — which is why an operation arrived
-with no type and no text, and why it took the first letter to find one.
-
-The claim about what performs an operation is the one part no analysis
-can supply, so it is checked rather than trusted: a test runs every
-performer under a handler for its operation. Writing it is what found the
-hole above.
-
-`wand f` closes a bracket that ran onto more lines on a line of its own
-rather than wherever the last line ended, and stands a manifest and the
-import block off from what follows them. It also no longer emits source
-that does not parse — three ways it could, all of them waiting for a line
-long enough to wrap. The format gate now covers the tests and examples as
-well as the standard library, 69 files against 22, which is how the last
-of those was found.
+Also fixed: a handler that declines to resume an operation performed
+inside a `with`'s release reached the top level as a fatal error instead
+of unwinding the bracket.
 
 ---
 

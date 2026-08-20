@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.20.1] - 2026-08-20
+
+### Fixed
+
+- Fix `wand f` emitting source that does not parse, at seven more sites:
+  the `in` tail of a `let` and its value, a lambda's body, an operand of
+  a binary operator, a branch of an `if`, a `match` scrutinee, a `with`
+  resource, and a pipeline stage. Each is a place an expression that
+  wrapped was written without the brackets that keep it whole. Two of
+  them did something worse than fail: they changed what the code meant.
+  A value could be reformatted into a different program, and a splice
+  that wrapped inside `%{...}` dropped its argument, a newline there
+  ending the string. Splices now render against a margin nothing reaches
+  and come back on one line however long they are (`3db3700`)
+- Fix a handler that declines to resume an operation performed inside a
+  `with`'s release reaching the top level as
+  `Fun.Finally_raised: Abandoned` instead of unwinding (`3db3700`)
+
+### Added
+
+- Add a margin sweep to the formatter's tests: all 69 corpus files are
+  formatted at 20, 30, 40, 60 and 92 columns, and the result has to
+  parse, and formatting it a second time has to change nothing. Every
+  one of the parse bugs above needed a line long enough to wrap before
+  it showed; a narrow margin makes every line long enough. It found all
+  seven (`3db3700`)
+
+### Note
+
+The new guards are conservative — they bracket wherever a wrapped
+application could be misread, and inside a bracket it could not — so ten
+corpus files gain parentheses they do not strictly need.
+
+[0.20.1]: https://github.com/mjstahl/wand/releases/tag/v0.20.1
+
 ## [0.20.0] - 2026-08-19
 
 ### Changed
