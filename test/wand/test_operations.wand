@@ -191,14 +191,13 @@ group "FS writes" (fn () -> [
     | FS!temp_dir _ _ -> caught
   )),
   -- The tree goes when the scratch directory is released, which is the only
-  -- place anything removes one. This case resumes rather than abandoning:
-  -- the operation is performed from inside the release, and abandoning a
-  -- continuation there escapes as a fatal error rather than unwinding.
+  -- place anything removes one. Declining to resume is the assertion here as
+  -- everywhere else; that it works from inside a release is test_resource's.
   test "FS!delete_tree via FS.temp_dir's release" (fn t -> t.eq caught (
     handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
     | FS!temp_dir _ k -> k absent
     | FS!exists _ k -> k true
-    | FS!delete_tree _ k -> let _ = k () in caught
+    | FS!delete_tree _ _ -> caught
   ))
 ])
 
