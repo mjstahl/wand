@@ -965,6 +965,32 @@ A case naming an operation that does not exist is a type error, with the
 nearest real one suggested — a mistyped mock would otherwise intercept
 nothing and let the real effect run.
 
+### A function kept in a field keeps its effects
+
+A field can hold a function, and what that function performs is not written
+in the declaration — there is nowhere to put it:
+
+```
+type Action = Action (Unit -> String)
+
+let a = Action (fn () -> $(git push))
+let fire x = match x with | Action f -> f ()
+```
+
+The effects are taken from the value the field is built with, so `fire`
+performs `Shell`, and a file calling it declares `Shell`. The same holds for
+a named field read back by dot access or by matching on it.
+
+**A known gap.** Because the effects are not written down, a declaration
+cannot say that one field's effects are *the same as* another part of the
+type. A field of type `(Unit -> 'a) -> Bool` cannot say that calling it
+performs whatever the thunk performs, the way an ordinary signature says
+`'e` twice. Where a type needs that — `Test`'s `raises` is the one in the
+standard library — the effects of the function passed in are not carried out
+to the caller, and a test whose thunk shells out can typecheck under a
+manifest that does not declare `Shell`. Writing the assertion as a plain
+call rather than through the record avoids it.
+
 ### Effect variables
 
 A function that passes effects through carries a variable rather than a

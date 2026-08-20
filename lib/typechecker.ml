@@ -913,9 +913,45 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
       | TEApp (TEName "Map", arg)    -> TMap    (conv arg)
       | TEApp (f, arg) -> TApp (conv f, conv arg)
     in
+    (* A field's effects are not written down -- the grammar has no place to
+       put them -- so `conv` gives each arrow an effect variable and lets
+       construction say what it is. Generalising that variable is what made
+       the type forget: it is not reachable from the constructor's result
+       (`Action`, not `Action 'e`), so quantifying it universally lets
+       construction pick Shell and the match that takes the field back out
+       pick nothing.
+
+           type Action = Action (Unit -> String)
+           let a = Action (fn () -> $(touch /tmp/x))
+           let fire x = match x with | Action f -> f ()
+
+       That typechecked under `uses {}` and ran the command. So only the
+       effect variables the result type mentions are quantified; the rest
+       stay monomorphic, shared by every use of the constructor, and what
+       construction learns is still there at the match.
+
+       Type variables generalise as they always did: those the result does
+       mention are what makes `Box 'a` usable at two types. *)
+    let result_evars = free_evars_typ result |> List.sort_uniq compare in
     List.map (fun ctor ->
-      let t = List.fold_right (fun (_, te) acc -> conv te @-> acc) ctor.fields result in
-      (ctor.name, generalize [] t)
+      (* Applying a constructor performs nothing, so its own arrows are pure.
+         `@->` would give each an effect variable instead, and since these
+         are no longer generalised that variable would be shared by every use
+         of the constructor and accumulate whatever any of them met -- one
+         `Some` in a raising context made every `Some` in the program raise.
+         The variables that matter are the ones `conv` puts on a field. *)
+      let t =
+        List.fold_right (fun (_, te) acc -> TFun (conv te, acc, Effect_set.pure))
+          ctor.fields result
+      in
+      let tvars = free_tvars t |> List.sort_uniq compare in
+      let evars =
+        free_evars_typ t
+        |> List.sort_uniq compare
+        |> List.filter (fun id -> List.mem id result_evars)
+      in
+      let scheme = if tvars = [] && evars = [] then Mono t else Poly (tvars, evars, t) in
+      (ctor.name, scheme)
     ) ctors
 
 (* ── Derived decoders ─────────────────────────────────────────────────────
@@ -1004,8 +1040,27 @@ let find_ctor_in_tenv tenv name =
        | None -> None)
   ) tenv
 
+(* Built once per program rather than per lookup. A constructor's field
+   effects are monomorphic (see `ctor_schemes`), so they only link the
+   construction to the match that takes the field back out if both look at
+   the same scheme -- rebuilding it per lookup hands each site its own
+   variable and the link is gone. Keyed by the definition itself, so two
+   modules declaring the same type name do not collapse into one.
+
+   Cleared with the rest of the per-program state in `infer_program_`. *)
+let ctor_scheme_cache : (string * type_def, (string * scheme) list) Hashtbl.t =
+  Hashtbl.create 32
+
+let ctor_schemes_for tname tdef =
+  match Hashtbl.find_opt ctor_scheme_cache (tname, tdef) with
+  | Some schemes -> schemes
+  | None ->
+    let schemes = ctor_schemes tdef in
+    Hashtbl.replace ctor_scheme_cache (tname, tdef) schemes;
+    schemes
+
 let tenv_to_ctor_env (tenv : typedef_env) : env =
-  List.concat_map (fun (_, tdef) -> ctor_schemes tdef) tenv
+  List.concat_map (fun (tname, tdef) -> ctor_schemes_for tname tdef) tenv
 
 (* ── Pattern inference ────────────────────────────────────────────────────── *)
 
@@ -1108,13 +1163,37 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     (match find_ctor_in_tenv tenv name with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
      | Some (tname, ctor) ->
-       unify t (TName tname);
+       (* Field types come from the constructor's own scheme, the same way
+          construction reads them. Converting the written type again here
+          gave the field a brand-new effect variable, so what construction
+          learned about a function-typed field -- that the function it was
+          given performs Shell -- was not there when the match took it back
+          out, and the effect disappeared. `Testing`'s `raises` field is the
+          one that mattered: it made `t.raises (fn () -> $(cmd))` typecheck
+          in a file whose manifest was `uses {}`. *)
+       let arg_ts, result_t =
+         match List.assoc_opt name (tenv_to_ctor_env tenv) with
+         | Some sch -> unwrap_ctor_type (instantiate sch)
+         | None -> ([], TName tname)
+       in
+       unify t result_t;
+       let field_type fname =
+         let rec index i = function
+           | [] -> None
+           | (dn, _) :: rest -> if dn = Some fname then Some i else index (i + 1) rest
+         in
+         match index 0 ctor.fields with
+         | Some i -> List.nth_opt arg_ts i
+         | None -> None
+       in
        List.fold_left (fun env (fname, p) ->
          match List.find_opt (fun (dn, _) -> dn = Some fname) ctor.fields with
          | None -> raise (TypeError (Printf.sprintf
              "constructor '%s' has no field '%s'%s"
              name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
-         | Some (_, te) -> infer_pat tenv p (type_of_te te) env
+         | Some (_, te) ->
+           let at = match field_type fname with Some t -> t | None -> type_of_te te in
+           infer_pat tenv p at env
        ) env bindings)
 
   | PMap bindings ->
@@ -1694,7 +1773,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
          | TApp (f, a) -> let (h, args) = head_and_args f in (h, args @ [a])
          | other -> (other, [])
        in
-       (match head_and_args (infer tenv env e) with
+       let scrut_t = infer tenv env e in
+       (match head_and_args scrut_t with
         | (TName tname, args) ->
           (match List.assoc_opt tname tenv with
            | Some (Variants (_, params, ctors)) ->
@@ -1730,7 +1810,36 @@ let rec infer tenv (env : env) (e : expr) : typ =
                   (if List.length lacks = 1 then "does not have" else "do not have")
                   label))
               | c0 :: rest, [] ->
-                let field_t c = type_of_te_bound bound (List.assoc label (named c)) in
+                (* From the constructor's own scheme, tied to this value's
+                   type arguments -- not by converting the written field type
+                   again. A fresh conversion gives a function-typed field a
+                   brand-new effect variable, so what construction learned
+                   about it is gone by the time it is read back out, and
+                   `t.raises (fn () -> $(cmd))` typechecked under `uses {}`.
+                   Falls back to the written type for a constructor with no
+                   scheme, which is what the builtin types have. *)
+                let field_t c =
+                  let written () =
+                    type_of_te_bound bound (List.assoc label (named c)) in
+                  match List.assoc_opt c.name (tenv_to_ctor_env tenv) with
+                  | None -> written ()
+                  | Some sch ->
+                    let (arg_ts, result_t) = unwrap_ctor_type (instantiate sch) in
+                    (* Binds the scheme's parameters to this value's own. The
+                       scrutinee is already known to be this type, so a
+                       failure here is a bug rather than a user error. *)
+                    unify result_t scrut_t;
+                    let rec index i = function
+                      | [] -> None
+                      | (dn, _) :: rest ->
+                        if dn = Some label then Some i else index (i + 1) rest
+                    in
+                    (match index 0 c.fields with
+                     | Some i -> (match List.nth_opt arg_ts i with
+                                  | Some t -> t
+                                  | None -> written ())
+                     | None -> written ())
+                in
                 let t0 = field_t c0 in
                 (* Every constructor's `x` has to be one type, or the type of
                    `v.x` would depend on which constructor v holds. *)
@@ -2600,6 +2709,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   last_shell_allow := None;
   pending_fix := None;
   current_eff := Effect_set.unknown ();
+  Hashtbl.reset ctor_scheme_cache;
   holes := [];
   let local_tenv = List.filter_map (function
     | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)

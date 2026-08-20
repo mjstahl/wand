@@ -714,6 +714,63 @@ let type_of label src =
   | Error e -> Alcotest.failf "%s: %s" label e
 
 (* A handler removes the effect of the operation it intercepts. *)
+(* A function stored in a constructor field carries its effects with it. The
+   field's effects are not written down -- the grammar has no place for them
+   -- so they are inferred at construction, and the match that takes the
+   field back out has to see the same ones. It did not: the constructor's
+   scheme quantified them although its result type (`Action`, not
+   `Action 'e`) does not mention them, so construction picked Shell and the
+   match picked nothing, and this typechecked under `uses {}` and ran the
+   command. *)
+let launders label src =
+  match type_of_program_with_imports ("uses {}\n" ^ src) with
+  | Ok () -> Alcotest.failf "%s: the effect was laundered -- uses {} accepted" label
+  | Error m ->
+    if not (contains m "performs Shell") then
+      Alcotest.failf "%s: expected the Shell to surface, got: %s" label m
+
+let test_constructor_field_keeps_its_effects () =
+  launders "a positional field, matched"
+    "type Action = Action (Unit -> String)\n\
+     let a = Action (fn () -> $(echo hi))\n\
+     let fire x = match x with\n| Action f -> f ()\n\
+     let go = fire a";
+  launders "a named field, read by dot access"
+    "type Box = Box(run: (Unit -> String))\n\
+     let b = Box(run = fn () -> $(echo hi))\n\
+     let go = (b.run) ()";
+  launders "a named field, matched"
+    "type Box = Box(run: (Unit -> String))\n\
+     let b = Box(run = fn () -> $(echo hi))\n\
+     let fire x = match x with\n| Box(run = f) -> f ()\n\
+     let go = fire b";
+  (* A field behind a type parameter always worked, because the parameter is
+     in the result type and so generalises soundly. It has to keep working. *)
+  launders "a field behind a type parameter"
+    "type Box 'a = Box 'a\n\
+     let b = Box (fn () -> $(echo hi))\n\
+     let fire x = match x with\n| Box f -> f ()\n\
+     let go = fire b"
+
+(* Constructing performs nothing, so a constructor's own arrows are pure.
+   When they carried an effect variable instead -- shared, since these are no
+   longer generalised -- one `Some` used where a raise was possible made every
+   `Some` in the program raise, and pure code was told to rename itself. *)
+let test_constructing_performs_nothing () =
+  Alcotest.(check string) "Some carries no effects of its own"
+    "'a -> Option 'a"
+    (type_of "pure construction" "import Option\nfn n -> Some n");
+  (* The shape that caught it: a pure function building an Option, in a file
+     that also raises. With the constructor's arrows sharing one variable the
+     Raise reached this one too, and the linter told a pure function to
+     rename itself `tally!`. *)
+  Alcotest.(check string) "and does not collect them from elsewhere in the file"
+    "'a -> Option 'a"
+    (type_of "pure beside a raise"
+       "import Option\nimport List\n\
+        let boom xs = List.head! xs\n\
+        fn s -> match None with\n| Some e -> Some e\n| None -> Some s")
+
 (* An effect is discharged when every operation carrying it is handled --
    here Proc, which carries exactly one, so one case covers it and nothing
    in the body can still end the process. *)
@@ -999,6 +1056,8 @@ let () =
       Alcotest.test_case "polymorphic arithmetic" `Quick test_num_arithmetic;
     ];
     "effects", [
+      Alcotest.test_case "constructor field keeps effects" `Quick test_constructor_field_keeps_its_effects;
+      Alcotest.test_case "constructing is pure"         `Quick test_constructing_performs_nothing;
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
       Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
