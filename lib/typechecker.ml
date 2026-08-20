@@ -87,26 +87,8 @@ let rec pat_is_refutable (p : pat) =
   | PConstrNamed _ -> false   (* a single-constructor type cannot mismatch *)
   | _             -> true
 
-(* Which effect an intercepted operation accounts for. A handler case names
-   the builtin operation it catches, and catching it is what removes the
-   corresponding effect from the handled expression. *)
-let effect_of_operation = function
-  | "Shell!run" | "Shell!run_quiet" | "Shell!exit_code" | "Shell!capture" ->
-    Some Effect_row.Shell
-  | "FS!stream_lines" -> Some Effect_row.FsRead
-  | "IO!stdin_lines" -> Some Effect_row.IO
-  | "FS!read_file" | "FS!list_dir" | "FS!glob" | "FS!exists" | "FS!file"
-  | "FS!dir" | "FS!mtime" | "FS!size" | "FS!cwd" -> Some Effect_row.FsRead
-  | "FS!write_file" | "FS!append" | "FS!delete" | "FS!create_file"
-  | "FS!rename" | "FS!copy" | "FS!mkdir" | "FS!temp_file"
-  | "FS!temp_dir" | "FS!delete_tree" ->
-    Some Effect_row.FsWrite
-  | "IO!print" | "IO!println" | "IO!print_err" | "IO!println_err"
-  | "IO!read_line" | "IO!read_all" | "IO!flush" -> Some Effect_row.IO
-  | "Env!get" | "Env!set" | "Env!clear" | "Env!all" | "Env!args"
-  | "Env!home" | "Env!user" | "Env!parse_dotenv" -> Some Effect_row.Env
-  | "Proc!exit" -> Some Effect_row.Proc
-  | _ -> None
+(* `effect_of_operation` and `operation_types` are derived from the
+   operations table, which needs `fresh` -- see "Effect operations" below. *)
 
 (* Effects performed by whatever is currently being inferred.
 
@@ -182,41 +164,176 @@ let fresh_num () =
    is no single payload type to give them. Declaring one would be worse than
    declaring none -- a handler would be told the shape was a String and
    handed a tuple whenever someone piped into the command. *)
-let operation_types op : (typ * typ) option =
+(* ── Effect operations ───────────────────────────────────────────────────── *)
+
+(* Every operation a handler can catch, in one table: the effect catching it
+   accounts for, what it carries, and what a script writes to perform it.
+   The three used to be a match apiece, which meant nothing could enumerate
+   them -- an editor could not answer what `FS!` might become, and the
+   answers could disagree without anything noticing. They are read from here
+   now, so they cannot drift, and `operation_names` hands the list to
+   completion.
+
+   `op_performers` is the part a reader wants and no analysis can supply:
+   `FS!read_file` is what `JSON.read_file` performs as much as `FS.read_file`,
+   and `Shell!run` is performed by `$(...)`, which is syntax rather than a
+   name. It is checked rather than trusted -- test/wand/test_operations.wand
+   calls every entry under a handler for its operation and fails if the
+   handler does not fire. The lists name what a script calls directly; a
+   function that reaches an operation through another (`FS.glob` asks where
+   it is standing, so it performs `FS!cwd`) is not repeated here. *)
+type operation = {
+  op_name : string;
+  op_effect : Effect_row.eff;
+  (* Payload and resume types, behind a thunk: two operations answer with a
+     fresh type variable, and every mention has to get its own or the first
+     handler in a file would pin the rest. `None` leaves both open. *)
+  op_types : unit -> (typ * typ) option;
+  op_performers : string list;
+}
+
+let operations : operation list =
   let path = TPath and str = TString in
-  match op with
-  | "FS!read_file"    -> Some (path, str)
-  | "FS!stream_lines" -> Some (path, TList str)
-  | "IO!stdin_lines"  -> Some (TUnit, TList str)
-  | "FS!write_file"   -> Some (TTuple [path; str], TUnit)
-  | "FS!append"       -> Some (TTuple [path; str], TUnit)
-  | "FS!create_file"  -> Some (path, TUnit)
-  | "FS!delete"       -> Some (path, TUnit)
-  | "FS!delete_tree"  -> Some (path, TUnit)
-  | "FS!mkdir"        -> Some (path, TUnit)
-  | "FS!rename"       -> Some (TTuple [path; path], TUnit)
-  | "FS!copy"         -> Some (TTuple [path; path], TUnit)
-  | "FS!list_dir"     -> Some (path, TList path)
-  | "FS!exists" | "FS!file" | "FS!dir" -> Some (path, TBool)
-  | "FS!mtime"        -> Some (path, TDateTime)
-  | "FS!size"         -> Some (path, TInt)
-  | "FS!cwd"          -> Some (TUnit, path)
-  | "FS!glob"         -> Some (TTuple [TGlob; path], TList path)
-  | "FS!temp_file"    -> Some (TTuple [str; str], path)
-  | "FS!temp_dir"     -> Some (str, path)
-  | "Env!set"         -> Some (TTuple [str; str], TUnit)
-  | "Env!clear"       -> Some (str, TUnit)
-  | "IO!read_all" | "IO!read_line" -> Some (TUnit, str)
-  | "IO!flush"        -> Some (TUnit, TUnit)
-  (* Printing takes whatever it is given. *)
-  | "IO!print" | "IO!println" | "IO!print_err" | "IO!println_err" ->
-    Some (fresh (), TUnit)
-  | "Shell!run_quiet" -> Some (str, TUnit)
-  | "Shell!exit_code" -> Some (str, TInt)
-  (* Nothing follows an exit, so a case that resumes one may say it resumes
-     with anything. *)
-  | "Proc!exit"       -> Some (TInt, fresh ())
-  | _ -> None
+  let t p r = fun () -> Some (p, r) in
+  let open Effect_row in
+  [
+    (* Reading. *)
+    { op_name = "FS!read_file"; op_effect = FsRead; op_types = t path str;
+      (* `JSON.read_file`, `CSV.read_file` and `TOML.read_file` are missing
+         from this list on purpose: they reach the disk through a builtin of
+         their own rather than through this operation, so a handler for it
+         does not intercept them. Their types say they perform nothing at
+         all, which is a hole in the manifest rather than a fact about this
+         table -- when it is closed they belong here. *)
+      op_performers = ["FS.read_file"; "FS.read_file!"; "Env.read!"] };
+    { op_name = "FS!stream_lines"; op_effect = FsRead; op_types = t path (TList str);
+      op_performers = ["FS.stream_lines"] };
+    { op_name = "FS!list_dir"; op_effect = FsRead; op_types = t path (TList path);
+      op_performers = ["FS.list_dir"; "FS.list_dir!"] };
+    { op_name = "FS!glob"; op_effect = FsRead;
+      op_types = t (TTuple [TGlob; path]) (TList path);
+      op_performers = ["FS.glob"; "FS.glob_in"] };
+    { op_name = "FS!exists"; op_effect = FsRead; op_types = t path TBool;
+      op_performers = ["FS.exists?"] };
+    { op_name = "FS!file"; op_effect = FsRead; op_types = t path TBool;
+      op_performers = ["FS.file?"] };
+    { op_name = "FS!dir"; op_effect = FsRead; op_types = t path TBool;
+      op_performers = ["FS.dir?"] };
+    { op_name = "FS!mtime"; op_effect = FsRead; op_types = t path TDateTime;
+      op_performers = ["FS.mtime"; "FS.mtime!"] };
+    { op_name = "FS!size"; op_effect = FsRead; op_types = t path TInt;
+      op_performers = ["FS.size"; "FS.size!"] };
+    { op_name = "FS!cwd"; op_effect = FsRead; op_types = t TUnit path;
+      op_performers = ["FS.cwd"] };
+    (* Writing. *)
+    { op_name = "FS!write_file"; op_effect = FsWrite;
+      op_types = t (TTuple [path; str]) TUnit;
+      op_performers = ["FS.write_file"; "FS.write_file!"] };
+    { op_name = "FS!append"; op_effect = FsWrite;
+      op_types = t (TTuple [path; str]) TUnit;
+      op_performers = ["FS.append"; "FS.append!"] };
+    { op_name = "FS!create_file"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.create_file"; "FS.create_file!"] };
+    { op_name = "FS!delete"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.delete"; "FS.delete!"] };
+    { op_name = "FS!delete_tree"; op_effect = FsWrite; op_types = t path TUnit;
+      (* No function removes a tree outright. The one place it happens is a
+         scratch directory being released, which is why the only performer is
+         the bracket rather than a call. *)
+      op_performers = ["FS.temp_dir"] };
+    { op_name = "FS!mkdir"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.mkdir"; "FS.mkdir!"] };
+    { op_name = "FS!rename"; op_effect = FsWrite;
+      op_types = t (TTuple [path; path]) TUnit;
+      op_performers = ["FS.rename"; "FS.rename!"] };
+    { op_name = "FS!copy"; op_effect = FsWrite;
+      op_types = t (TTuple [path; path]) TUnit;
+      op_performers = ["FS.copy"; "FS.copy!"] };
+    { op_name = "FS!temp_file"; op_effect = FsWrite;
+      op_types = t (TTuple [str; str]) path;
+      op_performers = ["FS.temp_file"] };
+    { op_name = "FS!temp_dir"; op_effect = FsWrite; op_types = t str path;
+      op_performers = ["FS.temp_dir"] };
+    (* The program's own streams. *)
+    { op_name = "IO!print"; op_effect = IO;
+      (* Printing takes whatever it is given. *)
+      op_types = (fun () -> Some (fresh (), TUnit));
+      op_performers = ["print"; "IO.print"] };
+    { op_name = "IO!println"; op_effect = IO;
+      op_types = (fun () -> Some (fresh (), TUnit));
+      op_performers = ["println"; "IO.println"] };
+    { op_name = "IO!print_err"; op_effect = IO;
+      op_types = (fun () -> Some (fresh (), TUnit));
+      op_performers = ["IO.print_err"] };
+    { op_name = "IO!println_err"; op_effect = IO;
+      op_types = (fun () -> Some (fresh (), TUnit));
+      op_performers = ["IO.println_err"] };
+    { op_name = "IO!read_line"; op_effect = IO; op_types = t TUnit str;
+      op_performers = ["IO.read_line"; "IO.read_line!"] };
+    { op_name = "IO!read_all"; op_effect = IO; op_types = t TUnit str;
+      op_performers = ["IO.read_all"; "IO.read_all!"] };
+    { op_name = "IO!flush"; op_effect = IO; op_types = t TUnit TUnit;
+      op_performers = ["IO.flush"] };
+    { op_name = "IO!stdin_lines"; op_effect = IO; op_types = t TUnit (TList str);
+      op_performers = ["IO.stdin_lines"] };
+    (* The environment. *)
+    { op_name = "Env!get"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.get"; "Env.get!"] };
+    { op_name = "Env!set"; op_effect = Env; op_types = t (TTuple [str; str]) TUnit;
+      op_performers = ["Env.set"; "Env.load!"] };
+    { op_name = "Env!clear"; op_effect = Env; op_types = t str TUnit;
+      op_performers = ["Env.clear"] };
+    { op_name = "Env!all"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.all"] };
+    { op_name = "Env!args"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.args"] };
+    { op_name = "Env!home"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.home"] };
+    { op_name = "Env!user"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.user"] };
+    { op_name = "Env!parse_dotenv"; op_effect = Env; op_types = (fun () -> None);
+      op_performers = ["Env.read!"] };
+    (* Subprocesses. `Shell!run` and `Shell!capture` carry either a command,
+       or a command and the stdin threaded into it, so there is no single
+       payload type to give them. Declaring one would be worse than declaring
+       none -- a handler would be told the shape was a String and handed a
+       tuple whenever someone piped into the command. *)
+    { op_name = "Shell!run"; op_effect = Shell; op_types = (fun () -> None);
+      op_performers = ["$(...)"] };
+    { op_name = "Shell!capture"; op_effect = Shell; op_types = (fun () -> None);
+      op_performers = ["$?(...)"] };
+    (* These two have builtins behind them and are answered by `--dry-run`
+       and `--trace`, but nothing a script can write reaches them: the
+       builtins are not bound in a script's scope and no module exports
+       them. A handler case for either is legal and will never fire. *)
+    { op_name = "Shell!run_quiet"; op_effect = Shell; op_types = t str TUnit;
+      op_performers = [] };
+    { op_name = "Shell!exit_code"; op_effect = Shell; op_types = t str TInt;
+      op_performers = [] };
+    (* Ending the process. Nothing follows an exit, so a case that resumes
+       one may say it resumes with anything. *)
+    { op_name = "Proc!exit"; op_effect = Proc;
+      op_types = (fun () -> Some (TInt, fresh ()));
+      op_performers = ["Proc.exit"] };
+  ]
+
+let operation_index : (string, operation) Hashtbl.t = Hashtbl.create 64
+let () = List.iter (fun o -> Hashtbl.replace operation_index o.op_name o) operations
+
+let find_operation name = Hashtbl.find_opt operation_index name
+
+(* Every operation, in table order: FS reads, FS writes, streams, the
+   environment, subprocesses, exit. What an editor offers after `FS!`. *)
+let operation_names () = List.map (fun o -> o.op_name) operations
+
+(* Which effect an intercepted operation accounts for. A handler case names
+   the builtin operation it catches, and catching it is what removes the
+   corresponding effect from the handled expression. *)
+let effect_of_operation name =
+  Option.map (fun o -> o.op_effect) (find_operation name)
+
+let operation_types op : (typ * typ) option =
+  match find_operation op with Some o -> o.op_types () | None -> None
 
 (* ── Repr (follow unification links) ─────────────────────────────────────── *)
 

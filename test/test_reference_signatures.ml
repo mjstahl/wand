@@ -184,6 +184,60 @@ let test_every_module_is_listed_in_contents () =
       (List.length missing)
       (String.concat "\n  " missing)
 
+(* The reference's table of interceptable operations, which had fallen four
+   behind the binary before anything enumerated them. Each row reads
+   `| `FS` | `read_file`, ... |`, so the family and the backticked verbs on
+   that line rebuild the `Family!verb` names to compare. *)
+let documented_operations () =
+  let doc =
+    let ic = open_in reference_path in
+    let s = In_channel.input_all ic in
+    close_in ic; s
+  in
+  let names = ref [] in
+  List.iter (fun line ->
+    match String.index_opt line '|' with
+    | None -> ()
+    | Some _ ->
+      let cells = String.split_on_char '|' line in
+      (match List.filter (fun c -> String.trim c <> "") cells with
+       | family :: rest when List.length rest >= 1 ->
+         let unquote s =
+           let s = String.trim s in
+           let n = String.length s in
+           if n >= 2 && s.[0] = '`' && s.[n-1] = '`' then Some (String.sub s 1 (n-2))
+           else None
+         in
+         (match unquote family with
+          | Some fam when List.mem fam ["Shell"; "FS"; "Env"; "IO"; "Proc"] ->
+            List.iter (fun cell ->
+              List.iter (fun verb ->
+                match unquote verb with
+                | Some v -> names := (fam ^ "!" ^ v) :: !names
+                | None -> ())
+                (String.split_on_char ',' cell))
+              rest
+          | _ -> ())
+       | _ -> ())
+  ) (String.split_on_char '\n' doc);
+  !names
+
+let test_operations_table_matches_the_binary () =
+  let documented = documented_operations () in
+  Alcotest.(check bool)
+    "found the operations table (the parser still matches the document)" true
+    (List.length documented >= 30);
+  let real = Wand.Typechecker.operation_names () in
+  let missing = List.filter (fun o -> not (List.mem o documented)) real in
+  let extra = List.filter (fun o -> not (List.mem o real)) documented in
+  if missing <> [] || extra <> [] then
+    Alcotest.failf
+      "the reference's operations table disagrees with the binary:\n\
+      \  undocumented: %s\n\
+      \  documented but not real: %s"
+      (if missing = [] then "(none)" else String.concat ", " missing)
+      (if extra = [] then "(none)" else String.concat ", " extra)
+
 let () =
   Alcotest.run "reference signatures"
     [ ( "stdlib",
@@ -192,6 +246,8 @@ let () =
           Alcotest.test_case "cover every export" `Quick
             test_every_export_is_documented;
           Alcotest.test_case "list every module" `Quick
-            test_every_module_is_listed_in_contents
+            test_every_module_is_listed_in_contents;
+          Alcotest.test_case "operations table matches" `Quick
+            test_operations_table_matches_the_binary
         ] )
     ]

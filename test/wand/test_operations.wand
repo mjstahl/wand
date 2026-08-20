@@ -1,0 +1,277 @@
+uses {Env, FS.Read}
+let {test, group} = import Test
+import Env
+import FS
+import IO
+import Path
+import Proc
+import Stream
+
+(* Every `op_performers` entry in the operations table (typechecker.ml)
+   claims that calling something performs a particular operation. The claim
+   is what the editor shows after `FS!` -- "handles the FS.Write effect of
+   FS.write_file and FS.write_file!" -- and it is the one part of the table
+   no analysis can derive, so it is checked here instead of trusted.
+
+   Each case runs the performer under a handler for its operation and does
+   not resume: reaching the handler is the whole assertion, so the value it
+   answers with stands in for "the operation was performed". A performer
+   that stopped performing its operation would run for real instead, and
+   these tests would fail -- loudly, and usually by touching the disk. *)
+
+let caught = "caught"
+let missed = "missed"
+
+-- A path that does not exist, so a performer that escapes its handler
+-- fails rather than quietly succeeding against something real.
+let absent = Path.of_string "/wand-test-operations/definitely/not/here"
+
+group "FS reads" (fn () -> [
+  test "FS!read_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.read_file! absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via FS.read_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.read_file absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via Env.read!" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = Env.read! absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  -- A stream reads nothing until the fold runs it, so the fold is the call.
+  test "FS!stream_lines" (fn t -> t.eq caught (
+    handle (fn () -> (Stream.fold_left (fn a _ -> a) 0 (FS.stream_lines absent); missed)) () with
+    | FS!stream_lines _ _ -> caught)),
+  test "FS!list_dir" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.list_dir! absent in missed)) () with
+    | FS!list_dir _ _ -> caught)),
+  test "FS!list_dir via FS.list_dir" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.list_dir absent in missed)) () with
+    | FS!list_dir _ _ -> caught)),
+  test "FS!glob" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.glob *.nothing in missed)) () with
+    | FS!glob _ _ -> caught)),
+  test "FS!glob via FS.glob_in" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.glob_in *.nothing absent in missed)) () with
+    | FS!glob _ _ -> caught)),
+  test "FS!exists" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.exists? absent in missed)) () with
+    | FS!exists _ _ -> caught)),
+  test "FS!file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.file? absent in missed)) () with
+    | FS!file _ _ -> caught)),
+  test "FS!dir" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.dir? absent in missed)) () with
+    | FS!dir _ _ -> caught)),
+  test "FS!mtime" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.mtime! absent in missed)) () with
+    | FS!mtime _ _ -> caught)),
+  test "FS!mtime via FS.mtime" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.mtime absent in missed)) () with
+    | FS!mtime _ _ -> caught)),
+  test "FS!size" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.size! absent in missed)) () with
+    | FS!size _ _ -> caught)),
+  test "FS!size via FS.size" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.size absent in missed)) () with
+    | FS!size _ _ -> caught)),
+  test "FS!cwd" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.cwd () in missed)) () with
+    | FS!cwd _ _ -> caught))
+])
+
+group "FS writes" (fn () -> [
+  test "FS!write_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.write_file! absent "x" in missed)) () with
+    | FS!write_file _ _ -> caught)),
+  test "FS!write_file via FS.write_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.write_file absent "x" in missed)) () with
+    | FS!write_file _ _ -> caught)),
+  test "FS!append" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.append! absent "x" in missed)) () with
+    | FS!append _ _ -> caught)),
+  test "FS!append via FS.append" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.append absent "x" in missed)) () with
+    | FS!append _ _ -> caught)),
+  test "FS!create_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.create_file! absent in missed)) () with
+    | FS!create_file _ _ -> caught)),
+  test "FS!create_file via FS.create_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.create_file absent in missed)) () with
+    | FS!create_file _ _ -> caught)),
+  test "FS!delete" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.delete! absent in missed)) () with
+    | FS!delete _ _ -> caught)),
+  test "FS!delete via FS.delete" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.delete absent in missed)) () with
+    | FS!delete _ _ -> caught)),
+  test "FS!mkdir" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.mkdir! absent in missed)) () with
+    | FS!mkdir _ _ -> caught)),
+  test "FS!mkdir via FS.mkdir" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.mkdir absent in missed)) () with
+    | FS!mkdir _ _ -> caught)),
+  test "FS!rename" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.rename! absent absent in missed)) () with
+    | FS!rename _ _ -> caught)),
+  test "FS!rename via FS.rename" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.rename absent absent in missed)) () with
+    | FS!rename _ _ -> caught)),
+  test "FS!copy" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.copy! absent absent in missed)) () with
+    | FS!copy _ _ -> caught)),
+  test "FS!copy via FS.copy" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.copy absent absent in missed)) () with
+    | FS!copy _ _ -> caught)),
+  -- A bracket acquires when the body starts, so naming one performs nothing
+  -- until it is used: `with` is the call.
+  test "FS!temp_file" (fn t -> t.eq caught (
+    handle (fn () -> (with (FS.temp_file "w" ".tmp") as _ -> missed)) () with
+    | FS!temp_file _ _ -> caught)),
+  test "FS!temp_dir" (fn t -> t.eq caught (
+    handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
+    | FS!temp_dir _ _ -> caught)),
+  -- The tree goes when the scratch directory is released, which is the only
+  -- place anything removes one. This case resumes rather than abandoning:
+  -- the operation is performed from inside the release, and abandoning a
+  -- continuation there escapes as a fatal error rather than unwinding.
+  test "FS!delete_tree via FS.temp_dir's release" (fn t -> t.eq caught (
+    handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
+    | FS!temp_dir _ k -> k absent
+    | FS!exists _ k -> k true
+    | FS!delete_tree _ k -> let _ = k () in caught))
+])
+
+group "the program's own streams" (fn () -> [
+  test "IO!print" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = print "x" in missed) () with
+      | IO!print _ _ -> caught)),
+  test "IO!print via IO.print" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.print "x" in missed) () with
+      | IO!print _ _ -> caught)),
+  test "IO!println" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = println "x" in missed) () with
+      | IO!println _ _ -> caught)),
+  test "IO!println via IO.println" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.println "x" in missed) () with
+      | IO!println _ _ -> caught)),
+  test "IO!print_err" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.print_err "x" in missed) () with
+      | IO!print_err _ _ -> caught)),
+  test "IO!println_err" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.println_err "x" in missed) () with
+      | IO!println_err _ _ -> caught)),
+  test "IO!read_line" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.read_line! () in missed) () with
+      | IO!read_line _ _ -> caught)),
+  test "IO!read_line via IO.read_line" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.read_line () in missed) () with
+      | IO!read_line _ _ -> caught)),
+  test "IO!read_all" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.read_all! () in missed) () with
+      | IO!read_all _ _ -> caught)),
+  test "IO!read_all via IO.read_all" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.read_all () in missed) () with
+      | IO!read_all _ _ -> caught)),
+  test "IO!flush" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = IO.flush () in missed) () with
+      | IO!flush _ _ -> caught)),
+  test "IO!stdin_lines" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> (Stream.fold_left (fn a _ -> a) 0 (IO.stdin_lines ()); missed)) () with
+      | IO!stdin_lines _ _ -> caught))
+])
+
+group "the environment" (fn () -> [
+  test "Env!get" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.get! "WAND_TEST_OPS" in missed) () with
+      | Env!get _ _ -> caught)),
+  test "Env!get via Env.get" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.get "WAND_TEST_OPS" in missed) () with
+      | Env!get _ _ -> caught)),
+  test "Env!set" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.set "WAND_TEST_OPS" "1" in missed) () with
+      | Env!set _ _ -> caught)),
+  test "Env!set via Env.load!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.load! absent in missed) () with
+      | FS!read_file _ k -> k "WAND_TEST_OPS=1\n"
+      | Env!set _ _ -> caught)),
+  test "Env!clear" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.clear "WAND_TEST_OPS" in missed) () with
+      | Env!clear _ _ -> caught)),
+  test "Env!all" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.all () in missed) () with
+      | Env!all _ _ -> caught)),
+  test "Env!args" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.args () in missed) () with
+      | Env!args _ _ -> caught)),
+  test "Env!home" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.home () in missed) () with
+      | Env!home _ _ -> caught)),
+  test "Env!user" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.user () in missed) () with
+      | Env!user _ _ -> caught)),
+  test "Env!parse_dotenv via Env.read!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.read! absent in missed) () with
+      | FS!read_file _ k -> k "WAND_TEST_OPS=1\n"
+      | Env!parse_dotenv _ _ -> caught))
+])
+
+group "subprocesses and exit" (fn () -> [
+  test "Shell!run is performed by $(...)" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = $(echo hi) in missed) () with
+      | Shell!run _ _ -> caught)),
+  test "Shell!capture is performed by $?(...)" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = $?(echo hi) in missed) () with
+      | Shell!capture _ _ -> caught)),
+  test "Proc!exit" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Proc.exit 0 in missed) () with
+      | Proc!exit _ _ -> caught))
+])

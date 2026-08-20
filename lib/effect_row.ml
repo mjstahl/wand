@@ -138,7 +138,7 @@ let occurs v r =
 
 let bind v r =
   if occurs v r then
-    raise (RowError "effect row refers to itself");
+    raise (RowError "an effect set cannot contain itself");
   v.rdef <- Some r
 
 let string_of_row r =

@@ -262,7 +262,61 @@ let docs_of (d : doc) =
    Scope first; a qualified name whose namespace is not in scope is
    answered from the standard library's signature -- the same modules the
    auto-import tier can bring in. *)
+(* An operation a handler catches. Nothing about it is in the scope -- it is
+   not a name a script can bind -- so its answer is assembled from the
+   operations table: the shape a case binds and resumes with, the effect
+   catching it accounts for, and what a script writes to perform it. That
+   last is the part a reader cannot work out from the name, and the reason
+   this is worth answering at all. *)
+let describe_operation name : (string * string option) option =
+  match Typechecker.find_operation name with
+  | None -> None
+  | Some op ->
+    let effect_name = Effect_row.name_of op.Typechecker.op_effect in
+    let detail =
+      match op.Typechecker.op_types () with
+      | Some (payload, resume) ->
+        Typechecker.string_of_typ payload ^ " -> " ^ Typechecker.string_of_typ resume
+      | None -> "payload left open"
+    in
+    let performers =
+      match List.map (fun p -> "`" ^ p ^ "`") op.Typechecker.op_performers with
+      | [] -> ""
+      | [one] -> one
+      | many ->
+        let rec commas = function
+          | [a; b] -> a ^ " and " ^ b
+          | x :: rest -> x ^ ", " ^ commas rest
+          | [] -> ""
+        in commas many
+    in
+    let binds =
+      match op.Typechecker.op_types () with
+      | Some (payload, resume) ->
+        Printf.sprintf "A case binds `%s` and resumes with `%s`."
+          (Typechecker.string_of_typ payload) (Typechecker.string_of_typ resume)
+      | None ->
+        "This operation carries more than one shape, so a case is not \
+         checked against a payload type."
+    in
+    let doc =
+      if performers = "" then
+        Printf.sprintf
+          "Handles the `%s` effect. Nothing a script can write performs this \
+           operation, so a case for it will not fire.\n\n%s" effect_name binds
+      else
+        Printf.sprintf "Handles the `%s` effect of %s.\n\n%s"
+          effect_name performers binds
+    in
+    Some (detail, Some doc)
+
+(* An operation first -- the table is the only place they are described, and
+   nothing else can answer for one. A name that is not in it falls through,
+   so a script's own `deploy!` is still looked up in scope. *)
 let describe (d : doc) word : (string * string option) option =
+  match describe_operation word with
+  | Some answer -> Some answer
+  | None ->
   let scope = scope_of d in
   match String.split_on_char '.' word with
   | [ns; m] when m <> "" ->

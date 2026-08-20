@@ -31,6 +31,15 @@ let ident_at ?(limit = 0) (env : Typechecker.env) (line : string) : completion =
   let start = !i + 1 in
   let prefix = String.sub line start (n - start) in
   let candidates =
+    (* `FS!` is a handler case naming an operation, not a member of the FS
+       module: operations live in their own table rather than the scope, so
+       they are matched before the `.` forms below. Writing the namespace is
+       what asks for them -- a bare prefix never offers one, because the only
+       place an operation can be written is a handler case. *)
+    match String.index_opt prefix '!' with
+    | Some i when i > 0 && not (String.contains prefix '.') ->
+      List.filter (has_prefix ~prefix) (Typechecker.operation_names ())
+    | _ ->
     match String.split_on_char '.' prefix with
     | [ns; member_prefix] ->
       (match List.assoc_opt ns env with

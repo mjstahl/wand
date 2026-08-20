@@ -86,7 +86,7 @@ wrapped-around value:
 ```
 
 Like division by zero, this is a runtime error and not the `Raise` effect —
-any `+` can overflow, so tracking it would put `Raise` in the row of every
+any `+` can overflow, so tracking it would put `Raise` on every
 function that adds two numbers.
 
 Arithmetic (`+ - * /` and unary `-`) works on `Int` and on `Float` with
@@ -930,7 +930,7 @@ fn () -> handle $(git push) with
          | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise}
 ```
 
-`Shell` is gone. `Raise` stays: a row records which effects occurred, not
+`Shell` is gone. `Raise` stays: an effect set records which effects occurred, not
 which operation caused them, so the raise `$()` performs on a non-zero exit
 cannot be told apart from one a raising call elsewhere in the body would
 perform. Removing it would drop that one too.
@@ -949,7 +949,7 @@ List.map   ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
 Applying it to a shell command yields `{Raise, Shell}`; applying it to
 arithmetic yields nothing.
 
-A row can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
+An effect set can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
 turns out to be". The `|` separates what is known from the rest.
 
 ### What inference promises
@@ -1119,7 +1119,7 @@ intercept `FS!read_file`:
 
 The part before the `!` is the effect family, which is why `$()` is
 `Shell!run` even though there is no `Shell` module: families are the same
-words that appear in a signature's row.
+words that appear in a signature's effect set.
 
 Several functions can share one operation. `FS.read_file` and
 `FS.read_file!` both perform `FS!read_file`, so a test mocks reading a file
@@ -1166,15 +1166,20 @@ the resources of the code it stands in for.
 
 The interceptable operations are the builtins that touch the outside world.
 Each is named `Family!verb`, and the family is the same one that appears in
-an effect row:
+an effect set:
 
 | Family | Operations |
 |---|---|
 | `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `write_file`, `append`, `create_file`, `delete`, `copy`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file` |
+| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
 | `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
-| `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush` |
+| `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
+
+Typing `FS!` in an editor lists them with what each carries and what
+performs it — the editor reads the same table the typechecker does.
+`Shell!run_quiet` and `Shell!exit_code` are the two nothing performs: a
+case for either is legal and will never fire.
 
 There is no `perform` keyword — a script cannot define its own effect
 operations, only intercept the built-in ones.
@@ -1529,7 +1534,7 @@ back as `None`, and a config is tidier without the empty keys.
 
 ### Decoding is pure
 
-The functions a decoder is built from carry the empty effect row, so a
+The functions a decoder is built from carry the empty effect set, so a
 decoder cannot read a file or run a command on the way past. Getting the data
 is the caller's job, and already says so in the caller's signature.
 
@@ -2296,7 +2301,7 @@ snapshotted — `List` intuition does not transfer. `IO.stdin_lines` is
 the one source that cannot re-run: streaming the real stdin a second
 time raises.
 
-A source that can fail carries `Raise` in the stream's row, and the
+A source that can fail carries `Raise` in the stream's effect set, and the
 failure surfaces at the terminal operation, where the open happens —
 `try` around the terminal call is the one capture. There are no `!`
 siblings here: no Stream function adds a raise of its own, so none earns
@@ -3225,7 +3230,7 @@ rather than left as the desugared `match`.
 
 The manifest is emitted canonically: labels in display order (alphabetical
 — `Env, FS.Read, FS.Write, IO, Proc, Raise, Shell`, the same order every
-rendered effect row and suggested manifest uses), the binaries inside
+rendered effect set and suggested manifest uses), the binaries inside
 `Shell(...)` sorted, and the whole form wrapping one label per line when
 it passes the column budget (an over-long `Shell(...)` list wraps one
 binary per line the same way). In the leading run of imports at the top
@@ -3252,7 +3257,7 @@ its author put it. Everything else has a formatting rule.
 subcommand on the compiler binary — the same inference, lint rules, and
 formatter answer in the editor, so the two cannot disagree. An editor
 connected to it gets diagnostics on every change, hover (the signature
-with its effect row, and the doc string), completion, quick fixes
+with its effect set, and the doc string), completion, quick fixes
 carrying the same corrections `wand t --fix` applies, whole-document
 formatting, and go to definition — a jump into the standard library
 opens the module's source from the binary as a read-only document.
