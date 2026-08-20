@@ -1,3 +1,4 @@
+uses {FS.Read}
 (** Parse a TOML string.  Returns Ok TOML or Error message. *)
 let parse src = toml_parse src
 
@@ -7,11 +8,14 @@ let parse! src = toml_parse_exn src
 (** Serialise a TOML table back to a TOML string. *)
 let stringify t = toml_stringify t
 
-(** Read and parse a TOML file.  Returns Ok TOML or Error message. *)
-let read_file path = toml_read_file path
+(** Read and parse a TOML file, raising on error. Reading is the same
+    `FS!read_file` every other reader performs, so this is `FS.Read` like
+    any other read: a handler mocking the filesystem stands in for it, and
+    `--dry-run` sees it. *)
+let read_file! path = parse! (read_file path)
 
-(** Read and parse a TOML file, raising on error. *)
-let read_file! path = toml_read_file_exn path
+(** Read and parse a TOML file.  Returns Ok TOML or Error message. *)
+let read_file path = try read_file! path
 
 (** True if the value is a TOML table. *)
 let table? t = toml_is_table t

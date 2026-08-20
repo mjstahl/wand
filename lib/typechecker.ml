@@ -199,13 +199,11 @@ let operations : operation list =
   [
     (* Reading. *)
     { op_name = "FS!read_file"; op_effect = FsRead; op_types = t path str;
-      (* `JSON.read_file`, `CSV.read_file` and `TOML.read_file` are missing
-         from this list on purpose: they reach the disk through a builtin of
-         their own rather than through this operation, so a handler for it
-         does not intercept them. Their types say they perform nothing at
-         all, which is a hole in the manifest rather than a fact about this
-         table -- when it is closed they belong here. *)
-      op_performers = ["FS.read_file"; "FS.read_file!"; "Env.read!"] };
+      (* Every reader that parses a file reads it through this one operation,
+         so a test mocks reading once rather than once per format. *)
+      op_performers = ["FS.read_file"; "FS.read_file!"; "JSON.read_file";
+                       "JSON.read_file!"; "CSV.read_file"; "CSV.read_file!";
+                       "TOML.read_file"; "TOML.read_file!"; "Env.read!"] };
     { op_name = "FS!stream_lines"; op_effect = FsRead; op_types = t path (TList str);
       op_performers = ["FS.stream_lines"] };
     { op_name = "FS!list_dir"; op_effect = FsRead; op_types = t path (TList path);
@@ -2113,15 +2111,11 @@ let stdlib_type_env : env = [
   (* CSV primitives *)
   ("csv_parse",         generalize [] ((TString @-> (TString @-> TList (TList TString)))));
   ("csv_stringify",     generalize [] ((TString @-> (TList (TList TString) @-> TString))));
-  ("csv_read_file",     generalize [] ((TPath @-> TResult (TString, (TList (TList TString))))));
-  ("csv_read_file_exn", generalize [] (effs [Effect_row.Raise] (TPath) (TList (TList TString))));
   (* JSON primitives *)
   ("json_parse",         generalize [] ((TString @-> TResult (TString, TJson))));
   ("json_parse_exn",     generalize [] (effs [Effect_row.Raise] (TString) (TJson)));
   ("json_stringify",     generalize [] ((TJson @-> TString)));
   ("json_stringify_pretty", generalize [] ((TJson @-> TString)));
-  ("json_read_file",     generalize [] ((TPath @-> TResult (TString, TJson))));
-  ("json_read_file_exn", generalize [] (effs [Effect_row.Raise] (TPath) (TJson)));
   ("json_field_exn",     generalize [] (effs [Effect_row.Raise] (TString) ((TJson @-> TJson))));
   ("json_null",         Mono TJson);
   ("json_of_bool",      generalize [] ((TBool @-> TJson)));
@@ -2217,8 +2211,6 @@ let stdlib_type_env : env = [
   (* TOML primitives *)
   ("toml_parse",        generalize [] ((TString @-> TResult (TString, TToml))));
   ("toml_parse_exn",    generalize [] (effs [Effect_row.Raise] (TString) (TToml)));
-  ("toml_read_file",    generalize [] ((TPath @-> TResult (TString, TToml))));
-  ("toml_read_file_exn",generalize [] (effs [Effect_row.Raise] (TPath) (TToml)));
   ("toml_stringify",    generalize [] ((TToml @-> TString)));
   ("toml_is_table",     generalize [] ((TToml @-> TBool)));
   ("toml_is_array",     generalize [] ((TToml @-> TBool)));

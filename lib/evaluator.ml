@@ -2151,21 +2151,6 @@ let stdlib_eval_env : env = [
         VString (csv_stringify_rows sep str_rows)
       | _ -> raise (EvalError "csv_stringify: expected List of rows"))
     | _ -> raise (EvalError "csv_stringify: expected String separator")));
-  ("csv_read_file", VBuiltin (function
-    | VString path | VPath path ->
-      (try
-        let rows = csv_parse_string "," (read_whole_file path) in
-        let v = VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows) in
-        VConstr ("Ok", [v])
-      with Sys_error msg -> VConstr ("Error", [VString msg]))
-    | _ -> raise (EvalError "csv_read_file: expected Path")));
-  ("csv_read_file_exn", VBuiltin (function
-    | VString path | VPath path ->
-      (try
-        let rows = csv_parse_string "," (read_whole_file path) in
-        VList (List.map (fun row -> VList (List.map (fun f -> VString f) row)) rows)
-      with Sys_error msg -> raise (EvalError ("csv_read_file: " ^ msg)))
-    | _ -> raise (EvalError "csv_read_file_exn: expected Path")));
   (* JSON primitives *)
   ("json_null",  VJson `Null);
   ("json_of_bool",   VBuiltin (function VBool b  -> VJson (`Bool b)   | _ -> raise (EvalError "json_of_bool: expected Bool")));
@@ -2253,20 +2238,6 @@ let stdlib_eval_env : env = [
   ("json_stringify_pretty", VBuiltin (function
     | VJson j -> VString (Yojson.Basic.pretty_to_string j)
     | _ -> raise (EvalError "json_stringify_pretty: expected JSON")));
-  ("json_read_file", VBuiltin (function
-    | VString path | VPath path ->
-      (try VConstr ("Ok", [VJson (Yojson.Basic.from_file path)])
-       with
-       | Sys_error msg      -> VConstr ("Error", [VString msg])
-       | Yojson.Json_error msg -> VConstr ("Error", [VString msg]))
-    | _ -> raise (EvalError "json_read_file: expected Path")));
-  ("json_read_file_exn", VBuiltin (function
-    | VString path | VPath path ->
-      (try VJson (Yojson.Basic.from_file path)
-       with
-       | Sys_error msg      -> raise (EvalError ("json_read_file: " ^ msg))
-       | Yojson.Json_error msg -> raise (EvalError ("json_read_file: " ^ msg)))
-    | _ -> raise (EvalError "json_read_file_exn: expected Path")));
   (* TOML primitives *)
   ("toml_parse", VBuiltin (function
     | VString s ->
@@ -2280,22 +2251,6 @@ let stdlib_eval_env : env = [
        | `Ok tbl  -> VToml (Toml.Types.TTable tbl)
        | `Error (msg, _) -> raise (EvalError ("toml_parse: " ^ msg)))
     | _ -> raise (EvalError "toml_parse_exn: expected String")));
-  ("toml_read_file", VBuiltin (function
-    | VString path | VPath path ->
-      (try
-        (match Toml.Parser.from_string (read_whole_file path) with
-         | `Ok tbl -> VConstr ("Ok", [VToml (Toml.Types.TTable tbl)])
-         | `Error (msg, _) -> VConstr ("Error", [VString msg]))
-      with Sys_error msg -> VConstr ("Error", [VString msg]))
-    | _ -> raise (EvalError "toml_read_file: expected Path")));
-  ("toml_read_file_exn", VBuiltin (function
-    | VString path | VPath path ->
-      (try
-        (match Toml.Parser.from_string (read_whole_file path) with
-         | `Ok tbl -> VToml (Toml.Types.TTable tbl)
-         | `Error (msg, _) -> raise (EvalError ("toml_read_file: " ^ msg)))
-      with Sys_error msg -> raise (EvalError ("toml_read_file: " ^ msg)))
-    | _ -> raise (EvalError "toml_read_file_exn: expected Path")));
   ("toml_stringify", VBuiltin (function
     | VToml (Toml.Types.TTable tbl) -> VString (Toml.Printer.string_of_table tbl)
     | VToml _ -> raise (EvalError "toml_stringify: value must be a TOML table")

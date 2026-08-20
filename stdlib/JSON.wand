@@ -1,3 +1,4 @@
+uses {FS.Read}
 (** Parse a JSON string.  Returns Ok JSON or Error message. *)
 let parse src = json_parse src
 
@@ -10,11 +11,14 @@ let stringify j = json_stringify j
 (** Serialise a JSON value to a pretty-printed string. *)
 let stringify_pretty j = json_stringify_pretty j
 
-(** Read and parse a JSON file.  Returns Ok JSON or Error message. *)
-let read_file path = json_read_file path
+(** Read and parse a JSON file, raising on error. Reading is the same
+    `FS!read_file` every other reader performs, so this is `FS.Read` like
+    any other read: a handler mocking the filesystem stands in for it, and
+    `--dry-run` sees it. *)
+let read_file! path = parse! (read_file path)
 
-(** Read and parse a JSON file, raising on error. *)
-let read_file! path = json_read_file_exn path
+(** Read and parse a JSON file.  Returns Ok JSON or Error message. *)
+let read_file path = try read_file! path
 
 (** The JSON null value. *)
 let null = json_null

@@ -1,4 +1,4 @@
-uses {IO}
+uses {FS.Read, IO}
 
 import Decode
 import IO

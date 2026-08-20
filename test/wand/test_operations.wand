@@ -1,11 +1,14 @@
 uses {Env, FS.Read}
 let {test, group} = import Test
+import CSV
 import Env
 import FS
 import IO
+import JSON
 import Path
 import Proc
 import Stream
+import TOML
 
 (* Every `op_performers` entry in the operations table (typechecker.ml)
    claims that calling something performs a particular operation. The claim
@@ -32,6 +35,24 @@ group "FS reads" (fn () -> [
     | FS!read_file _ _ -> caught)),
   test "FS!read_file via FS.read_file" (fn t -> t.eq caught (
     handle (fn () -> (let _ = FS.read_file absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via JSON.read_file!" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = JSON.read_file! absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via JSON.read_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = JSON.read_file absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via CSV.read_file!" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = CSV.read_file! absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via CSV.read_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = CSV.read_file absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via TOML.read_file!" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = TOML.read_file! absent in missed)) () with
+    | FS!read_file _ _ -> caught)),
+  test "FS!read_file via TOML.read_file" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = TOML.read_file absent in missed)) () with
     | FS!read_file _ _ -> caught)),
   test "FS!read_file via Env.read!" (fn t -> t.eq caught (
     handle (fn () -> (let _ = Env.read! absent in missed)) () with

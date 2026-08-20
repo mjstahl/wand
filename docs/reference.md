@@ -2359,8 +2359,8 @@ parse          : String -> List (List String)
 parse_with     : String -> String -> List (List String)
 stringify      : List (List String) -> String
 stringify_with : String -> List (List String) -> String
-read_file      : Path -> Result String (List (List String))
-read_file!     : Path -> List (List String) ! {Raise}
+read_file      : Path -> Result String (List (List String)) ! {FS.Read}
+read_file!     : Path -> List (List String) ! {FS.Read, Raise}
 rows           : Decoder 'a -> String -> Result String (List 'a)
 ```
 
@@ -2391,8 +2391,8 @@ parse            : String -> Result String JSON
 parse!           : String -> JSON ! {Raise}
 stringify        : JSON -> String
 stringify_pretty : JSON -> String
-read_file        : Path -> Result String JSON
-read_file!       : Path -> JSON ! {Raise}
+read_file        : Path -> Result String JSON ! {FS.Read}
+read_file!       : Path -> JSON ! {FS.Read, Raise}
 null             : JSON
 of_bool          : Bool -> JSON
 of_int           : Int -> JSON
@@ -2448,8 +2448,8 @@ match JSON.read_file ./config.json with
 parse      : String -> Result String TOML
 parse!     : String -> TOML ! {Raise}
 stringify  : TOML -> String
-read_file  : Path -> Result String TOML
-read_file! : Path -> TOML ! {Raise}
+read_file  : Path -> Result String TOML ! {FS.Read}
+read_file! : Path -> TOML ! {FS.Read, Raise}
 table?     : TOML -> Bool
 array?     : TOML -> Bool
 get_bool   : TOML -> Result String Bool
