@@ -71,6 +71,29 @@ test "released when a handler does resume" (fn t ->
   in
   t.eq ("mocked", false) (out, held? "k"))
 
+(* The release itself performs, and a handler is free to decline to resume
+   what it performs. That unwinds the bracket like any other abandoned
+   region -- it used to reach the top level as a fatal error instead, since
+   the raise doing the unwinding comes from inside the release, which runs
+   as `Fun.protect`'s finally and has whatever it raises wrapped. *)
+test "a handler may decline to resume an operation performed in a release" (fn t ->
+  let out =
+    handle with tracked "n" as _ -> "body" with
+    | FS!delete _ _ -> "declined"
+  in
+  -- The delete never reached the disk, so the marker is still there.
+  let () = FS.delete! (marker "n") in
+  t.eq "declined" out)
+
+-- Each bracket the unwinding passes through wraps the raise once more.
+test "and through two brackets" (fn t ->
+  let out =
+    handle with tracked "o" as _ -> with tracked "p" as _ -> "body" with
+    | FS!delete _ _ -> "declined"
+  in
+  let () = FS.delete! (marker "o") in
+  let () = FS.delete! (marker "p") in t.eq "declined" out)
+
 (* A resource is a description, not something already open, so naming one
    acquires nothing and using it twice acquires twice. *)
 test "naming a resource acquires nothing" (fn t ->

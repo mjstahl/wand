@@ -154,8 +154,12 @@
 
 (test
  (name test_formatter)
+ ; The margin sweep formats every corpus file, so it needs all three trees
+ ; in the sandbox, not just the standard library.
  (deps
-  (source_tree ../stdlib))
+  (source_tree ../stdlib)
+  (source_tree wand)
+  (source_tree ../examples))
  (libraries wand alcotest))
 
 (test

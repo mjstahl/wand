@@ -33,30 +33,30 @@ test "parse! invalid raises" (fn t -> t.raises (fn () -> TOML.parse! "bad = = to
 
 test "field exists" (fn t ->
   let tm = TOML.parse! "name = \"Alice\"\nage = 30\n" in
-  t.eq
+  (t.eq
     (Ok "Alice")
     (match TOML.field "name" tm with
     | Ok v -> TOML.get_string v
     | Error _ -> Error "no field"
-    ))
+    )))
 
 test "field missing" (fn t ->
   let tm = TOML.parse! "a = 1\n" in
-  t.eq
+  (t.eq
     "error"
     (match TOML.field "z" tm with
     | Ok _ -> "ok"
     | Error _ -> "error"
-    ))
+    )))
 
 test "field! exists" (fn t ->
   let tm = TOML.parse! "x = 42\n" in
-  t.eq
+  (t.eq
     42
     (match TOML.get_int (TOML.field! "x" tm) with
     | Ok n -> n
     | Error _ -> -1
-    ))
+    )))
 
 test "field! missing raises" (fn t ->
   let tm = TOML.parse! "a = 1\n" in t.raises (fn () -> TOML.field! "z" tm))
@@ -65,61 +65,61 @@ test "field! missing raises" (fn t ->
 
 test "get_string" (fn t ->
   let tm = TOML.parse! "s = \"hello\"\n" in
-  t.eq
+  (t.eq
     "hello"
     (match TOML.get_string (TOML.field! "s" tm) with
     | Ok s -> s
     | Error _ -> ""
-    ))
+    )))
 
 test "get_int" (fn t ->
   let tm = TOML.parse! "n = 99\n" in
-  t.eq
+  (t.eq
     99
     (match TOML.get_int (TOML.field! "n" tm) with
     | Ok n -> n
     | Error _ -> -1
-    ))
+    )))
 
 test "get_float" (fn t ->
   let tm = TOML.parse! "f = 3.14\n" in
-  t.eq
+  (t.eq
     true
     (match TOML.get_float (TOML.field! "f" tm) with
     | Ok f -> f > 3.0
     | Error _ -> false
-    ))
+    )))
 
 test "get_float from int" (fn t ->
   let tm = TOML.parse! "n = 2\n" in
-  t.eq
+  (t.eq
     true
     (match TOML.get_float (TOML.field! "n" tm) with
     | Ok f -> f == 2.0
     | Error _ -> false
-    ))
+    )))
 
 test "get_bool true" (fn t ->
   let tm = TOML.parse! "flag = true\n" in
-  t.eq
+  (t.eq
     true
     (match TOML.get_bool (TOML.field! "flag" tm) with
     | Ok b -> b
     | Error _ -> false
-    ))
+    )))
 
 test "get_array length" (fn t ->
   let tm = TOML.parse! "nums = [1, 2, 3]\n" in
-  t.eq
+  (t.eq
     3
     (match TOML.get_array (TOML.field! "nums" tm) with
     | Ok xs -> List.length xs
     | Error _ -> -1
-    ))
+    )))
 
 test "get_array int elements" (fn t ->
   let tm = TOML.parse! "nums = [10, 20]\n" in
-  t.eq
+  (t.eq
     10
     (match TOML.get_array (TOML.field! "nums" tm) with
     | Ok xs -> (
@@ -128,7 +128,7 @@ test "get_array int elements" (fn t ->
       | Error _ -> -1
     )
     | Error _ -> -1
-    ))
+    )))
 
 (* ── nested tables ─────────────────────────────────────────────────────── *)
 
@@ -136,23 +136,23 @@ test "nested table access" (fn t ->
   let src = "[server]\nhost = \"localhost\"\nport = 8080\n" in
   let tm = TOML.parse! src in
   let server = TOML.field! "server" tm in
-  t.eq
+  (t.eq
     "localhost"
     (match TOML.get_string (TOML.field! "host" server) with
     | Ok s -> s
     | Error _ -> ""
-    ))
+    )))
 
 (* ── get_table ─────────────────────────────────────────────────────────── *)
 
 test "get_table returns Map" (fn t ->
   let tm = TOML.parse! "a = 1\nb = 2\n" in
-  t.eq
+  (t.eq
     2
     (match TOML.get_table tm with
     | Ok m -> Map.size m
     | Error _ -> -1
-    ))
+    )))
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 

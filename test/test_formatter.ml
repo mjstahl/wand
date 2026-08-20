@@ -21,6 +21,57 @@ let test_idempotent_stdlib () =
         assert_idempotent name src
     ) (Sys.readdir dir)
 
+(* ── The output parses, at any margin ─────────────────────────────────────── *)
+
+(* Three separate bugs shipped where `wand f` emitted source that would not
+   parse, and each waited for someone to write a line long enough to wrap
+   before it showed. Narrowing the margin makes every line long enough, so
+   the whole corpus exercises the wrapping paths at once rather than the
+   handful of places that happen to be wide today.
+
+   Parsing is the property, not layout: what the formatter chooses at a
+   20-column margin is nobody's idea of readable, but it has to be a program.
+   Idempotency is checked alongside, since a second pass over source the
+   first pass mangled is how the damage usually shows. *)
+let corpus_dirs = ["../stdlib"; "../test/wand"; "../examples"]
+
+let corpus_files () =
+  List.concat_map (fun dir ->
+    if not (Sys.file_exists dir) then []
+    else
+      Sys.readdir dir
+      |> Array.to_list
+      |> List.filter (fun n -> Filename.check_suffix n ".wand")
+      |> List.map (fun n -> Filename.concat dir n))
+    corpus_dirs
+
+let parses out =
+  match Parser.parse_program (Lexer.tokenize out) with
+  | _ -> Ok ()
+  | exception e -> Error (Printexc.to_string e)
+
+let test_output_parses_at_any_margin () =
+  let files = corpus_files () in
+  (* A sweep that reads nothing passes every file it never opens. *)
+  Alcotest.(check bool) "found the corpus to format" true (List.length files >= 40);
+  List.iter (fun path ->
+    let src = In_channel.with_open_text path In_channel.input_all in
+    List.iter (fun width ->
+      let out = Formatter.with_width width (fun () -> fmt src) in
+      (match parses out with
+       | Ok () -> ()
+       | Error e ->
+         Alcotest.failf
+           "%s formatted at a margin of %d does not parse: %s\n%s"
+           (Filename.basename path) width e out);
+      let twice = Formatter.with_width width (fun () -> fmt out) in
+      if twice <> out then
+        Alcotest.failf
+          "%s formatted at a margin of %d is not a fixed point"
+          (Filename.basename path) width)
+      [20; 30; 40; 60; 92])
+    files
+
 let test_idempotent_snippets () =
   assert_idempotent "let binding" "let x = 1\nx + 1";
   assert_idempotent "if/else" "let f x = if x > 0 then \"pos\" else \"neg\"";
@@ -723,6 +774,7 @@ let () =
     "idempotency", [
       Alcotest.test_case "snippets" `Quick test_idempotent_snippets;
       Alcotest.test_case "stdlib"   `Quick test_idempotent_stdlib;
+      Alcotest.test_case "parses at any margin" `Slow test_output_parses_at_any_margin;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;

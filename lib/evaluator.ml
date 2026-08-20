@@ -295,6 +295,19 @@ let perform_shell name allow payload =
    recognise, so an abandoned region cannot be caught mid-unwind. *)
 exception Abandoned
 
+(* An abandoned region unwinds by raising `Abandoned` where the operation was
+   performed. When that point is inside a `with`'s release -- a scratch
+   directory removing its tree, say -- the release is running as
+   `Fun.protect`'s finally, and OCaml wraps whatever the finally raises in
+   `Fun.Finally_raised`. One wrapper per bracket the unwind passes through,
+   so the question is what is at the bottom rather than what is on top.
+   Without this a handler that declined to resume such an operation reached
+   the top level as a fatal error instead of unwinding. *)
+let rec is_abandoned = function
+  | Abandoned -> true
+  | Fun.Finally_raised e -> is_abandoned e
+  | _ -> false
+
 (* The script is stopping, carrying the code it will stop with. Raised by
    `exit` and by a signal, so that stopping unwinds the stack like anything
    else and every `with` on it releases what it holds.
@@ -724,7 +737,7 @@ let rec eval (env : env) (e : expr) : value =
                            it. *)
                         if not !resumed then
                           (try ignore (Effect.Deep.discontinue k Abandoned)
-                           with Abandoned -> ());
+                           with e when is_abandoned e -> ());
                         answer)
               in
               try_cases effect_cases

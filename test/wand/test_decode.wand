@@ -48,9 +48,9 @@ test "a wrong type names the field and what was there" (fn t ->
 
 test "the path is the whole path" (fn t ->
   let name = Decode.field "metadata" (Decode.field "name" Decode.string) in
-  t.eq
+  (t.eq
     ".items[1].metadata.name: expected String, got Int"
-    (failure (Decode.field "items" (Decode.list name))))
+    (failure (Decode.field "items" (Decode.list name)))))
 
 test "a list decodes every element" (fn t ->
   let counts = JSON.parse! `{"counts": [1, 2, 3]}` in
@@ -59,26 +59,26 @@ test "a list decodes every element" (fn t ->
 (* Two fields into a record. Wider records go through and_then. *)
 test "map2 builds a record" (fn t ->
   let pod =
-    Decode.map2
+    (Decode.map2
       (fn n r -> Pod(name = n, restarts = r))
       (Decode.field "name" Decode.string)
-      (Decode.field "restarts" Decode.int)
+      (Decode.field "restarts" Decode.int))
   in
   t.eq (Ok Pod(name = "web-01", restarts = 4)) (decoded pod))
 
 test "and_then chooses what to read next" (fn t ->
   let checked =
-    Decode.and_then
+    (Decode.and_then
       (fn n -> if n > 3 then Decode.succeed n else Decode.fail "too few")
-      (Decode.field "restarts" Decode.int)
+      (Decode.field "restarts" Decode.int))
   in
   t.eq (Ok 4) (decoded checked))
 
 test "and_then can refuse, and says where" (fn t ->
   let checked =
-    Decode.and_then
+    (Decode.and_then
       (fn n -> if n > 9 then Decode.succeed n else Decode.fail "too few")
-      (Decode.field "restarts" Decode.int)
+      (Decode.field "restarts" Decode.int))
   in
   t.eq "too few" (failure checked))
 
@@ -122,13 +122,13 @@ test "and a string that is not one says so" (fn t ->
    would make it accept anything. *)
 test "a number written as text still reads as a number" (fn t ->
   let text = JSON.parse! `{"n": "42", "f": "1.5", "b": "true"}` in
-  t.eq
+  (t.eq
     (Ok 42, Ok 1.5, Ok true)
     (
       JSON.decode (Decode.field "n" Decode.int) text,
       JSON.decode (Decode.field "f" Decode.float) text,
       JSON.decode (Decode.field "b" Decode.bool) text
-    ))
+    )))
 
 test "but a number is not text" (fn t ->
   t.eq
@@ -153,18 +153,18 @@ test "a decoder is a value" (fn t ->
 
 test "TOML decodes by field, and nests" (fn t ->
   let cfg = TOML.parse! "name = \"app\"\ntimeout = \"30s\"\n[server]\nport = 8080" in
-  t.eq
+  (t.eq
     (Ok 30s, Ok 8080)
     (
       TOML.decode (Decode.field "timeout" Decode.duration) cfg,
       TOML.decode (Decode.field "server" (Decode.field "port" Decode.int)) cfg
-    ))
+    )))
 
 test "TOML names a missing field with its path" (fn t ->
   let cfg = TOML.parse! "[server]\nport = 8080" in
-  t.eq
+  (t.eq
     (Error ".server.prt: no such field")
-    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg))
+    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg)))
 
 (* A CSV's first row names the columns, so a row is read by field like any
    other record -- and the cells are text, which `int` reads. *)
@@ -174,9 +174,9 @@ test "CSV reads rows by column name" (fn t ->
 
 test "CSV says which row was wrong" (fn t ->
   let src = "host,restarts\nweb-01,4" in
-  t.eq
+  (t.eq
     (Error "[0].hosts: no such field")
-    (CSV.rows (Decode.field "hosts" Decode.string) src))
+    (CSV.rows (Decode.field "hosts" Decode.string) src)))
 
 test "one line, one value" (fn t -> t.eq (Ok [1, 2, 3]) (Shell.lines Decode.int "1\n2\n3"))
 
@@ -211,38 +211,38 @@ test "a present field that will not decode is still a failure" (fn t ->
 
 test "the remaining domain literals" (fn t ->
   let doc =
-    JSON.parse!
-      `{"at": "14:30:00", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`
+    (JSON.parse!
+      `{"at": "14:30:00", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`)
   in
-  t.eq
+  (t.eq
     (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8)
     (
       JSON.decode (Decode.field "at" Decode.time) doc,
       JSON.decode (Decode.field "when" Decode.datetime) doc,
       JSON.decode (Decode.field "ip" Decode.ipv4) doc,
       JSON.decode (Decode.field "net" Decode.cidr) doc
-    ))
+    )))
 
 (* A port is `:8080` in a script and usually a bare number in a document.
    Every form goes through the lexer, so a decoder accepts exactly what could
    have been written in the source -- and nothing it would have rejected. *)
 test "a port reads however it was written" (fn t ->
   let doc = JSON.parse! `{"a": 8080, "b": "8080", "c": ":8080", "d": " :8080 "}` in
-  t.eq
+  (t.eq
     (Ok :8080, Ok :8080, Ok :8080, Ok :8080)
     (
       JSON.decode (Decode.field "a" Decode.port) doc,
       JSON.decode (Decode.field "b" Decode.port) doc,
       JSON.decode (Decode.field "c" Decode.port) doc,
       JSON.decode (Decode.field "d" Decode.port) doc
-    ))
+    )))
 
 (* The number and the text are read by one rule -- the lexer -- so they
    cannot disagree about the same port, and neither can a literal. A port
    outside 0-65535 is not one. *)
 test "and what is not a port is not a port, written either way" (fn t ->
   let doc = JSON.parse! `{"a": -1, "b": ":-1", "c": "http", "d": 65536, "e": 65535}` in
-  t.eq
+  (t.eq
     (
       Error ".a: expected Port, got -1",
       Error `.b: expected Port, got ":-1"`,
@@ -256,16 +256,16 @@ test "and what is not a port is not a port, written either way" (fn t ->
       JSON.decode (Decode.field "c" Decode.port) doc,
       JSON.decode (Decode.field "d" Decode.port) doc,
       JSON.decode (Decode.field "e" Decode.port) doc
-    ))
+    )))
 
 (* An object whose keys are data rather than field names. Nothing else in the
    set can read one: `field` wants a name the program knows in advance. *)
 
 test "an object with dynamic keys reads as a Map" (fn t ->
   let counts = JSON.parse! `{"web-01": 3, "db-01": 12}` in
-  t.eq
+  (t.eq
     (Ok (Map.from_list [("web-01", 3), ("db-01", 12)]))
-    (JSON.decode (Decode.dict Decode.int) counts))
+    (JSON.decode (Decode.dict Decode.int) counts)))
 
 test "and a bad value names the key it was under" (fn t ->
   let counts = JSON.parse! `{"a": 1, "b": "x"}` in

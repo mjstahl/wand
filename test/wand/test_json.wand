@@ -123,21 +123,21 @@ test "get_object then field" (fn t ->
 
 test "field exists" (fn t ->
   let j = JSON.parse! `{"name":"Alice","age":30}` in
-  t.eq
+  (t.eq
     `"Alice"`
     (match JSON.field "name" j with
     | Ok v -> JSON.stringify v
     | Error _ -> ""
-    ))
+    )))
 
 test "field missing" (fn t ->
   let j = JSON.parse! `{"a":1}` in
-  t.eq
+  (t.eq
     "error"
     (match JSON.field "z" j with
     | Ok _ -> "ok"
     | Error _ -> "error"
-    ))
+    )))
 
 test "field! exists" (fn t ->
   let j = JSON.parse! `{"x":42}` in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
@@ -160,12 +160,12 @@ test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 test "pretty round-trips" (fn t ->
   let j = JSON.parse! `{"a":1}` in
   let s = JSON.stringify_pretty j in
-  t.eq
+  (t.eq
     "ok"
     (match JSON.parse s with
     | Ok _ -> "ok"
     | Error _ -> "error"
-    ))
+    )))
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
@@ -248,6 +248,6 @@ test "a document that names a key twice reads the later one, whichever way it is
     )
     | Error why -> Error why
   in
-  t.eq
+  (t.eq
     (Ok 9, Ok 9, Ok 9)
-    (via_field, via_object, JSON.decode (Decode.field "a" Decode.int) doc))
+    (via_field, via_object, JSON.decode (Decode.field "a" Decode.int) doc)))

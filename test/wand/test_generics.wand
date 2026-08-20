@@ -47,12 +47,12 @@ test "map" (fn t ->
 
 test "and_then" (fn t ->
   let half x = if x % 2 == 0 then Some (x / 2) else None
-  in t.eq
+  in (t.eq
     2
     (match Option.and_then half (Some 4) with
     | Some v -> v
     | None -> -1
-    ))
+    )))
 
 test "default" (fn t -> t.eq 0 (Option.default 0 None))
 

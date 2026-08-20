@@ -17,7 +17,17 @@ open Ast
    percentile follows the limit within a column or two -- 87 at a margin of
    88, 97 at 100, 111 at 120. Whatever room is given gets used, by the
    handful of lines that end up in the diff. *)
-let max_width = 92
+let max_width = ref 92
+
+(* Run `f` against a different column budget and put the old one back. Only
+   the tests narrow it: formatting the corpus at a margin nothing fits under
+   is how the "emitted source that will not parse" bugs are found, and every
+   one of them so far needed a line long enough to wrap before it showed.
+   Narrowing the margin makes every line long enough. *)
+let with_width w f =
+  let saved = !max_width in
+  max_width := w;
+  Fun.protect ~finally:(fun () -> max_width := saved) f
 
 (* Does this fit on the line it is going onto?
 
@@ -34,7 +44,7 @@ let max_width = 92
    a `reserve` threaded alongside `col`, and it is a second concept through
    every emitter for three columns, so it waits until the count grows. *)
 let fits col s =
-  not (String.contains s '\n') && col + String.length s <= max_width
+  not (String.contains s '\n') && col + String.length s <= !max_width
 
 (* The keyword a binding opens with, and the column its name starts at. A
    binding's later clauses line up under the first one's name rather than at
@@ -334,6 +344,13 @@ and parenthesize indent s =
   then "(" ^ s ^ "\n" ^ String.make indent ' ' ^ ")"
   else "(" ^ s ^ ")"
 
+(* What goes between `%{` and `}`. A newline in there ends the string as far
+   as the lexer is concerned, and the rest of the splice is then read as
+   something else -- an argument below the break simply disappeared. So a
+   splice is rendered against a margin nothing reaches, and comes back on one
+   line however long it is. *)
+and emit_splice indent e = with_width 1_000_000 (fun () -> emit_expr indent e)
+
 and emit_atom indent e =
   let e' = strip_located e in
   let s = emit_expr_inner indent e' in
@@ -373,7 +390,12 @@ and emit_expr_inner ?col indent e =
     (* The body is written after `fn params -> `, so that is where it
        starts -- an `if` in here was the other half of this bug. *)
     let head = "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " -> " in
-    head ^ emit_expr ~col:(col + String.length head) indent body
+    (* A wrapped application as the body ends at its first line, and what is
+       left below it reads as something new -- the same hazard a binding's
+       body has, and the lambda gives it no bracket of its own. *)
+    head
+    ^ bracket_if_wrapped_app body
+        (emit_expr ~col:(col + String.length head) indent body)
   | Let (p, e1, e2) -> emit_let ~col indent p e1 e2
   | LetRec (bindings, e2) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if ~col indent c t el
@@ -448,7 +470,7 @@ and emit_expr_inner ?col indent e =
     List.iteri (fun i (lit, e) ->
       Buffer.add_string buf (if i = 0 then reopen_raw lit else lit);
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_expr indent e);
+      Buffer.add_string buf (emit_splice indent e);
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf tail;
@@ -471,7 +493,7 @@ and emit_expr_inner ?col indent e =
       (* `$NAME` is plain text in a string now, so an env read has to be
          written out as the expression it is: `%{$HOME}`. *)
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_expr indent e);
+      Buffer.add_string buf (emit_splice indent e);
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf (lit_body tail);
@@ -484,7 +506,7 @@ and emit_expr_inner ?col indent e =
     List.iter (fun (lit, e, raw) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf (if raw then "%!{" else "%{");
-      Buffer.add_string buf (emit_expr indent e);
+      Buffer.add_string buf (emit_splice indent e);
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf tail;
@@ -508,7 +530,11 @@ and emit_expr_inner ?col indent e =
      and indenting each one would push the actual work off the page for
      something that reads as a preamble, not as nesting. *)
   | With (r, p, body) ->
-    let head = Printf.sprintf "with %s as %s ->" (emit_expr indent r) (emit_pat p) in
+    (* `as` has to follow the resource, so one that wrapped puts the keyword
+       out of the parser's reach. *)
+    let head =
+      Printf.sprintf "with %s as %s ->"
+        (bracket_if_wrapped_app r (emit_expr indent r)) (emit_pat p) in
     let one_line = head ^ " " ^ emit_expr indent body in
     if fits col one_line then one_line
     else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
@@ -576,7 +602,7 @@ and emit_command indent e =
     List.iter (fun (lit, ex) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_expr indent ex);
+      Buffer.add_string buf (emit_splice indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;
     Buffer.contents buf
@@ -588,7 +614,7 @@ and emit_command indent e =
     List.iter (fun (lit, ex, raw) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf (if raw then "%!{" else "%{");
-      Buffer.add_string buf (emit_expr indent ex);
+      Buffer.add_string buf (emit_splice indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;
     Buffer.contents buf
@@ -632,7 +658,9 @@ and emit_pipeline indent a b =
     match strip_located e with
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
       | Let _ | LetRec _ | With _) as inner -> "(" ^ emit_expr indent inner ^ ")"
-    | _ -> emit_expr (indent + 2) e
+    (* A stage that wrapped ends at its first line; the `|>` leading the
+       next stage says nothing about the argument left below this one. *)
+    | _ -> bracket_if_wrapped_app e (emit_expr (indent + 2) e)
   in
   match List.map piece all with
   | [] -> ""
@@ -657,7 +685,10 @@ and emit_binop ?col indent op a b =
        printed bare re-parses as `try (e == x)`. *)
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
       | Let _ | LetRec _) as inner -> "(" ^ emit_expr indent inner ^ ")"
-    | _ -> emit_expr indent e
+    (* An operand that wrapped ends at its first line, so the rest of it
+       reads as something new -- the operator having said nothing about how
+       far its right side goes. *)
+    | _ -> bracket_if_wrapped_app e (emit_expr indent e)
   in
   let oneline = Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b) in
   if op = "|>" && not (fits col oneline) then emit_pipeline indent a b
@@ -712,14 +743,17 @@ and emit_let ?col indent p e1 e2 =
            fit and takes its multiline form. *)
         head ^ " = "
         ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
-      else head ^ " =\n" ^ cind ^ "  " ^ emit_expr (ci + 2) body
+      else
+        head ^ " =\n" ^ cind ^ "  "
+        ^ bracket_if_wrapped_app body (emit_expr (ci + 2) body)
     ) clauses in
     let joined =
       String.concat "\n"
         (List.mapi (fun i l ->
            if i = 0 then l else String.make (clause_indent i) ' ' ^ l) lines)
     in
-    joined ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
+    joined ^ "\n" ^ ind ^ "in "
+    ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
        be genuinely ambiguous: the parser's infix `:` in expression position
@@ -728,7 +762,8 @@ and emit_let ?col indent p e1 e2 =
        with type T". Must go back out through the dedicated
        `let name : T = e` syntax (parser.ml:707-717) instead. *)
     let name = emit_pat p in
-    let bodys = emit_expr indent body and e2s = emit_expr indent e2 in
+    let bodys = emit_expr indent body in
+    let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
     if fits col oneline then oneline
@@ -736,7 +771,11 @@ and emit_let ?col indent p e1 e2 =
       let ind = String.make indent ' ' in
       Printf.sprintf "%s = %s in\n%s%s" head bodys ind e2s
   | _ ->
-  let e1s = emit_expr indent e1 and e2s = emit_expr indent e2 in
+  let e1s = emit_expr indent e1 in
+  (* A wrapped application after `in` needs its brackets for the same reason
+     one after `=` does: it ends where its first line ends, and the argument
+     below reads as continuing the definition this `let` belongs to. *)
+  let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
   let ind = String.make indent ' ' in
   if fits col oneline then oneline
@@ -758,7 +797,8 @@ and emit_let ?col indent p e1 e2 =
       ^ "\n" ^ ind ^ "in\n" ^ ind ^ e2s
     else
       Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
-        (emit_pat p) ind (emit_expr (indent + 2) e1) ind ind e2s
+        (emit_pat p) ind
+        (bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1)) ind ind e2s
 
 and emit_letrec indent bindings e2 =
   let emit_binding kw (name, params, body) =
@@ -773,7 +813,8 @@ and emit_letrec indent bindings e2 =
     | first :: rest ->
       emit_binding "let" first :: List.map (emit_binding "and") rest
   in
-  String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in " ^ emit_expr indent e2
+  String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in "
+  ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
 
 and emit_if ?col indent c t el =
   let col = match col with Some c -> c | None -> indent in
@@ -784,7 +825,9 @@ and emit_if ?col indent c t el =
   | Unit ->
     let oneline = Printf.sprintf "if %s then %s" cs ts in
     if fits col oneline then oneline
-    else Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ') ts
+    else
+      Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ')
+        (bracket_if_wrapped_app t ts)
   | _ ->
     let es = emit_expr indent el in
     let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
@@ -797,13 +840,18 @@ and emit_if ?col indent c t el =
          each else stepping past the one before it. *)
       let cont = if col > indent then indent + 2 else indent in
       let ind = String.make cont ' ' in
+      (* A branch that wrapped ends at its first line, so what is left of it
+         below reads as continuing whatever the `if` belongs to. *)
       let rec ladder c t el =
         let clause =
-          Printf.sprintf "if %s then %s" (emit_expr cont c) (emit_expr cont t) in
+          Printf.sprintf "if %s then %s" (emit_expr cont c)
+            (bracket_if_wrapped_app t (emit_expr cont t)) in
         match strip_located el with
         | Unit -> [clause]
         | If (c2, t2, el2) -> clause :: ladder c2 t2 el2
-        | _ -> [clause; emit_expr ~col:(cont + 5) cont el]
+        | _ ->
+          [clause;
+           bracket_if_wrapped_app el (emit_expr ~col:(cont + 5) cont el)]
       in
       String.concat ("\n" ^ ind ^ "else ") (ladder c t el)
 
@@ -848,7 +896,10 @@ and emit_case_body ?col indent body =
 and emit_scrutinee indent scr =
   match strip_located scr with
   | Match _ -> "(" ^ emit_expr indent scr ^ ")"
-  | _ -> emit_expr indent scr
+  (* `with` has to follow the scrutinee, and an application that wrapped has
+     already ended by the time the next line starts -- the parser reaches the
+     argument below expecting the keyword. *)
+  | _ -> bracket_if_wrapped_app scr (emit_expr indent scr)
 
 and emit_match ?col indent scr cases =
   let col = match col with Some c -> c | None -> indent in
@@ -1257,12 +1308,12 @@ let format_source src =
         ^ "}"
       in
       let text =
-        if String.length one_line <= max_width then one_line
+        if String.length one_line <= !max_width then one_line
         else
           let label_text (n, allow) =
             let r = Shell_scan.render_label (n, allow) in
             match allow with
-            | Some args when String.length r + 2 > max_width ->
+            | Some args when String.length r + 2 > !max_width ->
               "  " ^ n ^ "(\n"
               ^ String.concat ",\n"
                   (List.map (fun a -> "    " ^ Shell_scan.render_entry a) args)
