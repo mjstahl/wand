@@ -1,4 +1,4 @@
-uses {IO}
+uses {IO, Shell("echo real")}
 
 let {test} = import Test
 

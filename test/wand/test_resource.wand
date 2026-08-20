@@ -1,4 +1,4 @@
-uses {FS.Read, FS.Write}
+uses {FS.Read, FS.Write, Shell(echo)}
 
 let {test} = import Test
 import Resource

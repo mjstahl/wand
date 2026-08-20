@@ -1,4 +1,4 @@
-uses {Proc}
+uses {IO, Proc}
 
 import IO
 import Proc

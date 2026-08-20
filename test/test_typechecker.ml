@@ -714,21 +714,59 @@ let type_of label src =
   | Error e -> Alcotest.failf "%s: %s" label e
 
 (* A handler removes the effect of the operation it intercepts. *)
-let test_handler_discharges_its_operation () =
-  Alcotest.(check string) "Shell is gone once process_run is handled"
-    "Unit -> String ! {Raise}"
-    (type_of "handled shell"
-       "fn () -> handle $(git push) with\n| Shell!run _ k -> k \"ok\"")
+(* An effect is discharged when every operation carrying it is handled --
+   here Proc, which carries exactly one, so one case covers it and nothing
+   in the body can still end the process. *)
+let test_handler_covering_every_operation_discharges_it () =
+  Alcotest.(check string) "Proc is gone once Proc!exit is handled"
+    "Unit -> 'a"
+    (type_of "handled exit"
+       "import Proc\nfn () -> handle (Proc.exit 1) with\n| Proc!exit _ k -> k 0")
 
-(* The Raise that survives above is $()'s own check on a non-zero exit, which
-   a handler supplying the output does prevent -- but an effect set records which
-   effects occurred, not which operation caused them, and the same Raise is
-   indistinguishable from one a raising call inside the body performed.
-   Discharging it would therefore drop that one too, so it stays. Keeping an
-   effect that cannot happen is imprecise; dropping one that can is a lie. *)
+(* The security-critical half. A case intercepts one operation, but Shell
+   carries four, and a signature is written in effects rather than
+   operations. Handling `Shell!run` leaves `Shell!run_quiet`, `Shell!capture`
+   and `Shell!exit_code` reaching the default handler and running for real,
+   so Shell has to stay.
+
+   Dropping it here is what let a file whose manifest was `uses {IO}` run any
+   command it liked: one handler case for an operation the body never
+   performed erased the whole effect, and `wand t --strict` said nothing. *)
+let test_partial_handler_keeps_the_effect () =
+  Alcotest.(check string) "one of Shell's four operations does not discharge it"
+    "Unit -> String ! {Raise, Shell}"
+    (type_of "partly handled shell"
+       "fn () -> handle $(git push) with\n| Shell!run _ k -> k \"ok\"");
+  Alcotest.(check string) "one of FS.Write's ten does not discharge it"
+    "Path -> Unit ! {FS.Write, Raise}"
+    (type_of "partly handled writes"
+       "import FS\nfn p -> handle (FS.write_file! p \"x\") with\n\
+        | FS!write_file _ k -> k ()")
+
+(* A case naming an operation that does not exist was accepted in silence,
+   and since nothing intercepted it the real effect ran -- so a mistyped mock
+   became a live effect. *)
+let test_handler_rejects_an_unknown_operation () =
+  match type_of_program_with_imports
+          "import FS\nlet f p = handle (FS.read_file! p) with\n\
+           | FS!read_fil _ k -> k \"fake\"\nf" with
+  | Ok () -> Alcotest.fail "expected a case for a nonexistent operation to be rejected"
+  | Error m ->
+    if not (contains m "no effect operation named 'FS!read_fil'") then
+      Alcotest.failf "expected the operation to be named, got: %s" m;
+    if not (contains m "FS!read_file") then
+      Alcotest.failf "expected a suggestion, got: %s" m
+
+(* The Raise that survives below is $()'s own check on a non-zero exit, which
+   a handler supplying the output does prevent -- but an effect set records
+   which effects occurred, not which operation caused them, and the same
+   Raise is indistinguishable from one a raising call inside the body
+   performed. Discharging it would therefore drop that one too, so it stays.
+   Keeping an effect that cannot happen is imprecise; dropping one that can
+   is a lie -- the same reason a partial handler keeps its effect above. *)
 let test_handler_keeps_raises_it_cannot_account_for () =
   Alcotest.(check string) "a raise from elsewhere in the body survives"
-    "Map 'a -> String ! {Raise}"
+    "Map 'a -> String ! {Raise, Shell}"
     (type_of "raise from elsewhere"
        "import Map\nfn m -> handle\n  let x = Map.get! \"k\" m in\n  $(echo hi)\nwith\n| Shell!run _ k -> k \"ok\"")
 
@@ -961,8 +999,10 @@ let () =
       Alcotest.test_case "polymorphic arithmetic" `Quick test_num_arithmetic;
     ];
     "effects", [
-      Alcotest.test_case "handler discharges its operation" `Quick test_handler_discharges_its_operation;
-      Alcotest.test_case "handler keeps other raises"       `Quick test_handler_keeps_raises_it_cannot_account_for;
+      Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
+      Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
+      Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
+      Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;

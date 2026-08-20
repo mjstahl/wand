@@ -923,17 +923,47 @@ FS.read_file!   Path -> String ! {FS.Read, Raise}
 FS.read_file    Path -> Result String String ! {FS.Read}
 ```
 
-A handler case removes the effect of the operation it intercepts:
+A handler removes an effect when its cases cover **every operation that
+effect carries**:
+
+```
+fn () -> handle (Proc.exit 1) with
+         | Proc!exit _ k -> k 0        -- Unit -> 'a
+```
+
+`Proc` is gone. It carries one operation, so one case covers it, and nothing
+left in the body can end the process.
+
+Covering some of them is not enough:
 
 ```
 fn () -> handle $(git push) with
-         | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise}
+         | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise, Shell}
 ```
 
-`Shell` is gone. `Raise` stays: an effect set records which effects occurred, not
-which operation caused them, so the raise `$()` performs on a non-zero exit
-cannot be told apart from one a raising call elsewhere in the body would
-perform. Removing it would drop that one too.
+`Shell` stays. It carries four operations — `run`, `run_quiet`, `capture`
+and `exit_code` — and the three this handler does not name would still reach
+the real shell, so a signature without `Shell` would be describing a program
+that does not exist.
+
+[Effect handlers](#effect-handlers) lists every operation. Note that it
+groups them by family rather than by effect: the `FS!` operations split
+across `FS.Read` and `FS.Write`, and covering one of those two is what
+discharges it.
+
+`Raise` stays for the same reason at a smaller scale: an effect set records
+which effects occurred, not which operation caused them, so the raise `$()`
+performs on a non-zero exit cannot be told apart from one a raising call
+elsewhere in the body would perform. Removing it would drop that one too.
+
+Both cases err the same way. Keeping an effect that cannot happen is
+imprecise, and you say so in the manifest; dropping one that can is a lie,
+and the manifest stops meaning anything. A handler that wants the effect
+gone names every operation.
+
+A case naming an operation that does not exist is a type error, with the
+nearest real one suggested — a mistyped mock would otherwise intercept
+nothing and let the real effect run.
 
 ### Effect variables
 
@@ -1124,6 +1154,16 @@ words that appear in a signature's effect set.
 Several functions can share one operation. `FS.read_file` and
 `FS.read_file!` both perform `FS!read_file`, so a test mocks reading a file
 once rather than once per wrapper.
+
+A name that is not an operation is a type error, with the nearest real one
+suggested. A mistyped case would otherwise intercept nothing, and the effect
+it was written to hold back would run for real.
+
+Intercepting an operation is not the same as removing its effect from the
+signature: the mock above still reports `Shell`, because `Shell!run_quiet`,
+`Shell!capture` and `Shell!exit_code` are not covered and would reach the
+real shell. [`try` and `handle` take effects away](#try-and-handle-take-effects-away)
+says what a handler has to cover to drop the effect.
 
 A case binds the operation's argument and a continuation
 (`k`) that resumes the intercepted code with a value you supply. Both are

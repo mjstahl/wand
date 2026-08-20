@@ -73,12 +73,19 @@ let group label thunk =
 (* ── Testing effectful code ─────────────────────────────────────────────
    A script's risky parts are the ones that reach outside it, which is
    exactly what a handler can stand in for. These cover the common case so
-   a test does not have to write a handler by hand. *)
+   a test does not have to write a handler by hand.
 
-(** Run `thunk` with shell commands answered from a table instead of
+   Each stands in for one operation, not for a whole effect: `with_shell`
+   answers `Shell!run`, and a body that also asks for an exit code reaches
+   the real shell. So a test file using these still declares the effect in
+   its manifest -- an effect is only dropped from a signature when every
+   operation carrying it is handled. Declaring it is the honest reading:
+   statically, the body may still perform it. *)
+
+(** Run `thunk` with `Shell!run` answered from a table instead of
     executed. Each entry is (fragment, output): the first fragment that
     appears in a command supplies its output, and a command matching nothing
-    returns "". *)
+    returns "". Other Shell operations are not intercepted. *)
 let with_shell mocks thunk =
   handle thunk () with
   | Shell!run cmd k -> (
@@ -94,14 +101,17 @@ let shell_calls thunk =
   | Shell!run cmd k -> let rest = k "" in cmd : rest
   | return _ -> []
 
-(** Run `thunk` with writes swallowed, returning what it returned. Handlers
-    compose, so this nests inside `with_shell` to hold back both. *)
+(** Run `thunk` with `FS!write_file` swallowed, returning what it returned.
+    Handlers compose, so this nests inside `with_shell` to hold back both.
+    Other FS.Write operations -- append, delete, mkdir -- still reach the
+    disk. *)
 let without_writes thunk =
   handle thunk () with
   | FS!write_file _ k -> k ()
 
-(** Return the paths `thunk` would write to, in order, without writing
-    anything. They come back as `Path`s, which is what the write carried. *)
+(** Return the paths `thunk` would pass to `FS!write_file`, in order,
+    without writing them. They come back as `Path`s, which is what the write
+    carried. Other FS.Write operations still reach the disk. *)
 let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path : rest

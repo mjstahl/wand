@@ -1776,18 +1776,44 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | ImportExpr _      -> raise (TypeError "import can only appear in a let binding")
   | Handle (body_expr, cases) ->
     let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env body_expr) in
-    (* An case intercepts an operation, so the handled expression no longer
-       performs it: handling process_run is what makes a deploy script
-       testable with the network unplugged, and the signature should say so. *)
+    let handled =
+      List.filter_map (function
+        | Ast.EffectCase (op, _, _, _) -> Some op
+        | Ast.ReturnCase _ -> None) cases
+    in
+    (* A case for an operation that does not exist used to be accepted in
+       silence, and since nothing intercepted it the real effect ran. A
+       mistyped mock is the likely way to write one -- `FS!read_fil` -- and
+       the cost of getting it wrong is the thing the mock existed to
+       prevent. *)
+    List.iter (fun op ->
+      if effect_of_operation op = None then
+        raise (TypeError (Printf.sprintf
+          "no effect operation named '%s'%s" op
+          (Util.hint op (List.map (fun o -> o.op_name) operations))))) handled;
+    (* A case intercepts one operation, but an effect covers several, and it
+       is the effect that a signature and a manifest are written in. So an
+       effect is discharged only when every operation carrying it is handled:
+       handling `Shell!exit_code` alone leaves `Shell!run` to reach the
+       default handler and run for real, and a signature that dropped Shell
+       there would be describing a program that does not exist.
+
+       Erring towards keeping an effect only over-reports. Erring the other
+       way is what let a file whose manifest was `uses {IO}` run any command
+       it liked. *)
+    let ops_performing e =
+      List.filter (fun o -> o.op_effect = e) operations in
+    let fully_handled e =
+      match ops_performing e with
+      (* Raise carries no operations, so "every one is handled" is vacuously
+         true of it. `try` is what discharges Raise, not a handler. *)
+      | []  -> false
+      | ops -> List.for_all (fun o -> List.mem o.op_name handled) ops
+    in
     let discharged =
-      List.fold_left (fun effects case ->
-        match case with
-        | Ast.EffectCase (op, _, _, _) ->
-          (match effect_of_operation op with
-           | Some e -> Effect_set.remove e effects
-           | None   -> effects)
-        | Ast.ReturnCase _ -> effects
-      ) body_effects cases
+      List.fold_left (fun effects e ->
+        if fully_handled e then Effect_set.remove e effects else effects)
+        body_effects Effect_set.all
     in
     performs discharged;
     let result_t = fresh () in
