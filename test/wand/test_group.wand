@@ -2,7 +2,7 @@ let {test, group} = import Test
 import List
 import String
 
--- A real group: these children run and report through `wand test`,
+-- A real group: these children run and report through `wand s`,
 -- which is the integration the OCaml runner tests pin down.
 group "shared bindings" (fn () ->
   let n = 40 + 2 in

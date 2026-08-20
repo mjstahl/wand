@@ -350,7 +350,7 @@ let () =
     | "v" | "env" ->
       let (json, rest) = parse_json_flag rest in
       let (loads, rest') = parse_loads rest in
-      (* `wand env <module>` needs only that module; bare `wand env` lists
+      (* `wand v <module>` needs only that module; bare `wand v` lists
          everything in scope, so it does load them all. *)
       let sess = match rest' with
         | [modname] -> load_files ~sources:[modname] loads

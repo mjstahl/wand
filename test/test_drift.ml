@@ -160,9 +160,9 @@ let test_discovery_pointers () =
   (* When no correction is known, the error hands over the enumerator --
      the binary is the only documentation a cold reader has. *)
   expect_error "unknown name" "frobnicate 3"
-    "'wand env' lists the modules, 'wand env List' one module's members";
+    "'wand v' lists the modules, 'wand v List' one module's members";
   expect_error "unknown member" "import String\nString.frobnicate \"x\""
-    "'wand env String' lists its members"
+    "'wand v String' lists its members"
 
 (* ── wand's own past ──────────────────────────────────────────────────────── *)
 

@@ -14,7 +14,7 @@ source ../assert.sh
 
 # The typo goes in the type only -- the pattern that reads the field still
 # says `restartCount`, which is what makes it a type error rather than a
-# quiet rename. Spacing around the colon is whatever `wand fmt` last chose.
+# quiet rename. Spacing around the colon is whatever `wand f` last chose.
 typo_wand() { sed -E 's/restartCount( *):/restartCnt\1:/' crashlooping.wand > typo.wand; "$WAND" typo.wand 2>&1; }
 drifted_json() { sed 's/"restartCount"/"restarts"/g' pods.json > drifted.json; }
 drifted_wand() { drifted_json; sed 's|./pods.json|./drifted.json|' crashlooping.wand > drift.wand; "$WAND" drift.wand 2>&1; }

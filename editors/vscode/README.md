@@ -20,7 +20,7 @@ the compiler.
   accepting one carries the import with it.
 - **Quick fixes** from every finding that knows its correction — manifest
   updates, dead imports, drift spellings.
-- **Formatting** via `wand fmt` (format-on-save works through the standard
+- **Formatting** via `wand f` (format-on-save works through the standard
   setting).
 - **Go to definition**, including into the standard library — stdlib
   sources are embedded in the binary and open as read-only documents.

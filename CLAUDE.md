@@ -15,17 +15,17 @@ examples. Most tasks need only one part.
 
 ### Layout
 
-- `bin/wand.ml` — the CLI: dispatch for `run`/`e`/`t`/`i`/`d`/`env`/`fmt`/`test`, flags like `--dry-run` and `--trace`.
+- `bin/wand.ml` — the CLI: dispatch for `e`/`t`/`i`/`d`/`v`/`f`/`s`, running a script by path, flags like `--dry-run` and `--trace`.
 - `lib/` — the pipeline, one stage per module:
   - `token.ml`, `lexer.ml` — tokens and lexing, including domain literals (paths, globs, durations, sizes) and the string/command interpolation forms.
   - `parser.ml`, `ast.ml` — recursive-descent parser. Newlines end statements only at bracket depth 0; a definition ends at the end of its line.
   - `typechecker.ml`, `effect_row.ml` — Hindley-Milner inference extended with effect rows (the seven labels below); manifests are checked against inferred effects here.
   - `evaluator.ml` — tree-walking interpreter; effect handlers, `Par`, signals, shell execution.
   - `lint.ml`, `lint_rules.ml` — the `V-*`/`A-*` rules `wand t` reports.
-  - `formatter.ml` — `wand fmt`; comments are never dropped or restyled.
+  - `formatter.ml` — `wand f`; comments are never dropped or restyled.
   - `runner.ml` — the public API (`Runner.run_string`, `typecheck_file`, sessions); `repl.ml`; `compile_cache.ml`; `module_types.ml`; `util.ml`.
 - `stdlib/*.wand` — the standard library, written in wand, embedded into the binary at build time by `tools/gen_stdlib_embed.ml`.
-- `test/` — Alcotest suites (`test_*.ml`, one per area) plus `test/wand/*.wand`, which are wand-language tests run by `wand test`.
+- `test/` — Alcotest suites (`test_*.ml`, one per area) plus `test/wand/*.wand`, which are wand-language tests run by `wand s`.
 - `tools/check_stdlib_fmt.wand` — CI gate that the stdlib is a formatter fixed point. Run it locally as shown below.
 - `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands.
 - `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
@@ -40,7 +40,7 @@ Check by exit code, never by reading output. `dune build @runtest 2>&1 | grep
 dune build                                            # exit code
 dune build @runtest --force                           # exit code
 dune exec test/test_parser.exe                        # one OCaml suite
-_build/default/bin/wand.exe test test/wand            # the wand-level tests
+_build/default/bin/wand.exe s test/wand               # the wand-level tests
 for d in demos/d1* … demos/d8*; do $d/run.sh; done    # each exit code
 N=500 demos/d9-fork-overhead/run.sh                   # ten seconds
 WAND=$PWD/_build/default/bin/wand.exe \
@@ -50,7 +50,7 @@ dune build @fmt                                       # dune files
 
 Changing `lib/formatter.ml` needs more: the formatter has produced source
 that does not parse, so check that the corpus (stdlib + examples) is still a
-fixed point *and* still runs. `wand fmt` writes in place, so run it on a copy.
+fixed point *and* still runs. `wand f` writes in place, so run it on a copy.
 
 Changing anything on the startup path gets before-and-after numbers in the
 commit message, from several runs. Readings move ~15% between runs, so one
@@ -84,8 +84,8 @@ Write the script, then let the tools drive the edits:
 ```bash
 wand t --file script.wand        # typecheck a file (wand t "expr" for a snippet)
 wand t --fix --file script.wand  # apply the fixes findings carry (manifest lines, dead imports)
-wand fmt script.wand             # format in place
-wand test                        # run every test_*.wand from here down
+wand f script.wand               # format in place
+wand s                           # run every test_*.wand from here down
 wand --dry-run script.wand       # report what it would change, without doing it
 wand script.wand                 # the real run
 ```

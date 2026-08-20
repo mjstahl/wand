@@ -67,7 +67,7 @@ jobs:
       - name: Run D9 at a size CI can afford
         run: N=500 demos/d9-fork-overhead/run.sh
 
-      # wand fmt is the canonical form: running it on a formatted tree changes
+      # wand f is the canonical form: running it on a formatted tree changes
       # nothing. Checked on a copy so a failure reports rather than rewrites.
       #
       # The check itself is a wand script. It runs here, after the suites,
@@ -98,4 +98,4 @@ jobs:
           # anything else on PATH -- and the copy in _build is wand.exe.
           ln -sf "$WAND" "$(dirname "$WAND")/wand"
           cd .setup-wand
-          EXPECTED_VERSION="$(cat ../VERSION)" wand test test
+          EXPECTED_VERSION="$(cat ../VERSION)" wand s test

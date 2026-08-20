@@ -55,9 +55,9 @@ wand i                  # interactive session
 wand e "1 + 2"          # evaluate an expression
 wand t "1 + 2"          # typecheck without evaluating
 wand d "List.map"       # show doc string
-wand env                # list all names in scope
-wand fmt script.wand    # format a file in place
-wand test               # run every test_*.wand from here down
+wand v                  # list all names in scope
+wand f script.wand      # format a file in place
+wand s                  # run every test_*.wand from here down
 wand h                  # help
 wand V                  # print the version
 ```
@@ -365,7 +365,7 @@ if ready then 1
 --   so its branch must be Unit -- this one is Int
 ```
 
-`wand fmt` writes an empty `else` out of existence: `if c then f () else ()`
+`wand f` writes an empty `else` out of existence: `if c then f () else ()`
 comes back as `if c then f ()`.
 
 ---
@@ -1652,7 +1652,7 @@ Fields may be named instead of positional, and are then given and read by
 name rather than by position. For a type with one constructor there is a
 shorthand: `type Point (x : Int, y : Int)` means
 `type Point = Point (x : Int, y : Int)`. The shorthand is the canonical
-form — `wand fmt` writes the long spelling back to it whenever the one
+form — `wand f` writes the long spelling back to it whenever the one
 constructor bears the type's own name.
 
 A named field's type may be an application — `children : List Node`,
@@ -2802,18 +2802,18 @@ is reported as the group's one failure under its label, and the children
 it prevented are not invented. A raise inside a child is that child's own
 failure; its siblings still run.
 
-Run test files with `wand test`:
+Run test files with `wand s`:
 
 ```
-wand test                    # every test_*.wand at or below the current directory
-wand test scripts/           # every test_*.wand under scripts/
-wand test test_deploy.wand   # just this one
+wand s                       # every test_*.wand at or below the current directory
+wand s scripts/              # every test_*.wand under scripts/
+wand s test_deploy.wand      # just this one
 ```
 
 A test file is named `test_*.wand`, and a script's tests belong beside the
 script — `deploy.wand` and `test_deploy.wand` in one directory, where the
 prefix sorts every test together and away from the things being tested.
-With no argument `wand test` searches from where you are standing, so
+With no argument `wand s` searches from where you are standing, so
 editing a script and running its tests takes no path. `_build`, `_opam`,
 `.git` and `node_modules` are not searched. A file named on the command
 line runs whatever it is called.
@@ -2821,7 +2821,7 @@ line runs whatever it is called.
 Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
 test whose body raises outside of `t.raises` is reported as that test's
 failure — `label: raised: <why>` — without stopping the rest of the
-file. `wand test` exits nonzero if any test failed or any file had a
+file. `wand s` exits nonzero if any test failed or any file had a
 lex/parse/type error.
 
 ---
@@ -3213,9 +3213,9 @@ rather than failed an assertion has status `"error"`; both count in
 
 ### Formatter
 
-`wand fmt <file>...` formats one or more `.wand` files in place (each
+`wand f <file>...` formats one or more `.wand` files in place (each
 file is overwritten with its formatted contents; a confirmation line is
-printed per file). Shell globs work as expected: `wand fmt stdlib/*.wand`
+printed per file). Shell globs work as expected: `wand f stdlib/*.wand`
 reformats every file in `stdlib/`.
 
 Comments (`-- ...`, `(* ... *)`, and doc `(** ... *)`) are always preserved —

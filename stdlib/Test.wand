@@ -4,7 +4,7 @@ import String
 (** The outcome of a single assertion: Pass carries the test's label,
     Fail carries a message that already includes the label. A Suite is a
     group's outcome -- its label over its children, kept as a tree so
-    `wand test` can print each child under the path of labels that led
+    `wand s` can print each child under the path of labels that led
     to it. *)
 type TestOutcome = Pass String | Fail String | Suite String (List TestOutcome)
 
@@ -62,7 +62,7 @@ let test label f =
     the child list are setup shared by every child, `with r as x -> [...]`
     is teardown that releases however the body ends, and a handler around
     the list mocks every child at once. Groups nest -- a `group` is one
-    more child -- and `wand test` prints each test under the path of
+    more child -- and `wand s` prints each test under the path of
     labels that led to it. A raise in the body itself is the group's one
     failure; the children it prevented are not invented. *)
 let group label thunk =

@@ -122,7 +122,7 @@ let double x = x * 2|} with
        Alcotest.fail "doc: doc string is empty"
    | None -> Alcotest.fail "doc: doc string not stored")
 
-(* ── wand env (list all) ─────────────────────────────────────────────────── *)
+(* ── wand v (list all) ─────────────────────────────────────────────────── *)
 
 let test_env_all () =
   let sess = make_sess () in
@@ -140,7 +140,7 @@ let test_env_all () =
   if not (List.mem_assoc "answer" sess2.Runner.s_type_env) then
     Alcotest.fail "env: user binding not in type env"
 
-(* ── wand env <Module> ───────────────────────────────────────────────────── *)
+(* ── wand v <Module> ───────────────────────────────────────────────────── *)
 
 let test_env_module () =
   let sess = make_sess () in
@@ -303,7 +303,7 @@ let test_typecheck_file_lints () =
       Alcotest.(check bool) "a lint is reported" true (sc.Runner.sc_findings <> [])
     | Error d -> Alcotest.failf "expected it to typecheck: %s" (Diag.legacy d))
 
-(* ── wand test: finding the files ────────────────────────────────────────── *)
+(* ── wand s: finding the files ────────────────────────────────────────── *)
 
 (* A script's tests live beside the script, so discovery is by prefix and
    the answer has to be the tests and nothing else -- not the script, not a

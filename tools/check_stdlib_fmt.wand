@@ -8,7 +8,7 @@ import Option
 import Path
 import Proc
 
-(* `wand fmt` is the canonical form: running it over a formatted tree changes
+(* `wand f` is the canonical form: running it over a formatted tree changes
    nothing. Checked on a copy, so a failure reports rather than rewrites --
    the formatter has produced source that does not parse before, and leaving
    a mangled file on disk turns one bug into two.
@@ -33,7 +33,7 @@ let copy_into! dir = sources |> List.each (fn src -> FS.copy! src (copy_of dir s
    each path is clearer than relying on the shell to expand one. *)
 let format_in! dir = sources |> List.each (fn src -> $(%{wand} fmt %{copy_of dir src}))
 
-(* A file that changed is one `wand fmt` would rewrite, which means the tree
+(* A file that changed is one `wand f` would rewrite, which means the tree
    checked in is not what the formatter produces. Every one of them is
    reported: fixing them one CI run at a time is how a five-minute job
    becomes an afternoon. *)
@@ -41,7 +41,7 @@ let rewritten! dir =
   sources |> List.filter (fn src -> FS.read_file! src != FS.read_file! (copy_of dir src))
 
 let report changed =
-  let () = IO.println_err "wand fmt would rewrite these files:" in
+  let () = IO.println_err "wand f would rewrite these files:" in
   let () = changed |> List.each (fn p -> IO.println_err "  %{Path.to_string p}") in
   Proc.exit 1
 
@@ -50,7 +50,7 @@ let main! () =
   let () = copy_into! dir in
   let () = format_in! dir in
   match rewritten! dir with
-  | [] -> IO.println "stdlib is a wand fmt fixed point (%{List.length sources} files)"
+  | [] -> IO.println "stdlib is a wand f fixed point (%{List.length sources} files)"
   | changed -> report changed
 
 main! ()

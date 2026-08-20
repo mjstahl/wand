@@ -1158,7 +1158,7 @@ let run_file ?(mode = Normal) path =
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
-(* ── `wand test` ──────────────────────────────────────────────────────────── *)
+(* ── `wand s` ──────────────────────────────────────────────────────────── *)
 
 (* A test file's top-level expressions are the `stdlib/Test.wand` module's
    `Pass`/`Fail` constructors (see Test.wand's `test` function), or a

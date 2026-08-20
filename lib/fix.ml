@@ -128,7 +128,7 @@ let fix_source ~path (src : string) : (string * applied list, Diag.t) result =
   in
   go (split_lines src) [] max_passes
 
-(* In place, like `wand fmt`. Nothing is written when nothing changed or
+(* In place, like `wand f`. Nothing is written when nothing changed or
    when the engine refuses. *)
 let fix_file path : (applied list, Diag.t) result =
   let full =

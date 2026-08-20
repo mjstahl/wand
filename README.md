@@ -135,8 +135,8 @@ wand i                  # interactive session
 wand e "1 + 2"          # evaluate an expression
 wand t "1 + 2"          # typecheck, report holes, and lint
 wand d "List.map"       # show a doc string
-wand fmt script.wand    # format in place
-wand test               # run every test_*.wand from here down
+wand f script.wand      # format in place
+wand s                  # run every test_*.wand from here down
 wand h                  # help
 ```
 
