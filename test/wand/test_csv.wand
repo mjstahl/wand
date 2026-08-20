@@ -51,7 +51,8 @@ test "read_file missing file gives Error" (fn t ->
   t.ok
     (match CSV.read_file (Path.of_string "/nonexistent/wand_missing.csv") with
     | Ok _ -> false
-    | Error _ -> true))
+    | Error _ -> true
+    ))
 
 test "read_file! row count" (fn t ->
   with FS.temp_file "wand_csv_exn_" ".csv" as p ->

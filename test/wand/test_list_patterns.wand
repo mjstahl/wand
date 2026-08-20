@@ -14,66 +14,76 @@ test "match empty" (fn t ->
     "empty"
     (match [] with
     | [] -> "empty"
-    | _ -> "non-empty"))
+    | _ -> "non-empty"
+    ))
 test "match non-empty" (fn t ->
   t.eq
     "non-empty"
     (match [1] with
     | [] -> "empty"
-    | _ -> "non-empty"))
+    | _ -> "non-empty"
+    ))
 
 test "exact one element" (fn t ->
   t.eq
     42
     (match [42] with
     | [x] -> x
-    | _ -> 0))
+    | _ -> 0
+    ))
 test "exact two elements" (fn t ->
   t.eq
     7
     (match [3, 4] with
     | [x, y] -> x + y
-    | _ -> 0))
+    | _ -> 0
+    ))
 
 test "cons pattern head" (fn t ->
   t.eq
     1
     (match [1, 2, 3] with
     | [h : _] -> h
-    | [] -> 0))
+    | [] -> 0
+    ))
 test "cons pattern tail" (fn t ->
   t.eq
     [2, 3]
     (match [1, 2, 3] with
     | [_ : tl] -> tl
-    | [] -> []))
+    | [] -> []
+    ))
 test "cons pattern no match on empty" (fn t ->
   t.eq
     "no"
     (match [] with
     | [_ : _] -> "yes"
-    | [] -> "no"))
+    | [] -> "no"
+    ))
 
 test "three-way chain, binds head/mid/tail" (fn t ->
   t.eq
     "1,2,3,[4]"
     (match [1, 2, 3, 4] with
     | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
-    | _ -> "no match"))
+    | _ -> "no match"
+    ))
 
 test "chain exactly consuming the list" (fn t ->
   t.eq
     "1,2,3,[]"
     (match [1, 2, 3] with
     | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
-    | _ -> "no match"))
+    | _ -> "no match"
+    ))
 
 test "chain falls through on too-short list" (fn t ->
   t.eq
     "too short"
     (match [1, 2] with
     | [a : b : c : tl] -> "matched"
-    | _ -> "too short"))
+    | _ -> "too short"
+    ))
 
 let lp_third! [_ : _ : x : _] = x
 test "chain in a function multi-equation" (fn t -> t.eq 30 (lp_third! [10, 20, 30, 40]))
@@ -134,7 +144,8 @@ test "a match arm still means the exact length" (fn t ->
     "other"
     (match lp_xs with
     | [x, y] -> "two"
-    | _ -> "other"))
+    | _ -> "other"
+    ))
 
 let lp_only! [x] = x
 test "a function equation still means the exact length" (fn t ->

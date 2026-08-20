@@ -68,4 +68,5 @@ test "as a pattern" (fn t ->
     "matched"
     (match "hi" with
     | "hi" -> "matched"
-    | _ -> "no"))
+    | _ -> "no"
+    ))

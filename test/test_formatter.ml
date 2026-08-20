@@ -311,6 +311,21 @@ let test_manifest_is_followed_by_a_blank_line () =
     "uses {FS.Read}\n-- why this file reads\nimport FS\nlet read p = FS.read_file! p"
     "uses {FS.Read}\n\n-- why this file reads\nimport FS\n\nlet read p = FS.read_file! p"
 
+(* A parenthesized expression that ran onto more lines closes on a line of
+   its own. Trailing the last line, the bracket joins a stack of `))` that
+   says nothing about which of them ends what -- and the last line of a
+   `match` is its final case, where a `)` is easiest of all to misread as
+   part of the case. *)
+let test_a_multiline_paren_closes_on_its_own_line () =
+  fmt_eq "a handler argument closes below its last case"
+    "let f thunk = check (handle thunk () with | FS!read_file _ _ -> \"caught\" | FS!write_file _ _ -> \"wrote\")"
+    "let f thunk =\n  (check\n    (handle thunk () with\n    | FS!read_file _ _ -> \"caught\"\n    | FS!write_file _ _ -> \"wrote\"\n    ))";
+  assert_idempotent "closing on its own line is a fixed point"
+    "let f thunk = check (handle thunk () with | FS!read_file _ _ -> \"caught\" | FS!write_file _ _ -> \"wrote\")";
+  (* One that still fits on a line keeps its bracket where it was. *)
+  fmt_eq "a parenthesis that did not wrap is left alone"
+    "let g x = check (x + 1)" "let g x = check (x + 1)"
+
 (* A case body wide enough to wrap needs its parentheses back, for the same
    reason a binding's does: the application ends where its first line does,
    and the argument left below is read as continuing the definition the
@@ -729,6 +744,7 @@ let () =
       Alcotest.test_case "manifest blank line" `Quick test_manifest_is_followed_by_a_blank_line;
       Alcotest.test_case "import block blank line" `Quick test_import_block_is_followed_by_a_blank_line;
       Alcotest.test_case "wrapped case body brackets" `Quick test_a_wrapped_case_body_keeps_its_brackets;
+      Alcotest.test_case "multiline paren closes alone" `Quick test_a_multiline_paren_closes_on_its_own_line;
       Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;

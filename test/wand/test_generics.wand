@@ -42,7 +42,8 @@ test "map" (fn t ->
     2
     (match Option.map (fn x -> x + 1) (Some 1) with
     | Some v -> v
-    | None -> 0))
+    | None -> 0
+    ))
 
 test "and_then" (fn t ->
   let half x = if x % 2 == 0 then Some (x / 2) else None
@@ -50,7 +51,8 @@ test "and_then" (fn t ->
     2
     (match Option.and_then half (Some 4) with
     | Some v -> v
-    | None -> -1))
+    | None -> -1
+    ))
 
 test "default" (fn t -> t.eq 0 (Option.default 0 None))
 
@@ -59,14 +61,16 @@ test "to_result ok" (fn t ->
     5
     (match Option.to_result "missing" (Some 5) with
     | Ok v -> v
-    | Error _ -> 0))
+    | Error _ -> 0
+    ))
 
 test "to_result error" (fn t ->
   t.eq
     "missing"
     (match Option.to_result "missing" None with
     | Ok _ -> ""
-    | Error e -> e))
+    | Error e -> e
+    ))
 
 test "get! present" (fn t -> t.eq 7 (Option.get! (Some 7)))
 test "get! absent raises" (fn t -> t.raises (fn () -> Option.get! None))
@@ -87,7 +91,8 @@ test "custom error type" (fn t ->
     (match gparse "abc" with
     | Ok n -> "ok"
     | Error (UnexpectedToken tk) -> "bad: %{tk}"
-    | Error UnexpectedEof -> "eof"))
+    | Error UnexpectedEof -> "eof"
+    ))
 
 let plain_result : Result String Int = Ok 1
 test "plain string error still works" (fn t ->
@@ -95,4 +100,5 @@ test "plain string error still works" (fn t ->
     1
     (match plain_result with
     | Ok n -> n
-    | Error _ -> 0))
+    | Error _ -> 0
+    ))

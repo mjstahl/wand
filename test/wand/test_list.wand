@@ -67,13 +67,15 @@ test "get 0" (fn t ->
     "a"
     (match List.get 0 ["a", "b", "c"] with
     | Some v -> v
-    | None -> ""))
+    | None -> ""
+    ))
 test "get 2" (fn t ->
   t.eq
     "c"
     (match List.get 2 ["a", "b", "c"] with
     | Some v -> v
-    | None -> ""))
+    | None -> ""
+    ))
 test "get out of bounds returns None" (fn t -> List.get 5 ["a", "b"] |> t.eq None)
 test "get negative returns None" (fn t -> List.get (-1) ["a"] |> t.eq None)
 

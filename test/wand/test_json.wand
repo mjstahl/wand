@@ -15,28 +15,32 @@ test "null" (fn t ->
     "null"
     (match JSON.parse "null" with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err"))
+    | Error _ -> "err"
+    ))
 
 test "number" (fn t ->
   t.eq
     "42"
     (match JSON.parse "42" with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err"))
+    | Error _ -> "err"
+    ))
 
 test "string" (fn t ->
   t.eq
     `"hello"`
     (match JSON.parse `"hello"` with
     | Ok j -> JSON.stringify j
-    | Error _ -> "err"))
+    | Error _ -> "err"
+    ))
 
 test "bad JSON returns Error" (fn t ->
   t.eq
     "error"
     (match JSON.parse "{bad}" with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 test "parse! valid" (fn t -> t.eq "true" (JSON.stringify (JSON.parse! "true")))
 test "parse! invalid raises" (fn t -> t.raises (fn () -> JSON.parse! "not json"))
@@ -48,63 +52,72 @@ test "get_bool true" (fn t ->
     true
     (match JSON.get_bool (JSON.parse! "true") with
     | Ok b -> b
-    | Error _ -> false))
+    | Error _ -> false
+    ))
 
 test "get_bool wrong type" (fn t ->
   t.eq
     "error"
     (match JSON.get_bool (JSON.parse! "42") with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 test "get_int" (fn t ->
   t.eq
     99
     (match JSON.get_int (JSON.parse! "99") with
     | Ok n -> n
-    | Error _ -> -1))
+    | Error _ -> -1
+    ))
 
 test "get_int wrong type" (fn t ->
   t.eq
     "error"
     (match JSON.get_int (JSON.parse! `"hi"`) with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 test "get_float from float literal" (fn t ->
   t.eq
     true
     (match JSON.get_float (JSON.parse! "3.14") with
     | Ok f -> f > 3.0
-    | Error _ -> false))
+    | Error _ -> false
+    ))
 
 test "get_float from int literal" (fn t ->
   t.eq
     true
     (match JSON.get_float (JSON.parse! "2") with
     | Ok f -> f == 2.0
-    | Error _ -> false))
+    | Error _ -> false
+    ))
 
 test "get_string" (fn t ->
   t.eq
     "world"
     (match JSON.get_string (JSON.parse! `"world"`) with
     | Ok s -> s
-    | Error _ -> ""))
+    | Error _ -> ""
+    ))
 
 test "get_array length" (fn t ->
   t.eq
     3
     (match JSON.get_array (JSON.parse! "[1,2,3]") with
     | Ok xs -> List.length xs
-    | Error _ -> -1))
+    | Error _ -> -1
+    ))
 
 test "get_object then field" (fn t ->
   t.eq
     `"v"`
     (match JSON.get_object (JSON.parse! `{"k":"v"}`) with
     | Ok m -> JSON.stringify (Map.get! "k" m)
-    | Error _ -> ""))
+    | Error _ -> ""
+    ))
 
 (* ── field / field! ────────────────────────────────────────────────────── *)
 
@@ -114,7 +127,8 @@ test "field exists" (fn t ->
     `"Alice"`
     (match JSON.field "name" j with
     | Ok v -> JSON.stringify v
-    | Error _ -> ""))
+    | Error _ -> ""
+    ))
 
 test "field missing" (fn t ->
   let j = JSON.parse! `{"a":1}` in
@@ -122,7 +136,8 @@ test "field missing" (fn t ->
     "error"
     (match JSON.field "z" j with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 test "field! exists" (fn t ->
   let j = JSON.parse! `{"x":42}` in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
@@ -149,7 +164,8 @@ test "pretty round-trips" (fn t ->
     "ok"
     (match JSON.parse s with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 (* ── read_file ─────────────────────────────────────────────────────────── *)
 
@@ -168,7 +184,8 @@ test "read_file missing file returns Error" (fn t ->
     "error"
     (match JSON.read_file (Path.of_string "/nonexistent/wand_missing.json") with
     | Ok _ -> "ok"
-    | Error _ -> "error"))
+    | Error _ -> "error"
+    ))
 
 (* ── Building an object ──────────────────────────────────────────────────── *)
 
@@ -185,7 +202,8 @@ test "a key that is not an identifier is written quoted" (fn t ->
   t.eq
     `{"content-type":"json","@type":1}`
     (JSON.stringify
-      (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})))
+      (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})
+    ))
 
 (* Nothing to guard against here: a Map holds a key once, so a repeat was
    resolved before it reached the writer. *)
@@ -200,7 +218,9 @@ test "objects nest, and hold arrays" (fn t ->
     `{"meta":{"n":1},"xs":[1]}`
     (JSON.stringify
       (JSON.of_map
-        {meta = JSON.of_map {n = JSON.of_int 1}, xs = JSON.of_list [JSON.of_int 1]})))
+        {meta = JSON.of_map {n = JSON.of_int 1}, xs = JSON.of_list [JSON.of_int 1]}
+      )
+    ))
 
 test "and what was read can be written back" (fn t ->
   let doc = `{"a":1,"b":"two"}` in

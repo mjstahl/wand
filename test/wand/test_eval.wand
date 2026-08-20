@@ -122,35 +122,40 @@ test "first case" (fn t ->
     true
     (match 1 with
     | 1 -> true
-    | _ -> false))
+    | _ -> false
+    ))
 
 test "wildcard case" (fn t ->
   t.eq
     false
     (match 2 with
     | 1 -> true
-    | _ -> false))
+    | _ -> false
+    ))
 
 test "bool match" (fn t ->
   t.eq
     1
     (match true with
     | true -> 1
-    | false -> 0))
+    | false -> 0
+    ))
 
 test "guard pass" (fn t ->
   t.eq
     true
     (match 5 with
     | x when x > 3 -> true
-    | _ -> false))
+    | _ -> false
+    ))
 
 test "guard fail" (fn t ->
   t.eq
     false
     (match 2 with
     | x when x > 3 -> true
-    | _ -> false))
+    | _ -> false
+    ))
 
 (* ── Tuples ────────────────────────────────────────────────────────────── *)
 

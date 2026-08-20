@@ -78,7 +78,8 @@ test "many watched workers, several effects each" (fn t ->
         4
         (fn n -> with FS.temp_dir "wand_par_race_" as d ->
         let () = FS.write_file! (Path.of_string "%{Path.to_string d}/%{n}.txt") "x" in
-        $(echo hi))
+        $(echo hi)
+        )
         [1, 2, 3, 4])
   in
   let counts = List.map (fn r -> List.length r) (List.map round [1, 2, 3, 4, 5, 6, 7, 8]) in

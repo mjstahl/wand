@@ -77,7 +77,8 @@ test "match case by name" (fn t ->
   t.eq
     9
     (match c with
-    | Circle(radius = r) -> r))
+    | Circle(radius = r) -> r
+    ))
 
 let circle_area c = let Circle(radius = r) = c in r * r
 test "in local let inside fn" (fn t -> t.eq 25 (circle_area Circle(radius = 5)))

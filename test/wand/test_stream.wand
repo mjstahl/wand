@@ -31,7 +31,8 @@ test "stages fuse in order" (fn t ->
       |> Stream.map (fn x -> x * 2)
       |> Stream.filter (fn x -> x > 2)
       |> Stream.take 2
-      |> Stream.to_list))
+      |> Stream.to_list
+    ))
 
 test "fold_left folds every element" (fn t ->
   t.eq 10 (Stream.of_list [1, 2, 3, 4] |> Stream.fold_left (fn a x -> a + x) 0))
@@ -60,4 +61,5 @@ test "a missing file raises at the fold, catchably" (fn t ->
     true
     (match try go () with
     | Ok _ -> false
-    | Error why -> String.contains? "does-not-exist" why))
+    | Error why -> String.contains? "does-not-exist" why
+    ))

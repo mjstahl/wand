@@ -90,7 +90,9 @@ test "one_of takes the first that works" (fn t ->
     (Ok "web-01")
     (decoded
       (Decode.one_of
-        [Decode.field "restarts" Decode.string, Decode.field "name" Decode.string])))
+        [Decode.field "restarts" Decode.string, Decode.field "name" Decode.string]
+      )
+    ))
 
 (* Which alternative was the real one is not the decoder's to guess, so it
    reports all of them rather than picking. *)

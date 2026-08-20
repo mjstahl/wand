@@ -324,10 +324,21 @@ let rec emit_expr ?col indent e =
    (or rejected outright), so always parenthesize those; everything else
    (literals, Var, Field, another App, Tuple/List/MapLit, ...) is already
    safe unwrapped in that position. *)
+(* A parenthesized expression that ran onto more lines closes on a line of
+   its own, at the indent that opened it. Trailing the last line, the closing
+   bracket joins a stack of `))` that says nothing about which of them ends
+   what -- and the last line of a `match` is its final case, where a `)` is
+   easiest of all to misread as part of the case. *)
+and parenthesize indent s =
+  if String.contains s '\n'
+  then "(" ^ s ^ "\n" ^ String.make indent ' ' ^ ")"
+  else "(" ^ s ^ ")"
+
 and emit_atom indent e =
   let e' = strip_located e in
   let s = emit_expr_inner indent e' in
-  if is_control_expr e' || is_binop_or_unop e' || is_app e' then "(" ^ s ^ ")" else s
+  if is_control_expr e' || is_binop_or_unop e' || is_app e'
+  then parenthesize indent s else s
 
 (* An argument, which is an atom with one extra hazard: a bare constructor is
    greedy. `f None x` parses as `f (None x)`, because a constructor takes the
@@ -337,7 +348,7 @@ and emit_atom indent e =
    meaning is worse than no formatter. *)
 and emit_arg ~last indent e =
   match strip_located e with
-  | Constr _ as c when not last -> "(" ^ emit_expr_inner indent c ^ ")"
+  | Constr _ as c when not last -> parenthesize indent (emit_expr_inner indent c)
   | _ -> emit_atom indent e
 
 and emit_expr_inner ?col indent e =
@@ -977,7 +988,12 @@ let emit_top_item_pretty = function
           brace-style. *)
        else if opens_a_bracket e then
          head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 e
-       else head ^ " =\n  " ^ emit_expr 2 e)
+       (* An application that wrapped needs its brackets back, exactly as
+          the multi-equation path above gives them: the definition ends at
+          the first line, and the argument below it reads as something new.
+          Without this `let f x = g (long argument)` formatted to source
+          that would not parse. *)
+       else head ^ " =\n  " ^ bracket_if_wrapped_app e (emit_expr 2 e))
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
@@ -988,7 +1004,7 @@ let emit_top_item_pretty = function
       if fits 0 oneline then oneline
       else if opens_a_bracket body then
         head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
-      else head ^ " =\n  " ^ emit_expr 2 body
+      else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
     in
     (match bindings with
      | [] -> ""

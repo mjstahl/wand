@@ -22,7 +22,8 @@ let shape =
         (fn w h -> Rect w h)
         (Decode.field "w" Decode.int)
         (Decode.field "h" Decode.int)
-      else Decode.fail "unknown kind: %{kind}")
+      else Decode.fail "unknown kind: %{kind}"
+    )
     (Decode.field "kind" Decode.string))
 
 let area s =
