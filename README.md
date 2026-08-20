@@ -166,4 +166,5 @@ test suite covers the lexer, parser, typechecker, formatter, and CLI. Expect
 sharp edges and breaking changes.
 
 - **[Language reference](docs/reference.md)** — the full language
+- **[Reading a command line](docs/examples-args.md)** — six ways to read argv, with what each one prints
 - **[Examples](examples/)** — runnable scripts, executed by CI
