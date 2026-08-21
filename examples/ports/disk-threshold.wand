@@ -33,13 +33,12 @@ let usage row =
 
 (* The mounts over a percentage, in the order the rows came in. *)
 let over limit rows =
-  (List.fold_right
-    (fn row acc -> match usage row with
+  let keep =
+    fn row acc -> match usage row with
       | Some (mount, percent) -> if percent > limit then (mount, percent) : acc else acc
       | None -> acc
-    )
-    rows
-    [])
+  in
+  List.fold_right keep rows []
 
 let report full =
   match full with
