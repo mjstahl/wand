@@ -380,6 +380,40 @@ What carried these five: the derived decoder read `release-check.wand`'s
 three fields off the type, `Size` arithmetic summed `dir-budget.wand`
 against a `500MB` literal, and `List.filter_map` shaped three of the five.
 
+## Row 6, ported
+
+`pod-restarts.wand`. This was the row advertised as wand's strongest
+showing, and the earlier study found it collapsed on reading fields back
+out. With the parameter annotation it does not:
+
+    let restarts (p: Pod) =
+      p.status.containerStatuses
+        |> List.fold_left (fn total (c: Container) -> total + c.restartCount) 0
+
+Four types mirror the document, `PodList.decoder` derives from them, and a
+document that does not match names the field it stopped at. The manifest
+says `Shell(kubectl)`, so the file cannot run anything else.
+
+The bash it replaces reads
+`.status.containerStatuses[0].restartCount`. `[0]` is the first container
+and no other, so a pod whose sidecar is crash-looping is invisible while
+its main container sits at zero. jq has no way to say "the sum over the
+containers" that fits on that line. The port sums.
+
+Two things it found:
+
+- **A pattern cannot carry a type inside a constructor's payload.**
+  `(v: T)` works as a parameter, as a lambda parameter, as a `let`
+  pattern, in a bare match arm and inside a tuple. `Ok (v: T)` is a parse
+  error: the payload branch reads `(` as the start of an argument list
+  and never looks for a `:`. The port does not need it -- the decoder
+  pins the type -- but the hole is one branch wide.
+- **Two imported files may export the same name, and the second wins.**
+  `let {over} = import ./a` then `let {over} = import ./b` binds `b`'s,
+  with no warning. This port had three collisions with earlier ports
+  (`over`, `describe`, `read`) and was renamed around all three. A type
+  error caught one; two same-typed functions would not be caught at all.
+
 ## Problems with the approach itself
 
 Separate from what wand is missing, four ways this project could produce
@@ -461,7 +495,9 @@ covered end to end.
 5. ~~**Close the cheap ones.**~~ Shipped: `FS.delete_tree` and
    `FS.copy_tree` close G3, and `Shell.ok?` answers the question every
    ported script asks first.
-6. **Port the rest**, in row order.
+6. **Port the rest**, in row order. Row 6 is done (`pod-restarts.wand`);
+   rows 3, 5, 7, 8 and 11 need no language work, and 9 and 12 are blocked
+   on G2 and G4.
 
 The original plan had step 3 first and no steps 1 or 2 at all, which is
 the argument for doing a handful of ports before designing anything: four

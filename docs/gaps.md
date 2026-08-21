@@ -83,6 +83,17 @@ The checker now names the constructor and says to bracket it, where the
 error used to be about the application. The parse stands: reading arity
 here is what made `Ctor (a, b)` mean different things in different files.
 
+**A pattern cannot carry a type inside a constructor's payload.** `(v: T)`
+works as a parameter, as a lambda parameter, as a `let` pattern, in a bare
+match arm and inside a tuple. `Ok (v: T)` is a parse error: the payload
+branch reads `(` as the start of an argument list and never looks for a
+`:`. One branch wide. Found porting `pod-restarts.wand`.
+
+**Two imported files may export the same name, and the second wins.**
+`let {over} = import ./a` then `let {over} = import ./b` binds `b`'s, with
+no warning. A type error catches it when the types differ, and nothing
+catches it when they do not. Found porting `pod-restarts.wand`.
+
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in

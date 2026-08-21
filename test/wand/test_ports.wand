@@ -8,12 +8,14 @@ let {failed, stage} = import ../../examples/ports/ci-gate
 let {describe, gaps} = import ../../examples/ports/env-check
 let {count_into, share, status} = import ../../examples/ports/error-rate
 let {blockers} = import ../../examples/ports/release-check
+let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
 import Env
 import Float
 import List
 import Map
 import Option
 import Path
+import String
 
 (* The ports in examples/ports/, checked without a machine to read.
 
@@ -142,4 +144,40 @@ group "release-check" (fn () -> [
     t.eq
       ["still a draft", "0.9.0 is below 1.0.0", "1 artifacts, expected 4"]
       (blockers 1.0.0 Release(version = 0.9.0, draft = true, artifacts = ["a"])))
+])
+
+(* A document with two containers in one pod, the first of them healthy --
+   the shape `jq '.status.containerStatuses[0].restartCount'` reads wrong. *)
+let doc =
+  `
+{"items":[
+     {"metadata":{"name":"web-01","namespace":"default"},
+      "status":{"phase":"Running","containerStatuses":[
+        {"name":"web","restartCount":0},{"name":"sidecar","restartCount":7}]}},
+     {"metadata":{"name":"web-02","namespace":"default"},
+      "status":{"phase":"Running","containerStatuses":[
+        {"name":"web","restartCount":1}]}}]}`
+
+group "pod-restarts" (fn () -> [
+  test "the document reads into pods" (fn t ->
+    match pods doc with
+    | Ok found -> t.eq 2 (List.length found)
+    | Error _ -> t.ok false),
+  test "restarts is every container, not the first" (fn t ->
+    match pods doc with
+    | Ok [first, _] -> t.eq 7 (restarts first)
+    | _ -> t.ok false),
+  test "only what is over the limit" (fn t ->
+    match pods doc with
+    | Ok found -> t.eq 1 (List.length (flapping 3 found))
+    | Error _ -> t.ok false),
+  test "the line names the namespace and the pod" (fn t ->
+    match pods doc with
+    | Ok [first, _] -> t.eq "default/web-01\tRunning\t7 restarts" (summary first)
+    | _ -> t.ok false),
+  (* A document that does not match names the field it stopped at. *)
+  test "a missing field is named" (fn t ->
+    match pods `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}` with
+    | Ok _ -> t.ok false
+    | Error e -> t.ok (String.contains? "namespace" e))
 ])
