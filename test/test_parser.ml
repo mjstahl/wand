@@ -388,6 +388,23 @@ let test_local_multi_equation () =
    | Let (PVar "f", Fn ([PVar "_p0"], Match (Var "_p0", [(Int 0, None, _); (PVar "n", None, _)])), _, _) -> ()
    | _ -> Alcotest.fail "expected a merged multi-equation Fn/Match")
 
+(* `T(r, b = 3)` is `r` with `b` replaced. `T(a, b)` is still `T` applied to
+   a pair: the `ident =` after the comma is what separates them, and the
+   parser asks only once the first item is read. *)
+let test_record_update () =
+  e "one field"
+    "T(r, b = 3)"
+    (ConstrUpdate ("T", Var "r", [("b", Int 3)]));
+  e "several fields"
+    "T(r, a = 1, b = 2)"
+    (ConstrUpdate ("T", Var "r", [("a", Int 1); ("b", Int 2)]));
+  e "the base is any expression"
+    "T(f x, b = 3)"
+    (ConstrUpdate ("T", App (Var "f", Var "x"), [("b", Int 3)]));
+  e "a pair payload is untouched"
+    "T(a, b)"
+    (App (Constr "T", Tuple [Var "a"; Var "b"]))
+
 (* ── If / then / else ────────────────────────────────────────────────────── *)
 
 let test_if () =
@@ -762,6 +779,7 @@ let () =
     ];
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
+      Alcotest.test_case "record update" `Quick test_record_update;
       Alcotest.test_case "local multi-equation" `Quick test_local_multi_equation;
       Alcotest.test_case "if"           `Quick test_if;
       Alcotest.test_case "match"        `Quick test_match;

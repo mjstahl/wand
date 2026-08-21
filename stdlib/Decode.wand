@@ -82,6 +82,12 @@ let fail msg = decode_fail msg
 (** Change what a decoder produced. *)
 let map f d = and_then (fn x -> succeed (f x)) d
 
+(** Read three things from the same value and combine them.
+    
+    Three is where this stops. A wider record is `and_then` and `succeed`,
+    or a derived `T.decoder` if the field names match the type's. *)
+let map3 f a b c = and_then (fn g -> map g c) (map2 f a b)
+
 (** Try each decoder in turn and take the first that succeeds. If none does,
     every alternative's complaint is reported, since which one is the real
     reason is not the decoder's to guess. *)

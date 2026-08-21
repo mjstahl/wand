@@ -300,12 +300,13 @@ rather than merely invoking one — which is most of what a service script
 does — goes through `$(ps)` and `$(kill)` and parses text, which is the
 practice wand exists to end.
 
-### G6 — no HTTP client
+### G6 — no HTTP client — decided
 
-Row 3 goes through `$(curl …)`. That is defensible and the manifest makes
-it honest, but a `Url` type and a decoder story this good sitting next to
-a shelled-out curl is a visible seam. Worth a decision, not necessarily
-work: "wand shells out to curl on purpose" is a fine answer if we say so.
+Row 3 goes through `$(curl …)`, and stays there. `curl` is on every
+machine a script runs on. `Shell(curl)` names it in the manifest like any
+other binary, and `Shell.decode` reads what it prints. A client inside
+wand would carry TLS, redirects, proxies and retries, and would still be
+behind curl. The seam beside the `Url` type is real and is the price.
 
 ### G7 — no archive story
 
@@ -362,16 +363,18 @@ three absences:
   operation carries what its *raising* builtin returns. Filled in. The
   construct whose purpose is standing at a boundary was the one letting a
   value across it.
-- **`Decode` stops at `map2`.** A three-field record has no `map3`, so a
-  decoder that renames or validates a third field is an `and_then` chain.
-  `release-check.wand` needs none of that and uses the derived
-  `Release.decoder`, which is the better answer where it fits.
-- **Nothing in `Float` prints to a width.** A rate is read to one decimal,
-  so `error-rate.wand` carries `Float.of_int (Float.round (x * 10.0)) /
-  10.0` to say so.
-- **A record has no update form.** Changing one field means naming them
-  all: `Tally(ok = tally.ok, failed = tally.failed + 1)`. Two fields make
-  that a wash; a wider tally would not.
+- **`Decode` stopped at `map2`.** A three-field record had no `map3`, so a
+  decoder that renames or validates a third field was an `and_then` chain.
+  `Decode.map3` ships. Three is where it stops: wider is `and_then`, or the
+  derived `T.decoder` that `release-check.wand` uses.
+- **Nothing in `Float` printed to a width.** A rate is read to one decimal,
+  and `error-rate.wand` carried `Float.of_int (Float.round (x * 10.0)) /
+  10.0` to say so. `Float.format 1 x` says it now.
+- **A record had no update form.** Changing one field meant naming them
+  all. `Tally(t, failed = t.failed + 1)` is the form: the record first,
+  then what changes. `{t with failed = ...}` is OCaml's spelling, and is a
+  parse error naming the wand one -- the drift rule matters more than the
+  syntax here, because a model writing wand reaches for braces first.
 
 What carried these five: the derived decoder read `release-check.wand`'s
 three fields off the type, `Size` arithmetic summed `dir-budget.wand`

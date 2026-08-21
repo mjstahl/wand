@@ -33,3 +33,11 @@ test "floor toward negative infinity" (fn t ->
 test "ceil toward positive infinity" (fn t ->
   t.eq (3, -2) (Float.ceil 2.1, Float.ceil (-2.9)))
 test "abs" (fn t -> t.eq 2.5 (Float.abs (-2.5)))
+
+(* A width is a printing decision, so it answers a String: no Float is
+   exactly 0.1, and rounding to one would answer a value that cannot hold
+   the answer. *)
+test "format to one digit" (fn t -> t.eq "0.3" (Float.format 1 0.3333))
+test "format fills the digits in" (fn t -> t.eq "1.50" (Float.format 2 1.5))
+test "format to none" (fn t -> t.eq "2" (Float.format 0 2.4))
+test "format rounds away from zero" (fn t -> t.eq "-0.8" (Float.format 1 (-0.75)))

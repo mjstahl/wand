@@ -94,6 +94,11 @@ type expr =
   | Tuple      of expr list
   | List       of expr list
   | ConstrApp  of string * (string option * expr) list
+  (* `T(r, b = 3)`: the record `r` with the named fields replaced. Kept
+     apart from `ConstrApp` because it is checked differently -- a
+     construction has to name every field, and an update names only what
+     changes. *)
+  | ConstrUpdate of string * expr * (string * expr) list
   | Field      of expr * string
   | Seq      of expr * expr
   | Located  of Token.loc * expr
@@ -214,6 +219,9 @@ let rec show : expr -> string = function
   | ConstrApp (c, kvs) ->
     Printf.sprintf "(%s %s)" c (String.concat ", "
       (List.map (fun (k, v) -> (match k with Some n -> n ^ "=" | None -> "") ^ show v) kvs))
+  | ConstrUpdate (c, base, kvs) ->
+    Printf.sprintf "(%s %s with %s)" c (show base) (String.concat ", "
+      (List.map (fun (k, v) -> k ^ "=" ^ show v) kvs))
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e

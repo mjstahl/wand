@@ -284,3 +284,33 @@ test "nullable still refuses a value that is neither" (fn t ->
   t.eq
     (Error `expected Int, got "x"`)
     (JSON.decode (Decode.nullable Decode.int) (JSON.parse! `"x"`)))
+
+(* Three fields, combined by hand. Wider than that is `and_then`, or the
+   derived decoder. *)
+type Release(version: Version, draft: Bool, count: Int)
+
+test "map3 reads three fields" (fn t ->
+  (
+    let d =
+      (Decode.map3
+        (fn v dr c -> Release(version = v, draft = dr, count = c))
+        (Decode.field "version" Decode.version)
+        (Decode.field "draft" Decode.bool)
+        (Decode.field "count" Decode.int));
+    let doc = JSON.parse! `{"version": "1.2.0", "draft": false, "count": 4}`;
+    t.eq (Ok Release(version = 1.2.0, draft = false, count = 4)) (JSON.decode d doc)
+  ))
+
+test "map3 names the field that failed" (fn t ->
+  (
+    let d =
+      (Decode.map3
+        (fn v dr c -> Release(version = v, draft = dr, count = c))
+        (Decode.field "version" Decode.version)
+        (Decode.field "draft" Decode.bool)
+        (Decode.field "count" Decode.int));
+    let doc = JSON.parse! `{"version": "1.2.0", "draft": false}`;
+    match JSON.decode d doc with
+    | Ok _ -> t.ok false
+    | Error e -> t.ok (String.contains? "count" e)
+  ))

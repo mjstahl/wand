@@ -21,3 +21,8 @@ let ceil f = float_ceil f
 
 (** The distance from zero: Float.abs -2.5 is 2.5. *)
 let abs f = float_abs f
+
+(** The number written to a fixed number of digits after the point:
+    Float.format 1 0.3333 is "0.3". Halves round away from zero, and the
+    digits are filled in: Float.format 2 1.5 is "1.50". *)
+let format digits f = float_format digits f

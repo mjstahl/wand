@@ -1976,6 +1976,24 @@ Point (x = 1)
 -- type error: constructor 'Point' is missing field 'y'
 ```
 
+#### Update
+
+A record with the same values but for the fields you name. Put the record
+first, then what changes:
+
+```ocaml
+let p = Point (x = 1, y = 2)
+
+Point (p, y = 9)          -- Point (x = 1, y = 9)
+Point (p, x = 8, y = 9)   -- Point (x = 8, y = 9)
+```
+
+The type is named, as it is in a construction. A field not named keeps the
+value the record holds. Naming a field twice is a type error.
+
+`{p with y = 9}` is OCaml's and Elm's spelling. Braces are a map in wand,
+so that form is a parse error that names this one.
+
 #### Pattern matching on named fields
 
 A pattern can name fewer fields than the type has. Name a field to read
@@ -2895,7 +2913,12 @@ round  : Float -> Int
 floor  : Float -> Int
 ceil   : Float -> Int
 abs    : Float -> Float
+format : Int -> Float -> String
 ```
+
+`Float.format` writes a fixed number of digits after the point, and fills
+them in: `Float.format 1 0.3333` is `"0.3"` and `Float.format 2 1.5` is
+`"1.50"`. A width is a printing decision, so it answers a `String`.
 
 These functions cross between the two members of `Num`. Arithmetic never
 converts for you. `1.5 + 1` is a type error, and it names these functions. So
@@ -3107,6 +3130,7 @@ dict     : Decoder 'a -> Decoder (Map 'a)
 nullable : Decoder 'a -> Decoder (Option 'a)
 map      : ('a -> 'b) -> Decoder 'a -> Decoder 'b
 map2     : ('a -> 'b -> 'c) -> Decoder 'a -> Decoder 'b -> Decoder 'c
+map3     : ('a -> 'b -> 'c -> 'd) -> Decoder 'a -> Decoder 'b -> Decoder 'c -> Decoder 'd
 and_then : ('a -> Decoder 'b) -> Decoder 'a -> Decoder 'b
 succeed  : 'a -> Decoder 'a
 fail     : String -> Decoder 'a

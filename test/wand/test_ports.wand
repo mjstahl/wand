@@ -6,9 +6,10 @@ let {over, usage} = import ../../examples/ports/disk-threshold
 let {plan, tidy} = import ../../examples/ports/normalize-names
 let {failed, stage} = import ../../examples/ports/ci-gate
 let {describe, gaps} = import ../../examples/ports/env-check
-let {count_into, share, status, tenth} = import ../../examples/ports/error-rate
+let {count_into, share, status} = import ../../examples/ports/error-rate
 let {blockers} = import ../../examples/ports/release-check
 import Env
+import Float
 import List
 import Map
 import Option
@@ -125,7 +126,7 @@ group "error-rate" (fn () -> [
       (count_into Tally(ok = 0, failed = 0) `- - - [x] "GET /" 404 1`)),
   (* The integer division bash does here answers 0. *)
   test "a share below one percent is not zero" (fn t ->
-    t.eq 0.8 (tenth (share Tally(ok = 992, failed = 8)))),
+    t.eq "0.8" (Float.format 1 (share Tally(ok = 992, failed = 8)))),
   test "no requests is no failures" (fn t -> t.eq 0.0 (share Tally(ok = 0, failed = 0)))
 ])
 

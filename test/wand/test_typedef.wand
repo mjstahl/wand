@@ -108,3 +108,20 @@ test "and an arm of a match" (fn t ->
 
 let named (c: Circle) : Int = c.radius
 test "with a return annotation as well" (fn t -> t.eq 2 (named Circle(radius = 2)))
+
+(* ── Record update ────────────────────────────────────────────────────── *)
+
+type Tally(ok: Int, failed: Int, label: String)
+
+let base = Tally(ok = 1, failed = 2, label = "x")
+
+test "one field changes and the rest stay" (fn t ->
+  t.eq Tally(ok = 1, failed = 9, label = "x") Tally(base, failed = 9))
+test "several fields at once" (fn t ->
+  t.eq Tally(ok = 8, failed = 9, label = "x") Tally(base, ok = 8, failed = 9))
+test "naming every field is a construction" (fn t ->
+  t.eq Tally(ok = 8, failed = 9, label = "y") Tally(base, ok = 8, failed = 9, label = "y"))
+test "the base is left alone" (fn t ->
+  (let _ = Tally(base, failed = 9); t.eq 2 base.failed))
+test "the base is any expression" (fn t ->
+  t.eq 9 Tally(Tally(base, ok = 3), failed = 9).failed)

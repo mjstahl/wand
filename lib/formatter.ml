@@ -472,6 +472,26 @@ and emit_expr_inner ?col indent e =
                 it starts. *)
              label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
       ^ "\n" ^ ind ^ ")"
+  (* `T(r, a = 1)`: the base reads as the first item, and the fields that
+     change follow it, so the one-per-line form puts the base on its own
+     line as well. *)
+  | ConstrUpdate (name, base, kvs) ->
+    let items =
+      emit_expr indent base
+      :: List.map (fun (k, v) -> k ^ " = " ^ emit_expr indent v) kvs
+    in
+    let oneline = name ^ "(" ^ String.concat ", " items ^ ")" in
+    if fits col oneline then oneline
+    else
+      let ind = String.make indent ' ' in
+      let inner = String.make (indent + 2) ' ' in
+      let lines =
+        emit_expr (indent + 2) base
+        :: List.map (fun (k, v) ->
+             let label = k ^ " = " in
+             label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs
+      in
+      name ^ "(\n" ^ inner ^ String.concat (",\n" ^ inner) lines ^ "\n" ^ ind ^ ")"
   | Field (e, l) -> emit_field indent e l
   | Seq _ as e -> emit_block ~col indent e
   | Located (_, e) -> emit_expr_inner indent e

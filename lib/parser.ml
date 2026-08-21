@@ -161,6 +161,26 @@ let peek_named_args s =
     | _ -> false
   end
 
+(* From a `,`, whether what follows is a named field rather than another
+   element: `T(r, b = 3)` updates `r`, where `T(r, b)` applies `T` to a
+   pair. The parser cannot tell at the `(`, because the base may be any
+   expression, so it asks here once the first one is read. *)
+let peek_field_after_comma s =
+  let arr = s.tokens in
+  let n = Array.length arr in
+  let i = ref s.pos in
+  let skip () = while !i < n && is_skippable (fst arr.(!i)) do incr i done in
+  if !i >= n || fst arr.(!i) <> Token.Comma then false
+  else begin
+    incr i; skip ();
+    if !i >= n then false
+    else match fst arr.(!i) with
+    | Token.Ident _ ->
+      incr i; skip ();
+      !i < n && fst arr.(!i) = Token.Eq
+    | _ -> false
+  end
+
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn"; "fun";
   "type"; "import"; "when"; "of"; "and"; "or";
@@ -663,7 +683,20 @@ and atom_base_ s =
       ignore (advance s); (* consume LParen *)
       if peek s = Token.RParen then (ignore (advance s); App (Constr name, Unit))
       else begin
-        let args = ref [expr_ 0 s] in
+        let first = expr_ 0 s in
+        if peek_field_after_comma s then begin
+          (* `T(r, b = 3)`: everything not named comes from `r`. *)
+          let fields = ref [] in
+          while peek s = Token.Comma do
+            ignore (advance s);
+            let fname = expect_ident s in
+            expect s Token.Eq;
+            fields := !fields @ [(fname, expr_ 0 s)]
+          done;
+          expect s Token.RParen;
+          ConstrUpdate (name, first, !fields)
+        end else begin
+        let args = ref [first] in
         while peek s = Token.Comma do
           ignore (advance s); args := !args @ [expr_ 0 s]
         done;
@@ -681,6 +714,7 @@ and atom_base_ s =
         | (_ :: _ :: _ as es) -> App (Constr name, Tuple es)
         | args ->
           List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
+        end
       end
     end else
       Constr name
@@ -837,9 +871,20 @@ and brace_map_ s =
   (* { already consumed *)
   if peek s = Token.RBrace then (ignore (advance s); MapLit [])
   else begin
+    (* `{r with b = 3}` is OCaml's and Elm's record update, and it is the
+       first thing anyone writes here. Braces are a map in wand, and an
+       update names its type: `T(r, b = 3)`. Said outright, because the
+       error this used to give was "expected =, got with". *)
+    let update_drift name =
+      fail_at (peek_loc s) (Printf.sprintf
+        "a record update is written `T(%s, field = value)`, naming the \
+         type -- `{%s with ...}` is OCaml's spelling, and `{}` is a map \
+         in wand" name name)
+    in
     let parse_entry () =
       let key = match advance s with
-        | Token.Ident k  -> k
+        | Token.Ident k  ->
+          if peek s = Token.With then update_drift k else k
         | Token.String k -> k
         | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
       in

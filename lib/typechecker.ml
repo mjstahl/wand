@@ -2046,6 +2046,48 @@ let rec infer tenv (env : env) (e : expr) : typ =
            (if List.length missing = 1 then "" else "s")
            (String.concat ", " (List.map (fun n -> "'" ^ n ^ "'") missing))));
        result_t)
+  (* `T(r, b = 3)`: `r` is a `T` already, so the fields not named keep what
+     it holds. Only the named ones are checked, which is the whole
+     difference from a construction -- that has to name every field. *)
+  | ConstrUpdate (name, base, fields) ->
+    (match find_ctor_in_tenv tenv name with
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
+         name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
+     | Some (tname, ctor) ->
+       let arg_ts, result_t =
+         match List.assoc_opt name (tenv_to_ctor_env tenv) with
+         | Some sch -> unwrap_ctor_type (instantiate sch)
+         | None -> ([], TName tname)
+       in
+       let field_type fname =
+         let rec index i = function
+           | [] -> None
+           | (dn, _) :: rest -> if dn = Some fname then Some i else index (i + 1) rest
+         in
+         match index 0 ctor.fields with
+         | Some i -> List.nth_opt arg_ts i
+         | None -> None
+       in
+       (* The base decides the type arguments, so it is unified before the
+          fields are: `Box(b, v = 3)` takes its element type from `b`. *)
+       unify_expected ~expected:result_t ~got:(infer tenv env base);
+       let seen = ref [] in
+       List.iter (fun (fname, e) ->
+         if List.mem fname !seen then
+           raise (TypeError (Printf.sprintf
+             "field '%s' is given twice" fname));
+         seen := fname :: !seen;
+         match List.find_opt (fun (dn, _) -> dn = Some fname) ctor.fields with
+         | None -> raise (TypeError (Printf.sprintf
+             "constructor '%s' has no field '%s'%s"
+             name fname (Util.hint fname (List.filter_map Fun.id (List.map fst ctor.fields)))))
+         | Some (_, te) ->
+           let expected =
+             match field_type fname with Some t -> t | None -> type_of_te te
+           in
+           unify (infer tenv env e) expected
+       ) fields;
+       result_t)
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let lookup_ns ns_name =
@@ -2463,6 +2505,7 @@ let stdlib_type_env : env = [
   ("float_floor",      generalize [] ((TFloat @-> TInt)));
   ("float_ceil",       generalize [] ((TFloat @-> TInt)));
   ("float_abs",        generalize [] ((TFloat @-> TFloat)));
+  ("float_format",     generalize [] ((TInt @-> (TFloat @-> TString))));
   ("str_to_int",       generalize [] ((TString @-> TResult (TString, TInt))));
   ("str_to_float",     generalize [] ((TString @-> TResult (TString, TFloat))));
   ("str_to_bool",      generalize [] ((TString @-> TResult (TString, TBool))));
@@ -2905,6 +2948,7 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
     | Tuple es | List es -> List.iter (go loc) es
     | MapLit kvs -> List.iter (fun (_, v) -> go loc v) kvs
     | ConstrApp (_, fs) -> List.iter (fun (_, v) -> go loc v) fs
+    | ConstrUpdate (_, b, fs) -> go loc b; List.iter (fun (_, v) -> go loc v) fs
     | Interp (parts, _) | RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go loc e) parts
     | CmdInterp (parts, _) -> List.iter (fun (_, e, _) -> go loc e) parts

@@ -54,6 +54,16 @@ let test_ocaml_variant_of () =
     "type Shape = Circle of Int"
     "a constructor takes its payload directly: 'Circle Int'"
 
+(* The strongest prior of them all: `{r with f = v}` is how OCaml, Elm, F#
+   and Rust-adjacent code all update a record. Braces are a map in wand and
+   the update names its type, so the error has to carry the whole form. *)
+let test_ocaml_record_update () =
+  expect_error "braces and with"
+    "type T (a : Int, b : Int)\nlet r = T(a = 1, b = 2)\nlet u = {r with b = 3}\nu"
+    "a record update is written `T(r, field = value)`";
+  ok "and the wand form works"
+    "type T (a : Int, b : Int)\nlet r = T(a = 1, b = 2)\nlet u = T(r, b = 3)\nu.b"
+
 let test_ocaml_try_with () =
   expect_error "try ... with cases"
     "try 1 / 0 with _ -> 0"
@@ -207,6 +217,7 @@ let () =
       Alcotest.test_case "let rec"     `Quick test_ocaml_let_rec;
       Alcotest.test_case "fun"         `Quick test_ocaml_fun_is_accepted;
       Alcotest.test_case "variant of"  `Quick test_ocaml_variant_of;
+      Alcotest.test_case "record update" `Quick test_ocaml_record_update;
       Alcotest.test_case "try with"    `Quick test_ocaml_try_with;
       Alcotest.test_case "names"       `Quick test_ocaml_unbound_names;
     ];

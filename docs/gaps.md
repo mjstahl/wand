@@ -83,25 +83,12 @@ The checker now names the constructor and says to bracket it, where the
 error used to be about the application. The parse stands: reading arity
 here is what made `Ctor (a, b)` mean different things in different files.
 
-**A record has no update form.** Changing one field means naming them all:
-`Tally(ok = tally.ok, failed = tally.failed + 1)`. Found porting
-`error-rate.wand`.
-
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md).
 
 ## The standard library
-
-**`Decode` stops at `map2`.** A decoder built by hand from three fields has
-no `map3`, so it is an `and_then` chain. A single-constructor record needs
-none of this — `T.decoder` is derived — but a renamed or validated third
-field does. Found porting `release-check.wand`.
-
-**Nothing in `Float` prints to a width.** A rate read to one decimal is
-written `Float.of_int (Float.round (x * 10.0)) / 10.0`. Found porting
-`error-rate.wand`.
 
 Found by porting shell scripts, and argued in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels
@@ -113,8 +100,10 @@ below.
 - **G5 — no process surface beyond exiting.** `Proc` has `exit`. No pid, no
   "is it running", no signal, no listing. Managing a daemon goes through
   `$(ps)` and `$(kill)` and parses text.
-- **G6 — no HTTP client.** Row 3 of the corpus goes through `$(curl ...)`.
-  A decision, not necessarily work: "wand shells out to curl on purpose" is
-  a fine answer if it is written down.
+- **G6 — no HTTP client, on purpose.** Row 3 of the corpus goes through
+  `$(curl ...)`, and stays there. `curl` is on every machine a script runs
+  on, it is named in the manifest as `Shell(curl)` like any other binary,
+  and `Shell.decode` reads its output. A client inside wand would carry
+  TLS, redirects, proxies and retries, and would still be behind curl.
 - **G7 — no archive story.** No `tar`, `zip` or `unzip`. Shelling out is
   fine; recorded so a port does not stall while someone wonders.

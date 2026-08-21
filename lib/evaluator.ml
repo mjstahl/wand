@@ -926,6 +926,18 @@ let rec eval (env : env) (e : expr) : value =
                 "constructor '%s' missing field '%s'" name fn)))
        ) field_names in
        VConstr (name, ordered))
+  | ConstrUpdate (name, base, fields) ->
+    let replacements = List.map (fun (fname, e) -> (fname, eval env e)) fields in
+    (match eval env base, Hashtbl.find_opt constr_fields name with
+     | VConstr (_, values), Some field_names ->
+       VConstr (name, List.map2 (fun fname_opt v ->
+         match fname_opt with
+         | Some fn -> (match List.assoc_opt fn replacements with
+                       | Some v' -> v'
+                       | None -> v)
+         | None -> v) field_names values)
+     | _ -> raise (EvalError (Printf.sprintf
+         "'%s' cannot be updated: it has no named fields" name)))
   | MapLit kvs ->
     VMap (map_of_pairs (List.map (fun (k, e) -> (k, eval env e)) kvs))
   | Field (e, label) ->
@@ -2174,6 +2186,15 @@ let stdlib_eval_env : env = [
   ("float_abs", VBuiltin (function
     | VFloat f -> VFloat (Float.abs f)
     | _ -> raise (EvalError "float_abs: expected Float")));
+  (* A width is a printing decision, so this answers a String. Rounding the
+     Float instead would answer a value that cannot hold the answer: no
+     Float is exactly 0.1, and `%.*f` is the only place the digits are
+     decided once. A negative width reads as none. *)
+  ("float_format", VBuiltin (function
+    | VInt digits -> VBuiltin (function
+      | VFloat f -> VString (Printf.sprintf "%.*f" (max 0 digits) f)
+      | _ -> raise (EvalError "float_format: expected Float"))
+    | _ -> raise (EvalError "float_format: expected Int")));
   ("str_to_int", VBuiltin (function
     | VString s ->
       (match int_of_string_opt (String.trim s) with

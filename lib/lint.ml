@@ -143,6 +143,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.Tuple es | Ast.List es -> List.iter go es
     | Ast.MapLit kvs -> List.iter (fun (_, v) -> go v) kvs
     | Ast.ConstrApp (_, fields) -> List.iter (fun (_, v) -> go v) fields
+    | Ast.ConstrUpdate (_, base, fields) -> go base; List.iter (fun (_, v) -> go v) fields
     | Ast.Handle (b, cases) ->
       go b;
       List.iter (function
