@@ -2216,10 +2216,10 @@ get        : Int -> List 'a -> Option 'a
 get!       : Int -> List 'a -> 'a ! {Raise}
 ```
 
-`each` takes the element, as `map` and `filter` do, and returns `Unit` — it
-is for side effects. Whatever the function returns is dropped, so a command
-run for its effect needs no ceremony: `$()` hands back stdout whether or not
-the command wrote any. When the position is wanted, `indexed` supplies it:
+`each` takes the element, as `map` and `filter` do, and returns `Unit`. Use
+it for effects. wand drops what the function returns. So a command that you run
+for its effect needs nothing around it, and `$()` gives back stdout whether the
+command wrote any or not. Use `indexed` when you want the position:
 
 ```
 files |> List.each (fn p -> FS.copy! p (Path.join dest (Path.basename p)))
@@ -2265,8 +2265,8 @@ to_datetime  : String -> Result String DateTime
 to_duration  : String -> Result String Duration
 ```
 
-Each reads the value as it would be written in a script, and returns a
-`Result` naming the rule that was broken:
+Each one reads the value as a script writes it. Each one returns a `Result`
+that names the rule the text broke:
 
 ```
 String.to_duration "30s"      -- Ok 30s
@@ -2274,9 +2274,9 @@ String.to_ipv4 "256.0.0.1"    -- Error (invalid IPv4 address: each octet must be
 String.to_port ":99999"       -- Error (invalid port :99999: must be 0-65535)
 ```
 
-`to_port` also takes the bare number — `"8080"` and `":8080"` both read —
-since that is what an environment variable, a config file or a flag holds,
-and `Decode.port` accepts both for the same reason.
+`to_port` also takes the bare number. `"8080"` and `":8080"` both read. That
+is what an environment variable, a config file or a flag holds. `Decode.port`
+accepts both for the same reason.
 
 ### `Regex`
 
@@ -2311,8 +2311,8 @@ filter    : ('a -> Bool) -> Map 'a -> Map 'a
 
 ### `FS`
 
-Each fallible operation comes as a pair: the plain name returns a `Result`,
-the `!` sibling raises. Every one names its file with a `Path`.
+Each operation that can fail comes as a pair. The plain name returns a
+`Result`. The `!` sibling raises. Each one names its file with a `Path`.
 
 ```
 read_file    : Path -> Result String String ! {FS.Read}
@@ -2369,9 +2369,9 @@ with FS.temp_file "wand_" ".txt" as p ->
   FS.write_file! p contents
 ```
 
-Release tolerates the file already being gone, so a body may rename it into
-place — how an atomic write publishes its result — without cleanup failing
-on the way out.
+The release accepts a file that is already gone. So a body can rename the
+file into place, which is how an atomic write publishes its result, and the
+cleanup still succeeds.
 
 `temp_dir prefix` is the same for a directory, and removes it with
 everything in it:
@@ -2381,14 +2381,14 @@ with FS.temp_dir "build_" as dir ->
   ...
 ```
 
-A scratch directory exists to be filled, so release takes the tree rather
-than requiring the body to empty it first.
+A scratch directory exists to be filled. So the release removes the tree.
+The body does not have to empty it first.
 
-A file wand creates is created 0644, and a directory 0755, before the
-umask has its say. `copy` is the exception: a new destination is given the
-source's own permissions, so a copied script is still executable and a
-copy of a private file is still private. A destination that already exists
-keeps the permissions it had.
+wand creates a file with mode 0644 and a directory with mode 0755. The umask
+then applies. `copy` is the exception. A new destination gets the permissions
+of the source, so a copied script stays executable and a copy of a private file
+stays private. A destination that already exists keeps the permissions it
+had.
 
 ### `Resource`
 
@@ -2396,8 +2396,8 @@ keeps the permissions it had.
 make : (Unit -> 'a ! 'e) -> ('a -> Unit ! 'e) -> Resource {..} 'a
 ```
 
-A resource pairs an acquire with a release, and `with` is the only thing
-that runs one. See [Resource brackets](#resource-brackets).
+A resource pairs an acquire with a release. Only `with` runs one. See
+[Resource brackets](#resource-brackets).
 
 ### `Path`
 
@@ -2416,9 +2416,8 @@ of_string      : String -> Path
 components     : Path -> List String
 ```
 
-`basename` returns a `Path`, as `parent` and `dirname` do — a basename is a
-one-segment relative path, and joining it onto a directory is the usual next
-step:
+`basename` returns a `Path`, as `parent` and `dirname` do. A basename is a
+relative path of one segment. You usually join it onto a directory next:
 
 ```
 FS.copy! p (Path.join dest (Path.basename p))
@@ -2455,12 +2454,12 @@ each      : ('a -> 'b ! 'e) -> Stream {..} 'a -> Unit ! 'e
 to_list   : Stream {..} 'a -> List 'a ! 'e
 ```
 
-Reading through a file without reading it in. A stream describes a
-source and its stages; nothing is read until a terminal operation
-(`fold_left`, `each`, `to_list`) runs it: open, each line through the stages, close on
-the way out however the run ends. Like a `Resource`, a stream describes;
-it is never the open thing — so it can be named, passed, sent to `Par`,
-and folded twice.
+Read through a file, and do not read it into memory. A stream describes a
+source and its stages. wand reads nothing until a terminal operation runs it:
+`fold_left`, `each` or `to_list`. The run opens the source, sends each line
+through the stages, and closes the source on the way out, however the run
+ends. A stream describes, as a `Resource` does. It is never the open thing. So
+you can name it, pass it, send it to `Par`, and fold it twice.
 
 ```
 FS.stream_lines /var/log/app.log
@@ -2468,28 +2467,24 @@ FS.stream_lines /var/log/app.log
 |> Stream.fold_left (fn n _ -> n + 1) 0
 ```
 
-`take n` stops the source being read once n elements have passed — the
-memory and the reading are both bounded. `to_list` reads everything, and
-saying so is the point of its name.
+`take n` stops the read after n elements. The memory and the reading are
+both bounded. `to_list` reads everything. Its name says so.
 
-**Each terminal operation reads the source afresh.** Folding a stream twice
-opens and reads the file twice, seeing it as it is each time; `Par`
-workers enumerate independently. Traversal is neither free nor
-snapshotted — `List` intuition does not transfer. `IO.stdin_lines` is
-the one source that cannot re-run: streaming the real stdin a second
-time raises.
+**Each terminal operation reads the source again.** Fold a stream twice, and
+wand opens and reads the file twice. Each read sees the file as it is then.
+Each `Par` worker reads for itself. A traversal is not free, and it is not a
+snapshot. What you know about `List` does not transfer. `IO.stdin_lines` is the
+one source that cannot run twice. A second read of the real stdin raises.
 
-A source that can fail carries `Raise` in the stream's effect set, and the
-failure surfaces at the terminal operation, where the open happens —
-`try` around the terminal call is the one capture. There are no `!`
-siblings here: no Stream function adds a raise of its own, so none earns
-a bang.
+A source that can fail puts `Raise` in the effect set of the stream. The
+failure appears at the terminal operation, where the open happens. So put `try`
+around the terminal call. There are no `!` siblings here. No `Stream` function
+adds a raise of its own, so none earns a bang.
 
-Enumeration performs one effect per open — the same file-level
-granularity as `FS.read_file` — so a fold traces as one line, and a test
-mocks it wholesale: `Test.with_lines path lines thunk` answers every
-`FS.stream_lines` for `path` with `lines`, and streams any other path as
-empty.
+A read performs one effect for each open. `FS.read_file` works at the same
+level. So a fold traces as one line, and a test mocks the whole file.
+`Test.with_lines path lines thunk` answers each `FS.stream_lines` for `path`
+with `lines`. Any other path streams as empty.
 
 ### `Proc`
 
@@ -2501,9 +2496,9 @@ exit : Int -> 'a ! {Proc}
 Proc.exit : Int -> 'a ! {Proc}
 ```
 
-Ends the program with the given code, running the cleanup of every `with`
-still holding something on the way out. Its result type is whatever the
-caller needs, since nothing follows it:
+Ends the program with the code you give. On the way out it runs the cleanup
+of each `with` that still holds something. Its result type is whatever the
+caller needs, because nothing follows it:
 
 ```
 if broken? then Proc.exit 1 else continue! ()
@@ -2526,9 +2521,9 @@ load  : Path -> Result String Unit ! {Env, FS.Read}
 load! : Path -> Unit ! {Env, FS.Read, Raise}
 ```
 
-`args` is the arguments the script was given, without the program name:
+`args` gives the arguments of the script, without the program name.
 `wand deploy.wand --port 8080` gives `["--port", "8080"]`. See
-[`Args`](#args) for reading them with a decoder.
+[`Args`](#args) to read them with a decoder.
 
 ### `CSV`
 
@@ -2542,9 +2537,10 @@ read_file!     : Path -> List (List String) ! {FS.Read, Raise}
 rows           : Decoder 'a -> String -> Result String (List 'a)
 ```
 
-Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV.  Fields may be
-quoted with `""`; embedded quotes are doubled (`"say ""hi"""`).  `read_file`
-returns `Result String (List (List String))`; `read_file!` raises on error.
+Parses [RFC 4180](https://tools.ietf.org/html/rfc4180) CSV. A field can
+carry quotes, written `""`. Double a quote inside one: `"say ""hi"""`.
+`read_file` returns `Result String (List (List String))`. `read_file!`
+raises.
 
 ```
 import CSV
@@ -2590,14 +2586,14 @@ field!           : String -> JSON -> JSON ! {Raise}
 decode           : Decoder 'a -> JSON -> Result String 'a
 ```
 
-`JSON` is an opaque type.  `parse` / `read_file` return `Result String JSON`;
-the `!` variants raise on error.  Typed extractors each return `Result`.
+`JSON` is an opaque type. `parse` and `read_file` return
+`Result String JSON`. The `!` forms raise. Each typed extractor returns a
+`Result`.
 
-`of_map` is the inverse of `get_object`, writing keys in the order the `Map`
-holds them — which is what makes output diff-friendly. A key the `Map` holds
-twice is written once, at its first position, since that is the one `Map.get`
-finds and a document naming a key twice is read differently by different
-parsers.
+`of_map` is the inverse of `get_object`. It writes the keys in the order that
+the `Map` holds them, which keeps a diff small. A `Map` cannot hold a key
+twice, so wand writes it once, at its first position. That is the value that
+`Map.get` finds. Parsers disagree about a document that names a key twice.
 
 ```
 import JSON
@@ -2641,9 +2637,9 @@ field!     : String -> TOML -> TOML ! {Raise}
 decode     : Decoder 'a -> TOML -> Result String 'a
 ```
 
-`TOML` is an opaque type representing any TOML value (table, string, int,
-float, bool, array).  The top-level parse result is always a table.
-Typed extractors each return `Result`; `field` / `field!` navigate keys.
+`TOML` is an opaque type for any TOML value: a table, a string, an int, a
+float, a bool or an array. The top-level parse always gives a table. Each typed
+extractor returns a `Result`. `field` and `field!` walk the keys.
 
 ```
 import TOML
@@ -2675,9 +2671,9 @@ ceil   : Float -> Int
 abs    : Float -> Float
 ```
 
-Crossing between the two members of `Num`. Arithmetic never converts on
-its own — `1.5 + 1` is a type error that names these functions — so the
-crossing is always written out:
+These functions cross between the two members of `Num`. Arithmetic never
+converts for you. `1.5 + 1` is a type error, and it names these functions. So
+you always write the crossing:
 
 ```
 import Float
@@ -2690,8 +2686,8 @@ Float.ceil 2.1          -- 3
 Float.abs (- 2.5)       -- 2.5
 ```
 
-`String.to_float` parses text; `JSON`/`TOML`/`Decode` read floats out of
-documents.
+`String.to_float` parses text. `JSON`, `TOML` and `Decode` read a float out
+of a document.
 
 ### `Duration`
 
@@ -2724,10 +2720,11 @@ Par.each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
 ```
 
 `each` drops what its function returns, as `List.each` does. The first
-argument is the most workers to run at once — stated, because how much a
-script may do at the same time is a decision about the machine it runs on. Results come back in the list's order, not the order they finished, and
-an element whose work raises comes back as an `Error` in its place rather
-than failing the others.
+argument is the largest number of workers to run at one time. You state it,
+because how much a script may do at once is a decision about the machine. The
+results come back in the order of the list, not in the order they finished. An
+element whose work raises comes back as an `Error` in its place. It does not
+fail the others.
 
 ```
 Par.map 4 (fn x -> x * 2) [1, 2, 3]        -- [Ok 2, Ok 4, Ok 6]
@@ -2735,16 +2732,16 @@ Par.map 4 (fn m -> Map.get! "k" m) [{k = 1}, Map.empty]
                                            -- [Ok 1, Error "map key not found: k"]
 ```
 
-Workers never outlive the call, there is no handle to a running one, and
-these two functions are the only way to start any — so there is nothing to
-await and no function needs a different colour for being called from one.
+A worker never outlives the call. There is no handle to a running worker.
+These two functions are the only way to start one. So there is nothing to
+await, and no function changes because a worker calls it.
 
-**A worker is never outside a handler's reach.** When nothing is watching, a
-worker performs its own effects and twenty slow commands really do overlap.
-When a handler is in scope — a mock, a `--dry-run`, a `--trace` — effects are
-carried out on the calling side instead, one at a time, because that is where
-the handler lives. So moving work into `Par` can never quietly escape a test:
-being watched costs the overlap, and nothing rehearses for speed.
+**A handler always reaches a worker.** When nothing watches, a worker
+performs its own effects, and twenty slow commands do overlap. When a handler
+is in scope — a mock, a `--dry-run`, a `--trace` — the effects run on the
+calling side instead, one at a time. The handler lives there. So work that you
+move into `Par` never escapes a test. To be watched costs the overlap, and
+nothing rehearses for speed.
 
 ---
 
@@ -2809,9 +2806,9 @@ parse      : Decoder 'a -> List String -> Result String 'a
 parse_with : List String -> Decoder 'a -> List String -> Result String 'a
 ```
 
-A command line is another untyped boundary, so it is read the same way as
-any other: argv becomes a document and a decoder reads it. There are no
-combinators here — every one of `Decode`'s already applies, including the
+A command line is another boundary without types. wand reads it the same way
+as the others: argv becomes a document, and a decoder reads it. There are no
+combinators here. Every combinator in `Decode` already applies, including the
 domain readers and the error that names the field.
 
 ```
@@ -2822,29 +2819,29 @@ Args.parse Opts.decoder (Env.args ())
 -- Error .port: expected Port, got "http"
 ```
 
-`--port 8080` and `--port=8080` are the same thing; with `=`, only the
-first one splits, so a value may contain more. Every flag is assumed to
-take a value, because that is the one fact a list of strings cannot reveal:
-without it, `--message -5` and a flag followed by a positional argument are
-the same shape. Name the flags that do not:
+`--port 8080` and `--port=8080` mean the same. With `=`, only the first `=`
+splits, so a value can hold more. wand assumes that each flag takes a value. A
+list of strings cannot show this one fact. Without the assumption,
+`--message -5` and a flag with a positional argument after it have the same
+shape. Name the flags that take no value:
 
 ```
 Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
-Those become `true` when present and are absent otherwise, so a `Bool`
-field wants `Decode.optional` or a default. A flag with nothing after it is
-an error — `--config expects a value`.
+Each of those is `true` when it is there, and absent when it is not. So a
+`Bool` field needs `Decode.optional` or a default. A flag with nothing after it
+is an error: `--config expects a value`.
 
-Only `--name` is a flag. A single dash is not, which keeps `-5` an
-argument; short flags do not exist. Positional arguments arrive under `_`:
+Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
+There are no short flags. A positional argument arrives under `_`:
 
 ```
 Args.parse (Decode.field "_" (Decode.list Decode.string)) (Env.args ())
 ```
 
-`Env.args ()` is already the arguments alone — there is no program name at
-the front to skip, as there would be with bash's `$0` or C's `argv[0]`.
+`Env.args ()` gives the arguments only. There is no program name to skip at
+the front. bash has `$0` and C has `argv[0]`; wand has neither.
 
 ### `Test`
 
@@ -2858,8 +2855,8 @@ with_lines     : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes         : (Unit -> 'a ! 'e) -> List Path ! 'e
 ```
 
-The handle a test block receives carries `ok`, `not_ok`, `eq`, `not_eq`,
-`raises` and `fail`.
+The handle that a test block receives carries `ok`, `not_ok`, `eq`,
+`not_eq`, `raises` and `fail`.
 
 The module a test file imports. See [Testing](#testing).
 
@@ -2876,19 +2873,19 @@ get!      : Option 'a -> 'a ! {Raise}
 to_result : 'a -> Option 'b -> Result 'a 'b
 ```
 
-`Option 'a` is a generic type (`type Option 'a = None | Some 'a`) — see
+`Option 'a` is a generic type: `type Option 'a = None | Some 'a`. See
 "Generics" above.
 
-`Option` says a value may be absent; `Result` says an operation was attempted
-and may have failed, and carries the reason. They do not mix: piping one into
-something expecting the other is a type error.
+`Option` says that a value can be absent. `Result` says that an operation
+ran and can have failed, and it carries the reason. The two do not mix. Pipe
+one into something that expects the other, and you get a type error.
 
 ```
 Map.get "k" m |> unwrap        -- cannot unify Result 'a Int with Option 'a
 ```
 
-`Option.to_result` is the bridge, and writing it is how a script states that
-absence should now count as failure:
+`Option.to_result` is the bridge. Write it where a script decides that
+absence now counts as a failure:
 
 ```
 Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
