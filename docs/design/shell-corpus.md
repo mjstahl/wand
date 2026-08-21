@@ -102,7 +102,7 @@ wand is claiming to fix.
 | 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends |
 | 8 | Parallel fan-out | `xargs -P` and `&`/`wait`, with interleaved output and lost exit codes | `Par.map limit f xs` |
 | 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | still blocked — **G2** |
-| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals, but `Size` does not compare yet — see `ordering-domain-types.md` |
+| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison |
 | 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder |
 | 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — **G4** |
 

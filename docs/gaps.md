@@ -21,6 +21,18 @@ Without it there is no timestamped name, no "older than thirty days", and no
 `DateTime` that can be compared against a literal written in the source, and
 that is the whole of what can be done with an instant.
 
+That work brings back the monotonic-clock question, which nothing today
+asks: every deadline wand has is a wait of a length, and a length needs no
+clock. Measuring elapsed time is the one use a civil clock cannot serve,
+and the choice is not free. On Linux `CLOCK_MONOTONIC` excludes time spent
+suspended and `CLOCK_BOOTTIME` includes it; on macOS the names are
+inverted. Whatever ships pins the semantics per platform and says which.
+
+**No arithmetic operators on `Duration` or `Size`.** Adding two durations
+is `Duration.add`, and `100MB + 4KB` does not typecheck. This belongs with
+the arithmetic above rather than on its own: the same question of what a
+subtraction means decides both.
+
 **A deadline cannot be tested against a virtual clock.** `Test.with_clock`
 answers `Clock.sleep` at no cost, so a test of an hour of backoff runs in
 microseconds. Two waits it does not shorten. `Shell.timeout` belongs to the
@@ -37,12 +49,28 @@ running.
 
 ## Ordering
 
-**Four domain types do not compare.** Size, Version, Port and IPv4 are a
-type error under `<`, `>`, `<=` and `>=`. Each has one obvious total order,
-so a script compares a size against a threshold, or a version against a
-floor, by hand. Decided in
-[`docs/design/ordering-domain-types.md`](design/ordering-domain-types.md):
-one member and one normalizer each.
+**A type you define does not compare.** Two `Circle`s are a type error
+under `<`. Every ordered type is one wand knows about, and a deriving
+mechanism is its own design. Nothing has asked for one yet.
+
+Ordering the types wand knows is done: eleven of them compare, and
+`List.sort` reads a value the same way rather than sorting its text.
+
+## Decided against, for now
+
+These are not missing so much as declined, each with a reason that would
+have to change before anyone builds them.
+
+- **A first-to-succeed race.** `Par.race` answers with the first thunk to
+  *finish*, and a winner that raised comes back as `Error`. A `race_ok`
+  that skipped past failures is a defensible second function, and one
+  construct per problem holds until a script needs the other.
+- **Scheduling.** No `Clock.deadline`, no repeat, no cron. A poll loop is
+  `Clock.sleep` in a recursive function, and the machine already has a
+  scheduler.
+- **Syntax for timeouts.** `$(curl x) timeout 30s` would read well and is a
+  far larger commitment than a label. `Shell.timeout` and `Par.timeout`
+  have to earn it first.
 
 ## The language
 
