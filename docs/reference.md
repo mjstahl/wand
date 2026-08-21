@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2891,6 +2891,21 @@ scale   : Int -> Duration -> Duration
 format  : Duration -> String
 to_ms   : Duration -> Int
 ```
+
+### `Size`
+
+```ocaml
+to_bytes : Size -> Int
+of_bytes : Int -> Size
+format   : Size -> String
+```
+
+A size literal carries the units it was written in, and `to_bytes` reads
+it as a number: `100MB` is `100000000`, because `KB` is the SI thousand
+and not 1024. Going the other way has to pick units, so `of_bytes` picks
+bytes and stays exact — `Size.of_bytes 6466` is `6466B`. `format` is the
+readable spelling of the same size, `"6.5KB"`, the way `Duration.format`
+renders a duration. A byte count below zero reads as `0B`.
 
 ### `Par`
 

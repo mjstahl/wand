@@ -9,7 +9,7 @@ open Ast
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
-    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock" ]
+    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -2507,6 +2507,10 @@ let stdlib_type_env : env = [
   ("dur_scale",   generalize [] ((TInt @-> (TDuration @-> TDuration))));
   ("dur_format",  generalize [] ((TDuration @-> TString)));
   ("dur_to_ms",   generalize [] ((TDuration @-> TInt)));
+  (* Size primitives *)
+  ("size_to_bytes", generalize [] ((TSize @-> TInt)));
+  ("size_of_bytes", generalize [] ((TInt @-> TSize)));
+  ("size_format",   generalize [] ((TSize @-> TString)));
   (* Path primitives *)
   ("path_join",           generalize [] ((TPath @-> (TPath @-> TPath))));
   ("path_parent",         generalize [] ((TPath @-> TPath)));

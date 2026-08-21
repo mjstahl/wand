@@ -1,0 +1,8 @@
+(** The size in bytes as an integer. *)
+let to_bytes s = size_to_bytes s
+
+(** A size of n bytes, written in bytes: 6466 is `6466B`. *)
+let of_bytes n = size_of_bytes n
+
+(** Format a size as a human-readable string: `6466B` is "6.5KB". *)
+let format s = size_format s

@@ -1,0 +1,27 @@
+import Size
+
+let {test} = import Test
+
+(* ── to_bytes reads the unit the literal was written in ────────────────── *)
+
+test "bytes" (fn t -> t.eq 512 (Size.to_bytes 512B))
+test "kilobytes are a thousand" (fn t -> t.eq 4000 (Size.to_bytes 4KB))
+test "megabytes" (fn t -> t.eq 100000000 (Size.to_bytes 100MB))
+test "gigabytes" (fn t -> t.eq 2000000000 (Size.to_bytes 2GB))
+test "a decimal literal" (fn t -> t.eq 1500000000 (Size.to_bytes 1.5GB))
+
+(* ── of_bytes stays in bytes ───────────────────────────────────────────── *)
+
+test "of_bytes is exact" (fn t -> t.eq 6466B (Size.of_bytes 6466))
+test "of_bytes round-trips" (fn t -> t.eq 6466 (Size.to_bytes (Size.of_bytes 6466)))
+test "a size below zero is none" (fn t -> t.eq 0B (Size.of_bytes (0 - 5)))
+
+(* ── format picks the unit a reader wants ──────────────────────────────── *)
+
+test "format under a kilobyte" (fn t -> t.eq "512B" (Size.format 512B))
+test "format to a tenth" (fn t -> t.eq "6.5KB" (Size.format (Size.of_bytes 6466)))
+test "format drops a whole tenth" (fn t -> t.eq "4KB" (Size.format 4KB))
+test "format keeps the literal's decimal" (fn t -> t.eq "1.5GB" (Size.format 1.5GB))
+test "format steps up when rounding fills the unit" (fn t ->
+  t.eq "1MB" (Size.format (Size.of_bytes 999999)))
+test "format of nothing" (fn t -> t.eq "0B" (Size.format 0B))

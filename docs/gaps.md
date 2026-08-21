@@ -95,22 +95,17 @@ field to its own name, the way `{a, b}` already puns for maps. Noted in
 
 ## The standard library
 
-**A file's size is a number, and `Size` cannot be turned into one.**
-`FS.size` answers `Result String Int` — bytes — so a script cannot ask
-whether a file is over `4KB`. Two things are missing, and the second is
-why the first is not simply a change of return type:
+**A file's size is a number, and `Size` now crosses to that number.**
+`Size.to_bytes 4KB` is `4000`, so a script can compare the bytes `FS.size`
+answers against a threshold it writes as a size. `Size.of_bytes` goes back
+the other way. It stays in bytes, and leaves the readable spelling to
+`Size.format`. Two things are still missing:
 
-- `Size.to_bytes` and `Size.of_bytes`. The first already exists inside the
-  compiler: ordering a `Size` normalizes it to bytes (`evaluator.ml:505`),
-  so exposing it is a name and a signature. The second has a decision in
-  it — a `Size` carries the text it was written as, so producing one from
-  6466 bytes means choosing between `6466B` and `6.5KB`.
 - `+` and `-` on `Size`. Summing the sizes of a directory is as ordinary
   as comparing one against a threshold, and `100MB + 4KB` does not
   typecheck.
-
-So `FS.size` returning a `Size` is the end state, and it is not the first
-step: on its own it would fix the comparison and break the sum.
+- `FS.size` answering a `Size`. That is the end state, and it is not the
+  next step: on its own it would fix the comparison and break the sum.
 
 Found by porting shell scripts, and argued in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels

@@ -520,6 +520,25 @@ let size_bytes s =
   in
   int_of_float (Float.round (number *. factor))
 
+(* The readable spelling of a byte count: the largest unit that leaves at
+   least one of it, to a tenth. `Size.of_bytes` answers exact bytes, so a
+   sum of file sizes is a number nobody wants to read until it comes
+   through here. Rounding can fill the unit -- 999_999 bytes is 1000.0KB --
+   and that steps up rather than printing a thousand of something. A byte
+   count below zero has no size to name, so it reads as `0B`. *)
+let format_size_bytes n =
+  let units = [| "B"; "KB"; "MB"; "GB"; "TB"; "PB" |] in
+  let last = Array.length units - 1 in
+  let rec pick i v = if i < last && v >= 1000.0 then pick (i + 1) (v /. 1000.0) else (i, v) in
+  let i, v = pick 0 (float_of_int (max 0 n)) in
+  let v = Float.round (v *. 10.0) /. 10.0 in
+  let i, v = if i < last && v >= 1000.0 then (i + 1, v /. 1000.0) else (i, v) in
+  let body =
+    if Float.abs (v -. Float.round v) < 1e-9 then string_of_int (int_of_float (Float.round v))
+    else Printf.sprintf "%.1f" v
+  in
+  body ^ units.(i)
+
 (* An address as the 32-bit number it is, so `10.0.0.9` is below
    `10.0.0.10`. Text order says otherwise, which is the answer nobody
    wants. The lexer has already refused an octet above 255. *)
@@ -2318,6 +2337,16 @@ let stdlib_eval_env : env = [
   ("dur_to_ms", VBuiltin (function
     | VDuration d -> VInt (parse_dur_ms d)
     | _ -> raise (EvalError "dur_to_ms: expected Duration")));
+  (* Size primitives *)
+  ("size_to_bytes", VBuiltin (function
+    | VSize s -> VInt (size_bytes s)
+    | _ -> raise (EvalError "size_to_bytes: expected Size")));
+  ("size_of_bytes", VBuiltin (function
+    | VInt n -> VSize (Printf.sprintf "%dB" (max 0 n))
+    | _ -> raise (EvalError "size_of_bytes: expected Int")));
+  ("size_format", VBuiltin (function
+    | VSize s -> VString (format_size_bytes (size_bytes s))
+    | _ -> raise (EvalError "size_format: expected Size")));
   (* Regex primitives *)
   ("regex_match", VBuiltin (function
     | VRegex re -> VBuiltin (function
