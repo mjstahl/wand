@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.29.0] - 2026-08-21
+
+### Added
+
+- A record update: `Tally(t, failed = t.failed + 1)` is `t` with one field
+  replaced. The record comes first, then the fields that change. A field
+  not named keeps what the base holds, and naming one twice is a type
+  error. `{t with failed = 1}` is a parse error that answers with this
+  form, carrying the names you wrote (`fea51a5`, `66ab3f6`)
+- `FS.delete_tree` and `FS.copy_tree`, each with a raising sibling, so
+  `rm -rf build/` and `cp -r` have a wand spelling. Neither follows a
+  symlink out of the tree: a delete unlinks it, a copy recreates it. A
+  copied file keeps its mode (`78ec907`)
+- `Shell.ok? r` is `r.code == 0`, the first question a script asks of a
+  `$?()` (`78ec907`)
+- `Decode.map3`, for a decoder built by hand from three fields. Wider is
+  `and_then`, or a derived `T.decoder` (`fea51a5`)
+- `Float.format 1 0.3333` is `"0.3"`. A width is a printing decision, so
+  it answers a `String` (`fea51a5`)
+
+### Changed
+
+- **Breaking:** six `Env` operations now say what they carry and what
+  resumes them. A handler case resuming `Env!get` with an `Int`
+  typechecked, and `Env.get` answered `Some(42)` where its signature says
+  `Option String`. That is now a type error (`ed4f8b8`)
+- A nullary constructor applied to parentheses names itself:
+  `t.eq None (usage row)` said "expected Option 'a, got Option (String,
+  Int) -> 'a", and now says `'None' takes no arguments` and to write
+  `(None)` (`11ef36d`)
+
+[0.29.0]: https://github.com/mjstahl/wand/releases/tag/v0.29.0
+
 ## [0.28.0] - 2026-08-21
 
 ### Added

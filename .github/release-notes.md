@@ -1,34 +1,48 @@
-## 0.28.0 - 2026-08-21
+## 0.29.0 - 2026-08-21
 
-A file's size is a `Size`.
+A record with one field changed.
 
-    FS.glob_in **.wand ./stdlib
-      |> List.filter_map (fn p -> match FS.size p with
-        | Ok size -> Some (p, size)
-        | Error _ -> None)
-      |> List.filter (fn (_, size) -> size > 4KB)
+    let count_into (tally: Tally) line =
+      match status line with
+      | None -> tally
+      | Some code ->
+        if code >= 500 then Tally(tally, failed = tally.failed + 1)
+        else Tally(tally, ok = tally.ok + 1)
 
-`FS.size` answered an `Int` of bytes, so the one place wand produced a size
-it produced a number, and `4KB` could not be written against a file. Three
-things closed that.
+The record comes first, then the fields that change. Before this, changing
+one field meant naming them all. A field you do not name keeps what the
+record holds, and naming one twice is a type error.
 
-`Size` crosses to a number and back. `Size.to_bytes 4KB` is `4000`.
-`Size.of_bytes` goes the other way and stays exact, so 6466 bytes is
-`6466B`; `Size.format` is the spelling for a reader, `"6.5KB"`.
+The type is named, as it is in a construction, and braces stay a map. So
+`{tally with failed = 1}` is a parse error, and it answers with this form
+carrying your own names:
 
-`+` and `-` add two sizes, and two durations. They take a new constraint,
-`Add`, which sits between `Num` and `Ord`: `Int`, `Float`, `Size`,
-`Duration`. `*` and `/` stay on `Num`, because a size times a size is not a
-size. A sum of sizes is written in bytes, and a subtraction that would go
-below zero floors there — the answer `Duration.sub` already gave.
+    a record update names its type: `T(tally, failed = ...)`. Braces are a map
 
-`List.filter_map` applies a function to every element, keeps each `Some`
-value and drops each `None`. Two of the shipped ports were writing that out
-as a fold.
+`rm -rf build/` and `cp -r` have a spelling now. `FS.delete_tree` and
+`FS.copy_tree` take a whole tree, each with a raising sibling. Neither
+follows a symlink out of the tree: a delete unlinks it, a copy recreates
+it. A copied file keeps the mode it had.
 
-`wand f` writes back the binding spelling you wrote. `(let x = 1; x + 2)`
-used to come back as `let x = 1 in x + 2`, which turned the block form into
-the one the style guide keeps for naming.
+`Shell.ok? r` is `r.code == 0`, the first question a script asks of a
+`$?()`. `Decode.map3` builds a decoder from three fields. `Float.format 1
+0.3333` is `"0.3"`.
+
+A nullary constructor now names itself. `t.eq None (usage row)` is
+`t.eq (None (usage row))`, because parentheses after a constructor are its
+payload. The error said `expected Option 'a, got Option (String, Int) ->
+'a`. It now says `'None' takes no arguments` and to write `(None)`.
+
+### One thing to know before upgrading
+
+Six `Env` operations now say what they carry and what resumes them. A
+handler case that resumed one with the wrong type used to typecheck:
+
+    handle Env.get "SOME_NAME" with
+    | Env!get name k -> k 42
+
+`Env.get` answered `Some(42)`, an `Option Int` from a function whose
+signature says `Option String`. That is a type error now.
 
 ---
 
