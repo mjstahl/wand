@@ -1,58 +1,43 @@
-## 0.23.0 - 2026-08-21
+## 0.24.0 - 2026-08-21
 
-This release changes the words wand uses. The type checker reports what it
-expected and what it got. The README and the reference are rewritten in
-Simplified Technical English.
+A parameter can carry its type.
 
-Nothing about the language changes. If a script or a CI step greps for the
-text of an error, it needs an update.
+    let describe (p: Pod) = p.name
 
-### An error names both sides
+    let f = fn (p: Pod) -> p.status.restarts
 
-    before: cannot unify Glob with Path
-    after:  expected Glob, got Path
+    List.filter (fn (p: Pod) -> p.status.restarts > 5) pods
 
-"Unify" is a word from the type checker. A reader of a script has a `Path`
-where a `Glob` belongs, and the message says that now.
+This is what lets a function read a field off a parameter. Dot access needs
+a named type. wand generalizes a definition before it sees any call, so the
+type has to come from the definition, and there was nowhere to write it:
 
-`unify a b` has no fixed direction. Both orders appear in the compiler. So
-37 call sites now state which side the reader wrote: an annotation, an
-application, an `if` and its branches, an arm of a `match` and its guard, a
-pattern, an element of a list or a map, a `$()` payload, a `|>` stage, a
-contract clause, a `with` resource, and an operand. A site that cannot know
-says `Glob and Path are not the same type`.
+    let describe p = p.name
+    -- type error: field access requires a named type, got 'a
 
-An effect error names the difference instead of two sets:
+Two ways round it worked before: re-bind through an annotated `let`, or
+destructure with `match`. Each costs a line and an indent for every record,
+and the cost grows with the depth of the record.
 
-    before: cannot unify effects {Shell} with {Raise, Shell | ..}
-    after:  the type allows {Shell}, but the body performs Raise
+The annotation works in each place a pattern does: a `let`, a `fn`, an arm
+of a `match`, and a `with ... as`. It composes with the return annotation:
 
-At an argument it says which side is which:
+    let describe (p: Pod) : String = p.name
 
-    the parameter allows {}, but the function given performs Raise, Shell
+The parentheses are part of the syntax. A `:` between expressions is cons.
 
-Three more messages drop the word:
+`(x : xs)` still reports the cons message. Cons in a pattern is `[h : t]`,
+in brackets, so the parenthesised form was never a pattern at all. One token
+tells the two apart: a type starts with `Upper`, `'a` or `(`.
 
-    expected a number, got Bool -- arithmetic works on Int and Float
-    Int and Float do not mix -- Float.of_int and Float.round convert between them
-    this value would have to contain itself: 'a appears inside its own type
+A type variable in a parameter is a type error:
 
-### The documents are shorter
+    let f (x: 'a) = x
+    -- type error: a type variable in a pattern is not shared with the other
+    --   patterns ... Write the type of the whole definition instead
 
-`README.md` and `docs/reference.md` now use short sentences, active voice,
-and one idea in each sentence.
-
-The reference also said that a newline always ends a statement. That is not
-true: a line that starts with an operator continues the line above, which is
-what a pipeline that leads with `|>` needs. So these two lines are one
-statement, and `a` is `-1`:
-
-    let a = 1
-    -2
-
-Three claims in the README were wrong and are corrected against a run: the
-by-hand install named v0.10.0, the example error text did not match, and
-startup said 1.6 times `bash -c :` where three runs give about 2 times.
+Each annotation resolves its own names, so `'a` in two parameters would be
+two variables, and you would have been promised one.
 
 ---
 

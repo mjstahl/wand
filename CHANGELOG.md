@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.24.0] - 2026-08-21
+
+### Added
+
+- Add a type on a parameter: `let describe (p: Pod) = p.name`, and
+  `fn (p: Pod) -> ...` with it. This is what lets a function read a field
+  off a parameter. Dot access needs a named type, and wand generalizes a
+  definition before it sees any call, so the type has to come from the
+  definition. The annotation works in each place a pattern does: a `let`,
+  a `fn`, an arm of a `match`, and a `with ... as`. It composes with the
+  return annotation: `let describe (p: Pod) : String = p.name`. The
+  parentheses are part of the syntax, because a `:` between expressions is
+  cons (`bec0356`)
+
+### Note
+
+`(x : xs)` still reports the cons message. Cons in a pattern is `[h : t]`,
+in brackets, so the parenthesised form was never a pattern. One token tells
+the two apart: a type starts with `Upper`, `'a` or `(`.
+
+A type variable in a parameter is a type error. Each annotation resolves its
+own names, so `'a` in two parameters would be two variables. Write the type
+of the whole definition instead: `let f : 'a -> 'a = ...`.
+
+[0.24.0]: https://github.com/mjstahl/wand/releases/tag/v0.24.0
+
 ## [0.23.0] - 2026-08-21
 
 ### Changed
