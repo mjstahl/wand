@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.30.0] - 2026-08-21
+
+### Added
+
+- Cons is `::`. `1 :: [2, 3]` in an expression, `[h :: t]` in a pattern.
+  `:` is a type annotation or a port literal and nothing else, so the
+  lookahead that told `(p: Pod)` from `(h : t)` is gone with the ambiguity
+  that needed it (`043c7a3`)
+- A bare `h :: t` pattern is read, and `wand f` writes `[h :: t]`. The
+  brackets say list, the way `[a, b, c]` does. `Some h :: t` is
+  `(Some h) :: t` (`043c7a3`)
+- A pattern carries a type inside a constructor's payload: `Ok (p: Pod)`,
+  and inside a tuple payload, `Ok (p: Pod, n)`. That is where a decoder's
+  result lands, and it was the one place a pattern could not be annotated
+  (`78e7228`)
+
+### Changed
+
+- **Deprecated:** `:` as cons is still read, and `wand f` writes `::`.
+  It becomes a parse error in the next release. Running `wand f` over a
+  file is the whole migration (`043c7a3`)
+- `V-IMP1` warns on any two imports that bind one name, where it used to
+  stop at the first item of anything else. Imports bind before a file's own
+  bindings wherever they are written, so a use between two imports reads
+  the second one — which the rule had assumed was a genuine use of the
+  first (`59a1e6f`)
+- A `:` in a pattern with no type after it names `[x :: xs]` (`043c7a3`)
+
+[0.30.0]: https://github.com/mjstahl/wand/releases/tag/v0.30.0
+
 ## [0.29.0] - 2026-08-21
 
 ### Added

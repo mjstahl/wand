@@ -1,48 +1,49 @@
-## 0.29.0 - 2026-08-21
+## 0.30.0 - 2026-08-21
 
-A record with one field changed.
+Cons is `::`.
 
-    let count_into (tally: Tally) line =
-      match status line with
-      | None -> tally
-      | Some code ->
-        if code >= 500 then Tally(tally, failed = tally.failed + 1)
-        else Tally(tally, ok = tally.ok + 1)
+    1 :: [2, 3]
 
-The record comes first, then the fields that change. Before this, changing
-one field meant naming them all. A field you do not name keeps what the
-record holds, and naming one twice is a type error.
+    match xs with
+    | [h :: t] -> h
+    | []       -> 0
 
-The type is named, as it is in a construction, and braces stay a map. So
-`{tally with failed = 1}` is a parse error, and it answers with this form
-carrying your own names:
+`:` used to mean two things: it joined a head to a list, and it gave a name
+a type. It now means the type, and a port literal, and nothing else.
 
-    a record update names its type: `T(tally, failed = ...)`. Braces are a map
+The overload cost a rule. A cons pattern had to be bracketed because
+`(h : t)` could not be told from a parameter carrying a type, and a
+parameter annotation was read only when a type token followed the `:`.
+That lookahead is gone with the ambiguity that needed it.
 
-`rm -rf build/` and `cp -r` have a spelling now. `FS.delete_tree` and
-`FS.copy_tree` take a whole tree, each with a raising sibling. Neither
-follows a symlink out of the tree: a delete unlinks it, a copy recreates
-it. A copied file keeps the mode it had.
+### Migrating
 
-`Shell.ok? r` is `r.code == 0`, the first question a script asks of a
-`$?()`. `Decode.map3` builds a decoder from three fields. `Float.format 1
-0.3333` is `"0.3"`.
+`:` as cons is still read, and `wand f` writes `::`. So the migration is:
 
-A nullary constructor now names itself. `t.eq None (usage row)` is
-`t.eq (None (usage row))`, because parentheses after a constructor are its
-payload. The error said `expected Option 'a, got Option (String, Int) ->
-'a`. It now says `'None' takes no arguments` and to write `(None)`.
+    wand f script.wand
 
-### One thing to know before upgrading
+It becomes a parse error in the next release. This one breaks nothing.
 
-Six `Env` operations now say what they carry and what resumes them. A
-handler case that resumed one with the wrong type used to typecheck:
+### Also
 
-    handle Env.get "SOME_NAME" with
-    | Env!get name k -> k 42
+A bare `h :: t` pattern is read, and `wand f` writes `[h :: t]` — the
+brackets say list, the way `[a, b, c]` does. `Some h :: t` is
+`(Some h) :: t`.
 
-`Env.get` answered `Some(42)`, an `Option Int` from a function whose
-signature says `Option String`. That is a type error now.
+A pattern carries a type inside a constructor's payload now:
+
+    match JSON.decode Pod.decoder doc with
+    | Ok (p: Pod) -> p.status.restarts
+    | Error why   -> 0
+
+That is where a decoder's result lands, and it was the one place a pattern
+could not be annotated.
+
+`V-IMP1` warns on any two imports that bind one name. It used to stop at
+the first item of anything else, on the reasoning that a later rebinding
+might follow a genuine use of the first. It cannot: imports bind before a
+file's own bindings wherever they are written, so a use between two imports
+already reads the second.
 
 ---
 
