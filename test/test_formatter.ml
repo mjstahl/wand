@@ -708,12 +708,11 @@ let test_string_openers_come_back_escaped () =
       "$!{x}", "\\$!{x}";
       "#{x}",  "\\#{x}" ]
 
-(* Two source forms reach one node: `(let x = 1; a; b)` and
-   `(let x = 1 in (a; b))` both parse to `Let (x, 1, Seq (a, b))`. The
-   formatter writes one of them back, and the shape decides which: a binding
-   whose body is a sequence belongs to that block and takes the `;`; a
-   binding whose body is one expression keeps `in`, because there the two
-   say the same thing and `in` is the older spelling. *)
+(* `(let x = 1; a; b)` and `(let x = 1 in (a; b))` say the same thing, and
+   the node carries which one was written (`Ast.let_style`). So each comes
+   back as itself, including the shape that has no `;` left in it:
+   `(let x = 1; x + 2)` used to normalize to `in`, which turned the block
+   spelling into the one the style guide keeps for naming. *)
 let test_a_block_binding_round_trips () =
   fmt_eq "a binding and two statements"
     {|let f () = (let x = 1; println "a"; x + 1)|}
@@ -721,18 +720,48 @@ let test_a_block_binding_round_trips () =
   fmt_eq "two bindings"
     {|let f () = (let x = 1; let y = 2; println "a"; x + y)|}
     {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
-  (* One statement after the binding: the two forms say the same thing, and
-     this one normalizes to `in` and then holds. *)
-  fmt_eq "a block of one statement takes the older spelling"
+  (* One statement after the binding: still the block that was written. *)
+  fmt_eq "a block whose last statement is the only one"
     {|let f () = (let x = 1; x + 2)|}
+    {|let f () = (let x = 1; x + 2)|};
+  fmt_eq "and the in form beside it"
+    {|let f () = let x = 1 in x + 2|}
     {|let f () = let x = 1 in x + 2|};
+  (* The shape that sent this to the formatter: two bindings and an `if`,
+     inside a lambda, inside a call. *)
+  fmt_eq "a block in a lambda in a call"
+    {|let plan paths = (List.fold_right (fn p acc -> (let name = basename p; let wanted = tidy name; if wanted == name then acc else (p, wanted) : acc)) paths [])|}
+    {|let plan paths =
+  (List.fold_right
+    (fn p acc -> (
+      let name = basename p;
+      let wanted = tidy name;
+      if wanted == name then acc else (p, wanted) : acc
+    )
+    )
+    paths
+    [])|};
   (* A binding written with `in` inside a sequence is a statement like any
      other and stays where it is. *)
   fmt_eq "the in form inside a sequence"
     {|let f () = (let x = 1 in x + 1; 9)|}
     {|let f () = (let x = 1 in x + 1; 9)|};
+  (* The other spelling in the same place. A `let ... in` chain lays its
+     continuation out at the indent it is handed, and level with the `fn`
+     the second binding read as the statement after the lambda. *)
+  fmt_eq "a let chain in a lambda wraps under it"
+    {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) : acc) paths [])|}
+    {|let plan paths =
+  (List.fold_right
+    (fn p acc -> let name = basename p in
+      let wanted = tidy name in if wanted == name then acc else (p, wanted) : acc
+    )
+    paths
+    [])|};
   assert_idempotent "a block is a fixed point"
     {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
+  assert_idempotent "and so is a block with no sequence in it"
+    {|let f () = (let x = 1; x + 2)|};
   ok_after_format "and it still runs"
     {|let f () = (let x = 1; let y = 2; x + y)
 f ()|}

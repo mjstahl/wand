@@ -133,8 +133,8 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> go a; go b
     | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
     | Ast.Field (a, _) | Ast.Try a -> go a
-    | Ast.Let (_, a, b) -> go a; go b
-    | Ast.LetRec (bs, b) -> List.iter (fun (_, _, x) -> go x) bs; go b
+    | Ast.Let (_, a, b, _) -> go a; go b
+    | Ast.LetRec (bs, b, _) -> List.iter (fun (_, _, x) -> go x) bs; go b
     | Ast.If (c, t, f) -> go c; go t; go f
     | Ast.Match (s, cases) ->
       go s;

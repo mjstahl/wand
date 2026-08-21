@@ -26,7 +26,7 @@ group "the forms" (fn () -> [
       5
       (let f =
         fn () -> let g y = y + 1
-        in g 4
+          in g 4
       in
       f ()
       )),

@@ -1835,7 +1835,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        unify_expected ~expected:tf ~got:(TFun (tx, tr, latent));
        performs latent;
        tr)
-  | Let (p, e1, e2) ->
+  | Let (p, e1, e2, _) ->
     (match p, e1 with
      | PVar name, Fn _ ->
        let placeholder = fresh () in
@@ -1852,7 +1852,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        if pat_is_refutable tenv p then performs (Effect_set.single Effect_set.Raise);
        let scheme = generalize env t1 in
        infer tenv (infer_pat_let tenv p t1 scheme env) e2)
-  | LetRec (bindings, e2) ->
+  | LetRec (bindings, e2, _) ->
     let placeholders = List.map (fun (name, _, _) -> (name, fresh ())) bindings in
     let env_rec = List.map (fun (name, t) -> (name, Mono t)) placeholders @ env in
     let inferred = List.map (fun (name, params, body) ->
@@ -2837,8 +2837,8 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
     | App (a, b) | BinOp (_, a, b) | Seq (a, b) -> go loc a; go loc b
     | UnOp (_, a) | Fn (_, a) | Annot (_, a) | Field (a, _) | Try a ->
       go loc a
-    | Let (_, a, b) -> go loc a; go loc b
-    | LetRec (bs, b) -> List.iter (fun (_, _, e) -> go loc e) bs; go loc b
+    | Let (_, a, b, _) -> go loc a; go loc b
+    | LetRec (bs, b, _) -> List.iter (fun (_, _, e) -> go loc e) bs; go loc b
     | If (c, t, e) -> go loc c; go loc t; go loc e
     | Match (s, cases) ->
       go loc s;

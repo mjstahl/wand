@@ -54,6 +54,12 @@ type pat =
   | PAnnot        of pat * type_expr
   | PMap          of (string * pat) list
 
+(* How a binding was joined to what reads it. `let x = 1 in e` and the block
+   binding `(let x = 1; e)` bind the same name over the same body, so they
+   build the same node; the spelling is kept so the formatter prints back
+   what was written rather than choosing for the author. *)
+type let_style = LetIn | LetBlock
+
 type expr =
   | Int      of int
   | Float    of float
@@ -78,8 +84,8 @@ type expr =
   | Hole
   | App      of expr * expr
   | Fn       of pat list * expr
-  | Let      of pat * expr * expr
-  | LetRec   of (string * pat list * expr) list * expr
+  | Let      of pat * expr * expr * let_style
+  | LetRec   of (string * pat list * expr) list * expr * let_style
       (* mutually-recursive function group: let f ... = ... and g ... = ... *)
   | If       of expr * expr * expr
   | Match    of expr * case list
@@ -189,12 +195,15 @@ let rec show : expr -> string = function
   | App (f, x)      -> Printf.sprintf "(@ %s %s)" (show f) (show x)
   | Fn (ps, e)      -> Printf.sprintf "(fn %s -> %s)"
                          (String.concat " " (List.map show_pat ps)) (show e)
-  | Let (p, e1, e2) -> Printf.sprintf "(let %s = %s in %s)" (show_pat p) (show e1) (show e2)
-  | LetRec (bindings, e2) ->
-    Printf.sprintf "(let rec %s in %s)"
+  | Let (p, e1, e2, st) ->
+    Printf.sprintf "(let %s = %s%s %s)" (show_pat p) (show e1)
+      (match st with LetIn -> " in" | LetBlock -> ";") (show e2)
+  | LetRec (bindings, e2, st) ->
+    Printf.sprintf "(let rec %s%s %s)"
       (String.concat " and " (List.map (fun (n, ps, b) ->
         Printf.sprintf "%s %s = %s" n
           (String.concat " " (List.map show_pat ps)) (show b)) bindings))
+      (match st with LetIn -> " in" | LetBlock -> ";")
       (show e2)
   | If (c, t, e)    -> Printf.sprintf "(if %s %s %s)" (show c) (show t) (show e)
   | Match (e, cs)   -> Printf.sprintf "(match %s %s)" (show e) (show_cases cs)

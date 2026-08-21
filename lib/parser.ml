@@ -935,10 +935,13 @@ and paren_seq s =
 and let_ ?(block = false) s =
   (* let already consumed *)
   let p = pat_ s in
+  (* The body, and the spelling that joined it: `in`, or the `;` of a block.
+     Both bind the name over everything that follows, and the difference
+     survives only so that `wand f` prints back the one that was written. *)
   let consume_rest () =
     if peek s = Token.In then begin
       ignore (advance s);
-      locate s (fun () -> expr_ 0 s)
+      (locate s (fun () -> expr_ 0 s), Ast.LetIn)
     end
     else if block && peek s = Token.Semicolon then begin
       (* The binding's body is everything after the `;`. *)
@@ -947,14 +950,14 @@ and let_ ?(block = false) s =
         fail_at (peek_loc s)
           "this binding has no body: a block cannot end with a `let`, \
            because nothing would read the name"
-      else paren_seq s
+      else (paren_seq s, Ast.LetBlock)
     end
     else if block && peek s = Token.RParen then
       fail_at (peek_loc s)
         "this binding has no body: a block cannot end with a `let`, \
          because nothing would read the name"
-    else if is_expr_start (peek s) then parse_body s
-    else Unit
+    else if is_expr_start (peek s) then (parse_body s, Ast.LetIn)
+    else (Unit, Ast.LetIn)
   in
   match p with
   | PVar "rec" when is_pat_atom_start (peek s) ->
@@ -978,11 +981,11 @@ and let_ ?(block = false) s =
         let (params2, body2) = parse_fn_binding s name2 in
         bindings := !bindings @ [(name2, params2, body2)]
       done;
-      let rest = consume_rest () in
-      LetRec (!bindings, rest)
+      let (rest, style) = consume_rest () in
+      LetRec (!bindings, rest, style)
     end else begin
-      let rest = consume_rest () in
-      Let (PVar name, Fn (params, body), rest)
+      let (rest, style) = consume_rest () in
+      Let (PVar name, Fn (params, body), rest, style)
     end
   | PVar name when peek s <> Token.Eq ->
     (* annotated value binding: let x : T = e *)
@@ -992,13 +995,13 @@ and let_ ?(block = false) s =
     expect s Token.Eq;
     let body = locate s (fun () -> parse_contract_body s) in
     let e = match annot with Some te -> Annot (te, body) | None -> body in
-    let rest = consume_rest () in
-    Let (PVar name, e, rest)
+    let (rest, style) = consume_rest () in
+    Let (PVar name, e, rest, style)
   | _ ->
     expect s Token.Eq;
     let e1 = locate s (fun () -> expr_ 0 s) in
-    let e2 = consume_rest () in
-    Let (p, e1, e2)
+    let (e2, style) = consume_rest () in
+    Let (p, e1, e2, style)
 
 and if_ s =
   (* if already consumed *)

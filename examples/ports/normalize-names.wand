@@ -26,10 +26,12 @@ let tidy name = String.lower (String.replace " " "-" name)
 
 let plan paths =
   (List.fold_right
-    (fn p acc -> let name = Path.to_string (Path.basename p) in
-    let wanted = tidy name in
-    if wanted == name then acc
-    else (p, Path.join (Path.parent p) (Path.of_string wanted)) : acc
+    (fn p acc -> (
+      let name = Path.to_string (Path.basename p);
+      let wanted = tidy name;
+      if wanted == name then acc
+      else (p, Path.join (Path.parent p) (Path.of_string wanted)) : acc
+    )
     )
     paths
     [])

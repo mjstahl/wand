@@ -576,9 +576,9 @@ a `;` after that expression starts the next statement. In
 `let () = e1 in e2` still works and means the same thing. It also guarantees
 that `e1` is `Unit`.
 
-`wand f` writes the block form when a binding is followed by more than one
-statement, and `let ... in` when one expression follows it — there the two
-say the same thing, and `in` is the older spelling.
+`wand f` writes back the spelling that was written. `(let x = 1; x + 2)` and
+`let x = 1 in x + 2` say the same thing, and the formatter keeps whichever
+one it reads rather than choosing for you.
 
 ---
 

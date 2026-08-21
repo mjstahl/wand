@@ -418,14 +418,25 @@ and emit_expr_inner ?col indent e =
     (* A wrapped application as the body ends at its first line, and what is
        left below it reads as something new -- the same hazard a binding's
        body has, and the lambda gives it no bracket of its own. *)
+    (* A `let ... in` chain lays its continuation out at the indent it is
+       handed, so hand it one under the lambda: level with the `fn`, the
+       second binding reads as the statement after the lambda rather than
+       as the rest of its body. An `if` or a `match` places itself from the
+       column it starts at and already sits where it should. *)
+    let body_indent =
+      match strip_located body with
+      | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> indent + 2
+      | _ -> indent
+    in
     head
     ^ bracket_if_wrapped_app body
-        (emit_expr ~col:(col + String.length head) indent body)
-  (* A binding whose body is a sequence belongs to that block, and is
-     written with the `;` that ends it rather than with `in`. *)
-  | Let (_, _, body) as e when is_block body -> emit_block ~col indent e
-  | Let (p, e1, e2) -> emit_let ~col indent p e1 e2
-  | LetRec (bindings, e2) -> emit_letrec indent bindings e2
+        (emit_expr ~col:(col + String.length head) body_indent body)
+  (* A binding written with the `;` of a block belongs to that block, and
+     comes back out with the `;`. *)
+  | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) as e ->
+    emit_block ~col indent e
+  | Let (p, e1, e2, LetIn) -> emit_let ~col indent p e1 e2
+  | LetRec (bindings, e2, LetIn) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if ~col indent c t el
   | Match (scr, cases) -> emit_match ~col indent scr cases
   | BinOp (op, a, b) -> emit_binop ~col indent op a b
@@ -732,15 +743,16 @@ and split_clause_annot body =
    them. A binding in a block has no `in`, and both spellings have to lay
    the clauses out the same way. *)
 (* A block: statements in parentheses, where a binding may run to the end of
-   it. `(let x = 1; a; b)` parses to `Let (x, 1, Seq (a, b))`, so the walk
-   goes through a binding as well as through a `Seq`.
+   it. `(let x = 1; a; b)` parses to `Let (x, 1, Seq (a, b), LetBlock)`, so
+   the walk goes through a binding as well as through a `Seq`.
 
-   A `Let` whose body is a single expression is not a block and keeps `in`:
-   the two spellings say the same thing there, and `in` is the older one. *)
+   The two spellings of a binding say the same thing, and which one a node
+   holds is the one the author wrote. So a block ends where the `;`s do,
+   whatever the last statement turns out to be: `(let x = 1; f x)` is a
+   block of two statements, and `let x = 1 in f x` is not. *)
 and is_block e =
   match strip_located e with
-  | Seq _ -> true
-  | Let (_, _, body) -> is_block body
+  | Seq _ | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> true
   | _ -> false
 
 and emit_block ?col indent e =
@@ -748,8 +760,10 @@ and emit_block ?col indent e =
   let rec items ind e =
     match strip_located e with
     | Seq (a, b) -> emit_expr ind a :: items ind b
-    | Let (p, e1, body) when is_block body ->
+    | Let (p, e1, body, LetBlock) ->
       emit_binding ~col:ind ind p e1 :: items ind body
+    | LetRec (bindings, body, LetBlock) ->
+      emit_letrec_bindings ind bindings :: items ind body
     | other -> [emit_expr ind other]
   in
   let oneline = "(" ^ String.concat "; " (items indent e) ^ ")" in
@@ -870,7 +884,9 @@ and emit_let ?col indent p e1 e2 =
         (emit_pat p) ind
         (bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1)) ind ind e2s
 
-and emit_letrec indent bindings e2 =
+(* The `let f ... and g ...` group on its own, without whatever reads it:
+   the `in` form puts its body below, the block form puts a `;`. *)
+and emit_letrec_bindings indent bindings =
   let emit_binding kw (name, params, body) =
     let (annot_s, body) = split_clause_annot body in
     kw ^ " " ^ name
@@ -883,7 +899,11 @@ and emit_letrec indent bindings e2 =
     | first :: rest ->
       emit_binding "let" first :: List.map (emit_binding "and") rest
   in
-  String.concat ("\n" ^ ind) lines ^ "\n" ^ ind ^ "in "
+  String.concat ("\n" ^ ind) lines
+
+and emit_letrec indent bindings e2 =
+  let ind = String.make indent ' ' in
+  emit_letrec_bindings indent bindings ^ "\n" ^ ind ^ "in "
   ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
 
 and emit_if ?col indent c t el =
@@ -938,8 +958,8 @@ and emit_if ?col indent c t el =
    rendered, even though the immediate AST node is a Let. Follow the chain
    of Let/LetRec tails to find what actually ends up printed last. *)
 and case_body_tail e = match strip_located e with
-  | Let (_, _, e2)    -> case_body_tail e2
-  | LetRec (_, e2)     -> case_body_tail e2
+  | Let (_, _, e2, _)    -> case_body_tail e2
+  | LetRec (_, e2, _)     -> case_body_tail e2
   | e -> e
 
 and emit_case_body ?col indent body =

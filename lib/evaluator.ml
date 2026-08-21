@@ -865,7 +865,7 @@ let rec eval (env : env) (e : expr) : value =
     let vf = eval env f in
     let vx = eval env x in
     apply vf vx
-  | Let (p, e1, e2) ->
+  | Let (p, e1, e2, _) ->
     let v1 = eval env e1 in
     let v1 = match p, v1 with
       | PVar name, VFun (fenv, params, body) ->
@@ -873,7 +873,7 @@ let rec eval (env : env) (e : expr) : value =
       | _ -> v1
     in
     eval (bind_pat ~prefix:true p v1 env) e2
-  | LetRec (bindings, e2) ->
+  | LetRec (bindings, e2, _) ->
     let env' = List.fold_left (fun acc (name, _, _) ->
       (name, VFixGroup (bindings, env, name)) :: acc) env bindings in
     eval env' e2
