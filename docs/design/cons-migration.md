@@ -65,20 +65,37 @@ bracket, which is why the message exists.
 
 4. **Turn the drift rules around.** `lib/diag.ml` and the lexer stop
    correcting `::`. The new correction fires where a `:` in expression
-   position can no longer be a type: "cons is `::`". The `(x : xs)`
-   messages in `parser.ml` answer `(x :: xs)` instead, and gain the bare
-   form: `| h :: t ->` gives "expected ->, got :" today, which names
-   nothing, and it is the likelier mistake of the two.
+   position can no longer be a type: "cons is `::`".
 
-5. **Migrate the corpus.** `wand f` over `stdlib/`, `examples/`,
+5. **Make the bare pattern a lint, not a parse error.** `| h :: t ->`
+   without brackets is the likelier mistake, and it answers "expected ->,
+   got :" today, which names nothing. It should be completely fixable, and
+   that decides the design: `lib/fix.ml` will not apply a correction to a
+   file that does not parse, because rewriting what it cannot read is
+   guesswork. So the parser accepts the bare form and `V-CONS1` reports it
+   with a `ReplaceLine` fix that adds the brackets.
+
+   Accepting it means choosing what `Some h :: t` means. Constructor
+   application binds tighter, so it is `(Some h) :: t` — the OCaml
+   reading. The fix writes `[Some h :: t]`, whose brackets answer the
+   question, so it is asked once.
+
+   `wand f` does not add the brackets on its own. The formatter writes
+   back what was written; a normalization the author did not ask for is
+   what the record-update work removed.
+
+   Parentheses stay a parse error. `(x :: xs)` is not a spelling anyone
+   wants, and the message written for it is the answer.
+
+6. **Migrate the corpus.** `wand f` over `stdlib/`, `examples/`,
    `test/wand/`, `demos/` and `tools/`, then the whole battery.
    `tools/check_fmt.wand` is the gate that proves it landed.
 
-6. **Documentation.** The syntax card in `CLAUDE.md`, the reference's
+7. **Documentation.** The syntax card in `CLAUDE.md`, the reference's
    syntax table, its Lists and Pattern-matching sections, and the drift
    tests.
 
-7. **Remove the transitional `:`** in the release after. Until then a
+8. **Remove the transitional `:`** in the release after. Until then a
    script written for 0.29.0 keeps running.
 
 ## Cost and risk
@@ -88,7 +105,7 @@ parse means nothing breaks on the day it lands.
 
 The risk worth naming is step 3. Two spellings of one operator is the
 state this plan exists to end, and a transitional window that is not
-closed becomes permanent. Step 7 is scheduled in the same breath for that
+closed becomes permanent. Step 8 is scheduled in the same breath for that
 reason.
 
 The second risk is smaller: `::` is two characters where `:` was one, in
