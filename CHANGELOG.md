@@ -20,13 +20,6 @@
   `01.2.3 == 1.2.3` are true. The three relations agree: a value written
   two ways is equal, and neither below nor above (`1b10b92`)
 
-### Note
-
-`docs/gaps.md` gains what the clock design deferred: the monotonic-clock
-question that arrives with `Clock.now`, the absence of `+` and `-` on
-`Duration` and `Size`, and three things declined rather than missing — a
-first-to-succeed race, scheduling, and syntax for timeouts (`d59e255`).
-
 [0.26.0]: https://github.com/mjstahl/wand/releases/tag/v0.26.0
 
 ## [0.25.0] - 2026-08-21
@@ -103,10 +96,7 @@ first-to-succeed race, scheduling, and syntax for timeouts (`d59e255`).
 ### Note
 
 Reading the clock is not here, a virtual clock does not shorten a real
-deadline, and a killed command may leave children. These and the rest of
-what wand cannot do yet are listed in `docs/gaps.md`, which is new in this
-release. `docs/design/clock-and-timeouts.md` retired with the work it
-designed.
+deadline, and a killed command may leave children.
 
 [0.25.0]: https://github.com/mjstahl/wand/releases/tag/v0.25.0
 
