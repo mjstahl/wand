@@ -1694,8 +1694,8 @@ Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
 
 ## Contracts
 
-A function body may state preconditions and postconditions. They are checked
-at runtime, and `result` is bound in a postcondition:
+A function body can state preconditions and postconditions. wand checks them
+during the run. In a postcondition, `result` is bound to the return value:
 
 ```
 let half n =
@@ -1710,35 +1710,36 @@ A violated contract raises, reporting the clause that failed:
 half 7   -- precondition failed: ((n % 2) == 0)
 ```
 
-Contracts come after the `=`, before the body, and there may be several of
-each. A broken contract is a bug rather than a fallible operation, so state
-them for what must be true, not for input you expect to be invalid — validate
-that and return a `Result`.
+Contracts come after the `=` and before the body. You can write several of
+each. A broken contract is a bug, not an operation that failed. So state what
+must be true. For input that you expect to be wrong, validate it and return a
+`Result`.
 
 ---
 
 ## Typed holes
 
-`?` stands in for an expression you have not written yet. A program containing
-a hole typechecks but does not run; `wand t` and `wand e` report what type
-belongs there:
+`?` stands for an expression that you have not written yet. A program with a
+hole typechecks, and it does not run. `wand t` and `wand e` report the type
+that belongs there:
 
 ```
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
 
-The hole is inferred from how it is used, so the type system answers with the
-signature to write rather than only reporting what is wrong. Holes are how you
-sketch a solution and ask what fills it.
+wand infers the hole from the way you use it. So the type system gives you
+the signature to write. It does not only report what is wrong. Use a hole to
+sketch a solution and to ask what fills it.
 
 ---
 
 ## Type definitions
 
-Every type a definition mentions has to exist. Declaration order does not
-matter — a file's types are collected before any of them is read, so a field
-may name a type declared further down, and two types may refer to each other:
+Each type that a definition names must exist. The order of declarations does
+not matter. wand collects the types of a file before it reads any of them. So
+a field can name a type from further down, and two types can name each
+other:
 
 ```
 type Pod  = Pod (metadata : Meta, status : Status)
@@ -1746,7 +1747,7 @@ type Meta = Meta (name : String, namespace : String)
 type Status = Running | Pending
 ```
 
-A name that is declared nowhere is an error, rather than a type of its own:
+A name that nothing declares is an error. It is not a type of its own:
 
 ```
 type Pod = Pod (metadata : Meta, status : Statsu)
@@ -1754,8 +1755,8 @@ type Pod = Pod (metadata : Meta, status : Statsu)
 --   (did you mean 'Status'?)
 ```
 
-A type from another module needs that module imported, the same as its
-functions do:
+A type from another module needs an import of that module. Its functions
+need the same:
 
 ```
 import Option
@@ -1784,14 +1785,14 @@ let area s = match s with
 | Rect w h   -> w * h
 ```
 
-Positional fields are space-separated type atoms — `Rect Int Int` is two
-`Int` fields, matching how constructor/function application already works
-(`f x y`). Parentheses are reserved for grouping a single field's type when
-it needs its own structure, not for listing multiple fields:
+Separate positional fields with a space. `Rect Int Int` is two `Int` fields.
+Constructor application and function application work the same way, as in
+`f x y`. Use parentheses to group the type of one field that needs its own
+structure. Do not use them to list several fields:
 
-Parentheses group a tuple, and several arguments are written by
-juxtaposition — `Rect 3 4`, not `Rect (3, 4)`. So `Some (1, 2)` is `Some`
-applied to one pair, whatever file the type was declared in.
+Parentheses group a tuple. Write several arguments one after the other:
+`Rect 3 4`, not `Rect (3, 4)`. So `Some (1, 2)` is `Some` applied to one pair,
+in every file.
 
 ```
 type Wrap = Wrap (List Int)     -- one field, type List Int
@@ -1800,16 +1801,16 @@ type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 
 ### Named fields
 
-Fields may be named instead of positional, and are then given and read by
-name rather than by position. For a type with one constructor there is a
-shorthand: `type Point (x : Int, y : Int)` means
-`type Point = Point (x : Int, y : Int)`. The shorthand is the canonical
-form — `wand f` writes the long spelling back to it whenever the one
-constructor bears the type's own name.
+A field can have a name instead of a position. You then give it and read it
+by name. A type with one constructor has a shorthand:
+`type Point (x : Int, y : Int)` means `type Point = Point (x : Int, y : Int)`.
+The shorthand is the canonical form. If the one constructor has the name of
+the type, `wand f` writes the long spelling back to the short one.
 
-A named field's type may be an application — `children : List Node`,
-`owner : Option String` — written without parentheses. A positional field may
-not: `Pair Int Int` is two fields, not one type applied to another.
+The type of a named field can be an application, as in `children : List
+Node` and `owner : Option String`. Write it without parentheses. A positional
+field cannot do this: `Pair Int Int` is two fields, not one type applied to
+another.
 
 ```
 type Point  (x : Int, y : Int)
@@ -1824,7 +1825,7 @@ c.radius   -- 5
 
 #### Construction
 
-Fields are named, in any order, and every one has to be given:
+Name each field, in any order. Give every one of them:
 
 ```
 Point (x = 1, y = 2)
@@ -1836,8 +1837,8 @@ Point (x = 1)
 
 #### Pattern matching on named fields
 
-A pattern may name fewer fields than the type has — naming one is how you
-read it:
+A pattern can name fewer fields than the type has. Name a field to read
+it:
 
 ```
 let magnitude p =
@@ -1859,9 +1860,9 @@ Named fields are not limited to the single-constructor form:
 type Node = Leaf (value : Int) | Branch (left : Node, right : Node)
 ```
 
-Constructing and matching work as above. Dot access is narrower: a value of
-`Node` is a `Leaf` or a `Branch`, and which one is not known at the access,
-so a field is readable only when *every* constructor carries it, at the same
+Construction and matching work as above. Dot access is narrower. A value of
+`Node` is a `Leaf` or a `Branch`, and the access does not know which one. So
+you can read a field only when every constructor carries it, at the same
 type.
 
 ```
@@ -1882,21 +1883,20 @@ v.x
 
 Match on the constructor to read a field only some of them have.
 
-A pattern that names one constructor of several can fail, and a binding that
-uses one says so: `let area (Circle (radius = r)) = r` over
-`Circle | Square` has type `Shape -> Int ! {Raise}`, and the `!` belongs in
-its name. What decides this is whether the value could be another
-constructor, not whether the fields are named — with a single-constructor
-type there is nothing to mismatch, and the same binding is total. It reads
-the same for `let`: `let Ok v = r in ...` raises where it stands.
+A pattern that names one constructor of several can fail. A binding that
+uses one says so. Over `Circle | Square`, `let area (Circle (radius = r)) = r`
+has the type `Shape -> Int ! {Raise}`, and the name wants a `!`. What decides
+this is whether the value could be another constructor. Whether the fields
+have names does not matter. A type with one constructor has nothing to
+mismatch, so the same binding is total. A `let` reads the same way:
+`let Ok v = r in ...` raises where it stands.
 
 ---
 
 ## Generics
 
-Type definitions can take type parameters, written with a leading quote
-(`'a`, `'b`) — matching the syntax `:t` already uses to print inferred
-polymorphic types:
+A type definition can take type parameters. Write each one with a leading
+quote: `'a`, `'b`. `:t` already prints inferred polymorphic types this way:
 
 ```
 type Option 'a = None | Some 'a
@@ -1906,8 +1906,8 @@ let describe o = match o with
 | None   -> "empty"
 ```
 
-Multiple parameters are space-separated, matching how positional
-constructor fields already work:
+Separate several parameters with a space. Positional constructor fields work
+the same way:
 
 ```
 type Pair 'a 'b = Pair 'a 'b
@@ -1919,9 +1919,9 @@ Type variables can also appear in ordinary annotations:
 let identity : 'a -> 'a = fn x -> x
 ```
 
-A variable there is a promise that the function works for any type, and it
-is checked like the rest of the annotation. Naming one the body cannot keep
-is a type error, in both directions:
+A variable there is a promise: the function works for any type. wand checks
+it as it checks the rest of the annotation. Name a variable that the body
+cannot keep, and you get a type error. This holds in both directions:
 
 ```
 let f : 'a -> 'a = fn x -> x + 1
@@ -1933,13 +1933,13 @@ let g : 'a -> 'b = fn x -> x
 --   body makes them the same
 ```
 
-An annotation narrower than the body is still fine — `Int -> Int` over the
-identity names no variable and so promises nothing.
+An annotation narrower than the body is still correct. `Int -> Int` over the
+identity function names no variable, so it promises nothing.
 
-`Option` ships in the standard library — see "Imports" below. `Result`'s
-error type is a real type parameter too, not fixed to `String` — the
-common case (`Error "message"`) still infers as `Result String T`
-automatically, but custom error types work the same way:
+`Option` comes with the standard library. See "Imports" below. The error
+type of `Result` is a real type parameter. It is not fixed to `String`. The
+common case, `Error "message"`, still infers as `Result String T`. An error
+type of your own works the same way:
 
 ```
 type ParseError = UnexpectedToken String | UnexpectedEof
@@ -1955,8 +1955,8 @@ let parse s : Result ParseError Int =
 
 ## Type inference and unification
 
-wand uses Hindley-Milner type inference — types are inferred without
-annotation, and the type checker unifies constraints across the whole
+wand uses Hindley-Milner type inference. It infers types without an
+annotation. The type checker compares the constraints of the whole
 expression.
 
 ```
@@ -2004,7 +2004,7 @@ match Wrap 42 with
 
 ## Type annotations
 
-Any type the checker can infer or print, you can also write explicitly:
+You can write any type that the checker infers or prints:
 
 ```
 let x : Int = 42
@@ -2016,19 +2016,19 @@ let pair : (Int, Bool) = (1, true)
 let f : Int -> Int = fn x -> x + 1
 ```
 
-Grouping and nesting compose the same way for annotations as they do for
-the printed types:
+Grouping and nesting work the same way in an annotation as in a printed
+type:
 
 ```
 let g : (Int -> Int) -> Int = fn f -> f 1        -- parens needed for left-nesting
 let m : Map (List Int) = {a = [1, 2], b = [3]}   -- parens needed for a compound argument
 ```
 
-`:t` prints types in exactly this syntax, so what you see there is always
-what you can paste back into an annotation. That includes `Num`: each
-written `Num` is a fresh "`Int` or `Float`" variable, and use-sites link
-them — `let double : Num -> Num = fn x -> x + x` reconstructs exactly
-what `:t double` printed.
+`:t` prints a type in this syntax. So you can paste what you see into an
+annotation. This includes `Num`. Each written `Num` is a new "`Int` or
+`Float`" variable, and the use sites link them.
+`let double : Num -> Num = fn x -> x + x` rebuilds what `:t double`
+printed.
 
 ### The three colons
 
@@ -2039,17 +2039,15 @@ let port : Port = :8080     -- annotation, then a port literal
 let xs = 1 : [2, 3]         -- cons
 ```
 
-- **A port literal** is `:` glued directly to a digit: `:80`, `:8080`. The
-  lexer decides this one — no space and a digit following make it one
-  token.
+- **A port literal** is a `:` directly against a digit: `:80`, `:8080`. The
+  lexer decides this one. No space, and a digit after it, make one token.
 - **A type annotation** is the `:` right after a binding's name and
   parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`.
   Only that position (and a type definition's named fields) reads `:` as
   an annotation.
 - **Cons** is every other `:` between expressions, and the list pattern
-  `[h : t]`. Expression position always means cons — which is why an
-  inline OCaml-style ascription `(e : T)` does not exist; annotate the
-  binding instead.
+  `[h : t]`. A `:` in expression position always means cons. So there is no
+  inline ascription `(e : T)`. Annotate the binding instead.
 
 ---
 
@@ -2063,13 +2061,13 @@ import String
 import FS
 ```
 
-Scripts (run via `wand file.wand`) must `import` a stdlib module before
-using it — referencing `List.map` without `import List` fails with an
-unbound-name error, even though the module ships with wand. The
-interactive REPL and the one-shot `e`/`t`/`d`/`env` subcommands are the
-exception: they preload every stdlib module for convenience — `List`,
-`String`, `Path`, `FS`, `IO`, `Float`, `Duration`, `Env`, `Map`, `Regex`,
-`JSON`, `TOML`, `CSV`, `Option`, `Par`, `Resource`, `Stream` and `Proc`.
+A script that you run with `wand file.wand` must `import` a stdlib module
+before it uses one. `List.map` without `import List` fails with an
+unbound-name error, although the module comes with wand. The REPL and the
+one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
+stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
+`Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
+`Resource`, `Stream` and `Proc`.
 
 Imported names are available under the module prefix:
 
@@ -2090,7 +2088,8 @@ let utils   = import ./utils
 let Helpers = import ./lib/helpers    -- capitalisation is convention, not enforced
 ```
 
-File extension is optional — `./utils` and `./utils.wand` are equivalent.
+The file extension is optional. `./utils` and `./utils.wand` mean the
+same.
 
 Access members via dot notation:
 
@@ -2110,22 +2109,23 @@ let {foo = bar}            = import ./utils   -- bind utils.foo as bar
 let {foo = a, bar = b}     = import ./utils   -- and utils.bar as b
 ```
 
-The name on the left of the `=` is the module's; the name on the right is
-what it is called here.
+The name on the left of the `=` belongs to the module. The name on the right
+is the name it has here.
 
-Or bind names under their own names — the same punning a map pattern has:
+Or bind each name under its own name. A map pattern has the same
+shorthand:
 
 ```
 let {foo, bar} = import ./utils         -- bind foo and bar
 ```
 
-Punned and renamed entries mix freely, exactly as they do in a map
-pattern.
+Short entries and renamed entries mix freely. A map pattern behaves the same
+way.
 
 #### What a destructure binds by
 
-Brackets destructure a list, braces a map or a module, and what they
-match on differs in each — the value on the right decides:
+Brackets destructure a list. Braces destructure a map or a module. What they
+match on differs in each case, and the value on the right decides:
 
 ```
 let [a, b]      = [10, 20]         -- a list: by position
@@ -2134,18 +2134,18 @@ let {map}       = import List      -- a module: by name
 let {map = m2}  = import List      -- a module: by name, renamed
 ```
 
-A list pattern is the only one that is positional, and the difference shows
-when the order changes. Swap two names in a list pattern and the bindings
-swap with them; swap them in a module's and nothing moves, because there is
-no order to follow:
+Only a list pattern is positional. The difference shows when the order
+changes. Swap two names in a list pattern, and the bindings swap with them.
+Swap them in a module pattern, and nothing moves. There is no order to
+follow:
 
 ```
 let {filter, map} = import List
 map (fn x -> x * 2) [1, 2]     -- [2, 4] — still List.map
 ```
 
-Only a list can be too short at run time in a way its type did not catch;
-a module is checked when it is imported, and a missing name is an error
+Only a list can be too short during a run in a way that its type did not
+catch. wand checks a module at the import, and a missing name is an error
 there.
 
 ### Stdlib bound to custom name
@@ -2171,11 +2171,11 @@ utils.double 5       -- 10
 utils._helper 5      -- type error: _helper not found in module
 ```
 
-A user-path import must state the name it binds. `import ./utils` on its own
-is an error — use `let utils = import ./utils` or a destructuring pattern, so
-the name a module arrives under is written at the import site and greppable.
-(`import FS` and other stdlib imports are unaffected: the name is already
-written there.)
+An import by path must state the name that it binds. `import ./utils` alone
+is an error. Write `let utils = import ./utils`, or a destructuring pattern.
+Then the name of the module is written at the import, and `grep` finds it.
+This does not affect `import FS` and the other stdlib imports. Those already
+write the name.
 
 ---
 
