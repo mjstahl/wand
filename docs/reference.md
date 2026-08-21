@@ -47,7 +47,7 @@ For what wand is and why, see the [README](../README.md).
 
 ## Quick start
 
-```
+```sh
 wand script.wand        # run a script
 wand --dry-run deploy.wand   # report what it would change, without doing it
 wand --trace deploy.wand     # run it, reporting each effect as it happens
@@ -66,7 +66,7 @@ wand V                  # print the version
 
 ## Primitives
 
-```
+```ocaml
 42          -- Int
 3.14        -- Float
 "hello"     -- String
@@ -79,7 +79,7 @@ true        -- Bool
 Arithmetic that goes outside it is a runtime error. The value does not wrap
 around:
 
-```
+```ocaml
 4611686018427387903 + 1
 -- runtime error: integer overflow in '+':
 --   Int holds -4611686018427387904 to 4611686018427387903
@@ -95,7 +95,7 @@ you. `1.5 + 1` is a type error, and the error names the functions that
 convert. [`Float`](#float) holds them. `%` accepts `Int` only. A function
 that does not pin its numbers accepts both:
 
-```
+```ocaml
 let double x = x + x     -- double : Num -> Num
 (double 2, double 1.5)   -- (4, 3) : (Int, Float) — each call picks its type
 ```
@@ -107,7 +107,7 @@ Int division keeps its check.
 
 String interpolation with `%{...}`, which takes any expression:
 
-```
+```ocaml
 let name = "world"
 "hello, %{name}!"        -- "hello, world!"
 "1 + 1 = %{1 + 1}"       -- "1 + 1 = 2"
@@ -117,7 +117,7 @@ let name = "world"
 `$` is not special in a string. A string that holds shell or Make source
 keeps it. This is what you want when something else expands the string:
 
-```
+```ocaml
 "export PATH=$HOME/bin:$PATH"   -- exactly those characters
 ```
 
@@ -125,7 +125,7 @@ For the literal text `%{`, escape the percent: `"\%{not an interpolation}"`.
 
 String concatenation with `++`:
 
-```
+```ocaml
 "foo" ++ "bar"           -- "foobar"
 ```
 
@@ -135,7 +135,7 @@ Between backticks each character is itself. There are no escapes. A quote
 is a quote, and a backslash is a backslash. Use this form for text written in
 another language:
 
-```
+```ocaml
 `{"hello": "world"}`
 `\d+\s*(\w+)`
 `C:\Users\ada`
@@ -146,7 +146,7 @@ directly after the opening backtick is not part of it, so a literal can start
 on the line below. wand trims nothing else. Indentation and the final newline
 stay:
 
-```
+```ocaml
 `
 Hello World
 This was a line break
@@ -158,7 +158,7 @@ is `"Hello World\nThis was a line break\n"`.
 `%{...}` still interpolates, so a backtick string is a template like any
 other:
 
-```
+```ocaml
 let user = "ada"
 `{"name": "%{user}", "role": "admin"}`
 ```
@@ -173,7 +173,7 @@ A backtick string is an ordinary `String`. The syntax changes how you write
 it, not what it is. It concatenates, interpolates and matches like any other
 string:
 
-```
+```ocaml
 `ab` ++ `c`                    -- "abc"
 
 match answer with
@@ -204,7 +204,7 @@ gave where a `Duration` belongs.
 | `Version` | `1.2.3` `0.1.0` `1.2.3-alpha.1` |
 | `Size` | `10MB` `512KB` `1.5GB` `100B` |
 
-```
+```ocaml
 let deadline = 2024-12-31
 let server   = https://api.example.com
 let log_dir  = /var/log/app
@@ -216,14 +216,14 @@ let limit    = 100MB
 
 ## Let bindings
 
-```
+```ocaml
 let x = 42
 let greeting = "hello"
 ```
 
 With a type annotation:
 
-```
+```ocaml
 let x : Int = 42
 let name : String = "wand"
 ```
@@ -232,33 +232,33 @@ let name : String = "wand"
 
 ## Functions
 
-```
+```ocaml
 let double x = x * 2
 let add x y  = x + y
 ```
 
 Anonymous functions with `fn`:
 
-```
+```ocaml
 fn x -> x + 1
 fn x -> fn y -> x + y
 ```
 
 Recursive functions reference themselves by name:
 
-```
+```ocaml
 let fact n = if n <= 0 then 1 else n * fact (n - 1)
 ```
 
 With a return type annotation:
 
-```
+```ocaml
 let double x : Int = x * 2
 ```
 
 Multi-equation functions — pattern match directly in the definition:
 
-```
+```ocaml
 let fib 0 = 0
 let fib 1 = 1
 let fib n = fib (n - 1) + fib (n - 2)
@@ -268,7 +268,7 @@ The equations are one definition. Write them on consecutive lines. Give
 each one the same number of parameters. wand tries them in the order you wrote
 them. If an earlier equation already covers a later one, that is an error:
 
-```
+```ocaml
 let f _ = 0
 let f 1 = 1     -- error: equation 2 for 'f' is unreachable
 ```
@@ -287,7 +287,7 @@ call that lands in the gap raises a pattern-match failure.
 
 Works locally too, with `in` — repeating `let` on each equation or not:
 
-```
+```ocaml
 let answer =
   let fib 0 = 0
   let fib 1 = 1
@@ -307,14 +307,14 @@ definition.
 
 Mutually-recursive functions — chain definitions with `and`:
 
-```
+```ocaml
 let is_even n = if n == 0 then true else is_odd (n - 1)
 and is_odd n = if n == 0 then false else is_even (n - 1)
 ```
 
 Works the same way locally, with `in`:
 
-```
+```ocaml
 let answer =
   let is_even n = if n == 0 then true else is_odd (n - 1)
   and is_odd n = if n == 0 then false else is_even (n - 1)
@@ -325,7 +325,7 @@ In the REPL, enter a group as one entry. The first line alone does not
 typecheck, because its partner is unbound. So put the `and` at the end of the
 line. Do not start the next line with it:
 
-```
+```text
 >> let is_even n = if n == 0 then true else is_odd (n - 1) and
    .. is_odd n = if n == 0 then false else is_even (n - 1)
    ..
@@ -344,13 +344,13 @@ does not exist yet. Only the body of a function waits for a call.
 
 ## If expressions
 
-```
+```ocaml
 if x > 0 then "positive" else "non-positive"
 ```
 
 An `if` with nothing to do when the condition is false leaves the branch out:
 
-```
+```ocaml
 if stashes > 0 then println "Stashes: %{stashes} saved"
 ```
 
@@ -358,7 +358,7 @@ This is the same expression as `else ()`. It is not a second kind of
 conditional. The branch must be `Unit`, because a branch that is not there can
 only be `()`:
 
-```
+```ocaml
 if ready then 1
 -- an `if` with no `else` does nothing when the condition is false,
 --   so its branch must be Unit -- this one is Int
@@ -379,7 +379,7 @@ never need a value from the run.
 **Form 1 — application.** When the right operand is any ordinary expression,
 `x |> f` is exactly `f x`:
 
-```
+```ocaml
 [1, 2, 3] |> List.map double |> List.filter (fn x -> x > 2)
 $(git log --oneline) |> String.lines |> List.length
 ```
@@ -388,7 +388,7 @@ $(git log --oneline) |> String.lines |> List.length
 `$?()` form. Then `|>` sends the left value, a `String`, to the standard input
 of the command:
 
-```
+```ocaml
 $(git log --oneline) |> $(grep "fix") |> $(wc -l)
 report |> $?(mail -s "nightly" ops@example.com)
 ```
@@ -407,7 +407,7 @@ runs a process; if it does not, wand applies a function.
 
 **Choosing between wand pipes and shell pipes.** Both of these are idiomatic:
 
-```
+```ocaml
 $(git log --oneline | grep fix | wc -l)          -- one shell pipeline
 $(git log --oneline) |> $(grep fix) |> $(wc -l)  -- three wand stages
 ```
@@ -426,7 +426,7 @@ an audit trail to start.
 Expressions evaluated for their effects are separated with `;`; the value of
 the sequence is the last expression:
 
-```
+```ocaml
 println "starting";
 println "working";
 42
@@ -440,7 +440,7 @@ A newline does not end a statement if the next line starts with an operator.
 That line continues the statement. A pipeline that leads with `|>` needs
 this:
 
-```
+```ocaml
 let count =
   names
     |> List.filter short?
@@ -450,7 +450,7 @@ let count =
 `-` follows the same rule, and there it can surprise you. These two lines
 are one statement, and `a` is `-1`:
 
-```
+```ocaml
 let a = 1
 -2
 ```
@@ -462,7 +462,7 @@ anywhere else that wand expects an expression. Inside brackets a newline is
 formatting, and an application can continue across it. So there you sequence
 statements with `;` inside parentheses:
 
-```
+```ocaml
 let deploy! target = (
   FS.mkdir! (Path.of_string target);
   FS.write_file! (Path.of_string "%{target}/config.toml") "version = \"1\"\n";
@@ -481,7 +481,7 @@ that `e1` is `Unit`.
 
 ## Pattern matching
 
-```
+```ocaml
 match x with
 | 0 -> "zero"
 | 1 -> "one"
@@ -490,7 +490,7 @@ match x with
 
 With guards:
 
-```
+```ocaml
 match n with
 | x when x < 0  -> "negative"
 | x when x == 0 -> "zero"
@@ -502,7 +502,7 @@ match n with
 `wand t` checks that each `match` covers every case. A case that is missing
 is a type error, not a surprise during a run:
 
-```
+```ocaml
 let f x = match x with | 0 -> "zero"
 -- wand t: type error: non-exhaustive match: missing case, e.g. _
 ```
@@ -522,7 +522,7 @@ A map pattern is partial by design. wand never reports one.
 
 ## Tuples
 
-```
+```ocaml
 let pair   = (1, 2)
 let triple = (true, "hello", 42)
 
@@ -533,7 +533,7 @@ let (a, b) = pair      -- destructure
 
 ## Lists
 
-```
+```ocaml
 let xs    = [1, 2, 3]
 let empty = []
 
@@ -543,7 +543,7 @@ let empty = []
 
 List patterns:
 
-```
+```ocaml
 match xs with
 | []        -> "empty"
 | [x]       -> "one element: %{x}"
@@ -553,7 +553,7 @@ match xs with
 
 Cons patterns chain, matching several leading elements at once:
 
-```
+```ocaml
 match xs with
 | [a : b : c : t] -> "first three: %{a}, %{b}, %{c}, rest: %{t}"
 | _               -> "fewer than three elements"
@@ -565,7 +565,7 @@ other arm. It only binds. So in a `let` a list pattern names the first
 elements and ignores the rest. A map pattern behaves the same way with
 keys:
 
-```
+```ocaml
 let xs = [1, 2, 3]
 
 let [a, b, c] = xs      -- a = 1, b = 2, c = 3
@@ -578,7 +578,7 @@ a type error. The length of a list is not part of its type. So a `let` that
 names more elements than the list holds is accepted, and it fails during the
 run:
 
-```
+```ocaml
 let [a, b] = [1]
 -- runtime error: pattern match failure
 ```
@@ -587,7 +587,7 @@ Use `match` when even the elements you name may not be there.
 
 Multi-equation over lists:
 
-```
+```ocaml
 let sum []      = 0
 let sum [h : t] = h + sum t
 ```
@@ -598,14 +598,14 @@ let sum [h : t] = h + sum t
 
 String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
 
-```
+```ocaml
 let m = {x = 1, y = 2, z = 3}   -- Map Int
 ```
 
 A key is any string. Put quotes around a key that is not an identifier.
 Most keys in a document from elsewhere need them:
 
-```
+```ocaml
 {"content-type" = "application/json", "@type" = "Pod", name = "web"}
 ```
 
@@ -615,7 +615,7 @@ A map holds a key once. Give a key twice, and the last value wins. The key
 keeps the position where it first appeared. That is what an assignment means.
 It also writes a document back in the order it arrived:
 
-```
+```ocaml
 {a = 1, b = 2, a = 9}        -- {a = 9, b = 2}
 Map.set "b" 99 {a = 1, b = 2, c = 3}   -- {a = 1, b = 99, c = 3}
 Map.merge {a = 1, b = 2} {b = 9}       -- {a = 1, b = 9}
@@ -627,7 +627,7 @@ from `JSON.get_object`. So two readers of one document always agree.
 
 Using the `Map` module:
 
-```
+```ocaml
 Map.get  "x" m     -- Some(1)
 Map.get! "x" m     -- 1  (raises on missing)
 Map.has? "x" m     -- true
@@ -648,7 +648,7 @@ short for the key and a variable of the same name. `key = pat` matches a
 subpattern, or gives the value another name. A quoted key always takes that
 form, because it has no identifier to shorten:
 
-```
+```ocaml
 match m with
 | {x, y} -> x + y            -- binds x and y by name
 | {x = a, y = b} -> a + b    -- the rename form
@@ -671,7 +671,7 @@ before 0.17, `[x = 1]` and `[x = a]`. The error names the brace spelling.
 
 Run a shell command and get its stdout as a `String`. Raises on non-zero exit.
 
-```
+```ocaml
 $(git status)
 $(ls -la)
 $(git log --oneline -%{count})      -- values go in with %{...}
@@ -679,7 +679,7 @@ $(git log --oneline -%{count})      -- values go in with %{...}
 
 Get full output without raising using `$?()`, which returns a `ShellResult`:
 
-```
+```ocaml
 let r = $?(git status)
 r.stdout   -- String
 r.stderr   -- String
@@ -695,7 +695,7 @@ say which argument it is. There are two forms.
 holds. A space does not split it. `*` does not expand. `;`, `|`, a backtick
 and `$(...)` are text:
 
-```
+```ocaml
 let f = "two words.txt"
 $(ls %{f})                  -- runs: ls 'two words.txt'
 
@@ -710,7 +710,7 @@ Write `%{x}` between quotes of your own, and it becomes part of that word.
 It is not an argument of its own. wand escapes it for the quote it sits in.
 The shell reads nothing in the value as syntax:
 
-```
+```ocaml
 let name = "$(whoami)"
 $(echo "hi %{name}")        -- runs: echo "hi \$(whoami)"    (one argument)
 $(grep "^%{name}" log)      -- the value is part of the pattern
@@ -720,7 +720,7 @@ $(grep "^%{name}" log)      -- the value is part of the pattern
 source, and the shell reads it. Use this form for a value that holds several
 arguments, a pattern to expand, or a whole command:
 
-```
+```ocaml
 let flags = "-l -a"
 $(ls %!{flags} %{f})        -- runs: ls -l -a 'two words.txt'
 
@@ -737,7 +737,7 @@ Both work the same way in `$?()`.
 argument. Use `%!{...}` for text that you wrote or built to be shell syntax.
 `%!{...}` lets the value decide what runs:
 
-```
+```ocaml
 let name = "x; rm -rf /tmp/z"
 $(echo %!{name})            -- runs: echo x; rm -rf /tmp/z
 ```
@@ -758,7 +758,7 @@ above.
 
 Pipeline with `|>` threads the left-hand string as stdin to the command:
 
-```
+```ocaml
 $(git log --oneline)
   |> $(grep "fix")
   |> $(wc -l)
@@ -770,7 +770,7 @@ form.
 
 Combined with regex:
 
-```
+```ocaml
 $(git log --oneline)
   |> String.lines
   |> List.filter (Regex.match? r/fix|bug/i)
@@ -783,7 +783,7 @@ $(git log --oneline)
 `Glob` is a type of its own, not a `Path`. It is a pattern for a set of
 files. A glob literal uses `*`, `**`, `?` or `[...]`:
 
-```
+```ocaml
 *.wand              -- Glob
 ./**/*.ml           -- Glob (relative paths need ./ prefix)
 **.wand             -- Glob (recursive, any depth)
@@ -799,14 +799,14 @@ path does. Write `./file*.txt`, not `file*.txt`. Without the prefix, `file` is
 a name and `*.txt` is a glob literal. The line then means "apply `file` to
 this glob". So wand answers:
 
-```
+```text
 'file*.txt' should be written as './file*.txt'
 ```
 
 `FS.glob` accepts a `Glob`, not a `Path`. Give it a `Path` and you get a
 type error:
 
-```
+```ocaml
 import FS
 
 FS.glob    *.wand            -- List Path, relative to cwd
@@ -827,13 +827,13 @@ does not hold. A link back into it would send the walk round in a circle.
 
 Regex literals use the `r/pattern/` syntax with optional flags `i`, `m`, `s`:
 
-```
+```ocaml
 r/\d+/          -- one or more digits
 r/foo/i         -- case-insensitive
 r/^\w+/m        -- match at start of each line
 ```
 
-```
+```ocaml
 Regex.match?      r/\d+/ "abc123"          -- true
 Regex.capture     r/(\w+)@(\w+)/ "a@b"     -- ["a@b", "a", "b"]
 Regex.replace     r/\d+/ "X" "a1b2"        -- "aXb2"
@@ -845,14 +845,14 @@ Regex.match_all   r/\d+/ "a1b22c333"       -- ["1", "22", "333"]
 `match_all` returns each match in order. The matches do not overlap. Use it
 with an alternation pattern to make a simple tokenizer:
 
-```
+```ocaml
 Regex.match_all r/[a-zA-Z_]\w*|[{}=,]|"[^"]*"|\d+/ "block{x=\"1\"}"
 -- ["block", "{", "x", "=", "\"1\"", "}"]
 ```
 
 Compile a pattern during the run, for example a pattern from the user:
 
-```
+```ocaml
 match Regex.compile pattern with
 | Ok re  -> Regex.match? re input
 | Error e -> false
@@ -866,7 +866,7 @@ An operation that can fail returns a `Result`. Its `!` sibling raises
 instead. `try` runs an expression and turns a raise back into a `Result`. So
 you choose the place where raising code becomes a value again:
 
-```
+```ocaml
 try (FS.read_file! ./config.toml)   -- Result String String
 try (1 + 1)                          -- Ok(2)
 ```
@@ -884,7 +884,7 @@ machinery that `handle` opens up.
 A signature says what a function does to the machine. It does not stop at
 what the function does to its arguments. The effects come after `!`:
 
-```
+```ocaml
 FS.read_file!   Path -> String ! {FS.Read, Raise}
 FS.exists?      Path -> Bool ! {FS.Read}
 Map.get!        String -> Map 'a -> 'a ! {Raise}
@@ -907,7 +907,7 @@ So writing a script means writing no effects at all. You read them back from
 A written type can carry effects. The printer emits four shapes, so a
 signature from `wand t` pastes back as an annotation:
 
-```
+```ocaml
 Unit -> String ! {Shell}          exactly these
 Unit -> String ! {Shell | 'e}     at least Shell, plus whatever 'e is
 'a -> 'a ! 'e                     a variable, and nothing known
@@ -922,7 +922,7 @@ wand **checks** written effects. It does not assume them. Declare fewer
 effects than the body performs, and you get a type error. An annotation cannot
 narrow what a function does:
 
-```
+```ocaml
 let f : Unit -> String ! {Shell} = fn () -> $(git status)
 -- type error: the type allows {Shell}, but the body performs Raise
 ```
@@ -955,7 +955,7 @@ head.
 
 ### They are inferred, however deep
 
-```
+```ocaml
 let fetch () = $(curl https://example.com)
 let sync ()  = fetch ()
 
@@ -971,7 +971,7 @@ a `$` in a string is text.
 This holds through a function that calls itself, and around a group of
 functions that call each other:
 
-```
+```ocaml
 let countdown n =
   if n == 0 then () else let () = IO.println "%{n}" in countdown (n - 1)
 
@@ -982,7 +982,7 @@ countdown       -- Int -> Unit ! {IO}
 
 `try` converts a raise into a `Result`, so `Raise` does not escape it:
 
-```
+```ocaml
 fn () -> $(git status)          -- Unit -> String ! {Raise, Shell}
 fn () -> try ($(git status))    -- Unit -> Result String String ! {Shell}
 ```
@@ -990,7 +990,7 @@ fn () -> try ($(git status))    -- Unit -> Result String String ! {Shell}
 This is why an operation and its `!` sibling differ by one effect. The plain
 one is `try` over the raising one:
 
-```
+```ocaml
 FS.read_file!   Path -> String ! {FS.Read, Raise}
 FS.read_file    Path -> Result String String ! {FS.Read}
 ```
@@ -998,7 +998,7 @@ FS.read_file    Path -> Result String String ! {FS.Read}
 A handler removes an effect when its cases cover **every operation that
 effect carries**:
 
-```
+```ocaml
 fn () -> handle (Proc.exit 1) with
          | Proc!exit _ k -> k 0        -- Unit -> 'a
 ```
@@ -1008,7 +1008,7 @@ left in the body can end the process.
 
 Covering some of them is not enough:
 
-```
+```ocaml
 fn () -> handle $(git push) with
          | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise, Shell}
 ```
@@ -1041,7 +1041,7 @@ intercepts nothing, and the real effect runs.
 A field can hold a function. The declaration does not say what that function
 performs, because there is nowhere to write it:
 
-```
+```ocaml
 type Action = Action (Unit -> String)
 
 let a = Action (fn () -> $(git push))
@@ -1055,7 +1055,7 @@ behaves the same way, through dot access or through a match.
 A field can take a function and pass its effects on. To say so, name the
 same variable twice. The effects of a written type are part of that type:
 
-```
+```ocaml
 type Testing 'a 'b(
   raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e),
   ...
@@ -1072,7 +1072,7 @@ field.
 A function that passes effects through carries a variable, not a fixed set.
 Write it `'e`. It ranges over effects, as `'a` ranges over types:
 
-```
+```ocaml
 List.map   ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
 ```
 
@@ -1097,7 +1097,7 @@ reading. A missing effect is a lie. An extra effect is only imprecise.
 
 A file may declare what it is allowed to do:
 
-```
+```ocaml
 uses {FS.Write, Shell}
 ```
 
@@ -1114,7 +1114,7 @@ wand checks the manifest against everything that the file defines. It does
 not check only what a run performs. A function that runs a command still runs
 it when another file imports it and calls it.
 
-```
+```console
 $ wand t --file deploy.wand
 Error: type error: 'publish' performs Shell, which the manifest does not allow.
        The manifest should be:  "uses {Shell(rsync), FS.Write}"
@@ -1128,7 +1128,7 @@ literal, the suggestion is bare `Shell`.
 
 ### Declaring more than you use is a warning
 
-```
+```text
 warning: 1:1: A-USES1: the manifest permits Shell, which this file does not
          use; it could be "uses {FS.Write}"
 ```
@@ -1139,7 +1139,7 @@ alone.
 
 ### Performing effects without saying so is a warning
 
-```
+```text
 warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
          so; it could declare "uses {Shell(rsync), FS.Write}"
 ```
@@ -1162,7 +1162,7 @@ can reach.
 Bare `Shell` says that the file runs commands. It does not say which ones.
 The manifest can narrow it to the binaries that the file may run:
 
-```
+```ocaml
 uses {Shell(git, curl), FS.Write}
 ```
 
@@ -1233,7 +1233,7 @@ The `Shell` module parses output. It runs nothing.
 tests, and at a boundary. The most useful case is a script that runs commands
 or writes files: `handle` runs it and lets it touch nothing:
 
-```
+```ocaml
 test "deploy pushes once" (fn t ->
   let outcome =
     handle deploy () with
@@ -1245,7 +1245,7 @@ A case names the operation that it intercepts. The name is the call you
 would make, with a `!` in place of the dot. You call `FS.read_file`. You
 intercept `FS!read_file`:
 
-```
+```ocaml
 | FS!read_file path k   -> k "fake contents"
 | Shell!run cmd k       -> k "mocked output"
 | Env!get name k        -> k "value"
@@ -1275,7 +1275,7 @@ A case binds two things: the argument of the operation, and a continuation
 checks both against the operation. So a case cannot read a path as a `String`,
 and it cannot resume a read with an `Int`:
 
-```
+```ocaml
 | FS!write_file (path, _) k -> path ++ "!" ++ k ()
 -- expected String, got Path
 
@@ -1289,7 +1289,7 @@ check a case against, so wand leaves these two open.
 
 A `return` case transforms the result when the body finishes normally:
 
-```
+```ocaml
 handle
   let () = FS.write_file! /etc/hosts "..." in
   "done"
@@ -1301,7 +1301,7 @@ with
 A case that answers on its own, without resuming, writes `_` for the
 continuation:
 
-```
+```ocaml
 | Shell!run _ _ -> "mocked"
 ```
 
@@ -1340,7 +1340,7 @@ control-flow form.
 You must give some things back: a temp file, a lock, a directory that you
 changed into. `with` acquires one, binds it, runs a body, and releases it:
 
-```
+```ocaml
 with FS.temp_file "build_" ".tar" as archive ->
   let () = FS.write_file! archive contents in
   publish! archive
@@ -1364,7 +1364,7 @@ around it release first.
 
 Brackets nest, and release innermost-first:
 
-```
+```ocaml
 with FS.temp_file "wand_" ".txt" as scratch ->
 with FS.temp_file "wand_" ".log" as log ->
   ...
@@ -1376,7 +1376,7 @@ with FS.temp_file "wand_" ".log" as log ->
 one and how to remove it. So you can name it, pass it to a function, and use
 it more than once. Each `with` acquires again:
 
-```
+```ocaml
 let scratch = FS.temp_file "wand_" ".txt"
 
 let first  = with scratch as p -> Path.to_string p
@@ -1386,7 +1386,7 @@ let second = with scratch as p -> Path.to_string p   -- a different file
 Build your own with `Resource.make`. Give the two halves in one place, so
 they cannot drift apart:
 
-```
+```ocaml
 import Resource
 
 let table name =
@@ -1401,7 +1401,7 @@ The effects of the acquire and the release are part of the type of the
 resource. `with` folds them into the signature around it. A body that does
 nothing still reports what it costs to hold the resource:
 
-```
+```ocaml
 let f () = with FS.temp_file "wand_" ".txt" as _ -> 1
 -- f : Unit -> Int ! {FS.Read, FS.Write, Raise}
 ```
@@ -1416,7 +1416,7 @@ the signature.
 Data from outside a script has no type: a JSON document, a config file, the
 output of a command. A `Decoder a` says how to read an `a` out of it:
 
-```
+```ocaml
 import Decode
 import JSON
 
@@ -1433,7 +1433,7 @@ decoder against several documents.
 
 ### Failure names the field
 
-```
+```text
 .items[3].metadata.name: expected String, got Int
 .spec.replicas: no such field
 ```
@@ -1444,7 +1444,7 @@ the field that was wrong, and it names that field.
 
 ### The combinators
 
-```
+```ocaml
 Decode.int  Decode.float  Decode.string  Decode.bool
 Decode.field name inner        -- read one field
 Decode.optional name inner     -- read one field that may not be there
@@ -1461,7 +1461,7 @@ Decode.one_of [a, b, ...]      -- the first that works
 `map2` covers a record with two fields. For a wider record, chain through
 `and_then`. Validation also goes there:
 
-```
+```ocaml
 let pod =
   (Decode.and_then (fn n ->
      Decode.and_then (fn r ->
@@ -1479,7 +1479,7 @@ decoder does not guess which one you meant.
 `Decode.optional` reads a field as an `Option`. A field that is absent, or
 written as null, is `None`:
 
-```
+```ocaml
 Decode.optional "restarts" Decode.int    -- Decoder (Option Int)
 
 {"restarts": 4}      -- Ok (Some 4)
@@ -1502,7 +1502,7 @@ keys are the data, as in a label map or a count for each host. Then
 `Decode.dict` reads the object into a `Map`. A failure names the key it was
 under:
 
-```
+```ocaml
 {"web-01": 3, "db-01": 12}   Decode.dict Decode.int   -- Ok (Map of 2)
 {"a": 1, "b": "x"}           Decode.dict Decode.int   -- Error .b: expected Int, got "x"
 ```
@@ -1511,13 +1511,13 @@ under:
 asks whether a field is there. Only a lookup can ask that. `nullable` asks
 whether a value is null. An element of a list raises that question:
 
-```
+```ocaml
 [1, null, 3]   Decode.list (Decode.nullable Decode.int)   -- Ok [Some 1, None, Some 3]
 ```
 
 ### Domain literals decode as themselves
 
-```
+```ocaml
 Decode.path  Decode.duration  Decode.url   Decode.size  Decode.version
 Decode.date  Decode.time      Decode.datetime  Decode.ipv4  Decode.cidr  Decode.port
 ```
@@ -1532,7 +1532,7 @@ writes `:8080`, and a document usually holds the bare number. `8080`, `"8080"`
 and `":8080"` all read. A port is 0 to 65535, so `65536` and `-1` do not. The
 failure gives the rule, not only the refusal:
 
-```
+```text
 .port: invalid port :65536: must be 0-65535
 ```
 
@@ -1547,7 +1547,7 @@ types gives the text, as a CSV cell does, or a line of output. Then
 `Decode.int` reads it as `String.to_int` reads it. So one decoder serves a
 document and the output of a command:
 
-```
+```ocaml
 {"restarts": 4}     Decode.int   -- Ok 4
 {"restarts": "4"}   Decode.int   -- Ok 4
 ```
@@ -1556,7 +1556,7 @@ The reverse never happens. `Decode.string` does not take a number and make a
 string of it. A `string` that accepts anything is the scrape that this layer
 replaces:
 
-```
+```ocaml
 {"restarts": 4}     Decode.string   -- Error .restarts: expected String, got Int
 ```
 
@@ -1565,7 +1565,7 @@ replaces:
 Each backend presents what it read in the same shape. So the combinators
 above are the whole surface. Only the source of the data changes:
 
-```
+```ocaml
 JSON.decode  : Decoder 'a -> JSON   -> Result String 'a
 TOML.decode  : Decoder 'a -> TOML   -> Result String 'a
 CSV.rows     : Decoder 'a -> String -> Result String (List 'a)
@@ -1581,7 +1581,7 @@ it gives no lines, not one empty line.
 A backend that reads one record per row, or per line, first says which
 record failed. Then it says what was wrong:
 
-```
+```text
 [2].restarts: expected Int, got "many"
 ```
 
@@ -1590,7 +1590,7 @@ record failed. Then it says what was wrong:
 A type with one constructor and named fields already says what its decoder
 does. So it has one:
 
-```
+```ocaml
 type Pod (name : String, restarts : Int, timeout : Duration)
 
 JSON.decode Pod.decoder (JSON.parse! out)   -- Result String Pod
@@ -1603,7 +1603,7 @@ step.
 A field whose type is an `Option` can be absent. Every other field must be
 there. The type already says this:
 
-```
+```ocaml
 type Job (name : String, owner : Option String)
 
 {"name": "build"}                  -- Ok (Job (name = "build", owner = None))
@@ -1612,14 +1612,14 @@ type Job (name : String, owner : Option String)
 
 Fields may hold lists, other derivable types, and the type being defined:
 
-```
+```ocaml
 type Node (label : String, children : List Node)
 ```
 
 A type with parameters takes one decoder for each parameter, in the order
 that the type declares them:
 
-```
+```ocaml
 type Paged 'a (items : List 'a, total : Int)
 
 Paged.decoder : Decoder 'a -> Decoder (Paged 'a)
@@ -1633,7 +1633,7 @@ decoder by hand for a document with nested keys, with other names, or with
 values to validate. Derivation removes the dull decoders, not the interesting
 ones. The two mix freely:
 
-```
+```ocaml
 Decode.field "items" (Decode.list Pod.decoder)
 ```
 
@@ -1651,7 +1651,7 @@ both directions follow.
 A type with more than one constructor has neither. Name one, and the error
 says which:
 
-```
+```ocaml
 type Shape = Circle Int | Rect Int Int
 Shape.decoder
 -- type 'Shape' has no derived decoder: it has more than one constructor
@@ -1662,7 +1662,7 @@ Shape.decoder
 The same type gives an encoder. It is an ordinary function, not a type of
 its own. Encoding cannot fail, so there is nothing to carry:
 
-```
+```ocaml
 Pod.encoder : Pod -> JSON
 
 JSON.stringify (Pod.encoder p)
@@ -1672,7 +1672,7 @@ JSON.of_list (List.map Pod.encoder ps)
 So a script can read a document, change one thing, and write back what it
 read:
 
-```
+```ocaml
 {"name": "api", "port": 8080, "timeout": "30s", "replicas": 2}   -- in
 {"name":"api","port":8080,"timeout":"30s","replicas":4}          -- out
 ```
@@ -1686,7 +1686,7 @@ The functions that build a decoder carry the empty effect set. So a decoder
 cannot read a file, and it cannot run a command. The caller gets the data, and
 the signature of the caller says so.
 
-```
+```ocaml
 Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
 -- type error: the parameter allows {}, but the function given performs
 --   Raise, Shell
@@ -1699,7 +1699,7 @@ Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
 A function body can state preconditions and postconditions. wand checks them
 during the run. In a postcondition, `result` is bound to the return value:
 
-```
+```ocaml
 let half n =
   requires n % 2 == 0
   ensures result * 2 == n
@@ -1708,7 +1708,7 @@ let half n =
 
 A violated contract raises, reporting the clause that failed:
 
-```
+```ocaml
 half 7   -- precondition failed: ((n % 2) == 0)
 ```
 
@@ -1725,7 +1725,7 @@ must be true. For input that you expect to be wrong, validate it and return a
 hole typechecks, and it does not run. `wand t` and `wand e` report the type
 that belongs there:
 
-```
+```console
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
@@ -1743,7 +1743,7 @@ not matter. wand collects the types of a file before it reads any of them. So
 a field can name a type from further down, and two types can name each
 other:
 
-```
+```ocaml
 type Pod  = Pod (metadata : Meta, status : Status)
 type Meta = Meta (name : String, namespace : String)
 type Status = Running | Pending
@@ -1751,7 +1751,7 @@ type Status = Running | Pending
 
 A name that nothing declares is an error. It is not a type of its own:
 
-```
+```ocaml
 type Pod = Pod (metadata : Meta, status : Statsu)
 -- type error: unknown type 'Statsu' in field 'status' of 'Pod'
 --   (did you mean 'Status'?)
@@ -1760,14 +1760,14 @@ type Pod = Pod (metadata : Meta, status : Statsu)
 A type from another module needs an import of that module. Its functions
 need the same:
 
-```
+```ocaml
 import Option
 type Slot = Slot (owner : Option String)
 ```
 
 ### Enum-style (no payload)
 
-```
+```ocaml
 type Direction = North | South | East | West
 
 let describe d = match d with
@@ -1779,7 +1779,7 @@ let describe d = match d with
 
 ### Variants with payloads
 
-```
+```ocaml
 type Shape = Circle Int | Rect Int Int
 
 let area s = match s with
@@ -1796,7 +1796,7 @@ Parentheses group a tuple. Write several arguments one after the other:
 `Rect 3 4`, not `Rect (3, 4)`. So `Some (1, 2)` is `Some` applied to one pair,
 in every file.
 
-```
+```ocaml
 type Wrap = Wrap (List Int)     -- one field, type List Int
 type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 ```
@@ -1814,7 +1814,7 @@ Node` and `owner : Option String`. Write it without parentheses. A positional
 field cannot do this: `Pair Int Int` is two fields, not one type applied to
 another.
 
-```
+```ocaml
 type Point  (x : Int, y : Int)
 type Circle (radius : Int)
 
@@ -1829,7 +1829,7 @@ c.radius   -- 5
 
 Name each field, in any order. Give every one of them:
 
-```
+```ocaml
 Point (x = 1, y = 2)
 Point (y = 2, x = 1)    -- same thing
 
@@ -1842,7 +1842,7 @@ Point (x = 1)
 A pattern can name fewer fields than the type has. Name a field to read
 it:
 
-```
+```ocaml
 let magnitude p =
   match p with
   | Point (x = a, y = b) -> a * a + b * b
@@ -1858,7 +1858,7 @@ let just_x p = match p with | Point (x = a) -> a
 
 Named fields are not limited to the single-constructor form:
 
-```
+```ocaml
 type Node = Leaf (value : Int) | Branch (left : Node, right : Node)
 ```
 
@@ -1867,13 +1867,13 @@ Construction and matching work as above. Dot access is narrower. A value of
 you can read a field only when every constructor carries it, at the same
 type.
 
-```
+```ocaml
 type Sized = Small (x : Int, u : Int) | Large (x : Int, w : Int)
 
 (Large (x = 7, w = 9)).x     -- 7, every constructor has x
 ```
 
-```
+```ocaml
 type Mixed = Counted (x : Int) | Named (y : String)
 
 let v = Named (y = "hi")
@@ -1900,7 +1900,7 @@ mismatch, so the same binding is total. A `let` reads the same way:
 A type definition can take type parameters. Write each one with a leading
 quote: `'a`, `'b`. `:t` already prints inferred polymorphic types this way:
 
-```
+```ocaml
 type Option 'a = None | Some 'a
 
 let describe o = match o with
@@ -1911,13 +1911,13 @@ let describe o = match o with
 Separate several parameters with a space. Positional constructor fields work
 the same way:
 
-```
+```ocaml
 type Pair 'a 'b = Pair 'a 'b
 ```
 
 Type variables can also appear in ordinary annotations:
 
-```
+```ocaml
 let identity : 'a -> 'a = fn x -> x
 ```
 
@@ -1925,7 +1925,7 @@ A variable there is a promise: the function works for any type. wand checks
 it as it checks the rest of the annotation. Name a variable that the body
 cannot keep, and you get a type error. This holds in both directions:
 
-```
+```ocaml
 let f : 'a -> 'a = fn x -> x + 1
 -- type error: the annotation says 'a, which stands for any type, but the
 --   body works only for Int
@@ -1943,7 +1943,7 @@ type of `Result` is a real type parameter. It is not fixed to `String`. The
 common case, `Error "message"`, still infers as `Result String T`. An error
 type of your own works the same way:
 
-```
+```ocaml
 type ParseError = UnexpectedToken String | UnexpectedEof
 
 let parse s : Result ParseError Int =
@@ -1961,7 +1961,7 @@ wand uses Hindley-Milner type inference. It infers types without an
 annotation. The type checker compares the constraints of the whole
 expression.
 
-```
+```ocaml
 let identity x = x
 identity 42        -- inferred: Int -> Int at this call
 identity "hello"   -- inferred: String -> String at this call
@@ -1969,14 +1969,14 @@ identity "hello"   -- inferred: String -> String at this call
 
 The type checker catches mismatches:
 
-```
+```ocaml
 let add x y = x + y
 add 1 "hello"      -- Error: expected Int, got String
 ```
 
 Types flow through pipelines:
 
-```
+```ocaml
 let double x = x * 2
 [1, 2, 3] |> List.map double
 -- List.map inferred as (Int -> Int) -> List Int -> List Int
@@ -1984,7 +1984,7 @@ let double x = x * 2
 
 Recursive types are inferred:
 
-```
+```ocaml
 let length []      = 0
 let length [_ : t] = 1 + length t
 -- inferred: List 'a -> Int
@@ -1992,7 +1992,7 @@ let length [_ : t] = 1 + length t
 
 Constructor types are checked at construction and match sites:
 
-```
+```ocaml
 type Wrap = Wrap Int
 
 Wrap 42        -- ok
@@ -2008,7 +2008,7 @@ match Wrap 42 with
 
 You can write any type that the checker infers or prints:
 
-```
+```ocaml
 let x : Int = 42
 
 let xs : List Int = [1, 2, 3]
@@ -2021,7 +2021,7 @@ let f : Int -> Int = fn x -> x + 1
 Grouping and nesting work the same way in an annotation as in a printed
 type:
 
-```
+```ocaml
 let g : (Int -> Int) -> Int = fn f -> f 1        -- parens needed for left-nesting
 let m : Map (List Int) = {a = [1, 2], b = [3]}   -- parens needed for a compound argument
 ```
@@ -2036,7 +2036,7 @@ printed.
 
 A parameter can carry its type, in parentheses:
 
-```
+```ocaml
 let describe (p: Pod) = p.name
 
 let f = fn (p: Pod) -> p.status.restarts
@@ -2048,7 +2048,7 @@ This is what lets a function read a field off a parameter. Dot access needs
 a named type. wand generalizes a definition before it sees any call, so the
 type has to come from the definition, and there was nowhere to write it:
 
-```
+```ocaml
 let describe p = p.name
 -- type error: field access requires a named type, got 'a
 ```
@@ -2057,7 +2057,7 @@ The annotation works in each place a pattern does: a `let`, a `fn`, an arm
 of a `match`, and a `with ... as`. It also composes with the return
 annotation:
 
-```
+```ocaml
 let describe (p: Pod) : String = p.name
 ```
 
@@ -2068,7 +2068,7 @@ contradicts the annotation is a type error, and so is a call that does.
 
 A type variable is refused here:
 
-```
+```ocaml
 let f (x: 'a) = x
 -- type error: a type variable in a pattern is not shared with the other
 --   patterns, so it cannot say what it looks like it says. Write the type
@@ -2082,7 +2082,7 @@ two variables, and the reader would have been promised one.
 
 `:` means three things, and position decides which:
 
-```
+```ocaml
 let port : Port = :8080     -- annotation, then a port literal
 let xs = 1 : [2, 3]         -- cons
 ```
@@ -2104,7 +2104,7 @@ let xs = 1 : [2, 3]         -- cons
 
 ### Standard library modules
 
-```
+```ocaml
 import List
 import String
 import FS
@@ -2120,7 +2120,7 @@ stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 
 Imported names are available under the module prefix:
 
-```
+```ocaml
 import List
 
 List.map    (fn x -> x * 2) [1, 2, 3]    -- [2, 4, 6]
@@ -2132,7 +2132,7 @@ List.length [1, 2, 3]                     -- 3
 
 Bind a user module to a name:
 
-```
+```ocaml
 let utils   = import ./utils
 let Helpers = import ./lib/helpers    -- capitalisation is convention, not enforced
 ```
@@ -2142,7 +2142,7 @@ same.
 
 Access members via dot notation:
 
-```
+```ocaml
 let utils = import ./utils
 
 utils.my_function 42
@@ -2153,7 +2153,7 @@ utils.greeting
 
 Import specific names from a module by naming them in braces:
 
-```
+```ocaml
 let {foo = bar}            = import ./utils   -- bind utils.foo as bar
 let {foo = a, bar = b}     = import ./utils   -- and utils.bar as b
 ```
@@ -2164,7 +2164,7 @@ is the name it has here.
 Or bind each name under its own name. A map pattern has the same
 shorthand:
 
-```
+```ocaml
 let {foo, bar} = import ./utils         -- bind foo and bar
 ```
 
@@ -2176,7 +2176,7 @@ way.
 Brackets destructure a list. Braces destructure a map or a module. What they
 match on differs in each case, and the value on the right decides:
 
-```
+```ocaml
 let [a, b]      = [10, 20]         -- a list: by position
 let {x = a}     = m                -- a map: by key
 let {map}       = import List      -- a module: by name
@@ -2188,7 +2188,7 @@ changes. Swap two names in a list pattern, and the bindings swap with them.
 Swap them in a module pattern, and nothing moves. There is no order to
 follow:
 
-```
+```ocaml
 let {filter, map} = import List
 map (fn x -> x * 2) [1, 2]     -- [2, 4] — still List.map
 ```
@@ -2199,7 +2199,7 @@ there.
 
 ### Stdlib bound to custom name
 
-```
+```ocaml
 let L = import List
 L.length [1, 2, 3]    -- 3
 ```
@@ -2208,13 +2208,13 @@ L.length [1, 2, 3]    -- 3
 
 Names beginning with `_` are private — they cannot be accessed from outside the module:
 
-```
+```ocaml
 -- utils.wand
 let _helper x = x * 2      -- private
 let double x = _helper x    -- public, calls private helper
 ```
 
-```
+```ocaml
 let utils = import ./utils
 utils.double 5       -- 10
 utils._helper 5      -- type error: _helper not found in module
@@ -2232,7 +2232,7 @@ write the name.
 
 ### `List`
 
-```
+```ocaml
 map        : ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
 filter     : ('a -> Bool ! 'e) -> List 'a -> List 'a ! 'e
 fold_left  : ('a -> 'b -> 'a ! 'e) -> 'a -> List 'b -> 'a ! 'e
@@ -2270,14 +2270,14 @@ it for effects. wand drops what the function returns. So a command that you run
 for its effect needs nothing around it, and `$()` gives back stdout whether the
 command wrote any or not. Use `indexed` when you want the position:
 
-```
+```ocaml
 files |> List.each (fn p -> FS.copy! p (Path.join dest (Path.basename p)))
 files |> List.indexed |> List.each (fn (i, p) -> IO.println "%{i}: %{p}")
 ```
 
 ### `String`
 
-```
+```ocaml
 length       : String -> Int
 empty?       : String -> Bool
 upper        : String -> String
@@ -2317,7 +2317,7 @@ to_duration  : String -> Result String Duration
 Each one reads the value as a script writes it. Each one returns a `Result`
 that names the rule the text broke:
 
-```
+```ocaml
 String.to_duration "30s"      -- Ok 30s
 String.to_ipv4 "256.0.0.1"    -- Error (invalid IPv4 address: each octet must be 0–255)
 String.to_port ":99999"       -- Error (invalid port :99999: must be 0-65535)
@@ -2329,7 +2329,7 @@ accepts both for the same reason.
 
 ### `Regex`
 
-```
+```ocaml
 compile     : String -> Result String Regex
 match?      : Regex -> String -> Bool
 capture     : Regex -> String -> List String
@@ -2341,7 +2341,7 @@ match_all   : Regex -> String -> List String
 
 ### `Map`
 
-```
+```ocaml
 empty     : Map 'a
 get       : String -> Map 'a -> Option 'a
 get!      : String -> Map 'a -> 'a ! {Raise}
@@ -2363,7 +2363,7 @@ filter    : ('a -> Bool) -> Map 'a -> Map 'a
 Each operation that can fail comes as a pair. The plain name returns a
 `Result`. The `!` sibling raises. Each one names its file with a `Path`.
 
-```
+```ocaml
 read_file    : Path -> Result String String ! {FS.Read}
 write_file   : Path -> String -> Result String Unit ! {FS.Write}
 append       : Path -> String -> Result String Unit ! {FS.Write}
@@ -2380,7 +2380,7 @@ stream_lines : Path -> Stream {FS.Read, Raise | ..} String
 
 The `!` siblings return the value and carry `Raise`:
 
-```
+```ocaml
 read_file!   : Path -> String ! {FS.Read, Raise}
 write_file!  : Path -> String -> Unit ! {FS.Write, Raise}
 append!      : Path -> String -> Unit ! {FS.Write, Raise}
@@ -2396,7 +2396,7 @@ size!        : Path -> Int ! {FS.Read, Raise}
 
 Questions and lookups cannot fail, so they have no pair:
 
-```
+```ocaml
 exists?      : Path -> Bool ! {FS.Read}
 file?        : Path -> Bool ! {FS.Read}
 dir?         : Path -> Bool ! {FS.Read}
@@ -2405,7 +2405,7 @@ glob         : Glob -> List Path ! {FS.Read}
 glob_in      : Glob -> Path -> List Path ! {FS.Read}
 ```
 
-```
+```ocaml
 temp_file    : String -> String -> Resource {FS.Read, FS.Write, Raise | ..} Path
 temp_dir     : String -> Resource {FS.Read, FS.Write, Raise | ..} Path
 ```
@@ -2413,7 +2413,7 @@ temp_dir     : String -> Resource {FS.Read, FS.Write, Raise | ..} Path
 `temp_file prefix suffix` is a resource rather than a plain call, so the
 file it creates is removed when the bracket holding it ends:
 
-```
+```ocaml
 with FS.temp_file "wand_" ".txt" as p ->
   FS.write_file! p contents
 ```
@@ -2425,7 +2425,7 @@ cleanup still succeeds.
 `temp_dir prefix` is the same for a directory, and removes it with
 everything in it:
 
-```
+```ocaml
 with FS.temp_dir "build_" as dir ->
   ...
 ```
@@ -2441,7 +2441,7 @@ had.
 
 ### `Resource`
 
-```
+```ocaml
 make : (Unit -> 'a ! 'e) -> ('a -> Unit ! 'e) -> Resource {..} 'a
 ```
 
@@ -2450,7 +2450,7 @@ A resource pairs an acquire with a release. Only `with` runs one. See
 
 ### `Path`
 
-```
+```ocaml
 join           : Path -> Path -> Path
 parent         : Path -> Path
 basename       : Path -> Path
@@ -2468,7 +2468,7 @@ components     : Path -> List String
 `basename` returns a `Path`, as `parent` and `dirname` do. A basename is a
 relative path of one segment. You usually join it onto a directory next:
 
-```
+```ocaml
 FS.copy! p (Path.join dest (Path.basename p))
 ```
 
@@ -2478,7 +2478,7 @@ what you want.
 
 ### `IO`
 
-```
+```ocaml
 print       : 'a -> Unit ! {IO}
 println     : 'a -> Unit ! {IO}
 print_err   : String -> Unit ! {IO}
@@ -2493,7 +2493,7 @@ stdin_lines : Unit -> Stream {IO, Raise | ..} String
 
 ### `Stream`
 
-```
+```ocaml
 of_list   : List 'a -> Stream {..} 'a
 map       : ('a -> 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
 filter    : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
@@ -2510,7 +2510,7 @@ through the stages, and closes the source on the way out, however the run
 ends. A stream describes, as a `Resource` does. It is never the open thing. So
 you can name it, pass it, send it to `Par`, and fold it twice.
 
-```
+```ocaml
 FS.stream_lines /var/log/app.log
 |> Stream.filter (fn l -> String.contains? "ERROR" l)
 |> Stream.fold_left (fn n _ -> n + 1) 0
@@ -2537,11 +2537,11 @@ with `lines`. Any other path streams as empty.
 
 ### `Proc`
 
-```
+```ocaml
 exit : Int -> 'a ! {Proc}
 ```
 
-```
+```ocaml
 Proc.exit : Int -> 'a ! {Proc}
 ```
 
@@ -2549,13 +2549,13 @@ Ends the program with the code you give. On the way out it runs the cleanup
 of each `with` that still holds something. Its result type is whatever the
 caller needs, because nothing follows it:
 
-```
+```ocaml
 if broken? then Proc.exit 1 else continue! ()
 ```
 
 ### `Env`
 
-```
+```ocaml
 get   : String -> Option String ! {Env}
 get!  : String -> String ! {Env, Raise}
 set   : String -> String -> Unit ! {Env}
@@ -2576,7 +2576,7 @@ load! : Path -> Unit ! {Env, FS.Read, Raise}
 
 ### `CSV`
 
-```
+```ocaml
 parse          : String -> List (List String)
 parse_with     : String -> String -> List (List String)
 stringify      : List (List String) -> String
@@ -2591,7 +2591,7 @@ carry quotes, written `""`. Double a quote inside one: `"say ""hi"""`.
 `read_file` returns `Result String (List (List String))`. `read_file!`
 raises.
 
-```
+```ocaml
 import CSV
 
 let rows = CSV.parse "name,age\nAlice,30"
@@ -2609,7 +2609,7 @@ match CSV.read_file ./data.csv with
 
 ### `JSON`
 
-```
+```ocaml
 parse            : String -> Result String JSON
 parse!           : String -> JSON ! {Raise}
 stringify        : JSON -> String
@@ -2644,7 +2644,7 @@ the `Map` holds them, which keeps a diff small. A `Map` cannot hold a key
 twice, so wand writes it once, at its first position. That is the value that
 `Map.get` finds. Parsers disagree about a document that names a key twice.
 
-```
+```ocaml
 import JSON
 
 let j = JSON.parse! "{\"name\":\"Alice\",\"age\":30}"
@@ -2667,7 +2667,7 @@ match JSON.read_file ./config.json with
 
 ### `TOML`
 
-```
+```ocaml
 parse      : String -> Result String TOML
 parse!     : String -> TOML ! {Raise}
 stringify  : TOML -> String
@@ -2690,7 +2690,7 @@ decode     : Decoder 'a -> TOML -> Result String 'a
 float, a bool or an array. The top-level parse always gives a table. Each typed
 extractor returns a `Result`. `field` and `field!` walk the keys.
 
-```
+```ocaml
 import TOML
 
 let cfg = TOML.parse! "[server]\nhost = \"localhost\"\nport = 8080\n"
@@ -2712,7 +2712,7 @@ match TOML.read_file ./config.toml with
 
 ### `Float`
 
-```
+```ocaml
 of_int : Int -> Float
 round  : Float -> Int
 floor  : Float -> Int
@@ -2724,7 +2724,7 @@ These functions cross between the two members of `Num`. Arithmetic never
 converts for you. `1.5 + 1` is a type error, and it names these functions. So
 you always write the crossing:
 
-```
+```ocaml
 import Float
 
 Float.of_int 3          -- 3 : Float
@@ -2740,7 +2740,7 @@ of a document.
 
 ### `Duration`
 
-```
+```ocaml
 zero    : Duration
 seconds : Int -> Duration
 minutes : Int -> Duration
@@ -2756,14 +2756,14 @@ to_ms   : Duration -> Int
 
 ### `Par`
 
-```
+```ocaml
 map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
 each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
 ```
 
 Fork-join parallelism, and nothing else:
 
-```
+```ocaml
 Par.map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
 Par.each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
 ```
@@ -2775,7 +2775,7 @@ results come back in the order of the list, not in the order they finished. An
 element whose work raises comes back as an `Error` in its place. It does not
 fail the others.
 
-```
+```ocaml
 Par.map 4 (fn x -> x * 2) [1, 2, 3]        -- [Ok 2, Ok 4, Ok 6]
 Par.map 4 (fn m -> Map.get! "k" m) [{k = 1}, Map.empty]
                                            -- [Ok 1, Error "map key not found: k"]
@@ -2796,20 +2796,20 @@ nothing rehearses for speed.
 
 ### `Shell`
 
-```
+```ocaml
 decode : Decoder 'a -> String -> Result String 'a
 lines  : Decoder 'a -> String -> Result String (List 'a)
 ```
 
 Reading what a command wrote. See [Decoders](#decoders).
 
-```
+```ocaml
 let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 ```
 
 ### `Decode`
 
-```
+```ocaml
 int      : Decoder Int
 float    : Decoder Float
 string   : Decoder String
@@ -2840,7 +2840,7 @@ port     : Decoder Port
 
 `Decoder a` is an opaque type. Running a decoder is a backend's job:
 
-```
+```ocaml
 JSON.decode : Decoder 'a -> JSON -> Result String 'a
 TOML.decode : Decoder 'a -> TOML -> Result String 'a
 Args.parse  : Decoder 'a -> List String -> Result String 'a
@@ -2850,7 +2850,7 @@ See [Decoders](#decoders).
 
 ### `Args`
 
-```
+```ocaml
 parse      : Decoder 'a -> List String -> Result String 'a
 parse_with : List String -> Decoder 'a -> List String -> Result String 'a
 ```
@@ -2860,7 +2860,7 @@ as the others: argv becomes a document, and a decoder reads it. There are no
 combinators here. Every combinator in `Decode` already applies, including the
 domain readers and the error that names the field.
 
-```
+```ocaml
 type Opts (port : Port, timeout : Duration, config : Path)
 
 Args.parse Opts.decoder (Env.args ())
@@ -2874,7 +2874,7 @@ list of strings cannot show this one fact. Without the assumption,
 `--message -5` and a flag with a positional argument after it have the same
 shape. Name the flags that take no value:
 
-```
+```ocaml
 Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
@@ -2885,7 +2885,7 @@ is an error: `--config expects a value`.
 Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
 There are no short flags. A positional argument arrives under `_`:
 
-```
+```ocaml
 Args.parse (Decode.field "_" (Decode.list Decode.string)) (Env.args ())
 ```
 
@@ -2894,7 +2894,7 @@ the front. bash has `$0` and C has `argv[0]`; wand has neither.
 
 ### `Test`
 
-```
+```ocaml
 test           : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
 group          : String -> (Unit -> List TestOutcome ! 'e) -> TestOutcome ! 'e
 with_shell     : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
@@ -2911,7 +2911,7 @@ The module a test file imports. See [Testing](#testing).
 
 ### `Option`
 
-```
+```ocaml
 some?     : Option 'a -> Bool
 none?     : Option 'a -> Bool
 map       : ('a -> 'b ! 'e) -> Option 'a -> Option 'b ! 'e
@@ -2929,7 +2929,7 @@ to_result : 'a -> Option 'b -> Result 'a 'b
 ran and can have failed, and it carries the reason. The two do not mix. Pipe
 one into something that expects the other, and you get a type error.
 
-```
+```ocaml
 Map.get "k" m |> unwrap        -- Result 'a Int and Option Int are not
                                --   the same type
 ```
@@ -2937,7 +2937,7 @@ Map.get "k" m |> unwrap        -- Result 'a Int and Option Int are not
 `Option.to_result` is the bridge. Write it where a script decides that
 absence now counts as a failure:
 
-```
+```ocaml
 Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
 ```
 
@@ -2948,7 +2948,7 @@ Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
 The `Test` module gives each test a handle, `t`. It carries `ok`, `eq` and
 `raises`:
 
-```
+```ocaml
 let {test} = import Test
 
 test "add" (fn t -> t.eq 4 (2 + 2))
@@ -2996,7 +2996,7 @@ argument of an application.
 
 `group` runs child tests that share a label and whatever its body binds:
 
-```
+```ocaml
 let {test, group} = import Test
 
 group "the report" (fn () ->
@@ -3034,7 +3034,7 @@ child. Its siblings still run.
 
 Run test files with `wand s`:
 
-```
+```sh
 wand s                       # every test_*.wand at or below the current directory
 wand s scripts/              # every test_*.wand under scripts/
 wand s test_deploy.wand      # just this one
@@ -3061,7 +3061,7 @@ The risky part of a script is what reaches outside it. A handler can stand
 in for exactly that. `Test` covers the common cases, so a test does not write
 a handler by hand:
 
-```
+```ocaml
 Test.with_shell [(fragment, output), ...] thunk   -- answer commands from a table
 Test.shell_calls thunk                            -- the commands it would run
 Test.without_writes thunk                         -- swallow writes, keep the result
@@ -3070,7 +3070,7 @@ Test.writes thunk                                 -- the paths it would write
 
 Given a deploy that pushes and rewrites a config:
 
-```
+```ocaml
 let deploy () =
   let version = $(git describe --tags) in
   let () = FS.write_file! /etc/app/config.toml "version = \"%{version}\"\n" in
@@ -3080,7 +3080,7 @@ let deploy () =
 
 Handlers compose, so a script touching two families needs both, nested:
 
-```
+```ocaml
 let sealed thunk =
   Test.with_shell [("git describe", "v2.1.0")] (fn () -> Test.without_writes thunk)
 
@@ -3104,14 +3104,14 @@ The last line is the point. The script ran, and nothing happened.
 
 Line comments run to the end of the line:
 
-```
+```ocaml
 -- this is a comment
 let x = 1     -- so is this
 ```
 
 Block comments, nestable:
 
-```
+```ocaml
 (* this is a comment *)
 
 (*
@@ -3168,7 +3168,7 @@ writes it and reads it. A script does not have to.
 
 ### Running scripts
 
-```
+```sh
 wand script.wand          # run a script
 wand script.wand arg1     # pass arguments (available via Env.args)
 wand script.wand -- arg1  # everything after -- is the script's, whatever it looks like
@@ -3181,12 +3181,12 @@ real and hands the flag on.
 
 A script can also run itself, with a shebang line and the executable bit:
 
-```
+```ocaml
 #!/usr/bin/env wand
 println "hello"
 ```
 
-```
+```sh
 chmod +x deploy.wand
 ./deploy.wand
 ```
@@ -3205,7 +3205,7 @@ leave each hash correct and each cached type wrong. You never clear the cache,
 and there is no timestamp to be wrong about. An entry that wand cannot read is
 a miss, not an error.
 
-```
+```sh
 WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
 ```
 
@@ -3242,14 +3242,14 @@ nearly always comes from a shell that interpolated something empty.
 
 ### Interactive session
 
-```
+```sh
 wand i                    # start session
 wand i --load utils.wand  # start with a file preloaded
 ```
 
 Inside the session:
 
-```
+```text
 >> 1 + 2
 3 : Int
 
@@ -3293,7 +3293,7 @@ History is saved to `~/.wand_history` between sessions.
 
 ### One-shot commands
 
-```
+```sh
 wand d "List.map"                     # show doc string
 wand d --json "List.map"              # the same, as JSON for tools
 wand e "1 + 2"                        # evaluate and print result
@@ -3343,7 +3343,7 @@ punish the safer choice.
 
 `V-DROP1` catches a bug, not a habit:
 
-```
+```ocaml
 FS.write_file /etc/app.toml config      -- the Result goes nowhere
 IO.println "deployed"                   -- and this prints either way
 ```
@@ -3358,7 +3358,7 @@ run for its effect looks like.
 `V-DROP2` is the same mistake with a worse end. A test block answers with one
 outcome. So a sequence of assertions discards each one but the last:
 
-```
+```ocaml
 test "parses" (fn t -> (t.eq 1 got_a; t.eq 2 got_b))
 ```
 
@@ -3366,7 +3366,7 @@ wand throws `t.eq 1 got_a` away, and the test reports a pass however that
 first assertion went. Return the one outcome that the block answers with. Or
 give each assertion its own `test`, and share the setup with `group`:
 
-```
+```ocaml
 group "parses" (fn () -> let doc = parse! source in [
   test "a" (fn t -> t.eq 1 (field_a doc)),
   test "b" (fn t -> t.eq 2 (field_b doc))
@@ -3377,7 +3377,7 @@ group "parses" (fn () -> let doc = parse! source in [
 that it does not have. A run that discards its assertions cannot answer the
 question you asked.
 
-```
+```sh
 wand t --strict "..."             # violations become errors (exit 1)
 wand t --json "..."               # diagnostics as JSON, for tools
 wand t --fix --file script.wand   # apply the fixes the findings carry
