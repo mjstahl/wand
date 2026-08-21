@@ -1263,16 +1263,16 @@ A name that is not an operation is a type error, with the nearest real one
 suggested. A mistyped case would otherwise intercept nothing, and the effect
 it was written to hold back would run for real.
 
-Intercepting an operation is not the same as removing its effect from the
-signature: the mock above still reports `Shell`, because `Shell!run_quiet`,
-`Shell!capture` and `Shell!exit_code` are not covered and would reach the
-real shell. [`try` and `handle` take effects away](#try-and-handle-take-effects-away)
-says what a handler has to cover to drop the effect.
+To intercept an operation is not to remove its effect from the signature.
+The mock above still reports `Shell`. It does not cover `Shell!run_quiet`,
+`Shell!capture` or `Shell!exit_code`, and those three would reach the real
+shell. [`try` and `handle` take effects away](#try-and-handle-take-effects-away)
+says what a handler must cover to drop an effect.
 
-A case binds the operation's argument and a continuation
-(`k`) that resumes the intercepted code with a value you supply. Both are
-checked against the operation, so a case cannot read a path as a `String` or
-resume a read with an `Int`:
+A case binds two things: the argument of the operation, and a continuation
+`k`. Call `k` with a value, and the intercepted code continues with it. wand
+checks both against the operation. So a case cannot read a path as a `String`,
+and it cannot resume a read with an `Int`:
 
 ```
 | FS!write_file (path, _) k -> path ++ "!" ++ k ()
@@ -1282,9 +1282,9 @@ resume a read with an `Int`:
 -- cannot unify String with Int
 ```
 
-`Shell!run` and `Shell!capture` are the exception. Each carries either a
-command, or a command and the stdin threaded into it, so there is no single
-payload type to check a case against and theirs are left open.
+`Shell!run` and `Shell!capture` are the exception. Each one carries a
+command, or a command and the stdin for it. There is no single payload type to
+check a case against, so wand leaves these two open.
 
 A `return` case transforms the result when the body finishes normally:
 
@@ -1304,13 +1304,13 @@ continuation:
 | Shell!run _ _ -> "mocked"
 ```
 
-The intercepted code stops there, and whatever it was holding is released —
-a `with` inside it runs its cleanup on the way out, so a mock cannot leak
-the resources of the code it stands in for.
+The intercepted code stops there, and it gives back what it holds. A `with`
+inside it releases on the way out. So a mock cannot leak the resources of the
+code that it replaces.
 
-The interceptable operations are the builtins that touch the outside world.
-Each is named `Family!verb`, and the family is the same one that appears in
-an effect set:
+The operations you can intercept are the builtins that touch the world
+outside. Each name has the form `Family!verb`. The family is the one that
+appears in an effect set:
 
 | Family | Operations |
 |---|---|
@@ -1320,23 +1320,23 @@ an effect set:
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
 
-Typing `FS!` in an editor lists them with what each carries and what
-performs it — the editor reads the same table the typechecker does.
-`Shell!run_quiet` and `Shell!exit_code` are the two nothing performs: a
-case for either is legal and will never fire.
+Type `FS!` in an editor, and it lists them. Each entry says what the
+operation carries and what performs it. The editor reads the table that the
+typechecker reads. Nothing performs `Shell!run_quiet` or `Shell!exit_code`. A
+case for either one is legal, and it never fires.
 
-There is no `perform` keyword — a script cannot define its own effect
-operations, only intercept the built-in ones.
+There is no `perform` keyword. A script cannot define an effect operation.
+It can only intercept a built-in one.
 
-Use `handle` to intercept at a boundary — mocking in tests, auditing what a
-third-party module attempts, retrying. Error handling belongs to `try` and
-`Result`; `handle` is not a control-flow construct.
+Use `handle` at a boundary: to mock in a test, to audit what another module
+attempts, or to retry. `try` and `Result` handle errors. `handle` is not a
+control-flow form.
 
 ---
 
 ## Resource brackets
 
-Some things have to be given back: a temp file, a lock, a directory you
+You must give some things back: a temp file, a lock, a directory that you
 changed into. `with` acquires one, binds it, runs a body, and releases it:
 
 ```
@@ -1345,20 +1345,21 @@ with FS.temp_file "build_" ".tar" as archive ->
   publish! archive
 ```
 
-**A `with` always releases, however the script ends** — returning, raising,
-`Proc.exit`, a handler that answers without resuming, Ctrl-C, or a `kill`.
-There
-is no `defer`, no `trap`, and nothing to remember at each exit.
+**A `with` always releases, however the script ends.** The script can
+return, raise, call `Proc.exit`, meet a handler that answers without resuming,
+take Ctrl-C, or take a `kill`. There is no `defer`, no `trap`, and nothing to
+remember at each exit.
 
-The one exception is a process that is destroyed rather than stopped:
-`kill -9` and a machine losing power take the program away without giving it
-the chance to run anything. Nothing can cover that.
+There is one exception: a process that is destroyed, not stopped. `kill -9`
+and a power loss take the program away. It runs nothing on the way out.
+Nothing can cover that.
 
-`Proc.exit n` still exits with `n` — it releases first, then stops. An interrupt
-exits 130, a `kill` exits 143, and a reader that closed the script's output —
-`wand report.wand | head -3` — ends it with 141, as a shell reports them, so
-nothing downstream has to learn a wand-specific code. A closed reader stops the
-script the way the other two do: the brackets it is inside release first.
+`Proc.exit n` still exits with `n`. It releases first, then stops. An
+interrupt exits 130. A `kill` exits 143. A reader that closes the output of
+the script, as in `wand report.wand | head -3`, ends it with 141. A shell
+reports the same codes, so nothing downstream learns a code that only wand
+uses. A closed reader stops the script as the other two do. The brackets
+around it release first.
 
 Brackets nest, and release innermost-first:
 
@@ -1370,9 +1371,9 @@ with FS.temp_file "wand_" ".log" as log ->
 
 ### A resource is a description
 
-`FS.temp_file "wand_" ".txt"` does not create a file. It describes how to
-create one and how to remove it, so it can be named, passed to a function,
-and used more than once — each `with` acquires again:
+`FS.temp_file "wand_" ".txt"` creates no file. It describes how to create
+one and how to remove it. So you can name it, pass it to a function, and use
+it more than once. Each `with` acquires again:
 
 ```
 let scratch = FS.temp_file "wand_" ".txt"
@@ -1381,7 +1382,7 @@ let first  = with scratch as p -> Path.to_string p
 let second = with scratch as p -> Path.to_string p   -- a different file
 ```
 
-Build your own with `Resource.make`, giving the two halves in one place so
+Build your own with `Resource.make`. Give the two halves in one place, so
 they cannot drift apart:
 
 ```
@@ -1395,25 +1396,24 @@ let table name =
 
 ### A bracket does not hide what it costs
 
-The effects of acquiring and releasing are part of the resource's type, and
-`with` folds them into the enclosing signature. A body that does nothing
-still reports what holding the resource does:
+The effects of the acquire and the release are part of the type of the
+resource. `with` folds them into the signature around it. A body that does
+nothing still reports what it costs to hold the resource:
 
 ```
 let f () = with FS.temp_file "wand_" ".txt" as _ -> 1
 -- f : Unit -> Int ! {FS.Read, FS.Write, Raise}
 ```
 
-A bracket guarantees the release runs. It does not make the file disappear
-from the signature.
+A bracket makes sure that the release runs. It does not hide the file from
+the signature.
 
 ---
 
 ## Decoders
 
-Data that arrives from outside a script — a JSON document, a config file, a
-command's output — arrives untyped. A `Decoder a` says how to read an `a` out
-of it:
+Data from outside a script has no type: a JSON document, a config file, the
+output of a command. A `Decoder a` says how to read an `a` out of it:
 
 ```
 import Decode
