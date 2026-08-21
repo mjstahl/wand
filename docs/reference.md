@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2982,6 +2982,22 @@ renders a duration. A byte count below zero reads as `0B`.
 
 [`FS.size`](#fs) answers a `Size`, in bytes, so a threshold is the literal
 it is: `FS.size! p < 4KB`.
+
+### `Port`
+
+```ocaml
+to_int : Port -> Int
+of_int : Int -> Result String Port
+```
+
+The colon is the literal's punctuation and stays in every string a port
+makes, so `"host%{:8080}"` is `"host:8080"` — the address. Use `to_int`
+where a command wants the number as an argument of its own, as in
+`$(nc -z localhost %{Port.to_int port})`.
+
+`of_int` refuses a number that is not a port. A port is 0 to 65535, and
+70000 is a mistake rather than a maximum, so it answers an `Error` where
+[`Size.of_bytes`](#size) clamps.
 
 ### `Par`
 

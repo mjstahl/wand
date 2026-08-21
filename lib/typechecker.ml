@@ -9,7 +9,7 @@ open Ast
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
-    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size" ]
+    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -2513,6 +2513,8 @@ let stdlib_type_env : env = [
   ("str_to_url",       generalize [] ((TString @-> TResult (TString, TUrl))));
   ("str_to_ipv4",      generalize [] ((TString @-> TResult (TString, TIPv4))));
   ("str_to_cidr",      generalize [] ((TString @-> TResult (TString, TCIDR))));
+  ("port_to_int",      generalize [] ((TPort @-> TInt)));
+  ("port_of_int",      generalize [] ((TInt @-> TResult (TString, TPort))));
   ("str_to_port",      generalize [] ((TString @-> TResult (TString, TPort))));
   ("str_to_version",   generalize [] ((TString @-> TResult (TString, TVersion))));
   ("str_to_size",      generalize [] ((TString @-> TResult (TString, TSize))));

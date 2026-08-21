@@ -2230,6 +2230,19 @@ let stdlib_eval_env : env = [
      is what an environment variable, a config file or a flag holds. A caller
      that has just read one should not have to add a colon to it, and
      `Decode.port` accepts both for the same reason. *)
+  (* Port primitives. The colon is the literal's punctuation and stays in
+     every string a port makes -- `"host%{:8080}"` is `host:8080`, which is
+     the address anyone wants. The number is what a command wants for an
+     argument of its own, and this is where it comes from. *)
+  ("port_to_int", VBuiltin (function
+    | VPort n -> VInt n
+    | _ -> raise (EvalError "port_to_int: expected Port")));
+  ("port_of_int", VBuiltin (function
+    | VInt n ->
+      if n >= 0 && n <= 65535 then VConstr ("Ok", [VPort n])
+      else VConstr ("Error", [VString
+        (Printf.sprintf "invalid port %d: must be 0-65535" n)])
+    | _ -> raise (EvalError "port_of_int: expected Int")));
   ("str_to_port", VBuiltin (function
     | VString s ->
       to_domain ~shown:s "Port"

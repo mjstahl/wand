@@ -1,0 +1,32 @@
+import Port
+import String
+
+let {test} = import Test
+
+(* ── the number ───────────────────────────────────────────────────────── *)
+
+test "to_int drops the colon" (fn t -> t.eq 8080 (Port.to_int :8080))
+test "and the low ports" (fn t -> t.eq 80 (Port.to_int :80))
+test "of_int gives a port back" (fn t -> t.eq (Ok :8080) (Port.of_int 8080))
+test "of_int round-trips" (fn t ->
+  match Port.of_int 8080 with
+  | Ok p -> t.eq 8080 (Port.to_int p)
+  | Error _ -> t.ok false)
+
+(* ── what is not a port ───────────────────────────────────────────────── *)
+
+test "above the range" (fn t ->
+  match Port.of_int 70000 with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "0-65535" e))
+test "below it" (fn t ->
+  match Port.of_int (0 - 1) with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "0-65535" e))
+test "the ends of the range are ports" (fn t ->
+  t.eq (Ok :0, Ok :65535) (Port.of_int 0, Port.of_int 65535))
+
+(* ── the string form is the address, and is unchanged ─────────────────── *)
+
+test "a port carries its colon into a string" (fn t -> t.eq "host:8080" "host%{:8080}")
+test "and the number does not" (fn t -> t.eq "8080" "%{Port.to_int :8080}")

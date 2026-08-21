@@ -1,0 +1,11 @@
+(** The port number, without the colon: Port.to_int :8080 is 8080.
+    
+    The colon is the literal's punctuation, and it stays in every string a
+    port makes -- `"host%{:8080}"` is "host:8080", which is the address. A
+    command that takes the port as an argument of its own wants the
+    number, and this is where it comes from. *)
+let to_int p = port_to_int p
+
+(** The port with that number, or an error if it is not one: a port is
+    0 to 65535. *)
+let of_int n = port_of_int n
