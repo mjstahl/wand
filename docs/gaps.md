@@ -74,6 +74,19 @@ have to change before anyone builds them.
 
 ## The language
 
+**A bare `None` takes the next argument.** A constructor in an argument
+list is parsed with its arguments, and a nullary one takes an argument it
+cannot hold: `t.eq None (usage row)` reads as `t.eq (None (usage row))`,
+and the error talks about the application rather than saying that `None`
+holds nothing. `(None)` or `Option.none?` is the way round it. Found by
+porting.
+
+**A file cannot be imported for its parts.** Importing runs the file, so a
+script's own logic is not reachable from a test: the deciding half has to
+live in a second file that runs nothing at import. `examples/ports/`
+carries one port split that way, with its test in `test/wand/`. What is
+missing is a way for one file to be both.
+
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in

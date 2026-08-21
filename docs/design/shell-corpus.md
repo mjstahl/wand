@@ -314,6 +314,33 @@ not stall while someone wonders.
 
 ---
 
+## What the first five ports found
+
+Five ports, from rows 1, 2, 4 and 10. Each typechecks, each is a formatter
+fixed point, and one is split so its deciding half can be tested. Four
+walls, none of them where the gap list expected them:
+
+- **`FS.size` answers an `Int`, and nothing converts a `Size`.** The one
+  place wand produces a size, it produces a number, so `large-files.wand`
+  takes an `Int` threshold and `4KB` cannot be written. `Size` literals
+  compare with each other and with nothing the filesystem says.
+- **No `List.filter_map`.** "Read a value and keep the ones that worked" is
+  the shape of every parse-then-filter script, and it is a fold written out
+  by hand in two of the five.
+- **A file cannot be imported for its parts.** Importing runs it, so a
+  port's logic is testable only if it lives in a second file. That is what
+  `disk-usage.wand` is, and `test/wand/test_port_disk_usage.wand` imports
+  it. Every other port here is untestable as written, which is the honest
+  measure of how testable the language makes ops code.
+- **A bare `None` takes the next argument.** `t.eq None (usage row)` is a
+  type error about the application. Both of these are in
+  [`../gaps.md`](../gaps.md).
+
+Two things the language got right, worth recording because they were
+recent: the parameter annotation carried `ci-gate.wand`'s
+`fn (r: ShellResult) -> r.code == 0`, which had no spelling before 0.24.0,
+and the block binding carried the fold in `normalize-names.wand`.
+
 ## Problems with the approach itself
 
 Separate from what wand is missing, four ways this project could produce
@@ -385,6 +412,9 @@ covered end to end.
    language changes either. Keep updating this list — the four already
    done changed it substantially, and the reading of `stdlib/` that
    produced G1–G7 will be wrong in places that only code reveals.
+
+   Five are in `examples/ports/`: rows 1, 2, 4 (twice) and 10. What they
+   found is in the section below and in [`../gaps.md`](../gaps.md).
 4. ~~**Decide `Clock` (G1)**~~ Shipped in 0.25.0, ahead of this order,
    because the ports kept meeting it. **Reading the clock (G2)** is still
    open, and unblocks row 9 on its own.

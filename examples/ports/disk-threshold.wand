@@ -1,0 +1,25 @@
+uses {IO, Shell(df)}
+
+let {over} = import ./disk-usage
+import IO
+import List
+import String
+
+(* Which filesystems are fuller than a threshold.
+
+   bash:  df -P | awk 'NR>1 && $5+0 > 90 {print $6, $5}'
+
+   `$5+0` is how bash gets a number out of "91%": concatenate with zero and
+   let the shell reinterpret it. `NR>1` skips the header by counting lines.
+   Both are the script working around text that was never typed.
+
+   Everything that decides is in `./disk-usage`, which runs no command and
+   prints nothing, so `test/wand/test_port_disk_usage.wand` can import it
+   and check the parse without a machine to read. What is left here is the
+   effectful edge: one command, and the report. *)
+
+let full = over 90 (String.lines $(df -P))
+
+match full with
+| [] -> println "every filesystem is under 90%"
+| _ -> full |> List.each (fn (mount, percent) -> println "%{percent}%\t%{mount}")

@@ -29,8 +29,10 @@ let wand = Env.get "WAND" |> Option.default "wand"
    left them behind and only a reader noticed. *)
 let checked_dirs = ["stdlib", "test/wand", "examples"]
 
+(* `**.wand` rather than `*.wand`: a directory of ports sits under
+   `examples/`, and a file the gate cannot see is a file that drifts. *)
 let sources =
-  checked_dirs |> List.map (fn d -> FS.glob_in *.wand (Path.of_string d)) |> List.flatten
+  checked_dirs |> List.map (fn d -> FS.glob_in **.wand (Path.of_string d)) |> List.flatten
 
 (* The copies go in one flat directory, so the name carries the path it came
    from: `test/wand/test_fs.wand` becomes `test_wand_test_fs.wand`. Two

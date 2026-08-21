@@ -1,0 +1,46 @@
+uses {FS.Read, IO}
+
+import FS
+import IO
+import List
+import Path
+
+(* The biggest files in a tree.
+
+   bash:  find . -type f -size +4k -exec ls -l {} \; | sort -k5 -rn
+
+   `find`'s `-size +4k` counts blocks and rounds up, `ls -l` prints a number
+   to sort on, and `sort -k5 -rn` reads it back out of the column it landed
+   in. Three spellings of one number, and a filename with a space in it
+   breaks the last two.
+
+   Two walls this port hit, both recorded in docs/gaps.md:
+
+   `FS.size` answers an `Int` of bytes, so the threshold here is an `Int`.
+   `4KB` is a `Size` literal, and nothing converts between the two, so the
+   one place wand produces a size it cannot be compared against one.
+
+   There is no `List.filter_map`, so keeping the files whose size could be
+   read is the fold below rather than one stage of the pipeline. *)
+
+let sized paths =
+  (List.fold_right
+    (fn p acc -> match FS.size p with
+      | Ok bytes -> (p, bytes) : acc
+      | Error _ -> acc
+    )
+    paths
+    [])
+
+let over bytes dir =
+  FS.glob_in **.wand dir
+    |> sized
+    |> List.filter (fn (_, size) -> size > bytes)
+    |> List.sort_by (fn (_, size) -> 0 - size)
+
+let report bytes dir = (
+  println "Over %{bytes} bytes in %{Path.to_string dir}";
+  over bytes dir |> List.each (fn (p, size) -> println "%{size}\t%{Path.to_string p}")
+)
+
+report 4000 ./stdlib

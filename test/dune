@@ -70,9 +70,12 @@
  (name test_wand_stdlib)
  ; The whole fixture tree, because the suite discovers what to run rather
  ; than naming each file -- an enumeration here would drift from the
- ; directory exactly as the one in test_wand_stdlib.ml did.
+ ; directory exactly as the one in test_wand_stdlib.ml did. The examples
+ ; come too: a port's deciding half lives in examples/ports/, and its
+ ; fixture imports it.
  (deps
-  (source_tree wand))
+  (source_tree wand)
+  (source_tree ../examples))
  (libraries wand alcotest))
 
 (test

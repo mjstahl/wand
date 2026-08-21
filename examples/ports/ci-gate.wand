@@ -1,0 +1,38 @@
+uses {IO, Proc, Shell(dune, make)}
+
+import IO
+import List
+import Proc
+
+(* Run each stage of a build, report which failed, and exit with the verdict.
+
+   bash:  set -e
+          make build
+          make test
+          make lint
+
+   `set -e` is the ritual, and it is not a guarantee: a stage inside a
+   pipeline, a command substitution, or an `if` does not stop the script,
+   and `cmd; echo ok` reports ok after cmd failed. This runs each stage,
+   keeps its exit code, and decides at the end.
+
+   `$?()` answers with a `ShellResult` rather than raising, so a stage that
+   fails is a value the script can hold. *)
+
+let stage name (r: ShellResult) = (name, r.code == 0)
+
+let stages = [
+  stage "build" $?(dune build),
+  stage "test" $?(dune test),
+  stage "lint" $?(make lint)
+]
+
+let failed = List.filter (fn (_, ok?) -> !ok?) stages
+
+let () =
+  stages
+    |> List.each (fn (name, ok?) -> println "%{if ok? then "ok  " else "FAIL"} %{name}")
+
+match failed with
+| [] -> println "all stages passed"
+| _ -> (println "%{List.length failed} stage(s) failed"; Proc.exit 1)

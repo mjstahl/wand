@@ -19,13 +19,22 @@ let hermetic =
     "decode-renamed-keys.wand"; "decode-nested-fields.wand";
     "decode-tagged-union.wand" ]
 
+(* Walked rather than listed: the ports live in `examples/ports/`, and a
+   sweep that stopped at the top level would typecheck none of them. Names
+   are relative to `examples/`, so a failure says which file. *)
 let example_files () =
   if not (Sys.file_exists dir) then
     Alcotest.failf "examples not found at %s (relative to test sandbox)" dir;
-  Sys.readdir dir
-  |> Array.to_list
-  |> List.filter (fun f -> Filename.check_suffix f ".wand")
-  |> List.sort String.compare
+  let rec walk prefix =
+    Sys.readdir (Filename.concat dir prefix)
+    |> Array.to_list
+    |> List.concat_map (fun entry ->
+      let rel = if prefix = "" then entry else Filename.concat prefix entry in
+      if Sys.is_directory (Filename.concat dir rel) then walk rel
+      else if Filename.check_suffix entry ".wand" then [rel]
+      else [])
+  in
+  List.sort String.compare (walk "")
 
 (* Typechecking needs the file's own directory as the import base, since
    party.wand imports ./greetings. *)

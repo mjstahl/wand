@@ -1,0 +1,49 @@
+uses {Env, FS.Read, FS.Write, IO}
+
+import Env
+import FS
+import IO
+import List
+import Path
+import String
+
+(* Rename files to a house style: lower case, dashes for spaces.
+
+   bash:  for f in *.txt; do
+           mv -- "$f" "$(echo "$f" | tr 'A-Z ' 'a-z-')"
+         done
+
+   The `--` is there because a filename can start with a dash, the quotes
+   because it can hold a space, and the subshell runs `tr` once per file. A
+   name that needs no change is renamed onto itself.
+
+   Here the plan is a value: a list of pairs, computed without touching the
+   disk, and a name that is already in the house style is not in it. So
+   `wand --dry-run` reports exactly what would move, and the plan can be
+   tested without a filesystem at all. *)
+
+let tidy name = String.lower (String.replace " " "-" name)
+
+let plan paths =
+  (List.fold_right
+    (fn p acc -> let name = Path.to_string (Path.basename p) in
+    let wanted = tidy name in
+    if wanted == name then acc
+    else (p, Path.join (Path.parent p) (Path.of_string wanted)) : acc
+    )
+    paths
+    [])
+
+let rename_all! moves =
+  moves
+    |> List.each (fn (from, to) -> (
+      println "%{Path.to_string from} -> %{Path.to_string to}";
+      FS.rename! from to
+    ))
+
+let dir =
+  match List.head (Env.args ()) with
+  | Some d -> Path.of_string d
+  | None -> ./.
+
+rename_all! (plan (FS.glob_in **.txt dir))
