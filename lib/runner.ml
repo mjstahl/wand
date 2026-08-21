@@ -58,7 +58,16 @@ let rec read_chunk fd buf =
    ignores it does not get to keep running. The grace is fixed and not a
    second parameter -- a caller who wants to think about TERM against KILL
    is a caller who should be writing the signal handling out. *)
-type deadline = { budget : float; grace : float; kill : int -> unit }
+type deadline = {
+  budget : float;
+  grace  : float;
+  kill   : int -> unit;
+  (* Whether the child has already exited. The grace exists to let a child
+     tidy up after SIGTERM; once it is gone there is nothing to wait for,
+     and waiting anyway means serving out the grace for a pipe that a
+     grandchild is holding. *)
+  gone   : unit -> bool;
+}
 
 let pump ?(stdin = "") ?out ?err ?into ?deadline () =
   let chunk = Bytes.create 65536 in
@@ -97,6 +106,10 @@ let pump ?(stdin = "") ?out ?err ?into ?deadline () =
     in
     let (ready_r, ready_w, _) = select_ready ~timeout !reading !writing in
     (match !remaining, deadline with
+     | Some _, Some d when !stage = `Terminated && d.gone () ->
+       (* Signalled, and already exited: whatever still holds the pipes is
+          not the command wand started. *)
+       stage := `Killed; remaining := None
      | Some left, Some d when ready_r = [] && ready_w = [] ->
        let left = left -. timeout in
        if left > 0.0 then remaining := Some left
@@ -223,9 +236,16 @@ let spawn_full cmd =
   remember pid;
   (pid, out_r, err_r, in_w)
 
+(* A status the deadline's `gone` check already took, so `reap` does not
+   wait for a child that has been waited for. *)
+let rec reap_or pid reaped =
+  match !reaped with
+  | Some status -> forget pid; status
+  | None -> reap pid
+
 (* Called once the pipes are drained and closed, so the child is not waiting
    on a reader that has gone away. *)
-let rec reap pid =
+and reap pid =
   match Unix.waitpid [] pid with
   | (_, status) -> forget pid; status
   | exception Unix.Unix_error (Unix.EINTR, _, _) -> reap pid
@@ -270,14 +290,22 @@ let strip_trailing_newline s =
    flush and exit, and short enough not to double the wait. *)
 let timeout_grace = 5.0
 
-let deadline_for pid =
+let deadline_for pid reaped =
   match Domain.DLS.get Evaluator.shell_deadline with
   | None -> None
   | Some ms ->
     Some { budget = float_of_int ms /. 1000.;
            grace  = timeout_grace;
            kill   = (fun signal ->
-             try Unix.kill pid signal with Unix.Unix_error _ -> ()) }
+             try Unix.kill pid signal with Unix.Unix_error _ -> ());
+           gone   = (fun () ->
+             match !reaped with
+             | Some _ -> true
+             | None ->
+               (match Unix.waitpid [Unix.WNOHANG] pid with
+                | (0, _) -> false
+                | (_, status) -> reaped := Some status; true
+                | exception Unix.Unix_error _ -> true)) }
 
 (* A command that ran out of time. `Shell.timeout` turns it into an `Error`;
    anywhere else it is an ordinary raise, which is what a deadline nobody
@@ -291,8 +319,10 @@ let timed_out cmd =
 
 let exec_command cmd =
   let (pid, out_r) = spawn_in cmd in
-  let (output, _, expired) = pump ~out:out_r ?deadline:(deadline_for pid) () in
-  let status = reap pid in
+  let reaped = ref None in
+  let (output, _, expired) =
+    pump ~out:out_r ?deadline:(deadline_for pid reaped) () in
+  let status = reap_or pid reaped in
   if expired then timed_out cmd;
   let output = strip_trailing_newline output in
   match status with
@@ -316,10 +346,11 @@ let exec_command_exit_code cmd =
 
 let exec_command_stdin cmd stdin =
   let (pid, out_r, in_w) = spawn_stdin cmd in
+  let reaped = ref None in
   let (stdout, _, expired) =
-    pump ~stdin ~out:out_r ~into:in_w ?deadline:(deadline_for pid) () in
+    pump ~stdin ~out:out_r ~into:in_w ?deadline:(deadline_for pid reaped) () in
   let stdout = strip_trailing_newline stdout in
-  let status = reap pid in
+  let status = reap_or pid reaped in
   if expired then timed_out cmd;
   match status with
   | Unix.WEXITED 0   -> stdout
@@ -329,10 +360,12 @@ let exec_command_stdin cmd stdin =
 
 let capture ?(stdin = "") cmd =
   let (pid, out_r, err_r, in_w) = spawn_full cmd in
+  let reaped = ref None in
   let (stdout, stderr, expired) =
-    pump ~stdin ~out:out_r ~err:err_r ~into:in_w ?deadline:(deadline_for pid) () in
+    pump ~stdin ~out:out_r ~err:err_r ~into:in_w
+      ?deadline:(deadline_for pid reaped) () in
   if expired then timed_out cmd;
-  let code = match reap pid with
+  let code = match reap_or pid reaped with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
     | Unix.WSTOPPED  _ -> 128

@@ -383,7 +383,24 @@ let clear_interrupt () =
   Atomic.set interrupt_requested 0;
   Domain.DLS.get interrupt_taken := false
 
+(* A worker that lost a race. `Par.race` sets this on the domains it is no
+   longer waiting on, and the worker raises at its next checkpoint, so it
+   releases what it holds on the way out.
+
+   Domain-local and separate from the program-wide interrupt: one lost race
+   is not the program stopping, and a loser must not look like Ctrl-C to
+   anything else. *)
+let cancelled : bool ref Domain.DLS.key = Domain.DLS.new_key (fun () -> ref false)
+
+let cancel_this_domain flag = Domain.DLS.set cancelled flag
+
 let check_interrupt () =
+  (* Raised once, then cleared, for the reason the program-wide interrupt is
+     taken once: a release is ordinary evaluation, and a flag that still
+     stood would raise again on the first step of the cleanup, so nothing
+     the loser held would be given back. *)
+  let cancel = Domain.DLS.get cancelled in
+  if !cancel then begin cancel := false; raise (Interrupted 0) end;
   let code = Atomic.get interrupt_requested in
   if code <> 0 && !(Domain.DLS.get interrupts_deferred) = 0 then begin
     let taken = Domain.DLS.get interrupt_taken in
@@ -1709,6 +1726,83 @@ let par_run limit f items ~collect =
     if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
   end
 
+(* Run every thunk at once and answer with the first to finish.
+
+   No worker limit, breaking `par_map`'s convention on purpose: the count is
+   the length of the list and is visible at the call site, so there is
+   nothing left for the caller to state. A race with a limit below the list
+   length would be a staged race, which nobody wants.
+
+   First to *finish*, not first to succeed. A loser that raises is
+   discarded. A winner that raises comes back as `Error`, the way `par_map`
+   puts a raise in the element's place rather than failing the call.
+
+   Cancellation is cooperative, and it is the machinery Ctrl-C already uses.
+   The winner's completion sets each loser's cancel flag; the loser raises
+   at its next checkpoint, releases what it holds, and is joined. Every
+   worker is joined before this returns -- workers never outlive the call,
+   which is the invariant that lets `Par` have no handles and nothing to
+   await. What a race bounds is when you get the answer, not when the
+   machine goes quiet: a loser blocked in a subprocess finishes that
+   subprocess. `Shell.timeout` inside the thunk is how to bound that.
+
+   Watched -- a mock, a rehearsal, a trace -- there is no overlap to have,
+   because an effect cannot reach a handler on another domain. The race is
+   then left-biased and deterministic: the first thunk is the one that
+   finishes first. *)
+let par_race thunks =
+  let items = Array.of_list thunks in
+  let n = Array.length items in
+  let outcome_of run =
+    match run () with
+    | v -> VConstr ("Ok", [v])
+    | exception EvalError msg ->
+      VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+  in
+  if n = 0 then
+    VConstr ("Error", [VString "race: nothing to race"])
+  else if Atomic.get observers > 0 then
+    outcome_of (fun () -> apply items.(0) VUnit)
+  else begin
+    let flags = Array.init n (fun _ -> ref false) in
+    let m = Mutex.create () in
+    let done_ = Condition.create () in
+    let winner = ref None in
+    let worker i () =
+      cancel_this_domain flags.(i);
+      let result =
+        ignore (!with_default_handler (fun () ->
+          let o = outcome_of (fun () -> apply items.(i) VUnit) in
+          Mutex.lock m;
+          if !winner = None then winner := Some o;
+          Condition.broadcast done_;
+          Mutex.unlock m;
+          VUnit));
+        ()
+      in
+      result
+    in
+    let domains = Array.to_list (Array.init n (fun i -> Domain.spawn (worker i))) in
+    (* Answering nothing and joining everything is one stretch that has to
+       finish, as it is in `par_run`. *)
+    defer_interrupts (fun () ->
+      Mutex.lock m;
+      while !winner = None do Condition.wait done_ m done;
+      Mutex.unlock m;
+      (* Whoever is still running has lost. *)
+      Array.iter (fun f -> f := true) flags;
+      List.iter (fun d ->
+        match Domain.join d with
+        | () -> ()
+        (* A loser stopped where it stood. `Fun.Finally_raised` is the same
+           thing seen through a bracket it was releasing. *)
+        | exception Interrupted _ -> ()
+        | exception Fun.Finally_raised (Interrupted _) -> ()) domains);
+    match !winner with
+    | Some o -> o
+    | None -> VConstr ("Error", [VString "race: no thunk finished"])
+  end
+
 (* ── Streams: running a terminal operation ────────────────────────────────
    A terminal operation performs one open-granularity effect per source --
    the answer is the line source: the default handler wraps the real
@@ -2261,6 +2355,9 @@ let stdlib_eval_env : env = [
         match limit, xs with
         | VInt n, VList items -> par_run n f items ~collect:true
         | _ -> raise (EvalError "par_map: expected a limit and a list")))));
+  ("par_race", VBuiltin (function
+    | VList thunks -> par_race thunks
+    | _ -> raise (EvalError "par_race: expected a list of thunks")));
   ("par_each", VBuiltin (fun limit ->
     VBuiltin (fun f ->
       VBuiltin (fun xs ->

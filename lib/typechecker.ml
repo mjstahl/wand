@@ -2652,6 +2652,13 @@ let stdlib_type_env : env = [
    let with_clock = Effect_set.add Effect_set.Clock e in
    generalize [] (TDuration @-> TFun (TFun (TUnit, a, e),
                                       TResult (TString, a), with_clock)));
+  (* Every thunk performs the same effects, and the race performs them too:
+     one of the thunks really runs. It waits on workers, not on a clock, so
+     no Clock. *)
+  ("par_race", let a = fresh () in
+               let e = Effect_set.unknown () in
+               generalize [] (TFun (TList (TFun (TUnit, a, e)),
+                                    TResult (TString, a), e)));
   ("par_map",  let a = fresh () in let b = fresh () in
                let e = Effect_set.unknown () in
                generalize [] (TInt @-> (TFun (a, b, e)

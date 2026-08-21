@@ -1,0 +1,62 @@
+uses {FS.Read, FS.Write, Shell(sh)}
+
+let {test, group} = import Test
+import FS
+import Par
+import Path
+import Resource
+import String
+import Test
+
+(* A race runs every thunk at once and answers with the first to finish.
+
+   These use short commands, because the wait is real: a loser inside a
+   subprocess cannot answer wand until the subprocess does. *)
+
+group "the first to finish wins" (fn () -> [
+  test "over commands" (fn t ->
+    t.eq
+      (Ok "quick")
+      (Par.race
+        [fn () -> $(sh -c 'sleep 2; echo slow'), fn () -> $(sh -c 'sleep 0.1; echo quick')]
+      )),
+  test "over wand work" (fn t ->
+    let spin n = if n == 0 then "slow" else spin (n - 1)
+    in t.eq (Ok "fast") (Par.race [fn () -> spin 200000000, fn () -> "fast"]))
+])
+
+(* First to finish, not first to succeed. *)
+group "what comes back" (fn () -> [
+  test "a winner that raises is an Error" (fn t ->
+    match Par.race [fn () -> $(sh -c 'exit 4')] with
+    | Ok out -> t.fail "expected an Error, got %{out}"
+    | Error why -> t.ok (String.contains? "code 4" why)),
+  test "a loser that raises is discarded" (fn t ->
+    t.eq
+      (Ok "won")
+      (Par.race [fn () -> $(sh -c 'sleep 1; exit 9'), fn () -> $(sh -c 'echo won')])),
+  test "nothing to race is an Error" (fn t ->
+    match Par.race [] with
+    | Ok _ -> t.fail "expected an Error"
+    | Error why -> t.ok (String.contains? "nothing" why))
+])
+
+(* A loser stops where it stands, and gives back what it holds. *)
+test "a cancelled loser releases" (fn t ->
+  with FS.temp_dir "race_" as d ->
+  let held = Path.join d (Path.of_string "held") in
+  let spin n = if n == 0 then 0 else spin (n - 1)
+  in let holder =
+    Resource.make (fn () -> FS.write_file! held "yes") (fn _ -> FS.delete! held)
+  in
+  let loser = fn () -> with holder as _ -> spin 400000000 in
+  let _ = Par.race [loser, fn () -> 1] in t.eq false (FS.exists? held))
+
+(* Watched, there is no overlap to have, so the race is left-biased and
+   says the same thing every time. *)
+test "under a mock the first thunk wins" (fn t ->
+  t.eq
+    (Ok "first")
+    (Test.with_shell [("anything", "x")] (fn () ->
+      Par.race [fn () -> "first", fn () -> "second"])
+    ))

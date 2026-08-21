@@ -25,3 +25,17 @@ let map limit f xs = par_map limit f xs
 (** Apply `f` to every element for its effects, at most `limit` at a time.
     A failure raises once the work is done. *)
 let each limit f xs = par_each limit f xs
+
+(** Run every thunk at once and answer with the first to finish. The rest
+    are told to stop, and every one of them is joined before this returns.
+    
+    First to *finish*, not first to succeed: a winner that raised comes back
+    as `Error`, and a loser that raised is discarded.
+    
+    There is no worker limit. The count is the length of the list, and it is
+    already at the call site.
+    
+    What a race bounds is when you get the answer, not when the machine goes
+    quiet. A loser blocked in a subprocess finishes that subprocess; wrap it
+    in `Shell.timeout` to bound that too. *)
+let race thunks = par_race thunks

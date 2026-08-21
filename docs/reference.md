@@ -2834,6 +2834,7 @@ to_ms   : Duration -> Int
 ```ocaml
 map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
 each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
+race : List (Unit -> 'a ! 'e) -> Result String 'a ! 'e
 ```
 
 Fork-join parallelism, and nothing else:
@@ -2859,6 +2860,39 @@ Par.map 4 (fn m -> Map.get! "k" m) [{k = 1}, Map.empty]
 A worker never outlives the call. There is no handle to a running worker.
 These two functions are the only way to start one. So there is nothing to
 await, and no function changes because a worker calls it.
+
+`race` runs every thunk at once and answers with the first to finish:
+
+```ocaml
+match Par.race [fn () -> $(curl %{a}), fn () -> $(curl %{b})] with
+| Ok body   -> body
+| Error why -> "both mirrors failed: %{why}"
+```
+
+First to *finish*, not first to succeed. A loser that raises is discarded.
+A winner that raises comes back as `Error`, the way `map` puts a raise in
+the element's place rather than failing the call. An empty list is an
+`Error`.
+
+`race` takes no worker limit, where `map` and `each` do. The count is the
+length of the list, and the list is at the call site, so there is nothing
+left to state.
+
+**A race bounds when you get the answer, not when the machine goes quiet.**
+The losers are told to stop, and each one stops at its next step, gives
+back what it holds, and is joined before `race` returns. A loser doing wand
+work stops at once. A loser waiting on a command waits for that command:
+wand asks a worker to stop, and a worker inside a subprocess cannot answer
+until the subprocess does. Put `Shell.timeout` in the thunk to bound that:
+
+```ocaml
+Par.race (List.map (fn u -> fn () -> Shell.timeout 2s (fn () -> $(curl %{u}))) mirrors)
+```
+
+Watched — a mock, `--dry-run`, `--trace` — a race is left-biased and
+deterministic. There is no overlap to have, because an effect cannot reach
+a handler on another domain, so the first thunk is the one that finishes
+first.
 
 **A handler always reaches a worker.** When nothing watches, a worker
 performs its own effects, and twenty slow commands do overlap. When a handler
