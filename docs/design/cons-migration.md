@@ -3,6 +3,9 @@
 `:` means two things today. It joins a head to a list, and it gives a name
 a type. This plan gives cons its own spelling and leaves `:` to types.
 
+Line and file anchors were true at `1b1522f`. Check each before trusting
+it.
+
 ## Why
 
 **The overload already costs a rule.** A cons pattern must be written in
@@ -35,11 +38,10 @@ it; the three reasons above do.
 `h :: t` in an expression. `[h :: t]` in a pattern. `:` is a type, a port
 literal, and nothing else.
 
-The brackets stay. Once cons has its own token a bare `h :: t` pattern
-would parse, and it is what OCaml writes, but `[h :: t]` says the same
-thing as `[a, b, c]` says: this is a list. A bare cons pattern also needs
-precedence rules that the brackets make unnecessary — `Some h :: t` has
-two readings and only one is right.
+The brackets stay. `[h :: t]` says what `[a, b, c]` says: this is a list.
+A bare `h :: t` is what OCaml writes, and it parses — but only so that
+`V-CONS2` can name it and a fix can add the brackets. Step 5 has the
+reasoning, including what `Some h :: t` has to mean for that to work.
 
 Parentheses around a cons pattern stay refused. They were never a spelling
 anyone wanted; they are what an OCaml reader types before learning the
@@ -61,7 +63,7 @@ bracket, which is why the message exists.
    inside a list pattern, a `:` still parses as cons. A type never appears
    in either place, so nothing is ambiguous while both are read. `wand f`
    writes `::`, so migrating a file is running the formatter. `wand t`
-   reports it as a violation with a `--fix`.
+   reports it as `V-CONS1`, with the same `ReplaceLine` fix.
 
 4. **Turn the drift rules around.** `lib/diag.ml` and the lexer stop
    correcting `::`. The new correction fires where a `:` in expression
@@ -72,7 +74,7 @@ bracket, which is why the message exists.
    got :" today, which names nothing. It should be completely fixable, and
    that decides the design: `lib/fix.ml` will not apply a correction to a
    file that does not parse, because rewriting what it cannot read is
-   guesswork. So the parser accepts the bare form and `V-CONS1` reports it
+   guesswork. So the parser accepts the bare form and `V-CONS2` reports it
    with a `ReplaceLine` fix that adds the brackets.
 
    Accepting it means choosing what `Some h :: t` means. Constructor
@@ -111,3 +113,15 @@ reason.
 The second risk is smaller: `::` is two characters where `:` was one, in
 an operator that appears in every fold written by hand. That is the price
 of the reading it buys.
+
+## Open
+
+**Whether step 3 happens at all.** The transitional read of `:` costs a
+release of two spellings and buys a migration that is `wand f` and
+nothing else. Breaking it in one go is simpler, and at wand's user count
+it is defensible: a script written for 0.29.0 stops running until someone
+edits it, and the error names the edit.
+
+**Two rule codes or one.** `V-CONS1` (the old `:` spelling) disappears at
+step 8; `V-CONS2` (the unbracketed pattern) is permanent. If step 3 is
+dropped, `V-CONS1` is never written.
