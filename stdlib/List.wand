@@ -8,6 +8,13 @@ let map f [h : t] = f h : map f t
 let filter _ [] = []
 let filter p [h : t] = if p h then h : filter p t else filter p t
 
+(** Apply a function to every element, keeping each Some value and dropping each None. *)
+let filter_map _ [] = []
+let filter_map f [h : t] =
+  match f h with
+  | Some v -> v : filter_map f t
+  | None -> filter_map f t
+
 (** Reduce a list left to right with an accumulator. *)
 let fold_left f acc [] = acc
 let fold_left f acc [h : t] = fold_left f (f acc h) t

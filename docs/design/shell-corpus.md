@@ -327,8 +327,8 @@ walls, none of them where the gap list expected them:
   the `Add` constraint, then `FS.size` answering a `Size`. The port writes
   `4KB`.
 - **No `List.filter_map`.** "Read a value and keep the ones that worked" is
-  the shape of every parse-then-filter script, and it is a fold written out
-  by hand in two of the five.
+  the shape of every parse-then-filter script, and it was a fold written
+  out by hand in two of the five. Added; both are one stage now.
 - **An import runs a file's bindings, not its bare expressions.** So where
   a port puts its work decides whether it can be tested. `let counts =
   ...stdin...` at the top level reads stdin the moment a test imports the

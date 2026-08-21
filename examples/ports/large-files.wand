@@ -19,17 +19,15 @@ import Size
    and sizes compare. Sorting biggest-first is ascending and reversed: a
    size has no negation to sort by.
 
-   One wall this port hit, recorded in docs/gaps.md: there is no
-   `List.filter_map`, so keeping the files whose size could be read is the
-   fold below rather than one stage of the pipeline. *)
+   A file whose size cannot be read is not in the answer, which is what
+   `List.filter_map` says in one stage. *)
 
 let sized paths =
-  let keep =
-    fn p acc -> match FS.size p with
-      | Ok size -> (p, size) : acc
-      | Error _ -> acc
-  in
-  List.fold_right keep paths []
+  paths
+    |> List.filter_map (fn p ->
+      match FS.size p with
+      | Ok size -> Some (p, size)
+      | Error _ -> None)
 
 let over limit dir =
   FS.glob_in **.wand dir
