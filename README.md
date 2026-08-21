@@ -1,33 +1,40 @@
 # wand
 
-A typed ML-style scripting language for Human-AI collaboration.
+A typed, ML-style scripting language for human-AI collaboration.
 
-wand is for the scripts that outgrew bash — deploys, CI glue, cron jobs, log
-munging — where a mistake is expensive and the person reading the diff is not
-the person who wrote it.
+Use wand for the scripts that outgrew bash: deploys, CI glue, cron jobs, log
+processing. A mistake in these scripts is expensive. The person who reads the
+diff is not the person who wrote it.
 
-> An AI can write a script faster than anyone will read it. So a wand script
-> declares what it touches on its first line — `uses {FS.Write, Shell(git)}` — and
-> the compiler checks the declaration against the code. Declare too little and
-> it does not typecheck. Declare nothing and wand prints the line to add.
-> `wand t` runs the check without executing the script. `--dry-run` prints
-> what a run would do: *would write*, *would delete*, *would run*.
->
-> The declaration cannot be worked around. A value interpolated into a shell
-> command is quoted, so a filename from an environment variable cannot become
-> a second command. A function that shells out five calls down still needs the
-> first line to allow it. wand does not check that a script is correct, only
-> that it cannot do what it did not declare.
+## The first line declares what a script touches
+
+An AI writes a script faster than a person reads it. So a wand script declares
+what it touches on its first line:
+
+```
+uses {FS.Write, Shell(git)}
+```
+
+The compiler compares the declaration with the code. If the file declares too
+little, it does not typecheck. If it declares nothing, wand prints the line to
+add. `wand t` makes the check and does not run the script. `--dry-run` prints
+what a run does: *would write*, *would delete*, *would run*.
+
+A script cannot get around the declaration. wand quotes each value that goes
+into a shell command. A filename from the environment cannot become a second
+command. A function that runs a command five calls down still needs the first
+line to permit it. wand does not check that a script is correct. It checks that
+a script cannot do what it did not declare.
 
 **[Language reference →](docs/reference.md)**
 
 ---
 
-## Values that know what they are
+## Values carry their type
 
-Paths, globs, durations, sizes, URLs, dates and addresses are written
-literally and typed distinctly — so mixing them up is a type error, not a
-malformed string discovered at 3am.
+Paths, globs, durations, sizes, URLs, dates and addresses have literals of their
+own. Each one has its own type. Use one where another belongs, and you get a
+type error.
 
 ```
 let timeout  = 30s               -- Duration
@@ -36,14 +43,14 @@ let sources  = *.wand            -- Glob
 let limit    = 100MB             -- Size
 let server   = https://api.example.com
 
-FS.glob log_dir                  -- type error: expected Glob, got Path
+FS.glob log_dir                  -- type error: cannot unify Glob with Path
 ```
 
-## Failure is a value, absence is a type
+## Failure is a value. Absence is a type
 
-Fallible operations return a `Result` carrying the reason; things that may
-simply not be there return an `Option`. Every fallible operation has a `!`
-sibling that raises instead, so the risk is legible at the call site.
+An operation that can fail returns a `Result` with the reason. An operation
+whose value can be absent returns an `Option`. Each fallible operation has a `!`
+sibling that raises instead. The name shows the risk at the call site.
 
 ```
 match FS.read_file "config.toml" with
@@ -54,31 +61,31 @@ FS.read_file! "config.toml"     -- raises; the name says so
 Env.get "HOME"                  -- Option String, not "" when unset
 ```
 
-## Keeps the shell, without keeping its footguns
+## Shell commands, without the shell traps
 
 ```
 let branch = $(git branch --show-current)
 let dirty  = $(git status --porcelain) |> String.lines |> List.length
 ```
 
-`$()` raises on a non-zero exit; `$?()` hands back a `ShellResult` to inspect.
-Work moved out of `$()` and into wand gets typed — and faster, since it stops
-forking a process per stage.
+`$()` raises if the command exits non-zero. `$?()` returns a `ShellResult` to
+examine. Work that moves out of `$()` and into wand gets a type. It also runs
+faster, because wand does not fork a process for each stage.
 
-## Sketch it and ask the type system
+## Ask the type system what fits
 
-Write `?` where you are unsure and typecheck. wand answers with what belongs
-there, instead of only complaining about what doesn't.
+Write `?` where you do not know what belongs, then typecheck. wand answers with
+the type of the hole.
 
 ```
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
 
-## Test a deploy script without deploying anything
+## Test a deploy script that deploys nothing
 
-`handle` intercepts the effects a script performs, so the risky parts can be
-exercised with the network unplugged.
+`handle` intercepts the effects that a script performs. You can test the risky
+parts with the network disconnected.
 
 ```
 test "deploy pushes exactly once" (fn t ->
@@ -90,39 +97,40 @@ test "deploy pushes exactly once" (fn t ->
 
 ## Install and run
 
-**In GitHub Actions** — one step, with checksum verification and tool-cache
-reuse ([mjstahl/setup-wand](https://github.com/mjstahl/setup-wand)):
+**In GitHub Actions.** One step. It verifies the checksum and reuses the tool
+cache. See [mjstahl/setup-wand](https://github.com/mjstahl/setup-wand):
 
 ```yaml
 - uses: mjstahl/setup-wand@v1
 - run: wand ci/deploy.wand
 ```
 
-**On a laptop** — one line, no sudo. Detects the platform, verifies the
-checksum, proves the binary answers, and installs to `~/.local/bin`
-(`WAND_VERSION` pins a release, `WAND_INSTALL_DIR` picks the directory):
+**On a laptop.** One line, and no sudo. The script finds the platform, verifies
+the checksum, runs the binary once, and installs it in `~/.local/bin`. Set
+`WAND_VERSION` to pin a release. Set `WAND_INSTALL_DIR` to choose the
+directory:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 ```
 
-**A release binary, by hand** — every
-[release](https://github.com/mjstahl/wand/releases) ships static Linux
-builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), each with a
-`.sha256` alongside:
+**A release binary, by hand.** Each
+[release](https://github.com/mjstahl/wand/releases) has static Linux builds
+(x86_64, aarch64) and macOS builds (aarch64, x86_64). Each build has a
+`.sha256` file beside it:
 
 ```
-curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.10.0/wand-0.10.0-macos-aarch64.tar.gz
-tar xzf wand-0.10.0-macos-aarch64.tar.gz
-install wand-0.10.0-macos-aarch64/wand ~/.local/bin/
+curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.22.0/wand-0.22.0-macos-aarch64.tar.gz
+tar xzf wand-0.22.0-macos-aarch64.tar.gz
+install wand-0.22.0-macos-aarch64/wand ~/.local/bin/
 ```
 
-The binary carries its own standard library; there is nothing else to
-install. Startup stays out of the way of CI glue and editing loops: the
-release binary runs `wand e "1 + 2"` in ~9 ms median (~1.6× `bash -c :`,
-macOS x86_64) — `bench/startup.sh` reproduces the measurement.
+The binary holds its own standard library. You install nothing else. Startup is
+short enough for CI glue and for an editing loop. The release binary runs
+`wand e "1 + 2"` in about 9 ms on macOS x86_64. That is about 2 times
+`bash -c :`. `bench/startup.sh` repeats the measurement.
 
-**From source** — the contributor path. Requires OCaml 5.x and opam:
+**From source.** This is the contributor path. It needs OCaml 5.x and opam:
 
 ```
 dune build
@@ -144,27 +152,27 @@ wand h                  # help
 
 ## Demos
 
-Runnable, in [`demos/`](demos/):
+Each demo runs. They are in [`demos/`](demos/):
 
-- **[The unset variable](demos/01-unset-variable/)** — `rm -rf "%{STAGING_DIR}/"` expands to `rm -rf /` in bash; the wand version does not typecheck until the missing case is answered
-- **[Literals that know what they are](demos/02-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
-- **[Ask the type system what to write](demos/03-typed-holes/)** — leave `?`, get back the signature that belongs there
-- **[The signature that cannot lie](demos/04-signatures/)** — one line added three helpers deep changes the signature; a manifest turns that into a compile error
-- **[Rehearse the deploy](demos/05-rehearse/)** — `--dry-run` reports what a deploy would do, touches nothing, then the real run matches
-- **[Unit-test a deploy with the network unplugged](demos/06-unplugged/)** — a script that pushes to production, fully tested, pushing nothing
-- **[jq, typed](demos/07-jq-typed/)** — the same question asked of a JSON document through jq and awk, and through a type that already knows how to read itself
-- **[Fan out without fear](demos/08-fan-out/)** — twenty hosts checked eight at a time, three unreachable, and what the run is holding countable from outside it
-- **[Where the time goes](demos/09-fork-overhead/)** — the same task in bash, Python and wand, and what forking per line costs
-- **[Read through, not in](demos/10-streams/)** — a million lines counted in bounded memory, and `take` stopping a source that never ends
+- **[The unset variable](demos/01-unset-variable/)** — `rm -rf "%{STAGING_DIR}/"` becomes `rm -rf /` in bash. The wand version does not typecheck until you answer the missing case
+- **[Literals carry their type](demos/02-domain-types/)** — `Duration.to_ms 30` and `FS.glob /etc/hosts` are type errors
+- **[Ask the type system what to write](demos/03-typed-holes/)** — write `?`, and get back the signature that fits
+- **[A signature cannot lie](demos/04-signatures/)** — one line, added three helpers deep, changes the signature. A manifest makes that a compile error
+- **[Rehearse the deploy](demos/05-rehearse/)** — `--dry-run` reports what a deploy does and touches nothing. The real run then matches the report
+- **[Test a deploy with the network disconnected](demos/06-unplugged/)** — a script that pushes to production, fully tested, and it pushes nothing
+- **[jq, typed](demos/07-jq-typed/)** — one question asked of a JSON document two ways: through jq and awk, and through a type that reads itself
+- **[Fan out safely](demos/08-fan-out/)** — twenty hosts, eight at a time, three of them unreachable. You can count what the run holds from outside it
+- **[Where the time goes](demos/09-fork-overhead/)** — the same task in bash, Python and wand, and the cost of one fork per line
+- **[Read through a file, not into it](demos/10-streams/)** — a million lines counted in bounded memory. `take` stops a source that does not end
 
 ---
 
 ## Status
 
-Early. The language runs, the standard library is written in wand, and the
-test suite covers the lexer, parser, typechecker, formatter, and CLI. Expect
-sharp edges and breaking changes.
+Early. The language runs. The standard library is written in wand. The test
+suite covers the lexer, parser, typechecker, formatter and CLI. Expect sharp
+edges and breaking changes.
 
 - **[Language reference](docs/reference.md)** — the full language
-- **[Reading a command line](docs/examples-args.md)** — six ways to read argv, with what each one prints
-- **[Examples](examples/)** — runnable scripts, executed by CI
+- **[Reading a command line](docs/examples-args.md)** — six ways to read argv, and what each one prints
+- **[Examples](examples/)** — scripts that run, and that CI runs
