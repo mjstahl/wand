@@ -4,6 +4,7 @@ import FS
 import IO
 import List
 import Path
+import Size
 
 (* The biggest files in a tree.
 
@@ -14,34 +15,35 @@ import Path
    in. Three spellings of one number, and a filename with a space in it
    breaks the last two.
 
-   Two walls this port hit, both recorded in docs/gaps.md:
+   The threshold is the literal `4KB`, because `FS.size` answers a `Size`
+   and sizes compare. Sorting biggest-first is ascending and reversed: a
+   size has no negation to sort by.
 
-   `FS.size` answers an `Int` of bytes, so the threshold here is an `Int`.
-   `4KB` is a `Size` literal, and nothing converts between the two, so the
-   one place wand produces a size it cannot be compared against one.
-
-   There is no `List.filter_map`, so keeping the files whose size could be
-   read is the fold below rather than one stage of the pipeline. *)
+   One wall this port hit, recorded in docs/gaps.md: there is no
+   `List.filter_map`, so keeping the files whose size could be read is the
+   fold below rather than one stage of the pipeline. *)
 
 let sized paths =
   let keep =
     fn p acc -> match FS.size p with
-      | Ok bytes -> (p, bytes) : acc
+      | Ok size -> (p, size) : acc
       | Error _ -> acc
   in
   List.fold_right keep paths []
 
-let over bytes dir =
+let over limit dir =
   FS.glob_in **.wand dir
     |> sized
-    |> List.filter (fn (_, size) -> size > bytes)
-    |> List.sort_by (fn (_, size) -> 0 - size)
+    |> List.filter (fn (_, size) -> size > limit)
+    |> List.sort_by (fn (_, size) -> size)
+    |> List.reverse
 
-let report bytes dir = (
-  println "Over %{bytes} bytes in %{Path.to_string dir}";
-  over bytes dir |> List.each (fn (p, size) -> println "%{size}\t%{Path.to_string p}")
+let report limit dir = (
+  println "Over %{Size.format limit} in %{Path.to_string dir}";
+  over limit dir
+    |> List.each (fn (p, size) -> println "%{Size.format size}\t%{Path.to_string p}")
 )
 
-let main () = report 4000 ./stdlib
+let main () = report 4KB ./stdlib
 
 main ()

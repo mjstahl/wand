@@ -2502,7 +2502,7 @@ rename       : Path -> Path -> Result String Unit ! {FS.Write}
 copy         : Path -> Path -> Result String Unit ! {FS.Write}
 list_dir     : Path -> Result String (List Path) ! {FS.Read}
 mtime        : Path -> Result String DateTime ! {FS.Read}
-size         : Path -> Result String Int ! {FS.Read}
+size         : Path -> Result String Size ! {FS.Read}
 stream_lines : Path -> Stream {FS.Read, Raise | ..} String
 ```
 
@@ -2519,7 +2519,7 @@ rename!      : Path -> Path -> Unit ! {FS.Write, Raise}
 copy!        : Path -> Path -> Unit ! {FS.Write, Raise}
 list_dir!    : Path -> List Path ! {FS.Read, Raise}
 mtime!       : Path -> DateTime ! {FS.Read, Raise}
-size!        : Path -> Int ! {FS.Read, Raise}
+size!        : Path -> Size ! {FS.Read, Raise}
 ```
 
 Questions and lookups cannot fail, so they have no pair:
@@ -2929,6 +2929,9 @@ and not 1024. Going the other way has to pick units, so `of_bytes` picks
 bytes and stays exact — `Size.of_bytes 6466` is `6466B`. `format` is the
 readable spelling of the same size, `"6.5KB"`, the way `Duration.format`
 renders a duration. A byte count below zero reads as `0B`.
+
+[`FS.size`](#fs) answers a `Size`, in bytes, so a threshold is the literal
+it is: `FS.size! p < 4KB`.
 
 ### `Par`
 

@@ -1343,7 +1343,10 @@ let fs_size_impl = function
     (match (try Ok (Unix.stat p) with Unix.Unix_error (e, _, _) ->
       Error ("size: " ^ Unix.error_message e)) with
      | Error m -> raise (EvalError m)
-     | Ok st   -> VInt st.Unix.st_size)
+     (* In bytes, the only unit `stat` gives. `Size.format` is the readable
+        spelling, and a threshold is written as the literal it is:
+        `size < 4KB`. *)
+     | Ok st   -> VSize (Printf.sprintf "%dB" st.Unix.st_size))
   | _ -> raise (EvalError "fs_size: expected Path")
 
 (* ── String primitive helpers ─────────────────────────────────────────────── *)

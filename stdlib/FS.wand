@@ -111,10 +111,10 @@ let mtime! path = fs_mtime path
 (** Return the last-modified time of a file as a DateTime. *)
 let mtime path = try mtime! path
 
-(** Return the size of a file in bytes. Raises on failure. *)
+(** Return the size of a file. Raises on failure. *)
 let size! path = fs_size path
 
-(** Return the size of a file in bytes. *)
+(** Return the size of a file. *)
 let size path = try size! path
 
 (** Return the current working directory. *)

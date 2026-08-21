@@ -320,13 +320,12 @@ Five ports, from rows 1, 2, 4 and 10. Each typechecks, each is a formatter
 fixed point, and one is split so its deciding half can be tested. Four
 walls, none of them where the gap list expected them:
 
-- **`FS.size` answers an `Int`, and nothing converts a `Size`.** The one
-  place wand produces a size, it produces a number, so `large-files.wand`
-  takes an `Int` threshold and `4KB` cannot be written. `Size` literals
-  compare with each other and with nothing the filesystem says. The end
-  state is `FS.size` answering a `Size`, and that is not the first step:
-  `Size` has no arithmetic, so the change alone would fix comparing one
-  file and break summing a directory. See [`../gaps.md`](../gaps.md).
+- **`FS.size` answered an `Int`, and nothing converted a `Size`.** The one
+  place wand produced a size, it produced a number, so `large-files.wand`
+  took an `Int` threshold and `4KB` could not be written. Closed in three
+  steps: `Size.to_bytes` / `of_bytes` / `format`, then `+` and `-` through
+  the `Add` constraint, then `FS.size` answering a `Size`. The port writes
+  `4KB`.
 - **No `List.filter_map`.** "Read a value and keep the ones that worked" is
   the shape of every parse-then-filter script, and it is a fold written out
   by hand in two of the five.

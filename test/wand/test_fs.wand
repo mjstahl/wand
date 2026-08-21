@@ -75,10 +75,10 @@ test "exists?/file?/dir?" (fn t ->
   let outcome = (FS.exists? p, FS.file? p, FS.dir? p) in
   let () = FS.delete! p in t.eq (true, true, false) outcome)
 
-test "size returns byte length" (fn t ->
+test "size returns the size" (fn t ->
   let p = Path.of_string "%{scratch}/size_case.txt" in
   let () = FS.write_file! p "12345" in
-  let sz = FS.size! p in let () = FS.delete! p in t.eq 5 sz)
+  let sz = FS.size! p in let () = FS.delete! p in t.eq 5B sz)
 
 test "list_dir lists immediate children" (fn t ->
   let dir = Path.of_string "%{scratch}/list_dir_case" in

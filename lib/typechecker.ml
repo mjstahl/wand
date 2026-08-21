@@ -2567,7 +2567,7 @@ let stdlib_type_env : env = [
   ("fs_copy",    generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));
   ("fs_cwd",     generalize [] (effs [Effect_set.FsRead] (TUnit) (TPath)));
   ("fs_mtime",   generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TDateTime)));
-  ("fs_size",    generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TInt)));
+  ("fs_size",    generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TSize)));
   ("fs_glob",    generalize [] (effs [Effect_set.FsRead] (TGlob) ((TPath @-> TList TPath))));
   (* IO primitives *)
   ("io_print_err",   generalize [] (effs [Effect_set.IO] (TString) (TUnit)));

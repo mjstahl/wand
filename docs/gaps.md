@@ -90,15 +90,6 @@ field to its own name, the way `{a, b}` already puns for maps. Noted in
 
 ## The standard library
 
-**A file's size is a number, and `Size` now crosses to that number.**
-`Size.to_bytes 4KB` is `4000`, so a script can compare the bytes `FS.size`
-answers against a threshold it writes as a size. `Size.of_bytes` goes back
-the other way, in bytes, and `Size.format` is the readable spelling.
-`100MB + 4KB` adds. One thing is still missing:
-
-- `FS.size` answering a `Size`. That is the end state, and the change is
-  breaking: every caller reads an `Int` today.
-
 Found by porting shell scripts, and argued in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels
 below.
