@@ -4,6 +4,7 @@ let usage () =
   print_endline "Usage: wand <command> [options] [args]";
   print_endline "       wand [--dry-run|--trace] <file.wand> [args]";
   print_endline "       wand <file.wand> [args]";
+  print_endline "       wand <file.wand> -- [args]   (everything after -- is the script's)";
   print_endline "";
   print_endline "Commands:";
   print_endline "  d   doc <name>              Print the doc string for a name";
@@ -20,6 +21,7 @@ let usage () =
   print_endline "Running a script:";
   print_endline "  --dry-run        Report what the script would change, without doing it";
   print_endline "  --trace          Run it, reporting each effect as it happens";
+  print_endline "  --               End wand's arguments: the rest are the script's";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
 
@@ -147,12 +149,14 @@ let report_lints ~strict ~json ?(holes = []) sess src =
     if json then print_endline "[]"; 0
   | Ok findings ->
     if json then
-      (print_endline (Wand.Lint.diagnostics_json ~strict ~holes findings); 0)
-    else begin
+      print_endline (Wand.Lint.diagnostics_json ~strict ~holes findings)
+    else
       List.iter (fun f ->
         Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
-      if strict && List.exists Wand.Lint.fails_strict findings then 1 else 0
-    end
+    (* The exit code says the same thing either way: under `--strict` a
+       violation is a failure, and a caller that only reads the code is
+       still told so. *)
+    if strict && List.exists Wand.Lint.fails_strict findings then 1 else 0
 
 (* One-shot commands let an expression name a stdlib module without importing
    it. Importing all of them to provide that costs a disk read, lex, parse,
@@ -212,6 +216,19 @@ let load_files ?(sources = []) loads =
         Printf.eprintf "Error loading '%s': %s\n" path m; exit 1
   ) sess loads
 
+(* `--` ends wand's own arguments: everything after it belongs to the
+   script, whatever it looks like. Without it a script called with its own
+   `--dry-run` had the flag read as wand's -- the run became a rehearsal that
+   changed nothing, said nothing about why, and the script never saw the
+   argument it was passed. *)
+let split_own args =
+  let rec go acc = function
+    | "--" :: after -> (List.rev acc, after)
+    | a :: tl       -> go (a :: acc) tl
+    | []            -> (List.rev acc, [])
+  in
+  go [] args
+
 let main () =
   let args = Array.to_list Sys.argv |> List.tl in
   match args with
@@ -225,7 +242,8 @@ let main () =
     (match rest with
      | path :: args ->
        let mode = if sub = "--dry-run" then Wand.Runner.DryRun else Wand.Runner.Trace in
-       Wand.Evaluator.exe_args_ref := args;
+       let (before, after) = split_own args in
+       Wand.Evaluator.exe_args_ref := before @ after;
        Wand.Runner.install_signal_handlers ();
        (match Wand.Runner.run_file ~mode path with
         | Ok v    -> if v <> "()" then print_endline v
@@ -309,7 +327,11 @@ let main () =
                 (Wand.Lint.diagnostics_json ~strict ~file:path ~holes findings)
             else List.iter (fun f ->
               Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
-            if strict && not json && List.exists Wand.Lint.fails_strict findings
+            (* Whatever the output looks like, `--strict` means a violation
+               ends the command in failure. Reporting it as an error inside
+               the JSON and then exiting 0 told the CI step that read the
+               code -- which is most of them -- that the file was clean. *)
+            if strict && List.exists Wand.Lint.fails_strict findings
             then exit 1)
        | None, rest ->
       let (loads, rest') = parse_loads rest in
@@ -464,8 +486,12 @@ let main () =
     | path ->
       (* Legacy: wand <file.wand> [args] *)
       let mode, rest =
-        let has f = List.mem f rest in
-        let strip = List.filter (fun a -> a <> "--dry-run" && a <> "--trace") rest in
+        (* Only what precedes `--` can be wand's. *)
+        let (before, after) = split_own rest in
+        let has f = List.mem f before in
+        let strip =
+          List.filter (fun a -> a <> "--dry-run" && a <> "--trace") before @ after
+        in
         if has "--dry-run" then (Wand.Runner.DryRun, strip)
         else if has "--trace" then (Wand.Runner.Trace, strip)
         else (Wand.Runner.Normal, strip)

@@ -16,7 +16,8 @@
 
 (test
  (name test_json_diagnostics)
- (libraries wand alcotest))
+ (deps %{exe:../bin/wand.exe})
+ (libraries wand alcotest unix))
 
 (test
  (name test_shell_scan)

@@ -226,6 +226,77 @@ let test_parse_error_drift_fix () =
             "\"fix\":{\"replace\":{\"from\":\"and\",\"to\":\"&&\"}}") then
     Alcotest.failf "drift fix missing:\n%s" json
 
+
+(* ── The exit code is part of the contract ──────────────────────────────── *)
+
+(* `--strict` says a violation ends the command in failure, and a CI step
+   reads that from the exit code. Under `--json` the code stayed 0 while the
+   JSON itself called the finding an error, so the step passed on a file the
+   same command had just failed. These run the real binary, since the exit
+   code is the CLI's answer and nothing below it can be asked. *)
+
+let wand_binary =
+  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
+  Filename.concat (Filename.concat dir "bin") "wand.exe"
+
+let run args =
+  let cmd = String.concat " " (List.map Filename.quote (wand_binary :: args)) in
+  let ic = Unix.open_process_in (cmd ^ " 2>/dev/null") in
+  let out = In_channel.input_all ic in
+  let code = match Unix.close_process_in ic with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
+  in
+  (code, String.trim out)
+
+(* V-SHELL1: a command word decided at run time under a narrowed manifest. *)
+let violating_file () =
+  let path = Filename.temp_file "wand_strict" ".wand" in
+  Out_channel.with_open_text path (fun oc ->
+    Out_channel.output_string oc "uses {Shell(git)}\n\nlet run! cmd = $(git %!{cmd})\n");
+  path
+
+let with_violating_file f =
+  let path = violating_file () in
+  Fun.protect ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () -> f path)
+
+let test_strict_json_exit_code () =
+  with_violating_file (fun path ->
+    let (code, out) = run ["t"; "--strict"; "--json"; "--file"; path] in
+    if not (Lint.contains out "\"severity\":\"error\"") then
+      Alcotest.failf "the finding was not reported as an error:\n%s" out;
+    Alcotest.(check int) "--strict --json fails on a violation" 1 code)
+
+let test_strict_text_exit_code () =
+  with_violating_file (fun path ->
+    let (code, _) = run ["t"; "--strict"; "--file"; path] in
+    Alcotest.(check int) "and says the same without --json" 1 code)
+
+let test_json_without_strict_is_a_warning () =
+  with_violating_file (fun path ->
+    let (code, out) = run ["t"; "--json"; "--file"; path] in
+    if not (Lint.contains out "\"severity\":\"warning\"") then
+      Alcotest.failf "expected a warning without --strict:\n%s" out;
+    Alcotest.(check int) "a warning is not a failure" 0 code)
+
+let test_strict_json_expression () =
+  (* The same rule for an expression, which takes a different path through
+     the CLI than a file does. *)
+  let (code, out) = run ["t"; "--strict"; "--json"; "let big? n = n + 1"] in
+  if not (Lint.contains out "V-PRED1") then
+    Alcotest.failf "expected V-PRED1:\n%s" out;
+  Alcotest.(check int) "--strict --json fails on an expression too" 1 code
+
+let test_strict_json_clean_file () =
+  let path = Filename.temp_file "wand_clean" ".wand" in
+  Out_channel.with_open_text path (fun oc ->
+    Out_channel.output_string oc "let double n = n * 2\n");
+  Fun.protect ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () ->
+       let (code, _) = run ["t"; "--strict"; "--json"; "--file"; path] in
+       Alcotest.(check int) "a clean file still passes" 0 code)
+
 let () =
   Alcotest.run "json diagnostics" [
     "findings", [
@@ -248,6 +319,13 @@ let () =
     "test runs", [
       Alcotest.test_case "run"   `Quick test_run_json;
       Alcotest.test_case "empty" `Quick test_run_json_empty;
+    ];
+    "exit codes", [
+      Alcotest.test_case "--strict --json"       `Quick test_strict_json_exit_code;
+      Alcotest.test_case "--strict"              `Quick test_strict_text_exit_code;
+      Alcotest.test_case "no --strict"           `Quick test_json_without_strict_is_a_warning;
+      Alcotest.test_case "an expression"         `Quick test_strict_json_expression;
+      Alcotest.test_case "a clean file"          `Quick test_strict_json_clean_file;
     ];
     "errors", [
       Alcotest.test_case "type"            `Quick test_type_error;

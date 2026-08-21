@@ -9,10 +9,13 @@
    and the position of a flag is not a thing anyone should have to be right
    about under those stakes.
 
-   So this pins the shadowing rather than guarding against it. Anything else
-   wand knows -- `--json`, `--file`, `--load`, `--strict`, `--fix` -- belongs
-   to a subcommand, and no subcommand runs a script with arguments, so those
-   reach a script untouched and are pinned here too.
+   So this pins the shadowing rather than guarding against it. What it costs
+   is bought back by `--`: everything after the terminator is the script's,
+   whatever it looks like, so a script that does take a `--dry-run` of its
+   own can still be given one. Anything else wand knows -- `--json`,
+   `--file`, `--load`, `--strict`, `--fix` -- belongs to a subcommand, and no
+   subcommand runs a script with arguments, so those reach a script untouched
+   and are pinned here too.
 
    These run the real binary, because the question is what the CLI does with
    argv before any of the library sees it. *)
@@ -88,7 +91,26 @@ let test_both_positions_rehearse () =
       end
     in
     rehearses "--dry-run before the path" ["--dry-run"; script];
-    rehearses "--dry-run after the path" [script; "--dry-run"])
+    rehearses "--dry-run after the path" [script; "--dry-run"];
+    (* Past the terminator the same word is the script's, so this is a real
+       run: the file is written, and nothing says "would". *)
+    let out = run [script; "--"; "--dry-run"] in
+    if not (Sys.file_exists out_path) then
+      Alcotest.failf "a terminated --dry-run did not run for real: %s" out;
+    Sys.remove out_path)
+
+(* The terminator is what makes the shadowing above affordable. *)
+let test_the_terminator_hands_everything_over () =
+  write_probe ();
+  Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
+    check "a mode flag past -- is the script's" "[--dry-run, x]"
+      [argv_script; "--"; "--dry-run"; "x"];
+    check "-- itself is not passed on" "[a]" [argv_script; "--"; "a"];
+    check "only what precedes it is wand's" "[--trace]"
+      [argv_script; "--dry-run"; "--"; "--trace"];
+    check "and with the mode written first" "[--dry-run, y]"
+      ["--trace"; argv_script; "--"; "--dry-run"; "y"];
+    check "a bare -- leaves nothing behind" "[]" [argv_script; "--"])
 
 let () =
   Alcotest.run "script argv"
@@ -98,6 +120,8 @@ let () =
           Alcotest.test_case "every other flag passes through" `Quick
             test_every_other_flag_reaches_the_script;
           Alcotest.test_case "both positions rehearse" `Quick
-            test_both_positions_rehearse
+            test_both_positions_rehearse;
+          Alcotest.test_case "-- hands the rest over" `Quick
+            test_the_terminator_hands_everything_over
         ] )
     ]

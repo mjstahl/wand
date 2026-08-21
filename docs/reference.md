@@ -3068,7 +3068,13 @@ team and uses the full language; a script does not have to.
 ```
 wand script.wand          # run a script
 wand script.wand arg1     # pass arguments (available via Env.args)
+wand script.wand -- arg1  # everything after -- is the script's, whatever it looks like
 ```
+
+`--dry-run` and `--trace` are wand's own wherever they appear before a `--`,
+so `wand deploy.wand --dry-run` rehearses. A script that takes an argument of
+the same name needs the terminator: `wand deploy.wand -- --dry-run` runs for
+real and hands the flag on.
 
 A script can also run itself, with a shebang line and the executable bit:
 
