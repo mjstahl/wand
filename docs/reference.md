@@ -2832,9 +2832,10 @@ to_ms   : Duration -> Int
 ### `Par`
 
 ```ocaml
-map  : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
-each : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
-race : List (Unit -> 'a ! 'e) -> Result String 'a ! 'e
+map     : Int -> ('a -> 'b ! 'e) -> List 'a -> List (Result String 'b) ! 'e
+each    : Int -> ('a -> 'b ! 'e) -> List 'a -> Unit ! 'e
+race    : List (Unit -> 'a ! 'e) -> Result String 'a ! 'e
+timeout : Duration -> (Unit -> 'a ! {Clock | 'e}) -> Result String 'a ! {Clock | 'e}
 ```
 
 Fork-join parallelism, and nothing else:
@@ -2893,6 +2894,29 @@ Watched — a mock, `--dry-run`, `--trace` — a race is left-biased and
 deterministic. There is no overlap to have, because an effect cannot reach
 a handler on another domain, so the first thunk is the one that finishes
 first.
+
+`timeout` puts a deadline on wand code, where `Shell.timeout` puts one on a
+command:
+
+```ocaml
+match Par.timeout 30s (fn () -> poll_until_ready ()) with
+| Ok v      -> v
+| Error why -> "gave up: %{why}"
+```
+
+It is a race between the work and a sleeper, so it waits a length rather
+than waiting until an instant — the difference that keeps it right on a
+machine whose clock steps. The `Error` says how long it waited.
+
+The work is asked to stop when the deadline passes, and stops at its next
+step, giving back what it holds. Work inside a command finishes that
+command first. Put `Shell.timeout` in the thunk to bound that too. A thunk
+that raises comes back as `Error`, as it does under `race`.
+
+**A virtual clock does not fire a deadline.** `Test.with_clock` makes the
+work's own sleeps instant, and a watched race is left-biased, so the work
+wins and `timeout` answers `Ok`. Test a deadline against real time, with a
+duration short enough to wait for.
 
 **A handler always reaches a worker.** When nothing watches, a worker
 performs its own effects, and twenty slow commands do overlap. When a handler

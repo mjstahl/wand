@@ -1,6 +1,7 @@
-uses {FS.Read, FS.Write, Shell(sh)}
+uses {Clock, FS.Read, FS.Write, Shell(sh)}
 
 let {test, group} = import Test
+import Clock
 import FS
 import Par
 import Path
@@ -60,3 +61,31 @@ test "under a mock the first thunk wins" (fn t ->
     (Test.with_shell [("anything", "x")] (fn () ->
       Par.race [fn () -> "first", fn () -> "second"])
     ))
+
+(* ── A deadline on wand code ───────────────────────────────────────────── *)
+
+(* `Par.timeout` is a race between the work and a sleeper. The durations
+   here are short, because the wait is real: a virtual clock makes the
+   work's own sleeps instant, so the work wins and no deadline fires. *)
+
+group "Par.timeout" (fn () -> [
+  test "work that finishes in time" (fn t ->
+    t.eq (Ok "done") (Par.timeout 5s (fn () -> let () = Clock.sleep 50ms in "done"))),
+  test "work that does not" (fn t ->
+    match Par.timeout 200ms (fn () -> let () = Clock.sleep 10s in "done") with
+    | Ok v -> t.fail "expected a deadline, got %{v}"
+    | Error why -> t.ok (String.contains? "200ms" why)),
+  test "a thunk that raises comes back as Error" (fn t ->
+    match Par.timeout 5s (fn () -> $(sh -c 'exit 5')) with
+    | Ok v -> t.fail "expected an Error, got %{v}"
+    | Error why -> t.ok (String.contains? "code 5" why))
+])
+
+(* Work that is stopped gives back what it holds, as a losing racer does. *)
+test "work stopped by a deadline releases" (fn t ->
+  with FS.temp_dir "timeout_" as d ->
+  let held = Path.join d (Path.of_string "held") in
+  let spin n = if n == 0 then 0 else spin (n - 1)
+  in let holder = Resource.make (fn () -> FS.write_file! held "y") (fn _ -> FS.delete! held) in
+  let _ = Par.timeout 200ms (fn () -> with holder as _ -> spin 900000000) in
+  t.eq false (FS.exists? held))

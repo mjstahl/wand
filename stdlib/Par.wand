@@ -1,3 +1,7 @@
+uses {Clock}
+
+import Clock
+
 (* Fork-join parallelism, and nothing else.
 
    Both functions take the most workers to run at once as their first
@@ -39,3 +43,24 @@ let each limit f xs = par_each limit f xs
     quiet. A loser blocked in a subprocess finishes that subprocess; wrap it
     in `Shell.timeout` to bound that too. *)
 let race thunks = par_race thunks
+
+(** Run `thunk` with a deadline. The result is `Error` if the deadline
+    passed first, and the message says how long it waited.
+    
+    A deadline on wand code, where `Shell.timeout` is a deadline on a
+    command. It is a race between the work and a sleeper, which is what
+    makes it a wait of a length rather than a wait until an instant -- the
+    difference that keeps it right on a machine whose clock steps.
+    
+    The work is asked to stop when the deadline passes, and stops at its
+    next step. Work inside a command finishes that command first: put
+    `Shell.timeout` there as well to bound it.
+    
+    A `thunk` that raises comes back as `Error` too, as it does under
+    `race`. *)
+let timeout d thunk =
+  let work = fn () -> Ok (thunk ()) in
+  let sleeper = fn () -> let () = Clock.sleep d in Error "timed out after %{d}" in
+  match race [work, sleeper] with
+  | Ok answer -> answer
+  | Error why -> Error why
