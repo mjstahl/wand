@@ -31,8 +31,7 @@ let plan paths =
       let wanted = tidy name;
       if wanted == name then acc
       else (p, Path.join (Path.parent p) (Path.of_string wanted)) : acc
-    )
-    )
+    ))
     paths
     [])
 

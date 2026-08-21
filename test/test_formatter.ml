@@ -737,8 +737,7 @@ let test_a_block_binding_round_trips () =
       let name = basename p;
       let wanted = tidy name;
       if wanted == name then acc else (p, wanted) : acc
-    )
-    )
+    ))
     paths
     [])|};
   (* A binding written with `in` inside a sequence is a statement like any

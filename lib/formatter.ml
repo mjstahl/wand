@@ -363,11 +363,20 @@ let rec emit_expr ?col indent e =
    its own, at the indent that opened it. Trailing the last line, the closing
    bracket joins a stack of `))` that says nothing about which of them ends
    what -- and the last line of a `match` is its final case, where a `)` is
-   easiest of all to misread as part of the case. *)
+   easiest of all to misread as part of the case.
+
+   Two closing lines in a row are the same noise one column over, so a
+   bracket whose content already closed at this indent joins that line
+   instead of opening another. *)
 and parenthesize indent s =
-  if String.contains s '\n'
-  then "(" ^ s ^ "\n" ^ String.make indent ' ' ^ ")"
-  else "(" ^ s ^ ")"
+  if not (String.contains s '\n') then "(" ^ s ^ ")"
+  else
+    let closer = "\n" ^ String.make indent ' ' ^ ")" in
+    (* Unless what is being wrapped already closed on a line of its own, at
+       the same indent -- a lambda around a block opens both brackets on one
+       line, and closing them on two says nothing the one line does not. *)
+    if String.ends_with ~suffix:closer s then "(" ^ s ^ ")"
+    else "(" ^ s ^ closer
 
 (* What goes between `%{` and `}`. A newline in there ends the string as far
    as the lexer is concerned, and the rest of the splice is then read as
