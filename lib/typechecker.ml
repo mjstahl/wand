@@ -73,20 +73,6 @@ let holes : typ list ref = ref []
    top-level statements. *)
 let seq_discard_types : (Token.loc * typ) list ref = ref []
 
-(* Whether a pattern can fail to match. A parameter with a refutable pattern
-   makes the function partial -- `let head! [h : _] = h` has nothing to do
-   with an empty list but raise -- and that raise comes from the binding
-   itself rather than from any call, so nothing else would record it. A
-   `match` is different: it is checked for exhaustiveness, so its cases
-   cannot all fail. *)
-let rec pat_is_refutable (p : pat) =
-  match p with
-  | PVar _ | Wild -> false
-  | Unit          -> false
-  | PTuple ps     -> List.exists pat_is_refutable ps
-  | PConstrNamed _ -> false   (* a single-constructor type cannot mismatch *)
-  | _             -> true
-
 (* `effect_of_operation` and `operation_types` are derived from the
    operations table, which needs `fresh` -- see "Effect operations" below. *)
 
@@ -1110,6 +1096,38 @@ let find_ctor_in_tenv tenv name =
        | None -> None)
   ) tenv
 
+(* Whether a pattern can fail to match. A parameter with a refutable pattern
+   makes the function partial -- `let head! [h : _] = h` has nothing to do
+   with an empty list but raise -- and that raise comes from the binding
+   itself rather than from any call, so nothing else would record it. A
+   `match` is different: it is checked for exhaustiveness, so its cases
+   cannot all fail.
+
+   A constructor pattern cannot mismatch when there is no other constructor
+   for the value to be, which is why `let unwrap (Wrap n) = n` is a total
+   function. Whether the fields are named has nothing to do with it: a named
+   pattern was read as irrefutable on that reasoning alone, so
+   `let area (Circle (radius = r)) = r` over `Circle | Square` was a function
+   that raises and said it did not -- no Raise in its type, no Raise in the
+   file's manifest, and no `!` on its name. *)
+let ctor_is_alone tenv name =
+  List.exists (fun (_, tdef) ->
+    match tdef with
+    | Variants (_, _, ctors) ->
+      (match ctors with [c] -> c.name = name | _ -> false)) tenv
+
+let rec pat_is_refutable tenv (p : pat) =
+  match p with
+  | PVar _ | Wild  -> false
+  | Unit           -> false
+  | PTuple ps      -> List.exists (pat_is_refutable tenv) ps
+  | PConstr (name, ps) ->
+    not (ctor_is_alone tenv name) || List.exists (pat_is_refutable tenv) ps
+  | PConstrNamed (name, fields) ->
+    not (ctor_is_alone tenv name)
+    || List.exists (fun (_, p) -> pat_is_refutable tenv p) fields
+  | _              -> true
+
 (* Built once per program rather than per lookup. A constructor's field
    effects are monomorphic (see `ctor_schemes`), so they only link the
    construction to the match that takes the field back out if both look at
@@ -1538,7 +1556,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     in
     let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
     let body_effects =
-      if List.exists pat_is_refutable params
+      if List.exists (pat_is_refutable tenv) params
       then Effect_set.add Effect_set.Raise body_effects
       else body_effects
     in
@@ -1604,7 +1622,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
        let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
     let body_effects =
-      if List.exists pat_is_refutable params
+      if List.exists (pat_is_refutable tenv) params
       then Effect_set.add Effect_set.Raise body_effects
       else body_effects
     in
@@ -1631,6 +1649,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
        infer tenv ((name, generalize env t1) :: env) e2
      | _ ->
        let t1     = infer tenv env e1 in
+       (* A binding whose pattern can fail raises where it stands, the same
+          way a parameter's does -- `let Ok v = r in ...` has nothing to do
+          with an Error but raise. *)
+       if pat_is_refutable tenv p then performs (Effect_set.single Effect_set.Raise);
        let scheme = generalize env t1 in
        infer tenv (infer_pat_let tenv p t1 scheme env) e2)
   | LetRec (bindings, e2) ->
@@ -2860,6 +2882,8 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       (env, last_t)  (* pre-loaded by load_imports_for *)
     | TLLetPat (pat, e) ->
       let t = infer tenv env e in
+      if pat_is_refutable tenv pat then
+        performs (Effect_set.single Effect_set.Raise);
       let env' = infer_pat tenv pat t env in
       (env', last_t)
     | TLExpr e ->

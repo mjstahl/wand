@@ -691,6 +691,23 @@ let test_raw_multiline_keeps_its_shape () =
   let out = fmt "let b = `\none\ntwo\n`\nb" in
   assert_contains "content still starts on its own line" out "`\none\ntwo\n`"
 
+(* Five sequences make the lexer stop inside a string: `%{` interpolates,
+   and `%!{`, `${`, `$!{` and `#{` are each refused as the wrong spelling of
+   it. A string holding one as text wrote it escaped, and it has to come
+   back escaped -- `wand f` used to return three of the five bare, so
+   formatting a file left source the same wand could no longer read. *)
+let test_string_openers_come_back_escaped () =
+  List.iter (fun (opener, escaped) ->
+    let src = Printf.sprintf "let s = \"text %s here\"\ns" escaped in
+    ok_after_format (opener ^ " survives") src
+      (Printf.sprintf "text %s here" opener);
+    assert_idempotent (opener ^ " is a fixed point") src)
+    [ "%{x}",  "\\%{x}";
+      "%!{x}", "\\%!{x}";
+      "${x}",  "\\${x}";
+      "$!{x}", "\\$!{x}";
+      "#{x}",  "\\#{x}" ]
+
 (* `$NAME` in a string is text, so the formatter has nothing to interpret:
    it comes back as written, and is not turned into an interpolation. An
    actual environment read is `%{$USER}`, and that round-trips as itself. *)
@@ -807,6 +824,7 @@ let () =
       Alcotest.test_case "contract indent"  `Quick test_contract_clauses_keep_their_indent;
       Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
+      Alcotest.test_case "string openers" `Quick test_string_openers_come_back_escaped;
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;

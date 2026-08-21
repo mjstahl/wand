@@ -729,6 +729,48 @@ let test_written_effects_round_trip () =
   annotated "'a -> 'a ! 'e" "fn x -> x" "'a -> 'a";
   annotated "Int -> Int" "fn n -> n" "Int -> Int"
 
+(* A pattern that can fail makes the binding raise, and the type has to say
+   so -- nothing else records it, since the raise comes from the binding
+   rather than from any call inside the body.
+
+   What decides it is whether the value could be another constructor, not
+   whether the fields were written by name. Reading a named pattern as
+   irrefutable on the strength of its spelling alone let
+   `let area (Circle (radius = r)) = r` over `Circle | Square` claim to be
+   total, and reading a positional one as refutable regardless made
+   `let unwrap (Wrap n) = n` claim a risk that a single-constructor type
+   cannot carry. *)
+let test_a_failable_pattern_raises () =
+  let shapes = "type Shape = Circle (radius : Int) | Square (side : Int)\n" in
+  let one = "type Wrap = Wrap Int\ntype Boxed (item : Int)\n" in
+  Alcotest.(check string) "a named pattern over two constructors"
+    "Shape -> Int ! {Raise}"
+    (type_of "named, several constructors"
+       (shapes ^ "let f (Circle (radius = r)) = r in f"));
+  Alcotest.(check string) "a positional one over two constructors"
+    "Result 'b 'a -> 'a ! {Raise}"
+    (type_of "positional, several constructors" "let f (Ok v) = v in f");
+  Alcotest.(check string) "a positional pattern over one constructor"
+    "Wrap -> Int"
+    (type_of "positional, one constructor" (one ^ "let f (Wrap n) = n in f"));
+  Alcotest.(check string) "a named pattern over one constructor"
+    "Boxed -> Int"
+    (type_of "named, one constructor" (one ^ "let f (Boxed (item = i)) = i in f"));
+  (* Whatever the outer constructor, a field pattern that can fail is still
+     a way for the binding to fail. *)
+  Alcotest.(check string) "a failable pattern inside a named field"
+    "Holder -> Int ! {Raise}"
+    (type_of "nested" ("type Holder (items : List Int)\n"
+                       ^ "let f (Holder (items = [a])) = a in f"));
+  (* A binding is not different from a parameter: both fail where they
+     stand. *)
+  Alcotest.(check string) "a let binding that can fail"
+    "Result 'b 'a -> 'a ! {Raise}"
+    (type_of "let binding" "let f r = let Ok v = r in v in f");
+  Alcotest.(check string) "and one that cannot"
+    "Wrap -> Int"
+    (type_of "irrefutable let binding" (one ^ "let f w = let Wrap n = w in n in f"))
+
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
    allow at all. *)
@@ -1113,6 +1155,7 @@ let () =
       Alcotest.test_case "constructing is pure"         `Quick test_constructing_performs_nothing;
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
       Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
+      Alcotest.test_case "a failable pattern raises" `Quick test_a_failable_pattern_raises;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
       Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];

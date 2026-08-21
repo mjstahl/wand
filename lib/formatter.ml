@@ -72,6 +72,11 @@ let reopen_raw s =
 let escape_string_body str =
   let n = String.length str in
   let buf = Buffer.create (n + 8) in
+  (* `{` or `!{` at this position -- the two shapes an opener takes. *)
+  let opens_at j =
+    j < n && (str.[j] = '{'
+              || (str.[j] = '!' && j + 1 < n && str.[j + 1] = '{'))
+  in
   String.iteri (fun i c ->
     match c with
     | '\\' -> Buffer.add_string buf "\\\\"
@@ -79,11 +84,14 @@ let escape_string_body str =
     | '\n' -> Buffer.add_string buf "\\n"
     | '\t' -> Buffer.add_string buf "\\t"
     | '\r' -> Buffer.add_string buf "\\r"
-    (* `${` and `%{` are the two openers the lexer reacts to: `%{` starts an
-       interpolation, and `${` is refused as the old spelling. Text holding
-       either has to come back escaped or it will not read as itself. *)
-    | '$' when i + 1 < n && str.[i + 1] = '{' -> Buffer.add_string buf "\\$"
-    | '%' when i + 1 < n && str.[i + 1] = '{' -> Buffer.add_string buf "\\%"
+    (* Every opener the lexer reacts to inside a string has to come back
+       escaped or the text will not read as itself: `%{` interpolates, and
+       `%!{`, `${`, `$!{` and `#{` are all refused, each as the wrong
+       spelling of one. Escaping only the first two meant `wand f` could
+       write a file it could no longer read. *)
+    | ('$' | '%') when opens_at (i + 1) ->
+      Buffer.add_char buf '\\'; Buffer.add_char buf c
+    | '#' when i + 1 < n && str.[i + 1] = '{' -> Buffer.add_string buf "\\#"
     | c -> Buffer.add_char buf c
   ) str;
   Buffer.contents buf

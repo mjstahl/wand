@@ -1857,6 +1857,14 @@ v.x
 
 Match on the constructor to read a field only some of them have.
 
+A pattern that names one constructor of several can fail, and a binding that
+uses one says so: `let area (Circle (radius = r)) = r` over
+`Circle | Square` has type `Shape -> Int ! {Raise}`, and the `!` belongs in
+its name. What decides this is whether the value could be another
+constructor, not whether the fields are named — with a single-constructor
+type there is nothing to mismatch, and the same binding is total. It reads
+the same for `let`: `let Ok v = r in ...` raises where it stands.
+
 ---
 
 ## Generics
