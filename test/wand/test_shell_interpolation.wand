@@ -106,3 +106,43 @@ test "$?() quotes the same way" (fn t ->
 
 test "$?() splices the same way" (fn t ->
   let v = "a b" in let r = $?(printf "[%s]" %!{v}) in t.eq "[a][b]" r.stdout)
+
+(* ── Inside the author's own quotes ────────────────────────────────────── *)
+
+(* `%{x}` between quotes the author wrote is part of the word they are
+   building, so it is escaped for that quote instead of wrapped in one of
+   its own. Wrapping it there quoted nothing -- inside "..." a single quote
+   is an ordinary character -- and the value went into text the shell still
+   read, which is how `"hi %{name}"` ran whatever a name held. *)
+
+let in_double! v = $(printf "[%s]" "pre %{v} post")
+let in_single! v = $(printf "[%s]" 'pre %{v} post')
+
+test "a value in double quotes joins the author's word" (fn t ->
+  t.eq "[pre a b post]" (in_double! "a b"))
+
+test "a value in single quotes joins the author's word" (fn t ->
+  t.eq "[pre a b post]" (in_single! "a b"))
+
+test "command substitution does not run in double quotes" (fn t ->
+  t.eq "[pre $(echo SUB) post]" (in_double! "$(echo SUB)"))
+
+test "backticks do not run in double quotes" (fn t ->
+  t.eq "[pre `echo TICK` post]" (in_double! "`echo TICK`"))
+
+test "a variable is not expanded in double quotes" (fn t ->
+  t.eq "[pre $HOME post]" (in_double! "$HOME"))
+
+test "a double quote in the value does not close the word" (fn t ->
+  t.eq `[pre say "hi" post]` (in_double! `say "hi"`))
+
+test "a backslash in the value survives double quotes" (fn t ->
+  t.eq "[pre a\\b post]" (in_double! "a\\b"))
+
+test "a single quote in the value does not close the word" (fn t ->
+  t.eq "[pre it's post]" (in_single! "it's"))
+
+(* The command ends at its closing paren, and a paren the author quoted is
+   not it. Counting parens blind cut the command in half and read the rest
+   of the line as wand source. *)
+test "a quoted paren does not end the command" (fn t -> t.eq "[a)b]" $(printf "[%s]" "a)b"))

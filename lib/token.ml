@@ -1,3 +1,20 @@
+(* How a `%{...}` or `%!{...}` in a command goes in -- which is decided by
+   where it was written, so the lexer is the only thing that can see it.
+
+   `Arg` is the bare `%{x}`: the value becomes exactly one argument,
+   whatever it contains. `Inside q` is the same `%{x}` written between the
+   author's own quotes, q being the quote it sits in: there the value is
+   part of a word the author is already building, so it is escaped for that
+   quote rather than wrapped in one of its own. `Source` is `%!{x}`, which
+   is deliberately shell source and quoted for nothing.
+
+   A string has no argument boundaries and so nothing to quote for; that is
+   why `InterpStr` keeps plain pairs. *)
+type hole =
+  | Arg
+  | Inside of char   (* the quote character it sits between *)
+  | Source
+
 type t =
   (* Literals *)
   | Int of int
@@ -85,12 +102,8 @@ type t =
      all. *)
   | RawStr       of string
   | RawInterpStr of (string * string) list * string
-  (* A command's interpolations carry how they are to be inserted: `%{x}`
-     quotes the value into one argument, `%!{x}` splices it as shell source.
-     `true` is raw. Strings have no such distinction -- there is nothing to
-     quote for -- so `InterpStr` keeps its pairs. *)
-  | RunCmdRaw    of (string * string * bool) list * string  (* $(cmd %{var} ...) *)
-  | RunQueryRaw  of (string * string * bool) list * string  (* $?(cmd %{var} ...) *)
+  | RunCmdRaw    of (string * string * hole) list * string  (* $(cmd %{var} ...) *)
+  | RunQueryRaw  of (string * string * hole) list * string  (* $?(cmd %{var} ...) *)
   | Regex        of string * string                  (* r/pattern/flags *)
   (* Delimiters *)
   | LParen             (* ( *)

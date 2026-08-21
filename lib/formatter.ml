@@ -517,9 +517,10 @@ and emit_expr_inner ?col indent e =
      the match is total and so a stray one is still legible. *)
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
-    List.iter (fun (lit, e, raw) ->
+    List.iter (fun (lit, e, h) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "%!{" else "%{");
+      Buffer.add_string buf
+        (match (h : Token.hole) with Token.Source -> "%!{" | _ -> "%{");
       Buffer.add_string buf (emit_splice indent e);
       Buffer.add_char buf '}'
     ) parts;
@@ -625,9 +626,10 @@ and emit_command indent e =
      shell source, and the script would stop working. *)
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
-    List.iter (fun (lit, ex, raw) ->
+    List.iter (fun (lit, ex, h) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "%!{" else "%{");
+      Buffer.add_string buf
+        (match (h : Token.hole) with Token.Source -> "%!{" | _ -> "%{");
       Buffer.add_string buf (emit_splice indent ex);
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;

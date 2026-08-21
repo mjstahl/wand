@@ -687,6 +687,16 @@ let n = "x; rm -rf /tmp/z"
 $(echo %{n})                -- runs: echo 'x; rm -rf /tmp/z'
 ```
 
+Written between quotes of your own, `%{x}` is part of the word you are
+building rather than an argument on its own, and is escaped for the quote it
+sits in. Nothing in the value is read as syntax there either:
+
+```
+let name = "$(whoami)"
+$(echo "hi %{name}")        -- runs: echo "hi \$(whoami)"    (one argument)
+$(grep "^%{name}" log)      -- the value is part of the pattern
+```
+
 **Raw interpolate — `%!{x}`.** The value is spliced into the command as
 shell source, which the shell then reads. This is how a value carries
 several arguments, a pattern to expand, or a whole command:
@@ -1146,7 +1156,11 @@ What is checked, and when:
   manifest line that would admit it. Prefix assignments are skipped
   (`$(FOO=1 git status)` checks `git`); redirections and their targets are
   skipped; quoting is honored, so a `|` inside an argument separates
-  nothing.
+  nothing. A subshell `(...)`, a substitution `$(...)` and a backtick span
+  are command positions of their own, wherever they appear —
+  `$(echo $(whoami))` needs `whoami` in the list as much as `echo`.
+  `$((...))` is arithmetic: the shell runs nothing there, so nothing is
+  checked.
 - **A command word decided at run time** — `$(%!{cmd} ...)` — is checked at
   the moment of spawn, against the same list, over the fully resolved
   command line; a miss raises, catchably, without spawning. The check

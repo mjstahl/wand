@@ -103,11 +103,10 @@ type expr =
      the formatter can give one back as one. *)
   | RawString of string
   | RawInterp of (string * expr) list * string
-  (* A command's interpolations, each saying how it goes in: `%{x}` quotes
-     the value into one argument, `%!{x}` splices it as shell source. Kept
-     apart from `Interp` because a string has no argument boundaries and so
-     nothing to quote for. `true` is raw. *)
-  | CmdInterp of (string * expr * bool) list * string
+  (* A command's interpolations, each carrying where it was written and so
+     what it has to be quoted for -- see `Token.hole`. Kept apart from
+     `Interp` because a string has no argument boundaries at all. *)
+  | CmdInterp of (string * expr * Token.hole) list * string
   | Handle   of expr * handle_case list
   | Try      of expr
   (* `with r as p -> body`: acquire, bind, run, release. The resource is a
@@ -237,9 +236,10 @@ let rec show : expr -> string = function
     Buffer.contents buf
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
-    List.iter (fun (lit, e, raw) ->
+    List.iter (fun (lit, e, h) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (if raw then "%!{" else "%{");
+      Buffer.add_string buf
+        (match (h : Token.hole) with Token.Source -> "%!{" | _ -> "%{");
       Buffer.add_string buf (show e);
       Buffer.add_char buf '}'
     ) parts;

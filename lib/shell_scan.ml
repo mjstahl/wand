@@ -4,11 +4,12 @@
    written text, and again at spawn over the resolved text.
 
    Deliberately not a shell parser. Quotes are tracked exactly as far as
-   telling a real `|` from a quoted one; parentheses and backticks make
-   their contents opaque (a subshell is text handed to the named binary's
-   shell, not a position of this file); redirections are skipped along with
-   their targets. Wrappers (`env`, `xargs`, `sh`) are *not* peeled: the
-   wrapper is the thing the manifest allows. *)
+   telling a real `|` from a quoted one; a subshell, a `$(...)` and a
+   backtick span are scanned as command positions in their own right, since
+   the shell runs what is in them; `$((...))` is arithmetic and runs
+   nothing; redirections are skipped along with their targets. Wrappers
+   (`env`, `xargs`, `sh`) are *not* peeled: the wrapper is the thing the
+   manifest allows. *)
 
 (* One piece of a command template as written: literal text, a quoted
    `%{...}` splice (always exactly one argument -- it cannot introduce
@@ -74,41 +75,88 @@ let scan (segs : seg list) : scan =
       (words := Compound w :: !words; expecting := false)
     else (words := Literal w :: !words; expecting := false)
   in
+  (* A subshell `(...)`, a command substitution `$(...)` and a backtick span
+     all run commands, and what runs is the whole question here, so each is
+     scanned as a command position of its own rather than skipped as opaque.
+     Skipping them was a way past the manifest: `Shell(echo)` admitted
+     `$(echo $(whoami))`, which runs whoami.
+
+     Each nested context saves the quoting it interrupted -- inside `"..."`
+     a substitution starts quoting afresh and the double quote resumes after
+     the `)` -- and each contributes a word whose text arrives at run time,
+     so a command word built from one reads as Dynamic and is checked at
+     spawn. *)
   let scan_lit text =
     let n = String.length text in
     let i = ref 0 in
-    let quote = ref ' ' in         (* ' ', '\'', '"', '`' *)
-    let depth = ref 0 in           (* unclosed ( -- subshell text is opaque *)
+    let quote = ref ' ' in         (* ' ', '\'' or '"' *)
+    let nested = ref [] in         (* the quoting each open context suspended *)
+    let in_backtick = ref false in
     let peek k = if !i + k < n then text.[!i + k] else '\000' in
-    while !i < n do
-      let c = text.[!i] in
-      if !quote <> ' ' then begin
-        (* Inside quotes everything is word text; backslash keeps a double
-           quote from closing. *)
-        if c = '\\' && !quote = '"' && !i + 1 < n then begin
-          if !depth = 0 then (Buffer.add_char buf c; Buffer.add_char buf (peek 1));
-          i := !i + 2
-        end else begin
-          if c = !quote then quote := ' '
-          else if !depth = 0 then Buffer.add_char buf c;
-          incr i
-        end
-      end else if !depth > 0 then begin
-        (* Subshell text: only track nesting and quotes, keep nothing. *)
-        (match c with
+    let enter () =
+      (* What runs inside starts a command line of its own; what the context
+         yields is text this word cannot be read from. *)
+      has_hole := true;
+      finish_word ();
+      nested := !quote :: !nested;
+      quote := ' ';
+      expecting := true
+    in
+    let leave () =
+      finish_word ();
+      (match !nested with
+       | q :: rest -> quote := q; nested := rest
+       | [] -> quote := ' ');
+      expecting := false
+    in
+    (* `$((...))` is arithmetic, not a command: sh evaluates it and runs
+       nothing, so there is nothing here to check. *)
+    let skip_arithmetic () =
+      i := !i + 3;
+      let depth = ref 2 in
+      while !depth > 0 && !i < n do
+        (match text.[!i] with
          | '(' -> incr depth
          | ')' -> decr depth
-         | '\'' | '"' | '`' -> quote := c
          | _ -> ());
         incr i
+      done;
+      has_hole := true
+    in
+    while !i < n do
+      let c = text.[!i] in
+      if !quote = '\'' then begin
+        (* Single quotes: every character is itself until the next one. *)
+        if c = '\'' then quote := ' ' else Buffer.add_char buf c;
+        incr i
+      end else if !quote = '"' then begin
+        (* Double quotes keep the word together, but the shell still reads
+           `$(...)` and backticks inside them. *)
+        if c = '\\' && !i + 1 < n then begin
+          Buffer.add_char buf c; Buffer.add_char buf (peek 1); i := !i + 2
+        end else if c = '$' && peek 1 = '(' && peek 2 = '(' then
+          skip_arithmetic ()
+        else if c = '$' && peek 1 = '(' then (enter (); i := !i + 2)
+        else if c = '`' then (enter (); in_backtick := true; incr i)
+        else begin
+          if c = '"' then quote := ' ' else Buffer.add_char buf c;
+          incr i
+        end
       end else
         match c with
-        | '\'' | '"' | '`' -> quote := c; incr i
+        | '\'' | '"' -> quote := c; incr i
+        | '`' ->
+          if !in_backtick then (leave (); in_backtick := false)
+          else (enter (); in_backtick := true);
+          incr i
+        | '$' when peek 1 = '(' && peek 2 = '(' -> skip_arithmetic ()
+        | '$' when peek 1 = '(' -> enter (); i := !i + 2
         | '\\' when !i + 1 < n ->
           Buffer.add_char buf (peek 1); i := !i + 2
         | ' ' | '\t' | '\n' -> finish_word (); incr i
-        | '(' -> finish_word (); incr depth; incr i
-        | ')' -> finish_word (); incr i
+        | '(' -> finish_word (); nested := !quote :: !nested;
+                 expecting := true; incr i
+        | ')' -> leave (); incr i
         | '|' ->
           finish_word (); expecting := true;
           i := !i + (if peek 1 = '|' || peek 1 = '&' then 2 else 1)
@@ -172,8 +220,13 @@ let rec segs_of_cmd (e : Ast.expr) : seg list =
   | Ast.Located (_, inner) -> segs_of_cmd inner
   | Ast.String cmd | Ast.RawString cmd -> [Lit cmd]
   | Ast.CmdInterp (parts, tail) ->
-    List.concat_map (fun (lit, _, raw) ->
-      [Lit lit; (if raw then RawHole else QuotedHole)]) parts
+    List.concat_map (fun (lit, _, h) ->
+      [Lit lit;
+       (match (h : Token.hole) with
+        | Token.Source -> RawHole
+        (* Quoted for whatever it lands in, so it is one word's worth of
+           text either way: it cannot introduce an operator. *)
+        | Token.Arg | Token.Inside _ -> QuotedHole)]) parts
     @ [Lit tail]
   | _ -> [RawHole]
 

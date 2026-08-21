@@ -704,18 +704,18 @@ and atom_base_ s =
     expect s Token.RParen;
     RunCmd (e, s.shell_allow)
   | Token.RunCmdRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src, raw) ->
+    let parse_parts = List.map (fun (lit, src, hole) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
-      (lit, expr_ 0 s2, raw)
+      (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunCmd (String tail, s.shell_allow)
     else RunCmd (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.RunQueryRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src, raw) ->
+    let parse_parts = List.map (fun (lit, src, hole) ->
       let toks = Lexer.tokenize src in
       let s2 = make toks in
-      (lit, expr_ 0 s2, raw)
+      (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunQuery (String tail, s.shell_allow)
     else RunQuery (CmdInterp (parse_parts, tail), s.shell_allow)

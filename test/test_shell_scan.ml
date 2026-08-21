@@ -41,7 +41,13 @@ let test_quotes () =
     [Literal "echo"; Literal "wc"];
   check "single quotes" "grep 'a && b' log" [Literal "grep"];
   check "escaped space joins a word" "run\\ me now" [Literal "run me"];
-  check "backtick contents are opaque" "echo `git rev-parse HEAD`"
+  (* A backtick span runs a command of its own, so it is a command position
+     and not word text. *)
+  check "backtick contents are read" "echo `git rev-parse HEAD`"
+    [Literal "echo"; Literal "git"];
+  check "a substitution inside double quotes still runs"
+    "echo \"today is $(date)\"" [Literal "echo"; Literal "date"];
+  check "single quotes stop it" "echo 'not $(date) a command'"
     [Literal "echo"]
 
 let test_assignments () =
@@ -70,11 +76,29 @@ let test_compounds () =
   (* `time` is a wrapper, not control flow. *)
   check "time wraps" "time git status" [Literal "time"]
 
+(* Everything a line runs is a command position, however deeply the shell
+   wraps it. Reading these as opaque was a way past a `Shell(...)` manifest:
+   `Shell(echo)` admitted `$(echo $(whoami))`, and whoami ran. *)
 let test_subshells () =
-  check "inline substitution is opaque"
-    "git log $(git merge-base a b)..HEAD" [Literal "git"];
-  check "operators inside substitution stay inside"
-    "echo $(ls | wc -l) | cat" [Literal "echo"; Literal "cat"]
+  check "an inline substitution is a command"
+    "git log $(git merge-base a b)..HEAD" [Literal "git"; Literal "git"];
+  check "operators inside a substitution are read there"
+    "echo $(ls | wc -l) | cat"
+    [Literal "echo"; Literal "ls"; Literal "wc"; Literal "cat"];
+  check "a substitution in command position leaves the word dynamic"
+    "$(which git) --version" [Dynamic; Literal "which"];
+  check "a subshell is a command line of its own"
+    "(cd /tmp && ls)" [Literal "cd"; Literal "ls"];
+  check "nested substitutions" "echo $(echo $(whoami))"
+    [Literal "echo"; Literal "echo"; Literal "whoami"];
+  (* `$((...))` is arithmetic: sh evaluates it and runs nothing. *)
+  check "arithmetic is not a command" "echo $((1 + 2))" [Literal "echo"];
+  check "arithmetic with parens of its own" "echo $(( (3 + 1) / 2 ))"
+    [Literal "echo"];
+  (* What a substitution yields is text, so the word it lands in cannot be
+     read from the source -- it is checked at spawn instead. *)
+  check "a word built from a substitution is dynamic"
+    "prefix-$(date) run" [Dynamic; Literal "date"]
 
 let test_holes () =
   check_segs "quoted hole in argument position"

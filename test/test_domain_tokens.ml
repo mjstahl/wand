@@ -185,6 +185,26 @@ let test_envvars () =
   check "with digits"      "$VAR2"      [EnvVar "VAR2"];
   (* $( lexes as raw command literal *)
   check "cmd sub raw" "$(x)"     [RunCmdRaw ([], "x")];
+  (* The command ends at its closing paren, and a paren the author quoted is
+     not it: counting them blind ended the command early and read the rest
+     of the line as wand source. *)
+  check "a quoted paren is text" {|$(echo "a)b")|}
+    [RunCmdRaw ([], {|echo "a)b"|})];
+  check "a paren in single quotes is text" "$(echo 'a)b')"
+    [RunCmdRaw ([], "echo 'a)b'")];
+  check "an escaped paren is text" {|$(echo \)x)|}
+    [RunCmdRaw ([], {|echo \)x|})];
+  check "a real subshell still nests" "$((cd /tmp) && ls)"
+    [RunCmdRaw ([], "(cd /tmp) && ls")];
+  (* Where a hole sits decides what its value is quoted for. *)
+  check "a bare hole is an argument" "$(echo %{x})"
+    [RunCmdRaw ([("echo ", "x", Token.Arg)], "")];
+  check "a hole in double quotes is escaped for them" {|$(echo "hi %{x}")|}
+    [RunCmdRaw ([({|echo "hi |}, "x", Token.Inside '"')], "\"")];
+  check "a hole in single quotes is escaped for them" "$(echo 'hi %{x}')"
+    [RunCmdRaw ([("echo 'hi ", "x", Token.Inside '\'')], "'")];
+  check "a raw hole is shell source" "$(echo %!{x})"
+    [RunCmdRaw ([("echo ", "x", Token.Source)], "")];
   (* $ followed by lowercase is not an env var *)
   check "lowercase not env" "$home"     [Dollar; Ident "home"]
 

@@ -504,6 +504,28 @@ let shell_quote v =
   Buffer.add_char buf '\'';
   Buffer.contents buf
 
+(* The same value where the author already opened a quote of their own.
+   Wrapping it in single quotes there would quote nothing -- inside `"..."`
+   a single quote is an ordinary character, so `$(echo "hi %{name}")` put
+   the value straight into text the shell still expands, and a name holding
+   `$(...)` ran. The value is escaped for the quote it lands in instead,
+   which keeps the author's word one word and leaves nothing for the shell
+   to read.
+
+   Inside single quotes only the quote itself can end the span: it is closed,
+   the character escaped outside, and the span reopened. Inside double
+   quotes the four the shell still reads there take a backslash. *)
+let quote_within q v =
+  let buf = Buffer.create (String.length v + 8) in
+  String.iter (fun c ->
+    if q = '\'' then
+      (if c = '\'' then Buffer.add_string buf "'\\''" else Buffer.add_char buf c)
+    else begin
+      if c = '"' || c = '\\' || c = '$' || c = '`' then Buffer.add_char buf '\\';
+      Buffer.add_char buf c
+    end) v;
+  Buffer.contents buf
+
 (* Deriving a decoder needs the decoding machinery, which is defined further
    down the file; `eval` only has to be able to reach it. *)
 let derive_decoder : (string -> value) ref =
@@ -754,10 +776,14 @@ let rec eval (env : env) (e : expr) : value =
     VString (Buffer.contents buf)
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
-    List.iter (fun (lit, e, raw) ->
+    List.iter (fun (lit, e, h) ->
       Buffer.add_string buf lit;
       let v = show_value (eval env e) in
-      Buffer.add_string buf (if raw then v else shell_quote v)
+      Buffer.add_string buf
+        (match (h : Token.hole) with
+         | Token.Source    -> v
+         | Token.Arg       -> shell_quote v
+         | Token.Inside q  -> quote_within q v)
     ) parts;
     Buffer.add_string buf tail;
     VString (Buffer.contents buf)

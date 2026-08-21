@@ -200,12 +200,23 @@ let read_run_cmd s =
   let parts = ref [] in
   let buf = Buffer.create 16 in
   let depth = ref 1 in
+  (* The shell's own quoting, tracked because the command ends at a `)` and
+     a quoted one is not the end of anything: `$(echo "a)b")` is one
+     command, and counting parens blind cut it in half -- taking the rest of
+     the line with it, since what followed was read as wand source. Tracked
+     only that far: which quote is open, and whether a backslash spent the
+     next character. *)
+  let quote = ref ' ' in
   let rec loop () =
-    if is_at_end s then raise (Fail "unterminated $() command");
+    if is_at_end s then
+      raise (Fail (if !quote = ' ' then "unterminated $() command"
+                   else Printf.sprintf
+                     "unterminated $() command: a %c quote is still open"
+                     !quote));
     match advance s with
-    | '(' ->
+    | '(' when !quote = ' ' ->
       incr depth; Buffer.add_char buf '('; loop ()
-    | ')' ->
+    | ')' when !quote = ' ' ->
       decr depth;
       if !depth > 0 then (Buffer.add_char buf ')'; loop ())
       else (* closing paren — done *)
@@ -238,9 +249,26 @@ let read_run_cmd s =
         end else
           Buffer.add_char expr_buf c
       done;
-      parts := !parts @ [(lit, Buffer.contents expr_buf, raw)];
+      (* Backticks are not a quote the value has to be escaped for: what is
+         inside them is source for a shell of its own, which reads an
+         ordinary single-quoted argument exactly as the outer one would. *)
+      let hole =
+        if raw then Token.Source
+        else match !quote with
+          | '\'' | '"' as q -> Token.Inside q
+          | _ -> Token.Arg
+      in
+      parts := !parts @ [(lit, Buffer.contents expr_buf, hole)];
       loop ()
     | '\\' when peek s = '\n' -> ignore (advance s); loop ()
+    (* A backslash spends the next character wherever the shell would let it
+       -- everywhere but inside single quotes, where it is itself. *)
+    | '\\' when !quote <> '\'' && not (is_at_end s) ->
+      Buffer.add_char buf '\\'; Buffer.add_char buf (advance s); loop ()
+    | ('\'' | '"' | '`') as c when !quote = ' ' ->
+      quote := c; Buffer.add_char buf c; loop ()
+    | c when c = !quote ->
+      quote := ' '; Buffer.add_char buf c; loop ()
     | c -> Buffer.add_char buf c; loop ()
   in
   loop ()
