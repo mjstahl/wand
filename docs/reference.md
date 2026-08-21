@@ -105,6 +105,46 @@ It appears in [Type annotations](#type-annotations) like any type name.
 Float division does not raise: `1.0 / 0.0` is infinity, as IEEE 754 says.
 Int division keeps its check.
 
+### Comparison and `Ord`
+
+`==` and `!=` compare any two values of one type. `<`, `>`, `<=` and `>=`
+take an `Ord`: a type that wand orders. These seven are ordered:
+
+```text
+Int   Float   String   Duration   Date   Time   DateTime
+```
+
+A type outside that set is a type error where it is written, not a failure
+during the run:
+
+```ocaml
+100MB < 1GB
+-- type error: Size is not ordered, so it cannot be compared with < > <= >=
+```
+
+`Ord` is a constraint, as `Num` is, so a function that only compares stays
+polymorphic:
+
+```ocaml
+let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
+```
+
+Every `Num` is an `Ord`. A variable that is both is a `Num`.
+
+**A comparison is on the value, not on the text it was written as.** A
+`Duration` is a sum of units, and a `DateTime` carries an offset, so one
+value has more than one spelling. Equality reads it the same way:
+
+```ocaml
+90s > 1min                                        -- true
+60s == 1min                                       -- true
+2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z -- true, one instant
+```
+
+A `DateTime` with no offset is read as UTC. `Date` and `Time` are
+fixed-width and zero-padded, so their text order is already their value
+order.
+
 String interpolation with `%{...}`, which takes any expression:
 
 ```ocaml
