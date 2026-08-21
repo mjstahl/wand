@@ -692,6 +692,13 @@ and atom_base_ s =
     if peek s = Token.RParen then (ignore (advance s); Unit)
     else begin
       let e_loc = peek_loc s in
+      (* A block that opens with a binding is a sequence whatever follows:
+         `(let x = 1; ...)`. Reading it as an expression first would hand
+         the binding to `let_` with no way back to the statements after
+         it. *)
+      if peek s = Token.Let then begin
+        let e = paren_seq s in expect s Token.RParen; e
+      end else begin
       let e = expr_ 0 s in
       if peek s = Token.Comma then begin
         let es = ref [e] in
@@ -708,18 +715,14 @@ and atom_base_ s =
            `)` is allowed. Nested to the right so every discarded statement
            is a Seq's own first child, which is where the typechecker
            records its type for the discarded-Result lint. *)
-        let es = ref [Located (span_to_here s e_loc, e)] in
-        while peek s = Token.Semicolon do
-          ignore (advance s);
-          if peek s <> Token.RParen then
-            es := locate s (fun () -> expr_ 0 s) :: !es
-        done;
-        expect s Token.RParen;
-        (match !es with
-         | last :: rev_init ->
-           List.fold_left (fun acc e -> Seq (e, acc)) last rev_init
-         | [] -> assert false)
+        ignore (advance s);
+        let first = Located (span_to_here s e_loc, e) in
+        let e =
+          if peek s = Token.RParen then first else Seq (first, paren_seq s)
+        in
+        expect s Token.RParen; e
       end else (expect s Token.RParen; e)
+      end
     end
   | Token.LBracket -> list_ s
   | Token.LBrace   -> brace_map_ s
@@ -908,7 +911,28 @@ and parse_fn_binding s name =
   done;
   collapse_multi_equation arity !eqs
 
-and let_ s =
+(* The statements of a `( ... )` block, up to the closing paren, which the
+   caller takes. A `let` here binds for the rest of the block: `;` is what
+   ends its right-hand side, exactly as a newline does at the top level of
+   a file. So a block and a file read the same way. *)
+and paren_seq s =
+  let loc = peek_loc s in
+  let e =
+    if peek s = Token.Let then begin
+      ignore (advance s);
+      (* A binding written with `in` names a value for one expression and
+         is a statement like any other; one written with `;` has already
+         taken the rest of the block as its body. *)
+      let_ ~block:true s
+    end else Located (span_to_here s loc, expr_ 0 s)
+  in
+  if peek s <> Token.Semicolon then e
+  else begin
+    ignore (advance s);
+    if peek s = Token.RParen then e else Seq (e, paren_seq s)
+  end
+
+and let_ ?(block = false) s =
   (* let already consumed *)
   let p = pat_ s in
   let consume_rest () =
@@ -916,6 +940,19 @@ and let_ s =
       ignore (advance s);
       locate s (fun () -> expr_ 0 s)
     end
+    else if block && peek s = Token.Semicolon then begin
+      (* The binding's body is everything after the `;`. *)
+      ignore (advance s);
+      if peek s = Token.RParen then
+        fail_at (peek_loc s)
+          "this binding has no body: a block cannot end with a `let`, \
+           because nothing would read the name"
+      else paren_seq s
+    end
+    else if block && peek s = Token.RParen then
+      fail_at (peek_loc s)
+        "this binding has no body: a block cannot end with a `let`, \
+         because nothing would read the name"
     else if is_expr_start (peek s) then parse_body s
     else Unit
   in

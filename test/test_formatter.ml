@@ -708,6 +708,36 @@ let test_string_openers_come_back_escaped () =
       "$!{x}", "\\$!{x}";
       "#{x}",  "\\#{x}" ]
 
+(* Two source forms reach one node: `(let x = 1; a; b)` and
+   `(let x = 1 in (a; b))` both parse to `Let (x, 1, Seq (a, b))`. The
+   formatter writes one of them back, and the shape decides which: a binding
+   whose body is a sequence belongs to that block and takes the `;`; a
+   binding whose body is one expression keeps `in`, because there the two
+   say the same thing and `in` is the older spelling. *)
+let test_a_block_binding_round_trips () =
+  fmt_eq "a binding and two statements"
+    {|let f () = (let x = 1; println "a"; x + 1)|}
+    {|let f () = (let x = 1; println "a"; x + 1)|};
+  fmt_eq "two bindings"
+    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|}
+    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
+  (* One statement after the binding: the two forms say the same thing, and
+     this one normalizes to `in` and then holds. *)
+  fmt_eq "a block of one statement takes the older spelling"
+    {|let f () = (let x = 1; x + 2)|}
+    {|let f () = let x = 1 in x + 2|};
+  (* A binding written with `in` inside a sequence is a statement like any
+     other and stays where it is. *)
+  fmt_eq "the in form inside a sequence"
+    {|let f () = (let x = 1 in x + 1; 9)|}
+    {|let f () = (let x = 1 in x + 1; 9)|};
+  assert_idempotent "a block is a fixed point"
+    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
+  ok_after_format "and it still runs"
+    {|let f () = (let x = 1; let y = 2; x + y)
+f ()|}
+    "3"
+
 (* `$NAME` in a string is text, so the formatter has nothing to interpret:
    it comes back as written, and is not turned into an interpolation. An
    actual environment read is `%{$USER}`, and that round-trips as itself. *)
@@ -825,6 +855,7 @@ let () =
       Alcotest.test_case "handle and regex" `Quick test_handle_and_regex_round_trip;
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
       Alcotest.test_case "string openers" `Quick test_string_openers_come_back_escaped;
+      Alcotest.test_case "a block binding" `Quick test_a_block_binding_round_trips;
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;

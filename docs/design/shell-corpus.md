@@ -377,11 +377,10 @@ covered end to end.
    `let f (r: Repo) = …` both parse, and the cons message still meets the
    mistake it was written for. See "A type on a parameter" in
    `docs/reference.md`.
-2. **Decide `let … in` across `;`.** Second-largest readability win, and
-   likely a small parser change. Now designed: see
-   [`binding-in-a-sequence.md`](binding-in-a-sequence.md), which proposes
-   `let p = e;` binding for the rest of its block, and records the one
-   program whose meaning changes.
+2. ~~**Decide `let … in` across `;`.**~~ Shipped: a `let` before a `;`
+   binds for the rest of its block, so a body that names two intermediates
+   costs no indentation. See "A binding in a block" in
+   `docs/reference.md`.
 3. **Port ten more scripts**, now from rows 1, 2, 4 and 10, which need no
    language changes either. Keep updating this list — the four already
    done changed it substantially, and the reading of `stdlib/` that

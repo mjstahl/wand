@@ -74,11 +74,6 @@ have to change before anyone builds them.
 
 ## The language
 
-**A binding does not live past a `;`.** Inside parentheses `let ... in`
-scopes over one expression, so a body that names two intermediates nests
-twice. Designed in
-[`docs/design/binding-in-a-sequence.md`](design/binding-in-a-sequence.md).
-
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in

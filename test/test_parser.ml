@@ -12,6 +12,64 @@ let e label input expected =
 let parse_program s =
   Lexer.tokenize s |> Parser.parse_program
 
+let refuses label src needle =
+  match (try Ok (parse_program src) with Parser.ParseError (_, m) -> Error m) with
+  | Ok _ -> Alcotest.failf "%s: expected a parse error" label
+  | Error m ->
+    if not (Lint.contains m needle) then
+      Alcotest.failf "%s: expected %S in: %s" label needle m
+
+(* ── A binding in a block ────────────────────────────────────────────────── *)
+
+(* Inside parentheses a `let` binds for the rest of the block. `;` is what
+   ends its right-hand side, exactly as a newline does at the top level of a
+   file, so a block and a file read the same way.
+
+   Before this, `(let x = 1; x + 2)` parsed -- and bound nothing. The
+   binding took `Unit` for a body and died where it stood, and the error
+   named the use site, which is not the mistake. *)
+
+let runs label src expected =
+  match Runner.run_string src with
+  | Ok v -> Alcotest.(check string) label expected v
+  | Error m -> Alcotest.failf "%s: %s" label m
+
+let test_a_binding_in_a_block () =
+  runs "one binding" "(let x = 1; x + 2)" "3";
+  runs "two, in one block" "(let x = 1; let y = 2; x + y)" "3";
+  runs "each sees the one before" "(let x = 1; let y = x + 1; y * 3)" "6";
+  runs "statements after it" {|(let x = 1; println "a"; x + 1)|} "2";
+  runs "a binding after a statement" {|(println "a"; let x = 1; x)|} "1";
+  (* Every binding form reaches the same place in the parser. *)
+  runs "annotated" "(let x : Int = 1; x + 1)" "2";
+  runs "a function" "(let helper y = y + 1; helper 4)" "5";
+  runs "an and group"
+    "(let even n = if n == 0 then true else odd (n - 1) \
+     and odd n = if n == 0 then false else even (n - 1); even 8)" "true"
+
+(* The older spelling keeps its meaning: `in` scopes over one expression,
+   and a `;` after it starts the next statement. *)
+let test_the_in_form_is_unchanged () =
+  runs "in scopes over its own expression" "(let x = 1 in x + 1; 9)" "9";
+  (match Runner.run_string "(let x = 1 in x + 1; x + 2)" with
+   | Ok v -> Alcotest.failf "expected x to be unbound, got %s" v
+   | Error m ->
+     if not (Lint.contains m "unbound variable 'x'") then
+       Alcotest.failf "expected an unbound x, got: %s" m);
+  runs "and it still works alone" "(let x = 1 in x + 1)" "2"
+
+(* The one program whose meaning changes: a binding that bound nothing now
+   binds. Pinned so the change is recorded rather than discovered. *)
+let test_a_dead_binding_becomes_live () =
+  runs "the inner binding wins" "let x = 0 in (let x = 1; x)" "1"
+
+(* A block cannot end with a binding: nothing would read the name. It was
+   silent before -- the binding took Unit for a body. *)
+let test_a_block_cannot_end_with_a_binding () =
+  refuses "on its own" "(let x = 1)" "this binding has no body";
+  refuses "after a statement" {|(println "a"; let x = 1)|} "this binding has no body";
+  refuses "with a trailing semicolon" "(let x = 1;)" "this binding has no body"
+
 (* ── A type on a pattern ─────────────────────────────────────────────────── *)
 
 (* `(p: Pod)` gives a parameter a type, which is what lets a function read a
@@ -52,13 +110,6 @@ let expr_pats src =
   | Match (_, (p, _, _) :: _) -> pat_text p
   | With (_, p, _) -> pat_text p
   | e -> Alcotest.failf "no pattern in: %s" (Ast.show e)
-
-let refuses label src needle =
-  match (try Ok (parse_program src) with Parser.ParseError (_, m) -> Error m) with
-  | Ok _ -> Alcotest.failf "%s: expected a parse error" label
-  | Error m ->
-    if not (Lint.contains m needle) then
-      Alcotest.failf "%s: expected %S in: %s" label needle m
 
 let test_pattern_annotation () =
   let check = Alcotest.(check string) in
@@ -656,6 +707,12 @@ let () =
     "written effects", [
       Alcotest.test_case "the four shapes"     `Quick test_written_effects_shapes;
       Alcotest.test_case "innermost arrow"     `Quick test_written_effects_land_on_the_inner_arrow;
+    ];
+    "a binding in a block", [
+      Alcotest.test_case "binds for the rest"   `Quick test_a_binding_in_a_block;
+      Alcotest.test_case "in is unchanged"      `Quick test_the_in_form_is_unchanged;
+      Alcotest.test_case "a dead binding lives" `Quick test_a_dead_binding_becomes_live;
+      Alcotest.test_case "cannot end a block"   `Quick test_a_block_cannot_end_with_a_binding;
     ];
     "a type on a pattern", [
       Alcotest.test_case "every position"   `Quick test_pattern_annotation;

@@ -541,8 +541,44 @@ The value of the sequence is the last expression. A `;` before the `)` is
 allowed. wand discards each statement before the last one. So `V-DROP1` reports
 a discarded `Result` here, as it does for a top-level statement. Match it, call
 the `!` sibling, or bind it to `_` to say that the failure does not matter.
+
+### A binding in a block
+
+A `let` in a block binds for the rest of that block:
+
+```ocaml
+let deploy! release work = (
+  let stage = Path.join work (Path.of_string "pkg");
+  let archive = Path.of_string "./dist/%{release}.tar.gz";
+  FS.mkdir! stage;
+  FS.copy! archive stage;
+  "deployed"
+)
+```
+
+`;` ends the binding's right-hand side, exactly as a newline does at the top
+level of a file. So a block and a file read the same way, and naming two
+values costs no indentation.
+
+A block cannot end with a binding. Nothing would read the name, so it is a
+parse error:
+
+```ocaml
+(f (); let x = 1)
+-- parse error: this binding has no body: a block cannot end with a `let`,
+--   because nothing would read the name
+```
+
+`let ... in` keeps its own meaning: it names a value for one expression, and
+a `;` after that expression starts the next statement. In
+`(let x = 1 in x + 1; 9)` the `x` belongs to `x + 1` and to nothing else.
+
 `let () = e1 in e2` still works and means the same thing. It also guarantees
 that `e1` is `Unit`.
+
+`wand f` writes the block form when a binding is followed by more than one
+statement, and `let ... in` when one expression follows it — there the two
+say the same thing, and `in` is the older spelling.
 
 ---
 
@@ -3338,10 +3374,11 @@ writes it and reads it. A script does not have to.
   )
   ```
 
-- **Use `let ... in` to name a value, not to sequence.** `let x = e in body`
-  gives `e` a name that `body` uses. That is its job. `let () = e1 in e2`
-  still works and still typechecks. The `;` form says the same thing, and it
-  does not ask the reader what `()` binds.
+- **Name a value with a `let` in the block, not with a nested `let ... in`.**
+  A `let` before a `;` binds for the rest of the block, so two names cost no
+  indentation. Keep `let ... in` for naming a value that one expression
+  uses. `let () = e1 in e2` still works and still typechecks; the `;` form
+  says the same thing without asking the reader what `()` binds.
 
 - **Prefer `match` to several equations.** Two definitions with different
   patterns are legal. The standard library uses that form, as in

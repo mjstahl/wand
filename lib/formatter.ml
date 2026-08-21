@@ -421,6 +421,9 @@ and emit_expr_inner ?col indent e =
     head
     ^ bracket_if_wrapped_app body
         (emit_expr ~col:(col + String.length head) indent body)
+  (* A binding whose body is a sequence belongs to that block, and is
+     written with the `;` that ends it rather than with `in`. *)
+  | Let (_, _, body) as e when is_block body -> emit_block ~col indent e
   | Let (p, e1, e2) -> emit_let ~col indent p e1 e2
   | LetRec (bindings, e2) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if ~col indent c t el
@@ -450,23 +453,7 @@ and emit_expr_inner ?col indent e =
              label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
       ^ "\n" ^ ind ^ ")"
   | Field (e, l) -> emit_field indent e l
-  | Seq _ as e ->
-    (* `;` only sequences inside parentheses, so a Seq is written back in
-       that shape: one line when it fits, one statement per line when not. *)
-    let rec parts e = match strip_located e with
-      | Seq (a, b) -> parts a @ parts b
-      | _ -> [e]
-    in
-    let es = parts e in
-    let oneline =
-      "(" ^ String.concat "; " (List.map (emit_expr indent) es) ^ ")" in
-    if fits col oneline then oneline
-    else
-      let ind = String.make indent ' ' in
-      let inner = String.make (indent + 2) ' ' in
-      "(\n" ^ inner
-      ^ String.concat (";\n" ^ inner) (List.map (emit_expr (indent + 2)) es)
-      ^ "\n" ^ ind ^ ")"
+  | Seq _ as e -> emit_block ~col indent e
   | Located (_, e) -> emit_expr_inner indent e
   | Contract (reqs, ens, body) ->
     (* Each clause sits on its own line at the body's indent; the first is
@@ -741,6 +728,83 @@ and split_clause_annot body =
   | Annot (te, real_body) -> (" : " ^ emit_type_expr te, real_body)
   | _ -> ("", body)
 
+(* The clauses of `let name params = body`, without the `in` that follows
+   them. A binding in a block has no `in`, and both spellings have to lay
+   the clauses out the same way. *)
+(* A block: statements in parentheses, where a binding may run to the end of
+   it. `(let x = 1; a; b)` parses to `Let (x, 1, Seq (a, b))`, so the walk
+   goes through a binding as well as through a `Seq`.
+
+   A `Let` whose body is a single expression is not a block and keeps `in`:
+   the two spellings say the same thing there, and `in` is the older one. *)
+and is_block e =
+  match strip_located e with
+  | Seq _ -> true
+  | Let (_, _, body) -> is_block body
+  | _ -> false
+
+and emit_block ?col indent e =
+  let col = match col with Some c -> c | None -> indent in
+  let rec items ind e =
+    match strip_located e with
+    | Seq (a, b) -> emit_expr ind a :: items ind b
+    | Let (p, e1, body) when is_block body ->
+      emit_binding ~col:ind ind p e1 :: items ind body
+    | other -> [emit_expr ind other]
+  in
+  let oneline = "(" ^ String.concat "; " (items indent e) ^ ")" in
+  if fits col oneline && not (String.contains oneline '\n') then oneline
+  else
+    let ind = String.make indent ' ' in
+    let inner = String.make (indent + 2) ' ' in
+    "(\n" ^ inner
+    ^ String.concat (";\n" ^ inner) (items (indent + 2) e)
+    ^ "\n" ^ ind ^ ")"
+
+and emit_fn_clauses ~col indent p params fbody =
+  let name = match p with PVar n -> n | _ -> "_" in
+  let clauses = match try_multi_equation params fbody with
+    | Some cs -> cs
+    | None    -> [(params, fbody)]
+  in
+  let clause_indent i = if i = 0 then indent else name_column indent let_keyword in
+  let lines = List.mapi (fun i (pats, body) ->
+    let ci = clause_indent i in
+    let cind = String.make ci ' ' in
+    let kw = if i = 0 then let_keyword ^ " " ^ name else name in
+    let (annot_s, body) = split_clause_annot body in
+    let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
+    let clause_col = if i = 0 then col else ci in
+    let oneline = head ^ " = " ^ emit_expr ci body in
+    if fits clause_col oneline then oneline
+    else if opens_a_bracket body then
+      head ^ " = "
+      ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
+    else
+      head ^ " =\n" ^ cind ^ "  "
+      ^ bracket_if_wrapped_app body (emit_expr (ci + 2) body)
+  ) clauses in
+  String.concat "\n"
+    (List.mapi (fun i l ->
+       if i = 0 then l else String.make (clause_indent i) ' ' ^ l) lines)
+
+(* One binding of a block, with no body after it: the `;` that follows is
+   the terminator, as a newline is at the top level of a file. *)
+and emit_binding ?col indent p e1 =
+  let col = match col with Some c -> c | None -> indent in
+  match e1 with
+  | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody
+  | Annot (te, body) ->
+    "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = "
+    ^ emit_expr indent body
+  | _ ->
+    let e1s = emit_expr indent e1 in
+    let oneline = "let " ^ emit_pat p ^ " = " ^ e1s in
+    if fits col oneline then oneline
+    else
+      "let " ^ emit_pat p ^ " =\n" ^ String.make (indent + 2) ' '
+      ^ bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1)
+
 and emit_let ?col indent p e1 e2 =
   let col = match col with Some c -> c | None -> indent in
   match e1 with
@@ -752,44 +816,13 @@ and emit_let ?col indent p e1 e2 =
        `let name = fn params -> body` would silently make it non-recursive,
        so it must always come back out as shorthand syntax, single-clause or
        multi-equation alike. *)
-    let name = match p with PVar n -> n | _ -> "_" in
-    let ind = String.make indent ' ' in
-    let clauses = match try_multi_equation params fbody with
-      | Some cs -> cs
-      | None    -> [(params, fbody)]
-    in
     (* The first clause carries the keyword and fixes the column its name
        starts at; the rest are that name again, under it. The `in` closes
        the group from the keyword's own column, so the block reads as one
        shape rather than a stack of unrelated lines. *)
-    let clause_indent i = if i = 0 then indent else name_column indent let_keyword in
-    let lines = List.mapi (fun i (pats, body) ->
-      let ci = clause_indent i in
-      let cind = String.make ci ' ' in
-      let kw = if i = 0 then let_keyword ^ " " ^ name else name in
-      let (annot_s, body) = split_clause_annot body in
-      let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
-      (* Measured from where this clause actually starts, not from the
-         group's column, or a later clause is allowed a line it cannot fit. *)
-      let clause_col = if i = 0 then col else ci in
-      let oneline = head ^ " = " ^ emit_expr ci body in
-      if fits clause_col oneline then oneline
-      else if opens_a_bracket body then
-        (* A bracketed body opens on the `=` line, so the block reads
-           brace-style; the emitter, told its true starting column, cannot
-           fit and takes its multiline form. *)
-        head ^ " = "
-        ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
-      else
-        head ^ " =\n" ^ cind ^ "  "
-        ^ bracket_if_wrapped_app body (emit_expr (ci + 2) body)
-    ) clauses in
-    let joined =
-      String.concat "\n"
-        (List.mapi (fun i l ->
-           if i = 0 then l else String.make (clause_indent i) ' ' ^ l) lines)
-    in
-    joined ^ "\n" ^ ind ^ "in "
+    let ind = String.make indent ' ' in
+    emit_fn_clauses ~col indent p params fbody
+    ^ "\n" ^ ind ^ "in "
     ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would

@@ -1,0 +1,54 @@
+uses {FS.Read, FS.Write}
+
+let {test, group} = import Test
+import FS
+import Path
+import String
+
+(* A `let` in a block binds for the rest of the block. `;` ends its
+   right-hand side, as a newline does at the top level of a file. *)
+
+group "what a binding reaches" (fn () -> [
+  test "the statements after it" (fn t ->
+    t.eq 3 (let f = fn () -> let x = 1 in let y = 2 in x + y in f ())),
+  test "a binding sees the one before" (fn t ->
+    t.eq 6 (let f = fn () -> let x = 1 in let y = x + 1 in y * 3 in f ())),
+  test "a binding after a statement" (fn t ->
+    t.eq "ab" (let f = fn () -> let a = "a" in let b = "b" in a ++ b in f ()))
+])
+
+(* Every binding form works, because they all reach the same place in the
+   parser. *)
+group "the forms" (fn () -> [
+  test "annotated" (fn t -> t.eq 2 (let f = fn () -> let x : Int = 1 in x + 1 in f ())),
+  test "a function" (fn t ->
+    t.eq
+      5
+      (let f =
+        fn () -> let g y = y + 1
+        in g 4
+      in
+      f ()
+      )),
+  test "a tuple pattern" (fn t ->
+    t.eq 3 (let f = fn () -> let (a, b) = (1, 2) in a + b in f ()))
+])
+
+(* The older spelling keeps its own meaning. *)
+test "let ... in scopes over one expression" (fn t ->
+  t.eq 9 (let f = fn () -> (let x = 1 in x + 1; 9) in f ()))
+
+(* The block form is what a script that names two intermediates writes, and
+   it costs no indentation. *)
+test "a block that does real work" (fn t ->
+  with FS.temp_dir "block_" as d ->
+  let done? =
+    (
+      let stage = Path.join d (Path.of_string "pkg");
+      let note = Path.join stage (Path.of_string "note.txt");
+      FS.mkdir! stage;
+      FS.write_file! note "hello";
+      FS.exists? note
+    )
+  in
+  t.ok done?)
