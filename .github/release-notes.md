@@ -40,8 +40,15 @@ Three more messages drop the word:
 ### The documents are shorter
 
 `README.md` and `docs/reference.md` now use short sentences, active voice,
-and one idea in each sentence. No code block, no heading and no link
-changed.
+and one idea in each sentence.
+
+The reference also said that a newline always ends a statement. That is not
+true: a line that starts with an operator continues the line above, which is
+what a pipeline that leads with `|>` needs. So these two lines are one
+statement, and `a` is `-1`:
+
+    let a = 1
+    -2
 
 Three claims in the README were wrong and are corrected against a run: the
 by-hand install named v0.10.0, the example error text did not match, and
