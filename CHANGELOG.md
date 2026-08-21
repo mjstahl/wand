@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.27.0] - 2026-08-21
+
+### Added
+
+- Add a binding that lives for the rest of its block: a `let` before a `;`
+  inside parentheses binds for every statement after it, so a body that
+  names two intermediates costs no indentation. `;` ends the binding's
+  right-hand side, exactly as a newline does at the top level of a file.
+  The same three words parsed before and bound nothing — the binding took
+  `Unit` for a body, and the error named the use site rather than the
+  mistake. `let ... in` keeps its own meaning: it names a value for one
+  expression, so `(let x = 1 in x + 1; 9)` still scopes `x` over `x + 1`
+  alone. `wand f` writes the block form when more than one statement
+  follows a binding, and `let ... in` when one expression does (`0e737cc`)
+
+### Changed
+
+- **Breaking:** A block cannot end with a binding. `(f (); let x = 1)` is a
+  parse error saying the binding has no body, where it used to be accepted
+  and bind nothing (`0e737cc`)
+- **Breaking:** A binding that bound nothing now binds, so a program that
+  shadowed a live name answers differently: `let x = 0 in (let x = 1; x)`
+  was `0` and is `1`. Every other program this touches is one that does not
+  typecheck today (`0e737cc`)
+
+[0.27.0]: https://github.com/mjstahl/wand/releases/tag/v0.27.0
+
 ## [0.26.0] - 2026-08-21
 
 ### Changed
