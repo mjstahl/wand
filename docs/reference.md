@@ -438,6 +438,27 @@ println "working";
 A newline alone ends a statement, so at the top level of a file `;` is only
 needed to put several on one line or to make the sequencing explicit.
 
+A newline does not end a statement if the next line starts with an operator.
+That line continues the statement. A pipeline that leads with `|>` needs
+this:
+
+```
+let count =
+  names
+    |> List.filter short?
+    |> List.length
+```
+
+`-` follows the same rule, and there it can surprise you. These two lines
+are one statement, and `a` is `-1`:
+
+```
+let a = 1
+-2
+```
+
+Write `let b = -2` if you want a second statement.
+
 Inside a function body — or anywhere else an expression is expected — a
 newline cannot separate statements, because inside brackets a newline is just
 formatting and an application may continue across it. There, statements
@@ -3066,7 +3087,9 @@ team and uses the full language; a script does not have to.
 
 - **One statement per line at the top level.** A newline ends a statement,
   so top-level code needs no terminator, no `let () =`, and no ceremony —
-  do the thing, then do the next thing.
+  do the thing, then do the next thing. A line that starts with an operator
+  is the exception: it continues the line above (see
+  [Sequencing](#sequencing)).
 
 - **Sequence with `;` in parentheses inside a body.** A function body is one
   expression, so several statements there go in parentheses, separated by
