@@ -18,29 +18,70 @@ let legacy_of_exn e = Diag.legacy (diag_of_exn e)
 
 (* ── Default effect handlers ──────────────────────────────────────────────── *)
 
-(* Drain a channel in blocks. Reading one byte at a time costs a call per
-   byte, which is invisible on a line of output and very much not on a
-   megabyte of it. *)
-let drain_channel ic =
-  let buf = Buffer.create 65536 in
-  let chunk = Bytes.create 65536 in
-  let rec loop () =
-    let n = input ic chunk 0 (Bytes.length chunk) in
-    if n > 0 then begin
-      Buffer.add_subbytes buf chunk 0 n;
-      loop ()
-    end
-  in
-  (try loop () with End_of_file -> ());
-  Buffer.contents buf
+(* Read what a child writes without ever waiting on one pipe while it waits
+   on another. Draining stdout to the end and only then reading stderr is a
+   deadlock: the child fills the pipe wand is not reading, blocks on that
+   write, and so never reaches the end of the pipe wand is waiting on. A
+   megabyte of stderr is enough. Writing the child's stdin has the same
+   shape -- a command that answers as it reads fills stdout while wand is
+   still writing -- so all three move together, in blocks, driven by
+   whichever is ready. *)
 
-let discard_channel ic =
+let close_noerr fd = try Unix.close fd with Unix.Unix_error _ -> ()
+
+(* A signal arriving mid-call is a reason to look again, not to give up on
+   output the child has already written. *)
+let rec select_ready reads writes =
+  try Unix.select reads writes [] (-1.0)
+  with Unix.Unix_error (Unix.EINTR, _, _) -> select_ready reads writes
+
+let rec read_chunk fd buf =
+  try Unix.read fd buf 0 (Bytes.length buf)
+  with Unix.Unix_error (Unix.EINTR, _, _) -> read_chunk fd buf
+
+(* Moves everything and closes every descriptor it is given, so what is
+   left to do afterwards is the wait. `out` and `err` are the ends wand
+   reads; `into` is the child's stdin, absent when the child inherits
+   wand's. *)
+let pump ?(stdin = "") ?out ?err ?into () =
   let chunk = Bytes.create 65536 in
-  let rec loop () =
-    let n = input ic chunk 0 (Bytes.length chunk) in
-    if n > 0 then loop ()
+  let out_buf = Buffer.create 65536 and err_buf = Buffer.create 65536 in
+  let reading = ref (List.filter_map Fun.id [out; err]) in
+  let writing =
+    ref (match into with
+         | None -> []
+         | Some fd ->
+           if stdin = "" then (close_noerr fd; [])
+           else (Unix.set_nonblock fd; [fd]))
   in
-  (try loop () with End_of_file -> ())
+  let sent = ref 0 in
+  let total = String.length stdin in
+  let stop_reading fd =
+    close_noerr fd;
+    reading := List.filter (fun f -> f <> fd) !reading
+  in
+  let stop_writing fd = close_noerr fd; writing := [] in
+  while !reading <> [] || !writing <> [] do
+    let (ready_r, ready_w, _) = select_ready !reading !writing in
+    List.iter (fun fd ->
+      let n = read_chunk fd chunk in
+      if n = 0 then stop_reading fd
+      else Buffer.add_subbytes
+             (if Some fd = out then out_buf else err_buf) chunk 0 n)
+      ready_r;
+    List.iter (fun fd ->
+      match Unix.single_write_substring fd stdin !sent
+              (min 65536 (total - !sent)) with
+      | n -> sent := !sent + n; if !sent >= total then stop_writing fd
+      | exception Unix.Unix_error
+          ((Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINTR), _, _) -> ()
+      (* A child that stopped reading -- `head`, or one that failed -- has
+         had what it took. That is the command's business to report through
+         its exit status, not an error in the writer. *)
+      | exception Unix.Unix_error (Unix.EPIPE, _, _) -> stop_writing fd)
+      ready_w
+  done;
+  (Buffer.contents out_buf, Buffer.contents err_buf)
 
 (* ── Children ─────────────────────────────────────────────────────────────── *)
 
@@ -98,7 +139,29 @@ let spawn_in cmd =
   let pid = create_process_for cmd Unix.stdin w Unix.stderr in
   Unix.close w;
   remember pid;
-  (pid, Unix.in_channel_of_descr r)
+  (pid, r)
+
+(* Output nobody will look at goes to /dev/null rather than down a pipe wand
+   then has to keep emptying: the child writes as fast as it likes and wand
+   has one thing to wait for. *)
+let spawn_quiet cmd =
+  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0o666 in
+  let pid = create_process_for cmd Unix.stdin devnull Unix.stderr in
+  Unix.close devnull;
+  remember pid;
+  pid
+
+(* Stdin piped, stderr the caller's own -- what `$()` does, which is what a
+   command on the right of `|>` should do too: a command that explains its
+   failure on stderr should be heard, not swallowed for having been given
+   input. *)
+let spawn_stdin cmd =
+  let (out_r, out_w) = Unix.pipe ~cloexec:true () in
+  let (in_r,  in_w)  = Unix.pipe ~cloexec:true () in
+  let pid = create_process_for cmd in_r out_w Unix.stderr in
+  Unix.close out_w; Unix.close in_r;
+  remember pid;
+  (pid, out_r, in_w)
 
 let spawn_full cmd =
   let (out_r, out_w) = Unix.pipe ~cloexec:true () in
@@ -107,16 +170,14 @@ let spawn_full cmd =
   let pid = create_process_for cmd in_r out_w err_w in
   Unix.close out_w; Unix.close err_w; Unix.close in_r;
   remember pid;
-  (pid,
-   Unix.in_channel_of_descr out_r,
-   Unix.out_channel_of_descr in_w,
-   Unix.in_channel_of_descr err_r)
+  (pid, out_r, err_r, in_w)
 
-let reap pid channels =
-  List.iter (fun close -> try close () with Sys_error _ -> ()) channels;
-  let (_, status) = Unix.waitpid [] pid in
-  forget pid;
-  status
+(* Called once the pipes are drained and closed, so the child is not waiting
+   on a reader that has gone away. *)
+let rec reap pid =
+  match Unix.waitpid [] pid with
+  | (_, status) -> forget pid; status
+  | exception Unix.Unix_error (Unix.EINTR, _, _) -> reap pid
 
 (* OCaml numbers signals with its own negative constants, so the raw value
    in a message means nothing to anyone reading it. *)
@@ -154,9 +215,9 @@ let strip_trailing_newline s =
   String.sub s 0 !i
 
 let exec_command cmd =
-  let (pid, ic) = spawn_in cmd in
-  let output = drain_channel ic in
-  let status = reap pid [(fun () -> close_in ic)] in
+  let (pid, out_r) = spawn_in cmd in
+  let (output, _) = pump ~out:out_r () in
+  let status = reap pid in
   let output = strip_trailing_newline output in
   match status with
   | Unix.WEXITED 0   -> output
@@ -165,56 +226,41 @@ let exec_command cmd =
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
 let exec_command_quiet cmd =
-  let (pid, ic) = spawn_in cmd in
-  discard_channel ic;
-  match reap pid [(fun () -> close_in ic)] with
+  match reap (spawn_quiet cmd) with
   | Unix.WEXITED 0   -> ()
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
   | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
 let exec_command_exit_code cmd =
-  let (pid, ic) = spawn_in cmd in
-  discard_channel ic;
-  match reap pid [(fun () -> close_in ic)] with
+  match reap (spawn_quiet cmd) with
   | Unix.WEXITED n   -> n
   | Unix.WSIGNALED _ -> 128
   | Unix.WSTOPPED  _ -> 128
 
 let exec_command_stdin cmd stdin =
-  let (pid, ic, oc, ec) = spawn_full cmd in
-  output_string oc stdin; close_out oc;
-  let stdout = strip_trailing_newline (drain_channel ic) in
-  let _stderr = drain_channel ec in
-  match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
+  let (pid, out_r, in_w) = spawn_stdin cmd in
+  let (stdout, _) = pump ~stdin ~out:out_r ~into:in_w () in
+  let stdout = strip_trailing_newline stdout in
+  match reap pid with
   | Unix.WEXITED 0   -> stdout
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
   | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
-let exec_command_full cmd =
-  let (pid, ic, oc, ec) = spawn_full cmd in
-  close_out oc;
-  let stdout = strip_trailing_newline (drain_channel ic) in
-  let stderr = drain_channel ec in
-  let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
+let capture ?(stdin = "") cmd =
+  let (pid, out_r, err_r, in_w) = spawn_full cmd in
+  let (stdout, stderr) = pump ~stdin ~out:out_r ~err:err_r ~into:in_w () in
+  let code = match reap pid with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
     | Unix.WSTOPPED  _ -> 128
   in
-  (stdout, stderr, code)
+  (strip_trailing_newline stdout, stderr, code)
 
-let exec_command_full_stdin cmd stdin =
-  let (pid, ic, oc, ec) = spawn_full cmd in
-  output_string oc stdin; close_out oc;
-  let stdout = strip_trailing_newline (drain_channel ic) in
-  let stderr = drain_channel ec in
-  let code = match reap pid [(fun () -> close_in ic); (fun () -> close_in ec)] with
-    | Unix.WEXITED n   -> n
-    | Unix.WSIGNALED _ -> 128
-    | Unix.WSTOPPED  _ -> 128
-  in
-  (stdout, stderr, code)
+let exec_command_full cmd = capture cmd
+
+let exec_command_full_stdin cmd stdin = capture ~stdin cmd
 
 let shell_result stdout stderr code =
   VConstr ("ShellResult", [VString stdout; VString stderr; VInt code])
@@ -329,6 +375,19 @@ let guard_shell cmd =
       | _ -> ())
       (Shell_scan.scan_string cmd).Shell_scan.words
 
+(* Downstream has gone -- `wand report.wand | head -3`. SIGPIPE is ignored
+   (see `install_signal_handlers`), so the write comes back as an error
+   instead of killing wand where it stands, and the script unwinds: a `with`
+   bracket gives back what it holds before the run ends. 141 is 128 + SIGPIPE,
+   which is the code a shell reports for a command that died on one. *)
+let broken_pipe msg =
+  let needle = "Broken pipe" in
+  let n = String.length needle and m = String.length msg in
+  let rec at i = i + n <= m && (String.sub msg i n = needle || at (i + 1)) in
+  at 0
+
+let pipe_closed = Evaluator.Interrupted 141
+
 let run_with_default_handler (thunk : unit -> value) : value =
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
@@ -338,25 +397,31 @@ let run_with_default_handler (thunk : unit -> value) : value =
           match eff with
           | WandEffect ("IO!print", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              print_string (show_value v);
-              Effect.Deep.continue k VUnit)
+              match print_string (show_value v) with
+              | () -> Effect.Deep.continue k VUnit
+              | exception Sys_error m when broken_pipe m ->
+                Effect.Deep.discontinue k pipe_closed)
           | WandEffect ("IO!println", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              print_endline (show_value v);
-              Effect.Deep.continue k VUnit)
+              match print_endline (show_value v) with
+              | () -> Effect.Deep.continue k VUnit
+              | exception Sys_error m when broken_pipe m ->
+                Effect.Deep.discontinue k pipe_closed)
           (* stderr is where a script reports what went wrong, so it is
              flushed rather than left in a buffer that a later `Proc.exit`
              would discard. *)
           | WandEffect ("IO!print_err", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              output_string stderr (show_value v);
-              flush stderr;
-              Effect.Deep.continue k VUnit)
+              match output_string stderr (show_value v); flush stderr with
+              | () -> Effect.Deep.continue k VUnit
+              | exception Sys_error m when broken_pipe m ->
+                Effect.Deep.discontinue k pipe_closed)
           | WandEffect ("IO!println_err", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              output_string stderr (show_value v ^ "\n");
-              flush stderr;
-              Effect.Deep.continue k VUnit)
+              match output_string stderr (show_value v ^ "\n"); flush stderr with
+              | () -> Effect.Deep.continue k VUnit
+              | exception Sys_error m when broken_pipe m ->
+                Effect.Deep.discontinue k pipe_closed)
           | WandEffect ("FS!stream_lines", (VString p | VPath p)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (open_in p)
@@ -1131,7 +1196,12 @@ let install_signal_handlers () =
   (* 128 + the signal number, which is what a shell reports and what CI
      reads, so nothing downstream has to learn a wand-specific code. *)
   Sys.set_signal Sys.sigint  (Sys.Signal_handle (stop Sys.sigint  130));
-  Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop Sys.sigterm 143))
+  Sys.set_signal Sys.sigterm (Sys.Signal_handle (stop Sys.sigterm 143));
+  (* A closed reader downstream must not kill wand outright: dying at the
+     write leaves whatever the script holds -- a temp directory, a lock, a
+     process -- exactly as it was. Ignored, the write fails instead, and the
+     failure travels back through the script the way any other does. *)
+  Sys.set_signal Sys.sigpipe Sys.Signal_ignore
 
 (* For a session that survives an interrupt. A script stops at the first
    one, so it never needs this; a prompt takes as many as it is given. *)

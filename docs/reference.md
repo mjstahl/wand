@@ -736,6 +736,9 @@ $(git log --oneline)
   |> $(wc -l)
 ```
 
+A command's stderr is the script's own, appearing as the command writes it;
+`$?()` captures it instead. Being given stdin changes neither.
+
 Combined with regex:
 
 ```
@@ -1314,8 +1317,10 @@ The one exception is a process that is destroyed rather than stopped:
 the chance to run anything. Nothing can cover that.
 
 `Proc.exit n` still exits with `n` — it releases first, then stops. An interrupt
-exits 130 and a `kill` exits 143, as a shell reports them, so nothing
-downstream has to learn a wand-specific code.
+exits 130, a `kill` exits 143, and a reader that closed the script's output —
+`wand report.wand | head -3` — ends it with 141, as a shell reports them, so
+nothing downstream has to learn a wand-specific code. A closed reader stops the
+script the way the other two do: the brackets it is inside release first.
 
 Brackets nest, and release innermost-first:
 

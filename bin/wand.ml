@@ -212,7 +212,7 @@ let load_files ?(sources = []) loads =
         Printf.eprintf "Error loading '%s': %s\n" path m; exit 1
   ) sess loads
 
-let () =
+let main () =
   let args = Array.to_list Sys.argv |> List.tl in
   match args with
   | [] | ["--help"] | ["-h"] -> usage ()
@@ -226,9 +226,11 @@ let () =
      | path :: args ->
        let mode = if sub = "--dry-run" then Wand.Runner.DryRun else Wand.Runner.Trace in
        Wand.Evaluator.exe_args_ref := args;
+       Wand.Runner.install_signal_handlers ();
        (match Wand.Runner.run_file ~mode path with
         | Ok v    -> if v <> "()" then print_endline v
-        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1)
+        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1
+        | exception Wand.Evaluator.Interrupted code -> exit code)
      | [] ->
        Printf.eprintf "Error: expected a script after %s\n" sub; exit 1)
   | sub :: rest ->
@@ -477,3 +479,10 @@ let () =
        | Ok v    -> if v <> "()" then print_endline v
        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1
        | exception Wand.Evaluator.Interrupted code -> exit code)
+
+(* The last write of a run can be the one that finds the reader gone -- the
+   verdict line of `wand s | head`. It is not the script's failure to report,
+   and it is not worth a stack trace: 141 is what the shell reports for a
+   command that ended on a closed pipe. *)
+let () =
+  try main () with Sys_error m when Wand.Runner.broken_pipe m -> exit 141

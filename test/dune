@@ -36,6 +36,11 @@
  (libraries wand alcotest unix))
 
 (test
+ (name test_subprocess)
+ (deps %{exe:../bin/wand.exe})
+ (libraries wand alcotest unix))
+
+(test
  (name test_abandonment)
  (libraries wand alcotest))
 
