@@ -889,9 +889,40 @@ let test_ordering_is_a_constraint () =
      polymorphic over every ordered type. *)
   Alcotest.(check string) "a comparison stays polymorphic" "Ord -> Ord -> Ord"
     (type_of "later" "let later a b = if a < b then b else a in later");
-  (* Num is inside Ord, so a variable that is both is a Num. *)
-  Alcotest.(check string) "Num wins over Ord" "Num -> Num -> Bool"
-    (type_of "both constraints" "let f a b = a + b > a in f")
+  (* The constraints nest, so a variable carrying two of them keeps the
+     narrower: Num inside Add inside Ord. *)
+  Alcotest.(check string) "Add wins over Ord" "Add -> Add -> Bool"
+    (type_of "add and compare" "let f a b = a + b > a in f");
+  Alcotest.(check string) "Num wins over Add" "Num -> Num -> Num -> Num"
+    (type_of "add and multiply" "let f a b c = a + b * c in f")
+
+(* `+` and `-` take one constraint wider than `*` and `/`: the two
+   quantities add to their own type, and multiplying them would not. *)
+let test_add_constraint () =
+  let ok label src expected =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.(check string) label expected v
+    | Error msg -> Alcotest.failf "%s: %s" label msg
+  in
+  let fails label src needle =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.failf "%s: expected a type error, got %s" label v
+    | Error msg ->
+      if not (Lint.contains msg needle) then
+        Alcotest.failf "%s: expected %S in: %s" label needle msg
+  in
+  ok "two sizes" "100MB + 4KB" "100004000B";
+  ok "two durations" "1h + 30min" "1h30m";
+  (* Neither type goes below zero. *)
+  ok "a size floors at zero" "4KB - 100MB" "0B";
+  ok "a duration floors at zero" "5s - 10s" "0s";
+  fails "a path" "/tmp + /var" "Path does not add";
+  fails "a string" {|"a" + "b"|} "strings concatenate with '++'";
+  fails "a size times a size" "100MB * 2" "* and / work on Int and Float";
+  Alcotest.(check string) "a sum stays polymorphic" "Add -> Add -> Add"
+    (type_of "sum" "let sum a b = a + b in sum");
+  Alcotest.(check string) "and the annotation for it round-trips" "Size"
+    (type_of "annotated" "let sum : Add -> Add -> Add = fn a b -> a + b in sum 1MB 2MB")
 
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
@@ -1114,7 +1145,8 @@ let test_manifest_accepts_an_exact_declaration () =
   | Error m -> Alcotest.failf "expected it to pass: %s" m
 
 (* Arithmetic is polymorphic over Int and Float through a Num-constrained
-   variable: no defaulting, no implicit mixing, `%` stays Int. *)
+   variable: no defaulting, no implicit mixing, `%` stays Int. `+` and `-`
+   carry the wider `Add`, which a `Num` annotation narrows again. *)
 let test_num_arithmetic () =
   let ok label src =
     match type_of_program_with_imports src with
@@ -1133,11 +1165,15 @@ let test_num_arithmetic () =
     "1.5 % 2.0"
     "Int and Float do not mix";
   manifest_error "Num rejects non-numbers"
-    "let f x = x + x\nf true"
+    "let f x = x * x\nf true"
     "expected a number, got Bool";
   manifest_error "strings are pointed at ++"
     "\"a\" + \"b\""
-    "strings concatenate with '++', not '+'"
+    "strings concatenate with '++', not '+'";
+  (* `+` is one constraint wider, so what it refuses it refuses by name. *)
+  manifest_error "Add rejects what does not add"
+    "let f x = x + x\nf true"
+    "Bool does not add"
 
 let test_no_manifest_is_unconstrained () =
   match type_of_program_with_imports
@@ -1286,6 +1322,8 @@ let () =
         test_a_parameter_type_is_checked;
       Alcotest.test_case "ordering is a constraint" `Quick
         test_ordering_is_a_constraint;
+      Alcotest.test_case "adding is a constraint" `Quick
+        test_add_constraint;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
       Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];

@@ -73,3 +73,10 @@ test "two hours in minutes" (fn t -> t.ok (2h == 120min))
 test "and inequality" (fn t -> t.ok (30s != 45s))
 test "the three relations agree" (fn t ->
   let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b)))
+
+(* ── + and - ───────────────────────────────────────────────────────────── *)
+
+test "the operator adds" (fn t -> t.eq 1h30m (1h + 30min))
+test "and matches Duration.add" (fn t -> t.eq (Duration.add 1h 30min) (1h + 30min))
+test "the operator subtracts" (fn t -> t.eq 30min (1h - 30min))
+test "a difference below zero floors" (fn t -> t.eq 0s (5s - 10s))

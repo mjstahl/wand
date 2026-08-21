@@ -539,6 +539,24 @@ let format_size_bytes n =
   in
   body ^ units.(i)
 
+let format_dur_ms ms =
+  if ms = 0 then "0s"
+  else
+    let ms = abs ms in
+    let buf = Buffer.create 16 in
+    let add n unit =
+      if n > 0 then (Buffer.add_string buf (string_of_int n); Buffer.add_string buf unit)
+    in
+    let rem = ref ms in
+    let wk = !rem / (7*24*3600000) in rem := !rem mod (7*24*3600000);
+    let dy = !rem / (24*3600000)   in rem := !rem mod (24*3600000);
+    let hr = !rem / 3600000        in rem := !rem mod 3600000;
+    let mn = !rem / 60000          in rem := !rem mod 60000;
+    let sc = !rem / 1000           in rem := !rem mod 1000;
+    let ml = !rem in
+    add wk "w"; add dy "d"; add hr "h"; add mn "m"; add sc "s"; add ml "ms";
+    Buffer.contents buf
+
 (* An address as the 32-bit number it is, so `10.0.0.9` is below
    `10.0.0.10`. Text order says otherwise, which is the answer nobody
    wants. The lexer has already refused an octet above 255. *)
@@ -1172,16 +1190,28 @@ and eval_match (env : env) sv cases =
 
 and eval_binop (env : env) op a b : value =
   match op with
+  (* A sum of sizes is written in bytes, because a size holds one unit and
+     `100MB + 4KB` fills two. `Size.format` is the readable spelling.
+
+     Neither a size nor a duration has a value below zero, so a subtraction
+     that would go under floors there -- the same answer `Duration.sub` and
+     `Size.of_bytes` already give. *)
   | "+"  ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VInt (add_ovf x y)
      | VFloat x, VFloat y -> VFloat (x +. y)
-     | _ -> raise (EvalError "'+' requires matching numeric types"))
+     | VSize x,  VSize y  -> VSize (Printf.sprintf "%dB" (size_bytes x + size_bytes y))
+     | VDuration x, VDuration y -> VDuration (format_dur_ms (parse_dur_ms x + parse_dur_ms y))
+     | _ -> raise (EvalError "'+' requires matching types"))
   | "-"  ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VInt (sub_ovf x y)
      | VFloat x, VFloat y -> VFloat (x -. y)
-     | _ -> raise (EvalError "'-' requires matching numeric types"))
+     | VSize x,  VSize y  ->
+       VSize (Printf.sprintf "%dB" (max 0 (size_bytes x - size_bytes y)))
+     | VDuration x, VDuration y ->
+       VDuration (format_dur_ms (max 0 (parse_dur_ms x - parse_dur_ms y)))
+     | _ -> raise (EvalError "'-' requires matching types"))
   | "*"  ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VInt (mul_ovf x y)
@@ -1393,24 +1423,6 @@ let str_repeat n s =
 let str_reverse s =
   let n = String.length s in
   String.init n (fun i -> s.[n - 1 - i])
-
-let format_dur_ms ms =
-  if ms = 0 then "0s"
-  else
-    let ms = abs ms in
-    let buf = Buffer.create 16 in
-    let add n unit =
-      if n > 0 then (Buffer.add_string buf (string_of_int n); Buffer.add_string buf unit)
-    in
-    let rem = ref ms in
-    let wk = !rem / (7*24*3600000) in rem := !rem mod (7*24*3600000);
-    let dy = !rem / (24*3600000)   in rem := !rem mod (24*3600000);
-    let hr = !rem / 3600000        in rem := !rem mod 3600000;
-    let mn = !rem / 60000          in rem := !rem mod 60000;
-    let sc = !rem / 1000           in rem := !rem mod 1000;
-    let ml = !rem in
-    add wk "w"; add dy "d"; add hr "h"; add mn "m"; add sc "s"; add ml "ms";
-    Buffer.contents buf
 
 let path_normalize s =
   let is_abs = String.length s > 0 && s.[0] = '/' in

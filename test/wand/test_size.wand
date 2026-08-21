@@ -25,3 +25,11 @@ test "format keeps the literal's decimal" (fn t -> t.eq "1.5GB" (Size.format 1.5
 test "format steps up when rounding fills the unit" (fn t ->
   t.eq "1MB" (Size.format (Size.of_bytes 999999)))
 test "format of nothing" (fn t -> t.eq "0B" (Size.format 0B))
+
+(* ── + and - ───────────────────────────────────────────────────────────── *)
+
+test "a sum is written in bytes" (fn t -> t.eq 100004000B (100MB + 4KB))
+test "a sum compares as a value" (fn t -> t.eq 2MB (1MB + 1MB))
+test "a difference" (fn t -> t.eq 96MB (100MB - 4MB))
+test "a difference below zero floors" (fn t -> t.eq 0B (4KB - 100MB))
+test "adding nothing" (fn t -> t.eq 4KB (4KB + 0B))

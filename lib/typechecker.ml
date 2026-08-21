@@ -49,7 +49,7 @@ and tv = {
      tag, so a constrained variable stays generalized: there is no
      defaulting, and `let double x = x + x` works at both numeric types.
 
-     Two constraints exist, and one contains the other: every `Num` is an
+     The constraints nest: every `Num` is an `Add`, and every `Add` is an
      `Ord`. So a flag per constraint cannot express them -- unifying a
      `Num` variable with an `Ord` one has to yield `Num` -- and a variant
      can. *)
@@ -57,9 +57,10 @@ and tv = {
 }
 
 (* `Free` may become anything. `Num` is `Int` or `Float`, the `Num` in
-   `Num -> Num`. `Ord` is any type wand can order, which is the wider
-   set. *)
-and constrained = Free | Ord | Num
+   `Num -> Num`. `Add` is what `+` and `-` take: the numbers, and the two
+   quantities that add without leaving their type. `Ord` is any type wand
+   can order, which is the widest set. *)
+and constrained = Free | Ord | Add | Num
 
 (* Builtin signatures are written with `@->` so the tables stay readable.
    Every builtin's *own* latent effect is filled in separately; the arrow
@@ -138,6 +139,7 @@ let fresh_as c =
 
 let fresh ()     = fresh_as Free
 let fresh_num () = fresh_as Num
+let fresh_add () = fresh_as Add
 let fresh_ord () = fresh_as Ord
 
 (* The types wand orders. `Int`, `Float` and `String` were ordered before
@@ -154,11 +156,24 @@ let is_ordered = function
   | TSize | TVersion | TPort | TIPv4 -> true
   | _ -> false
 
+(* The types `+` and `-` take. A `Size` and a `Duration` add to their own
+   type and to nothing else, which is what separates them from the rest of
+   the ordered set: two dates do not add, and a date plus a duration is a
+   date, an operator with three types in it.
+
+   `*` and `/` are not here. Scaling a quantity by a number is that same
+   three-type shape, and it already has a name in `Duration.scale`. *)
+let is_additive = function
+  | TInt | TFloat | TSize | TDuration -> true
+  | _ -> false
+
 (* Which of two constraints a unified variable keeps: the narrower one.
-   `Num` is inside `Ord`, and both are inside `Free`. *)
+   `Num` is inside `Add`, `Add` is inside `Ord`, and all of them are inside
+   `Free`. *)
 let narrower a b =
   match a, b with
   | Num, _ | _, Num -> Num
+  | Add, _ | _, Add -> Add
   | Ord, _ | _, Ord -> Ord
   | Free, Free -> Free
 
@@ -423,6 +438,7 @@ let string_of_typ t =
     | TVar tv   ->
       (match tv.constrained with
        | Num  -> "Num"
+       | Add  -> "Add"
        | Ord  -> "Ord"
        | Free -> name_of tv.id)
     | TFun (a, b, eff) ->
@@ -574,11 +590,15 @@ let rec unify_ t1 t2 =
       raise (TypeError (Printf.sprintf
         "this value would have to contain itself: %s appears inside its own \
          type" (string_of_typ (TVar tv))))
-    else if tv.constrained = Num && t = TString then
+    else if (tv.constrained = Num || tv.constrained = Add) && t = TString then
       raise (TypeError "strings concatenate with '++', not '+'")
     else if tv.constrained = Num && t <> TInt && t <> TFloat then
       raise (TypeError (Printf.sprintf
-        "expected a number, got %s -- arithmetic works on Int and Float"
+        "expected a number, got %s -- * and / work on Int and Float"
+        (string_of_typ t)))
+    else if tv.constrained = Add && not (is_additive t) then
+      raise (TypeError (Printf.sprintf
+        "%s does not add -- + and - work on Int, Float, Size and Duration"
         (string_of_typ t)))
     (* The ordered set grows as types gain a normalizer, so the message
        names the type that is not in it rather than listing the set. The
@@ -988,6 +1008,7 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
           never claims more linkage than the code enforces. `Ord` is the
           same, one constraint wider. *)
        | "Num"      -> fresh_num ()
+       | "Add"      -> fresh_add ()
        | "Ord"      -> fresh_ord ()
        | "Int"      -> TInt      | "Float"    -> TFloat
        | "String"   -> TString   | "Bool"     -> TBool
@@ -2306,11 +2327,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
 
 and infer_binop tenv (env : env) op a b : typ =
   match op with
-  | "+" | "-" | "*" | "/" ->
+  | "+" | "-" ->
+    (* One type throughout, resolved by use and dispatched by the evaluator
+       on the value's tag. Nothing defaults: an unpinned `fn x -> x + x`
+       stays `Add -> Add` and works at all four. *)
+    let n = fresh_add () in
+    unify (infer tenv env a) n;
+    unify (infer tenv env b) n;
+    n
+  | "*" | "/" ->
     (* One numeric type throughout: Int -> Int -> Int or the same at
-       Float, resolved by use, dispatched by the evaluator on the value's
-       tag. Nothing defaults: an unpinned `fn x -> x + x` stays Num ->
-       Num and works at both. *)
+       Float. A `Size` times a `Size` is not a `Size`, so the quantities
+       that add do not multiply. *)
     let n = fresh_num () in
     unify (infer tenv env a) n;
     unify (infer tenv env b) n;

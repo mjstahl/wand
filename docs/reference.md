@@ -96,14 +96,36 @@ convert. [`Float`](#float) holds them. `%` accepts `Int` only. A function
 that does not pin its numbers accepts both:
 
 ```ocaml
-let double x = x + x     -- double : Num -> Num
-(double 2, double 1.5)   -- (4, 3) : (Int, Float) — each call picks its type
+let square x = x * x     -- square : Num -> Num
+(square 2, square 1.5)   -- (4, 2.25) : (Int, Float) — each call picks its type
 ```
 
 `Num` in a signature means `Int` or `Float`. The use site decides which.
 It appears in [Type annotations](#type-annotations) like any type name.
 Float division does not raise: `1.0 / 0.0` is infinity, as IEEE 754 says.
 Int division keeps its check.
+
+### Adding and `Add`
+
+`+` and `-` take one more constraint than `*` and `/` do. A `Size` and a
+`Duration` are quantities: two of them add to a third of the same type.
+
+```ocaml
+100MB + 4KB     -- 100004000B : Size
+1h + 30min      -- 1h30m : Duration
+let sum a b = a + b     -- sum : Add -> Add -> Add
+```
+
+`Add` is `Int`, `Float`, `Size` or `Duration`, and every `Num` is an `Add`.
+Multiplication is not in it: a `Size` times a `Size` is not a `Size`, and
+scaling one by a number is a third type in the operator, which
+[`Duration.scale`](#duration) does under a name instead.
+
+A sum of sizes is written in bytes, because a `Size` holds one unit and
+`100MB + 4KB` fills two. [`Size.format`](#size) is the readable spelling.
+Neither type has a value below zero, so a subtraction that would go under
+floors there: `5s - 10s` is `0s`, the answer
+[`Duration.sub`](#duration) already gives.
 
 ### Comparison and `Ord`
 
@@ -131,7 +153,8 @@ polymorphic:
 let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
 ```
 
-Every `Num` is an `Ord`. A variable that is both is a `Num`.
+The constraints nest: every `Num` is an `Add`, and every `Add` is an `Ord`.
+A variable that is more than one of them is the narrowest.
 
 **A comparison is on the value, not on the text it was written as.** A
 `Duration` is a sum of units, and a `DateTime` carries an offset, so one
@@ -2132,9 +2155,9 @@ let m : Map (List Int) = {a = [1, 2], b = [3]}   -- parens needed for a compound
 ```
 
 `:t` prints a type in this syntax. So you can paste what you see into an
-annotation. This includes `Num`. Each written `Num` is a new "`Int` or
-`Float`" variable, and the use sites link them.
-`let double : Num -> Num = fn x -> x + x` rebuilds what `:t double`
+annotation. This includes the constraints `Num`, `Add` and `Ord`. Each
+written `Num` is a new "`Int` or `Float`" variable, and the use sites link
+them. `let square : Num -> Num = fn x -> x * x` rebuilds what `:t square`
 printed.
 
 ### A type on a parameter

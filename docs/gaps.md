@@ -28,11 +28,6 @@ and the choice is not free. On Linux `CLOCK_MONOTONIC` excludes time spent
 suspended and `CLOCK_BOOTTIME` includes it; on macOS the names are
 inverted. Whatever ships pins the semantics per platform and says which.
 
-**No arithmetic operators on `Duration` or `Size`.** Adding two durations
-is `Duration.add`, and `100MB + 4KB` does not typecheck. This belongs with
-the arithmetic above rather than on its own: the same question of what a
-subtraction means decides both.
-
 **A deadline cannot be tested against a virtual clock.** `Test.with_clock`
 answers `Clock.sleep` at no cost, so a test of an hour of backoff runs in
 microseconds. Two waits it does not shorten. `Shell.timeout` belongs to the
@@ -98,14 +93,11 @@ field to its own name, the way `{a, b}` already puns for maps. Noted in
 **A file's size is a number, and `Size` now crosses to that number.**
 `Size.to_bytes 4KB` is `4000`, so a script can compare the bytes `FS.size`
 answers against a threshold it writes as a size. `Size.of_bytes` goes back
-the other way. It stays in bytes, and leaves the readable spelling to
-`Size.format`. Two things are still missing:
+the other way, in bytes, and `Size.format` is the readable spelling.
+`100MB + 4KB` adds. One thing is still missing:
 
-- `+` and `-` on `Size`. Summing the sizes of a directory is as ordinary
-  as comparing one against a threshold, and `100MB + 4KB` does not
-  typecheck.
-- `FS.size` answering a `Size`. That is the end state, and it is not the
-  next step: on its own it would fix the comparison and break the sum.
+- `FS.size` answering a `Size`. That is the end state, and the change is
+  breaking: every caller reads an `Int` today.
 
 Found by porting shell scripts, and argued in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels
