@@ -7,11 +7,14 @@ let shows label r expected =
 let unifies label a b =
   try unify a b with
   | Mismatch m -> Alcotest.failf "%s: expected these to unify, got: %s" label m
+  | Conflict (x, y) ->
+    Alcotest.failf "%s: expected these to unify, got %s against %s" label
+      (to_string x) (to_string y)
 
 let conflicts label a b =
   match unify a b with
   | () -> Alcotest.failf "%s: expected a conflict, but they unified" label
-  | exception Mismatch _ -> ()
+  | exception Conflict _ -> ()
 
 (* ── Display ─────────────────────────────────────────────────────────────── *)
 

@@ -669,7 +669,7 @@ let next_token s =
       let prefix = if peek s = '*' then (ignore (advance s); "**") else "*" in
       if not (is_at_end s) && (is_path_body_char (peek s) || is_glob_char (peek s)) then
         (* `a *. b` reads as the glob "*." otherwise, and the type error it
-           produces ("cannot unify ... with Glob") points nowhere near the
+           produces ("expected Glob, got ...") points nowhere near the
            mistake. A real glob always has more after the dot. *)
         (match read_path_body s prefix with
          | Glob "*." ->
@@ -717,7 +717,7 @@ let next_token s =
       if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
                                || peek s = '_' || peek s = '.') then
         (* `a /. b` reads as the path "/." otherwise, and the type error it
-           produces ("cannot unify ... with Path") points nowhere near the
+           produces ("expected Path, got ...") points nowhere near the
            mistake. *)
         (match read_path_body s "/" with
          | Path "/." ->

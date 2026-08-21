@@ -28,7 +28,7 @@ wand's `Env.get` returns `Option String`, because a variable may not be set.
 Written the same way, the wand version does not get as far as running:
 
 ```
-Error: type error: 9:1: cannot unify String with Option String
+Error: type error: 9:1: expected String, got Option String
 ```
 
 The `None` case has to go somewhere. Once it does, the script says what it
@@ -41,9 +41,9 @@ written literally, all distinct types. So the mistakes below are type errors
 rather than strings that turn out to be wrong later:
 
 ```
-Duration.to_ms 30        cannot unify Duration with Int
-FS.glob /etc/hosts       cannot unify Glob with Path
-Path.basename *.wand     cannot unify Path with Glob
+Duration.to_ms 30        expected Duration, got Int
+FS.glob /etc/hosts       expected Glob, got Path
+Path.basename *.wand     expected Path, got Glob
 ```
 
 ## 03 — Ask the type system what to write

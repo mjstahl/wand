@@ -924,7 +924,7 @@ narrow what a function does:
 
 ```
 let f : Unit -> String ! {Shell} = fn () -> $(git status)
--- type error: cannot unify effects {Shell} with {Raise, Shell | ..}
+-- type error: the type allows {Shell}, but the body performs Raise
 ```
 
 Use this in one case: the type must say that the effects of one part are the
@@ -1277,10 +1277,10 @@ and it cannot resume a read with an `Int`:
 
 ```
 | FS!write_file (path, _) k -> path ++ "!" ++ k ()
--- cannot unify Path with String
+-- expected String, got Path
 
 | FS!read_file _ k -> k 42
--- cannot unify String with Int
+-- expected String, got Int
 ```
 
 `Shell!run` and `Shell!capture` are the exception. Each one carries a
@@ -1688,7 +1688,8 @@ the signature of the caller says so.
 
 ```
 Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
--- type error: cannot unify effects {} with {Raise, Shell | ..}
+-- type error: the parameter allows {}, but the function given performs
+--   Raise, Shell
 ```
 
 ---
@@ -1970,7 +1971,7 @@ The type checker catches mismatches:
 
 ```
 let add x y = x + y
-add 1 "hello"      -- Error: cannot unify Int with String
+add 1 "hello"      -- Error: expected Int, got String
 ```
 
 Types flow through pipelines:
@@ -1995,7 +1996,7 @@ Constructor types are checked at construction and match sites:
 type Wrap = Wrap Int
 
 Wrap 42        -- ok
-Wrap "hello"   -- Error: cannot unify Int with String
+Wrap "hello"   -- Error: expected Int, got String
 
 match Wrap 42 with
 | Wrap n -> n * 2   -- n inferred as Int
@@ -2882,7 +2883,8 @@ ran and can have failed, and it carries the reason. The two do not mix. Pipe
 one into something that expects the other, and you get a type error.
 
 ```
-Map.get "k" m |> unwrap        -- cannot unify Result 'a Int with Option 'a
+Map.get "k" m |> unwrap        -- Result 'a Int and Option Int are not
+                               --   the same type
 ```
 
 `Option.to_result` is the bridge. Write it where a script decides that

@@ -496,7 +496,13 @@ exception TypeError of string
    prefix spliced into the message. *)
 exception TypeErrorAt of Token.loc * string
 
-let rec unify t1 t2 =
+(* The two types that did not fit, raised by the one case below that has
+   nothing better to say. `unify` turns it into a message: which of the two
+   the reader expected is known at the call site, not here. Every other
+   failure in this function already knows what to say and says it. *)
+exception Mismatch of typ * typ
+
+let rec unify_ t1 t2 =
   match repr t1, repr t2 with
   | TInt,      TInt      | TFloat,    TFloat    | TString,  TString
   | TBool,     TBool     | TUnit,     TUnit
@@ -515,42 +521,90 @@ let rec unify t1 t2 =
     if tv1.numeric && not tv2.numeric then tv2.def <- Some (TVar tv1)
     else tv1.def <- Some (TVar tv2)
   | TVar tv, t | t, TVar tv ->
-    if occurs tv t then raise (TypeError "infinite type")
+    (* The value would have to hold itself: `x x`, or a list that is its
+       own element. There is no such type, and naming the two sides does not
+       help, because one of them is inside the other. *)
+    if occurs tv t then
+      raise (TypeError (Printf.sprintf
+        "this value would have to contain itself: %s appears inside its own \
+         type" (string_of_typ (TVar tv))))
     else if tv.numeric && t = TString then
       raise (TypeError "strings concatenate with '++', not '+'")
     else if tv.numeric && t <> TInt && t <> TFloat then
       raise (TypeError (Printf.sprintf
-        "cannot unify Num with %s -- Num is Int or Float" (string_of_typ t)))
+        "expected a number, got %s -- arithmetic works on Int and Float"
+        (string_of_typ t)))
     else tv.def <- Some t
   (* The two members of Num, mixed: name the conversions rather than only
      the mismatch, since this is the first error a Float-using script
      meets. *)
   | (TInt, TFloat) | (TFloat, TInt) ->
     raise (TypeError
-      "cannot unify Float with Int -- Float.of_int and Float.round \
-       convert explicitly")
+      "Int and Float do not mix -- Float.of_int and Float.round \
+       convert between them")
   | TFun (a1, res1, eff1), TFun (a2, res2, eff2) ->
-    unify a1 a2; unify res1 res2;
+    unify_ a1 a2; unify_ res1 res2;
     (* Two functions are the same only if calling them does the same. A
        conflict in effects is a type error like any other. *)
-    (try Effect_set.unify eff1 eff2
-     with Effect_set.Mismatch msg -> raise (TypeError msg))
+    Effect_set.unify eff1 eff2
   | TTuple ts1, TTuple ts2 when List.length ts1 = List.length ts2 ->
-    List.iter2 unify ts1 ts2
-  | TList t1,   TList t2   -> unify t1 t2
-  | TResult (e1, t1), TResult (e2, t2) -> unify e1 e2; unify t1 t2
+    List.iter2 unify_ ts1 ts2
+  | TList t1,   TList t2   -> unify_ t1 t2
+  | TResult (e1, t1), TResult (e2, t2) -> unify_ e1 e2; unify_ t1 t2
   | TResource (r1, t1), TResource (r2, t2) ->
-    Effect_set.unify r1 r2; unify t1 t2
+    Effect_set.unify r1 r2; unify_ t1 t2
   | TStream (r1, t1), TStream (r2, t2) ->
-    (try Effect_set.unify r1 r2
-     with Effect_set.Mismatch msg -> raise (TypeError msg));
-    unify t1 t2
-  | TDecoder t1, TDecoder t2 -> unify t1 t2
-  | TMap t1,    TMap t2    -> unify t1 t2
-  | TApp (f1, a1), TApp (f2, a2) -> unify f1 f2; unify a1 a2
-  | t1, t2 ->
-    raise (TypeError (Printf.sprintf "cannot unify %s with %s"
-      (string_of_typ t1) (string_of_typ t2)))
+    Effect_set.unify r1 r2;
+    unify_ t1 t2
+  | TDecoder t1, TDecoder t2 -> unify_ t1 t2
+  | TMap t1,    TMap t2    -> unify_ t1 t2
+  | TApp (f1, a1), TApp (f2, a2) -> unify_ f1 f2; unify_ a1 a2
+  | t1, t2 -> raise (Mismatch (t1, t2))
+
+(* What a failed unification says.
+
+   `unify a b` has no fixed direction -- both orders appear at call sites --
+   so on its own it can only name the two types and leave the reader to work
+   out which one is theirs. Where the call site does know, it says so with
+   `unify_expected`, and the message reads `expected Glob, got Path`. The
+   orientation survives the recursion: the left type stays on the left all
+   the way down, so the innermost pair is oriented like the outermost, and
+   the message names the two types that actually differ rather than the two
+   whole types they sit in.
+
+   The word "unify" belongs to the algorithm, not to the script, so it
+   appears in no message. *)
+let effects_conflict_message ?expected ?got allowed found =
+  let extra = Effect_set.extra ~allowed ~found in
+  match expected, got, extra with
+  | Some e, Some g, (_ :: _ as labels) ->
+    Printf.sprintf "%s allows %s, but %s performs %s"
+      e (Effect_set.to_string allowed) g (String.concat ", " labels)
+  | Some e, Some g, [] ->
+    Printf.sprintf "%s allows %s, and %s performs %s"
+      e (Effect_set.to_string allowed) g (Effect_set.to_string found)
+  | _ ->
+    Printf.sprintf "these effects do not match: %s and %s"
+      (Effect_set.to_string allowed) (Effect_set.to_string found)
+
+let unify t1 t2 =
+  try unify_ t1 t2 with
+  | Mismatch (a, b) ->
+    raise (TypeError (Printf.sprintf "%s and %s are not the same type"
+      (string_of_typ a) (string_of_typ b)))
+  | Effect_set.Conflict (a, b) ->
+    raise (TypeError (effects_conflict_message a b))
+
+(* For a site that knows which side the reader wrote: an annotation, a
+   condition, an argument, an arm of a `match`. *)
+let unify_expected ~expected ~got =
+  try unify_ expected got with
+  | Mismatch (a, b) ->
+    raise (TypeError (Printf.sprintf "expected %s, got %s"
+      (string_of_typ a) (string_of_typ b)))
+  | Effect_set.Conflict (a, b) ->
+    raise (TypeError (effects_conflict_message ~expected:"the type"
+                        ~got:"the body" a b))
 
 (* ── Schemes and environment ──────────────────────────────────────────────── *)
 
@@ -811,7 +865,7 @@ type typedef_env = (string * type_def) list
    one of them used to become an opaque `TName` that nothing could construct
    or unify with, so `type Pod (status : Status)` with no `Status` anywhere
    was accepted, and a misspelt `Itn` was a type in its own right. The
-   mistake surfaced later as "cannot unify Int with Status", pointing at the
+   mistake surfaced later as "expected Int, got Status", pointing at the
    use rather than at the declaration that invented the name.
 
    None outside a program: `type_of_te` is also called where there is no
@@ -1221,22 +1275,22 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   match p with
   | PVar name  -> record_local name t; (name, Mono t) :: env
   | Wild       -> env
-  | Int _      -> unify t TInt;      env
-  | Float _    -> unify t TFloat;    env
-  | String _   -> unify t TString;   env
-  | Bool _     -> unify t TBool;     env
-  | Unit       -> unify t TUnit;     env
-  | Path _     -> unify t TPath;     env
-  | Date _     -> unify t TDate;     env
-  | Time _     -> unify t TTime;     env
-  | DateTime _ -> unify t TDateTime; env
-  | Duration _ -> unify t TDuration; env
-  | Url _      -> unify t TUrl;      env
-  | IPv4 _     -> unify t TIPv4;     env
-  | CIDR _     -> unify t TCIDR;     env
-  | Port _     -> unify t TPort;     env
-  | Version _  -> unify t TVersion;  env
-  | Size _     -> unify t TSize;     env
+  | Int _      -> unify_expected ~expected:t ~got:TInt;      env
+  | Float _    -> unify_expected ~expected:t ~got:TFloat;    env
+  | String _   -> unify_expected ~expected:t ~got:TString;   env
+  | Bool _     -> unify_expected ~expected:t ~got:TBool;     env
+  | Unit       -> unify_expected ~expected:t ~got:TUnit;     env
+  | Path _     -> unify_expected ~expected:t ~got:TPath;     env
+  | Date _     -> unify_expected ~expected:t ~got:TDate;     env
+  | Time _     -> unify_expected ~expected:t ~got:TTime;     env
+  | DateTime _ -> unify_expected ~expected:t ~got:TDateTime; env
+  | Duration _ -> unify_expected ~expected:t ~got:TDuration; env
+  | Url _      -> unify_expected ~expected:t ~got:TUrl;      env
+  | IPv4 _     -> unify_expected ~expected:t ~got:TIPv4;     env
+  | CIDR _     -> unify_expected ~expected:t ~got:TCIDR;     env
+  | Port _     -> unify_expected ~expected:t ~got:TPort;     env
+  | Version _  -> unify_expected ~expected:t ~got:TVersion;  env
+  | Size _     -> unify_expected ~expected:t ~got:TSize;     env
   | PTuple ps  ->
     (* Tuple syntax destructures tuples only. It used to also unwrap a
        single-constructor named type, so `let (w, h) = rect` bound fields by
@@ -1265,22 +1319,22 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
           end
         | _ ->
           let ts = List.map (fun _ -> fresh ()) ps in
-          unify t (TTuple ts);
+          unify_expected ~expected:t ~got:(TTuple ts);
           List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts)
      | _ ->
        let ts = List.map (fun _ -> fresh ()) ps in
-       unify t (TTuple ts);
+       unify_expected ~expected:t ~got:(TTuple ts);
        List.fold_left2 (fun env p t -> infer_pat tenv p t env) env ps ts)
   | PList [] ->
-    unify t (TList (fresh ())); env
+    unify_expected ~expected:t ~got:(TList (fresh ())); env
   | PList (p :: rest) ->
     let elem_t = fresh () in
-    unify t (TList elem_t);
+    unify_expected ~expected:t ~got:(TList elem_t);
     let env' = infer_pat tenv p elem_t env in
     List.fold_left (fun env p -> infer_pat tenv p elem_t env) env' rest
   | PCons (hp, tp) ->
     let elem_t = fresh () in
-    unify t (TList elem_t);
+    unify_expected ~expected:t ~got:(TList elem_t);
     let env' = infer_pat tenv hp elem_t env in
     infer_pat tenv tp (TList elem_t) env'
   | PConstr (name, pats) ->
@@ -1296,7 +1350,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
          raise (TypeError (Printf.sprintf
            "constructor '%s' expects %d argument(s), got %d"
            name (List.length arg_ts) (List.length pats)));
-       unify t result_t;
+       unify_expected ~expected:t ~got:result_t;
        List.fold_left2 (fun env p at -> infer_pat tenv p at env) env pats arg_ts)
   | PConstrNamed (name, bindings) ->
     (match find_ctor_in_tenv tenv name with
@@ -1315,7 +1369,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
          | Some sch -> unwrap_ctor_type (instantiate sch)
          | None -> ([], TName tname)
        in
-       unify t result_t;
+       unify_expected ~expected:t ~got:result_t;
        let field_type fname =
          let rec index i = function
            | [] -> None
@@ -1337,7 +1391,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
 
   | PMap bindings ->
     let vt = fresh () in
-    unify t (TMap vt);
+    unify_expected ~expected:t ~got:(TMap vt);
     List.fold_left (fun env (_, p) -> infer_pat tenv p vt env) env bindings
 
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
@@ -1595,7 +1649,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | UnOp ("-", e) ->
     let n = fresh_num () in
     unify (infer tenv env e) n; n
-  | UnOp ("!", e) -> unify (infer tenv env e) TBool; TBool
+  | UnOp ("!", e) ->
+    unify_expected ~expected:TBool ~got:(infer tenv env e); TBool
   | UnOp (op, _)  -> raise (TypeError (Printf.sprintf "unknown operator '%s'" op))
   | BinOp (op, a, b) -> infer_binop tenv env op a b
   | Fn (params, body) ->
@@ -1669,7 +1724,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        in
        let tr = fresh () in
        let latent = Effect_set.unknown () in
-       unify tf (TFun (fn_arg_t, tr, latent));
+       unify_expected ~expected:tf ~got:(TFun (fn_arg_t, tr, latent));
        let env' = List.fold_left2 (fun env p t -> infer_pat tenv p t env) env params param_ts in
        let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
     let body_effects =
@@ -1678,15 +1733,22 @@ let rec infer tenv (env : env) (e : expr) : typ =
       else body_effects
     in
        unify body_t body_result_t;
+       (* The function being applied says what its argument may perform;
+          the lambda written at the call site is what performs it. *)
        (try Effect_set.unify arg_effects body_effects
-        with Effect_set.Mismatch msg -> raise (TypeError msg));
+        with
+        | Effect_set.Mismatch msg -> raise (TypeError msg)
+        | Effect_set.Conflict (a, b) ->
+          raise (TypeError (effects_conflict_message
+                              ~expected:"the parameter" ~got:"the function given"
+                              a b)));
        performs latent;
        tr
      | _ ->
        let tx = infer tenv env x in
        let tr = fresh () in
        let latent = Effect_set.unknown () in
-       unify tf (TFun (tx, tr, latent));
+       unify_expected ~expected:tf ~got:(TFun (tx, tr, latent));
        performs latent;
        tr)
   | Let (p, e1, e2) ->
@@ -1718,12 +1780,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let env' = List.map (fun (name, t) -> (name, generalize env t)) inferred @ env in
     infer tenv env' e2
   | If (cond, then_, else_) ->
-    unify (infer tenv env cond) TBool;
+    unify_expected ~expected:TBool ~got:(infer tenv env cond);
     let tt = infer tenv env then_ in
     (* An `if` the parser completed for us -- one written without an `else` --
        has a bare `Unit` for its second branch, where one that was written
        carries a location. Worth telling apart only to explain the `Unit`:
-       "cannot unify Int with Unit" is true but says nothing about the `else`
+       "expected Unit, got Int" is true but says nothing about the `else`
        that is not there. *)
     (match else_ with
      | Unit ->
@@ -1731,7 +1793,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
         | TypeError _ ->
           raise (TypeError (Printf.sprintf
             "an `if` with no `else` does nothing when the condition is false, so its branch must be Unit -- this one is %s" (string_of_typ tt))))
-     | _ -> unify tt (infer tenv env else_));
+     | _ -> unify_expected ~expected:tt ~got:(infer tenv env else_));
     tt
   | Match (scrutinee, cases) ->
     let ts       = infer tenv env scrutinee in
@@ -1740,8 +1802,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
       let env' = infer_pat tenv p ts env in
       (match guard with
        | None   -> ()
-       | Some g -> unify (infer tenv env' g) TBool);
-      unify result_t (infer tenv env' body)
+       | Some g -> unify_expected ~expected:TBool ~got:(infer tenv env' g));
+      unify_expected ~expected:result_t ~got:(infer tenv env' body)
     ) cases;
     let unguarded_pats = List.filter_map (fun (p, guard, _) ->
       match guard with None -> Some p | Some _ -> None) cases in
@@ -1788,7 +1850,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | List []        -> TList (fresh ())
   | List (e :: rest) ->
     let t = infer tenv env e in
-    List.iter (fun e' -> unify t (infer tenv env e')) rest;
+    (* The first element sets the type of the list; a later one that differs
+       is the one to report. *)
+    List.iter (fun e' ->
+      unify_expected ~expected:t ~got:(infer tenv env e')) rest;
     TList t
   | ConstrApp (name, fields) ->
     (match find_ctor_in_tenv tenv name with
@@ -2011,17 +2076,18 @@ let rec infer tenv (env : env) (e : expr) : typ =
     TMap (fresh ())
   | MapLit ((_, e0) :: rest) ->
     let t = infer tenv env e0 in
-    List.iter (fun (_, e) -> unify t (infer tenv env e)) rest;
+    List.iter (fun (_, e) ->
+      unify_expected ~expected:t ~got:(infer tenv env e)) rest;
     TMap t
   (* Shell execution is its own form rather than a call to a builtin, so it
      records its effects here. $() raises on a non-zero exit; $?() hands back
      a ShellResult instead, so it cannot. *)
   | RunCmd    (e, _)  ->
-    unify (infer tenv env e) TString;
+    unify_expected ~expected:TString ~got:(infer tenv env e);
     performs (Effect_set.of_list [Effect_set.Shell; Effect_set.Raise]);
     TString
   | RunQuery  (e, _)  ->
-    unify (infer tenv env e) TString;
+    unify_expected ~expected:TString ~got:(infer tenv env e);
     performs (Effect_set.single Effect_set.Shell);
     TName "ShellResult"
   | RegexLit  _       -> TRegex
@@ -2078,7 +2144,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       match case with
       | Ast.ReturnCase (p, b) ->
         let env' = infer_pat tenv p body_t env in
-        unify result_t (infer tenv env' b)
+        unify_expected ~expected:result_t ~got:(infer tenv env' b)
       | Ast.EffectCase (op, arg_pat, cont_name, case_body) ->
         (* The operation says what it carries and what resuming it supplies.
            An operation with no single payload shape says neither, and those
@@ -2094,7 +2160,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
            deciding, so its effects are left to inference. *)
         let cont_t = TFun (cont_arg_t, result_t, Effect_set.unknown ()) in
         let env'' = (cont_name, Mono cont_t) :: env' in
-        unify result_t (infer tenv env'' case_body)
+        unify_expected ~expected:result_t ~got:(infer tenv env'' case_body)
     ) cases;
     result_t
   | RawString _ -> TString
@@ -2111,10 +2177,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | _ -> ());
     infer tenv env b
   | Contract (reqs, ens, body) ->
-    List.iter (fun req -> unify (infer tenv env req) TBool) reqs;
+    List.iter (fun req ->
+      unify_expected ~expected:TBool ~got:(infer tenv env req)) reqs;
     let body_t = infer tenv env body in
     List.iter (fun e ->
-      unify (infer tenv (("result", Mono body_t) :: env) e) TBool
+      unify_expected ~expected:TBool
+        ~got:(infer tenv (("result", Mono body_t) :: env) e)
     ) ens;
     body_t
   | Try e ->
@@ -2135,13 +2203,17 @@ let rec infer tenv (env : env) (e : expr) : typ =
        a file that takes a lock says so in its signature. *)
     let held = fresh () in
     let effects = Effect_set.unknown () in
-    unify (infer tenv env resource) (TResource (effects, held));
+    unify_expected ~expected:(TResource (effects, held))
+      ~got:(infer tenv env resource);
     performs effects;
     let env' = infer_pat tenv p held env in
     infer tenv env' body
   | Annot (te, e) ->
     let (t, written) = type_of_te_bound_with_vars [] te in
-    unify t (infer tenv env e);
+    (* The annotation is what the reader expects; the body is what they
+       wrote. Naming both is what makes `expected 'a -> 'a, got Int -> Int`
+       readable at all. *)
+    unify_expected ~expected:t ~got:(infer tenv env e);
     check_written_vars written;
     t
   | Located (loc, e) ->
@@ -2161,17 +2233,17 @@ and infer_binop tenv (env : env) op a b : typ =
     n
   | "%" ->
     (* Int only: float modulo is a niche with sharp edges. *)
-    unify (infer tenv env a) TInt;
-    unify (infer tenv env b) TInt;
+    unify_expected ~expected:TInt ~got:(infer tenv env a);
+    unify_expected ~expected:TInt ~got:(infer tenv env b);
     TInt
   | "++" ->
-    unify (infer tenv env a) TString;
-    unify (infer tenv env b) TString;
+    unify_expected ~expected:TString ~got:(infer tenv env a);
+    unify_expected ~expected:TString ~got:(infer tenv env b);
     TString
   | ":" ->
     let elem_t = fresh () in
-    unify (infer tenv env a) elem_t;
-    unify (infer tenv env b) (TList elem_t);
+    unify_expected ~expected:elem_t ~got:(infer tenv env a);
+    unify_expected ~expected:(TList elem_t) ~got:(infer tenv env b);
     TList elem_t
   | "==" | "!=" ->
     unify (infer tenv env a) (infer tenv env b); TBool
@@ -2185,12 +2257,12 @@ and infer_binop tenv (env : env) op a b : typ =
     let ta = infer tenv env a in
     (match b with
      | RunCmd (e, _) ->
-       unify (infer tenv env e) TString;
-       unify ta TString;
+       unify_expected ~expected:TString ~got:(infer tenv env e);
+       unify_expected ~expected:TString ~got:ta;
        TString
      | RunQuery (e, _) ->
-       unify (infer tenv env e) TString;
-       unify ta TString;
+       unify_expected ~expected:TString ~got:(infer tenv env e);
+       unify_expected ~expected:TString ~got:ta;
        TName "ShellResult"
      | _ ->
        let tb = infer tenv env b in

@@ -19,5 +19,5 @@ echo "== wand, once the missing case is answered =="
 
 # The point: bash expands an unset variable into `rm -rf /`, and wand will
 # not run the same script until the missing case is answered.
-assert "cannot unify String with Option String" \
+assert "expected String, got Option String" \
   "$WAND" demos/01-unset-variable/unsafe.wand

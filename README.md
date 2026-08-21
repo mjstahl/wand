@@ -43,7 +43,7 @@ let sources  = *.wand            -- Glob
 let limit    = 100MB             -- Size
 let server   = https://api.example.com
 
-FS.glob log_dir                  -- type error: cannot unify Glob with Path
+FS.glob log_dir                  -- type error: expected Glob, got Path
 ```
 
 ## Failure is a value. Absence is a type

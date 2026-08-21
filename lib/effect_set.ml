@@ -74,6 +74,10 @@ and t = Set of EffSet.t * evar option
 
 exception Mismatch of string
 
+(* Two effect sets that do not fit. The caller words the message, because
+   only the caller knows which of the two the reader wrote. *)
+exception Conflict of t * t
+
 let next_id = ref 0
 
 let fresh_var () =
@@ -174,17 +178,14 @@ let unify a b =
   match ta, tb with
   | None, None ->
     if not (EffSet.equal la lb) then
-      raise (Mismatch (Printf.sprintf "cannot unify effects %s with %s"
-        (to_string ra) (to_string rb)))
+      raise (Conflict (ra, rb))
   | Some v, None ->
     if not (EffSet.subset la lb) then
-      raise (Mismatch (Printf.sprintf "cannot unify effects %s with %s"
-        (to_string ra) (to_string rb)));
+      raise (Conflict (ra, rb));
     bind v (Set (EffSet.diff lb la, None))
   | None, Some v ->
     if not (EffSet.subset lb la) then
-      raise (Mismatch (Printf.sprintf "cannot unify effects %s with %s"
-        (to_string ra) (to_string rb)));
+      raise (Conflict (ra, rb));
     bind v (Set (EffSet.diff la lb, None))
   | Some va, Some vb ->
     if va.id = vb.id then begin
@@ -257,3 +258,10 @@ let free_vars r =
   match tail_of r with
   | None -> []
   | Some v -> [v.id]
+
+(* The labels that `found` performs and `allowed` does not permit. Empty
+   when the two conflict for another reason -- one side closed where the
+   other is open, and neither holding a label the other lacks. *)
+let extra ~allowed ~found =
+  let (Set (la, _)) = repr allowed and (Set (lb, _)) = repr found in
+  List.map name_of (EffSet.elements (EffSet.diff lb la))

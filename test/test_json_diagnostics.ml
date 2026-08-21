@@ -164,10 +164,10 @@ let check_error src =
 let test_type_error () =
   regression "type error with its position carried as data"
     "[{\"severity\":\"error\",\"code\":\"E-TYPE\",\"line\":1,\"col\":5,\
-      \"message\":\"cannot unify String with Int\"}]"
+      \"message\":\"expected String, got Int\"}]"
     (Diag.to_json_array
        [Diag.error ~code:"E-TYPE" ~loc:(Token.point 1 5 4)
-          "cannot unify String with Int"])
+          "expected String, got Int"])
 
 let test_error_without_position () =
   regression "an error with no position reports 1:1, drift fix carried"

@@ -241,13 +241,13 @@ let test_tuple_pattern_types_its_scrutinee () =
     "3";
   err_contains "a non-tuple passed to a tuple pattern"
     "let f p = match p with | (a, b) -> a in f 3"
-    "cannot unify";
+    "expected";
   err_contains "a non-tuple passed to a tuple parameter"
     "let f (a, b) = a in f 3"
-    "cannot unify";
+    "expected";
   err_contains "the wrong width"
     "let f p = match p with | (a, b) -> a in f (1, 2, 3)"
-    "cannot unify"
+    "expected"
 
 (* ── Effect payloads in handler cases ───────────────────────────────────── *)
 
@@ -260,13 +260,13 @@ let test_handler_payloads_are_typed () =
     {|import FS
 handle FS.write_file! /tmp/x "hi" with
 | FS!write_file (path, _) k -> path ++ "!" ++ k ()|}
-    "cannot unify Path with String";
+    "expected String, got Path";
   err_contains "resuming a read with the wrong type"
     "import FS\nhandle FS.read_file! /tmp/x with | FS!read_file _ k -> k 42"
-    "cannot unify String with Int";
+    "expected String, got Int";
   err_contains "a payload bound at the wrong shape"
     "import FS\nhandle FS.delete! /tmp/x with | FS!delete (a, b) k -> k ()"
-    "cannot unify Path with";
+    "expected Path, got";
   ok "and a case that agrees with the operation still works"
     {|import FS
 import Path
@@ -283,8 +283,8 @@ handle FS.read_file! /tmp/nonexistent with
 (* ── One-armed if ────────────────────────────────────────────────────────── *)
 
 (* `if c then e` is `if c then e else ()`: one conditional, not a second
-   construct. The branch must therefore be Unit, and saying only "cannot
-   unify Int with Unit" would leave the reader looking for the Unit. *)
+   construct. The branch must therefore be Unit, and saying only "expected
+   Unit, got Int" would leave the reader looking for the Unit. *)
 let test_one_armed_if () =
   ok "does the thing"      "if 1 > 0 then println \"a\"" "()";
   ok "or does nothing"     "if 1 > 2 then println \"a\"" "()";
@@ -294,7 +294,7 @@ let test_one_armed_if () =
   (* An `else` that was written keeps the ordinary message. *)
   err_contains "a written else is a plain mismatch"
     "if true then 1 else \"x\""
-    "cannot unify"
+    "expected Int, got String"
 
 (* ── Derived decoders ────────────────────────────────────────────────────── *)
 
@@ -816,10 +816,10 @@ let test_written_type_vars_are_checked () =
 let test_written_effects_are_checked () =
   err_contains "declaring fewer effects than the body performs"
     "let f : Unit -> String ! {Shell} = fn () -> $(git status) in f"
-    "cannot unify effects";
+    "the type allows {Shell}, but the body performs Raise";
   err_contains "declaring none at all"
     "let f : Unit -> String ! {} = fn () -> $(git status) in f"
-    "cannot unify effects";
+    "but the body performs Raise, Shell";
   err_contains "an effect that does not exist"
     "let f : Unit -> Unit ! {Netwrk} = fn () -> () in f"
     "unknown effect 'Netwrk'"
@@ -1045,13 +1045,13 @@ let test_num_arithmetic () =
     "let double : Num -> Num = fn x -> x + x\n(double 2, double 1.5)";
   manifest_error "no implicit mixing"
     "1.5 + 1"
-    "Float.of_int and Float.round convert explicitly";
+    "Float.of_int and Float.round convert between them";
   manifest_error "modulo stays Int"
     "1.5 % 2.0"
-    "cannot unify Float with Int";
+    "Int and Float do not mix";
   manifest_error "Num rejects non-numbers"
     "let f x = x + x\nf true"
-    "Num is Int or Float";
+    "expected a number, got Bool";
   manifest_error "strings are pointed at ++"
     "\"a\" + \"b\""
     "strings concatenate with '++', not '+'"
