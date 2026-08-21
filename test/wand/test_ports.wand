@@ -1,6 +1,6 @@
-uses {Env, Shell(dune)}
+uses {Clock, Env, Shell(dune)}
 
-let {test, group} = import Test
+let {group, test, with_clock} = import Test
 let {busiest, client} = import ../../examples/ports/log-top-talkers
 let {over, usage} = import ../../examples/ports/disk-threshold
 let {plan, tidy} = import ../../examples/ports/normalize-names
@@ -9,6 +9,7 @@ let {describe, gaps} = import ../../examples/ports/env-check
 let {count_into, share, status} = import ../../examples/ports/error-rate
 let {blockers} = import ../../examples/ports/release-check
 let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
+let {attempt, read} = import ../../examples/ports/http-retry
 import Env
 import Float
 import List
@@ -180,4 +181,29 @@ group "pod-restarts" (fn () -> [
     match pods `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}` with
     | Ok _ -> t.ok false
     | Error e -> t.ok (String.contains? "namespace" e))
+])
+
+(* The retry is a function over a thunk, so a test drives it with answers
+   of its own and never runs curl. `Test.with_clock` answers the sleeps at
+   no cost, and reports what the waits added up to. *)
+let failure code = ShellResult(stdout = "", stderr = "curl: (%{code}) no", code = code)
+
+group "http-retry" (fn () -> [
+  test "the first answer is taken" (fn t ->
+    t.eq
+      (Ok "body")
+      (attempt 3 1s (fn () -> ShellResult(stdout = "body", stderr = "", code = 0)))),
+  test "a failure gives up after the last try" (fn t ->
+    t.eq (Error "curl: (22) no") (attempt 3 1s (fn () -> failure 22))),
+  (* 1s then 2s: the backoff doubles, and three tries wait twice. *)
+  test "the backoff doubles and the tries are capped" (fn t -> (
+    let (waited, _) = with_clock (fn () -> attempt 3 1s (fn () -> failure 22));
+    t.eq 3s waited
+  )),
+  test "a body reads into the type" (fn t ->
+    t.eq (Ok Health(status = "ok", version = 1.2.0)) (read `{"status":"ok","version":"1.2.0"}`)),
+  test "and a document that does not match names the field" (fn t ->
+    match read `{"status":"ok"}` with
+    | Ok _ -> t.ok false
+    | Error e -> t.ok (String.contains? "version" e))
 ])

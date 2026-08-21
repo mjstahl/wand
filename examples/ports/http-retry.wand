@@ -1,0 +1,70 @@
+uses {Clock, Env, IO, Proc, Shell(curl)}
+
+import Clock
+import Duration
+import Env
+import IO
+import JSON
+import Proc
+import Shell
+import String
+
+(* Read a JSON endpoint that needs a token, and retry a failure.
+
+   bash:  for i in 1 2 3; do
+            curl -s -H "Authorization: Bearer $TOKEN" "$URL" && break
+            sleep $((i * 2))
+          done
+
+   `curl` without `--fail` exits 0 on a 500, so `&& break` takes the error
+   page as the answer and stops retrying. The loop has no ceiling on the
+   wait it will do, and the body it finally gets is text nobody reads.
+
+   `--fail` makes the exit code mean something, `$?()` holds it without
+   raising, and the backoff doubles from a `Duration` that is a value
+   rather than an arithmetic expression in a string. The body decodes into
+   a type, so a schema change is an error with a field name in it.
+
+   Every failure is retried, including a 404 that will never succeed.
+   Telling those apart needs the status code, which `--fail` does not
+   hand back; `--write-out "%{http_code}"` does, at the cost of parsing
+   the number back out of the output. The bash retries a 404 as well. *)
+
+type Health(status: String, version: Version)
+
+(* The token is spliced with `%{}`, so it arrives as one argument however
+   it is punctuated. It is still an argument: `ps` can read it, which is
+   true of the bash above as well. *)
+let fetch url token =
+  let header = "Authorization: Bearer %{token}" in
+  $?(curl --fail --silent --show-error -H %{header} %{url})
+
+let attempt tries wait thunk =
+  (
+    let r = thunk ();
+    if Shell.ok? r then Ok r.stdout
+    else if tries <= 1 then Error (String.trim r.stderr)
+    else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
+  )
+
+let read out =
+  match JSON.parse out with
+  | Error why -> Error why
+  | Ok doc -> JSON.decode Health.decoder doc
+
+let report (h: Health) = println "%{h.status}, version %{h.version}"
+
+let main () =
+  match Env.get "TOKEN" with
+  | None -> (IO.println_err "TOKEN is not set"; Proc.exit 1)
+  | Some token -> (
+    match attempt 3 1s (fn () -> fetch https://example.com/health token) with
+    | Error why -> (IO.println_err why; Proc.exit 1)
+    | Ok body -> (
+      match read body with
+      | Error why -> (IO.println_err "%{why}"; Proc.exit 1)
+      | Ok h -> report h
+    )
+  )
+
+main ()

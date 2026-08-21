@@ -418,6 +418,25 @@ Two things it found:
   around all three. A type error caught each, and would not have if the
   types had matched.
 
+## Row 3, ported
+
+`http-retry.wand`, and the answer to G6 in practice. `curl` without
+`--fail` exits 0 on a 500, so the bash `curl … && break` takes the error
+page as the answer and stops retrying. `--fail` makes the exit code mean
+something, `$?()` holds it without raising, and the backoff doubles from a
+`Duration` value rather than an arithmetic expression inside a string.
+
+The retry is a function over a thunk, so `test/wand/test_ports.wand` drives
+it with answers of its own and never runs curl. `Test.with_clock` answers
+the sleeps at no cost and reports that three tries wait `3s`, which is the
+assertion a hand-rolled loop cannot offer at all.
+
+Nothing new was missing. The one thing worth recording is what the port
+cannot do: every failure is retried, including a 404 that will never
+succeed, because `--fail` does not hand back the status code.
+`--write-out "%{http_code}"` does, at the cost of parsing the number back
+out of the output. The bash retries a 404 too.
+
 ## Problems with the approach itself
 
 Separate from what wand is missing, four ways this project could produce
