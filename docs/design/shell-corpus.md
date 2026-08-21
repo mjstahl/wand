@@ -346,6 +346,35 @@ recent: the parameter annotation carried `ci-gate.wand`'s
 `fn (r: ShellResult) -> r.code == 0`, which had no spelling before 0.24.0,
 and the block binding carried the fold in `normalize-names.wand`.
 
+## What the second five found
+
+Five more, from the same four rows: `env-check.wand` and `error-rate.wand`
+(rows 1 and 2), `release-check.wand` (row 2), `empty-dirs.wand` (row 4) and
+`dir-budget.wand` (row 10). Ten in `examples/ports/` now. One hole and
+three absences:
+
+- **A handler could answer `Env.get` with anything.** Six `Env` operations
+  carried no payload or resume type, so a case resuming `Env!get` with `42`
+  typechecked and `Env.get` answered `Some(42)` — an `Option Int` where its
+  signature says `Option String`. The types were known all along: an
+  operation carries what its *raising* builtin returns. Filled in. The
+  construct whose purpose is standing at a boundary was the one letting a
+  value across it.
+- **`Decode` stops at `map2`.** A three-field record has no `map3`, so a
+  decoder that renames or validates a third field is an `and_then` chain.
+  `release-check.wand` needs none of that and uses the derived
+  `Release.decoder`, which is the better answer where it fits.
+- **Nothing in `Float` prints to a width.** A rate is read to one decimal,
+  so `error-rate.wand` carries `Float.of_int (Float.round (x * 10.0)) /
+  10.0` to say so.
+- **A record has no update form.** Changing one field means naming them
+  all: `Tally(ok = tally.ok, failed = tally.failed + 1)`. Two fields make
+  that a wash; a wider tally would not.
+
+What carried these five: the derived decoder read `release-check.wand`'s
+three fields off the type, `Size` arithmetic summed `dir-budget.wand`
+against a `500MB` literal, and `List.filter_map` shaped three of the five.
+
 ## Problems with the approach itself
 
 Separate from what wand is missing, four ways this project could produce
@@ -418,8 +447,9 @@ covered end to end.
    done changed it substantially, and the reading of `stdlib/` that
    produced G1–G7 will be wrong in places that only code reveals.
 
-   Five are in `examples/ports/`: rows 1, 2, 4 (twice) and 10. What they
-   found is in the section below and in [`../gaps.md`](../gaps.md).
+   Ten are in `examples/ports/`: rows 1 (twice), 2 (three times), 4 (three
+   times) and 10 (twice). What they found is in the two sections below and
+   in [`../gaps.md`](../gaps.md).
 4. ~~**Decide `Clock` (G1)**~~ Shipped in 0.25.0, ahead of this order,
    because the ports kept meeting it. **Reading the clock (G2)** is still
    open, and unblocks row 9 on its own.

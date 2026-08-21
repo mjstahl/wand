@@ -1,0 +1,64 @@
+uses {IO, Proc}
+
+import Float
+import IO
+import List
+import Proc
+import Regex
+import Stream
+import String
+
+(* What share of the requests failed, and is that too many.
+
+   bash:  total=$(wc -l < access.log)
+          failed=$(awk '{print $9}' access.log | grep -c '^5')
+          if [ $((100 * failed / total)) -gt 1 ]; then exit 1; fi
+
+   Two passes over the file, and two traps. `grep -c` exits 1 when it counts
+   nothing, so under `set -e` the healthy case is the one that kills the
+   script. And `$(( ))` is integer division: 8 failures in 1000 requests is
+   `0`, so the gate never fires until the outage is a whole percent.
+
+   Counting happens once here, as the lines arrive, and the share is a
+   Float because that is what a share is. *)
+
+type Tally(ok: Int, failed: Int)
+
+(* The status code of a common-log line. A line that does not carry one is
+   not a request, and is not counted either way. *)
+let status line =
+  match Regex.capture r/" ([0-9]{3}) / line with
+  | [_, code] -> (
+    match String.to_int code with
+    | Ok n -> Some n
+    | Error _ -> None
+  )
+  | _ -> None
+
+let count_into (tally: Tally) line =
+  match status line with
+  | None -> tally
+  | Some code -> if code >= 500 then Tally(ok = tally.ok, failed = tally.failed + 1)
+    else Tally(ok = tally.ok + 1, failed = tally.failed)
+
+let share (tally: Tally) =
+  let served = tally.ok + tally.failed in
+  if served == 0 then 0.0 else Float.of_int tally.failed * 100.0 / Float.of_int served
+
+(* A rate is read to one decimal, and nothing in `Float` prints to a width,
+   so the rounding is written out. *)
+let tenth x = Float.of_int (Float.round (x * 10.0)) / 10.0
+
+let report limit (tally: Tally) =
+  (
+    let served = tally.ok + tally.failed;
+    println "%{served} requests, %{tally.failed} of them 5xx (%{tenth (share tally)}%)";
+    if share tally > limit then (IO.println_err "over the %{limit}% budget"; Proc.exit 1)
+  )
+
+(* The stream is in `main!`: an import runs a file's bindings, so reading
+   stdin at the top level would read it the moment a test imported this. *)
+let main! () =
+  report 1.0 (Stream.fold_left count_into Tally(ok = 0, failed = 0) (IO.stdin_lines ()))
+
+main! ()

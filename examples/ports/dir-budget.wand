@@ -1,0 +1,44 @@
+uses {FS.Read, IO, Proc}
+
+import FS
+import IO
+import List
+import Path
+import Proc
+import Size
+
+(* Fail when a directory outgrows its budget.
+
+   bash:  used=$(du -sk build | cut -f1)
+          if [ "$used" -gt 512000 ]; then
+            echo "build is $(du -sh build | cut -f1), over 500M" >&2
+            exit 1
+          fi
+
+   `du -sh` prints `1.2G`, which a person can read and `[ -gt ]` cannot
+   compare. So the script runs `du` twice: once with `-k` for a number to
+   test, once with `-h` for a number to print. The two can disagree, and
+   the threshold is written as `512000` with the unit in a comment.
+
+   A `Size` is both. `500MB` is the literal, `+` sums the files, and
+   `Size.format` prints it. *)
+
+let used dir =
+  FS.glob_in **.* dir
+    |> List.filter_map (fn p ->
+      match FS.size p with
+      | Ok size -> Some size
+      | Error _ -> None)
+    |> List.fold_left (fn total size -> total + size) 0B
+
+let check budget dir =
+  (
+    let total = used dir;
+    println "%{Path.to_string dir} is %{Size.format total}";
+    if total > budget then
+      (IO.println_err "over budget by %{Size.format (total - budget)}"; Proc.exit 1)
+  )
+
+let main () = check 500MB ./stdlib
+
+main ()

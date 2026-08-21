@@ -1,0 +1,44 @@
+uses {FS.Read, IO}
+
+import FS
+import IO
+import List
+import Path
+
+(* Every directory under a root with nothing in it.
+
+   bash:  find . -type d -empty -print
+
+   `-empty` is a GNU and BSD extension, not POSIX, so a script that has to
+   run anywhere writes it out:
+
+     find . -type d -exec sh -c '[ -z "$(ls -A "$1")" ]' _ {} \; -print
+
+   That is two processes per directory, and `ls -A` piped through `$()`
+   loses a name that ends in a newline. The walk here reads each directory
+   once and never leaves the process. *)
+
+(* Depth first, the root included. A directory that cannot be read is not
+   descended into and is not reported: it has contents, and the walk has no
+   right to say what they are. *)
+let dirs root =
+  match FS.list_dir root with
+  | Error _ -> []
+  | Ok entries -> root : (entries |> List.filter FS.dir? |> List.map dirs |> List.flatten)
+
+let empty? dir =
+  match FS.list_dir dir with
+  | Ok entries -> List.empty? entries
+  | Error _ -> false
+
+let report root =
+  (
+    let found = dirs root |> List.filter empty?;
+    match found with
+    | [] -> println "nothing empty under %{Path.to_string root}"
+    | _ -> found |> List.each (fn d -> println (Path.to_string d))
+  )
+
+let main () = report ./examples
+
+main ()

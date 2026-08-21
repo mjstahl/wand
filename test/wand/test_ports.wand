@@ -1,10 +1,15 @@
-uses {Shell(dune)}
+uses {Env, Shell(dune)}
 
 let {test, group} = import Test
 let {busiest, client} = import ../../examples/ports/log-top-talkers
 let {over, usage} = import ../../examples/ports/disk-threshold
 let {plan, tidy} = import ../../examples/ports/normalize-names
 let {failed, stage} = import ../../examples/ports/ci-gate
+let {describe, gaps} = import ../../examples/ports/env-check
+let {count_into, share, status, tenth} = import ../../examples/ports/error-rate
+let {blockers} = import ../../examples/ports/release-check
+import Env
+import List
 import Map
 import Option
 import Path
@@ -83,4 +88,57 @@ group "ci-gate" (fn () -> [
       (with_codes (Map.from_list [("dune test", 1)]) (fn () ->
         failed [stage "build" $?(dune build), stage "test" $?(dune test)])
       ))
+])
+
+(* `Env!get` supplies the String its raising builtin returns, so a handler
+   cannot say "unset" -- that state is the raise. These read the real
+   environment under names nothing else uses. *)
+group "env-check" (fn () -> [
+  test "a variable that is not set" (fn t ->
+    t.eq
+      ["WAND_PORTS_ABSENT is not set"]
+      (List.map describe (gaps ["WAND_PORTS_ABSENT"]))),
+  (* The distinction bash cannot make: exported and empty is not unset. *)
+  test "and one set to the empty string" (fn t -> (
+    Env.set "WAND_PORTS_EMPTY" "";
+    t.eq
+      ["WAND_PORTS_EMPTY is set to the empty string"]
+      (List.map describe (gaps ["WAND_PORTS_EMPTY"]))
+  )),
+  test "a variable with a value is no gap" (fn t -> (
+    Env.set "WAND_PORTS_SET" "postgres://x";
+    t.eq [] (gaps ["WAND_PORTS_SET"])
+  ))
+])
+
+group "error-rate" (fn () -> [
+  test "the status code of a request line" (fn t ->
+    t.eq (Some 503) (status `10.0.0.1 - - [x] "GET /a HTTP/1.1" 503 128`)),
+  test "a line that carries no code" (fn t -> t.ok (Option.none? (status "starting up"))),
+  test "a 5xx is a failure" (fn t ->
+    t.eq
+      Tally(ok = 0, failed = 1)
+      (count_into Tally(ok = 0, failed = 0) `- - - [x] "GET /" 503 1`)),
+  test "and anything else is not" (fn t ->
+    t.eq
+      Tally(ok = 1, failed = 0)
+      (count_into Tally(ok = 0, failed = 0) `- - - [x] "GET /" 404 1`)),
+  (* The integer division bash does here answers 0. *)
+  test "a share below one percent is not zero" (fn t ->
+    t.eq 0.8 (tenth (share Tally(ok = 992, failed = 8)))),
+  test "no requests is no failures" (fn t -> t.eq 0.0 (share Tally(ok = 0, failed = 0)))
+])
+
+group "release-check" (fn () -> [
+  test "a release with nothing wrong ships" (fn t ->
+    t.eq
+      []
+      (blockers
+        1.0.0
+        Release(version = 1.2.0, draft = false, artifacts = ["a", "b", "c", "d"])
+      )),
+  test "every reason at once, not the first" (fn t ->
+    t.eq
+      ["still a draft", "0.9.0 is below 1.0.0", "1 artifacts, expected 4"]
+      (blockers 1.0.0 Release(version = 0.9.0, draft = true, artifacts = ["a"])))
 ])
