@@ -3143,29 +3143,30 @@ chmod +x deploy.wand
 
 #### The compile cache
 
-Loading a module is mostly type inference — on a 200-definition module,
-5.7ms of 7.2ms — so what a module's types came out as is kept between runs.
+To load a module is mostly to infer types. On a module with 200 definitions,
+that is 5.7 ms of 7.2 ms. So wand keeps the types of a module between runs.
 
-An entry is keyed by the hash of the module's source *and* of everything it
-imports, transitively, so an entry inferred against a file that has since
-changed is unreachable rather than merely out of date. The key also covers
-the binary itself — its version, size and mtime — because a module's types
-come from the builtins as much as from its source, and a builtin whose
-signature changed would otherwise leave every hash matching and every
-cached type wrong. Nothing needs clearing, and there is no timestamp to be
-wrong about. An unreadable entry is a miss, not an error.
+The key of an entry is a hash of the source of the module, and of everything
+it imports, at every depth. So an entry for a file that has changed is
+unreachable, not merely out of date. The key also covers the binary: its
+version, its size and its mtime. The types of a module come from the builtins
+as much as from its source. Without that, a builtin with a new signature would
+leave each hash correct and each cached type wrong. You never clear the cache,
+and there is no timestamp to be wrong about. An entry that wand cannot read is
+a miss, not an error.
 
 ```
 WAND_CACHE=0 wand script.wand    # ignore it, and write nothing
 ```
 
-`0`, `false`, `no` and `off` turn it off; unset, or any other value, leaves
-it on. The switch is named for what it controls rather than against it, so
-there is no value that reads one way and behaves the other.
+`0`, `false`, `no` and `off` turn it off. No value, or any other value,
+leaves it on. The name of the switch says what it controls, not what it
+prevents. So no value reads one way and behaves the other way.
 
-Caching costs the first run of a script a little and saves every run after
-it: a script importing six stdlib modules goes from 16.2ms to 12.1ms, and
-one importing a 200-definition module from 16.5ms to 10.9ms.
+The cache costs the first run of a script a little, and saves each run after
+it. A script that imports six stdlib modules goes from 16.2 ms to 12.1 ms. A
+script that imports a module with 200 definitions goes from 16.5 ms to
+10.9 ms.
 
 #### Environment
 
@@ -3177,17 +3178,17 @@ one importing a 200-definition module from 16.5ms to 10.9ms.
 | `WAND_STDLIB` | a standard library to use instead of the built-in one |
 
 The cache goes in the first of these that is set: `WAND_CACHE_HOME`, then
-`$XDG_CACHE_HOME/wand`, then `~/.cache/wand` — or `%LOCALAPPDATA%\wand\cache`
-on Windows, where `~/.cache` is not a place anything keeps.
+`$XDG_CACHE_HOME/wand`, then `~/.cache/wand`. On Windows it goes in
+`%LOCALAPPDATA%\wand\cache`, because Windows keeps nothing in `~/.cache`.
 
-The standard library is compiled into the binary, so wand runs the same from
-any directory and a `stdlib/` folder is just a folder. `WAND_STDLIB` replaces
-that library wholesale, so a `List.wand` in the directory it names *is*
-`List`; it is meant for working on the standard library itself, where a built
-binary has to run against sources on disk.
+The standard library is compiled into the binary. So wand runs the same way
+from any directory, and a `stdlib/` folder is only a folder. `WAND_STDLIB`
+replaces the whole library. A `List.wand` in the directory that it names is
+then `List`. Use it to work on the standard library itself, where a built
+binary must run against sources on disk.
 
-An empty value counts as unset everywhere here, since an empty value nearly
-always comes from a shell interpolating something that held nothing.
+An empty value counts as no value in each variable here. An empty value
+nearly always comes from a shell that interpolated something empty.
 
 ### Interactive session
 
@@ -3212,10 +3213,10 @@ double : Int -> Int
 [2, 4, 6] : List Int
 ```
 
-This is a REPL/one-shot-command convenience, not a script one — see
-"Standard library modules" under "Imports" above for exactly which
-modules are preloaded, and note that scripts (`wand file.wand`) always
-need an explicit `import`.
+This helps the REPL and the one-shot commands. It does not help a script.
+See "Standard library modules" under "Imports" above for the list of modules
+that wand loads for you. A script that you run with `wand file.wand` always
+needs an `import`.
 
 Special commands:
 
@@ -3232,11 +3233,11 @@ Special commands:
 | `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
 | `:x` | `:exit` | Exit interactive mode |
 
-Multi-line input is detected automatically: unclosed brackets, a trailing
-`->`, `=`, `|`, `,`, or dangling keyword (`then`, `else`, `in`, `with`,
-`and`), and — within an entry already spanning lines — a `let` equation
-still awaiting its `in` or body all keep the entry open. A blank
-continuation line submits the accumulated input.
+The REPL finds multi-line input for you. These keep an entry open: a bracket
+that does not close, a trailing `->`, `=`, `|` or `,`, and a keyword with
+nothing after it (`then`, `else`, `in`, `with`, `and`). Inside an entry that
+already spans lines, a `let` equation that still waits for its `in` or its body
+keeps it open too. A blank line submits what you have entered.
 
 History is saved to `~/.wand_history` between sessions.
 
@@ -3265,14 +3266,14 @@ Each subcommand has a full-word alias: `d`/`doc`, `e`/`eval`, `f`/`fmt`, `h`/`he
 
 ### Lints
 
-`wand t` reports lint findings alongside the type. Each carries a rule ID
-whose prefix says what it will do to your build: `V-` rules report a
-violation, and `--strict` promotes them to errors; `A-` rules are advisory and stay
-warnings however wand is run.
+`wand t` reports lint findings with the type. Each finding carries a rule ID.
+The prefix says what the rule does to your build. A `V-` rule reports a
+violation, and `--strict` makes it an error. An `A-` rule is advisory. It stays
+a warning, however you run wand.
 
-A rule has to be decidable to be must-fix, but being decidable does not make
-it one — a rule can be exact and still be advisory, when failing a build over
-it would punish the safer choice.
+A rule must be decidable before it can be must-fix. Decidable does not make
+it must-fix. A rule can be exact and still advisory, when a failed build would
+punish the safer choice.
 
 | Rule | Fires when |
 |---|---|
@@ -3290,31 +3291,30 @@ it would punish the safer choice.
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `A-USES2` | a file performs effects and declares no manifest |
 
-`V-DROP1` is the one that catches a bug rather than a habit:
+`V-DROP1` catches a bug, not a habit:
 
 ```
 FS.write_file /etc/app.toml config      -- the Result goes nowhere
 IO.println "deployed"                   -- and this prints either way
 ```
 
-The write may have failed; the script says it deployed and exits 0. Match
-the `Result`, call `write_file!` and let it raise, or bind it to `_` if the
-failure genuinely does not matter. Writing the statement as
-`let () = FS.write_file ...` is a type error for the same reason — this rule
-is what catches the shape that says nothing either way. Values that are not
-`Result` are left alone: discarding a `String` is what running a command for
-its effect looks like.
+The write can have failed. The script then says that it deployed, and it
+exits 0. Match the `Result`, or call `write_file!` and let it raise, or bind it
+to `_` if the failure does not matter. `let () = FS.write_file ...` is a type
+error for the same reason. This rule catches the shape that says nothing either
+way. wand leaves other values alone. To discard a `String` is what a command
+run for its effect looks like.
 
-`V-DROP2` is the same mistake with a worse ending. A test block answers with
-one outcome, so sequencing assertions discards all but the last:
+`V-DROP2` is the same mistake with a worse end. A test block answers with one
+outcome. So a sequence of assertions discards each one but the last:
 
 ```
 test "parses" (fn t -> (t.eq 1 got_a; t.eq 2 got_b))
 ```
 
-`t.eq 1 got_a` is thrown away, and the test reports a pass however that
-first assertion went. Return the one outcome the block is answering with, or
-give each assertion its own `test` and share the setup with `group`:
+wand throws `t.eq 1 got_a` away, and the test reports a pass however that
+first assertion went. Return the one outcome that the block answers with. Or
+give each assertion its own `test`, and share the setup with `group`:
 
 ```
 group "parses" (fn () -> let doc = parse! source in [
@@ -3323,9 +3323,9 @@ group "parses" (fn () -> let doc = parse! source in [
 ])
 ```
 
-`wand s` refuses a file this rule fires on rather than printing a verdict it
-does not have — a run whose assertions are discarded cannot answer the
-question it was asked.
+`wand s` refuses a file that this rule fires on. It does not print a verdict
+that it does not have. A run that discards its assertions cannot answer the
+question you asked.
 
 ```
 wand t --strict "..."             # violations become errors (exit 1)
@@ -3335,35 +3335,33 @@ wand t --fix --file script.wand   # apply the fixes the findings carry
 
 ### `--fix`
 
-`wand t --fix --file script.wand` applies every machine-applicable
-correction to the file in place, re-checks, and repeats until nothing
-more applies — a fix can unlock a further finding, as when admitting a
-new binary into `Shell(...)` reveals another that no command runs. What
-it applies is exactly the `fix` payloads `--json` reports: manifest
-creation, replacement (including the manifest type error's suggested
-line), and the dead-import deletion. One line is printed per applied
-fix (`rule: line — what changed`); with `--json`, the applied set in
-the diagnostics shape. A parse error, or a type error carrying no fix,
-refuses the whole run — nothing is written, because fixing around a
-broken file is guesswork. Findings without a fix payload are reported
-by a plain `wand t` and left alone here.
+`wand t --fix --file script.wand` applies each correction that a machine can
+apply. It writes the file, checks it again, and repeats until nothing more
+applies. One fix can reveal another. A new binary in `Shell(...)` can reveal a
+binary that no command runs. The fixes are the `fix` payloads that `--json`
+reports: it creates a manifest, replaces one (which includes the line that the
+manifest type error suggests), and deletes a dead import. wand prints one line
+for each applied fix: `rule: line — what changed`. With `--json` it prints the
+applied set in the diagnostics shape. A parse error refuses the whole run, and
+so does a type error with no fix. wand writes nothing, because a fix around a
+broken file is a guess. A plain `wand t` reports the findings that carry no fix,
+and `--fix` leaves them alone.
 
 ### `--json`
 
-With `--json`, `wand t` prints a single JSON array on stdout — one object
-per diagnostic — and nothing else. Exit codes are unchanged, and the
-human output is unchanged when the flag is absent.
+With `--json`, `wand t` prints one JSON array on stdout, and nothing else.
+The array holds one object for each diagnostic. The exit codes do not change.
+Without the flag, the output for a person does not change.
 
-Every finding and error carries `severity` (`"error"`/`"warning"`),
-`code` (`A-USES2`, `V-DROP1`, ...; errors get `E-TYPE`, `E-PARSE`,
-`E-LEX`), `line`, `col`, and `message`; `file` appears when a file was
-named with `--file`. A diagnostic that covers an extent rather than a
-point also carries `end_line` and `end_col` (exclusive): findings span
-the whole item they are about, type errors the whole expression at
-fault, lex errors the failing token. Under `--strict`, must-fix
-findings report as `"error"`. When a machine-applicable correction
-exists it rides along as a `fix` object: the manifest suggestions carry
-the exact line —
+Each finding and each error carries `severity`, either `"error"` or
+`"warning"`. It carries `code`, such as `A-USES2` or `V-DROP1`. An error gets
+`E-TYPE`, `E-PARSE` or `E-LEX`. It also carries `line`, `col` and `message`.
+`file` appears when you named a file with `--file`. A diagnostic that covers a
+range also carries `end_line` and `end_col`, which are exclusive. A finding
+spans the whole item. A type error spans the whole expression at fault. A lex
+error spans the token that failed. Under `--strict`, a must-fix finding reports
+as `"error"`. A correction that a machine can apply travels with it, in a `fix`
+object. A manifest suggestion carries the exact line:
 
 ```json
 {"severity":"warning","code":"A-USES2","line":1,"col":1,
@@ -3371,20 +3369,19 @@ the exact line —
  "fix":{"insert_line":"uses {FS.Write}"}}
 ```
 
-(`A-USES1` and the manifest type error carry `fix.replace_line`
-instead, `V-IMP1` carries `"fix":{"delete_line":true}`), and the drift
-errors whose correction is a plain substitution carry
-`"fix":{"replace":{"from":"and","to":"&&"}}`. Typed holes come as their
-own shape:
+`A-USES1` and the manifest type error carry `fix.replace_line` instead.
+`V-IMP1` carries `"fix":{"delete_line":true}`. A drift error whose correction
+is one substitution carries `"fix":{"replace":{"from":"and","to":"&&"}}`. A
+typed hole has a shape of its own:
 
 ```json
 {"kind":"hole","type":"Int -> Int -> Int ! 'e"}
 ```
 
-The query commands take `--json` too, printing one JSON value on stdout
-in place of their text. `wand d --json <name>` prints one object —
-`name`, `type`, `doc`, where a fact the session lacks is `null` rather
-than omitted:
+The query commands also take `--json`. Each one prints one JSON value on
+stdout, in place of its text. `wand d --json <name>` prints one object with
+`name`, `type` and `doc`. A fact that the session does not have is `null`. wand
+does not leave the key out:
 
 ```json
 {"name":"List.map",
@@ -3392,24 +3389,24 @@ than omitted:
  "doc":"Apply a function to every element of a list, returning a new list."}
 ```
 
-`wand v --json` prints an array over the scope — a binding as
-`{"name":...,"type":...}`, a module as `{"name":...,"module":true}` —
-and `wand v --json <module>` the module's members, names qualified:
+`wand v --json` prints an array over the scope. A binding is
+`{"name":...,"type":...}`. A module is `{"name":...,"module":true}`.
+`wand v --json <module>` prints the members of the module, with qualified
+names:
 
 ```json
 [{"name":"List.all","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"},
  {"name":"List.any","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"}]
 ```
 
-`wand s --json` prints one object for the whole run, when the run
-completes (a well-formed JSON value cannot stream test by test). While
-the tests run, anything they themselves print goes to stderr, so stdout
-holds nothing but the JSON. A pass
-carries its `label`; a fail carries `message`, which already begins with
-the label — that is how the Test module writes it. A test that raised
-rather than failed an assertion has status `"error"`; both count in
-`failed`, and the exit code is unchanged. A file that would not load
-(parse error, missing import) appears under `errors` instead of `tests`:
+`wand s --json` prints one object for the whole run, after the run ends. A
+correct JSON value cannot stream test by test. While the tests run, what they
+print goes to stderr, so stdout holds the JSON only. A pass carries its
+`label`. A fail carries `message`, which starts with the label, because the
+`Test` module writes it that way. A test that raised, instead of failing an
+assertion, has the status `"error"`. Both count in `failed`, and the exit code
+does not change. A file that would not load, from a parse error or a missing
+import, appears under `errors` and not under `tests`:
 
 ```json
 {"tests":[{"file":"test_deploy.wand","status":"pass","label":"it adds"},
@@ -3422,63 +3419,67 @@ rather than failed an assertion has status `"error"`; both count in
 
 ### Formatter
 
-`wand f <file>...` formats one or more `.wand` files in place (each
-file is overwritten with its formatted contents; a confirmation line is
-printed per file). Shell globs work as expected: `wand f stdlib/*.wand`
-reformats every file in `stdlib/`.
+`wand f <file>...` formats one or more `.wand` files in place. It
+overwrites each file with the formatted text, and prints one line for each
+file. A shell glob works: `wand f stdlib/*.wand` formats every file in
+`stdlib/`.
 
-Comments (`-- ...`, `(* ... *)`, and doc `(** ... *)`) are always preserved —
-never silently dropped, and never rewritten from one style into the other. Multi-equation function definitions
-(`let f 0 = ... / let f n = ...`) are reconstructed as separate clauses
-rather than left as the desugared `match`.
+wand keeps each comment: `-- ...`, `(* ... *)` and the doc form `(** ... *)`.
+It never drops one, and it never rewrites one style into the other. It writes a
+function of several equations back as separate clauses, as in
+`let f 0 = ...` and `let f n = ...`. It does not leave the `match` that those
+equations become.
 
-The manifest is emitted canonically: labels in display order (alphabetical
-— `Env, FS.Read, FS.Write, IO, Proc, Raise, Shell`, the same order every
-rendered effect set and suggested manifest uses), the binaries inside
-`Shell(...)` sorted, and the whole form wrapping one label per line when
-it passes the column budget (an over-long `Shell(...)` list wraps one
-binary per line the same way). In the leading run of imports at the top
-of a file, plain `import M` statements come first, alphabetized, then
-let-imports (`let {test} = import Test`) in source order — let-imports
-are ordinary bindings, so their relative order is never changed, and a
-region with a comment inside it is left exactly as written. Imports past
-the leading region stay where they are.
+wand writes the manifest in one canonical form. The labels come in display
+order, which is alphabetical: `Env, FS.Read, FS.Write, IO, Proc, Raise, Shell`.
+Every rendered effect set and every suggested manifest uses that order. The
+binaries inside `Shell(...)` are sorted. If the form passes the column budget,
+it wraps to one label per line. A long `Shell(...)` list wraps to one binary per
+line in the same way.
 
-Lines are wrapped to fit 92 columns — chosen for the pane code is *read* in
-rather than the one it is written in. A split diff gives each side around
-ninety columns, and a line past that scrolls sideways exactly where code is
-looked at hardest; the same width holds for wand shown next to bash in a
-README or a terminal recording.
+In the first run of imports at the top of a file, the plain `import M`
+statements come first, in alphabetical order. The let-imports follow, such as
+`let {test} = import Test`, in source order. A let-import is an ordinary
+binding, so wand never changes the order of two of them. wand leaves a region
+with a comment in it exactly as written. An import after the first run stays
+where it is.
 
-An item with a comment inside it is re-emitted exactly as written.
-Formatting it would mean deciding which expression the comment now belongs
-to, and a comment moved to the wrong one is worse than a comment left where
-its author put it. Everything else has a formatting rule.
+wand wraps a line to 92 columns. That width fits the pane where people read
+code, not the pane where they write it. A split diff gives each side about
+ninety columns. A longer line scrolls sideways at the place where people look
+hardest. The same width fits wand beside bash in a README or in a terminal
+recording.
+
+wand writes an item with a comment inside it exactly as you wrote it. To
+format it, wand would decide which expression the comment belongs to now. A
+comment moved to the wrong expression is worse than a comment left where its
+author put it. Everything else has a formatting rule.
 
 ### Language server
 
-`wand lsp` starts the language server, speaking LSP over stdio. It is a
-subcommand on the compiler binary — the same inference, lint rules, and
-formatter answer in the editor, so the two cannot disagree. An editor
-connected to it gets diagnostics on every change, hover (the signature
-with its effect set, and the doc string), completion, quick fixes
-carrying the same corrections `wand t --fix` applies, whole-document
-formatting, and go to definition — a jump into the standard library
-opens the module's source from the binary as a read-only document.
+`wand lsp` starts the language server. It speaks LSP over stdio. It is a
+subcommand of the compiler binary, so the editor gets the same inference, the
+same lint rules and the same formatter. The two cannot disagree. An editor that
+connects to it gets these: a diagnostic on each change; hover, which shows the
+signature with its effect set and the doc string; completion; a quick fix that
+carries the correction that `wand t --fix` applies; formatting of the whole
+document; and go to definition. A jump into the standard library opens the
+source of the module from the binary, as a read-only document.
 
-Typing a qualified name resolves it as you type: `FS.write_file!` in a
-buffer that has not imported `FS` inserts `import FS` into the sorted
-import block and adds `FS.Write` to the manifest. The edit fires only
-when the member resolves — a miss gets a diagnostic, never a guess — and
-it never touches `Shell`: adding a binary, widening, or narrowing that
-label is always a visible quick fix instead. A manifest is extended,
-never created uninvited.
+A qualified name resolves as you type it. Write `FS.write_file!` in a buffer
+that has not imported `FS`, and the editor inserts `import FS` into the sorted
+import block. It also adds `FS.Write` to the manifest. The edit fires only when
+the member resolves. A miss gives a diagnostic, never a guess. The edit never
+touches `Shell`. To add a binary, to widen the label or to narrow it is always
+a quick fix that you can see. The editor extends a manifest. It never creates
+one that you did not ask for.
 
-The VS Code extension lives at `editors/vscode/` in the wand repository:
-syntax highlighting (domain literals as constants, embedded shell inside
-`$()`), the client for `wand lsp`, and a "Rehearse (dry run)" code lens
-on the manifest line that runs `wand --dry-run` on the file. It is not
-on the Marketplace yet; its README shows how to build and sideload it.
+The VS Code extension is at `editors/vscode/` in the wand repository. It has
+syntax highlighting, which shows a domain literal as a constant and the shell
+inside `$()`. It has the client for `wand lsp`. It has a "Rehearse (dry run)"
+code lens on the manifest line, which runs `wand --dry-run` on the file. The
+extension is not on the Marketplace yet. Its README says how to build it and
+how to sideload it.
 
 ---
 
@@ -3498,4 +3499,4 @@ dune test
 ln -sf _build/install/default/bin/wand wand
 ```
 
-Requires OCaml 5.x and opam. Dependencies managed via `wand.opam`.
+This needs OCaml 5.x and opam. `wand.opam` names the dependencies.
