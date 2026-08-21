@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.22.0] - 2026-08-21
+
+### Changed
+
+- **Breaking:** `FS.glob` and `FS.glob_in` do not walk through a symlink.
+  A link out of the tree added files that the directory does not hold. A
+  link to a parent made the walk repeat until the path was too long. A
+  symlink that matches is still an answer. wand still follows the base
+  directory (`74283b9`)
+- **Breaking:** `FS.write_file` creates a file with mode 0644. It used the
+  channel default of 0666. `FS.create_file` and `FS.append` already used
+  0644. Under `umask 0` the file was writable by all users (`74283b9`)
+- **Breaking:** `FS.copy` gives a new file the mode of the source file. A
+  copied script keeps its executable bit. A copy of a 0600 file stays
+  private. A destination that exists keeps its own mode (`74283b9`)
+- **Breaking:** wand checks the type variables in an annotation.
+  `let f : 'a -> 'a = fn x -> x + 1` is now a type error: the body accepts
+  only `Int`. `let g : 'a -> 'b = fn x -> x` is an error too: the body
+  makes the two types the same. An annotation with no type variable does
+  not change (`db0ce43`)
+- `--dry-run` answers with a new random path for each temp file and temp
+  directory. It answered with `/tmp/wand-dry-run-dir` each time, and all
+  users can write that directory (`74283b9`)
+
+### Fixed
+
+- Fix `String.join`: it dropped a first element that is empty.
+  `String.join "," ["", "b"]` gave `b` and now gives `,b` (`db0ce43`)
+- Fix `String.words`: it split on one space, so extra spaces became empty
+  words and a tab split nothing. `String.words "  a  b  "` gave 7 elements
+  and now gives 2. Any run of whitespace splits (`db0ce43`)
+- Fix `Path.with_extension`: an extension without a dot removed the
+  extension. `Path.with_extension "md" /a/b.txt` gave `/a/bmd` and now
+  gives `/a/b.md`. `""` removes the extension (`db0ce43`)
+
+[0.22.0]: https://github.com/mjstahl/wand/releases/tag/v0.22.0
+
 ## [0.21.0] - 2026-08-21
 
 A security and honesty release. Every item below is a case where wand said
