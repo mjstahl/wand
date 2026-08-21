@@ -847,7 +847,8 @@ let eff_of_written name =
    generalising it throws away what inference learned -- see `ctor_schemes`. *)
 let written_evars : int list ref = ref []
 
-let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
+let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
+  : typ * (string * typ) list =
   let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
   List.iter (fun (n, t) -> Hashtbl.replace vars n t) bound;
   (* One table per written type, so `'e` twice in one signature is one
@@ -908,9 +909,59 @@ let type_of_te_bound (bound : (string * typ) list) (te : type_expr) : typ =
       raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
     | TEApp (TEName "Map", arg)    -> TMap    (go arg)
     | TEApp (f, arg) -> TApp (go f, go arg)
-  in go te
+  in
+  let t = go te in
+  (* The variables this written type named itself -- not the ones it was
+     handed -- which is what `check_written_vars` has to be able to ask
+     about afterwards. *)
+  let named =
+    Hashtbl.fold (fun name v acc ->
+      if List.mem_assoc name bound then acc else (name, v) :: acc) vars []
+  in
+  (t, named)
+
+let type_of_te_bound bound te = fst (type_of_te_bound_with_vars bound te)
 
 let type_of_te (te : type_expr) : typ = type_of_te_bound [] te
+
+(* A written type variable is a promise to whoever reads the signature:
+   `'a -> 'a` says the function works for any type at all. Unifying the
+   annotation with the inferred type cannot keep that promise on its own,
+   because a variable unifies with `Int` as readily as with anything else --
+   so `let f : 'a -> 'a = fn x -> x + 1` was accepted, and the signature
+   said a String would do.
+
+   Once the unification has happened, each written variable has to still be
+   a variable -- nothing about the body decided what it is -- and two of
+   them have to still be different, since `'a -> 'b` over `fn x -> x` claims
+   the result is unrelated to the argument, which is more than the body
+   does. An annotation narrower than the body stays fine: `Int -> Int` over
+   the identity names no variable and promises nothing.
+
+   The effects half of this was fixed when written effects arrived: a
+   written `! {Shell}` is a closed set, and a body performing more does not
+   unify with it. *)
+let check_written_vars (written : (string * typ) list) =
+  List.iter (fun (name, v) ->
+    match repr v with
+    | TVar _ -> ()
+    | t ->
+      raise (TypeError (Printf.sprintf
+        "the annotation says '%s, which stands for any type, but the body \
+         works only for %s" name (string_of_typ t)))) written;
+  let rec distinct = function
+    | [] -> ()
+    | (n1, v1) :: rest ->
+      List.iter (fun (n2, v2) ->
+        match repr v1, repr v2 with
+        | TVar a, TVar b when a == b ->
+          raise (TypeError (Printf.sprintf
+            "the annotation says '%s and '%s are separate types, but the \
+             body makes them the same" n1 n2))
+        | _ -> ()) rest;
+      distinct rest
+  in
+  distinct written
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
   match tdef with
@@ -2089,8 +2140,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let env' = infer_pat tenv p held env in
     infer tenv env' body
   | Annot (te, e) ->
-    let t = type_of_te te in
+    let (t, written) = type_of_te_bound_with_vars [] te in
     unify t (infer tenv env e);
+    check_written_vars written;
     t
   | Located (loc, e) ->
     (try infer tenv env e

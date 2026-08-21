@@ -34,6 +34,19 @@ test "with_extension add" (fn t -> t.eq /foo/bar.ml (Path.with_extension ".ml" /
 test "with_extension replace" (fn t ->
   t.eq /foo/bar.ml (Path.with_extension ".ml" /foo/bar.wand))
 
+(* `Path.extension` answers with the dot, so that spelling goes back in
+   unchanged -- and the extension written the way it is said means the same
+   thing. Without the dot the two were pasted together, so /foo/bar.wand
+   became /foo/barml: a path with no extension at all. *)
+test "with_extension without the dot" (fn t ->
+  t.eq /foo/bar.ml (Path.with_extension "ml" /foo/bar.wand))
+test "with_extension without the dot, on a path that had none" (fn t ->
+  t.eq /foo/bar.ml (Path.with_extension "ml" /foo/bar))
+test "with_extension round-trips what extension gives" (fn t ->
+  t.eq /foo/bar.gz (Path.with_extension (Path.extension /x/y.gz) /foo/bar.wand))
+test "an empty extension takes it off" (fn t ->
+  t.eq /foo/bar (Path.with_extension "" /foo/bar.wand))
+
 (* ── absolute? / relative? ───────────────────────────────────────── *)
 
 test "absolute? /" (fn t -> t.ok (Path.absolute? /etc/hosts))

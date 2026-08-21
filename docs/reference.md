@@ -1900,6 +1900,23 @@ Type variables can also appear in ordinary annotations:
 let identity : 'a -> 'a = fn x -> x
 ```
 
+A variable there is a promise that the function works for any type, and it
+is checked like the rest of the annotation. Naming one the body cannot keep
+is a type error, in both directions:
+
+```
+let f : 'a -> 'a = fn x -> x + 1
+-- type error: the annotation says 'a, which stands for any type, but the
+--   body works only for Int
+
+let g : 'a -> 'b = fn x -> x
+-- type error: the annotation says 'b and 'a are separate types, but the
+--   body makes them the same
+```
+
+An annotation narrower than the body is still fine — `Int -> Int` over the
+identity names no variable and so promises nothing.
+
 `Option` ships in the standard library — see "Imports" below. `Result`'s
 error type is a real type parameter too, not fixed to `String` — the
 common case (`Error "message"`) still infers as `Result String T`

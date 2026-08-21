@@ -2073,7 +2073,20 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "path_extension: expected Path")));
   ("path_with_extension", VBuiltin (function
     | VString ext -> VBuiltin (function
-      | VPath s | VString s -> VPath (Filename.remove_extension s ^ ext)
+      | VPath s | VString s ->
+        (* `Path.extension` answers with the dot -- ".txt" -- so that
+           spelling has to go back in unchanged. Somebody writing the
+           extension the way it is said, "md", means the same thing, and
+           pasting it straight on turned /a/b.txt into /a/bmd: a path with
+           no extension at all, silently. An empty extension takes the
+           extension off. *)
+        let stem = Filename.remove_extension s in
+        let dotted =
+          if ext = "" then ""
+          else if ext.[0] = '.' then ext
+          else "." ^ ext
+        in
+        VPath (stem ^ dotted)
       | _ -> raise (EvalError "path_with_extension: expected Path"))
     | _ -> raise (EvalError "path_with_extension: expected String ext")));
   ("path_is_absolute", VBuiltin (function

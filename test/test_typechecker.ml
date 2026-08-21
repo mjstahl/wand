@@ -771,6 +771,45 @@ let test_a_failable_pattern_raises () =
     "Wrap -> Int"
     (type_of "irrefutable let binding" (one ^ "let f w = let Wrap n = w in n in f"))
 
+(* A written type variable is a promise to whoever reads the signature, and
+   unification alone cannot keep it: a variable unifies with Int as readily
+   as with anything else, so an annotation could claim a generality the body
+   does not have. The effects half of this was closed when written effects
+   arrived; this is the types half. *)
+let test_written_type_vars_are_checked () =
+  let fails label src needle =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.failf "%s: expected a type error, got %s" label v
+    | Error msg ->
+      if not (Lint.contains msg needle) then
+        Alcotest.failf "%s: expected %S in: %s" label needle msg
+  in
+  let passes label src =
+    match Runner.run_string src with
+    | Ok _ -> ()
+    | Error msg -> Alcotest.failf "%s: %s" label msg
+  in
+  fails "a variable the body decided"
+    "let f : 'a -> 'a = fn x -> x + 1\nf 1"
+    "stands for any type";
+  fails "two variables the body tied together"
+    "let g : 'a -> 'b = fn x -> x\ng 1"
+    "separate types";
+  fails "a variable standing for a concrete value"
+    "let n : 'a = 5\nn"
+    "stands for any type";
+  passes "the identity really is polymorphic"
+    "let ident : 'a -> 'a = fn x -> x\nident 1";
+  passes "two variables the body keeps apart"
+    "let pair : 'a -> 'b -> ('a, 'b) = fn x -> fn y -> (x, y)\npair 1 \"s\"";
+  (* Narrower than the body is not a claim about anything. *)
+  passes "a concrete annotation over a polymorphic body"
+    "let at_int : Int -> Int = fn x -> x\nat_int 1";
+  (* `Num` is not a written variable: each one is a fresh numeric type that
+     use sites decide. *)
+  passes "Num still works"
+    "let twice : Num -> Num = fn x -> x + x\ntwice 2"
+
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
    allow at all. *)
@@ -1156,6 +1195,8 @@ let () =
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
       Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
       Alcotest.test_case "a failable pattern raises" `Quick test_a_failable_pattern_raises;
+      Alcotest.test_case "written type vars are checked" `Quick
+        test_written_type_vars_are_checked;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
       Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];

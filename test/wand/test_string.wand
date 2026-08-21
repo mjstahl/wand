@@ -86,10 +86,25 @@ test "join csv" (fn t -> t.eq "a, b, c" (String.join ", " ["a", "b", "c"]))
 test "join empty" (fn t -> t.eq "" (String.join ", " []))
 test "join single" (fn t -> t.eq "only" (String.join ", " ["only"]))
 
+(* An element that is empty is still an element: a CSV row whose first field
+   is blank has to come back with the separator in front of the second. *)
+test "join keeps an empty first field" (fn t -> t.eq ",b" (String.join "," ["", "b"]))
+test "join keeps an empty middle field" (fn t ->
+  t.eq "a,,b" (String.join "," ["a", "", "b"]))
+test "join of two empties is one separator" (fn t -> t.eq "," (String.join "," ["", ""]))
+
 (* ── lines / words ─────────────────────────────────────────────────────── *)
 
 test "lines" (fn t -> t.eq ["a", "b", "c"] (String.lines "a\nb\nc"))
 test "words" (fn t -> t.eq ["one", "two", "three"] (String.words "one two three"))
+
+(* Whatever the spacing looks like, the words are the words: a run of spaces
+   separates two of them, not four empty ones, and the ends contribute none. *)
+test "words ignores repeated and edge spacing" (fn t ->
+  t.eq ["a", "b"] (String.words "  a  b  "))
+test "words separates on tabs and newlines" (fn t ->
+  t.eq ["a", "b", "c"] (String.words "a\tb\nc"))
+test "words of blank text is empty" (fn t -> t.eq [] (String.words "   "))
 
 (* ── pipeline ──────────────────────────────────────────────────────────── *)
 
