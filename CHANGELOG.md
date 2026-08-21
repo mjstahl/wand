@@ -1,5 +1,106 @@
 # Changelog
 
+## [0.21.0] - 2026-08-21
+
+A security and honesty release. Every item below is a case where wand said
+one thing and did another — a manifest that did not bound what ran, a type
+that did not report a raise, an exit code that did not match the finding.
+
+### Changed
+
+- **Breaking:** A handler now discharges an effect only when it covers
+  every operation carrying that effect. Effects are many-to-one over
+  operations — Shell carries four, FS.Write ten — and a handler used to
+  discharge the whole effect for each case it had, so the operations it
+  did not name went on reaching the default handler and running for real
+  with the signature saying they could not. A partial handler now keeps
+  the effect, and a case naming an operation that does not exist is an
+  error with the nearest real name suggested (`8f67f02`)
+- **Breaking:** A function kept in a constructor field keeps its effects.
+  A field's effects are inferred from the value it is built with, and
+  three places threw that away, so `type Action = Action (Unit -> String)`
+  holding `fn () -> $(touch x)` typechecked under `uses {}` and ran the
+  command when the match took it back out (`7c02e94`)
+- **Breaking:** `Env.load!` declares `FS.Read`. The primitive performs a
+  real `FS!read_file`, but the effects it declared were written by hand as
+  `{Env, Raise}`, so a file whose whole manifest was `uses {Env}` could
+  read any path on disk (`60b09f7`)
+- **Breaking:** A `Shell(...)` manifest bounds what runs inside a subshell
+  `(...)`, a substitution `$(...)` and a backtick span, wherever they
+  appear, including inside double quotes. Each was read as opaque text on
+  the reasoning that a subshell belongs to the named binary's shell — it
+  does not, the same shell runs it — so `Shell(echo)` admitted
+  `$(echo $(whoami))`. `$((...))` stays arithmetic and is not checked
+  (`8cb3cf2`)
+- **Breaking:** A pattern that can fail makes its binding raise, whether
+  the fields are named or positional. The rule is that a constructor
+  pattern cannot mismatch when the value has no other constructor to be;
+  it was applied to named patterns by spelling instead of by type, so
+  `let area (Circle (radius = r)) = r` over `Circle | Square` claimed to
+  be total. `let` bindings record it too: `let Ok v = r in ...` performs
+  Raise. The same rule drops a false positive the other way — a
+  positional pattern over a single-constructor type no longer carries a
+  risk its type cannot hold, so a name like `unbox!` now trips V-BANG2
+  (`083b2cb`)
+- **Breaking:** `wand s` refuses a test file whose assertions are
+  discarded. A test block answers with one outcome, so sequencing
+  assertions with `;` threw away every one but the last and the file
+  reported a pass however the run went. V-DROP2 reports it (`59d1d1c`)
+- **Breaking:** `wand t --strict --json` exits 1 on a violation. The JSON
+  called the finding an error and the command then reported success, so a
+  CI step reading the exit code was told the file was clean by the run
+  that had just failed it (`ab349c0`)
+- A command given input on `|>` keeps its own stderr, as `$()` has always
+  done. It went down a pipe and was discarded, so
+  `report |> $(mail ops@example.com)` swallowed the one thing that would
+  have said why it failed (`be21c28`)
+- A closed reader downstream — `wand report.wand | head -3` — ends the run
+  at 141 after unwinding, rather than killing wand where it stands. SIGPIPE
+  is ignored, so `with` brackets release before the run ends (`be21c28`)
+
+### Added
+
+- Add written effects to type annotations: `! {Shell}`, `! {Shell | 'e}`
+  and `! 'e` all parse, on the innermost arrow of a curried type as an
+  inferred one carries them. They are checked rather than assumed, so an
+  annotation cannot quietly narrow what a function does. This is what lets
+  a declaration state that a field's effects are the caller's —
+  `raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e)` — which is what makes
+  `t.raises (fn () -> $(cmd))` a type error in a file whose manifest is
+  `uses {}` (`22380fb`)
+- Add `--` as the end of wand's own arguments when running a script.
+  `--dry-run` and `--trace` are wand's wherever they appear before it, so
+  a script that takes a flag of the same name could not be given one: the
+  run silently became a rehearsal and the script never saw the argument.
+  `wand deploy.wand -- --dry-run` now runs for real and hands the flag on
+  (`ab349c0`)
+
+### Fixed
+
+- Fix `$?()` and `|>` hanging forever on a command that writes more than a
+  pipe buffer to stderr, or is fed more than one on stdin. The two pipes
+  were drained one after the other, so the child blocked writing the pipe
+  wand was not reading and never reached the end of the one wand was
+  waiting on. All three streams now move together (`be21c28`)
+- Fix `%{x}` written between quotes of your own not being quoted at all.
+  Wrapping the value in single quotes quotes nothing inside `"..."`, so
+  `$(echo "hi %{name}")` put the value into text the shell still read and
+  a name holding `$(whoami)` ran it. The value is escaped for the quote it
+  lands in now, and the author's word stays one word (`8cb3cf2`)
+- Fix `$()` ending at a quoted `)`. `$(echo "a)b")` was cut in half and
+  the rest of the line read as wand source (`8cb3cf2`)
+- Fix `wand f` emitting source it cannot read back: three of the five
+  string openers the lexer reacts to — `%!{`, `$!{` and `#{` — came back
+  unescaped (`083b2cb`)
+
+### Note
+
+Effect sets are called effect sets throughout the compiler; "row" named
+the encoding rather than the idea and is gone from comments and internal
+names (`7a2523b`, `5695853`). No user-visible text changed.
+
+[0.21.0]: https://github.com/mjstahl/wand/releases/tag/v0.21.0
+
 ## [0.20.1] - 2026-08-20
 
 ### Fixed
