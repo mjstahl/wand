@@ -1119,11 +1119,11 @@ Error: type error: 'publish' performs Shell, which the manifest does not allow.
        The manifest should be:  "uses {Shell(rsync), FS.Write}"
 ```
 
-The error names the binding that introduced the effect and the line to
-write, so the fix is a copy rather than a derivation. The suggested
-`Shell` names the binaries it saw when every command word in the file is
-literal (see [Naming the binaries](#naming-the-binaries-shellgit-curl)),
-and is bare `Shell` otherwise.
+The error names the binding that introduced the effect. It also gives the
+line to write, so you copy it instead of working it out. If every command word
+in the file is literal, the suggested `Shell` names the binaries it saw. See
+[Naming the binaries](#naming-the-binaries-shellgit-curl). If one word is not
+literal, the suggestion is bare `Shell`.
 
 ### Declaring more than you use is a warning
 
@@ -1132,8 +1132,8 @@ warning: 1:1: A-USES1: the manifest permits Shell, which this file does not
          use; it could be "uses {FS.Write}"
 ```
 
-Permitting more than you need is the safe direction, and a build that failed
-over it would punish caution — so it is advisory, and `--strict` leaves it
+To permit more than you need is the safe direction. A build that failed here
+would punish caution. So this stays advisory, and `--strict` leaves it
 alone.
 
 ### Performing effects without saying so is a warning
@@ -1143,94 +1143,94 @@ warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
          so; it could declare "uses {Shell(rsync), FS.Write}"
 ```
 
-A file without a manifest is legal and always will be — a casual script
-should not have to pay for a feature it did not ask for, so this never
-fails a build. But a manifest is only worth writing if it makes the file
-better to read, and the effects have already been inferred, so the linter
-hands over the exact line rather than only noting its absence.
+A file without a manifest is legal, and it always will be. A casual script
+must not pay for a feature that it did not ask for, so this never fails a
+build. A manifest is worth writing only if it makes the file easier to read.
+wand has already inferred the effects, so the linter gives you the exact line
+instead of a note about its absence.
 
 ### `Raise` is not part of a manifest
 
 A manifest bounds what a file can do to the machine. `Raise` is control
-flow: it is already visible in a `!` name and in every signature, and
-including it would put `Raise` in almost every manifest while saying nothing
-about blast radius.
+flow. A `!` name shows it, and so does each signature. To include it would put
+`Raise` in almost every manifest, and it would say nothing about what a file
+can reach.
 
 ### Naming the binaries: `Shell(git, curl)`
 
-Bare `Shell` says the file runs commands without saying which. The manifest
-can narrow it to the binaries the file may invoke:
+Bare `Shell` says that the file runs commands. It does not say which ones.
+The manifest can narrow it to the binaries that the file may run:
 
 ```
 uses {Shell(git, curl), FS.Write}
 ```
 
-Names are written as they are inside `$()` — `Shell(git, docker-compose,
-node.js, g++, /opt/bin/deploy)` all work bare. Quotes are only for a name
-wand cannot lex as one (`"7zip"`, a name with a space). Bare `Shell` stays
-legal and means any binary — the honest spelling for a genuinely
-open-ended script. `Shell()` is a parse error: a file that runs nothing
-drops the label.
+Write each name as it appears inside `$()`. `Shell(git, docker-compose,
+node.js, g++, /opt/bin/deploy)` all work without quotes. Use quotes only for a
+name that wand cannot lex as one name, such as `"7zip"` or a name with a
+space. Bare `Shell` stays legal and means any binary. It is the honest
+spelling for a script that is open-ended. `Shell()` is a parse error: a file
+that runs nothing drops the label.
 
 What is checked, and when:
 
-- **Literal command words are checked by `wand t`** — the first word of
-  each `$()`/`$?()`, and the first word after each top-level `|`, `&&`,
-  `||`, `;`. A word the list omits is a type error naming the word and the
-  manifest line that would admit it. Prefix assignments are skipped
-  (`$(FOO=1 git status)` checks `git`); redirections and their targets are
-  skipped; quoting is honored, so a `|` inside an argument separates
+- **`wand t` checks each literal command word.** These are the first word
+  of each `$()` and `$?()`, and the first word after each top-level `|`,
+  `&&`, `||` and `;`. A word that the list omits is a type error. The error
+  names the word and the manifest line that admits it. wand skips a prefix
+  assignment, so `$(FOO=1 git status)` checks `git`. It skips a redirection
+  and its target. It honours quoting, so a `|` inside an argument separates
   nothing. A subshell `(...)`, a substitution `$(...)` and a backtick span
-  are command positions of their own, wherever they appear —
-  `$(echo $(whoami))` needs `whoami` in the list as much as `echo`.
-  `$((...))` is arithmetic: the shell runs nothing there, so nothing is
-  checked.
-- **A command word decided at run time** — `$(%!{cmd} ...)` — is checked at
-  the moment of spawn, against the same list, over the fully resolved
-  command line; a miss raises, catchably, without spawning. The check
-  lives in the default handler, so a test mock or a `--dry-run` rehearsal
-  that intercepts the effect never trips it. Each such site is flagged by
-  `V-SHELL1` (a warning; an error under `--strict`, for repositories that
-  want every command word readable from the text).
-- **Shell control flow cannot be narrowed.** A reserved word in command
-  position (`$(for f in *; do ...; done)`) is a type error under a
-  narrowed manifest: neither check can bound what the compound body runs,
-  so the message says to write the loop in wand or declare bare `Shell`.
+  are command positions of their own, wherever they appear.
+  `$(echo $(whoami))` needs `whoami` in the list, as much as it needs
+  `echo`. `$((...))` is arithmetic. The shell runs nothing there, so wand
+  checks nothing.
+- **A command word that the run decides** — `$(%!{cmd} ...)` — is checked
+  at the spawn. wand checks the resolved command line against the same
+  list. A miss raises, and you can catch it. Nothing spawns. The check
+  lives in the default handler, so a test mock never trips it, and neither
+  does a `--dry-run` rehearsal. `V-SHELL1` reports each such site. It is a
+  warning, and an error under `--strict`, for a repository that wants each
+  command word readable from the text.
+- **You cannot narrow shell control flow.** A reserved word in command
+  position, as in `$(for f in *; do ...; done)`, is a type error under a
+  narrowed manifest. Neither check can bound what the body runs. The
+  message tells you to write the loop in wand, or to declare bare
+  `Shell`.
 
 What counts as the binary:
 
-- **Wrappers are the thing you allow.** `env`, `xargs`, `sudo`, `sh -c`,
-  `time` are checked as themselves, never peeled — allowing `sh` means
-  allowing anything, and that is visible in the manifest, which is the
+- **A wrapper is the thing you allow.** wand checks `env`, `xargs`,
+  `sudo`, `sh -c` and `time` as themselves. It never looks past them. To
+  allow `sh` is to allow anything, and the manifest shows that. That is the
   point.
 - **An entry without a slash matches the word's final path component**
   (`git` admits `/usr/bin/git`); an entry with a slash matches exactly.
-- **The bound is per file.** Each file's manifest governs the `$()` sites
-  written in that file, however far a closure travels — an imported
-  helper's commands answer to the helper's own first line. The manifest is
-  an audit surface against drift and accident, not a sandbox: adversarial
-  code writes `Shell(sh)`, visibly.
+- **The bound is per file.** The manifest of a file governs the `$()` sites
+  written in that file, however far a closure travels. The commands of an
+  imported helper answer to the first line of the helper. A manifest is an
+  audit surface against drift and accident. It is not a sandbox. Hostile
+  code writes `Shell(sh)`, where you can see it.
 
-`wand t` suggests the narrowed form whenever every command position in the
-file is literal — `it could declare "uses {Shell(git, curl)}"` — and falls
-back to bare `Shell` when one is not. A listed binary that no command
-position runs is an `A-USES1` warning with the trimmed line, judged only
-in fully literal files: an interpolated site may be exactly where the
-unused-looking binary is spawned.
+`wand t` suggests the narrowed form when every command position in the file
+is literal: `it could declare "uses {Shell(git, curl)}"`. If one position is
+not literal, it suggests bare `Shell`. A listed binary that no command runs is
+an `A-USES1` warning, with the trimmed line. wand judges that only in a file
+where every position is literal. An interpolated site may be the place where
+the unused binary runs.
 
-The two checks cover every command a script can express: `$()` and
-`$?()` are the only spawn forms in a script's scope — the raw process
-builtins are reachable only from the standard library's own module
-bodies, and the `Shell` module parses output rather than running
-anything.
+The two checks cover every command that a script can express. `$()` and
+`$?()` are the only spawn forms in the scope of a script. The raw process
+builtins are reachable only from the module bodies of the standard library.
+The `Shell` module parses output. It runs nothing.
 
 ---
 
 ## Effect handlers
 
-`handle` intercepts the effects an expression performs. Its purpose is testing
-and interception at boundaries — most usefully, running a script that shells
-out or writes files without letting it touch anything:
+`handle` intercepts the effects that an expression performs. Use it for
+tests, and at a boundary. The most useful case is a script that runs commands
+or writes files: `handle` runs it and lets it touch nothing:
 
 ```
 test "deploy pushes once" (fn t ->
@@ -1240,8 +1240,8 @@ test "deploy pushes once" (fn t ->
   in t.eq outcome "done")
 ```
 
-A case names the operation it intercepts. The name is the call you would
-otherwise make, with a `!` where its dot goes — you call `FS.read_file`, you
+A case names the operation that it intercepts. The name is the call you
+would make, with a `!` in place of the dot. You call `FS.read_file`. You
 intercept `FS!read_file`:
 
 ```
