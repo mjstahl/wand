@@ -479,13 +479,25 @@ let normalized = function
   | VDuration _ | VDateTime _ -> true
   | _ -> false
 
-let wand_equal a b =
-  if normalized a && normalized b then
+let rec wand_equal a b =
+  match a, b with
+  | (VDuration _ | VDateTime _), (VDuration _ | VDateTime _) ->
     (try wand_order a b = 0 with EvalError _ -> false)
-  else
-    try a = b
-    with Invalid_argument _ ->
-      raise (EvalError "cannot compare functions for equality")
+  (* A value that normalizes can sit inside another value, so the walk goes
+     in rather than stopping at the outside: `[60s] == [1min]` is the same
+     question as `60s == 1min`. *)
+  | VTuple xs, VTuple ys | VList xs, VList ys ->
+    List.length xs = List.length ys && List.for_all2 wand_equal xs ys
+  | VConstr (n1, xs), VConstr (n2, ys) ->
+    n1 = n2 && List.length xs = List.length ys && List.for_all2 wand_equal xs ys
+  | VMap kvs1, VMap kvs2 | VRecord kvs1, VRecord kvs2 ->
+    List.length kvs1 = List.length kvs2
+    && List.for_all2 (fun (k1, v1) (k2, v2) -> k1 = k2 && wand_equal v1 v2)
+         kvs1 kvs2
+  | _ ->
+    (try a = b
+     with Invalid_argument _ ->
+       raise (EvalError "cannot compare functions for equality"))
 
 (* `List.sort` takes a list of any type, including types wand does not
    order, so it keeps structural comparison and reaches for `wand_order`
@@ -1101,6 +1113,29 @@ and eval_binop (env : env) op a b : value =
    that performs in its place; the default handler looks the implementation
    up again. Wrapping at registration keeps the two from drifting apart. *)
 let direct_impl : (string, value -> value) Hashtbl.t = Hashtbl.create 32
+
+(* Wait, in slices, so that Ctrl-C during a sleep is taken at once rather
+   than after the whole duration. A sleep is exactly the wrong thing to make
+   uninterruptible.
+
+   The slices are also what keeps this a relative wait with no clock read in
+   it: each one is a fresh `nanosleep`, and the total is the sum. Reading a
+   civil clock to find the remainder would make a machine that syncs its
+   clock mid-sleep wake early or late.
+
+   `Unix.sleepf` waits at least what it is given, so the total is a floor,
+   which is what `Clock.sleep` promises. A zero or negative duration waits
+   not at all and still performed the effect to get here. *)
+let sleep_ms ms =
+  let slice = 0.05 in
+  let remaining = ref (float_of_int ms /. 1000.) in
+  while !remaining > 0.0 do
+    check_interrupt ();
+    let this = if !remaining < slice then !remaining else slice in
+    (try Unix.sleepf this with Unix.Unix_error (Unix.EINTR, _, _) -> ());
+    remaining := !remaining -. this
+  done;
+  check_interrupt ()
 
 let performing name f =
   Hashtbl.replace direct_impl name f;
@@ -1770,6 +1805,11 @@ let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
   ("proc_exit",  performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
+  (* Waiting is an effect, so a handler can answer it: a test that
+     exercises an hour of backoff must not take an hour. *)
+  ("clock_sleep", performing "Clock!sleep" (function
+    | VDuration d -> sleep_ms (parse_dur_ms d); VUnit
+    | _ -> raise (EvalError "Clock.sleep: expected Duration")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));

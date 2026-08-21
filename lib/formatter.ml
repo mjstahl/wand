@@ -547,7 +547,17 @@ and emit_expr_inner ?col indent e =
       | ReturnCase (p, b) ->
         Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_case_body arm_indent b)
     in
-    "handle " ^ emit_expr indent body ^ " with\n"
+    (* `with` has to follow the body, so a body that wrapped puts the
+       keyword out of the parser's reach. `with ... as` has the same shape,
+       and its rule -- bracket an application whose first line closed
+       everything it opened -- is not enough here: a body can open a bracket
+       on its first line, close it on a later one, and still leave text
+       after that for the newline to cut off. Any body that wrapped at all
+       gets the brackets. *)
+    let emitted_body = emit_expr indent body in
+    let wrapped = String.contains emitted_body '\n' in
+    let head = if wrapped then "(" ^ emitted_body ^ ")" else emitted_body in
+    "handle " ^ head ^ " with\n"
     ^ String.make arm_indent ' ' ^ String.concat ("\n" ^ String.make arm_indent ' ')
         (List.map emit_arm cases)
   | Try e -> "try " ^ emit_expr indent e

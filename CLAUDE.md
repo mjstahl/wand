@@ -19,7 +19,7 @@ examples. Most tasks need only one part.
 - `lib/` — the pipeline, one stage per module:
   - `token.ml`, `lexer.ml` — tokens and lexing, including domain literals (paths, globs, durations, sizes) and the string/command interpolation forms.
   - `parser.ml`, `ast.ml` — recursive-descent parser. Newlines end statements only at bracket depth 0; a definition ends at the end of its line.
-  - `typechecker.ml`, `effect_set.ml` — Hindley-Milner inference extended with effect sets (the seven labels below); manifests are checked against inferred effects here.
+  - `typechecker.ml`, `effect_set.ml` — Hindley-Milner inference extended with effect sets (the eight labels below); manifests are checked against inferred effects here.
   - `evaluator.ml` — tree-walking interpreter; effect handlers, `Par`, signals, shell execution.
   - `lint.ml`, `lint_rules.ml` — the `V-*`/`A-*` rules `wand t` reports.
   - `formatter.ml` — `wand f`; comments are never dropped or restyled.
@@ -103,8 +103,9 @@ The first line of a file that touches the world declares what it may do:
 uses {Env, FS.Read, FS.Write, IO, Shell(curl, git)}
 ```
 
-Those are five of the seven effect labels: `Shell` (subprocesses),
-`FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`.
+Those are five of the eight effect labels: `Shell` (subprocesses),
+`FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`,
+`Clock` (waits).
 `Shell` may name the binaries the file runs — written as they are in
 `$()`: `Shell(./probe.sh, docker-compose, git)` — and bare `Shell` means
 any. A literal command word the list omits is a type error; a word decided
@@ -191,8 +192,8 @@ let {helper} = import ./util    -- another file, by path
 ```
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
-Float, Proc, Env, CSV, JSON, TOML, Duration, Par, Shell, Decode, Args,
-Test, Option. Builtins like `println` need no import.
+Float, Proc, Env, CSV, JSON, TOML, Duration, Clock, Par, Shell, Decode,
+Args, Test, Option. Builtins like `println` need no import.
 
 Big files stream instead of loading: `FS.stream_lines log |>
 Stream.filter p |> Stream.fold_left f init` — a stream reads nothing

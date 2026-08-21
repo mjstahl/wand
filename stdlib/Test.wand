@@ -1,3 +1,4 @@
+import Duration
 import List
 import String
 
@@ -128,3 +129,17 @@ let writes thunk =
 let with_lines path lines thunk =
   handle thunk () with
   | FS!stream_lines p k -> if p == path then k lines else k []
+
+(** Run `thunk` with a clock that costs no time. `Clock!sleep` returns at
+    once, and the durations it was asked for are added up, so a test that
+    exercises an hour of backoff runs in microseconds.
+    
+    Answers with the total virtual time and the value the thunk returned:
+    
+    let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
+    
+    Reading a clock is not in the language yet, so the elapsed total is
+    reported here rather than observed by the code under test. *)
+let with_clock thunk =
+  handle (fn () -> (0ms, thunk ())) () with
+  | Clock!sleep d k -> let (so_far, v) = k () in (Duration.add so_far d, v)

@@ -8,10 +8,12 @@
    it is given performs, so what it performs is a variable, not a fixed set.
 
    The effects are fixed and few on purpose. A script cannot define new
-   ones, so an effect set is always a subset of these seven, and a reader of
+   ones, so an effect set is always a subset of these eight, and a reader of
    a signature has a finite vocabulary to learn. One is added when something
    can actually perform it: network access reaches the outside world through
-   a command today, and so reports as Shell.
+   a command today, and so reports as Shell. Waiting is not like that --
+   `Clock.sleep` is performed by the evaluator and reduces to nothing else,
+   so it has a primitive that only Clock explains.
 
    This module knows nothing about types; `Typechecker` puts an effect set
    on the arrow and unifies it alongside them.
@@ -21,6 +23,11 @@
    rather than the idea, and a reader of this compiler does not need it.) *)
 
 type eff =
+  (* An effect set says what a caller must know that the type otherwise
+     hides. Two of these do nothing to the world -- Raise is "can raise
+     instead of returning", Proc is "ends the process" -- and Clock is the
+     third: a call that may take unbounded wall-clock time. *)
+  | Clock     (* waits; its behavior depends on wall-clock time *)
   | Shell     (* runs a subprocess *)
   | FsRead    (* reads from the filesystem *)
   | FsWrite   (* creates, changes or removes something on disk *)
@@ -35,9 +42,10 @@ type eff =
    manifest is always already in canonical form and a reader can predict
    where a label sits without knowing any convention beyond the
    alphabet. *)
-let all = [Env; FsRead; FsWrite; IO; Proc; Raise; Shell]
+let all = [Clock; Env; FsRead; FsWrite; IO; Proc; Raise; Shell]
 
 let name_of = function
+  | Clock   -> "Clock"
   | Shell   -> "Shell"
   | FsRead  -> "FS.Read"
   | FsWrite -> "FS.Write"

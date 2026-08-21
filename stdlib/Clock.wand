@@ -1,0 +1,20 @@
+uses {Clock}
+
+(* Waiting.
+
+   wand asks the clock for one thing today: to wait. Reading the clock is
+   not here yet, and that is deliberate -- see the reference.
+
+   `sleep` waits at least the duration it is given. A loaded machine, a
+   descheduled worker, or an interrupt window all make it longer. It is a
+   floor, not a promise.
+
+   A zero or a negative duration returns at once, and still performs the
+   effect: a trace sees it, and a handler that supplies a clock is not
+   stepped around by a value that happens to be zero.
+
+   Ctrl-C during a sleep takes effect at once. A sleep is the wrong thing
+   to make uninterruptible. *)
+
+(** Wait for at least this long. *)
+let sleep d = clock_sleep d

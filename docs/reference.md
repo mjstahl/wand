@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -977,10 +977,11 @@ Everywhere else, write no effects and let wand infer them.
 
 ### The labels
 
-Seven, and a script cannot define more:
+Eight, and a script cannot define more:
 
 | Label | Means |
 |---|---|
+| `Clock` | waits; how long the call takes depends on wall-clock time |
 | `Shell` | runs a subprocess — including anything reaching the network, since it does so through a command |
 | `FS.Read` | reads from the filesystem |
 | `FS.Write` | creates, changes or removes something on disk |
@@ -990,7 +991,7 @@ Seven, and a script cannot define more:
 | `Raise` | can raise instead of returning |
 
 A label answers one question: what can this touch? So a label is coarse. It
-must fit in a signature, and you must be able to hold all seven in your
+must fit in a signature, and you must be able to hold all eight in your
 head.
 
 ### They are inferred, however deep
@@ -1360,6 +1361,7 @@ appears in an effect set:
 | `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
+| `Clock` | `sleep` |
 
 Type `FS!` in an editor, and it lists them. Each entry says what the
 operation carries and what performs it. The editor reads the table that the
@@ -2575,6 +2577,39 @@ level. So a fold traces as one line, and a test mocks the whole file.
 `Test.with_lines path lines thunk` answers each `FS.stream_lines` for `path`
 with `lines`. Any other path streams as empty.
 
+### `Clock`
+
+```ocaml
+sleep : Duration -> Unit ! {Clock}
+```
+
+Waits for at least the duration given. It is a floor, not a promise: a
+loaded machine, a busy worker or an interrupt window each make it longer.
+
+```ocaml
+import Clock
+
+let () = Clock.sleep 30s
+```
+
+A zero or a negative duration returns at once, and still performs the
+effect. So a trace sees it, and a handler that supplies a clock is not
+stepped around by a value that happens to be zero.
+
+Ctrl-C during a sleep takes effect at once.
+
+Reading the clock is not here yet. `Clock.now` and arithmetic on a
+`DateTime` land together, because each is nearly useless without the
+other.
+
+Under a handler the clock is whatever the handler says. `Test.with_clock`
+supplies one that costs no time, so a test of an hour of backoff runs in
+microseconds:
+
+```ocaml
+let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
+```
+
 ### `Proc`
 
 ```ocaml
@@ -2942,6 +2977,7 @@ shell_calls    : (Unit -> 'a ! 'e) -> List 'b ! 'e
 without_writes : (Unit -> 'a ! 'e) -> 'a ! 'e
 with_lines     : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes         : (Unit -> 'a ! 'e) -> List Path ! 'e
+with_clock     : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
 ```
 
 The handle that a test block receives carries `ok`, `not_ok`, `eq`,

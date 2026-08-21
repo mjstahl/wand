@@ -329,12 +329,19 @@ let describe_operation name (v : value) =
   | "FS!list_dir"        -> Some ("list", text v)
   | "FS!glob"      -> Some ("glob", first v)
   | "Proc!exit"         -> Some ("exit", text v)
+  | "Clock!sleep"       -> Some ("wait", text v)
   | _              -> None
 
-(* Whether an operation changes anything outside the program. Reads run even
-   in a rehearsal, so that control flow follows the path a real run would
-   take; only changes are withheld. *)
+(* What a rehearsal withholds. Reads run even in a rehearsal, so that
+   control flow follows the path a real run would take; a change is
+   withheld and reported instead.
+
+   A sleep changes nothing and is withheld anyway. A rehearsal of a deploy
+   that retries with backoff would otherwise take the backoff, and nobody
+   waits an hour to be told what a script would do. `--trace` is a real run
+   and sleeps for real. *)
 let is_mutation = function
+  | "Clock!sleep"
   | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 

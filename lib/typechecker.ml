@@ -9,7 +9,7 @@ open Ast
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
-    "Proc"; "Decode"; "Shell"; "Test"; "Args" ]
+    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -328,6 +328,12 @@ let operations : operation list =
     { op_name = "Proc!exit"; op_effect = Proc;
       op_types = (fun () -> Some (TInt, fresh ()));
       op_performers = ["Proc.exit"] };
+    (* Waiting. A handler that answers this one supplies a clock: it decides
+       how long a sleep takes, which is what makes a deadline testable
+       instead of slow. *)
+    { op_name = "Clock!sleep"; op_effect = Clock;
+      op_types = t TDuration TUnit;
+      op_performers = ["Clock.sleep"] };
   ]
 
 let operation_index : (string, operation) Hashtbl.t = Hashtbl.create 64
@@ -2370,6 +2376,7 @@ let stdlib_type_env : env = [
   ("print",      let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("println",    let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_set.Proc] (TInt) (a)));
+  ("clock_sleep", generalize [] (effs [Effect_set.Clock] (TDuration) (TUnit)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TUnit) (a)));
   (* A file is named by a Path, like every other filesystem operation. These
      two took a String, so a script holding a Path had to convert away from
