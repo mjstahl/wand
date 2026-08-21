@@ -736,7 +736,7 @@ let test_a_block_binding_round_trips () =
     (fn p acc -> (
       let name = basename p;
       let wanted = tidy name;
-      if wanted == name then acc else (p, wanted) : acc
+      if wanted == name then acc else (p, wanted) :: acc
     ))
     paths
     [])|};
@@ -753,7 +753,7 @@ let test_a_block_binding_round_trips () =
     {|let plan paths =
   (List.fold_right
     (fn p acc -> let name = basename p in
-      let wanted = tidy name in if wanted == name then acc else (p, wanted) : acc
+      let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
     )
     paths
     [])|};

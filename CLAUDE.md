@@ -123,7 +123,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 |---|---|
 | `-- comment` and `(* block *)` | `//`, `#` |
 | `fn x -> x + 1` | `fun`, `\x ->`, `lambda` |
-| `h : t` cons, `[h : t]` in patterns | `::`, `(x:xs)` |
+| `h :: t` cons, `[h :: t]` in patterns | `:` for cons, `(x : xs)` |
 | `"hi %{name}"` interpolation | `${x}`, `#{x}`, f-strings |
 | `&&`, `\|\|`, `!` | `and`, `or`, `not` |
 | `let f n = ...` (already recursive) | `let rec` |

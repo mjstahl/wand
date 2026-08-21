@@ -35,7 +35,7 @@ let _inline? arg = String.contains? "=" arg
 
 let _inline_pair arg =
   match String.split "=" (_name_of arg) with
-  | [k : rest] -> (k, String.join "=" rest)
+  | [k :: rest] -> (k, String.join "=" rest)
   | [] -> (_name_of arg, "")
 
 (* ── argv to an object ─────────────────────────────────────────────────── *)

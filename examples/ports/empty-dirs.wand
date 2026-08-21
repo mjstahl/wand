@@ -24,7 +24,7 @@ import Path
 let dirs root =
   match FS.list_dir root with
   | Error _ -> []
-  | Ok entries -> root : (entries |> List.filter FS.dir? |> List.map dirs |> List.flatten)
+  | Ok entries -> root :: (entries |> List.filter FS.dir? |> List.map dirs |> List.flatten)
 
 let empty? dir =
   match FS.list_dir dir with

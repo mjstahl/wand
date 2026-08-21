@@ -104,7 +104,7 @@ let with_shell mocks thunk =
     them. Every command answers with "". *)
 let shell_calls thunk =
   handle thunk () with
-  | Shell!run cmd k -> let rest = k "" in cmd : rest
+  | Shell!run cmd k -> let rest = k "" in cmd :: rest
   | return _ -> []
 
 (** Run `thunk` with `FS!write_file` swallowed, returning what it returned.
@@ -120,7 +120,7 @@ let without_writes thunk =
     carried. Other FS.Write operations still reach the disk. *)
 let writes thunk =
   handle thunk () with
-  | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path : rest
+  | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path :: rest
   | return _ -> []
 
 (** Run `thunk` with streamed files answered from `lines` instead of the

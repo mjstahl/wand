@@ -703,9 +703,10 @@ let next_token s =
        | '>' -> ignore (advance s); Arrow
        | '-' -> LineComment (read_line_comment s)
        | _   -> Minus)
-    | ':' when peek s = ':' ->
-      raise (Fail "cons is a single ':', not '::' -- \
-                       h : rest to build a list, [h : t] in a pattern")
+    (* `::` is cons. `:` gives a name a type, and reads a port when a digit
+       follows it -- this branch runs first, so `::80` is a cons of 80 and
+       never a port. *)
+    | ':' when peek s = ':' -> ignore (advance s); ret DoubleColon
     | ':' when peek s = '=' ->
       raise (Fail "there is no mutation, so there is no ':=' -- \
                        let binds a new name instead")

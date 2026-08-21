@@ -28,10 +28,12 @@ let ok label src =
 
 (* ── OCaml ────────────────────────────────────────────────────────────────── *)
 
+(* `::` is cons. It used to be corrected to `:`, which is the drift rule
+   that argued for this spelling in the first place -- see
+   `docs/design/cons-migration.md`. *)
 let test_ocaml_cons () =
-  expect_error "h :: t"
-    "let f l = match l with | h :: t -> h | [] -> 0"
-    "cons is a single ':', not '::'"
+  ok "cons in an expression" "1 :: [2, 3]";
+  ok "cons in a pattern" "let f l = match l with | [h :: t] -> h | [] -> 0\nf [1]"
 
 let test_ocaml_assignment () =
   expect_error "x := 3" "x := 3"
@@ -94,12 +96,20 @@ let test_haskell_lambda () =
     "a lambda is 'fn x -> ...'"
 
 let test_haskell_cons_pattern () =
+  (* The old spelling, which is now a type annotation everywhere a pattern
+     is written -- so the `:` is refused where no type follows it. *)
   expect_error "(x : xs) in a match"
     "let f l = match l with | (x : xs) -> x"
-    "a cons pattern is written in square brackets: [x : xs]";
+    "a cons pattern is written in square brackets: [x :: xs]";
   expect_error "(x : xs) as a parameter"
     "let head (x : xs) = x"
-    "a cons pattern is written in square brackets: [x : xs]"
+    "a cons pattern is written in square brackets: [x :: xs]";
+  (* Bare `h :: t` is read and `wand f` writes the brackets back, the way
+     `fun` is read and written back as `fn`. *)
+  ok "the bare cons pattern is read"
+    "let f l = match l with | h :: t -> h | [] -> 0\nf [1, 2]";
+  ok "and a constructor keeps its payload"
+    "import Option\nlet f l = match l with | Some x :: t -> x | _ -> 0\nf [Some 5]"
 
 (* ── Python ───────────────────────────────────────────────────────────────── *)
 

@@ -16,7 +16,7 @@ let path =
 
 let tally acc line =
   match String.words line with
-  | [_ : level : component : _] -> let seen =
+  | [_ :: level :: component :: _] -> let seen =
     match Map.get level acc with
     | Some n -> n
     | None -> 0

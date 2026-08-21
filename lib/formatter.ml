@@ -228,7 +228,7 @@ and emit_cons_chain (h : pat) (t : pat) : string =
     | _ -> (List.rev acc, p)
   in
   let (elems, tail) = collect [h] t in
-  "[" ^ String.concat " : " (List.map emit_pat elems) ^ " : " ^ emit_pat tail ^ "]"
+  "[" ^ String.concat " :: " (List.map emit_pat elems) ^ " :: " ^ emit_pat tail ^ "]"
 
 (* ── Multi-equation reconstruction ────────────────────────────────────────────
    `let f p1 = e1 / let f p2 = e2` desugars (parser.ml's collapse/build_
@@ -272,13 +272,13 @@ let try_multi_equation (params : pat list) (body : expr) : (pat list * expr) lis
 (* ── Expressions ──────────────────────────────────────────────────────────── *)
 
 let bin_prec = function
-  | "|>" -> 10 | ":" -> 15 | "||" -> 20 | "&&" -> 30
+  | "|>" -> 10 | "::" -> 15 | "||" -> 20 | "&&" -> 30
   | "==" | "!=" | "<" | ">" | "<=" | ">=" -> 40
   | "+" | "-" | "++" -> 50
   | "*" | "/" | "%" -> 60
   | _ -> 0
 
-let bin_right_assoc = function ":" -> true | _ -> false
+let bin_right_assoc = function "::" -> true | _ -> false
 
 let is_control_expr e = match strip_located e with
   | Let _ | LetRec _ | If _ | Match _ | Fn _ | Handle _ | Try _ | Contract _

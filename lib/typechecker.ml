@@ -2423,7 +2423,7 @@ and infer_binop tenv (env : env) op a b : typ =
     unify_expected ~expected:TString ~got:(infer tenv env a);
     unify_expected ~expected:TString ~got:(infer tenv env b);
     TString
-  | ":" ->
+  | "::" ->
     let elem_t = fresh () in
     unify_expected ~expected:elem_t ~got:(infer tenv env a);
     unify_expected ~expected:(TList elem_t) ~got:(infer tenv env b);

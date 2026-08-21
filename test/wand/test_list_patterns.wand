@@ -2,10 +2,10 @@ let {test} = import Test
 
 (* ── Cons operator (expressions) ──────────────────────────────────────── *)
 
-test "prepend one" (fn t -> t.eq [1, 2, 3] (1 : [2, 3]))
-test "chain cons" (fn t -> t.eq [1, 2, 3] (1 : 2 : 3 : []))
-test "cons onto empty" (fn t -> t.eq [42] (42 : []))
-test "string cons" (fn t -> t.eq ["a", "b", "c"] ("a" : ["b", "c"]))
+test "prepend one" (fn t -> t.eq [1, 2, 3] (1 :: [2, 3]))
+test "chain cons" (fn t -> t.eq [1, 2, 3] (1 :: 2 :: 3 :: []))
+test "cons onto empty" (fn t -> t.eq [42] (42 :: []))
+test "string cons" (fn t -> t.eq ["a", "b", "c"] ("a" :: ["b", "c"]))
 
 (* ── List patterns ─────────────────────────────────────────────────────── *)
 
@@ -43,21 +43,21 @@ test "cons pattern head" (fn t ->
   t.eq
     1
     (match [1, 2, 3] with
-    | [h : _] -> h
+    | [h :: _] -> h
     | [] -> 0
     ))
 test "cons pattern tail" (fn t ->
   t.eq
     [2, 3]
     (match [1, 2, 3] with
-    | [_ : tl] -> tl
+    | [_ :: tl] -> tl
     | [] -> []
     ))
 test "cons pattern no match on empty" (fn t ->
   t.eq
     "no"
     (match [] with
-    | [_ : _] -> "yes"
+    | [_ :: _] -> "yes"
     | [] -> "no"
     ))
 
@@ -65,7 +65,7 @@ test "three-way chain, binds head/mid/tail" (fn t ->
   t.eq
     "1,2,3,[4]"
     (match [1, 2, 3, 4] with
-    | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
+    | [a :: b :: c :: tl] -> "%{a},%{b},%{c},%{tl}"
     | _ -> "no match"
     ))
 
@@ -73,7 +73,7 @@ test "chain exactly consuming the list" (fn t ->
   t.eq
     "1,2,3,[]"
     (match [1, 2, 3] with
-    | [a : b : c : tl] -> "%{a},%{b},%{c},%{tl}"
+    | [a :: b :: c :: tl] -> "%{a},%{b},%{c},%{tl}"
     | _ -> "no match"
     ))
 
@@ -81,40 +81,40 @@ test "chain falls through on too-short list" (fn t ->
   t.eq
     "too short"
     (match [1, 2] with
-    | [a : b : c : tl] -> "matched"
+    | [a :: b :: c :: tl] -> "matched"
     | _ -> "too short"
     ))
 
-let lp_third! [_ : _ : x : _] = x
+let lp_third! [_ :: _ :: x :: _] = x
 test "chain in a function multi-equation" (fn t -> t.eq 30 (lp_third! [10, 20, 30, 40]))
 
 (* ── Recursive functions over lists ───────────────────────────────────── *)
 
 let lp_len [] = 0
-let lp_len [_ : tl] = 1 + lp_len tl
+let lp_len [_ :: tl] = 1 + lp_len tl
 test "length" (fn t -> t.eq 5 (lp_len [1, 2, 3, 4, 5]))
 test "length empty" (fn t -> t.eq 0 (lp_len []))
 
 let lp_sum [] = 0
-let lp_sum [h : tl] = h + lp_sum tl
+let lp_sum [h :: tl] = h + lp_sum tl
 test "sum" (fn t -> t.eq 15 (lp_sum [1, 2, 3, 4, 5]))
 
 let lp_map _ [] = []
-let lp_map f [h : tl] = f h : lp_map f tl
+let lp_map f [h :: tl] = f h :: lp_map f tl
 test "map double" (fn t -> t.eq [2, 4, 6] (lp_map (fn x -> x * 2) [1, 2, 3]))
 test "map to string" (fn t ->
   t.eq ["a!", "b!", "c!"] (lp_map (fn x -> x ++ "!") ["a", "b", "c"]))
 
 let lp_filter _ [] = []
-let lp_filter p [h : tl] = if p h then h : lp_filter p tl else lp_filter p tl
+let lp_filter p [h :: tl] = if p h then h :: lp_filter p tl else lp_filter p tl
 test "filter gt 2" (fn t -> t.eq [3, 4, 5] (lp_filter (fn x -> x > 2) [1, 2, 3, 4, 5]))
 
 let lp_append [] ys = ys
-let lp_append [h : tl] ys = h : lp_append tl ys
+let lp_append [h :: tl] ys = h :: lp_append tl ys
 test "append" (fn t -> t.eq [1, 2, 3, 4] (lp_append [1, 2] [3, 4]))
 
 let lp_rev_acc [] acc = acc
-let lp_rev_acc [h : tl] acc = lp_rev_acc tl (h : acc)
+let lp_rev_acc [h :: tl] acc = lp_rev_acc tl (h :: acc)
 let lp_reverse xs = lp_rev_acc xs []
 test "reverse" (fn t -> t.eq [5, 4, 3, 2, 1] (lp_reverse [1, 2, 3, 4, 5]))
 
@@ -124,7 +124,7 @@ let lp_xs = [1, 2, 3]
 let [lp_a, lp_b] = lp_xs
 test "a let binds the leading elements" (fn t -> t.eq 3 (lp_a + lp_b))
 
-let [lp_h : lp_tl] = lp_xs
+let [lp_h :: lp_tl] = lp_xs
 test "a cons let still splits head and tail" (fn t -> t.eq (1, [2, 3]) (lp_h, lp_tl))
 
 test "a local let binds the leading elements too" (fn t ->

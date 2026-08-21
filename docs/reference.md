@@ -663,8 +663,8 @@ let (a, b) = pair      -- destructure
 let xs    = [1, 2, 3]
 let empty = []
 
-1 : [2, 3]             -- cons: [1, 2, 3]
-1 : 2 : 3 : []         -- [1, 2, 3]
+1 :: [2, 3]            -- cons: [1, 2, 3]
+1 :: 2 :: 3 :: []      -- [1, 2, 3]
 ```
 
 List patterns:
@@ -674,7 +674,7 @@ match xs with
 | []        -> "empty"
 | [x]       -> "one element: %{x}"
 | [x, y]    -> "exactly two"
-| [h : t]   -> "head %{h}, tail %{t}"
+| [h :: t]  -> "head %{h}, tail %{t}"
 ```
 
 Cons patterns chain, matching several leading elements at once:
@@ -696,7 +696,7 @@ let xs = [1, 2, 3]
 
 let [a, b, c] = xs      -- a = 1, b = 2, c = 3
 let [a, b]    = xs      -- a = 1, b = 2, the 3 is not consulted
-let [h : t]   = xs      -- h = 1, t = [2, 3]
+let [h :: t]  = xs      -- h = 1, t = [2, 3]
 ```
 
 The shape of a tuple is part of its type. So a wrong pattern for a tuple is
@@ -715,7 +715,7 @@ Multi-equation over lists:
 
 ```ocaml
 let sum []      = 0
-let sum [h : t] = h + sum t
+let sum [h :: t] = h + sum t
 ```
 
 ---
@@ -2226,7 +2226,8 @@ It also composes with the return annotation:
 let describe (p: Pod) : String = p.name
 ```
 
-The parentheses are part of the syntax. A `:` between expressions is cons.
+The parentheses are part of the syntax. Cons is `::`, so the `:` inside
+them is never anything but a type.
 
 The annotation constrains inference; it does not replace it. A body that
 contradicts the annotation is a type error, and so is a call that does.
@@ -2245,23 +2246,24 @@ two variables, and the reader would have been promised one.
 
 ### The three colons
 
-`:` means three things, and position decides which:
+`:` means two things, and position decides which:
 
 ```ocaml
 let port : Port = :8080     -- annotation, then a port literal
-let xs = 1 : [2, 3]         -- cons
+let xs = 1 :: [2, 3]        -- cons is `::`, and takes no `:`
 ```
 
 - **A port literal** is a `:` directly against a digit: `:80`, `:8080`. The
   lexer decides this one. No space, and a digit after it, make one token.
-- **A type annotation** is the `:` right after a binding's name and
-  parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`. It
-  is also the `:` inside the parentheses of a pattern, as in `(p: Pod)`,
-  and in a type definition's named fields. Those three positions read `:`
-  as an annotation.
-- **Cons** is every other `:` between expressions, and the list pattern
-  `[h : t]`. A `:` in expression position always means cons. So there is no
-  inline ascription `(e : T)`. Annotate the binding instead.
+- **A type annotation** is every other `:`. After a binding's name and
+  parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`.
+  Inside the parentheses of a pattern: `(p: Pod)`, `Ok (p: Pod)`. In a type
+  definition's named fields.
+
+There is no inline ascription `(e : T)`. Annotate the binding instead.
+
+Cons is `::`. It used to be `:`, which is why a `:` in a pattern where no
+type follows it is refused with the correction rather than read on.
 
 ---
 

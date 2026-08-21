@@ -234,7 +234,9 @@ let expect_cont_name s =
 
 let lbp = function
   | Token.PipeArrow   -> 10
-  | Token.Colon       -> 15
+  (* The transitional `:` binds as cons does, so a file in either spelling
+     parses the same. It goes when the spelling does. *)
+  | Token.Colon | Token.DoubleColon -> 15
   | Token.PipePipe  -> 20
   | Token.AmpAmp    -> 30
   | Token.EqEq | Token.BangEq
@@ -396,7 +398,23 @@ and parse_type_expr s =
   end
   else left
 
+(* A pattern, and a cons written without its brackets. `[h :: t]` is the
+   spelling: the brackets say list, exactly as `[a, b, c]` does. `h :: t`
+   bare is what an OCaml reader writes, so it is read and `wand f` writes
+   the brackets back -- the same treatment `fun` gets for `fn`.
+
+   Right-associative, and the tail is a whole pattern, so `a :: b :: t`
+   nests to the right. `Some h :: t` is `(Some h) :: t`: a constructor
+   takes its payload by juxtaposition, through `pat_base_`, which stops
+   before the `::`. *)
 let rec pat_ s =
+  let p = pat_base_ s in
+  if peek s = Token.DoubleColon then begin
+    ignore (advance s);
+    PCons (p, pat_ s)
+  end else p
+
+and pat_base_ s =
   match peek s with
   | Token.Int n      -> ignore (advance s); (Int n : pat)
   | Token.Float f    -> ignore (advance s); Float f
@@ -431,7 +449,7 @@ let rec pat_ s =
       end else if peek s = Token.Colon then
         fail_at (peek_loc s)
           "a cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'"
+           [x :: xs] -- a single ':' gives a name a type"
       else begin
         expect s Token.RParen;
         (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
@@ -478,7 +496,7 @@ let rec pat_ s =
           end else if peek s = Token.Colon then
             fail_at (peek_loc s)
               "a cons pattern is written in square brackets: \
-               [x : xs], not '(x : xs)'"
+               [x :: xs] -- a single ':' gives a name a type"
           else p
         in
         let pats = ref [pat_item ()] in
@@ -539,7 +557,7 @@ and pat_atom_ s =
       end else if peek s = Token.Colon then
         fail_at (peek_loc s)
           "a cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'"
+           [x :: xs] -- a single ':' gives a name a type"
       else (expect s Token.RParen; p)
     end
   | Token.LBracket ->
@@ -572,14 +590,17 @@ and list_pat_ s =
       fail_at (snd s.tokens.(s.pos - 1))
         "a map pattern is written in braces -- {k = v}, not [k = v]"
     else begin
-      let first = pat_ s in
-      if peek s = Token.Colon then begin
+      (* The elements are read with `pat_base_`: the brackets own the cons
+         here, so a `::` inside them is this loop's and not the element's. *)
+      let first = pat_base_ s in
+      let is_cons () = peek s = Token.DoubleColon || peek s = Token.Colon in
+      if is_cons () then begin
         ignore (advance s);
-        (* Chain further cons cells: [a : b : c : t] is PCons(a, PCons(b,
+        (* Chain further cons cells: [a :: b :: c :: t] is PCons(a, PCons(b,
            PCons(c, t))), not just a single cons with a flat tail. *)
         let rec parse_cons_tail () =
-          let p = pat_ s in
-          if peek s = Token.Colon then begin
+          let p = pat_base_ s in
+          if is_cons () then begin
             ignore (advance s);
             PCons (p, parse_cons_tail ())
           end else p
@@ -590,7 +611,7 @@ and list_pat_ s =
       end else begin
         let pats = ref [first] in
         while peek s = Token.Comma do
-          ignore (advance s); pats := !pats @ [pat_ s]
+          ignore (advance s); pats := !pats @ [pat_base_ s]
         done;
         expect s Token.RBracket;
         PList !pats
@@ -645,7 +666,7 @@ let rec expr_ bp s =
 and infix_ left op s =
   match op with
   | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
-  | Token.Colon      -> BinOp (":", left, expr_ 14 s)
+  | Token.Colon | Token.DoubleColon -> BinOp ("::", left, expr_ 14 s)
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
   | Token.AmpAmp    -> BinOp ("&&", left, expr_ 30 s)
   | Token.EqEq      -> BinOp ("==", left, expr_ 40 s)

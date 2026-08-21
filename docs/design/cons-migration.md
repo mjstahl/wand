@@ -39,13 +39,13 @@ it; the three reasons above do.
 literal, and nothing else.
 
 The brackets stay. `[h :: t]` says what `[a, b, c]` says: this is a list.
-A bare `h :: t` is what OCaml writes, and it parses — but only so that
-`V-CONS2` can name it and a fix can add the brackets. Step 5 has the
-reasoning, including what `Some h :: t` has to mean for that to work.
+A bare `h :: t` is what OCaml writes, and it is read — then `wand f` writes
+the brackets back. Parentheses are grouping and are read the same way.
 
-Parentheses around a cons pattern stay refused. They were never a spelling
-anyone wanted; they are what an OCaml reader types before learning the
-bracket, which is why the message exists.
+The old spelling is read too, for one release, and `wand f` writes `::`.
+
+Both are aliases rather than spellings wand offers, which is the treatment
+`fun` already gets for `fn`.
 
 ## The steps
 
@@ -62,32 +62,37 @@ bracket, which is why the message exists.
 3. **Accept `:` as cons for one release.** In expression position and
    inside a list pattern, a `:` still parses as cons. A type never appears
    in either place, so nothing is ambiguous while both are read. `wand f`
-   writes `::`, so migrating a file is running the formatter. `wand t`
-   reports it as `V-CONS1`, with the same `ReplaceLine` fix.
+   writes `::`, so migrating a file is running the formatter.
+
+   No lint rule. A lint would need the AST to carry which spelling was
+   written, because both parse to one node, and it would duplicate what
+   the formatter already does. `fun` is read as `fn` and written back with
+   no rule either.
 
 4. **Turn the drift rules around.** `lib/diag.ml` and the lexer stop
    correcting `::`. The new correction fires where a `:` in expression
    position can no longer be a type: "cons is `::`".
 
-5. **Make the bare pattern a lint, not a parse error.** `| h :: t ->`
-   without brackets is the likelier mistake, and it answers "expected ->,
-   got :" today, which names nothing. It should be completely fixable, and
-   that decides the design: `lib/fix.ml` will not apply a correction to a
-   file that does not parse, because rewriting what it cannot read is
-   guesswork. So the parser accepts the bare form and `V-CONS2` reports it
-   with a `ReplaceLine` fix that adds the brackets.
+5. **Read the bare pattern, and write the brackets back.** `| h :: t ->`
+   without brackets answers "expected ->, got :" today, which names
+   nothing, and it is the likelier mistake. It has to be completely
+   fixable, and that ruled out leaving it a parse error: `lib/fix.ml` will
+   not apply a correction to a file it cannot read, because rewriting
+   guesswork is guesswork.
 
-   Accepting it means choosing what `Some h :: t` means. Constructor
-   application binds tighter, so it is `(Some h) :: t` — the OCaml
-   reading. The fix writes `[Some h :: t]`, whose brackets answer the
-   question, so it is asked once.
+   The first plan made it a lint with a `ReplaceLine` fix. That needs the
+   AST to record which spelling was written, since `[h :: t]` and `h :: t`
+   are one node — and `fun`/`fn` shows the cheaper answer. So `pat_` reads
+   a trailing `:: pat`, and `wand f` writes `[h :: t]`.
 
-   `wand f` does not add the brackets on its own. The formatter writes
-   back what was written; a normalization the author did not ask for is
-   what the record-update work removed.
+   Reading it means choosing what `Some h :: t` means. A constructor takes
+   its payload by juxtaposition, through `pat_base_`, which stops before
+   the `::`. So it is `(Some h) :: t`, the OCaml reading, and the brackets
+   the formatter adds say so.
 
-   Parentheses stay a parse error. `(x :: xs)` is not a spelling anyone
-   wants, and the message written for it is the answer.
+   A `:` in a pattern where no type follows it is still refused, in the
+   three places it could be written, with the correction naming
+   `[x :: xs]`.
 
 6. **Migrate the corpus.** `wand f` over `stdlib/`, `examples/`,
    `test/wand/`, `demos/` and `tools/`, then the whole battery.
@@ -122,6 +127,6 @@ nothing else. Breaking it in one go is simpler, and at wand's user count
 it is defensible: a script written for 0.29.0 stops running until someone
 edits it, and the error names the edit.
 
-**Two rule codes or one.** `V-CONS1` (the old `:` spelling) disappears at
-step 8; `V-CONS2` (the unbracketed pattern) is permanent. If step 3 is
-dropped, `V-CONS1` is never written.
+**Nothing.** The rule codes are gone — `fun`/`fn` answered both. Step 3
+was kept: without a transitional read, migrating the corpus is hand-editing
+~97 colons with no mechanical check that the right ones moved.

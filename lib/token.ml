@@ -81,6 +81,7 @@ type t =
   | Dot                (* . *)
   | DotDot             (* .. *)
   | Colon              (* : *)
+  | DoubleColon        (* :: *)
   | Comma              (* , *)
   | Underscore         (* _ *)
   | EqEq               (* == *)
@@ -179,7 +180,8 @@ let pp ppf tok =
     | Plus       -> "+"      | Minus      -> "-"
     | Star       -> "*"      | Slash      -> "/"    | Percent    -> "%"
     | Dot        -> "."      | DotDot     -> ".."
-    | Colon      -> ":"      | Comma      -> ","
+    | Colon      -> ":"      | DoubleColon -> "::"
+    | Comma      -> ","
     | Underscore -> "_"      | EqEq       -> "=="
     | BangEq     -> "!="     | Lt         -> "<"
     | Gt         -> ">"      | LtEq       -> "<="

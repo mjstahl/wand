@@ -173,25 +173,25 @@ let test_error_without_position () =
   regression "an error with no position reports 1:1, drift fix carried"
     "[{\"severity\":\"error\",\"code\":\"E-LEX\",\"file\":\"x.wand\",\
       \"line\":1,\"col\":1,\
-      \"message\":\"cons is a single ':', not '::' -- \
-      h : rest to build a list, [h : t] in a pattern\",\
-      \"fix\":{\"replace\":{\"from\":\"::\",\"to\":\":\"}}}]"
+      \"message\":\"comments are '-- ...' to the end of the line, or \
+      '(* ... *)' -- not '//'\",\
+      \"fix\":{\"replace\":{\"from\":\"//\",\"to\":\"--\"}}}]"
     (Diag.to_json_array ~file:"x.wand"
        [Diag.error ~code:"E-LEX"
-          "cons is a single ':', not '::' -- \
-           h : rest to build a list, [h : t] in a pattern"])
+          "comments are '-- ...' to the end of the line, or \
+           '(* ... *)' -- not '//'"])
 
 (* End to end: the checker's answer carries the real position. *)
 
 let test_lex_error_position () =
-  let d = check_error "let x =\n  1 :: 2" in
+  let d = check_error "let x =\n  1 // 2" in
   Alcotest.(check string) "code" "E-LEX" d.Diag.code;
   (match d.Diag.loc with
-   | Some l -> Alcotest.(check (pair int int)) "line/col of the '::'"
+   | Some l -> Alcotest.(check (pair int int)) "line/col of the '//'"
                  (2, 5) (l.Token.line, l.Token.col)
    | None -> Alcotest.fail "lex error lost its position");
   (match d.Diag.fix with
-   | Some (Lint.Replace { from_ = "::"; to_ = ":" }) -> ()
+   | Some (Lint.Replace { from_ = "//"; to_ = "--" }) -> ()
    | _ -> Alcotest.fail "drift fix not carried")
 
 let test_parse_error_position () =
