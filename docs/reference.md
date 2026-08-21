@@ -74,10 +74,10 @@ true        -- Bool
 ()          -- Unit
 ```
 
-`Int` is a machine word, holding `-4611686018427387904` to
-`4611686018427387903`. A literal outside that range is a lex error, and
-arithmetic whose result falls outside it is a runtime error rather than a
-wrapped-around value:
+`Int` is a machine word. It holds `-4611686018427387904` to
+`4611686018427387903`. A literal outside that range is a lex error.
+Arithmetic that goes outside it is a runtime error. The value does not wrap
+around:
 
 ```
 4611686018427387903 + 1
@@ -85,25 +85,25 @@ wrapped-around value:
 --   Int holds -4611686018427387904 to 4611686018427387903
 ```
 
-Like division by zero, this is a runtime error and not the `Raise` effect —
-any `+` can overflow, so tracking it would put `Raise` on every
+This is a runtime error, not the `Raise` effect. Division by zero is the
+same. Any `+` can overflow. To track it, wand would put `Raise` on every
 function that adds two numbers.
 
-Arithmetic (`+ - * /` and unary `-`) works on `Int` and on `Float` with
-the same spelling — one numeric type throughout an expression, never
-mixed implicitly. `1.5 + 1` is a type error naming the crossing
-functions ([`Float`](#float) has them); `%` is `Int` only. A function
-whose numbers stay unpinned is polymorphic over both:
+Arithmetic (`+ - * /` and unary `-`) has one spelling for `Int` and for
+`Float`. An expression holds one numeric type. wand never mixes the two for
+you. `1.5 + 1` is a type error, and the error names the functions that
+convert. [`Float`](#float) holds them. `%` accepts `Int` only. A function
+that does not pin its numbers accepts both:
 
 ```
 let double x = x + x     -- double : Num -> Num
 (double 2, double 1.5)   -- (4, 3) : (Int, Float) — each call picks its type
 ```
 
-`Num` in a signature means "`Int` or `Float`, decided where it is used";
-it appears in [Type annotations](#type-annotations) like any type name.
-Float division does not raise (`1.0 / 0.0` is infinity, IEEE-style);
-Int keeps its checked behavior.
+`Num` in a signature means `Int` or `Float`. The use site decides which.
+It appears in [Type annotations](#type-annotations) like any type name.
+Float division does not raise: `1.0 / 0.0` is infinity, as IEEE 754 says.
+Int division keeps its check.
 
 String interpolation with `%{...}`, which takes any expression:
 
@@ -114,9 +114,8 @@ let name = "world"
 "home is %{$HOME}"       -- reads the environment, like any other expression
 ```
 
-`$` is not special in a string. Text holding shell or Make source keeps it,
-which is what you want when the string is a template for something else to
-expand:
+`$` is not special in a string. A string that holds shell or Make source
+keeps it. This is what you want when something else expands the string:
 
 ```
 "export PATH=$HOME/bin:$PATH"   -- exactly those characters
@@ -132,9 +131,9 @@ String concatenation with `++`:
 
 ### Backtick strings
 
-Between backticks every character is itself. There are no escapes, so a
-quote is a quote and a backslash is a backslash — which is what you want for
-text written in some other language:
+Between backticks each character is itself. There are no escapes. A quote
+is a quote, and a backslash is a backslash. Use this form for text written in
+another language:
 
 ```
 `{"hello": "world"}`
@@ -142,10 +141,10 @@ text written in some other language:
 `C:\Users\ada`
 ```
 
-They span lines, and the layout is the text. A newline straight after the
-opening backtick is not part of it, so a literal can start on the line
-below; nothing else is trimmed, so indentation and the final newline are
-kept:
+A backtick string spans lines, and the layout is the text. A newline
+directly after the opening backtick is not part of it, so a literal can start
+on the line below. wand trims nothing else. Indentation and the final newline
+stay:
 
 ```
 `
@@ -164,16 +163,15 @@ let user = "ada"
 `{"name": "%{user}", "role": "admin"}`
 ```
 
-That makes `%{` the one sequence a backtick string cannot contain. Write
-that one in an ordinary string, where the percent can be escaped:
-`"\%{literal}"` — the same escape listed under [Primitives](#primitives).
-A backtick string whose `%{` never closes fails at lexing with an error
-naming this workaround, which is the shape generated shell or template
-text usually takes when it trips over the rule.
+So `%{` is the one sequence a backtick string cannot hold. Write that text
+in an ordinary string and escape the percent: `"\%{literal}"`.
+[Primitives](#primitives) lists the same escape. If a `%{` in a backtick
+string never closes, lexing fails, and the error names this workaround.
+Generated shell and template text usually fails this way.
 
-A backtick string is an ordinary `String` — the syntax is about how you
-write it, not what it is. It concatenates, interpolates and matches like
-any other:
+A backtick string is an ordinary `String`. The syntax changes how you write
+it, not what it is. It concatenates, interpolates and matches like any other
+string:
 
 ```
 `ab` ++ `c`                    -- "abc"
@@ -187,9 +185,9 @@ match answer with
 
 ## Lexical domain types
 
-wand has first-class literal syntax for common scripting values. These are
-distinct types — not strings — so the type system catches mistakes like passing
-a `Date` where a `Duration` is expected.
+wand has literal syntax for the values a script uses most. Each one is a
+type of its own, not a string. So the type checker catches a `Date` that you
+gave where a `Duration` belongs.
 
 | Type | Example literals |
 |---|---|
@@ -266,27 +264,26 @@ let fib 1 = 1
 let fib n = fib (n - 1) + fib (n - 2)
 ```
 
-Equations are one definition, so they must be written consecutively and take
-the same number of parameters. They are tried in the order written; an
-equation an earlier one already covers is an error:
+The equations are one definition. Write them on consecutive lines. Give
+each one the same number of parameters. wand tries them in the order you wrote
+them. If an earlier equation already covers a later one, that is an error:
 
 ```
 let f _ = 0
 let f 1 = 1     -- error: equation 2 for 'f' is unreachable
 ```
 
-The equations must also cover every case together, checked the same way a
-`match` is.
+Together, the equations must also cover every case. wand checks this as it
+checks a `match`.
 
-The REPL edits definitions where a file declares them, so neither check
-applies there. A later `let` for an existing function adds a clause to it
-instead, and the result is reported as `f : Int -> Int, 2 equations`. The
-merged function tries specific patterns before catch-alls whatever order
-they were entered in — a base case added after a catch-all still fires —
-and of two clauses with the same pattern the newer wins. Equations that do
-not yet cover every case are accepted too: the gap shows as `{Raise}` in
-the reported type, and a call that lands in it raises a pattern-match
-failure.
+A file declares definitions. The REPL edits them. So neither check applies
+in the REPL. A second `let` for a function that exists adds a clause to it,
+and the REPL reports `f : Int -> Int, 2 equations`. The merged function tries
+specific patterns before catch-alls, whatever order you entered them in. A
+base case that you add after a catch-all still fires. If two clauses have the
+same pattern, the newer one wins. The REPL also accepts equations that do not
+yet cover every case. The gap shows as `{Raise}` in the reported type, and a
+call that lands in the gap raises a pattern-match failure.
 
 Works locally too, with `in` — repeating `let` on each equation or not:
 
@@ -304,8 +301,9 @@ let answer =
   in fib 10
 ```
 
-The second form is local only: at the top level every equation needs its
-own `let`, since there is no `in` to say where the definition ends.
+The second form works only in a local definition. At the top level each
+equation needs its own `let`, because there is no `in` to end the
+definition.
 
 Mutually-recursive functions — chain definitions with `and`:
 
@@ -323,9 +321,9 @@ let answer =
   in is_even 7
 ```
 
-In the REPL a group must be entered as one entry — the first line alone
-does not typecheck, its partner being unbound — so end it with the `and`
-rather than starting the next line with it:
+In the REPL, enter a group as one entry. The first line alone does not
+typecheck, because its partner is unbound. So put the `and` at the end of the
+line. Do not start the next line with it:
 
 ```
 >> let is_even n = if n == 0 then true else is_odd (n - 1) and
@@ -335,12 +333,12 @@ is_even : Int -> Bool
 is_odd : Int -> Bool
 ```
 
-A blank line ends the group. The `and` may sit at either end of a line
-break in a file, where the whole definition is in view at once.
+A blank line ends the group. In a file the `and` can sit at either end of
+the line break, because you see the whole definition at once.
 
-`and`-bound members must be functions (at least one parameter) — a plain
-value can't reference a sibling that isn't defined yet, since evaluation
-happens eagerly; only a function's body is deferred until it's called.
+Each member of an `and` group must be a function with at least one
+parameter. wand evaluates eagerly, so a plain value cannot use a sibling that
+does not exist yet. Only the body of a function waits for a call.
 
 ---
 
@@ -356,8 +354,9 @@ An `if` with nothing to do when the condition is false leaves the branch out:
 if stashes > 0 then println "Stashes: %{stashes} saved"
 ```
 
-That is the same expression as `else ()`, not a second kind of conditional —
-so the branch has to be `Unit`, since a missing branch can only be `()`:
+This is the same expression as `else ()`. It is not a second kind of
+conditional. The branch must be `Unit`, because a branch that is not there can
+only be `()`:
 
 ```
 if ready then 1
@@ -365,18 +364,17 @@ if ready then 1
 --   so its branch must be Unit -- this one is Int
 ```
 
-`wand f` writes an empty `else` out of existence: `if c then f () else ()`
-comes back as `if c then f ()`.
+`wand f` removes an empty `else`: `if c then f () else ()` comes back as
+`if c then f ()`.
 
 ---
 
 ## Pipeline
 
-The pipeline operator `|>` has two meanings, chosen by the syntactic shape of
-its right operand. This is the one place in wand where an operator's semantics
-are decided at parse time rather than by the value it is applied to — it is a
-*special form*, and knowing which meaning applies requires looking only at the
-right-hand side, never at runtime values.
+The pipeline operator `|>` has two meanings. The shape of the right operand
+decides which one. This is the only operator in wand that the parser decides,
+rather than the value. To know which meaning applies, read the right side. You
+never need a value from the run.
 
 **Form 1 — application.** When the right operand is any ordinary expression,
 `x |> f` is exactly `f x`:
@@ -386,26 +384,26 @@ right-hand side, never at runtime values.
 $(git log --oneline) |> String.lines |> List.length
 ```
 
-**Form 2 — stdin threading.** When the right operand is *literally* a `$()` or
-`$?()` form, `|>` threads the left value (a `String`) into the command's
-standard input:
+**Form 2 — stdin threading.** The right operand is literally a `$()` or a
+`$?()` form. Then `|>` sends the left value, a `String`, to the standard input
+of the command:
 
 ```
 $(git log --oneline) |> $(grep "fix") |> $(wc -l)
 report |> $?(mail -s "nightly" ops@example.com)
 ```
 
-Each stage's stdout becomes the next stage's stdin; `|>` associates left, so a
-chain reads as a shell pipeline. A `$?()` stage yields a `ShellResult` and
-therefore ends the threading chain (pipe its `.stdout` onward explicitly if
-needed).
+The stdout of each stage becomes the stdin of the next stage. `|>`
+associates to the left, so a chain reads like a shell pipeline. A `$?()` stage
+gives a `ShellResult`, so it ends the chain. To continue, pipe its `.stdout`
+yourself.
 
-**The distinction is syntactic, and that is the point.** `$()` is not a
-function value — `let g = $(grep foo)` *runs* `grep` immediately and binds its
-output `String`; it does not create a pipeable stage. Stdin threading happens
-only when `$()`/`$?()` appears directly to the right of `|>`. Which meaning you
-are reading is always decidable locally, from the text, without type
-information: *right side starts with `$` → process; otherwise → application.*
+**The difference is syntactic, and that is the point.** `$()` is not a
+function value. `let g = $(grep foo)` runs `grep` immediately and binds its
+output. It does not make a stage that you can pipe into. wand sends stdin only
+when `$()` or `$?()` comes directly after `|>`. You can decide the meaning from
+the text, with no type information: if the right side starts with `$`, wand
+runs a process; if it does not, wand applies a function.
 
 **Choosing between wand pipes and shell pipes.** Both of these are idiomatic:
 
@@ -414,13 +412,12 @@ $(git log --oneline | grep fix | wc -l)          -- one shell pipeline
 $(git log --oneline) |> $(grep fix) |> $(wc -l)  -- three wand stages
 ```
 
-Use a **shell-internal pipe** when transcribing an existing one-liner, when the
-pipeline is an indivisible idiom, or when only the final output matters — it is
-one opaque operation. Use **wand-level stages** when you want wand in the
-middle (filtering with a typed function between commands), per-stage error
-handling via `$?()`, or stage-by-stage visibility. Rule of thumb: *the boundary
-between shell and wand should sit where you want types, errors, or auditability
-to begin.*
+Use a **shell pipe** in three cases: you copy an existing one-liner, the
+pipeline is one idiom, or only the last output matters. wand sees one
+operation. Use **wand stages** in three cases: you want a typed function
+between two commands, you want `$?()` to handle the failure of one stage, or
+you want to see each stage. Put the boundary where you want types, errors or
+an audit trail to start.
 
 ---
 
@@ -501,23 +498,24 @@ match n with
 
 ### Exhaustiveness checking
 
-`wand t` checks that every `match` covers all possible cases, and rejects
-the program at type-checking time if it doesn't — a missing case is a
-type error, not a runtime surprise:
+`wand t` checks that each `match` covers every case. A case that is missing
+is a type error, not a surprise during a run:
 
 ```
 let f x = match x with | 0 -> "zero"
 -- wand t: type error: non-exhaustive match: missing case, e.g. _
 ```
 
-Because guards (`when`) aren't guaranteed to fire, a guarded case never
-counts toward exhaustiveness on its own — it always needs a plain
-fallback case alongside it. Infinite domains (`Int`, `Float`, `String`, and
-the other lexical domain types) can only be covered by an explicit
-wildcard or variable pattern; `Bool`, tuples, lists, `Result`, and
-user-defined variant types (including generics like `Option`) are checked
-structurally against their actual set of constructors. Map patterns are
-intentionally partial by design and are never flagged.
+A guard (`when`) can fail to fire, so a guarded case never covers anything
+by itself. It always needs a plain case beside it.
+
+Some types hold too many values to list: `Int`, `Float`, `String` and the
+other lexical domain types. Only a wildcard or a variable pattern covers one
+of these. wand checks the rest against their constructors: `Bool`, tuples,
+lists, `Result`, and the variant types you define, which include generic ones
+like `Option`.
+
+A map pattern is partial by design. wand never reports one.
 
 ---
 
@@ -560,11 +558,11 @@ match xs with
 | _               -> "fewer than three elements"
 ```
 
-The same patterns destructure in a `let`, with one difference. A `match`
-arm states the whole shape — a longer list belongs to another arm — but a
-`let` has no other arm; it only binds. So in a `let`, a list pattern names
-the leading elements and ignores whatever follows, the way a map pattern
-binds the keys it names and ignores the rest:
+The same patterns work in a `let`, with one difference. A `match` arm gives
+the whole shape, because a longer list belongs to another arm. A `let` has no
+other arm. It only binds. So in a `let` a list pattern names the first
+elements and ignores the rest. A map pattern behaves the same way with
+keys:
 
 ```
 let xs = [1, 2, 3]
@@ -574,9 +572,10 @@ let [a, b]    = xs      -- a = 1, b = 2, the 3 is not consulted
 let [h : t]   = xs      -- h = 1, t = [2, 3]
 ```
 
-A tuple's shape is part of its type, so destructuring one wrongly is a type
-error. A list's length is not part of its type, so a `let` that names more
-elements than the list has is accepted and fails when it runs:
+The shape of a tuple is part of its type. So a wrong pattern for a tuple is
+a type error. The length of a list is not part of its type. So a `let` that
+names more elements than the list holds is accepted, and it fails during the
+run:
 
 ```
 let [a, b] = [1]
@@ -602,8 +601,8 @@ String-keyed, homogeneous maps. The type is `Map T` where `T` is the value type.
 let m = {x = 1, y = 2, z = 3}   -- Map Int
 ```
 
-A key is any string. Write it quoted when it is not an identifier — which is
-most keys a document from elsewhere contains:
+A key is any string. Put quotes around a key that is not an identifier.
+Most keys in a document from elsewhere need them:
 
 ```
 {"content-type" = "application/json", "@type" = "Pod", name = "web"}
@@ -611,9 +610,9 @@ most keys a document from elsewhere contains:
 
 Quoted keys work in patterns too: `| {"content-type" = v} -> v`.
 
-A key is held once. Give one twice and the last value wins, in the place the
-key first appeared — what an assignment means, and what keeps a document
-written back out in the order it came in:
+A map holds a key once. Give a key twice, and the last value wins. The key
+keeps the position where it first appeared. That is what an assignment means.
+It also writes a document back in the order it arrived:
 
 ```
 {a = 1, b = 2, a = 9}        -- {a = 9, b = 2}
@@ -621,10 +620,9 @@ Map.set "b" 99 {a = 1, b = 2, c = 3}   -- {a = 1, b = 99, c = 3}
 Map.merge {a = 1, b = 2} {b = 9}       -- {a = 1, b = 9}
 ```
 
-A JSON document *can* name a key twice, even though a `Map` cannot hold one
-twice. Every reader takes the later one — `JSON.field`, `Decode.field`, and
-the `Map` that `JSON.get_object` gives back — so two readers of the same
-document in one program cannot disagree about it.
+A JSON document can name a key twice, but a `Map` cannot hold one twice.
+Each reader takes the later value: `JSON.field`, `Decode.field`, and the `Map`
+from `JSON.get_object`. So two readers of one document always agree.
 
 Using the `Map` module:
 
@@ -644,10 +642,10 @@ Map.filter (fn x -> x > 1) m        -- {y = 2, z = 3}
 Map.merge m1 m2                      -- keys in m2 take precedence
 ```
 
-Map patterns (partial — only name the keys you need). A bare identifier
-puns: the key binds a variable of its own name. `key = pat` matches a
-subpattern or renames; a quoted key always takes that form, having no
-identifier to pun into:
+A map pattern is partial. Name only the keys you need. A bare identifier is
+short for the key and a variable of the same name. `key = pat` matches a
+subpattern, or gives the value another name. A quoted key always takes that
+form, because it has no identifier to shorten:
 
 ```
 match m with
@@ -657,15 +655,14 @@ match m with
 let {x} = m in x             -- extract just x; other keys ignored
 ```
 
-A key the map does not hold fails when it runs, as a list of the wrong
-length does — the map's keys are not part of its type either.
+A key that the map does not hold fails during the run. A list of the wrong
+length fails the same way. The keys of a map are not part of its type.
 
 An empty map is `Map.empty`, and `{}` is the same value written as a
 literal.
 
-Brackets mean lists and nothing else. The pre-0.17 map forms — `[x = 1]`
-literals and `[x = a]` patterns — are refused with an error naming the
-brace spelling.
+Brackets mean lists and nothing else. wand refuses the map forms from
+before 0.17, `[x = 1]` and `[x = a]`. The error names the brace spelling.
 
 ---
 
