@@ -95,14 +95,14 @@ wand is claiming to fix.
 |---|---|---|---|
 | 1 | CI glue: run build/test/lint, wire env, propagate status | `cmd; echo ok` succeeds after `cmd` fails; `set -euo pipefail` is a ritual, not a guarantee | `$?()` yields a `ShellResult`; dropping it is `V-DROP1` |
 | 2 | Extract from logs and API output | `grep \| sed \| awk \| jq` re-parses text at every stage, silently empty on a schema change | `Regex`, `Decode`, `Stream` |
-| 3 | HTTP with auth and retry | `curl` without `--fail` returns 0 on a 500; retry loops are hand-rolled | `Shell(curl)` plus `Decode` — but see gap **G1** |
+| 3 | HTTP with auth and retry | `curl` without `--fail` returns 0 on a 500; retry loops are hand-rolled | `Shell(curl)` plus `Decode`, and `Shell.timeout` for the retry |
 | 4 | File munging: `find`/`xargs`, `rsync`, `tar`, permissions | filenames with spaces; `-print0` as folklore | `FS`, `Glob`, `Path` — but see **G3**, **G4** |
-| 5 | Wait for a port or health endpoint | busy loop with `sleep`, no deadline, hangs forever | nothing today — **G1** |
+| 5 | Wait for a port or health endpoint | busy loop with `sleep`, no deadline, hangs forever | `Clock.sleep`, `Par.timeout`, `Par.race` |
 | 6 | Wrap a cloud CLI: `aws`/`gcloud`/`kubectl … -o json \| jq` | untyped JSON, unpinned binaries, no record of what the script may invoke | `Shell(kubectl, aws)` in the manifest plus a derived decoder — wand's strongest showing |
 | 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends |
 | 8 | Parallel fan-out | `xargs -P` and `&`/`wait`, with interleaved output and lost exit codes | `Par.map limit f xs` |
-| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | blocked — **G2** |
-| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison |
+| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | still blocked — **G2** |
+| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals, but `Size` does not compare yet — see `ordering-domain-types.md` |
 | 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder |
 | 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — **G4** |
 
@@ -230,43 +230,42 @@ excellent. It is only *reading the result back out* that collapses.
 
 The gaps below were found by reading `stdlib/` against the twelve rows.
 They are library gaps; the language findings above outrank all of them,
-and G1 is the only one that comes close. Each is stated with what it
-blocks and what closing it would cost.
+and G1 was the only one that came close — it is closed. Each is stated
+with what it blocks and what closing it would cost. The open ones are
+listed with the rest in [`../gaps.md`](../gaps.md), which is the standing
+list; the argument for each stays here.
 
-### G1 — wand cannot wait
+### G1 — wand cannot wait — closed
 
-There is no `sleep`, no timeout, no deadline. `Duration` is a type with a
-literal syntax and arithmetic, and nothing anywhere consumes one as a
-wait. That blocks row 5 outright and half of row 3: retry with backoff,
-poll until ready, "whichever mirror answers first," and any bound at all
-on a `$()` that hangs.
+**Closed in 0.25.0.** `Clock` is an eighth effect label. `Clock.sleep`
+waits, `Shell.timeout` bounds a command, `Par.race` takes the first thunk
+to finish, and `Par.timeout` bounds wand code. Retry with backoff, polling
+and "whichever mirror answers first" are all writable, and the temporal
+types compare by value, so a backoff loop can stop at a ceiling.
 
-This is the single largest hole in the corpus. Roughly a third of the
-Wicked Cool scripts that touch a network have a retry or a timeout in
-them, and none of them can be ported honestly today.
-
-Already designed: see [`clock-and-timeouts.md`](clock-and-timeouts.md),
-which proposes `Clock` as an eighth effect and spends it on
-`Par.timeout`, `Par.race` and `Shell.timeout`. **This corpus is the
-argument for building it first.**
+`clock-and-timeouts.md` retired with it. Two limits remain, recorded in
+[`../gaps.md`](../gaps.md): a virtual clock does not shorten a real
+deadline, and a killed command may leave children.
 
 ### G2 — there is no clock to read, either
 
 `Date`, `Time` and `DateTime` are types with literal syntax, and
 `FS.mtime` returns a `DateTime` — but there is no `Date` module, no
 `now ()`, no arithmetic on an instant, and no formatting. The types can
-be parsed and decoded and compared to a literal written in the source,
-and nothing else.
+be parsed, decoded and — since 0.25.0 — compared by value against each
+other. There is still no way to obtain an instant that is not already
+written in the source or read off a file.
 
 So the whole of row 9 is unwritable. A timestamped backup name, "delete
 files older than thirty days," "alert if the last successful run was more
 than an hour ago," a log line with a time in it — every one of them needs
 a current instant and duration arithmetic over it.
 
-This is a smaller piece of work than `Clock` and partly overlaps it: a
-clock effect that can wait is a clock effect that can be read. Worth
-deciding together, and worth noting that reading the time is an effect
-for exactly the reason waiting is — it makes a function non-reproducible.
+The clock effect that waits is the clock effect that would be read, and
+it now exists. So what is left is a member on `Clock` and the `DateTime`
+arithmetic behind it. That arithmetic is why this did not ship with the
+rest: `now - mtime` is sound and `now - an_earlier_now` is not, and they
+are the same operator.
 
 ### G3 — `FS` stops at a single file
 
@@ -387,8 +386,9 @@ covered end to end.
    language changes either. Keep updating this list — the four already
    done changed it substantially, and the reading of `stdlib/` that
    produced G1–G7 will be wrong in places that only code reveals.
-4. **Decide `Clock` (G1) and reading the clock (G2)** on that evidence.
-   Together they unblock the largest remaining share of the corpus.
+4. ~~**Decide `Clock` (G1)**~~ Shipped in 0.25.0, ahead of this order,
+   because the ports kept meeting it. **Reading the clock (G2)** is still
+   open, and unblocks row 9 on its own.
 5. **Close the cheap ones** — G3 in particular is nearly free, and
    `ShellResult.ok?` is a one-liner.
 6. **Port the rest**, in row order.

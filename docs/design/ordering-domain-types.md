@@ -1,13 +1,16 @@
 # Design: ordering the rest of the domain types
 
-**Status: proposal — not implemented.** It depends on the `Ord`
-constraint from [`clock-and-timeouts.md`](clock-and-timeouts.md), which
-brings the machinery and orders the temporal types. This doc decides the
-four that block holds back, and one question that block meets first. The
-doc retires when the four are ordered and `docs/reference.md` says which
-types compare. Line references are from `6e932b7`.
+**Status: proposal — not implemented, and unblocked.** The `Ord`
+constraint shipped in 0.25.0 with the clock block, which brought the
+machinery and ordered the temporal types. This doc decides the four that
+block held back, and one question it met first. The doc retires when the
+four are ordered and `docs/reference.md` says which types compare. Line
+references are from `6e932b7`, before `Ord` landed.
 
 ## The problem
+
+Stated as it was before `Ord`; the four types below are unchanged by it,
+and are still a type error under a comparison.
 
 `<`, `>`, `<=` and `>=` are typed `'a -> 'a -> Bool`, and the evaluator
 handles three types: `Int`, `Float` and `String` (`evaluator.ml:940`).
@@ -200,6 +203,5 @@ Small, and it is four independent pieces. `Port` is a member with no
 code. `IPv4` and `Size` are a fold each. `Version` is the only one with
 real logic, and it is the semver rule written once.
 
-The work does not start until `Ord` exists. Until then a normalizer has
-nowhere to attach, and adding these types to the evaluator's dispatch
-table would be building the thing that block replaces.
+`Ord` exists now, so each normalizer has somewhere to attach and the work
+can start whenever it is wanted.
