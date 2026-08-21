@@ -35,9 +35,15 @@ it; the three reasons above do.
 `h :: t` in an expression. `[h :: t]` in a pattern. `:` is a type, a port
 literal, and nothing else.
 
-The bracket rule around a cons pattern is no longer forced. `(h :: t)` is
-unambiguous once cons has its own token. Keeping brackets or allowing both
-is a decision inside this work, not a reason for it.
+The brackets stay. Once cons has its own token a bare `h :: t` pattern
+would parse, and it is what OCaml writes, but `[h :: t]` says the same
+thing as `[a, b, c]` says: this is a list. A bare cons pattern also needs
+precedence rules that the brackets make unnecessary — `Some h :: t` has
+two readings and only one is right.
+
+Parentheses around a cons pattern stay refused. They were never a spelling
+anyone wanted; they are what an OCaml reader types before learning the
+bracket, which is why the message exists.
 
 ## The steps
 
@@ -60,8 +66,9 @@ is a decision inside this work, not a reason for it.
 4. **Turn the drift rules around.** `lib/diag.ml` and the lexer stop
    correcting `::`. The new correction fires where a `:` in expression
    position can no longer be a type: "cons is `::`". The `(x : xs)`
-   messages in `parser.ml` become the answer for `(x :: xs)` — which is
-   now legal — or are deleted with the bracket rule.
+   messages in `parser.ml` answer `(x :: xs)` instead, and gain the bare
+   form: `| h :: t ->` gives "expected ->, got :" today, which names
+   nothing, and it is the likelier mistake of the two.
 
 5. **Migrate the corpus.** `wand f` over `stdlib/`, `examples/`,
    `test/wand/`, `demos/` and `tools/`, then the whole battery.
