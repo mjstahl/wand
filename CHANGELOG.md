@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.31.0] - 2026-08-21
+
+### Changed
+
+- **Breaking:** `:` is no longer cons. `1 : [2, 3]` and `[h : t]` are parse
+  errors naming `::`, which 0.30.0 read as well and `wand f` writes. The
+  `:` still binds where cons bound, so the message is reached rather than
+  "expected ->, got :" from wherever the expression happened to end
+  (`5d230d6`)
+
+[0.31.0]: https://github.com/mjstahl/wand/releases/tag/v0.31.0
+
 ## [0.30.0] - 2026-08-21
 
 ### Added

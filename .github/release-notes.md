@@ -1,49 +1,28 @@
-## 0.30.0 - 2026-08-21
+## 0.31.0 - 2026-08-21
 
-Cons is `::`.
+`:` is no longer cons.
 
-    1 :: [2, 3]
+    1 : [2, 3]
+    -- parse error: cons is '::' -- a single ':' gives a name a type
 
-    match xs with
-    | [h :: t] -> h
-    | []       -> 0
+0.30.0 read both spellings so that a script written before it would run
+long enough to be formatted. This removes the old one. `:` is a type
+annotation or a port literal, and nothing else.
 
-`:` used to mean two things: it joined a head to a list, and it gave a name
-a type. It now means the type, and a port literal, and nothing else.
-
-The overload cost a rule. A cons pattern had to be bracketed because
-`(h : t)` could not be told from a parameter carrying a type, and a
-parameter annotation was read only when a type token followed the `:`.
-That lookahead is gone with the ambiguity that needed it.
+The `:` still binds where cons bound, so the error lands on it rather than
+appearing as "expected ->, got :" from wherever the expression happened to
+end.
 
 ### Migrating
 
-`:` as cons is still read, and `wand f` writes `::`. So the migration is:
-
     wand f script.wand
 
-It becomes a parse error in the next release. This one breaks nothing.
-
-### Also
-
-A bare `h :: t` pattern is read, and `wand f` writes `[h :: t]` — the
-brackets say list, the way `[a, b, c]` does. `Some h :: t` is
-`(Some h) :: t`.
-
-A pattern carries a type inside a constructor's payload now:
-
-    match JSON.decode Pod.decoder doc with
-    | Ok (p: Pod) -> p.status.restarts
-    | Error why   -> 0
-
-That is where a decoder's result lands, and it was the one place a pattern
-could not be annotated.
-
-`V-IMP1` warns on any two imports that bind one name. It used to stop at
-the first item of anything else, on the reasoning that a later rebinding
-might follow a genuine use of the first. It cannot: imports bind before a
-file's own bindings wherever they are written, so a use between two imports
-already reads the second.
+Then fix whatever still fails to parse. `wand f` is most of a migration
+and not all of it: it does not rewrite a construct holding an interior
+comment, because the construct is pinned and written back as it stands so
+the comment does not move. Five cons patterns in wand's own standard
+library were pinned that way and survived a 90-file sweep. They surfaced
+when `:` stopped parsing, which is what this release does.
 
 ---
 
