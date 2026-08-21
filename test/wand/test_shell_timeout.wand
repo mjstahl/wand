@@ -1,0 +1,52 @@
+uses {Clock, Shell(sh, sleep)}
+
+let {test, group} = import Test
+import Shell
+import String
+
+(* A deadline on a command.
+
+   These wait for real: the wait belongs to the operating system, and a
+   virtual clock cannot answer it. So every duration here is short. *)
+
+group "a command that runs late" (fn () -> [
+  test "comes back as Error" (fn t ->
+    match Shell.timeout 200ms (fn () -> $(sleep 5)) with
+    | Ok _ -> t.fail "expected the deadline to fire"
+    | Error _ -> t.ok true),
+  (* The message is what ends up in a log, so it names both. *)
+  test "naming the deadline and the command" (fn t ->
+    match Shell.timeout 200ms (fn () -> $(sleep 5)) with
+    | Ok _ -> t.fail "expected the deadline to fire"
+    | Error why -> t.ok (String.contains? "200ms" why && String.contains? "sleep 5" why))
+])
+
+group "a command that finishes in time" (fn () -> [
+  test "comes back as Ok" (fn t ->
+    t.eq (Ok "quick") (Shell.timeout 5s (fn () -> $(sh -c 'echo quick')))),
+  test "and the deadline does not outlive the thunk" (fn t ->
+    let _ = Shell.timeout 1ms (fn () -> $(sh -c 'echo a')) in
+    t.eq "b" $(sh -c 'sleep 0.2; echo b'))
+])
+
+(* Only a deadline makes an Error. A command that fails has not run late. *)
+group "other failures pass through" (fn () -> [
+  test "a non-zero exit still raises" (fn t ->
+    t.raises (fn () -> Shell.timeout 5s (fn () -> $(sh -c 'exit 3')))),
+  test "and $?() still reports the code" (fn t ->
+    match Shell.timeout 5s (fn () -> $?(sh -c 'exit 3')) with
+    | Ok r -> t.eq 3 r.code
+    | Error why -> t.fail why)
+])
+
+(* $?() and the stdin form take the deadline as well. *)
+group "every spawn form" (fn () -> [
+  test "a capture" (fn t ->
+    match Shell.timeout 200ms (fn () -> $?(sleep 5)) with
+    | Ok _ -> t.fail "expected the deadline to fire"
+    | Error _ -> t.ok true),
+  test "a command given stdin" (fn t ->
+    match Shell.timeout 200ms (fn () -> "x" |> $(sh -c 'sleep 5')) with
+    | Ok _ -> t.fail "expected the deadline to fire"
+    | Error _ -> t.ok true)
+])

@@ -30,10 +30,11 @@ let legacy_of_exn e = Diag.legacy (diag_of_exn e)
 let close_noerr fd = try Unix.close fd with Unix.Unix_error _ -> ()
 
 (* A signal arriving mid-call is a reason to look again, not to give up on
-   output the child has already written. *)
-let rec select_ready reads writes =
-  try Unix.select reads writes [] (-1.0)
-  with Unix.Unix_error (Unix.EINTR, _, _) -> select_ready reads writes
+   output the child has already written. A timeout of -1 waits for as long
+   as it takes; a deadline supplies a slice instead. *)
+let rec select_ready ?(timeout = -1.0) reads writes =
+  try Unix.select reads writes [] timeout
+  with Unix.Unix_error (Unix.EINTR, _, _) -> select_ready ~timeout reads writes
 
 let rec read_chunk fd buf =
   try Unix.read fd buf 0 (Bytes.length buf)
@@ -43,7 +44,23 @@ let rec read_chunk fd buf =
    left to do afterwards is the wait. `out` and `err` are the ends wand
    reads; `into` is the child's stdin, absent when the child inherits
    wand's. *)
-let pump ?(stdin = "") ?out ?err ?into () =
+(* How long a command may run, and what to do when it has run that long.
+   `Shell.timeout` supplies one; every other spawn passes none and waits for
+   as long as the command takes.
+
+   The deadline is counted in slices rather than measured against a clock.
+   Each slice is a fresh `select` timeout, so nothing here reads the time,
+   and a machine that steps its clock mid-command cannot shorten or extend
+   the deadline.
+
+   Expiry is a sequence, not an event: SIGTERM, then a fixed grace, then
+   SIGKILL. A command that catches SIGTERM and tidies up gets to; one that
+   ignores it does not get to keep running. The grace is fixed and not a
+   second parameter -- a caller who wants to think about TERM against KILL
+   is a caller who should be writing the signal handling out. *)
+type deadline = { budget : float; grace : float; kill : int -> unit }
+
+let pump ?(stdin = "") ?out ?err ?into ?deadline () =
   let chunk = Bytes.create 65536 in
   let out_buf = Buffer.create 65536 and err_buf = Buffer.create 65536 in
   let reading = ref (List.filter_map Fun.id [out; err]) in
@@ -61,8 +78,39 @@ let pump ?(stdin = "") ?out ?err ?into () =
     reading := List.filter (fun f -> f <> fd) !reading
   in
   let stop_writing fd = close_noerr fd; writing := [] in
-  while !reading <> [] || !writing <> [] do
-    let (ready_r, ready_w, _) = select_ready !reading !writing in
+  let slice = 0.05 in
+  (* `None` once the deadline has run its course, so the loop then waits for
+     the killed child's pipes to close and no longer counts anything. *)
+  let remaining = ref (Option.map (fun d -> d.budget) deadline) in
+  let stage = ref `Running in
+  let expired = ref false in
+  (* A killed child can still have children of its own holding the pipes
+     open -- `sh -c "sleep 30"` leaves the sleep. Once the sequence has run
+     to SIGKILL, waiting for end-of-file would be waiting for a process
+     nobody asked about, so the loop stops and the answer is the timeout. *)
+  let giving_up () = !stage = `Killed in
+  while (!reading <> [] || !writing <> []) && not (giving_up ()) do
+    let timeout =
+      match !remaining with
+      | None -> -1.0
+      | Some left -> if left < slice then left else slice
+    in
+    let (ready_r, ready_w, _) = select_ready ~timeout !reading !writing in
+    (match !remaining, deadline with
+     | Some left, Some d when ready_r = [] && ready_w = [] ->
+       let left = left -. timeout in
+       if left > 0.0 then remaining := Some left
+       else begin
+         expired := true;
+         match !stage with
+         | `Running -> d.kill Sys.sigterm; stage := `Terminated;
+                       remaining := Some d.grace
+         | `Terminated -> d.kill Sys.sigkill; stage := `Killed;
+                          remaining := None
+         | `Killed -> remaining := None
+       end
+     | _ -> ());
+    if giving_up () then () else begin
     List.iter (fun fd ->
       let n = read_chunk fd chunk in
       if n = 0 then stop_reading fd
@@ -80,8 +128,11 @@ let pump ?(stdin = "") ?out ?err ?into () =
          its exit status, not an error in the writer. *)
       | exception Unix.Unix_error (Unix.EPIPE, _, _) -> stop_writing fd)
       ready_w
+    end
   done;
-  (Buffer.contents out_buf, Buffer.contents err_buf)
+  List.iter close_noerr !reading;
+  (match !writing with [fd] -> close_noerr fd | _ -> ());
+  (Buffer.contents out_buf, Buffer.contents err_buf, !expired)
 
 (* ── Children ─────────────────────────────────────────────────────────────── *)
 
@@ -214,10 +265,35 @@ let strip_trailing_newline s =
   while !i > 0 && s.[!i - 1] = '\n' do decr i done;
   String.sub s 0 !i
 
+(* The deadline the current `Shell.timeout` set, if any, turned into what
+   `pump` wants. Fixed grace: five seconds is long enough for a shell to
+   flush and exit, and short enough not to double the wait. *)
+let timeout_grace = 5.0
+
+let deadline_for pid =
+  match Domain.DLS.get Evaluator.shell_deadline with
+  | None -> None
+  | Some ms ->
+    Some { budget = float_of_int ms /. 1000.;
+           grace  = timeout_grace;
+           kill   = (fun signal ->
+             try Unix.kill pid signal with Unix.Unix_error _ -> ()) }
+
+(* A command that ran out of time. `Shell.timeout` turns it into an `Error`;
+   anywhere else it is an ordinary raise, which is what a deadline nobody
+   set can never produce. *)
+let timed_out cmd =
+  let ms = match Domain.DLS.get Evaluator.shell_deadline with
+    | Some ms -> ms | None -> 0 in
+  raise (EvalError (Printf.sprintf "%s: %s" Evaluator.timeout_prefix
+    (Printf.sprintf "timed out after %s: %s"
+       (Evaluator.format_dur_ms ms) cmd)))
+
 let exec_command cmd =
   let (pid, out_r) = spawn_in cmd in
-  let (output, _) = pump ~out:out_r () in
+  let (output, _, expired) = pump ~out:out_r ?deadline:(deadline_for pid) () in
   let status = reap pid in
+  if expired then timed_out cmd;
   let output = strip_trailing_newline output in
   match status with
   | Unix.WEXITED 0   -> output
@@ -240,9 +316,12 @@ let exec_command_exit_code cmd =
 
 let exec_command_stdin cmd stdin =
   let (pid, out_r, in_w) = spawn_stdin cmd in
-  let (stdout, _) = pump ~stdin ~out:out_r ~into:in_w () in
+  let (stdout, _, expired) =
+    pump ~stdin ~out:out_r ~into:in_w ?deadline:(deadline_for pid) () in
   let stdout = strip_trailing_newline stdout in
-  match reap pid with
+  let status = reap pid in
+  if expired then timed_out cmd;
+  match status with
   | Unix.WEXITED 0   -> stdout
   | Unix.WEXITED n   -> raise (EvalError (Printf.sprintf "command exited with code %d: %s" n cmd))
   | Unix.WSIGNALED n -> command_signalled cmd n
@@ -250,7 +329,9 @@ let exec_command_stdin cmd stdin =
 
 let capture ?(stdin = "") cmd =
   let (pid, out_r, err_r, in_w) = spawn_full cmd in
-  let (stdout, stderr) = pump ~stdin ~out:out_r ~err:err_r ~into:in_w () in
+  let (stdout, stderr, expired) =
+    pump ~stdin ~out:out_r ~err:err_r ~into:in_w ?deadline:(deadline_for pid) () in
+  if expired then timed_out cmd;
   let code = match reap pid with
     | Unix.WEXITED n   -> n
     | Unix.WSIGNALED _ -> 128
@@ -486,9 +567,10 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!exit_code", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> guard_shell cmd) with
+              match attempt (fun () -> guard_shell cmd;
+                                        exec_command_exit_code cmd) with
               | Error e -> Effect.Deep.discontinue k e
-              | Ok ()   -> Effect.Deep.continue k (VInt (exec_command_exit_code cmd)))
+              | Ok code -> Effect.Deep.continue k (VInt code))
           | WandEffect ("Shell!run", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match attempt (fun () -> guard_shell cmd; exec_command_stdin cmd stdin) with
@@ -496,17 +578,20 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!capture", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> guard_shell cmd) with
+              (* Through `attempt` like the others: `$?()` reports an exit
+                 code rather than raising on one, but a deadline that ran
+                 out is a raise, and it has to reach the call site's `try`
+                 rather than escape the handler. *)
+              match attempt (fun () -> guard_shell cmd; exec_command_full cmd) with
               | Error e -> Effect.Deep.discontinue k e
-              | Ok () ->
-                let (stdout, stderr, code) = exec_command_full cmd in
+              | Ok (stdout, stderr, code) ->
                 Effect.Deep.continue k (shell_result stdout stderr code))
           | WandEffect ("Shell!capture", VTuple [VString cmd; VString stdin]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match attempt (fun () -> guard_shell cmd) with
+              match attempt (fun () -> guard_shell cmd;
+                                        exec_command_full_stdin cmd stdin) with
               | Error e -> Effect.Deep.discontinue k e
-              | Ok () ->
-                let (stdout, stderr, code) = exec_command_full_stdin cmd stdin in
+              | Ok (stdout, stderr, code) ->
                 Effect.Deep.continue k (shell_result stdout stderr code))
           | WandEffect ("FS!read_file", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->

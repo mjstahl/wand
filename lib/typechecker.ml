@@ -2643,6 +2643,15 @@ let stdlib_type_env : env = [
      one on the supplied function, so calling par_map performs exactly what
      that function performs -- the work happens inside, where inference
      cannot otherwise see it. *)
+  (* `Shell.timeout d thunk` performs what the thunk performs, and waits, so
+     it adds Clock to the thunk's own effects. The same variable on both
+     sides is what says the effects come from the caller's thunk. *)
+  ("shell_timeout",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   let with_clock = Effect_set.add Effect_set.Clock e in
+   generalize [] (TDuration @-> TFun (TFun (TUnit, a, e),
+                                      TResult (TString, a), with_clock)));
   ("par_map",  let a = fresh () in let b = fresh () in
                let e = Effect_set.unknown () in
                generalize [] (TInt @-> (TFun (a, b, e)

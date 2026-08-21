@@ -281,6 +281,30 @@ type _ Effect.t += WandEffect : string * value -> value Effect.t
 let ambient_shell_allow : string list option Domain.DLS.key =
   Domain.DLS.new_key (fun () -> None)
 
+(* How long a command may run, in milliseconds, or None for as long as it
+   takes. `Shell.timeout` sets it for the extent of the thunk it is given,
+   and the default handler reads it when it waits for a child.
+
+   Domain-local for the same reason the shell bound is: it belongs to the
+   code that is running, not to the program. A `Par` worker that inherits
+   nothing here waits without a deadline, which is the honest default --
+   the worker was not the code the timeout was written around. *)
+let shell_deadline : int option Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> None)
+
+(* A timed-out command raises like any other failure, and `Shell.timeout`
+   picks its own out of the raises it may catch by this prefix. Nothing
+   else produces it, because nothing else sets a deadline. *)
+let timeout_prefix = "wand:timeout"
+
+let starts_with prefix s =
+  String.length s >= String.length prefix
+  && String.sub s 0 (String.length prefix) = prefix
+
+let drop_prefix prefix s =
+  let n = String.length prefix + 2 in   (* the prefix, then ": " *)
+  if String.length s > n then String.sub s n (String.length s - n) else s
+
 let perform_shell name allow payload =
   let saved = Domain.DLS.get ambient_shell_allow in
   Domain.DLS.set ambient_shell_allow allow;
@@ -1805,6 +1829,28 @@ let stdlib_eval_env : env = [
   ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
   ("proc_exit",  performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
+  (* A deadline on the commands a thunk runs. It is set for the extent of
+     the call and taken off after, so a command outside the thunk waits as
+     long as it takes.
+
+     Only a timeout comes back as `Error`. Every other raise passes
+     through: a command that exits non-zero has failed, not run late, and
+     `$?()` is what asks about an exit code. *)
+  ("shell_timeout", VBuiltin (function
+    | VDuration d -> VBuiltin (fun thunk ->
+      let saved = Domain.DLS.get shell_deadline in
+      Domain.DLS.set shell_deadline (Some (parse_dur_ms d));
+      let restore () = Domain.DLS.set shell_deadline saved in
+      (match Fun.protect ~finally:restore (fun () -> apply thunk VUnit) with
+       | v -> VConstr ("Ok", [v])
+       (* The raise carries a position by the time it gets here, and the
+          marker sits after it. *)
+       | exception EvalError msg
+         when starts_with timeout_prefix (Util.strip_loc_prefix msg) ->
+         VConstr ("Error",
+                  [VString (drop_prefix timeout_prefix
+                              (Util.strip_loc_prefix msg))])))
+    | _ -> raise (EvalError "Shell.timeout: expected a Duration")));
   (* Waiting is an effect, so a handler can answer it: a test that
      exercises an hour of backoff must not take an hour. *)
   ("clock_sleep", performing "Clock!sleep" (function

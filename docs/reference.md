@@ -2872,11 +2872,43 @@ nothing rehearses for speed.
 ### `Shell`
 
 ```ocaml
-decode : Decoder 'a -> String -> Result String 'a
-lines  : Decoder 'a -> String -> Result String (List 'a)
+decode  : Decoder 'a -> String -> Result String 'a
+lines   : Decoder 'a -> String -> Result String (List 'a)
+timeout : Duration -> (Unit -> 'a ! 'e) -> Result String 'a ! {Clock | 'e}
 ```
 
 Reading what a command wrote. See [Decoders](#decoders).
+
+`timeout` puts a deadline on the commands a thunk runs:
+
+```ocaml
+match Shell.timeout 30s (fn () -> $(curl %{url})) with
+| Ok body   -> body
+| Error why -> "gave up: %{why}"
+```
+
+A command that has not finished in time is sent SIGTERM, and SIGKILL five
+seconds later. The grace is fixed, and is not a second parameter: a caller
+who wants to think about TERM against KILL should write the signal handling
+out instead.
+
+The `Error` names the command and the deadline, because that message ends
+up in a log and "timed out" alone says nothing. Only a deadline produces
+one. Every other failure passes through, so a command that exits non-zero
+raises as it always does.
+
+Three things to know:
+
+- **The deadline is per command.** A thunk that runs three commands may
+  take three deadlines. For a bound on everything a thunk does, including
+  the wand code between the commands, see `Par.timeout`.
+- **A virtual clock does not shorten it.** The wait belongs to the
+  operating system, not to wand, so `Test.with_clock` cannot answer it.
+  Test a timeout against a command that really waits.
+- **A killed command may leave children.** wand signals the command it
+  started. `sh -c "sleep 30"` leaves the `sleep` when the shell is killed;
+  wand stops waiting on it rather than waiting for a process it did not
+  start.
 
 ```ocaml
 let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
