@@ -881,7 +881,10 @@ let test_ordering_is_a_constraint () =
   fails "a regex" "r/a/ < r/b/" "Regex is not ordered";
   fails "a list" "[1] < [2]" "List Int is not ordered";
   fails "two functions" "(fn x -> x) < (fn y -> y)" "is not ordered";
-  fails "a size, until it has a normalizer" "100MB < 1GB" "Size is not ordered";
+  ok "a size" "100MB < 1GB" "true";
+  ok "a version, by number and not by text" "1.10.0 > 1.9.0" "true";
+  ok "an address, by its number" "10.0.0.9 < 10.0.0.10" "true";
+  ok "a port" ":80 < :443" "true";
   (* Ord composes as Num does: a function that only compares stays
      polymorphic over every ordered type. *)
   Alcotest.(check string) "a comparison stays polymorphic" "Ord -> Ord -> Ord"

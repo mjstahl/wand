@@ -495,6 +495,86 @@ let datetime_epoch s =
     | '-' -> secs + (num 20 2 * 3600 + num 23 2 * 60)
     | _   -> secs
 
+(* A size in bytes. A `KB` is 1000 bytes, not 1024: the spelling is the SI
+   one, and SI says 1000. Reading it as 1024 would be lying about the unit
+   the author wrote. Binary units would be `KiB`, which wand does not lex.
+
+   A literal may carry a decimal (`1.5GB`), so the product is rounded to
+   the nearest byte. `Int` holds 4.6 exabytes, and the largest literal the
+   lexer accepts is far below that. *)
+let size_bytes s =
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n && (let c = s.[!i] in (c >= '0' && c <= '9') || c = '.') do incr i done;
+  let number = float_of_string (String.sub s 0 !i) in
+  let unit = String.sub s !i (n - !i) in
+  let factor =
+    match unit with
+    | "B"  -> 1.0
+    | "KB" -> 1e3
+    | "MB" -> 1e6
+    | "GB" -> 1e9
+    | "TB" -> 1e12
+    | "PB" -> 1e15
+    | _ -> raise (EvalError (Printf.sprintf "invalid size: %S" s))
+  in
+  int_of_float (Float.round (number *. factor))
+
+(* An address as the 32-bit number it is, so `10.0.0.9` is below
+   `10.0.0.10`. Text order says otherwise, which is the answer nobody
+   wants. The lexer has already refused an octet above 255. *)
+let ipv4_key s =
+  List.fold_left (fun acc part -> acc * 256 + int_of_string part) 0
+    (String.split_on_char '.' s)
+
+(* Semver precedence. Numbers compare as numbers, so `1.10.0` is above
+   `1.9.0`. A version with a prerelease is below the same version without
+   one, and two prereleases compare identifier by identifier: a number
+   against a number numerically, a number below a word, two words by their
+   text, and if all of them match, the longer list wins.
+
+   wand's literal accepts two spellings semver does not, and both fall out
+   of the rule rather than needing an exception: a leading zero reads as
+   the number it is, and an empty prerelease is one empty identifier, below
+   every other. *)
+let version_parts s =
+  match String.index_opt s '-' with
+  | None -> (s, None)
+  | Some i -> (String.sub s 0 i,
+               Some (String.sub s (i + 1) (String.length s - i - 1)))
+
+let compare_prerelease a b =
+  let ids t = String.split_on_char '.' t in
+  let numeric t = t <> "" && String.for_all (fun c -> c >= '0' && c <= '9') t in
+  let rec go xs ys =
+    match xs, ys with
+    | [], [] -> 0
+    | [], _  -> -1          (* fewer identifiers is lower *)
+    | _, []  -> 1
+    | x :: xs, y :: ys ->
+      let c =
+        match numeric x, numeric y with
+        | true, true   -> compare (int_of_string x) (int_of_string y)
+        | true, false  -> -1
+        | false, true  -> 1
+        | false, false -> compare x y
+      in
+      if c <> 0 then c else go xs ys
+  in
+  go (ids a) (ids b)
+
+let compare_versions a b =
+  let (na, pa) = version_parts a and (nb, pb) = version_parts b in
+  let nums t = List.map int_of_string (String.split_on_char '.' t) in
+  let c = compare (nums na) (nums nb) in
+  if c <> 0 then c
+  else
+    match pa, pb with
+    | None,   None   -> 0
+    | Some _, None   -> -1      (* a prerelease is below the release *)
+    | None,   Some _ -> 1
+    | Some x, Some y -> compare_prerelease x y
+
 (* Comparing normalized values is the whole point: `90s` against `1min`, or
    one instant written two ways. `Date` and `Time` are fixed-width and
    zero-padded, so for those two the text order is already the right order.
@@ -510,19 +590,26 @@ let wand_order a b =
   | VDate x,     VDate y     -> compare x y
   | VTime x,     VTime y     -> compare x y
   | VDateTime x, VDateTime y -> compare (datetime_epoch x) (datetime_epoch y)
+  | VSize x,     VSize y     -> compare (size_bytes x) (size_bytes y)
+  | VVersion x,  VVersion y  -> compare_versions x y
+  | VPort x,     VPort y     -> compare x y
+  | VIPv4 x,     VIPv4 y     -> compare (ipv4_key x) (ipv4_key y)
   | _ -> raise (EvalError "these values have no order")
 
 (* Equality normalizes wherever ordering does, so the three relations agree.
    It compared the stored text before, which made `60s == 1min` false while
    `60s < 1min` and `60s > 1min` were both false as well: three answers that
    no reader can hold at once. *)
+(* The types whose text is not their value, so equality and sorting have to
+   read them rather than compare their spelling. `Port` is not here: it
+   holds the number already. *)
 let normalized = function
-  | VDuration _ | VDateTime _ -> true
+  | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ -> true
   | _ -> false
 
 let rec wand_equal a b =
   match a, b with
-  | (VDuration _ | VDateTime _), (VDuration _ | VDateTime _) ->
+  | _ when normalized a && normalized b ->
     (try wand_order a b = 0 with EvalError _ -> false)
   (* A value that normalizes can sit inside another value, so the walk goes
      in rather than stopping at the outside: `[60s] == [1min]` is the same

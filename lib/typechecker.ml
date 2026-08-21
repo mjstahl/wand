@@ -150,7 +150,8 @@ let fresh_ord () = fresh_as Ord
    right order -- stated because it was checked, not assumed. *)
 let is_ordered = function
   | TInt | TFloat | TString
-  | TDuration | TDate | TTime | TDateTime -> true
+  | TDuration | TDate | TTime | TDateTime
+  | TSize | TVersion | TPort | TIPv4 -> true
   | _ -> false
 
 (* Which of two constraints a unified variable keeps: the narrower one.

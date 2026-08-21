@@ -108,18 +108,20 @@ Int division keeps its check.
 ### Comparison and `Ord`
 
 `==` and `!=` compare any two values of one type. `<`, `>`, `<=` and `>=`
-take an `Ord`: a type that wand orders. These seven are ordered:
+take an `Ord`: a type that wand orders. These eleven are ordered:
 
 ```text
-Int   Float   String   Duration   Date   Time   DateTime
+Int   Float   String
+Duration   Date   Time   DateTime
+Size   Version   Port   IPv4
 ```
 
 A type outside that set is a type error where it is written, not a failure
 during the run:
 
 ```ocaml
-100MB < 1GB
--- type error: Size is not ordered, so it cannot be compared with < > <= >=
+r/a/ < r/b/
+-- type error: Regex is not ordered, so it cannot be compared with < > <= >=
 ```
 
 `Ord` is a constraint, as `Num` is, so a function that only compares stays
@@ -144,6 +146,31 @@ value has more than one spelling. Equality reads it the same way:
 A `DateTime` with no offset is read as UTC. `Date` and `Time` are
 fixed-width and zero-padded, so their text order is already their value
 order.
+
+The other three read the same way, and each is a case where the text order
+is wrong:
+
+```ocaml
+1GB > 999MB                       -- true; a KB is 1000 bytes, as SI says
+1.10.0 > 1.9.0                    -- true; the numbers are numbers
+10.0.0.10 > 10.0.0.9              -- true; the address is its 32 bits
+1000B == 1KB                      -- true
+```
+
+`Version` follows [semver precedence][semver]: a version with a prerelease
+is below the same version without one, and two prereleases compare
+identifier by identifier, a number against a number numerically and a
+number below a word. So
+`1.2.3-alpha.1 < 1.2.3-alpha.2 < 1.2.3-beta < 1.2.3`.
+
+`List.sort` reads a value the same way, so sorting these types answers with
+the order above rather than with the order of their text.
+
+Not ordered: `Path` and `Glob`, because text order reads as tree order and
+is not; `Url`, which has no natural one; `CIDR`, because two networks that
+overlap are neither above nor below; `Regex`; `Bool`; and the containers.
+
+[semver]: https://semver.org/spec/v2.0.0.html
 
 String interpolation with `%{...}`, which takes any expression:
 

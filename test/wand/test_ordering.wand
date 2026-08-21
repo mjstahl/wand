@@ -1,4 +1,5 @@
 let {test, group} = import Test
+import List
 
 (* What wand orders, and on what.
 
@@ -59,4 +60,43 @@ group "Ord is a constraint, not a type" (fn () -> [
   test "at Duration" (fn t -> t.eq 5min (later 30s 5min)),
   test "at Int" (fn t -> t.eq 9 (later 9 2)),
   test "at Date" (fn t -> t.eq 2024-02-01 (later 2024-01-15 2024-02-01))
+])
+
+(* The four whose text order is not their value order. Each line below is a
+   case where comparing the spelling gives the wrong answer. *)
+
+group "Size" (fn () -> [
+  test "across units" (fn t -> t.ok (100MB < 1GB)),
+  test "a bigger number in a smaller unit" (fn t -> t.ok (1GB > 999MB)),
+  (* A KB is 1000 bytes: the spelling is the SI one. *)
+  test "the unit is decimal" (fn t -> t.ok (1KB == 1000B)),
+  test "a decimal literal" (fn t -> t.ok (1.5GB == 1500000000B))
+])
+
+group "Version" (fn () -> [
+  test "ten is above nine" (fn t -> t.ok (1.10.0 > 1.9.0)),
+  test "patch" (fn t -> t.ok (1.2.3 < 1.2.10)),
+  test "a prerelease is below its release" (fn t -> t.ok (1.2.3-rc.1 < 1.2.3)),
+  test "numeric identifiers compare as numbers" (fn t ->
+    t.ok (1.2.3-alpha.2 > 1.2.3-alpha.1)),
+  test "a number is below a word" (fn t -> t.ok (1.2.3-1 < 1.2.3-alpha)),
+  test "words compare as text" (fn t -> t.ok (1.2.3-alpha < 1.2.3-beta)),
+  test "more identifiers wins when the rest match" (fn t ->
+    t.ok (1.2.3-alpha < 1.2.3-alpha.1))
+])
+
+group "Port and IPv4" (fn () -> [
+  test "a port is its number" (fn t -> t.ok (:80 < :443)),
+  test "an address is its 32 bits" (fn t -> t.ok (10.0.0.9 < 10.0.0.10)),
+  test "across octets" (fn t -> t.ok (10.0.1.0 > 10.0.0.255)),
+  test "a padded octet is the same address" (fn t -> t.ok (192.168.001.1 == 192.168.1.1))
+])
+
+(* Sorting reads a value the same way. Each of these came back in the order
+   of its text before. *)
+group "List.sort agrees" (fn () -> [
+  test "addresses" (fn t ->
+    t.eq [10.0.0.2, 10.0.0.9, 10.0.0.10] (List.sort [10.0.0.10, 10.0.0.9, 10.0.0.2])),
+  test "versions" (fn t -> t.eq [1.2.3, 1.9.0, 1.10.0] (List.sort [1.10.0, 1.9.0, 1.2.3])),
+  test "sizes" (fn t -> t.eq [100B, 999MB, 1GB] (List.sort [1GB, 999MB, 100B]))
 ])
