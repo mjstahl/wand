@@ -12,6 +12,84 @@ let e label input expected =
 let parse_program s =
   Lexer.tokenize s |> Parser.parse_program
 
+(* ── A type on a pattern ─────────────────────────────────────────────────── *)
+
+(* `(p: Pod)` gives a parameter a type, which is what lets a function read a
+   field off one. The slot was refused before, with a message for the cons
+   mistake -- and cons in a pattern is `[h : t]`, in brackets, so the
+   parenthesised form was never a pattern at all. One token tells them
+   apart: a type starts with `Upper`, `'a` or `(`.
+
+   Every parameter position funnels through the same two functions, so all
+   of them gain it together. *)
+
+(* `Ast.show_pat` prints the pattern under an annotation and not the
+   annotation itself, so these compare a rendering that shows it. *)
+let rec type_text (te : Ast.type_expr) =
+  match te with
+  | Ast.TEName n      -> n
+  | Ast.TEVar v       -> "'" ^ v
+  | Ast.TEApp (f, a)  -> type_text f ^ " " ^ type_text a
+  | Ast.TETuple ts    -> "(" ^ String.concat ", " (List.map type_text ts) ^ ")"
+  | Ast.TEFun (a, b, _) -> type_text a ^ " -> " ^ type_text b
+
+let rec pat_text (p : Ast.pat) =
+  match p with
+  | Ast.PAnnot (inner, te) -> "(" ^ pat_text inner ^ ": " ^ type_text te ^ ")"
+  | other -> Ast.show_pat other
+
+let params_text src =
+  let prog = parse_program src in
+  match prog.items with
+  | Ast.TLLet (_, params, _) :: _ ->
+    String.concat " " (List.map pat_text params)
+  | _ -> Alcotest.failf "expected a let with parameters from: %s" src
+
+let expr_pats src =
+  match parse src with
+  | Fn (ps, _) -> String.concat " " (List.map pat_text ps)
+  | Let (_, Fn (ps, _), _) -> String.concat " " (List.map pat_text ps)
+  | Match (_, (p, _, _) :: _) -> pat_text p
+  | With (_, p, _) -> pat_text p
+  | e -> Alcotest.failf "no pattern in: %s" (Ast.show e)
+
+let refuses label src needle =
+  match (try Ok (parse_program src) with Parser.ParseError (_, m) -> Error m) with
+  | Ok _ -> Alcotest.failf "%s: expected a parse error" label
+  | Error m ->
+    if not (Lint.contains m needle) then
+      Alcotest.failf "%s: expected %S in: %s" label needle m
+
+let test_pattern_annotation () =
+  let check = Alcotest.(check string) in
+  check "a top-level let"   "(p: Pod)"           (params_text "let describe (p: Pod) = p.name");
+  check "two of them"       "(a: Pod) (b: Pod)"  (params_text "let f (a: Pod) (b: Pod) = a");
+  check "a local let"       "(p: Pod)"
+    (expr_pats "let inner (p: Pod) = p.name in inner");
+  check "a lambda"          "(p: Pod)"           (expr_pats "fn (p: Pod) -> p");
+  check "an arm of a match" "(p: Pod)"           (expr_pats "match x with | (p: Pod) -> p");
+  check "a resource bracket" "(d: Path)"         (expr_pats "with r as (d: Path) -> d");
+  (* A type of any shape, not only a name. *)
+  check "an applied type"   "(xs: List Pod)"     (expr_pats "fn (xs: List Pod) -> xs");
+  check "a tuple type"      "((a, b): (Pod, Pod))"
+    (expr_pats "fn ((a, b): (Pod, Pod)) -> a");
+  check "an arrow type"     "(f: Pod -> String)"
+    (expr_pats "fn (f: Pod -> String) -> f");
+  (* The spacing is the author's; the parser reads both. *)
+  check "a space before the colon" "(p: Pod)"    (expr_pats "fn (p : Pod) -> p")
+
+(* The message this slot used to hold still meets the mistake it was written
+   for. This is the regression that matters: the change edits the code path
+   that produces it. *)
+let test_the_cons_mistake_still_reports () =
+  refuses "in a match arm" "match xs with | (x : xs) -> x"
+    "a cons pattern is written in square brackets";
+  refuses "in a parameter" "let f (x : xs) = x"
+    "a cons pattern is written in square brackets";
+  (* And the real cons pattern is untouched. *)
+  Alcotest.(check string) "cons in brackets" "[h : t]"
+    (expr_pats "match xs with | [h : t] -> h")
+
 (* ── Brace maps ──────────────────────────────────────────────────────────── *)
 
 let test_brace_map_literal () =
@@ -578,6 +656,10 @@ let () =
     "written effects", [
       Alcotest.test_case "the four shapes"     `Quick test_written_effects_shapes;
       Alcotest.test_case "innermost arrow"     `Quick test_written_effects_land_on_the_inner_arrow;
+    ];
+    "a type on a pattern", [
+      Alcotest.test_case "every position"   `Quick test_pattern_annotation;
+      Alcotest.test_case "cons still fails" `Quick test_the_cons_mistake_still_reports;
     ];
     "layout", [
       Alcotest.test_case "indented continuation" `Quick test_indented_continuation;

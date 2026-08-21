@@ -374,10 +374,10 @@ covered end to end.
 
 ## Order of work
 
-1. **Fix the parameter annotation.** `fn (p: Pod) ->` and `let f (r: Repo)
-   = …`, plus the parse error that currently misreads them as cons
-   patterns. Everything else in this project is written on top of it, and
-   ports written before it will all need rewriting after.
+1. ~~**Fix the parameter annotation.**~~ Shipped: `fn (p: Pod) ->` and
+   `let f (r: Repo) = …` both parse, and the cons message still meets the
+   mistake it was written for. See "A type on a parameter" in
+   `docs/reference.md`.
 2. **Decide `let … in` across `;`.** Second-largest readability win, and
    likely a small parser change.
 3. **Port ten more scripts**, now from rows 1, 2, 4 and 10, which need no

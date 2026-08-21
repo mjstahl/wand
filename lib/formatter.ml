@@ -214,6 +214,9 @@ let rec emit_pat (p : pat) : string = match p with
       | _ -> map_key k ^ " = " ^ emit_pat p
     in
     "{" ^ String.concat ", " (List.map entry kvs) ^ "}"
+  (* The parentheses are the syntax, not decoration: `p : Pod` on its own
+     is a cons expression. *)
+  | PAnnot (p, te) -> "(" ^ emit_pat p ^ ": " ^ emit_type_expr te ^ ")"
 
 and emit_pat_atom (p : pat) : string = match p with
   | PConstr (_, _ :: _) | PConstrNamed _ -> "(" ^ emit_pat p ^ ")"

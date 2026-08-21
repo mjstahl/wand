@@ -73,6 +73,7 @@ let rec pat_names (p : Ast.pat) =
   | Ast.PConstr (_, ps) -> List.concat_map pat_names ps
   | Ast.PConstrNamed (_, kvs) | Ast.PMap kvs ->
     List.concat_map (fun (_, p) -> pat_names p) kvs
+  | Ast.PAnnot (p, _) -> pat_names p
   | _ -> []
 
 (* Shell-level structure in a command string. One stage is exactly what $()

@@ -83,6 +83,22 @@ let peek s =
   while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
   if !i < Array.length s.tokens then fst s.tokens.(!i) else Token.EOF
 
+(* The token after the next one, skipping what `peek` skips. One token of
+   lookahead is all that tells `(p : Pod)` from the cons mistake. *)
+let peek2 s =
+  let i = ref s.pos in
+  let skip_from j =
+    let k = ref j in
+    while !k < Array.length s.tokens && is_skippable (fst s.tokens.(!k)) do incr k done;
+    !k
+  in
+  i := skip_from !i;
+  if !i >= Array.length s.tokens then Token.EOF
+  else begin
+    let j = skip_from (!i + 1) in
+    if j < Array.length s.tokens then fst s.tokens.(j) else Token.EOF
+  end
+
 let peek_loc s =
   let i = ref s.pos in
   while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
@@ -253,193 +269,6 @@ let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
 
 (* ── Pattern parsing ──────────────────────────────────────────────────────── *)
 
-let rec pat_ s =
-  match peek s with
-  | Token.Int n      -> ignore (advance s); (Int n : pat)
-  | Token.Float f    -> ignore (advance s); Float f
-  | Token.String str -> ignore (advance s); String str
-  (* A backtick string is a string; a pattern has no interpolation to keep
-     apart, so it needs no separate form. *)
-  | Token.RawStr str -> ignore (advance s); String str
-  | Token.Bool b     -> ignore (advance s); Bool b
-  | Token.Ident name -> ignore (advance s); PVar name
-  | Token.Underscore -> ignore (advance s); Wild
-  | Token.LParen     ->
-    ignore (advance s);
-    if peek s = Token.RParen then (ignore (advance s); Unit)
-    else begin
-      let p = pat_ s in
-      if peek s = Token.Comma then begin
-        let ps = ref [p] in
-        while peek s = Token.Comma do
-          ignore (advance s); ps := !ps @ [pat_ s]
-        done;
-        expect s Token.RParen; PTuple !ps
-      end else if peek s = Token.Colon then
-        fail_at (peek_loc s)
-          "a cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'"
-      else begin
-        expect s Token.RParen;
-        (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
-        match p with PVar _ -> PTuple [p] | _ -> p
-      end
-    end
-  | Token.LBracket ->
-    ignore (advance s); list_pat_ s
-  | Token.LBrace ->
-    ignore (advance s); brace_map_pat_ s
-  | Token.Upper name ->
-    ignore (advance s);
-    if peek_named_args s then begin
-      ignore (advance s); (* consume LParen *)
-      let fields = ref [] in
-      if peek s <> Token.RParen then begin
-        let parse_field () =
-          let fname = expect_ident s in
-          expect s Token.Eq;
-          fields := !fields @ [(fname, pat_ s)]
-        in
-        parse_field ();
-        while peek s = Token.Comma do ignore (advance s); parse_field () done
-      end;
-      expect s Token.RParen;
-      PConstrNamed (name, !fields)
-    end else if peek s = Token.LParen then begin
-      ignore (advance s); (* consume LParen *)
-      if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
-      else begin
-        let pats = ref [pat_ s] in
-        while peek s = Token.Comma do
-          ignore (advance s); pats := !pats @ [pat_ s]
-        done;
-        expect s Token.RParen;
-        (* Parentheses group a tuple; several arguments are written by
-           juxtaposition. Mirrors the expression side. *)
-        match !pats with
-        | (_ :: _ :: _ as ps) -> PConstr (name, [PTuple ps])
-        | pats -> PConstr (name, pats)
-      end
-    end else begin
-      let args = ref [] in
-      while is_pat_atom_start (peek s) do
-        args := !args @ [pat_atom_ s]
-      done;
-      PConstr (name, !args)
-    end
-  | t ->
-    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
-      Token.pp t (keyword_hint t))
-
-and pat_atom_ s =
-  match peek s with
-  | Token.Int n      -> ignore (advance s); (Int n : pat)
-  | Token.Float f    -> ignore (advance s); Float f
-  | Token.String str -> ignore (advance s); String str
-  (* A backtick string is a string; a pattern has no interpolation to keep
-     apart, so it needs no separate form. *)
-  | Token.RawStr str -> ignore (advance s); String str
-  | Token.Bool b     -> ignore (advance s); Bool b
-  | Token.Ident name -> ignore (advance s); PVar name
-  | Token.Underscore -> ignore (advance s); Wild
-  | Token.Upper name -> ignore (advance s); PConstr (name, [])
-  | Token.LParen     ->
-    ignore (advance s);
-    if peek s = Token.RParen then (ignore (advance s); Unit)
-    else begin
-      let p = pat_ s in
-      if peek s = Token.Comma then begin
-        let ps = ref [p] in
-        while peek s = Token.Comma do
-          ignore (advance s); ps := !ps @ [pat_ s]
-        done;
-        expect s Token.RParen; PTuple !ps
-      end else if peek s = Token.Colon then
-        fail_at (peek_loc s)
-          "a cons pattern is written in square brackets: \
-           [x : xs], not '(x : xs)'"
-      else (expect s Token.RParen; p)
-    end
-  | Token.LBracket ->
-    ignore (advance s); list_pat_ s
-  | Token.LBrace ->
-    ignore (advance s); brace_map_pat_ s
-  | t ->
-    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
-      Token.pp t (keyword_hint t))
-
-and list_pat_ s =
-  (* [ already consumed *)
-  if peek s = Token.RBracket then (ignore (advance s); PList [])
-  else begin
-    (* `[k = pat]` was a map pattern until 0.17; brackets are lists alone
-       now. Refused with the correction rather than read on as a list,
-       because `k = pat` is no list element and the generic error would
-       point nowhere near the mistake. *)
-    let is_map =
-      match peek s with
-      | Token.Ident _ | Token.String _ ->
-        let saved = s.pos in
-        ignore (advance s);
-        let result = peek s = Token.Eq in
-        s.pos <- saved;
-        result
-      | _ -> false
-    in
-    if is_map then
-      fail_at (snd s.tokens.(s.pos - 1))
-        "a map pattern is written in braces -- {k = v}, not [k = v]"
-    else begin
-      let first = pat_ s in
-      if peek s = Token.Colon then begin
-        ignore (advance s);
-        (* Chain further cons cells: [a : b : c : t] is PCons(a, PCons(b,
-           PCons(c, t))), not just a single cons with a flat tail. *)
-        let rec parse_cons_tail () =
-          let p = pat_ s in
-          if peek s = Token.Colon then begin
-            ignore (advance s);
-            PCons (p, parse_cons_tail ())
-          end else p
-        in
-        let tl = parse_cons_tail () in
-        expect s Token.RBracket;
-        PCons (first, tl)
-      end else begin
-        let pats = ref [first] in
-        while peek s = Token.Comma do
-          ignore (advance s); pats := !pats @ [pat_ s]
-        done;
-        expect s Token.RBracket;
-        PList !pats
-      end
-    end
-  end
-
-(* `{status = s, phase}` -- a map pattern. A bare identifier puns: the key
-   binds a variable of its own name. A quoted key has no identifier to pun
-   into, so it takes `= pat` like any rename. *)
-and brace_map_pat_ s =
-  (* { already consumed *)
-  if peek s = Token.RBrace then (ignore (advance s); PMap [])
-  else begin
-    let parse_entry () =
-      match advance s with
-      | Token.Ident k ->
-        if peek s = Token.Eq then (ignore (advance s); (k, pat_ s))
-        else (k, (PVar k : pat))
-      | Token.String k ->
-        expect s Token.Eq; (k, pat_ s)
-      | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
-    in
-    let entries = ref [parse_entry ()] in
-    while peek s = Token.Comma do
-      ignore (advance s); entries := !entries @ [parse_entry ()]
-    done;
-    expect s Token.RBrace;
-    PMap !entries
-  end
-
 let builtin_types = [
   "Int"; "Float"; "String"; "Bool"; "Unit"; "Path";
   "Date"; "Time"; "DateTime"; "Duration"; "Url";
@@ -546,6 +375,213 @@ and parse_type_expr s =
     Ast.TEFun (left, right, eff)
   end
   else left
+
+let rec pat_ s =
+  match peek s with
+  | Token.Int n      -> ignore (advance s); (Int n : pat)
+  | Token.Float f    -> ignore (advance s); Float f
+  | Token.String str -> ignore (advance s); String str
+  (* A backtick string is a string; a pattern has no interpolation to keep
+     apart, so it needs no separate form. *)
+  | Token.RawStr str -> ignore (advance s); String str
+  | Token.Bool b     -> ignore (advance s); Bool b
+  | Token.Ident name -> ignore (advance s); PVar name
+  | Token.Underscore -> ignore (advance s); Wild
+  | Token.LParen     ->
+    ignore (advance s);
+    if peek s = Token.RParen then (ignore (advance s); Unit)
+    else begin
+      let p = pat_ s in
+      if peek s = Token.Comma then begin
+        let ps = ref [p] in
+        while peek s = Token.Comma do
+          ignore (advance s); ps := !ps @ [pat_ s]
+        done;
+        expect s Token.RParen; PTuple !ps
+      end else if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
+        (* `(p : Pod)` gives the parameter a type. One token decides it: a
+           type starts with an `Upper` name, a `'a`, or a `(`, and a cons
+           pattern -- which is written `[h : t]`, in brackets -- never
+           does. So the message below still meets the mistake it was
+           written for. *)
+        ignore (advance s);
+        let te = parse_type_expr s in
+        expect s Token.RParen;
+        PAnnot (p, te)
+      end else if peek s = Token.Colon then
+        fail_at (peek_loc s)
+          "a cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'"
+      else begin
+        expect s Token.RParen;
+        (* (bare_var) signals single-constructor unwrap; complex patterns stay transparent *)
+        match p with PVar _ -> PTuple [p] | _ -> p
+      end
+    end
+  | Token.LBracket ->
+    ignore (advance s); list_pat_ s
+  | Token.LBrace ->
+    ignore (advance s); brace_map_pat_ s
+  | Token.Upper name ->
+    ignore (advance s);
+    if peek_named_args s then begin
+      ignore (advance s); (* consume LParen *)
+      let fields = ref [] in
+      if peek s <> Token.RParen then begin
+        let parse_field () =
+          let fname = expect_ident s in
+          expect s Token.Eq;
+          fields := !fields @ [(fname, pat_ s)]
+        in
+        parse_field ();
+        while peek s = Token.Comma do ignore (advance s); parse_field () done
+      end;
+      expect s Token.RParen;
+      PConstrNamed (name, !fields)
+    end else if peek s = Token.LParen then begin
+      ignore (advance s); (* consume LParen *)
+      if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
+      else begin
+        let pats = ref [pat_ s] in
+        while peek s = Token.Comma do
+          ignore (advance s); pats := !pats @ [pat_ s]
+        done;
+        expect s Token.RParen;
+        (* Parentheses group a tuple; several arguments are written by
+           juxtaposition. Mirrors the expression side. *)
+        match !pats with
+        | (_ :: _ :: _ as ps) -> PConstr (name, [PTuple ps])
+        | pats -> PConstr (name, pats)
+      end
+    end else begin
+      let args = ref [] in
+      while is_pat_atom_start (peek s) do
+        args := !args @ [pat_atom_ s]
+      done;
+      PConstr (name, !args)
+    end
+  | t ->
+    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t))
+
+and pat_atom_ s =
+  match peek s with
+  | Token.Int n      -> ignore (advance s); (Int n : pat)
+  | Token.Float f    -> ignore (advance s); Float f
+  | Token.String str -> ignore (advance s); String str
+  (* A backtick string is a string; a pattern has no interpolation to keep
+     apart, so it needs no separate form. *)
+  | Token.RawStr str -> ignore (advance s); String str
+  | Token.Bool b     -> ignore (advance s); Bool b
+  | Token.Ident name -> ignore (advance s); PVar name
+  | Token.Underscore -> ignore (advance s); Wild
+  | Token.Upper name -> ignore (advance s); PConstr (name, [])
+  | Token.LParen     ->
+    ignore (advance s);
+    if peek s = Token.RParen then (ignore (advance s); Unit)
+    else begin
+      let p = pat_ s in
+      if peek s = Token.Comma then begin
+        let ps = ref [p] in
+        while peek s = Token.Comma do
+          ignore (advance s); ps := !ps @ [pat_ s]
+        done;
+        expect s Token.RParen; PTuple !ps
+      end else if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
+        (* `(p : Pod)` gives the parameter a type. One token decides it: a
+           type starts with an `Upper` name, a `'a`, or a `(`, and a cons
+           pattern -- which is written `[h : t]`, in brackets -- never
+           does. So the message below still meets the mistake it was
+           written for. *)
+        ignore (advance s);
+        let te = parse_type_expr s in
+        expect s Token.RParen;
+        PAnnot (p, te)
+      end else if peek s = Token.Colon then
+        fail_at (peek_loc s)
+          "a cons pattern is written in square brackets: \
+           [x : xs], not '(x : xs)'"
+      else (expect s Token.RParen; p)
+    end
+  | Token.LBracket ->
+    ignore (advance s); list_pat_ s
+  | Token.LBrace ->
+    ignore (advance s); brace_map_pat_ s
+  | t ->
+    fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
+      Token.pp t (keyword_hint t))
+
+and list_pat_ s =
+  (* [ already consumed *)
+  if peek s = Token.RBracket then (ignore (advance s); PList [])
+  else begin
+    (* `[k = pat]` was a map pattern until 0.17; brackets are lists alone
+       now. Refused with the correction rather than read on as a list,
+       because `k = pat` is no list element and the generic error would
+       point nowhere near the mistake. *)
+    let is_map =
+      match peek s with
+      | Token.Ident _ | Token.String _ ->
+        let saved = s.pos in
+        ignore (advance s);
+        let result = peek s = Token.Eq in
+        s.pos <- saved;
+        result
+      | _ -> false
+    in
+    if is_map then
+      fail_at (snd s.tokens.(s.pos - 1))
+        "a map pattern is written in braces -- {k = v}, not [k = v]"
+    else begin
+      let first = pat_ s in
+      if peek s = Token.Colon then begin
+        ignore (advance s);
+        (* Chain further cons cells: [a : b : c : t] is PCons(a, PCons(b,
+           PCons(c, t))), not just a single cons with a flat tail. *)
+        let rec parse_cons_tail () =
+          let p = pat_ s in
+          if peek s = Token.Colon then begin
+            ignore (advance s);
+            PCons (p, parse_cons_tail ())
+          end else p
+        in
+        let tl = parse_cons_tail () in
+        expect s Token.RBracket;
+        PCons (first, tl)
+      end else begin
+        let pats = ref [first] in
+        while peek s = Token.Comma do
+          ignore (advance s); pats := !pats @ [pat_ s]
+        done;
+        expect s Token.RBracket;
+        PList !pats
+      end
+    end
+  end
+
+(* `{status = s, phase}` -- a map pattern. A bare identifier puns: the key
+   binds a variable of its own name. A quoted key has no identifier to pun
+   into, so it takes `= pat` like any rename. *)
+and brace_map_pat_ s =
+  (* { already consumed *)
+  if peek s = Token.RBrace then (ignore (advance s); PMap [])
+  else begin
+    let parse_entry () =
+      match advance s with
+      | Token.Ident k ->
+        if peek s = Token.Eq then (ignore (advance s); (k, pat_ s))
+        else (k, (PVar k : pat))
+      | Token.String k ->
+        expect s Token.Eq; (k, pat_ s)
+      | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)
+    in
+    let entries = ref [parse_entry ()] in
+    while peek s = Token.Comma do
+      ignore (advance s); entries := !entries @ [parse_entry ()]
+    done;
+    expect s Token.RBrace;
+    PMap !entries
+  end
 
 (* ── Expression parsing (Pratt) ───────────────────────────────────────────── *)
 

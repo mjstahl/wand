@@ -49,6 +49,9 @@ type pat =
   | PCons    of pat * pat
   | PConstr       of string * pat list
   | PConstrNamed  of string * (string * pat) list
+  (* `(p : Pod)`: the type a parameter is given. The annotation is a
+     constraint on the pattern under it, not a pattern of its own. *)
+  | PAnnot        of pat * type_expr
   | PMap          of (string * pat) list
 
 type expr =
@@ -159,6 +162,7 @@ let rec show_pat : pat -> string = function
       (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
   | PMap kvs ->
     "{" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "}"
+  | PAnnot (p, _)  -> show_pat p
 
 let rec show : expr -> string = function
   | Int n      -> string_of_int n

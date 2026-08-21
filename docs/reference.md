@@ -2032,6 +2032,52 @@ annotation. This includes `Num`. Each written `Num` is a new "`Int` or
 `let double : Num -> Num = fn x -> x + x` rebuilds what `:t double`
 printed.
 
+### A type on a parameter
+
+A parameter can carry its type, in parentheses:
+
+```
+let describe (p: Pod) = p.name
+
+let f = fn (p: Pod) -> p.status.restarts
+
+List.filter (fn (p: Pod) -> p.status.restarts > 5) pods
+```
+
+This is what lets a function read a field off a parameter. Dot access needs
+a named type. wand generalizes a definition before it sees any call, so the
+type has to come from the definition, and there was nowhere to write it:
+
+```
+let describe p = p.name
+-- type error: field access requires a named type, got 'a
+```
+
+The annotation works in each place a pattern does: a `let`, a `fn`, an arm
+of a `match`, and a `with ... as`. It also composes with the return
+annotation:
+
+```
+let describe (p: Pod) : String = p.name
+```
+
+The parentheses are part of the syntax. A `:` between expressions is cons.
+
+The annotation constrains inference; it does not replace it. A body that
+contradicts the annotation is a type error, and so is a call that does.
+
+A type variable is refused here:
+
+```
+let f (x: 'a) = x
+-- type error: a type variable in a pattern is not shared with the other
+--   patterns, so it cannot say what it looks like it says. Write the type
+--   of the whole definition instead: let f : 'a -> 'a = ...
+```
+
+Each annotation resolves its own names, so `'a` in two parameters would be
+two variables, and the reader would have been promised one.
+
 ### The three colons
 
 `:` means three things, and position decides which:
@@ -2044,9 +2090,10 @@ let xs = 1 : [2, 3]         -- cons
 - **A port literal** is a `:` directly against a digit: `:80`, `:8080`. The
   lexer decides this one. No space, and a digit after it, make one token.
 - **A type annotation** is the `:` right after a binding's name and
-  parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`.
-  Only that position (and a type definition's named fields) reads `:` as
-  an annotation.
+  parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`. It
+  is also the `:` inside the parentheses of a pattern, as in `(p: Pod)`,
+  and in a type definition's named fields. Those three positions read `:`
+  as an annotation.
 - **Cons** is every other `:` between expressions, and the list pattern
   `[h : t]`. A `:` in expression position always means cons. So there is no
   inline ascription `(e : T)`. Annotate the binding instead.

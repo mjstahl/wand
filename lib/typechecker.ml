@@ -1231,6 +1231,8 @@ let rec pat_is_refutable tenv (p : pat) =
   | PConstrNamed (name, fields) ->
     not (ctor_is_alone tenv name)
     || List.exists (fun (_, p) -> pat_is_refutable tenv p) fields
+  (* An annotation constrains the type, and a type cannot fail to match. *)
+  | PAnnot (p, _)  -> pat_is_refutable tenv p
   | _              -> true
 
 (* Built once per program rather than per lookup. A constructor's field
@@ -1393,6 +1395,31 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     let vt = fresh () in
     unify_expected ~expected:t ~got:(TMap vt);
     List.fold_left (fun env (_, p) -> infer_pat tenv p vt env) env bindings
+  (* `(p : Pod)`. The annotation is a constraint on the value the pattern
+     binds, so it is unified and then the pattern under it is inferred as
+     usual. This is what lets a function read a field off a parameter: dot
+     access needs a named type, and inference has nowhere else to get one
+     before the body is read.
+
+     A type variable is refused here. Each annotation resolves its own
+     names, so `'a` in two parameters would be two variables, and the
+     reader would have been promised one. The whole type says it instead:
+     `let f : 'a -> 'a = ...`. *)
+  | PAnnot (inner, te) ->
+    let rec names_a_var = function
+      | TEVar _ -> true
+      | TEApp (f, a) -> names_a_var f || names_a_var a
+      | TEFun (a, b, _) -> names_a_var a || names_a_var b
+      | TETuple ts -> List.exists names_a_var ts
+      | TEName _ -> false
+    in
+    if names_a_var te then
+      raise (TypeError
+        "a type variable in a pattern is not shared with the other \
+         patterns, so it cannot say what it looks like it says. Write the \
+         type of the whole definition instead: let f : 'a -> 'a = ...");
+    unify_expected ~expected:t ~got:(type_of_te te);
+    infer_pat tenv inner t env
 
 (* for let bindings: PVar gets the generalized scheme, rest are monomorphic *)
 let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
@@ -1409,8 +1436,9 @@ let infer_pat_let tenv (p : pat) t scheme (env : env) : env =
    sub-columns. Guards are excluded by the caller (a guarded case might not
    fire, so it can't be relied on for exhaustiveness). *)
 
-let is_wild_pat = function
+let rec is_wild_pat = function
   | PVar _ | Wild -> true
+  | PAnnot (p, _) -> is_wild_pat p
   | _ -> false
 
 (* A generic type like `Option 'a` instantiates to `TApp (TName "Option", arg)`;
@@ -1479,9 +1507,10 @@ let is_infinite_domain t =
    fields (a deliberate, conservative simplification: this can miss a
    genuinely non-exhaustive nested pattern inside a named field, but never
    produces a false "exhaustive" claim for the outer constructor itself). *)
-let match_against_ctor name arity (p : pat) =
+let rec match_against_ctor name arity (p : pat) =
   match p with
   | _ when is_wild_pat p -> `Wildcard
+  | PAnnot (inner, _) -> match_against_ctor name arity inner
   | Bool b -> if (b && name = "true") || (not b && name = "false") then `Match [] else `NoMatch
   | Unit -> `Match []
   | PTuple ps -> `Match ps

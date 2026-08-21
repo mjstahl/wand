@@ -810,6 +810,50 @@ let test_written_type_vars_are_checked () =
   passes "Num still works"
     "let twice : Num -> Num = fn x -> x + x\ntwice 2"
 
+(* A type on a parameter is what lets a function read a field off one. Dot
+   access needs a named type, and a definition is generalized before any call
+   site is seen, so the type has to come from the definition. There was
+   nowhere to write it. *)
+let test_a_parameter_can_carry_a_type () =
+  let pod = "type Pod (name : String, phase : String)\n" in
+  Alcotest.(check string) "a field is readable now" "Pod -> String"
+    (type_of "annotated parameter"
+       (pod ^ "let describe (p: Pod) = p.name in describe"));
+  Alcotest.(check string) "and so is a field of a field"
+    "Outer -> Int"
+    (type_of "two deep"
+       ("type Inner (n : Int)\ntype Outer (i : Inner)\n"
+        ^ "let f (o: Outer) = o.i.n in f"));
+  Alcotest.(check string) "the return annotation composes" "Pod -> String"
+    (type_of "both annotations"
+       (pod ^ "let describe (p: Pod) : String = p.name in describe"));
+  (* The annotation constrains; it does not replace inference. *)
+  Alcotest.(check string) "a narrower annotation is accepted" "Int -> Int"
+    (type_of "narrowing" "let f (x: Int) = x in f");
+  (* And an annotation is not a pattern that can fail. *)
+  Alcotest.(check string) "it adds no Raise" "Pod -> String"
+    (type_of "no raise" (pod ^ "let f = fn (p: Pod) -> p.name in f"))
+
+let test_a_parameter_type_is_checked () =
+  let fails label src needle =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.failf "%s: expected a type error, got %s" label v
+    | Error msg ->
+      if not (Lint.contains msg needle) then
+        Alcotest.failf "%s: expected %S in: %s" label needle msg
+  in
+  fails "the body contradicts the annotation"
+    "type Pod (name : String)\nlet f (p: Pod) = p ++ \"x\"\nf"
+    "expected";
+  fails "the call contradicts the annotation"
+    "type Pod (name : String)\nlet f (p: Pod) = p.name\nf 3"
+    "expected Pod, got Int";
+  (* Each annotation resolves its own names, so a variable in one would not
+     be the variable in the next. Refused rather than quietly weaker. *)
+  fails "a type variable is refused"
+    "let f (x: 'a) = x\nf 1"
+    "not shared with the other patterns"
+
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
    allow at all. *)
@@ -1197,6 +1241,10 @@ let () =
       Alcotest.test_case "a failable pattern raises" `Quick test_a_failable_pattern_raises;
       Alcotest.test_case "written type vars are checked" `Quick
         test_written_type_vars_are_checked;
+      Alcotest.test_case "a parameter carries a type" `Quick
+        test_a_parameter_can_carry_a_type;
+      Alcotest.test_case "a parameter type is checked" `Quick
+        test_a_parameter_type_is_checked;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
       Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];
