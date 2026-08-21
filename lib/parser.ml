@@ -462,9 +462,28 @@ let rec pat_ s =
       ignore (advance s); (* consume LParen *)
       if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
       else begin
-        let pats = ref [pat_ s] in
+        (* A payload carries a type the same way anything else does:
+           `Ok (v: Pod)`. This branch used to read `(` as the start of an
+           argument list and nothing else, so the one place a pattern could
+           not be annotated was the one where a decoder's result lands.
+
+           The `:` is a type only when a type follows it, which is the same
+           single-token test the grouped pattern uses -- so `Ok (x : xs)`
+           still meets the message written for it. *)
+        let pat_item () =
+          let p = pat_ s in
+          if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
+            ignore (advance s);
+            PAnnot (p, parse_type_expr s)
+          end else if peek s = Token.Colon then
+            fail_at (peek_loc s)
+              "a cons pattern is written in square brackets: \
+               [x : xs], not '(x : xs)'"
+          else p
+        in
+        let pats = ref [pat_item ()] in
         while peek s = Token.Comma do
-          ignore (advance s); pats := !pats @ [pat_ s]
+          ignore (advance s); pats := !pats @ [pat_item ()]
         done;
         expect s Token.RParen;
         (* Parentheses group a tuple; several arguments are written by

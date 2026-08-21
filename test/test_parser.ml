@@ -405,6 +405,22 @@ let test_record_update () =
     "T(a, b)"
     (App (Constr "T", Tuple [Var "a"; Var "b"]))
 
+(* A pattern carries a type wherever a pattern is written, including inside
+   a constructor's payload -- which is where a decoder's result lands. *)
+let test_annotated_payload_pattern () =
+  let pat_of src =
+    match parse src with
+    | Match (_, (p, _, _) :: _) -> p
+    | e -> Alcotest.failf "no match pattern in: %s" (Ast.show e)
+  in
+  (* `show_pat` prints through an annotation, so these read the node. *)
+  (match pat_of "match r with | Ok (v: T) -> 1" with
+   | PConstr ("Ok", [PAnnot (PVar "v", _)]) -> ()
+   | p -> Alcotest.failf "one payload: got %s" (Ast.show_pat p));
+  (match pat_of "match r with | Ok (v: T, n) -> 1" with
+   | PConstr ("Ok", [PTuple [PAnnot (PVar "v", _); PVar "n"]]) -> ()
+   | p -> Alcotest.failf "inside a tuple payload: got %s" (Ast.show_pat p))
+
 (* ── If / then / else ────────────────────────────────────────────────────── *)
 
 let test_if () =
@@ -780,6 +796,7 @@ let () =
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
       Alcotest.test_case "record update" `Quick test_record_update;
+      Alcotest.test_case "annotated payload" `Quick test_annotated_payload_pattern;
       Alcotest.test_case "local multi-equation" `Quick test_local_multi_equation;
       Alcotest.test_case "if"           `Quick test_if;
       Alcotest.test_case "match"        `Quick test_match;

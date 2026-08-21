@@ -125,3 +125,27 @@ test "the base is left alone" (fn t ->
   (let _ = Tally(base, failed = 9); t.eq 2 base.failed))
 test "the base is any expression" (fn t ->
   t.eq 9 Tally(Tally(base, ok = 3), failed = 9).failed)
+
+(* ── A type on a payload pattern ──────────────────────────────────────── *)
+
+(* Where a decoder's result lands, so it is where the type is most often
+   already known and most often still worth writing. *)
+type Boxed(n: Int)
+
+test "a payload carries its type" (fn t ->
+  (
+    let read =
+      fn r -> match r with
+        | Ok (b: Boxed) -> b.n
+        | Error _ -> 0;
+    t.eq 7 (read (Ok Boxed(n = 7)))
+  ))
+
+test "and so does one inside a tuple payload" (fn t ->
+  (
+    let read =
+      fn r -> match r with
+        | Ok ((b: Boxed), extra) -> b.n + extra
+        | Error _ -> 0;
+    t.eq 9 (read (Ok (Boxed(n = 7), 2)))
+  ))

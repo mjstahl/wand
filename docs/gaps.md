@@ -83,12 +83,6 @@ The checker now names the constructor and says to bracket it, where the
 error used to be about the application. The parse stands: reading arity
 here is what made `Ctor (a, b)` mean different things in different files.
 
-**A pattern cannot carry a type inside a constructor's payload.** `(v: T)`
-works as a parameter, as a lambda parameter, as a `let` pattern, in a bare
-match arm and inside a tuple. `Ok (v: T)` is a parse error: the payload
-branch reads `(` as the start of an argument list and never looks for a
-`:`. One branch wide. Found porting `pod-restarts.wand`.
-
 **A destructured import is replaced by a later one, above the line as well
 as below it — warned, not fixed.** Every import binds before the file's own bindings, wherever
 it is written, so the last import of a name decides every use of it:

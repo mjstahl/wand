@@ -2211,8 +2211,16 @@ let describe p = p.name
 ```
 
 The annotation works in each place a pattern does: a `let`, a `fn`, an arm
-of a `match`, and a `with ... as`. It also composes with the return
-annotation:
+of a `match`, a `with ... as`, and inside a constructor's payload — which
+is where a decoder's result lands:
+
+```ocaml
+match JSON.decode Pod.decoder doc with
+| Ok (p: Pod) -> p.status.restarts
+| Error why   -> 0
+```
+
+It also composes with the return annotation:
 
 ```ocaml
 let describe (p: Pod) : String = p.name

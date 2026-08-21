@@ -402,12 +402,12 @@ containers" that fits on that line. The port sums.
 
 Two things it found:
 
-- **A pattern cannot carry a type inside a constructor's payload.**
-  `(v: T)` works as a parameter, as a lambda parameter, as a `let`
-  pattern, in a bare match arm and inside a tuple. `Ok (v: T)` is a parse
-  error: the payload branch reads `(` as the start of an argument list
-  and never looks for a `:`. The port does not need it -- the decoder
-  pins the type -- but the hole is one branch wide.
+- **A pattern could not carry a type inside a constructor's payload.**
+  `(v: T)` worked as a parameter, as a lambda parameter, as a `let`
+  pattern, in a bare match arm and inside a tuple. `Ok (v: T)` was a parse
+  error: the payload branch read `(` as the start of an argument list and
+  never looked for a `:`. Closed -- one branch wide, and it is where a
+  decoder's result lands.
 - **A destructured import is replaced by a later one, above the line as
   well as below it.** Every import binds before the file's own bindings,
   wherever it is written, so the last import of a name decides every use.
