@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.25.0] - 2026-08-21
+
+### Added
+
+- Add `Clock`, an eighth effect label, and `Clock.sleep 30s`, which waits at
+  least that long. wand could not wait: `Duration` had literals and
+  arithmetic, and nothing consumed one as a wait, so a retry with backoff
+  could not be written and a hung command hung forever. One label, not
+  `Clock.Read` and `Clock.Wait` — `FS` splits because a handler can grant one
+  half and not the other, and a clock cannot. The sleep waits in slices and
+  checks for an interrupt between them, so Ctrl-C takes effect at once and
+  the brackets a script holds release. `Test.with_clock` answers the effect
+  with a clock that costs no time, so a test of an hour of backoff runs in
+  microseconds, and `--dry-run` reports `would wait: 45s` without waiting.
+  No manifest in the tree changes: nothing performed `Clock` before this
+  (`f58c626`)
+- Add `Shell.timeout`, a deadline on a command. Most script hangs are a
+  subprocess, and this is the deadline that kills for real. Expiry is a
+  sequence — SIGTERM, a fixed five-second grace, SIGKILL — so a command that
+  tidies up on TERM gets to, and one that ignores it does not keep running.
+  Only a deadline produces an `Error`, and the message names the command and
+  the duration. Every other failure passes through: a command that exits
+  non-zero has failed, not run late. The deadline is per command, and it is
+  counted in slices of the select the pipes are already read with, so no
+  clock is read and a machine that steps its clock cannot shorten or extend
+  the wait (`78f6909`)
+- Add `Par.race`: the first thunk to finish wins. No worker limit, because
+  the count is the length of the list and the list is at the call site. First
+  to finish, not first to succeed — a loser that raises is discarded, and a
+  winner that raises comes back as `Error`. Cancellation is cooperative and
+  reuses the Ctrl-C machinery, so a loser doing wand work stops at its next
+  step and every worker is joined before `race` returns. A loser waiting on a
+  command waits for the command; `Shell.timeout` in the thunk is that bound
+  (`ef7e2fa`)
+- Add `Par.timeout`, a deadline on wand code, written in wand over `race` and
+  `Clock.sleep`: the work and a sleeper race, and whichever finishes first
+  answers. That makes it a wait of a length rather than a wait until an
+  instant, which is what keeps it right on a machine whose clock steps. The
+  work is asked to stop when the deadline passes and stops at its next step,
+  giving back what it holds (`59e622a`)
+- Order the temporal types. `<`, `>`, `<=` and `>=` now take an `Ord`, a type
+  wand orders, and seven are ordered: Int, Float, String, Duration, Date,
+  Time and DateTime. A comparison is on the value, not on the text, so
+  `90s > 1min` is true; a `DateTime` normalizes to an instant, and a value
+  with no offset is read as UTC, because reading it as local time would make
+  one script answer differently on two machines. `Ord` composes as `Num`
+  does, so `let later a b = if a < b then b else a` stays polymorphic
+  (`0be8d0e`)
+
+### Changed
+
+- **Breaking:** Comparing a type wand does not order is a type error where it
+  is written, not a runtime error during the run. `100MB < 1GB` typechecked
+  before and failed mid-run; two functions could be compared at all. Size,
+  Version, Port and IPv4 are not ordered yet —
+  `docs/design/ordering-domain-types.md` decides what each one needs
+  (`0be8d0e`)
+- **Breaking:** Equality normalizes with ordering. `60s == 1min` was false
+  while `60s < 1min` and `60s > 1min` were both false as well — three answers
+  no reader can hold at once. It is now true. This breaks anyone who relied
+  on `60s != 1min`, which is not a fact to rely on. `List.sort` follows the
+  same rule where wand defines an order, and keeps structural comparison
+  everywhere else (`0be8d0e`)
+- Equality walks into a value. `60s == 1min` was true and `[60s] == [1min]`
+  was false; the walk now goes through tuples, lists, constructors and maps
+  (`f58c626`)
+- `wand f` brackets a `handle` body that wraps. It produced source it could
+  not read back: `with` has to follow the body, and a body that opened a
+  bracket on one line and closed it on a later one left text for the newline
+  to cut off (`f58c626`)
+
+### Note
+
+Reading the clock is not here, a virtual clock does not shorten a real
+deadline, and a killed command may leave children. These and the rest of
+what wand cannot do yet are listed in `docs/gaps.md`, which is new in this
+release. `docs/design/clock-and-timeouts.md` retired with the work it
+designed.
+
+[0.25.0]: https://github.com/mjstahl/wand/releases/tag/v0.25.0
+
 ## [0.24.0] - 2026-08-21
 
 ### Added
