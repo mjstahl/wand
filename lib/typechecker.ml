@@ -306,21 +306,25 @@ let operations : operation list =
     { op_name = "IO!stdin_lines"; op_effect = IO; op_types = t TUnit (TList str);
       op_performers = ["IO.stdin_lines"] };
     (* The environment. *)
-    { op_name = "Env!get"; op_effect = Env; op_types = (fun () -> None);
+    (* `Env.get` is `try get!`, so the operation supplies the `String` that
+       `env_get_exn` returns and the `try` around it makes the `Option`. A
+       handler that resumed with anything else used to typecheck, and
+       `Env.get` then answered `Some 42`. *)
+    { op_name = "Env!get"; op_effect = Env; op_types = t str str;
       op_performers = ["Env.get"; "Env.get!"] };
     { op_name = "Env!set"; op_effect = Env; op_types = t (TTuple [str; str]) TUnit;
       op_performers = ["Env.set"; "Env.load!"] };
     { op_name = "Env!clear"; op_effect = Env; op_types = t str TUnit;
       op_performers = ["Env.clear"] };
-    { op_name = "Env!all"; op_effect = Env; op_types = (fun () -> None);
+    { op_name = "Env!all"; op_effect = Env; op_types = t TUnit (TList (TTuple [str; str]));
       op_performers = ["Env.all"] };
-    { op_name = "Env!args"; op_effect = Env; op_types = (fun () -> None);
+    { op_name = "Env!args"; op_effect = Env; op_types = t TUnit (TList str);
       op_performers = ["Env.args"] };
-    { op_name = "Env!home"; op_effect = Env; op_types = (fun () -> None);
+    { op_name = "Env!home"; op_effect = Env; op_types = t TUnit path;
       op_performers = ["Env.home"] };
-    { op_name = "Env!user"; op_effect = Env; op_types = (fun () -> None);
+    { op_name = "Env!user"; op_effect = Env; op_types = t TUnit str;
       op_performers = ["Env.user"] };
-    { op_name = "Env!parse_dotenv"; op_effect = Env; op_types = (fun () -> None);
+    { op_name = "Env!parse_dotenv"; op_effect = Env; op_types = t str (TList (TTuple [str; str]));
       op_performers = ["Env.read!"] };
     (* Subprocesses. `Shell!run` and `Shell!capture` carry either a command,
        or a command and the stdin threaded into it, so there is no single

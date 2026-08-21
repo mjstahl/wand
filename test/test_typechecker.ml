@@ -273,6 +273,21 @@ import Path
 handle FS.read_file! /tmp/nonexistent with
 | FS!read_file p k -> k "mocked: %{Path.to_string p}"|}
     "mocked: /tmp/nonexistent";
+  (* The `Env` operations carried no types at all until a port hit it:
+     `Env.get` is `try get!`, so the operation supplies the `String` its
+     raising builtin returns, and a case resuming with an `Int` made
+     `Env.get` answer `Some(42)`. *)
+  err_contains "resuming an environment read with the wrong type"
+    "import Env\nhandle Env.get \"HOME\" with | Env!get _ k -> k 42"
+    "expected String, got Int";
+  err_contains "and asking for the user as a Path"
+    "import Env\nhandle Env.user () with | Env!user _ k -> k /tmp"
+    "expected String, got Path";
+  ok "a case that agrees with an environment read still works"
+    {|import Env
+handle Env.get! "ANYTHING" with
+| Env!get name k -> k "mocked: %{name}"|}
+    "mocked: ANYTHING";
   (* `Shell!run` carries either a command or a command and its stdin, so it
      has no single payload type and its cases stay open. *)
   ok "an operation with two payload shapes is left open"
