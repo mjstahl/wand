@@ -1,0 +1,62 @@
+let {test, group} = import Test
+
+(* What wand orders, and on what.
+
+   `<`, `>`, `<=` and `>=` take an `Ord`: a type wand knows how to order.
+   The constraint is what makes a type outside that set a type error rather
+   than a failure during the run.
+
+   Every comparison is on the normalized value. The stored text is not the
+   value: `1min` and `60s` are one duration, and one instant has as many
+   spellings as there are offsets. *)
+
+group "the types that were always ordered" (fn () -> [
+  test "Int" (fn t -> t.ok (1 < 2)),
+  test "Float" (fn t -> t.ok (2.5 >= 2.5)),
+  test "String" (fn t -> t.ok ("b" > "a"))
+])
+
+group "Duration" (fn () -> [
+  test "across units" (fn t -> t.ok (30s < 5min)),
+  test "the larger unit is not the larger value" (fn t -> t.ok (90s > 1min)),
+  test "milliseconds against seconds" (fn t -> t.ok (30s <= 30000ms))
+])
+
+group "Date and Time" (fn () -> [
+  test "a later date" (fn t -> t.ok (2024-01-15 < 2024-02-01)),
+  test "across a year" (fn t -> t.ok (2023-12-31 < 2024-01-01)),
+  test "a later time" (fn t -> t.ok (14:30:00 < 15:00:00)),
+  test "to the second" (fn t -> t.ok (14:30:00 < 14:30:01))
+])
+
+group "DateTime is an instant" (fn () -> [
+  test "same day" (fn t ->
+    t.ok (2024-01-15T14:30:00Z < 2024-01-15T20:00:00Z)),
+  (* The offset is part of the value. These two are the same moment. *)
+  test "an offset is applied" (fn t ->
+    t.ok (2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z)),
+  test "and it decides the order" (fn t ->
+    t.ok (2024-01-15T00:00:00-08:00 > 2024-01-15T00:00:00Z)),
+  test "midnight rolls the day" (fn t ->
+    t.ok (2024-02-29T23:00:00Z < 2024-03-01T01:00:00Z)),
+  (* A value with no offset is read as UTC. *)
+  test "no offset is UTC" (fn t ->
+    t.ok (2024-01-15T14:30:00 == 2024-01-15T14:30:00Z))
+])
+
+group "equality agrees with ordering" (fn () -> [
+  test "a duration written two ways" (fn t ->
+    let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b))),
+  test "an instant written two ways" (fn t ->
+    let a = 2024-01-15T14:30:00Z in
+    let b = 2024-01-15T20:00:00+05:30 in t.ok (a == b && !(a < b) && !(a > b)))
+])
+
+(* `Ord` composes like `Num`: a function that only compares stays
+   polymorphic over every ordered type. *)
+let later a b = if a < b then b else a
+group "Ord is a constraint, not a type" (fn () -> [
+  test "at Duration" (fn t -> t.eq 5min (later 30s 5min)),
+  test "at Int" (fn t -> t.eq 9 (later 9 2)),
+  test "at Date" (fn t -> t.eq 2024-02-01 (later 2024-01-15 2024-02-01))
+])

@@ -45,12 +45,21 @@ type typ =
 and tv = {
   id  : int;
   mutable def : typ option;
-  (* A numeric-constrained variable may only ever become Int or Float --
-     the `Num` in `Num -> Num`. The evaluator dispatches on the value's
-     tag, so the variable can stay generalized: there is no defaulting,
-     and `let double x = x + x` works at both types. *)
-  numeric : bool;
+  (* What this variable may become. The evaluator dispatches on the value's
+     tag, so a constrained variable stays generalized: there is no
+     defaulting, and `let double x = x + x` works at both numeric types.
+
+     Two constraints exist, and one contains the other: every `Num` is an
+     `Ord`. So a flag per constraint cannot express them -- unifying a
+     `Num` variable with an `Ord` one has to yield `Num` -- and a variant
+     can. *)
+  constrained : constrained;
 }
+
+(* `Free` may become anything. `Num` is `Int` or `Float`, the `Num` in
+   `Num -> Num`. `Ord` is any type wand can order, which is the wider
+   set. *)
+and constrained = Free | Ord | Num
 
 (* Builtin signatures are written with `@->` so the tables stay readable.
    Every builtin's *own* latent effect is filled in separately; the arrow
@@ -122,15 +131,35 @@ let current_item = ref (-1)
 let record_local name t =
   local_binders := (!current_item, (name, t)) :: !local_binders
 
-let fresh () =
+let fresh_as c =
   let id = !next_id in
   incr next_id;
-  TVar { id; def = None; numeric = false }
+  TVar { id; def = None; constrained = c }
 
-let fresh_num () =
-  let id = !next_id in
-  incr next_id;
-  TVar { id; def = None; numeric = true }
+let fresh ()     = fresh_as Free
+let fresh_num () = fresh_as Num
+let fresh_ord () = fresh_as Ord
+
+(* The types wand orders. `Int`, `Float` and `String` were ordered before
+   there was a constraint; the temporal four join them here.
+
+   Ordering compares normalized values, never the stored string. A
+   `DateTime` carries an offset, so two spellings of one instant must
+   compare equal. A `Duration` is a sum of units. `Date` and `Time` are
+   fixed-width and zero-padded, so for those two the string order is the
+   right order -- stated because it was checked, not assumed. *)
+let is_ordered = function
+  | TInt | TFloat | TString
+  | TDuration | TDate | TTime | TDateTime -> true
+  | _ -> false
+
+(* Which of two constraints a unified variable keeps: the narrower one.
+   `Num` is inside `Ord`, and both are inside `Free`. *)
+let narrower a b =
+  match a, b with
+  | Num, _ | _, Num -> Num
+  | Ord, _ | _, Ord -> Ord
+  | Free, Free -> Free
 
 (* What an intercepted operation carries, and what resuming it has to supply.
 
@@ -384,7 +413,11 @@ let string_of_typ t =
     | TJson     -> "JSON"
     | TToml     -> "TOML"
     | TName n   -> n
-    | TVar tv   -> if tv.numeric then "Num" else name_of tv.id
+    | TVar tv   ->
+      (match tv.constrained with
+       | Num  -> "Num"
+       | Ord  -> "Ord"
+       | Free -> name_of tv.id)
     | TFun (a, b, eff) ->
       (* A set prints when it says something. Known effects always do. A set
          variable does only when it appears more than once, because then it
@@ -515,11 +548,17 @@ let rec unify_ t1 t2 =
   | TToml,     TToml     -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
-  (* Two variables: link so that a numeric constraint survives on
+  (* Two variables: link so that the narrower constraint survives on
      whichever remains undefined. *)
   | TVar tv1, TVar tv2 ->
-    if tv1.numeric && not tv2.numeric then tv2.def <- Some (TVar tv1)
-    else tv1.def <- Some (TVar tv2)
+    let keep = narrower tv1.constrained tv2.constrained in
+    if keep = tv1.constrained then tv2.def <- Some (TVar tv1)
+    else if keep = tv2.constrained then tv1.def <- Some (TVar tv2)
+    else begin
+      (* Neither side already carries it, so a third variable does. *)
+      let v = fresh_as keep in
+      tv1.def <- Some v; tv2.def <- Some v
+    end
   | TVar tv, t | t, TVar tv ->
     (* The value would have to hold itself: `x x`, or a list that is its
        own element. There is no such type, and naming the two sides does not
@@ -528,11 +567,18 @@ let rec unify_ t1 t2 =
       raise (TypeError (Printf.sprintf
         "this value would have to contain itself: %s appears inside its own \
          type" (string_of_typ (TVar tv))))
-    else if tv.numeric && t = TString then
+    else if tv.constrained = Num && t = TString then
       raise (TypeError "strings concatenate with '++', not '+'")
-    else if tv.numeric && t <> TInt && t <> TFloat then
+    else if tv.constrained = Num && t <> TInt && t <> TFloat then
       raise (TypeError (Printf.sprintf
         "expected a number, got %s -- arithmetic works on Int and Float"
+        (string_of_typ t)))
+    (* The ordered set grows as types gain a normalizer, so the message
+       names the type that is not in it rather than listing the set. The
+       reference has the list. *)
+    else if tv.constrained = Ord && not (is_ordered t) then
+      raise (TypeError (Printf.sprintf
+        "%s is not ordered, so it cannot be compared with < > <= >="
         (string_of_typ t)))
     else tv.def <- Some t
   (* The two members of Num, mixed: name the conversions rather than only
@@ -765,7 +811,7 @@ let refresh_scheme (sch : scheme) : scheme =
     match Hashtbl.find_opt tmap tv.id with
     | Some t -> t
     | None ->
-      let t = if tv.numeric then fresh_num () else fresh () in
+      let t = fresh_as tv.constrained in
       Hashtbl.add tmap tv.id t; t
   in
   let var_for (v : Effect_set.evar) =
@@ -825,14 +871,14 @@ let instantiate = function
   | Mono t -> t
   | Poly (ids, evar_ids, t) ->
     (* Replacements are made per variable rather than precomputed per id,
-       so a numeric variable's replacement is numeric too -- the record
-       being replaced is what knows. *)
+       so a constrained variable's replacement carries the same constraint
+       -- the record being replaced is what knows. *)
     let tbl : (int, typ) Hashtbl.t = Hashtbl.create 8 in
     let subst_for (tv : tv) =
       match Hashtbl.find_opt tbl tv.id with
       | Some t' -> t'
       | None ->
-        let t' = if tv.numeric then fresh_num () else fresh () in
+        let t' = fresh_as tv.constrained in
         Hashtbl.add tbl tv.id t'; t'
     in
     let evar_subst = List.map (fun id -> (id, Effect_set.fresh_var ())) evar_ids in
@@ -932,8 +978,10 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
       (match name with
        (* Each written `Num` is a fresh numeric variable; use-sites link
           them. This is what keeps `:t` output paste-able: a printed Num
-          never claims more linkage than the code enforces. *)
+          never claims more linkage than the code enforces. `Ord` is the
+          same, one constraint wider. *)
        | "Num"      -> fresh_num ()
+       | "Ord"      -> fresh_ord ()
        | "Int"      -> TInt      | "Float"    -> TFloat
        | "String"   -> TString   | "Bool"     -> TBool
        | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
@@ -2276,8 +2324,14 @@ and infer_binop tenv (env : env) op a b : typ =
     TList elem_t
   | "==" | "!=" ->
     unify (infer tenv env a) (infer tenv env b); TBool
+  (* Both operands are one ordered type. The constraint is what makes
+     `r/a/ < r/b/` a type error rather than a run-time one, and what keeps
+     two functions from being compared at all. *)
   | "<" | ">" | "<=" | ">=" ->
-    unify (infer tenv env a) (infer tenv env b); TBool
+    let o = fresh_ord () in
+    unify_expected ~expected:o ~got:(infer tenv env a);
+    unify_expected ~expected:o ~got:(infer tenv env b);
+    TBool
   | "&&" | "||" ->
     unify (infer tenv env a) TBool;
     unify (infer tenv env b) TBool;

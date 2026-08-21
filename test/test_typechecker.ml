@@ -854,6 +854,42 @@ let test_a_parameter_type_is_checked () =
     "let f (x: 'a) = x\nf 1"
     "not shared with the other patterns"
 
+(* `<`, `>`, `<=` and `>=` take an `Ord`: a type wand knows how to order.
+   Before the constraint they were `'a -> 'a -> Bool`, and the evaluator
+   raised for anything but Int, Float and String -- so `100MB < 1GB`
+   typechecked and failed during the run, and two functions could be
+   compared at all. *)
+let test_ordering_is_a_constraint () =
+  let fails label src needle =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.failf "%s: expected a type error, got %s" label v
+    | Error msg ->
+      if not (Lint.contains msg needle) then
+        Alcotest.failf "%s: expected %S in: %s" label needle msg
+  in
+  let ok label src expected =
+    match Runner.run_string src with
+    | Ok v -> Alcotest.(check string) label expected v
+    | Error msg -> Alcotest.failf "%s: %s" label msg
+  in
+  ok "a duration" "30s < 5min" "true";
+  ok "a date" "2024-01-15 < 2024-02-01" "true";
+  ok "an instant, offsets applied"
+    "2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z" "true";
+  (* A type outside the set is refused where it is written, and the message
+     names it rather than listing the set, which grows. *)
+  fails "a regex" "r/a/ < r/b/" "Regex is not ordered";
+  fails "a list" "[1] < [2]" "List Int is not ordered";
+  fails "two functions" "(fn x -> x) < (fn y -> y)" "is not ordered";
+  fails "a size, until it has a normalizer" "100MB < 1GB" "Size is not ordered";
+  (* Ord composes as Num does: a function that only compares stays
+     polymorphic over every ordered type. *)
+  Alcotest.(check string) "a comparison stays polymorphic" "Ord -> Ord -> Ord"
+    (type_of "later" "let later a b = if a < b then b else a in later");
+  (* Num is inside Ord, so a variable that is both is a Num. *)
+  Alcotest.(check string) "Num wins over Ord" "Num -> Num -> Bool"
+    (type_of "both constraints" "let f a b = a + b > a in f")
+
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
    allow at all. *)
@@ -1245,6 +1281,8 @@ let () =
         test_a_parameter_can_carry_a_type;
       Alcotest.test_case "a parameter type is checked" `Quick
         test_a_parameter_type_is_checked;
+      Alcotest.test_case "ordering is a constraint" `Quick
+        test_ordering_is_a_constraint;
       Alcotest.test_case "unknown operation rejected"   `Quick test_handler_rejects_an_unknown_operation;
       Alcotest.test_case "handler keeps other raises"   `Quick test_handler_keeps_raises_it_cannot_account_for;
     ];

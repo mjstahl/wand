@@ -58,3 +58,18 @@ test "a duration too large to convert says so" (fn t ->
   match try Duration.to_ms 99999999999999999999s with
   | Ok _ -> t.ok false
   | Error why -> t.ok (String.contains? "too large" why))
+
+(* ── Ordering and equality compare the value, not the text ─────────────── *)
+
+(* A duration is a sum of units, so `1min` and `60s` are one value written
+   two ways. Ordering normalizes, and equality has to agree with it: a
+   value that is neither below nor above another is equal to it. *)
+
+test "ordering normalizes" (fn t -> t.ok (30s < 5min))
+test "and in the other direction" (fn t -> t.ok (90s > 1min))
+test "mixed units" (fn t -> t.ok (30s <= 30000ms))
+test "equality normalizes too" (fn t -> t.ok (60s == 1min))
+test "two hours in minutes" (fn t -> t.ok (2h == 120min))
+test "and inequality" (fn t -> t.ok (30s != 45s))
+test "the three relations agree" (fn t ->
+  let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b)))

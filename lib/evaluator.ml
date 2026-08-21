@@ -373,15 +373,128 @@ let check_interrupt () =
    `try` re-raises it and the interpreter dies with a fatal error on code that
    typechecked: `==`, `!=` and `List.sort` all admit function-typed operands.
    Turning it into an EvalError makes it a value the language can see. *)
-let wand_equal a b =
-  try a = b
-  with Invalid_argument _ ->
-    raise (EvalError "cannot compare functions for equality")
+let parse_dur_ms s =
+  let n = String.length s in
+  let i = ref 0 in
+  let total = ref 0 in
+  let at i prefix =
+    let plen = String.length prefix in
+    n >= i + plen && String.sub s i plen = prefix
+  in
+  (try
+    while !i < n do
+      let j = ref !i in
+      while !j < n && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
+      if !j = !i then raise Exit;
+      (* A number past what an Int holds is not malformed, it is too big --
+         and saying which is the difference between a reader checking their
+         spelling and a reader checking their arithmetic. It used to escape
+         as OCaml's own "int_of_string" and say neither. *)
+      let digits = String.sub s !i (!j - !i) in
+      let num =
+        match int_of_string_opt digits with
+        | Some v -> v
+        | None ->
+          raise (EvalError (Printf.sprintf
+            "duration %S is too large: %s does not fit in an Int" s digits))
+      in
+      i := !j;
+      (* Each unit's contribution and the running sum go through the checked
+         arithmetic the rest of the evaluator uses. A duration whose total
+         milliseconds overflow an Int used to wrap silently to a negative
+         number that looked like an answer -- `9999999999999w` came back
+         positive-looking nonsense. It is too big, not malformed, and says so.
+         The factors are constants, so only `num * factor` and the sum can
+         overflow; both are checked. *)
+      let add_unit factor width =
+        total := add_ovf !total (mul_ovf num factor); i := !i + width
+      in
+      if      at !i "min" then add_unit 60000 3
+      else if at !i "ms"  then add_unit 1 2
+      else if at !i "w"   then add_unit (7 * 24 * 3600000) 1
+      else if at !i "d"   then add_unit (24 * 3600000) 1
+      else if at !i "h"   then add_unit 3600000 1
+      else if at !i "m"   then add_unit 60000 1
+      else if at !i "s"   then add_unit 1000 1
+      else raise Exit
+    done
+  with Exit -> raise (EvalError (Printf.sprintf "invalid duration: %S" s)));
+  !total
 
+(* ── The order wand gives a value ─────────────────────────────────────── *)
+
+(* Days from 1970-01-01 to a civil date, by Howard Hinnant's algorithm. It
+   is exact for every proleptic Gregorian date and needs no table. *)
+let days_from_civil y m d =
+  let y = if m <= 2 then y - 1 else y in
+  let era = (if y >= 0 then y else y - 399) / 400 in
+  let yoe = y - era * 400 in
+  let mp = (m + 9) mod 12 in
+  let doy = (153 * mp + 2) / 5 + d - 1 in
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy in
+  era * 146097 + doe - 719468
+
+(* A DateTime as seconds from the epoch, so that two spellings of one
+   instant compare equal: `2024-01-15T20:00:00+05:30` and
+   `2024-01-15T14:30:00Z` are the same moment.
+
+   The lexer has already fixed the shape -- `YYYY-MM-DDTHH:MM:SS`, then
+   `Z`, `+HH:MM`, `-HH:MM`, or nothing -- so the digits are where this
+   expects them. A value with no offset is read as UTC. Reading it as local
+   time would make one script answer differently on two machines. *)
+let datetime_epoch s =
+  let num at len = int_of_string (String.sub s at len) in
+  let days = days_from_civil (num 0 4) (num 5 2) (num 8 2) in
+  let secs = days * 86400 + num 11 2 * 3600 + num 14 2 * 60 + num 17 2 in
+  if String.length s <= 19 then secs
+  else
+    match s.[19] with
+    | 'Z' -> secs
+    | '+' -> secs - (num 20 2 * 3600 + num 23 2 * 60)
+    | '-' -> secs + (num 20 2 * 3600 + num 23 2 * 60)
+    | _   -> secs
+
+(* Comparing normalized values is the whole point: `90s` against `1min`, or
+   one instant written two ways. `Date` and `Time` are fixed-width and
+   zero-padded, so for those two the text order is already the right order.
+
+   The `Ord` constraint refuses every other type, so the last case says
+   what cannot arrive here rather than what to do about it. *)
+let wand_order a b =
+  match a, b with
+  | VInt x,      VInt y      -> compare x y
+  | VFloat x,    VFloat y    -> compare x y
+  | VString x,   VString y   -> compare x y
+  | VDuration x, VDuration y -> compare (parse_dur_ms x) (parse_dur_ms y)
+  | VDate x,     VDate y     -> compare x y
+  | VTime x,     VTime y     -> compare x y
+  | VDateTime x, VDateTime y -> compare (datetime_epoch x) (datetime_epoch y)
+  | _ -> raise (EvalError "these values have no order")
+
+(* Equality normalizes wherever ordering does, so the three relations agree.
+   It compared the stored text before, which made `60s == 1min` false while
+   `60s < 1min` and `60s > 1min` were both false as well: three answers that
+   no reader can hold at once. *)
+let normalized = function
+  | VDuration _ | VDateTime _ -> true
+  | _ -> false
+
+let wand_equal a b =
+  if normalized a && normalized b then
+    (try wand_order a b = 0 with EvalError _ -> false)
+  else
+    try a = b
+    with Invalid_argument _ ->
+      raise (EvalError "cannot compare functions for equality")
+
+(* `List.sort` takes a list of any type, including types wand does not
+   order, so it keeps structural comparison and reaches for `wand_order`
+   only where wand defines one. *)
 let wand_compare a b =
-  try compare a b
-  with Invalid_argument _ ->
-    raise (EvalError "cannot order functions")
+  if normalized a && normalized b then wand_order a b
+  else
+    try compare a b
+    with Invalid_argument _ -> raise (EvalError "cannot order functions")
 
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 
@@ -937,30 +1050,13 @@ and eval_binop (env : env) op a b : value =
      | _        -> raise (EvalError "':' right side must be a list"))
   | "==" -> VBool (wand_equal (eval env a) (eval env b))
   | "!=" -> VBool (not (wand_equal (eval env a) (eval env b)))
-  | "<"  ->
-    (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VBool (x < y)
-     | VFloat x, VFloat y -> VBool (x < y)
-     | VString x, VString y -> VBool (x < y)
-     | _ -> raise (EvalError "'<' requires comparable types"))
-  | ">"  ->
-    (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VBool (x > y)
-     | VFloat x, VFloat y -> VBool (x > y)
-     | VString x, VString y -> VBool (x > y)
-     | _ -> raise (EvalError "'>' requires comparable types"))
-  | "<=" ->
-    (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VBool (x <= y)
-     | VFloat x, VFloat y -> VBool (x <= y)
-     | VString x, VString y -> VBool (x <= y)
-     | _ -> raise (EvalError "'<=' requires comparable types"))
-  | ">=" ->
-    (match eval env a, eval env b with
-     | VInt x,   VInt y   -> VBool (x >= y)
-     | VFloat x, VFloat y -> VBool (x >= y)
-     | VString x, VString y -> VBool (x >= y)
-     | _ -> raise (EvalError "'>=' requires comparable types"))
+  (* Normalized, so `90s > 1min` and two spellings of one instant compare
+     as one value. The `Ord` constraint has already refused every type
+     that has no order. *)
+  | "<"  -> VBool (wand_order (eval env a) (eval env b) <  0)
+  | ">"  -> VBool (wand_order (eval env a) (eval env b) >  0)
+  | "<=" -> VBool (wand_order (eval env a) (eval env b) <= 0)
+  | ">=" -> VBool (wand_order (eval env a) (eval env b) >= 0)
   | "&&" ->
     (match eval env a with
      | VBool false -> VBool false
@@ -1115,54 +1211,6 @@ let str_repeat n s =
 let str_reverse s =
   let n = String.length s in
   String.init n (fun i -> s.[n - 1 - i])
-
-let parse_dur_ms s =
-  let n = String.length s in
-  let i = ref 0 in
-  let total = ref 0 in
-  let at i prefix =
-    let plen = String.length prefix in
-    n >= i + plen && String.sub s i plen = prefix
-  in
-  (try
-    while !i < n do
-      let j = ref !i in
-      while !j < n && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
-      if !j = !i then raise Exit;
-      (* A number past what an Int holds is not malformed, it is too big --
-         and saying which is the difference between a reader checking their
-         spelling and a reader checking their arithmetic. It used to escape
-         as OCaml's own "int_of_string" and say neither. *)
-      let digits = String.sub s !i (!j - !i) in
-      let num =
-        match int_of_string_opt digits with
-        | Some v -> v
-        | None ->
-          raise (EvalError (Printf.sprintf
-            "duration %S is too large: %s does not fit in an Int" s digits))
-      in
-      i := !j;
-      (* Each unit's contribution and the running sum go through the checked
-         arithmetic the rest of the evaluator uses. A duration whose total
-         milliseconds overflow an Int used to wrap silently to a negative
-         number that looked like an answer -- `9999999999999w` came back
-         positive-looking nonsense. It is too big, not malformed, and says so.
-         The factors are constants, so only `num * factor` and the sum can
-         overflow; both are checked. *)
-      let add_unit factor width =
-        total := add_ovf !total (mul_ovf num factor); i := !i + width
-      in
-      if      at !i "min" then add_unit 60000 3
-      else if at !i "ms"  then add_unit 1 2
-      else if at !i "w"   then add_unit (7 * 24 * 3600000) 1
-      else if at !i "d"   then add_unit (24 * 3600000) 1
-      else if at !i "h"   then add_unit 3600000 1
-      else if at !i "m"   then add_unit 60000 1
-      else if at !i "s"   then add_unit 1000 1
-      else raise Exit
-    done
-  with Exit -> raise (EvalError (Printf.sprintf "invalid duration: %S" s)));
-  !total
 
 let format_dur_ms ms =
   if ms = 0 then "0s"
