@@ -1,103 +1,50 @@
-## 0.25.0 - 2026-08-21
+## 0.26.0 - 2026-08-21
 
-wand can wait.
+Four more types compare, and sorting them answers differently than before.
 
-    Clock.sleep 30s
+### Size, Version, Port and IPv4
 
-    Shell.timeout 30s (fn () -> $(curl %{url}))
+Each was a type error under `<`, `>`, `<=` and `>=`:
 
-    Par.race [fn () -> $(curl %{a}), fn () -> $(curl %{b})]
+    100MB < 1GB              -- was a type error, is true
+    1.10.0 > 1.9.0           -- true; the numbers are numbers
+    10.0.0.9 < 10.0.0.10     -- true; the address is its 32 bits
+    :80 < :443               -- true
 
-    Par.timeout 30s (fn () -> poll_until_ready ())
+A `KB` is 1000 bytes. The spelling is the SI one, and the lexer has no
+`KiB`, so reading it as 1024 would misname the unit you wrote.
 
-`Duration` had literals and arithmetic, and nothing anywhere consumed one as
-a wait. So a retry with backoff could not be written, polling could not be
-written, and a command that hangs hung forever. `Clock` is an eighth effect
-label, and a file that waits declares it:
+`Version` follows semver precedence, prerelease rules included:
+`1.2.3-alpha.1 < 1.2.3-alpha.2 < 1.2.3-beta < 1.2.3`.
 
-    uses {Clock, Shell(curl)}
+### Sorting answers differently
 
-One label, not `Clock.Read` and `Clock.Wait`. `FS` splits because a handler
-can grant one half and not the other. A clock cannot: a virtual clock that
-answers a read while sleep really sleeps gives a program whose clock says
-five seconds and whose wall says thirty.
+`List.sort` used to compare the text of these values. It reads the value
+now:
 
-No manifest in the tree changes. Nothing performed `Clock` before this.
+    List.sort [10.0.0.10, 10.0.0.9, 10.0.0.2]
+      was [10.0.0.10, 10.0.0.2, 10.0.0.9]
+      is  [10.0.0.2, 10.0.0.9, 10.0.0.10]
 
-### The deadline that kills for real
+    List.sort [1.10.0, 1.9.0, 1.2.3]
+      was [1.10.0, 1.2.3, 1.9.0]
+      is  [1.2.3, 1.9.0, 1.10.0]
 
-Most script hangs are not wand code, they are a subprocess.
+    List.sort [1GB, 999MB, 100B]
+      was [100B, 1GB, 999MB]
+      is  [100B, 999MB, 1GB]
 
-    match Shell.timeout 30s (fn () -> $(curl %{url})) with
-    | Ok body   -> body
-    | Error why -> "gave up: %{why}"
+A script that sorted addresses, versions or sizes was getting the wrong
+order and had no way to say so.
 
-Expiry is a sequence — SIGTERM, a fixed five-second grace, SIGKILL. A
-command that tidies up on TERM gets to, and one that ignores it does not get
-to keep running. Only a deadline produces an `Error`, and the message names
-the command and the duration, because that string ends up in a log. Every
-other failure passes through: a command that exits non-zero has failed, not
-run late.
+### Equality reads them too
 
-The deadline is per command, and it is counted in slices of the select the
-pipes are already read with. Nothing reads a clock, so a machine that steps
-its clock mid-command cannot shorten or extend the wait.
+    1000B == 1KB                   -- true
+    01.2.3 == 1.2.3                -- true
+    192.168.001.1 == 192.168.1.1   -- true
 
-### First to finish wins
-
-    match Par.race [fn () -> $(curl %{a}), fn () -> $(curl %{b})] with
-    | Ok body   -> body
-    | Error why -> "both mirrors failed: %{why}"
-
-First to finish, not first to succeed. A loser that raises is discarded; a
-winner that raises comes back as `Error`. Cancellation is cooperative: a
-loser doing wand work stops at its next step and gives back what it holds,
-and every worker is joined before `race` returns. A loser waiting on a
-command waits for that command — put `Shell.timeout` in the thunk to bound
-it.
-
-`Par.timeout` is written in wand over `race` and `Clock.sleep`: the work and
-a sleeper race, and whichever finishes first answers. That is what makes it
-a wait of a length rather than a wait until an instant, which is what keeps
-it right on a machine whose clock steps.
-
-### A test of an hour of backoff runs in microseconds
-
-    Test.with_clock (fn () -> retry_with_backoff ())
-
-The handler answers the effect with a clock that costs no time and reports
-the total asked for. `--dry-run` reports `would wait: 45s` and does not
-wait, because nobody waits an hour to be told what a script would do.
-`--trace` is a real run and sleeps.
-
-Two waits a virtual clock does not shorten: `Shell.timeout`, because that
-wait belongs to the operating system, and `Par.timeout`, which answers `Ok`
-because a watched race is left-biased and the work wins. Test a deadline
-against real time.
-
-### Comparison is on the value
-
-A backoff loop doubles a delay and stops at a ceiling, and that could not be
-written, because durations did not compare.
-
-    90s > 1min          -- true
-    60s == 1min         -- true
-
-`<`, `>`, `<=` and `>=` were `'a -> 'a -> Bool`, dispatched during the run.
-They now take an `Ord`, a type wand orders, and seven are ordered: Int,
-Float, String, Duration, Date, Time and DateTime. Comparing anything else is
-a type error where it is written, not a failure mid-run. `Ord` composes as
-`Num` does, so `let later a b = if a < b then b else a` stays polymorphic.
-
-A comparison is on the value, not on the text. A `Duration` is a sum of
-units and a `DateTime` carries an offset, so one value has several
-spellings. A `DateTime` with no offset is read as UTC, because reading it as
-local time would make one script answer differently on two machines.
-
-**Breaking.** `60s == 1min` was false, while `60s < 1min` and `60s > 1min`
-were both false as well — three answers no reader can hold at once. It is
-now true. `100MB < 1GB` typechecked before and failed during the run; it is
-now a type error, because Size, Version, Port and IPv4 are not ordered yet.
+So the three relations agree: a value written two ways is equal, and it is
+neither below nor above.
 
 ---
 

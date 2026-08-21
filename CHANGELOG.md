@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.26.0] - 2026-08-21
+
+### Changed
+
+- **Breaking:** `Size`, `Version`, `Port` and `IPv4` compare. Each was a
+  type error under `<`, `>`, `<=` and `>=`. A `KB` is 1000 bytes, because
+  the spelling is the SI one and the lexer has no `KiB`. `Version` follows
+  semver precedence, prerelease rules included, so
+  `1.2.3-alpha.1 < 1.2.3-alpha.2 < 1.2.3-beta < 1.2.3`. A `Port` is its
+  number and an `IPv4` is its 32 bits (`1b10b92`)
+- **Breaking:** `List.sort` reads these values rather than their text, so
+  it answers with a different order than before —
+  `[10.0.0.10, 10.0.0.9, 10.0.0.2]` sorted to
+  `[10.0.0.10, 10.0.0.2, 10.0.0.9]` and now sorts to
+  `[10.0.0.2, 10.0.0.9, 10.0.0.10]`. `1.10.0` sorted below `1.2.3`, and
+  `1GB` below `999MB` (`1b10b92`)
+- **Breaking:** Equality reads them too, so `1000B == 1KB` and
+  `01.2.3 == 1.2.3` are true. The three relations agree: a value written
+  two ways is equal, and neither below nor above (`1b10b92`)
+
+### Note
+
+`docs/gaps.md` gains what the clock design deferred: the monotonic-clock
+question that arrives with `Clock.now`, the absence of `+` and `-` on
+`Duration` and `Size`, and three things declined rather than missing — a
+first-to-succeed race, scheduling, and syntax for timeouts (`d59e255`).
+
+[0.26.0]: https://github.com/mjstahl/wand/releases/tag/v0.26.0
+
 ## [0.25.0] - 2026-08-21
 
 ### Added
