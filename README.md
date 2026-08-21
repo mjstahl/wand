@@ -11,7 +11,7 @@ diff is not the person who wrote it.
 An AI writes a script faster than a person reads it. So a wand script declares
 what it touches on its first line:
 
-```
+```ocaml
 uses {FS.Write, Shell(git)}
 ```
 
@@ -36,7 +36,7 @@ Paths, globs, durations, sizes, URLs, dates and addresses have literals of their
 own. Each one has its own type. Use one where another belongs, and you get a
 type error.
 
-```
+```ocaml
 let timeout  = 30s               -- Duration
 let log_dir  = /var/log/app      -- Path
 let sources  = *.wand            -- Glob
@@ -52,7 +52,7 @@ An operation that can fail returns a `Result` with the reason. An operation
 whose value can be absent returns an `Option`. Each fallible operation has a `!`
 sibling that raises instead. The name shows the risk at the call site.
 
-```
+```ocaml
 match FS.read_file "config.toml" with
 | Ok text -> text
 | Error why -> "using defaults (%{why})"
@@ -63,7 +63,7 @@ Env.get "HOME"                  -- Option String, not "" when unset
 
 ## Shell commands, without the shell traps
 
-```
+```ocaml
 let branch = $(git branch --show-current)
 let dirty  = $(git status --porcelain) |> String.lines |> List.length
 ```
@@ -77,7 +77,7 @@ faster, because wand does not fork a process for each stage.
 Write `?` where you do not know what belongs, then typecheck. wand answers with
 the type of the hole.
 
-```
+```console
 $ wand t 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
@@ -87,7 +87,7 @@ Hole: Int -> Int -> Int ! 'e
 `handle` intercepts the effects that a script performs. You can test the risky
 parts with the network disconnected.
 
-```
+```ocaml
 test "deploy pushes exactly once" (fn t ->
   handle deploy () with
   | Shell!run _ k -> k "ok")
@@ -110,7 +110,7 @@ the checksum, runs the binary once, and installs it in `~/.local/bin`. Set
 `WAND_VERSION` to pin a release. Set `WAND_INSTALL_DIR` to choose the
 directory:
 
-```
+```sh
 curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 ```
 
@@ -119,7 +119,7 @@ curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 (x86_64, aarch64) and macOS builds (aarch64, x86_64). Each build has a
 `.sha256` file beside it:
 
-```
+```sh
 curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.22.0/wand-0.22.0-macos-aarch64.tar.gz
 tar xzf wand-0.22.0-macos-aarch64.tar.gz
 install wand-0.22.0-macos-aarch64/wand ~/.local/bin/
@@ -132,12 +132,12 @@ short enough for CI glue and for an editing loop. The release binary runs
 
 **From source.** This is the contributor path. It needs OCaml 5.x and opam:
 
-```
+```sh
 dune build
 dune exec wand -- script.wand
 ```
 
-```
+```sh
 wand script.wand        # run a script
 wand i                  # interactive session
 wand e "1 + 2"          # evaluate an expression
