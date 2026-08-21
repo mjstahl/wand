@@ -234,8 +234,8 @@ let expect_cont_name s =
 
 let lbp = function
   | Token.PipeArrow   -> 10
-  (* The transitional `:` binds as cons does, so a file in either spelling
-     parses the same. It goes when the spelling does. *)
+  (* A `:` binds here so that the message below is reached rather than
+     "expected -> , got :" from wherever the expression happened to end. *)
   | Token.Colon | Token.DoubleColon -> 15
   | Token.PipePipe  -> 20
   | Token.AmpAmp    -> 30
@@ -593,7 +593,10 @@ and list_pat_ s =
       (* The elements are read with `pat_base_`: the brackets own the cons
          here, so a `::` inside them is this loop's and not the element's. *)
       let first = pat_base_ s in
-      let is_cons () = peek s = Token.DoubleColon || peek s = Token.Colon in
+      if peek s = Token.Colon then
+        fail_at (peek_loc s)
+          "cons is '::' -- a single ':' gives a name a type";
+      let is_cons () = peek s = Token.DoubleColon in
       if is_cons () then begin
         ignore (advance s);
         (* Chain further cons cells: [a :: b :: c :: t] is PCons(a, PCons(b,
@@ -666,7 +669,14 @@ let rec expr_ bp s =
 and infix_ left op s =
   match op with
   | Token.PipeArrow  -> BinOp ("|>", left, expr_ 10 s)
-  | Token.Colon | Token.DoubleColon -> BinOp ("::", left, expr_ 14 s)
+  | Token.DoubleColon -> BinOp ("::", left, expr_ 14 s)
+  (* `:` was cons until 0.31.0. It is a type now, and a type does not
+     belong between two expressions, so the correction is the whole
+     answer. Not a `Diag.Replace`: a `:` in this file may also be a type
+     or a port, and a substitution cannot tell them apart. *)
+  | Token.Colon ->
+    fail_at (peek_loc s)
+      "cons is '::' -- a single ':' gives a name a type"
   | Token.PipePipe  -> BinOp ("||", left, expr_ 20 s)
   | Token.AmpAmp    -> BinOp ("&&", left, expr_ 30 s)
   | Token.EqEq      -> BinOp ("==", left, expr_ 40 s)

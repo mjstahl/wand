@@ -170,7 +170,7 @@ f (-5)|}
     "let (a, b) = (1, 2)\na + b"
     "3";
   ok_after_format "cons pattern"
-    "let f [h : t] = h\nf [1, 2, 3]"
+    "let f [h :: t] = h\nf [1, 2, 3]"
     "1";
   (* A match nested (unparenthesized in source) inside an outer match's
      case body: match cases only terminate at a non-`|` token, so an
@@ -730,7 +730,7 @@ let test_a_block_binding_round_trips () =
   (* The shape that sent this to the formatter: two bindings and an `if`,
      inside a lambda, inside a call. *)
   fmt_eq "a block in a lambda in a call"
-    {|let plan paths = (List.fold_right (fn p acc -> (let name = basename p; let wanted = tidy name; if wanted == name then acc else (p, wanted) : acc)) paths [])|}
+    {|let plan paths = (List.fold_right (fn p acc -> (let name = basename p; let wanted = tidy name; if wanted == name then acc else (p, wanted) :: acc)) paths [])|}
     {|let plan paths =
   (List.fold_right
     (fn p acc -> (
@@ -749,7 +749,7 @@ let test_a_block_binding_round_trips () =
      continuation out at the indent it is handed, and level with the `fn`
      the second binding read as the statement after the lambda. *)
   fmt_eq "a let chain in a lambda wraps under it"
-    {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) : acc) paths [])|}
+    {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc) paths [])|}
     {|let plan paths =
   (List.fold_right
     (fn p acc -> let name = basename p in

@@ -102,8 +102,19 @@ Both are aliases rather than spellings wand offers, which is the treatment
    syntax table, its Lists and Pattern-matching sections, and the drift
    tests.
 
-8. **Remove the transitional `:`** in the release after. Until then a
-   script written for 0.29.0 keeps running.
+8. **Remove the transitional `:`.** Done in 0.31.0. A `:` between two
+   expressions, or in a list pattern, names `::`. Not a `Diag.Replace`:
+   a `:` elsewhere in the same file may be a type or a port, and a
+   substitution cannot tell them apart.
+
+   The removal found what step 6 had missed. `wand f` does not rewrite a
+   construct that holds an interior comment — it is pinned and emitted as
+   written, so the comment does not move. Five cons patterns in
+   `stdlib/String.wand` and `stdlib/Args.wand` sat inside such a
+   construct, survived the sweep, and only surfaced when `:` stopped
+   parsing. So the migration is `wand f`, then fix whatever still fails to
+   parse. The 0.30.0 notes say `wand f` and no more, which is most of the
+   truth rather than all of it.
 
 ## Cost and risk
 

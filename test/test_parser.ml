@@ -74,7 +74,7 @@ let test_a_block_cannot_end_with_a_binding () =
 
 (* `(p: Pod)` gives a parameter a type, which is what lets a function read a
    field off one. The slot was refused before, with a message for the cons
-   mistake -- and cons in a pattern is `[h : t]`, in brackets, so the
+   mistake -- and cons in a pattern is `[h :: t]`, in brackets, so the
    parenthesised form was never a pattern at all. One token tells them
    apart: a type starts with `Upper`, `'a` or `(`.
 
@@ -138,8 +138,8 @@ let test_the_cons_mistake_still_reports () =
   refuses "in a parameter" "let f (x : xs) = x"
     "a cons pattern is written in square brackets";
   (* And the real cons pattern is untouched. *)
-  Alcotest.(check string) "cons in brackets" "[h : t]"
-    (expr_pats "match xs with | [h : t] -> h")
+  Alcotest.(check string) "cons in brackets" "[h :: t]"
+    (expr_pats "match xs with | [h :: t] -> h")
 
 (* ── Brace maps ──────────────────────────────────────────────────────────── *)
 

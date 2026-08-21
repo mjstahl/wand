@@ -2262,8 +2262,9 @@ let xs = 1 :: [2, 3]        -- cons is `::`, and takes no `:`
 
 There is no inline ascription `(e : T)`. Annotate the binding instead.
 
-Cons is `::`. It used to be `:`, which is why a `:` in a pattern where no
-type follows it is refused with the correction rather than read on.
+Cons is `::`. It was `:` until 0.31.0, which is why a `:` between two
+expressions, or in a pattern where no type follows it, is refused with the
+correction rather than read on.
 
 ---
 

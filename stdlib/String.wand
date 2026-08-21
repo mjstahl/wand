@@ -101,7 +101,7 @@ let join sep xs = match xs with
      the elements hold: testing the accumulator for "" made an empty first
      element look like "nothing yet", so `join "," ["", "b"]` answered "b"
      and dropped a field that was empty on purpose. *)
-  | [h : t] -> List.fold_left (fn acc x -> acc ++ sep ++ x) h t
+  | [h :: t] -> List.fold_left (fn acc x -> acc ++ sep ++ x) h t
 
 (** Split a string on newlines. *)
 let lines s = str_split "\n" s

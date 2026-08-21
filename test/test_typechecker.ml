@@ -384,7 +384,7 @@ let test_valid_equation_groups_accepted () =
     "let fib 0 = 0\nlet fib 1 = 1\nlet fib n = fib (n-1) + fib (n-2)\nfib 10"
     "55";
   ok "list equations"
-    "let sum [] = 0\nlet sum [h : t] = h + sum t\nsum [1,2,3]"
+    "let sum [] = 0\nlet sum [h :: t] = h + sum t\nsum [1,2,3]"
     "6";
   (* An unreachable case in a hand-written match stays legal. *)
   ok "hand-written match may have a deliberate dead case"
@@ -646,8 +646,8 @@ let test_operator_type_errors () =
   rejects "int ++ string" "1 ++ \"a\"";
   rejects "string ++ int" "\"a\" ++ 1";
   rejects "bad expression inside interpolation" "\"%{1 + true}\"";
-  rejects "cons onto a non-list" "1 : 2";
-  rejects "cons of the wrong element type" "1 : [\"a\", \"b\"]"
+  rejects "cons onto a non-list" "1 :: 2";
+  rejects "cons of the wrong element type" "1 :: [\"a\", \"b\"]"
 
 let test_constructor_and_pattern_errors () =
   rejects "unknown constructor" "Bogus";

@@ -208,7 +208,7 @@ let test_bracket_maps () =
 
 (* Every drift check sits next to syntax that must keep working. *)
 let test_neighbours_still_parse () =
-  ok "cons expression" "1 : [2, 3]";
+  ok "cons expression" "1 :: [2, 3]";
   ok "port literal" "let p = :8080\np";
   ok "division" "10 / 2";
   ok "annotated binding" "let f x : Int = x + 1\nf 1";

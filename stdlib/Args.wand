@@ -53,17 +53,17 @@ let _object_of flags args =
   let go acc positional args =
     match args with
     | [] -> Ok (acc, positional)
-    | [arg : rest] when !(_flag? arg) -> go acc (List.append positional [arg]) rest
+    | [arg :: rest] when !(_flag? arg) -> go acc (List.append positional [arg]) rest
     -- Only flags get past the guard above, so `=` here means `--key=value`.
-    | [arg : rest] when _inline? arg ->
+    | [arg :: rest] when _inline? arg ->
       let (k, v) = _inline_pair arg in
       go (set k v acc) positional rest
-    | [arg : rest] ->
+    | [arg :: rest] ->
       let k = _name_of arg in
       if boolean? k then go (set k "true" acc) positional rest
       else (
         match rest with
-        | [v : more] -> go (set k v acc) positional more
+        | [v :: more] -> go (set k v acc) positional more
         | [] -> Error "--%{k} expects a value"
       )
   in match go Map.empty [] args with

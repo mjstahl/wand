@@ -56,10 +56,10 @@ let test_tuple () =
 
 let test_list () =
   ok "exhaustive list"
-    "let f xs = match xs with | [] -> 0 | [h : _] -> h; f [1, 2]"
+    "let f xs = match xs with | [] -> 0 | [h :: _] -> h; f [1, 2]"
     "1";
   err_contains "missing empty-list case"
-    "let f xs = match xs with | [h : _] -> h"
+    "let f xs = match xs with | [h :: _] -> h"
     "non-exhaustive"
 
 (* ── Result ───────────────────────────────────────────────────────────────── *)
