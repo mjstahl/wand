@@ -21,18 +21,20 @@ import Proc
 
 let stage name (r: ShellResult) = (name, r.code == 0)
 
-let stages = [
-  stage "build" $?(dune build),
-  stage "test" $?(dune test),
-  stage "lint" $?(make lint)
-]
+let failed stages = List.filter (fn (_, ok?) -> !ok?) stages
 
-let failed = List.filter (fn (_, ok?) -> !ok?) stages
-
-let () =
+let report stages = (
   stages
-    |> List.each (fn (name, ok?) -> println "%{if ok? then "ok  " else "FAIL"} %{name}")
+    |> List.each (fn (name, ok?) -> println "%{if ok? then "ok  " else "FAIL"} %{name}");
+  match failed stages with
+  | [] -> println "all stages passed"
+  | bad -> (println "%{List.length bad} stage(s) failed"; Proc.exit 1)
+)
 
-match failed with
-| [] -> println "all stages passed"
-| _ -> (println "%{List.length failed} stage(s) failed"; Proc.exit 1)
+(* The commands run in `main`, so importing this file runs none of them and
+   a test can hand `report` a list of its own. *)
+let main () =
+  (report
+    [stage "build" $?(dune build), stage "test" $?(dune test), stage "lint" $?(make lint)])
+
+main ()

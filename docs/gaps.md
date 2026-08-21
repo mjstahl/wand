@@ -74,18 +74,19 @@ have to change before anyone builds them.
 
 ## The language
 
+**An effect in a module's top-level binding dies unhandled.** An import
+evaluates a file's bindings, and it does so with no handler in scope, so
+`let greeting = $(hostname)` at the top of an imported module ends the
+program with `Unhandled(WandEffect ...)` rather than a wand error naming
+the file. Work belongs in a function that the script's last line calls;
+that runs when the file is the script and not when it is imported.
+
 **A bare `None` takes the next argument.** A constructor in an argument
 list is parsed with its arguments, and a nullary one takes an argument it
 cannot hold: `t.eq None (usage row)` reads as `t.eq (None (usage row))`,
 and the error talks about the application rather than saying that `None`
 holds nothing. `(None)` or `Option.none?` is the way round it. Found by
 porting.
-
-**A file cannot be imported for its parts.** Importing runs the file, so a
-script's own logic is not reachable from a test: the deciding half has to
-live in a second file that runs nothing at import. `examples/ports/`
-carries one port split that way, with its test in `test/wand/`. What is
-missing is a way for one file to be both.
 
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each

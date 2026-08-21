@@ -1,8 +1,8 @@
 uses {IO, Shell(df)}
 
-let {over} = import ./disk-usage
 import IO
 import List
+import Option
 import String
 
 (* Which filesystems are fuller than a threshold.
@@ -13,13 +13,39 @@ import String
    let the shell reinterpret it. `NR>1` skips the header by counting lines.
    Both are the script working around text that was never typed.
 
-   Everything that decides is in `./disk-usage`, which runs no command and
-   prints nothing, so `test/wand/test_port_disk_usage.wand` can import it
-   and check the parse without a machine to read. What is left here is the
-   effectful edge: one command, and the report. *)
+   Everything that decides is a function here, and the command is in
+   `main`. That is what lets `test/wand/test_ports.wand` import this file
+   and check the parse without a machine to read: an import runs a file's
+   bindings, not its bare expressions, so nothing happens until the test
+   calls something. *)
 
-let full = over 90 (String.lines $(df -P))
+(* A `df -P` row is: filesystem, blocks, used, available, capacity, mount.
+   Capacity carries a `%`. A row without six fields is the header, or a
+   filesystem whose name wrapped, and contributes nothing. *)
+let usage row =
+  match String.words row with
+  | [_, _, _, _, capacity, mount] -> (
+    match String.to_int (String.replace "%" "" capacity) with
+    | Ok percent -> Some (mount, percent)
+    | Error _ -> None
+  )
+  | _ -> None
 
-match full with
-| [] -> println "every filesystem is under 90%"
-| _ -> full |> List.each (fn (mount, percent) -> println "%{percent}%\t%{mount}")
+(* The mounts over a percentage, in the order the rows came in. *)
+let over limit rows =
+  (List.fold_right
+    (fn row acc -> match usage row with
+      | Some (mount, percent) -> if percent > limit then (mount, percent) : acc else acc
+      | None -> acc
+    )
+    rows
+    [])
+
+let report full =
+  match full with
+  | [] -> println "every filesystem is under 90%"
+  | _ -> full |> List.each (fn (mount, percent) -> println "%{percent}%\t%{mount}")
+
+let main! () = report (over 90 (String.lines $(df -P)))
+
+main! ()

@@ -41,9 +41,14 @@ let rename_all! moves =
       FS.rename! from to
     ))
 
-let dir =
-  match List.head (Env.args ()) with
-  | Some d -> Path.of_string d
-  | None -> ./.
+(* argv is an effect, and an import runs a file's bindings, so reading it
+   here would read it on import. In `main!` it does not. *)
+let main! () =
+  let dir =
+    match List.head (Env.args ()) with
+    | Some d -> Path.of_string d
+    | None -> ./.
+  in
+  rename_all! (plan (FS.glob_in **.txt dir))
 
-rename_all! (plan (FS.glob_in **.txt dir))
+main! ()

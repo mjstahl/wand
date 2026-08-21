@@ -24,13 +24,12 @@ import Path
    read is the fold below rather than one stage of the pipeline. *)
 
 let sized paths =
-  (List.fold_right
-    (fn p acc -> match FS.size p with
+  let keep =
+    fn p acc -> match FS.size p with
       | Ok bytes -> (p, bytes) : acc
       | Error _ -> acc
-    )
-    paths
-    [])
+  in
+  List.fold_right keep paths []
 
 let over bytes dir =
   FS.glob_in **.wand dir
@@ -43,4 +42,6 @@ let report bytes dir = (
   over bytes dir |> List.each (fn (p, size) -> println "%{size}\t%{Path.to_string p}")
 )
 
-report 4000 ./stdlib
+let main () = report 4000 ./stdlib
+
+main ()

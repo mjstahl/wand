@@ -1,0 +1,86 @@
+uses {Shell(dune)}
+
+let {test, group} = import Test
+let {busiest, client} = import ../../examples/ports/log-top-talkers
+let {over, usage} = import ../../examples/ports/disk-threshold
+let {plan, tidy} = import ../../examples/ports/normalize-names
+let {failed, stage} = import ../../examples/ports/ci-gate
+import Map
+import Option
+import Path
+
+(* The ports in examples/ports/, checked without a machine to read.
+
+   Importing a wand file runs its bindings and not its bare expressions, so
+   a port whose work sits in `main` and whose last line calls it is both a
+   script and a module: running it does the work, importing it does
+   nothing. Every port here is written that way, which is what lets these
+   tests hold one. *)
+
+group "log-top-talkers" (fn () -> [
+  test "the client is the first field" (fn t ->
+    t.eq (Some "10.0.0.9") (client `10.0.0.9 - - [x] "GET /" 200`)),
+  test "a blank line has no client" (fn t -> t.ok (Option.none? (client ""))),
+  test "the busiest come first" (fn t ->
+    t.eq [("a", 3), ("b", 2)]
+      (busiest 2 (Map.from_list [("a", 3), ("b", 2), ("c", 1)]))),
+  (* A tie is broken by name, so the report does not shuffle between runs. *)
+  test "a tie is broken by name" (fn t ->
+    t.eq [("a", 2), ("b", 2)] (busiest 2 (Map.from_list [("b", 2), ("a", 2)])))
+])
+
+group "disk-threshold" (fn () -> [
+  test "a mount and its percentage" (fn t ->
+    t.eq (Some ("/", 91)) (usage "/dev/disk1s1 1000 910 90 91% /")),
+  test "the header is not a row" (fn t ->
+    t.ok (Option.none? (usage "Filesystem 1024-blocks Used Available Capacity Mounted on"))),
+  test "a capacity that is not a number" (fn t ->
+    t.ok (Option.none? (usage "/dev/a 1 1 1 n/a /mnt"))),
+  test "only what is over the limit" (fn t ->
+    t.eq [("/", 91)] (over 90 ["/dev/a 1 1 1 91% /", "/dev/b 1 1 1 12% /home"])),
+  test "the limit itself is not over it" (fn t -> t.eq [] (over 90 ["/dev/a 1 1 1 90% /"]))
+])
+
+group "normalize-names" (fn () -> [
+  test "spaces and case" (fn t -> t.eq "notes-on-rust.txt" (tidy "Notes On Rust.txt")),
+  test "a name already in the house style is not in the plan" (fn t ->
+    t.eq [] (plan [./fine.txt])),
+  (* A path literal holds no space, so a name with one is written as a
+     string and converted. *)
+  test "and one that is not, is" (fn t -> (
+    let messy = Path.of_string "./A File.txt";
+    t.eq [(messy, ./a-file.txt)] (plan [messy])
+  ))
+])
+
+(* The effectful half is testable too: a case for `Shell!capture` answers
+   the three commands, so the gate can be run with any verdict. *)
+let with_codes codes thunk =
+  handle thunk () with
+  | Shell!capture cmd k -> (k
+    ShellResult(
+      stdout = "",
+      stderr = "",
+      code = match Map.get cmd codes with
+        | Some c -> c
+        | None -> 0
+    ))
+
+group "ci-gate" (fn () -> [
+  test "a stage is its exit code" (fn t ->
+    t.eq ("build", true) (stage "build" ShellResult(stdout = "", stderr = "", code = 0))),
+  test "and a non-zero code fails it" (fn t ->
+    t.eq ("build", false) (stage "build" ShellResult(stdout = "", stderr = "", code = 2))),
+  test "nothing failed when every command answers zero" (fn t ->
+    t.eq
+      []
+      (with_codes Map.empty (fn () ->
+        failed [stage "build" $?(dune build), stage "test" $?(dune test)])
+      )),
+  test "the failing stage is named" (fn t ->
+    t.eq
+      [("test", false)]
+      (with_codes (Map.from_list [("dune test", 1)]) (fn () ->
+        failed [stage "build" $?(dune build), stage "test" $?(dune test)])
+      ))
+])

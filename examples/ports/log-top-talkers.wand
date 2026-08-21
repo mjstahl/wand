@@ -32,8 +32,15 @@ let count_into counts line =
 let busiest n counts =
   counts |> Map.to_list |> List.sort_by (fn (who, count) -> (0 - count, who)) |> List.take n
 
-let counts = Stream.fold_left count_into Map.empty (IO.stdin_lines ())
+let report counts = (
+  println "Top talkers";
+  println "-----------";
+  busiest 5 counts |> List.each (fn (who, count) -> println "%{count}\t%{who}")
+)
 
-println "Top talkers"
-println "-----------"
-busiest 5 counts |> List.each (fn (who, count) -> println "%{count}\t%{who}")
+(* The stream is in `main` rather than in a binding: an import runs a
+   file's bindings, so a top-level `let counts = ...stdin...` would read
+   stdin the moment a test imported this. *)
+let main! () = report (Stream.fold_left count_into Map.empty (IO.stdin_lines ()))
+
+main! ()

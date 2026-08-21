@@ -327,11 +327,14 @@ walls, none of them where the gap list expected them:
 - **No `List.filter_map`.** "Read a value and keep the ones that worked" is
   the shape of every parse-then-filter script, and it is a fold written out
   by hand in two of the five.
-- **A file cannot be imported for its parts.** Importing runs it, so a
-  port's logic is testable only if it lives in a second file. That is what
-  `disk-usage.wand` is, and `test/wand/test_port_disk_usage.wand` imports
-  it. Every other port here is untestable as written, which is the honest
-  measure of how testable the language makes ops code.
+- **An import runs a file's bindings, not its bare expressions.** So where
+  a port puts its work decides whether it can be tested. `let counts =
+  ...stdin...` at the top level reads stdin the moment a test imports the
+  file — and reads it with no handler in scope, so it dies with an
+  unhandled effect rather than a wand error. The same work inside a
+  function, called from the last line, runs when the file is the script and
+  not when it is imported. Every port here is written that way, and
+  `test/wand/test_ports.wand` imports all four of them.
 - **A bare `None` takes the next argument.** `t.eq None (usage row)` is a
   type error about the application. Both of these are in
   [`../gaps.md`](../gaps.md).
