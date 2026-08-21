@@ -687,12 +687,12 @@ r.code     -- Int
 
 ### Interpolation: `%{...}` quotes, `%!{...}` splices
 
-A command line is a sequence of arguments, so a value going into one has to
-say which it is. There are two forms.
+A command line is a sequence of arguments. A value that goes into one must
+say which argument it is. There are two forms.
 
-**Quote interpolate — `%{x}`.** The value becomes exactly one argument,
-whatever it contains. Spaces do not split it, `*` does not expand, and `;`,
-`|`, backticks and `$(...)` are text:
+**Quote interpolate — `%{x}`.** The value becomes one argument, whatever it
+holds. A space does not split it. `*` does not expand. `;`, `|`, a backtick
+and `$(...)` are text:
 
 ```
 let f = "two words.txt"
@@ -705,9 +705,9 @@ let n = "x; rm -rf /tmp/z"
 $(echo %{n})                -- runs: echo 'x; rm -rf /tmp/z'
 ```
 
-Written between quotes of your own, `%{x}` is part of the word you are
-building rather than an argument on its own, and is escaped for the quote it
-sits in. Nothing in the value is read as syntax there either:
+Write `%{x}` between quotes of your own, and it becomes part of that word.
+It is not an argument of its own. wand escapes it for the quote it sits in.
+The shell reads nothing in the value as syntax:
 
 ```
 let name = "$(whoami)"
@@ -715,9 +715,9 @@ $(echo "hi %{name}")        -- runs: echo "hi \$(whoami)"    (one argument)
 $(grep "^%{name}" log)      -- the value is part of the pattern
 ```
 
-**Raw interpolate — `%!{x}`.** The value is spliced into the command as
-shell source, which the shell then reads. This is how a value carries
-several arguments, a pattern to expand, or a whole command:
+**Raw interpolate — `%!{x}`.** wand puts the value into the command as shell
+source, and the shell reads it. Use this form for a value that holds several
+arguments, a pattern to expand, or a whole command:
 
 ```
 let flags = "-l -a"
@@ -732,29 +732,28 @@ $(%!{cmd})                  -- runs: echo hello
 
 Both work the same way in `$?()`.
 
-**Which to reach for.** `%{...}` is the one to use — a path, a filename, an
-argument, anything that is data. `%!{...}` is for text you wrote or built
-that is *meant* to be read as shell syntax, and it hands the value the power
-to decide what runs:
+**Which one to use.** Use `%{...}` for data: a path, a filename, an
+argument. Use `%!{...}` for text that you wrote or built to be shell syntax.
+`%!{...}` lets the value decide what runs:
 
 ```
 let name = "x; rm -rf /tmp/z"
 $(echo %!{name})            -- runs: echo x; rm -rf /tmp/z
 ```
 
-That is the point of the two spellings. With `%{...}` a value can only be
-an argument to the command you wrote, so a value that arrived from a file,
-an environment variable, or another command's output cannot change what
-runs. With `%!{...}` it can — which is sometimes exactly what you want,
-and is greppable when someone comes to audit the script. A manifest can
-also bound *which* commands either spelling may reach:
-`uses {Shell(git, curl)}` (see [Manifests](#manifests)).
+That is why there are two spellings. Under `%{...}` a value is only an
+argument to the command you wrote. A value from a file, from an environment
+variable, or from the output of another command cannot change what runs.
+Under `%!{...}` it can. Sometimes that is what you want, and `grep` finds
+every site. A manifest also limits which commands each spelling can reach:
+`uses {Shell(git, curl)}`. See [Manifests](#manifests).
 
-Raw interpolation is only for commands. In a string literal there are no
-argument boundaries and so nothing to quote for, and `%!{...}` there is a
-lex error rather than a synonym for `%{...}`.
+Raw interpolation works only in a command. A string literal has no argument
+boundaries, so it has nothing to quote for. `%!{...}` in a string is a lex
+error. It is not another spelling of `%{...}`.
 
-`test/wand/test_shell_interpolation.wand` specifies both forms case by case.
+`test/wand/test_shell_interpolation.wand` gives a case for each rule
+above.
 
 Pipeline with `|>` threads the left-hand string as stdin to the command:
 
@@ -764,8 +763,9 @@ $(git log --oneline)
   |> $(wc -l)
 ```
 
-A command's stderr is the script's own, appearing as the command writes it;
-`$?()` captures it instead. Being given stdin changes neither.
+The stderr of a command is the stderr of the script. It appears as the
+command writes it. `$?()` captures it instead. Stdin changes neither
+form.
 
 Combined with regex:
 
@@ -779,8 +779,8 @@ $(git log --oneline)
 
 ## Glob
 
-`Glob` is a distinct type from `Path` — a pattern describing a set of files.
-Glob literals use `*`, `**`, `?`, or `[...]`:
+`Glob` is a type of its own, not a `Path`. It is a pattern for a set of
+files. A glob literal uses `*`, `**`, `?` or `[...]`:
 
 ```
 *.wand              -- Glob
@@ -793,16 +793,17 @@ Glob literals use `*`, `**`, `?`, or `[...]`:
 ./utils.wand        -- Path (no wildcards — unchanged)
 ```
 
-A pattern that starts with a bare word needs the `./` prefix, like any
-other relative path: `./file*.txt`, not `file*.txt`. Without it, `file`
-reads as a name and `*.txt` as a glob literal, so the line means "apply
-`file` to this glob" — which is why wand answers:
+A pattern that starts with a bare word needs the `./` prefix. Each relative
+path does. Write `./file*.txt`, not `file*.txt`. Without the prefix, `file` is
+a name and `*.txt` is a glob literal. The line then means "apply `file` to
+this glob". So wand answers:
 
 ```
 'file*.txt' should be written as './file*.txt'
 ```
 
-`FS.glob` accepts a `Glob`, not a `Path` — mixing them is a type error:
+`FS.glob` accepts a `Glob`, not a `Path`. Give it a `Path` and you get a
+type error:
 
 ```
 import FS
@@ -811,14 +812,13 @@ FS.glob    *.wand            -- List Path, relative to cwd
 FS.glob_in ./**/*.ml ./src   -- List Path, relative to ./src
 ```
 
-Both always return a list (empty if nothing matches, never raises).
-Results are sorted lexicographically.
+Both always return a list. The list is empty if nothing matches. Neither
+raises. The results are sorted by name.
 
-A symlink is matched like any other entry and comes back as itself, but the
-walk does not go through one: everything answered is under the directory
-named. A link pointing out of that directory would otherwise put files it
-does not contain in the answer, and a link pointing back into it would send
-the walk round in a circle.
+wand matches a symlink like any other entry, and answers with the symlink
+itself. The walk does not go through it. So each answer is under the directory
+you named. A link out of that directory would add files that the directory
+does not hold. A link back into it would send the walk round in a circle.
 
 ---
 
@@ -841,15 +841,15 @@ Regex.split       r/\s+/ "a  b   c"        -- ["a", "b", "c"]
 Regex.match_all   r/\d+/ "a1b22c333"       -- ["1", "22", "333"]
 ```
 
-`match_all` returns every non-overlapping match in order — useful for
-simple tokenizing with an alternation pattern:
+`match_all` returns each match in order. The matches do not overlap. Use it
+with an alternation pattern to make a simple tokenizer:
 
 ```
 Regex.match_all r/[a-zA-Z_]\w*|[{}=,]|"[^"]*"|\d+/ "block{x=\"1\"}"
 -- ["block", "{", "x", "=", "\"1\"", "}"]
 ```
 
-Compile a pattern at runtime (e.g. from user input):
+Compile a pattern during the run, for example a pattern from the user:
 
 ```
 match Regex.compile pattern with
@@ -861,27 +861,27 @@ match Regex.compile pattern with
 
 ## Errors and `try`
 
-Fallible operations return a `Result`, and their `!`-named siblings raise
-instead. `try` runs an expression and converts a raise back into a `Result`,
-so raising code can be handled as values at whatever boundary you choose:
+An operation that can fail returns a `Result`. Its `!` sibling raises
+instead. `try` runs an expression and turns a raise back into a `Result`. So
+you choose the place where raising code becomes a value again:
 
 ```
 try (FS.read_file! ./config.toml)   -- Result String String
 try (1 + 1)                          -- Ok(2)
 ```
 
-The error payload is the message the raise carried, without a source position:
-it describes what went wrong, not where.
+The error holds the message from the raise, and no source position. It says
+what went wrong, not where.
 
-`try` is the only construct for capturing a raise. It is a fixed handler over
-the same machinery `handle` exposes.
+`try` is the only form that captures a raise. It is a fixed handler over the
+machinery that `handle` opens up.
 
 ---
 
 ## Effects
 
-A signature says what a function does to the machine, not just what it does
-to its arguments. The effects appear after `!`:
+A signature says what a function does to the machine. It does not stop at
+what the function does to its arguments. The effects come after `!`:
 
 ```
 FS.read_file!   Path -> String ! {FS.Read, Raise}
@@ -903,8 +903,8 @@ So writing a script means writing no effects at all. You read them back from
 
 ### Writing them down
 
-A written type may carry effects, in the four shapes the printer emits — so
-a signature `wand t` reports pastes back as an annotation:
+A written type can carry effects. The printer emits four shapes, so a
+signature from `wand t` pastes back as an annotation:
 
 ```
 Unit -> String ! {Shell}          exactly these
@@ -913,25 +913,26 @@ Unit -> String ! {Shell | 'e}     at least Shell, plus whatever 'e is
 Int -> Int                        nothing written: inferred, as usual
 ```
 
-Only the innermost arrow of a curried type carries them, as in an inferred
-one: supplying one argument of several does nothing until the last arrives.
+Only the innermost arrow of a curried type carries them. An inferred type
+does the same. One argument of several does nothing until the last one
+arrives.
 
-Written effects are **checked, not assumed**. Declaring fewer than the body
-performs is a type error, so an annotation cannot quietly narrow what a
-function does:
+wand **checks** written effects. It does not assume them. Declare fewer
+effects than the body performs, and you get a type error. An annotation cannot
+narrow what a function does:
 
 ```
 let f : Unit -> String ! {Shell} = fn () -> $(git status)
 -- type error: cannot unify effects {Shell} with {Raise, Shell | ..}
 ```
 
-Reach for this in one place: when a type has to say that the effects of one
-part of it are *the same as* another's. Naming the same variable twice is
-what states that, and there is no other way to say it — inference cannot
-see a relationship the type never mentions. A field holding a function is
-the case that needs it; see
+Use this in one case: the type must say that the effects of one part are the
+same as the effects of another part. To say that, name the same variable
+twice. There is no other way. Inference cannot see a relationship that the
+type does not mention. A field that holds a function is the case that needs
+it. See
 [A function kept in a field keeps its effects](#a-function-kept-in-a-field-keeps-its-effects).
-Everywhere else, leave them out and let them be inferred.
+Everywhere else, write no effects and let wand infer them.
 
 ### The labels
 
@@ -947,8 +948,9 @@ Seven, and a script cannot define more:
 | `Proc` | ends the process; nothing catches this |
 | `Raise` | can raise instead of returning |
 
-A label answers "what can this touch?", which is why it is coarse: it has to
-fit in a signature and be memorable in full.
+A label answers one question: what can this touch? So a label is coarse. It
+must fit in a signature, and you must be able to hold all seven in your
+head.
 
 ### They are inferred, however deep
 
@@ -959,14 +961,14 @@ let sync ()  = fetch ()
 sync            -- Unit -> String ! {Raise, Shell}
 ```
 
-Nothing above is annotated. `$()` runs a command and raises on a non-zero
-exit, so it carries `{Raise, Shell}`; `$?()` hands back a `ShellResult`
-instead and carries `{Shell}` alone. `$NAME` reads the environment, so it
-carries `{Env}` — inside a string that is written `%{$NAME}`, since a
-string's `$` is text.
+Nothing above is annotated. `$()` runs a command, and it raises if the
+command exits non-zero. So it carries `{Raise, Shell}`. `$?()` returns a
+`ShellResult` instead, so it carries `{Shell}` only. `$NAME` reads the
+environment, so it carries `{Env}`. In a string, write it `%{$NAME}`, because
+a `$` in a string is text.
 
-Including through a function that calls itself, and around a group that
-calls each other:
+This holds through a function that calls itself, and around a group of
+functions that call each other:
 
 ```
 let countdown n =
@@ -984,8 +986,8 @@ fn () -> $(git status)          -- Unit -> String ! {Raise, Shell}
 fn () -> try ($(git status))    -- Unit -> Result String String ! {Shell}
 ```
 
-This is why each fallible operation and its `!` sibling differ by exactly
-one effect — the plain one is `try` over the raising one:
+This is why an operation and its `!` sibling differ by one effect. The plain
+one is `try` over the raising one:
 
 ```
 FS.read_file!   Path -> String ! {FS.Read, Raise}
@@ -1000,7 +1002,7 @@ fn () -> handle (Proc.exit 1) with
          | Proc!exit _ k -> k 0        -- Unit -> 'a
 ```
 
-`Proc` is gone. It carries one operation, so one case covers it, and nothing
+`Proc` is gone. It carries one operation, so one case covers it. Nothing
 left in the body can end the process.
 
 Covering some of them is not enough:
@@ -1010,34 +1012,33 @@ fn () -> handle $(git push) with
          | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise, Shell}
 ```
 
-`Shell` stays. It carries four operations — `run`, `run_quiet`, `capture`
-and `exit_code` — and the three this handler does not name would still reach
-the real shell, so a signature without `Shell` would be describing a program
-that does not exist.
+`Shell` stays. It carries four operations: `run`, `run_quiet`, `capture` and
+`exit_code`. The three that this handler does not name still reach the real
+shell. A signature without `Shell` would describe a program that does not
+exist.
 
-[Effect handlers](#effect-handlers) lists every operation. Note that it
-groups them by family rather than by effect: the `FS!` operations split
-across `FS.Read` and `FS.Write`, and covering one of those two is what
-discharges it.
+[Effect handlers](#effect-handlers) lists each operation. That list groups
+them by family, not by effect. The `FS!` operations belong to `FS.Read` and to
+`FS.Write`. Cover every operation of one effect to discharge that effect.
 
-`Raise` stays for the same reason at a smaller scale: an effect set records
-which effects occurred, not which operation caused them, so the raise `$()`
-performs on a non-zero exit cannot be told apart from one a raising call
-elsewhere in the body would perform. Removing it would drop that one too.
+`Raise` stays for the same reason, on a smaller scale. An effect set records
+which effects happened, not which operation caused them. So wand cannot tell
+the raise of `$()` from the raise of another call in the same body. To remove
+one is to remove both.
 
-Both cases err the same way. Keeping an effect that cannot happen is
-imprecise, and you say so in the manifest; dropping one that can is a lie,
-and the manifest stops meaning anything. A handler that wants the effect
-gone names every operation.
+Both cases err in the same direction. To keep an effect that cannot happen
+is imprecise, and the manifest says so. To drop an effect that can happen is a
+lie, and then the manifest means nothing. A handler that wants the effect gone
+names each operation.
 
-A case naming an operation that does not exist is a type error, with the
-nearest real one suggested — a mistyped mock would otherwise intercept
-nothing and let the real effect run.
+A case that names an operation which does not exist is a type error. The
+error suggests the nearest real name. Without the check, a mock with a typo
+intercepts nothing, and the real effect runs.
 
 ### A function kept in a field keeps its effects
 
-A field can hold a function, and what that function performs is not written
-in the declaration — there is nowhere to put it:
+A field can hold a function. The declaration does not say what that function
+performs, because there is nowhere to write it:
 
 ```
 type Action = Action (Unit -> String)
@@ -1046,12 +1047,12 @@ let a = Action (fn () -> $(git push))
 let fire x = match x with | Action f -> f ()
 ```
 
-The effects are taken from the value the field is built with, so `fire`
-performs `Shell`, and a file calling it declares `Shell`. The same holds for
-a named field read back by dot access or by matching on it.
+wand takes the effects from the value that builds the field. So `fire`
+performs `Shell`, and a file that calls it declares `Shell`. A named field
+behaves the same way, through dot access or through a match.
 
-Where a field takes a function and passes its effects on, say so by naming
-the same variable twice — the effects of a written type are part of it:
+A field can take a function and pass its effects on. To say so, name the
+same variable twice. The effects of a written type are part of that type:
 
 ```
 type Testing 'a 'b(
@@ -1060,35 +1061,34 @@ type Testing 'a 'b(
 )
 ```
 
-Calling `t.raises` now performs whatever the thunk performs, so a test whose
-thunk shells out declares `Shell` like any other code. Without the `'e` the
-two sides are unrelated, and the effects of the function passed in stop at
-the field.
+A call to `t.raises` now performs what the thunk performs. A test whose
+thunk runs a command declares `Shell`, like any other code. Without the `'e`
+the two sides are unrelated, and the effects of the function stop at the
+field.
 
 ### Effect variables
 
-A function that passes effects through carries a variable rather than a
-fixed set, written `'e` — a variable ranging over effects, as `'a` ranges
-over types:
+A function that passes effects through carries a variable, not a fixed set.
+Write it `'e`. It ranges over effects, as `'a` ranges over types:
 
 ```
 List.map   ('a -> 'b ! 'e) -> List 'a -> List 'b ! 'e
 ```
 
-`List.map` performs whatever the function it is given performs, and no more.
-Applying it to a shell command yields `{Raise, Shell}`; applying it to
-arithmetic yields nothing.
+`List.map` performs what its function performs, and no more. Give it a shell
+command and you get `{Raise, Shell}`. Give it arithmetic and you get
+nothing.
 
-An effect set can be partly known: `{Raise | 'e}` means "raises, plus whatever `'e`
-turns out to be". The `|` separates what is known from the rest.
+An effect set can be partly known. `{Raise | 'e}` means "raises, and also
+whatever `'e` becomes". The `|` separates what is known from the rest.
 
 ### What inference promises
 
-A signature may name an effect a function does not always perform, but it
-never omits one it does. Where two calls in one body both have undetermined
-effects, they share the scope's unknowns, so an effect proved for one is
-attributed to both. Erring in this direction is what makes a signature worth
-reading: a missing effect would be a lie, an extra one is only imprecise.
+A signature can name an effect that a function does not always perform. It
+never leaves out one that the function does perform. Two calls in one body can
+both have undetermined effects. They share the unknowns of the scope, so an
+effect proved for one belongs to both. This is what makes a signature worth
+reading. A missing effect is a lie. An extra effect is only imprecise.
 
 ---
 
@@ -1100,10 +1100,10 @@ A file may declare what it is allowed to do:
 uses {FS.Write, Shell}
 ```
 
-This is the one place a script author writes effect labels. It goes first,
-before everything but a shebang and comments, so a reader knows the bound
-without searching for it — a manifest that could be anywhere would be worth
-no more than none at all.
+This is the one place where you write effect labels. The manifest goes
+first, before everything but a shebang and comments. A reader sees the bound
+without a search. A manifest that could be anywhere is worth no more than no
+manifest.
 
 A file without a manifest is unconstrained, so casual scripts pay nothing.
 
