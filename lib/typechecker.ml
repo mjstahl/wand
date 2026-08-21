@@ -1785,6 +1785,29 @@ let rec infer tenv (env : env) (e : expr) : typ =
        Rect takes two arguments. The constructor's arity is known here even
        when it was declared in another file, so say what to write. *)
     (match strip_located f, strip_located x with
+     (* Parentheses after a constructor are its payload, so a nullary one
+        has swallowed an argument meant for the call: `t.eq None (usage row)`
+        is `t.eq (None (usage row))`, and the type error that follows is
+        about an application nobody wrote. The parser cannot tell -- it
+        stopped reading arity on purpose, so that `Ctor (a, b)` means the
+        same thing in every file -- but the arity is known here, so say what
+        to write. `wand f` already brackets a bare constructor that is not
+        the last argument. *)
+     | Constr name, arg when
+         (match find_ctor_in_tenv tenv name with
+          | Some (_, ctor) -> ctor.fields = []
+          | None -> false) ->
+       (* `Red ()` is the same parse, from someone calling a constructor
+          the way a function is called. The answer there is shorter. *)
+       if arg = Unit then
+         raise (TypeError (Printf.sprintf
+           "'%s' takes no arguments -- write `%s`, with nothing after it"
+           name name))
+       else
+         raise (TypeError (Printf.sprintf
+           "'%s' takes no arguments. Parentheses after a constructor are its \
+            payload, so `%s (x)` applies it -- write `(%s)` to pass the \
+            constructor on its own" name name name))
      | Constr name, Tuple es when List.length es > 1 ->
        (match find_ctor_in_tenv tenv name with
         | Some (_, ctor)

@@ -1929,6 +1929,17 @@ type Wrap = Wrap (List Int)     -- one field, type List Int
 type Pair = Pair (Int, Int)     -- one field, tuple type (Int, Int)
 ```
 
+That rule holds for a constructor with no fields too, so parentheses right
+after one are read as a payload it cannot take. Bracket the constructor
+where it is not the last argument:
+
+```ocaml
+t.eq (None) (usage row)     -- t.eq None (usage row) is t.eq (None (usage row))
+```
+
+`wand f` writes that bracket for you, and the checker names the constructor
+when it is missing.
+
 ### Named fields
 
 A field can have a name instead of a position. You then give it and read it

@@ -646,6 +646,44 @@ let test_constructor_and_pattern_errors () =
   rejects "non-exhaustive match" "match 5 with\n| 1 -> true";
   rejects "applying a non-function" "1 2"
 
+(* A constructor's payload is what follows it in parentheses, so a nullary
+   one written beside a call swallows that call: `f None (g x)` is
+   `f (None (g x))`, and the type error was about an application nobody
+   wrote. The parser cannot tell -- it reads no arity, on purpose -- so the
+   checker says what to write. *)
+let test_a_nullary_constructor_swallows_the_next_argument () =
+  let says label src needle =
+    match type_of_program src with
+    | Error m ->
+      if not (contains m needle) then
+        Alcotest.failf "%s: expected %S in error, got: %s" label needle m
+    | Ok t -> Alcotest.failf "%s: expected an error, got %s" label t
+  in
+  (match type_of_program_with_imports "import Option
+let f a b = a
+f None (f 1 2)" with
+   | Ok () -> Alcotest.fail "the stdlib one: expected an error"
+   | Error m ->
+     if not (contains m "write `(None)` to pass the constructor on its own") then
+       Alcotest.failf "the stdlib one: got: %s" m);
+  says "and one declared here"
+    "type Color = Red | Green
+let f a b = a
+f Red (f 1 2)"
+    "'Red' takes no arguments";
+  (* Called the way a function is called, which has a shorter answer. *)
+  says "a nullary constructor applied to unit"
+    "type Color = Red | Green
+let r = Red ()
+r"
+    "write `Red`, with nothing after it";
+  (* A constructor that does take a payload is untouched. *)
+  (match type_of_program "type Wrap = Wrap Int
+let w = Wrap (1 + 2)
+w" with
+   | Ok _ -> ()
+   | Error m -> Alcotest.failf "a payload constructor was rejected: %s" m)
+
 (* The checker suggests a near-miss name rather than only reporting the
    unbound one. *)
 let test_did_you_mean_suggestions () =
@@ -1336,6 +1374,8 @@ let () =
       Alcotest.test_case "glob vs path"        `Quick test_glob_is_not_a_path;
       Alcotest.test_case "operators"           `Quick test_operator_type_errors;
       Alcotest.test_case "constructors"        `Quick test_constructor_and_pattern_errors;
+      Alcotest.test_case "nullary constructor"  `Quick
+        test_a_nullary_constructor_swallows_the_next_argument;
       Alcotest.test_case "did-you-mean"        `Quick test_did_you_mean_suggestions;
       Alcotest.test_case "error locations"     `Quick test_error_locations;
     ];

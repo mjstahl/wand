@@ -337,9 +337,9 @@ walls, none of them where the gap list expected them:
   function, called from the last line, runs when the file is the script and
   not when it is imported. Every port here is written that way, and
   `test/wand/test_ports.wand` imports all four of them.
-- **A bare `None` takes the next argument.** `t.eq None (usage row)` is a
-  type error about the application. Both of these are in
-  [`../gaps.md`](../gaps.md).
+- **A bare `None` takes the next argument.** `t.eq None (usage row)` was a
+  type error about the application. It now names `None` and says to write
+  `(None)`. Both of these are in [`../gaps.md`](../gaps.md).
 
 Two things the language got right, worth recording because they were
 recent: the parameter annotation carried `ci-gate.wand`'s

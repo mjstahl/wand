@@ -76,12 +76,12 @@ program with `Unhandled(WandEffect ...)` rather than a wand error naming
 the file. Work belongs in a function that the script's last line calls;
 that runs when the file is the script and not when it is imported.
 
-**A bare `None` takes the next argument.** A constructor in an argument
-list is parsed with its arguments, and a nullary one takes an argument it
-cannot hold: `t.eq None (usage row)` reads as `t.eq (None (usage row))`,
-and the error talks about the application rather than saying that `None`
-holds nothing. `(None)` or `Option.none?` is the way round it. Found by
-porting.
+**A bare `None` still has to be bracketed.** Parentheses after a
+constructor are its payload, whatever its arity, so `t.eq None (usage row)`
+reads as `t.eq (None (usage row))` and `(None)` is the way to write it.
+The checker now names the constructor and says to bracket it, where the
+error used to be about the application. The parse stands: reading arity
+here is what made `Ctor (a, b)` mean different things in different files.
 
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
