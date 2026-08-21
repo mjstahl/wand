@@ -58,9 +58,14 @@ let test_ocaml_variant_of () =
    and Rust-adjacent code all update a record. Braces are a map in wand and
    the update names its type, so the error has to carry the whole form. *)
 let test_ocaml_record_update () =
+  (* The message carries the reader's own names: their record, and every
+     field they named. The type is the one thing the braces do not hold. *)
   expect_error "braces and with"
     "type T (a : Int, b : Int)\nlet r = T(a = 1, b = 2)\nlet u = {r with b = 3}\nu"
-    "a record update is written `T(r, field = value)`";
+    "a record update names its type: `T(r, b = ...)`";
+  expect_error "and every field they named"
+    "type T (a : Int, b : Int)\nlet r = T(a = 1, b = 2)\nlet u = {r with a = 8, b = 3}\nu"
+    "`T(r, a = ..., b = ...)`";
   ok "and the wand form works"
     "type T (a : Int, b : Int)\nlet r = T(a = 1, b = 2)\nlet u = T(r, b = 3)\nu.b"
 

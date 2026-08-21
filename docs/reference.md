@@ -1991,8 +1991,8 @@ Point (p, x = 8, y = 9)   -- Point (x = 8, y = 9)
 The type is named, as it is in a construction. A field not named keeps the
 value the record holds. Naming a field twice is a type error.
 
-`{p with y = 9}` is OCaml's and Elm's spelling. Braces are a map in wand,
-so that form is a parse error that names this one.
+Braces are a map, so `{p with y = 9}` is a parse error. It answers with
+this form, carrying the names you wrote: `T(p, y = ...)`.
 
 #### Pattern matching on named fields
 

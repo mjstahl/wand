@@ -871,15 +871,39 @@ and brace_map_ s =
   (* { already consumed *)
   if peek s = Token.RBrace then (ignore (advance s); MapLit [])
   else begin
-    (* `{r with b = 3}` is OCaml's and Elm's record update, and it is the
-       first thing anyone writes here. Braces are a map in wand, and an
-       update names its type: `T(r, b = 3)`. Said outright, because the
-       error this used to give was "expected =, got with". *)
-    let update_drift name =
+    (* `{r with b = 3}` is the record update of several other languages, and
+       it is the first thing anyone writes here. Braces are a map, and an
+       update names its type. The error this used to give was "expected =,
+       got with", so the whole form is written out, with the reader's own
+       names in it.
+
+       The type is the one thing the braces do not carry, so it stands as
+       `T`. The values are in the reader's own line already, and finding
+       where each one ends means parsing it, so they stand as `...`. *)
+    let update_drift base =
+      let arr = s.tokens in
+      let n = Array.length arr in
+      let names = ref [] in
+      let depth = ref 1 in
+      let i = ref s.pos in
+      while !depth > 0 && !i < n do
+        (match fst arr.(!i) with
+         | Token.LBrace -> incr depth
+         | Token.RBrace -> decr depth
+         | Token.Ident f when !depth = 1 ->
+           let j = ref (!i + 1) in
+           while !j < n && is_skippable (fst arr.(!j)) do incr j done;
+           if !j < n && fst arr.(!j) = Token.Eq then names := !names @ [f]
+         | _ -> ());
+        incr i
+      done;
+      let fields = match !names with
+        | [] -> "field = ..."
+        | fs -> String.concat ", " (List.map (fun f -> f ^ " = ...") fs)
+      in
       fail_at (peek_loc s) (Printf.sprintf
-        "a record update is written `T(%s, field = value)`, naming the \
-         type -- `{%s with ...}` is OCaml's spelling, and `{}` is a map \
-         in wand" name name)
+        "a record update names its type: `T(%s, %s)`. Braces are a map"
+        base fields)
     in
     let parse_entry () =
       let key = match advance s with
