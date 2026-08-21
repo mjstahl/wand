@@ -2895,7 +2895,7 @@ Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
 
 ## Testing
 
-The `Test` module gives each test a handle (`t`) exposing `ok`, `eq`, and
+The `Test` module gives each test a handle, `t`. It carries `ok`, `eq` and
 `raises`:
 
 ```
@@ -2906,20 +2906,20 @@ test "some" (fn t -> t.ok (Option.some? (Some 1)))
 test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
 ```
 
-- `t.eq expected actual` — pass if they are equal. The value under test goes
-  last, as it does in every wand function, so it pipes:
+- `t.eq expected actual` — passes if the two are equal. The value under test
+  goes last, as it does in every wand function, so it pipes:
 
   ```
   t.eq 4 (2 + 2)
   (2 + 2) |> t.eq 4
   ```
 
-  Either way a failure reads `expected 4, got 5`, with `got` naming the code
+  A failure reads `expected 4, got 5` in both forms. `got` names the code
   under test.
 - `t.ok cond` — pass if `cond` is `true`.
-- `t.fail why` — fail, saying why. For the branch where the test itself has
-  gone wrong rather than the value being different: an unexpected `Error`,
-  a pattern that should not have matched, a setup step that did not hold.
+- `t.fail why` — fails, and says why. Use it where the test itself went
+  wrong, and not where a value differs: an `Error` you did not expect, a
+  pattern that should not have matched, a setup step that did not hold.
 
   ```
   match Args.parse Opts.decoder args with
@@ -2927,20 +2927,20 @@ test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 
   | Error e -> t.fail e
   ```
 
-  A failure reads `label: why`, so the reason travels with the test name
-  rather than being compared against something it was never meant to equal.
-- `t.raises thunk` — pass if calling `thunk ()` raises. `thunk` must be a
-  zero-argument function (`fn () -> ...`), not the expression directly —
-  wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)` would
-  raise while evaluating the argument itself, before `t.raises` ever runs.
+  A failure reads `label: why`. The reason travels with the name of the
+  test. wand does not compare it against a value.
+- `t.raises thunk` — passes if a call to `thunk ()` raises. `thunk` must be
+  a function with no argument, `fn () -> ...`. Do not give the expression
+  itself. wand evaluates arguments eagerly, so `t.raises (List.get! 9 xs)`
+  raises while it evaluates the argument, before `t.raises` runs.
 
-`let {test} = import Test` binds the one name the file uses unqualified;
-`import Test` alongside it gives the module's other helpers under `Test.`.
-Like every import, it brings in what it names and nothing more.
+`let {test} = import Test` binds the one name that the file uses without a
+prefix. Add `import Test` beside it, and the other helpers arrive under
+`Test.`. Each import brings in what it names, and nothing more.
 
-Each `test` call needs explicit parens around its `fn` argument
-(`test "x" (fn t -> ...)`) — wand doesn't currently allow a bare `fn` as
-a trailing application argument.
+Put parentheses around the `fn` argument of each `test` call:
+`test "x" (fn t -> ...)`. wand does not yet accept a bare `fn` as the last
+argument of an application.
 
 ### Child tests
 
@@ -2956,18 +2956,18 @@ group "the report" (fn () ->
   ])
 ```
 
-Each child is printed under the path of labels that led to it — `ok   the
-report / has a header` — and groups nest to any depth: a `group` is one
-more child in the list.
+wand prints each child under the path of labels that led to it, as in
+`ok   the report / has a header`. Groups nest to any depth, because a `group`
+is one more child in the list.
 
-The body is ordinary code, which is why there is no `before`/`after`
-machinery to learn:
+The body is ordinary code. So there is no `before` or `after` machinery to
+learn:
 
-- Setup is the code above the list: it runs once, and its bindings are
-  shared by every child. Values are immutable, so sharing them cannot let
-  one child contaminate another.
-- Teardown is a bracket around the list — `with (FS.temp_dir ()) as dir ->
-  [...]` — released however the body ends, exactly as in any other script.
+- Setup is the code above the list. It runs once, and every child shares its
+  bindings. A value cannot change, so one child cannot affect another
+  through it.
+- Teardown is a bracket around the list: `with (FS.temp_dir ()) as dir ->
+  [...]`. It releases however the body ends, as it does in any script.
 - Mocks wrap the children like any other code:
   `group "pushes" (fn () -> Test.with_shell mocks (fn () -> [...]))`.
 - Per-child setup, where each test wants fresh state, is a function:
@@ -2977,10 +2977,10 @@ machinery to learn:
     test label (fn t -> with (FS.temp_dir ()) as dir -> f t dir)
   ```
 
-A raise in the body itself — setup breaking, rather than a child failing —
-is reported as the group's one failure under its label, and the children
-it prevented are not invented. A raise inside a child is that child's own
-failure; its siblings still run.
+A raise in the body is a broken setup, not a failed child. wand reports it
+as one failure of the group, under the label of the group. It does not invent
+the children that did not run. A raise inside a child is the failure of that
+child. Its siblings still run.
 
 Run test files with `wand s`:
 
@@ -2990,27 +2990,26 @@ wand s scripts/              # every test_*.wand under scripts/
 wand s test_deploy.wand      # just this one
 ```
 
-A test file is named `test_*.wand`, and a script's tests belong beside the
-script — `deploy.wand` and `test_deploy.wand` in one directory, where the
-prefix sorts every test together and away from the things being tested.
-With no argument `wand s` searches from where you are standing, so
-editing a script and running its tests takes no path. `_build`, `_opam`,
-`.git` and `node_modules` are not searched. A file named on the command
-line runs whatever it is called.
+Name a test file `test_*.wand`. Put the tests of a script beside the script:
+`deploy.wand` and `test_deploy.wand` in one directory. The prefix sorts every
+test together, away from the code under test. With no argument, `wand s`
+searches from the directory you are in, so you edit a script and run its tests
+without a path. `wand s` does not search `_build`, `_opam`, `.git` or
+`node_modules`. A file that you name on the command line runs, whatever it is
+called.
 
-Each call to `test` is printed as `ok   <label>` or `FAIL <message>`; a
-test whose body raises outside of `t.raises` is reported as that test's
-failure — `label: raised: <why>` — without stopping the rest of the
-file. `wand s` exits nonzero if any test failed or any file had a
-lex/parse/type error.
+wand prints each call to `test` as `ok   <label>` or as `FAIL <message>`. A
+test whose body raises outside `t.raises` is the failure of that test:
+`label: raised: <why>`. The rest of the file still runs. `wand s` exits
+non-zero if a test failed, or if a file had a lex, parse or type error.
 
 ---
 
 ### Testing code that touches the outside world
 
-The risky part of a script is what reaches outside it, which is exactly what
-a handler can stand in for. `Test` covers the common cases so a test does not
-have to write one by hand:
+The risky part of a script is what reaches outside it. A handler can stand
+in for exactly that. `Test` covers the common cases, so a test does not write
+a handler by hand:
 
 ```
 Test.with_shell [(fragment, output), ...] thunk   -- answer commands from a table
@@ -3047,7 +3046,7 @@ test "the config was never written" (fn t ->
   t.eq (FS.exists? (Path.of_string "/etc/app/config.toml")) false)
 ```
 
-The last one is the point: the script ran, and nothing happened.
+The last line is the point. The script ran, and nothing happened.
 
 ---
 
@@ -3075,20 +3074,19 @@ Block comments, nestable:
 
 ## Style for scripts
 
-Everything in this manual parses anywhere, but `examples/` and `demos/` are
-written in a deliberately small dialect, aimed at a reader coming from shell
-rather than from ML. The standard library is written by and for the compiler
-team and uses the full language; a script does not have to.
+Everything in this manual parses anywhere. `examples/` and `demos/` use a
+small dialect on purpose, for a reader who comes from the shell and not from
+ML. The standard library uses the full language, because the compiler team
+writes it and reads it. A script does not have to.
 
-- **One statement per line at the top level.** A newline ends a statement,
-  so top-level code needs no terminator, no `let () =`, and no ceremony —
-  do the thing, then do the next thing. A line that starts with an operator
-  is the exception: it continues the line above (see
-  [Sequencing](#sequencing)).
+- **One statement per line at the top level.** A newline ends a statement.
+  Top-level code needs no terminator and no `let () =`. Do the thing, then do
+  the next thing. A line that starts with an operator is the exception: it
+  continues the line above. See [Sequencing](#sequencing).
 
 - **Sequence with `;` in parentheses inside a body.** A function body is one
-  expression, so several statements there go in parentheses, separated by
-  `;` (see [Sequencing](#sequencing)):
+  expression. So put several statements in parentheses and separate them with
+  `;`. See [Sequencing](#sequencing):
 
   ```
   let backup_all! dest = (
@@ -3097,15 +3095,15 @@ team and uses the full language; a script does not have to.
   )
   ```
 
-- **Reach for `let ... in` to name something, not to sequence.** `let x = e
-  in body` gives `e` a name that `body` uses; that is its job. Chaining
-  statements as `let () = e1 in e2` still works and still typechecks, but
-  the `;` form says the same thing without the puzzle of what `()` binds.
+- **Use `let ... in` to name a value, not to sequence.** `let x = e in body`
+  gives `e` a name that `body` uses. That is its job. `let () = e1 in e2`
+  still works and still typechecks. The `;` form says the same thing, and it
+  does not ask the reader what `()` binds.
 
-- **`match` over multi-equation definitions.** Defining a function twice
-  with different patterns (`let failed? (Error _) = true` / `let failed?
-  (Ok _) = false`) is legal, and the stdlib uses it. A script writes one
-  definition and matches:
+- **Prefer `match` to several equations.** Two definitions with different
+  patterns are legal, as in `let failed? (Error _) = true` and
+  `let failed? (Ok _) = false`. The standard library uses that form. A script
+  writes one definition and matches:
 
   ```
   let failed? r =
