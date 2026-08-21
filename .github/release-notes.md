@@ -1,73 +1,51 @@
-## 0.22.0 - 2026-08-21
+## 0.23.0 - 2026-08-21
 
-This release corrects five answers and adds one check.
+This release changes the words wand uses. The type checker reports what it
+expected and what it got. The README and the reference are rewritten in
+Simplified Technical English.
 
-Two changes alter what a running script sees. No script needs a rewrite.
+Nothing about the language changes. If a script or a CI step greps for the
+text of an error, it needs an update.
 
-### A glob stays under its directory
+### An error names both sides
 
-`FS.glob_in pat dir` answers with the files under `dir`. It walked through a
-symlink before. A link to `/etc` put the files of `/etc` in the answer:
+    before: cannot unify Glob with Path
+    after:  expected Glob, got Path
 
-    ./data/link/hidden.conf     -- in fact /etc/hidden.conf
+"Unify" is a word from the type checker. A reader of a script has a `Path`
+where a `Glob` belongs, and the message says that now.
 
-A link to a parent directory made the walk repeat until the path was too
-long for the system.
+`unify a b` has no fixed direction. Both orders appear in the compiler. So
+37 call sites now state which side the reader wrote: an annotation, an
+application, an `if` and its branches, an arm of a `match` and its guard, a
+pattern, an element of a list or a map, a `$()` payload, a `|>` stage, a
+contract clause, a `with` resource, and an operand. A site that cannot know
+says `Glob and Path are not the same type`.
 
-wand does not walk through a symlink now. A symlink that matches is still an
-answer, as itself. wand still follows the base directory, because you named
-it. bash, `find` and Python do the same.
+An effect error names the difference instead of two sets:
 
-**Effect:** a glob over a tree with a symlinked directory answers with fewer
-files.
+    before: cannot unify effects {Shell} with {Raise, Shell | ..}
+    after:  the type allows {Shell}, but the body performs Raise
 
-### A file gets a mode
+At an argument it says which side is which:
 
-`FS.write_file` used the channel default of 0666. `FS.create_file` and
-`FS.append` used 0644. Under `umask 0` the first one wrote a file that all
-users can write. All three use 0644 now.
+    the parameter allows {}, but the function given performs Raise, Shell
 
-`FS.copy` used the same default and lost the mode of the source file. A
-copied script lost its executable bit. A copy of a 0600 file was readable by
-all users. A new destination gets the mode of the source now. A destination
-that exists keeps its own mode.
+Three more messages drop the word:
 
-`--dry-run` answered with the path `/tmp/wand-dry-run-dir` each time. All
-users can write `/tmp`, so another user can make that directory or a symlink
-first. Each answer is a new random path now.
+    expected a number, got Bool -- arithmetic works on Int and Float
+    Int and Float do not mix -- Float.of_int and Float.round convert between them
+    this value would have to contain itself: 'a appears inside its own type
 
-**Effect:** files get different permissions than before.
+### The documents are shorter
 
-### Three functions gave wrong values
+`README.md` and `docs/reference.md` now use short sentences, active voice,
+and one idea in each sentence. No code block, no heading and no link
+changed.
 
-    String.join "," ["", "b"]            -- was "b", is ",b"
-    String.words "  a  b  "              -- was 7 elements, is ["a", "b"]
-    String.words "a\tb"                  -- was 1 element, is ["a", "b"]
-    Path.with_extension "md" /a/b.txt    -- was /a/bmd, is /a/b.md
-
-`String.join` read an empty first element as an empty accumulator.
-`String.words` split on one space, so extra spaces became empty words.
-`Path.with_extension` accepts the extension with or without the dot now.
-`""` removes the extension.
-
-### wand checks the type variables in an annotation
-
-A type variable is a promise: the function accepts any type. wand did not
-check that promise. This code typechecked, and the signature told each
-caller that a `String` is correct:
-
-    let f : 'a -> 'a = fn x -> x + 1
-
-Each variable in an annotation must stay a variable after wand infers the
-body. Two variables must stay different. So wand refuses this too:
-
-    let g : 'a -> 'b = fn x -> x
-
-An annotation with no type variable does not change. `Int -> Int` over the
-identity function makes no promise.
-
-**Effect:** an annotation that claims more than the body gives is a type
-error.
+Three claims in the README were wrong and are corrected against a run: the
+by-hand install named v0.10.0, the example error text did not match, and
+startup said 1.6 times `bash -c :` where three runs give about 2 times.
 
 ---
 

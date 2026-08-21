@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.23.0] - 2026-08-21
+
+### Changed
+
+- **Breaking (text):** A type error names what it expected and what it got.
+  It said `cannot unify Glob with Path`, and it now says
+  `expected Glob, got Path`. "Unify" is a word from the type checker, not
+  from a script. `unify` has no fixed argument order, so 37 call sites now
+  state which side the reader wrote: an annotation, an application, an `if`,
+  an arm of a `match`, a pattern, an element of a list or a map, a `$()`
+  payload, a `|>` stage, a contract clause, a `with` resource, an operand.
+  A site that cannot know says `Glob and Path are not the same type`
+  (`f8437a2`)
+- **Breaking (text):** An effect error names the difference. It said
+  `cannot unify effects {Shell} with {Raise, Shell | ..}`, and it now says
+  `the type allows {Shell}, but the body performs Raise`. At an argument it
+  says `the parameter allows {}, but the function given performs Raise,
+  Shell` (`f8437a2`)
+- **Breaking (text):** Three more messages drop the word: a non-number in
+  arithmetic reads `expected a number, got Bool`, the two members of `Num`
+  read `Int and Float do not mix`, and the occurs check reads
+  `this value would have to contain itself` (`f8437a2`)
+- `README.md` and `docs/reference.md` are written in Simplified Technical
+  English: short sentences, active voice, one idea in each. The reference
+  went from 692 sentences with a median of 14 words to 1158 with a median of
+  9. Sentences over 20 words: 218 before, 42 now. No code block, heading or
+  link changed (`782d8d5`, `c99c382`..`18e0614`)
+
+### Fixed
+
+- Fix `docs/reference.md` stating that a newline always ends a statement. A
+  line that starts with an operator continues the line above, which is what
+  a pipeline that leads with `|>` needs. So `let a = 1` and then `-2` gives
+  `-1`. The parser is right; the reference was wrong (`eb28ae5`)
+- Fix three claims in `README.md`: the by-hand install named v0.10.0, the
+  example error text did not match a run, and startup said 1.6 times
+  `bash -c :` where three runs give about 2 times (`782d8d5`)
+
+[0.23.0]: https://github.com/mjstahl/wand/releases/tag/v0.23.0
+
 ## [0.22.0] - 2026-08-21
 
 ### Changed
