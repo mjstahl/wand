@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.28.0] - 2026-08-21
+
+### Added
+
+- `Size` crosses to a number and back: `Size.to_bytes 4KB` is `4000`,
+  `Size.of_bytes 6466` is `6466B`, and `Size.format` is the readable
+  spelling, `"6.5KB"`. A byte count below zero reads as `0B` (`a1e7f89`)
+- `+` and `-` add two `Size`s or two `Duration`s, through a new `Add`
+  constraint sitting between `Num` and `Ord`: `Int`, `Float`, `Size`,
+  `Duration`. `100MB + 4KB` is `100004000B`, and `1h + 30min` is `1h30m`.
+  `*`, `/` and unary `-` keep `Num`. A sum of sizes is written in bytes,
+  and a subtraction that would go below zero floors there (`a37d13a`)
+- `List.filter_map` applies a function to every element, keeps each `Some`
+  value and drops each `None` (`7fcb947`)
+
+### Changed
+
+- **Breaking:** `FS.size` answers `Result String Size`, and `FS.size!`
+  answers `Size`, where both answered bytes as an `Int`. `Size.to_bytes`
+  is the number back (`bc2ac93`)
+- `wand f` writes back the binding spelling that was written.
+  `(let x = 1; x + 2)` used to come back as `let x = 1 in x + 2` (`8995887`)
+- `wand f` wraps a `let ... in` chain in a lambda body under the `fn`,
+  where the continuation lines used to sit level with it (`8995887`)
+- `wand f` closes two brackets on one line when both would close at the
+  same indent (`e870013`)
+
+[0.28.0]: https://github.com/mjstahl/wand/releases/tag/v0.28.0
+
 ## [0.27.0] - 2026-08-21
 
 ### Added

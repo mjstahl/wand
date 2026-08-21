@@ -1,50 +1,34 @@
-## 0.27.0 - 2026-08-21
+## 0.28.0 - 2026-08-21
 
-A binding in a block lives for the rest of the block.
+A file's size is a `Size`.
 
-    let deploy! release work = (
-      let stage = Path.join work (Path.of_string "pkg");
-      let archive = Path.of_string "./dist/%{release}.tar.gz";
-      FS.mkdir! stage;
-      FS.copy! archive stage;
-      "deployed"
-    )
+    FS.glob_in **.wand ./stdlib
+      |> List.filter_map (fn p -> match FS.size p with
+        | Ok size -> Some (p, size)
+        | Error _ -> None)
+      |> List.filter (fn (_, size) -> size > 4KB)
 
-`;` ends the binding's right-hand side, exactly as a newline does at the top
-level of a file. So a block and a file read the same way, and naming two
-values costs no indentation. Before this, a body that named two
-intermediates nested twice:
+`FS.size` answered an `Int` of bytes, so the one place wand produced a size
+it produced a number, and `4KB` could not be written against a file. Three
+things closed that.
 
-    let stage = Path.join work (Path.of_string "pkg") in (
-      let archive = Path.of_string "./dist/%{release}.tar.gz" in (
-        FS.mkdir! stage;
-        ...
-      )
-    )
+`Size` crosses to a number and back. `Size.to_bytes 4KB` is `4000`.
+`Size.of_bytes` goes the other way and stays exact, so 6466 bytes is
+`6466B`; `Size.format` is the spelling for a reader, `"6.5KB"`.
 
-The same three words parsed before and bound nothing. The binding took
-`Unit` for a body and died where it stood, and the error named the use site,
-which is not the mistake.
+`+` and `-` add two sizes, and two durations. They take a new constraint,
+`Add`, which sits between `Num` and `Ord`: `Int`, `Float`, `Size`,
+`Duration`. `*` and `/` stay on `Num`, because a size times a size is not a
+size. A sum of sizes is written in bytes, and a subtraction that would go
+below zero floors there — the answer `Duration.sub` already gave.
 
-`let ... in` keeps its own meaning: it names a value for one expression. In
-`(let x = 1 in x + 1; 9)` the `x` belongs to `x + 1` and to nothing else.
+`List.filter_map` applies a function to every element, keeps each `Some`
+value and drops each `None`. Two of the shipped ports were writing that out
+as a fold.
 
-`wand f` writes the block form when more than one statement follows a
-binding, and `let ... in` when one expression follows it — there the two say
-the same thing, and `in` is the older spelling.
-
-### Two things to know before upgrading
-
-A block cannot end with a binding. Nothing would read the name:
-
-    (f (); let x = 1)
-    -- parse error: this binding has no body
-
-A binding that bound nothing now binds, so one program answers differently:
-
-    let x = 0 in (let x = 1; x)     -- was 0, is 1
-
-Every other program this touches is one that does not typecheck today.
+`wand f` writes back the binding spelling you wrote. `(let x = 1; x + 2)`
+used to come back as `let x = 1 in x + 2`, which turned the block form into
+the one the style guide keeps for naming.
 
 ---
 
