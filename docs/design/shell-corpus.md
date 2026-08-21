@@ -411,7 +411,8 @@ Two things it found:
 - **A destructured import is replaced by a later one, above the line as
   well as below it.** Every import binds before the file's own bindings,
   wherever it is written, so the last import of a name decides every use.
-  `V-IMP1` warns when the first is never used and stays quiet when it is.
+  `V-IMP1` used to warn only inside the leading import run, and now warns
+  wherever the second import sits.
   This port collided with earlier ports three times in
   `test/wand/test_ports.wand` (`over`, `describe`, `read`) and was renamed
   around all three. A type error caught each, and would not have if the

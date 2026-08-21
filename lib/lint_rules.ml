@@ -81,7 +81,7 @@ let all = [
     summary = "a statement discards an assertion, so the test cannot fail";
     kind = Violation };
   { id = V_IMP1;   code = "V-IMP1";
-    summary = "an imported name is rebound by a later import before any use";
+    summary = "an imported name is rebound by a later import";
     kind = Violation };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
@@ -128,9 +128,10 @@ let name1 ~name ~params =
 
 let imp1 ~name ~first ~second ~line =
   Printf.sprintf
-    "'%s' from %s is rebound by the %s import on line %d before anything \
-     uses it; drop this import, or rename one binding ({%s = other_name})"
-    name first second line name
+    "'%s' from %s is rebound by the %s import on line %d, and every use of \
+     '%s' reads %s's -- above that line as well as below it; drop this \
+     import, or rename one binding ({%s = other_name})"
+    name first second line name second name
 
 let drop1 ~typ =
   Printf.sprintf

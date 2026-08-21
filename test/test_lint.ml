@@ -21,9 +21,9 @@ let silent label src =
 
 (* ── Individual rules ────────────────────────────────────────────────────── *)
 
-(* Two imports fighting over one name leave the first binding dead --
-   nothing runs between imports -- and misstate where the name comes from.
-   Renaming one binding keeps both, so that's what the message suggests. *)
+(* Two imports fighting over one name leave the first binding dead and
+   misstate where the name comes from. Renaming one binding keeps both, so
+   that's what the message suggests. *)
 let test_imp1 () =
   fires "the same name from two modules"
     "let {parse} = import JSON\nlet {parse} = import TOML\nparse \"x = 1\""
@@ -31,11 +31,17 @@ let test_imp1 () =
   silent "renamed apart"
     "let {parse = jparse} = import JSON\nlet {parse = tparse} = import TOML\n\
      let _ = jparse \"1\"\ntparse \"x = 1\"";
-  (* An item of anything else ends the import region: past it, a rebinding
-     may follow a genuine use of the first, so the rule stays out. *)
-  silent "a use between imports"
+  (* A use between the two imports reads the *second* one, because imports
+     bind before the file's own bindings wherever they are written. So the
+     first binding is dead there too, and the rule used to stop at the
+     first non-import item and miss it. *)
+  fires "a use between imports"
     "let {parse} = import JSON\nlet j = parse \"1\"\n\
      let {parse} = import TOML\nparse \"x = 1\""
+    "V-IMP1";
+  silent "two modules that share no name"
+    "let {parse} = import JSON\nlet j = parse \"1\"\n\
+     let {upper} = import String\nupper \"a\""
 
 let test_pred1 () =
   fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
