@@ -323,7 +323,10 @@ walls, none of them where the gap list expected them:
 - **`FS.size` answers an `Int`, and nothing converts a `Size`.** The one
   place wand produces a size, it produces a number, so `large-files.wand`
   takes an `Int` threshold and `4KB` cannot be written. `Size` literals
-  compare with each other and with nothing the filesystem says.
+  compare with each other and with nothing the filesystem says. The end
+  state is `FS.size` answering a `Size`, and that is not the first step:
+  `Size` has no arithmetic, so the change alone would fix comparing one
+  file and break summing a directory. See [`../gaps.md`](../gaps.md).
 - **No `List.filter_map`.** "Read a value and keep the ones that worked" is
   the shape of every parse-then-filter script, and it is a fold written out
   by hand in two of the five.
