@@ -266,10 +266,12 @@ let operations : operation list =
     { op_name = "FS!delete"; op_effect = FsWrite; op_types = t path TUnit;
       op_performers = ["FS.delete"; "FS.delete!"] };
     { op_name = "FS!delete_tree"; op_effect = FsWrite; op_types = t path TUnit;
-      (* No function removes a tree outright. The one place it happens is a
-         scratch directory being released, which is why the only performer is
-         the bracket rather than a call. *)
-      op_performers = ["FS.temp_dir"] };
+      (* A scratch directory being released performs this as well, which is
+         why the bracket is listed beside the two calls. *)
+      op_performers = ["FS.delete_tree"; "FS.delete_tree!"; "FS.temp_dir"] };
+    { op_name = "FS!copy_tree"; op_effect = FsWrite;
+      op_types = t (TTuple [path; path]) TUnit;
+      op_performers = ["FS.copy_tree"; "FS.copy_tree!"] };
     { op_name = "FS!mkdir"; op_effect = FsWrite; op_types = t path TUnit;
       op_performers = ["FS.mkdir"; "FS.mkdir!"] };
     { op_name = "FS!rename"; op_effect = FsWrite;
@@ -2590,6 +2592,7 @@ let stdlib_type_env : env = [
   ("fs_temp_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) ((TString @-> TPath))));
   ("fs_temp_dir",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) TPath));
   ("fs_delete_tree", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) TUnit));
+  ("fs_copy_tree", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TPath @-> TUnit)));
   ("fs_rename",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));
   ("fs_copy",    generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));
   ("fs_cwd",     generalize [] (effs [Effect_set.FsRead] (TUnit) (TPath)));

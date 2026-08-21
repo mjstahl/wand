@@ -1443,7 +1443,7 @@ appears in an effect set:
 | Family | Operations |
 |---|---|
 | `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
+| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
 | `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
@@ -2512,6 +2512,8 @@ mkdir        : Path -> Result String Unit ! {FS.Write}
 delete       : Path -> Result String Unit ! {FS.Write}
 rename       : Path -> Path -> Result String Unit ! {FS.Write}
 copy         : Path -> Path -> Result String Unit ! {FS.Write}
+copy_tree    : Path -> Path -> Result String Unit ! {FS.Write}
+delete_tree  : Path -> Result String Unit ! {FS.Write}
 list_dir     : Path -> Result String (List Path) ! {FS.Read}
 mtime        : Path -> Result String DateTime ! {FS.Read}
 size         : Path -> Result String Size ! {FS.Read}
@@ -2529,6 +2531,8 @@ mkdir!       : Path -> Unit ! {FS.Write, Raise}
 delete!      : Path -> Unit ! {FS.Write, Raise}
 rename!      : Path -> Path -> Unit ! {FS.Write, Raise}
 copy!        : Path -> Path -> Unit ! {FS.Write, Raise}
+copy_tree!   : Path -> Path -> Unit ! {FS.Write, Raise}
+delete_tree! : Path -> Unit ! {FS.Write, Raise}
 list_dir!    : Path -> List Path ! {FS.Read, Raise}
 mtime!       : Path -> DateTime ! {FS.Read, Raise}
 size!        : Path -> Size ! {FS.Read, Raise}
@@ -3046,6 +3050,7 @@ nothing rehearses for speed.
 ### `Shell`
 
 ```ocaml
+ok?     : ShellResult -> Bool
 decode  : Decoder 'a -> String -> Result String 'a
 lines   : Decoder 'a -> String -> Result String (List 'a)
 timeout : Duration -> (Unit -> 'a ! 'e) -> Result String 'a ! {Clock | 'e}

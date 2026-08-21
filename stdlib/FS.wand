@@ -87,6 +87,24 @@ let temp_dir prefix =
    queue after one crash is worse than no lock at all. The bracket it would
    sit on is here and proven, so nothing is waiting on anything. *)
 
+(** Delete a directory and everything under it. Raises on failure.
+    
+    Depth first. A symlink inside the tree is unlinked, never descended
+    into, so the tree is the only thing that goes. *)
+let delete_tree! path = fs_delete_tree path
+
+(** Delete a directory and everything under it. *)
+let delete_tree path = try delete_tree! path
+
+(** Copy a directory and everything under it. Raises on failure.
+    
+    A file keeps the mode it had, and a symlink is recreated as a symlink
+    rather than followed. *)
+let copy_tree! src dst = fs_copy_tree src dst
+
+(** Copy a directory and everything under it. *)
+let copy_tree src dst = try copy_tree! src dst
+
 (** Rename or move a file or directory. Raises on failure. *)
 let rename! src dst = fs_rename src dst
 

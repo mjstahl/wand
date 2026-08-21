@@ -437,6 +437,7 @@ let describe_operation name (v : value) =
   | "FS!temp_file" -> Some ("create temp file", first v)
   | "FS!temp_dir"  -> Some ("create temp directory", text v)
   | "FS!delete_tree" -> Some ("delete recursively", text v)
+  | "FS!copy_tree" -> Some ("copy recursively", pair v)
   | "Env!set"      -> Some ("set", pair v)
   | "Env!clear"    -> Some ("clear", text v)
   | "FS!read_file"    -> Some ("read", text v)
@@ -445,6 +446,25 @@ let describe_operation name (v : value) =
   | "Proc!exit"         -> Some ("exit", text v)
   | "Clock!sleep"       -> Some ("wait", text v)
   | _              -> None
+
+(* One file onto another. A copy of an executable is executable, and a copy
+   of a private file is private: the destination is created with the
+   source's permissions rather than the channel default, which turned 0600
+   into 0644 and dropped the bit that made a copied script runnable. A
+   destination that already exists keeps its own permissions -- what `cp`
+   does, and the copy is not the place to widen a file somebody else's mode
+   was chosen for. *)
+let copy_file src dst =
+  let mode = (Unix.stat src).Unix.st_perm in
+  let existed = Sys.file_exists dst in
+  let content = In_channel.with_open_bin src In_channel.input_all in
+  Out_channel.with_open_gen
+    [Open_wronly; Open_creat; Open_trunc; Open_binary] mode dst
+    (fun oc -> Out_channel.output_string oc content);
+  (* The open honours the umask, which can only take bits away; a copy is
+     meant to carry the source's own mode, so a new file is set to it
+     outright. *)
+  if not existed then Unix.chmod dst mode
 
 (* What a rehearsal withholds. Reads run even in a rehearsal, so that
    control flow follows the path a real run would take; a change is
@@ -456,7 +476,7 @@ let describe_operation name (v : value) =
    and sleeps for real. *)
 let is_mutation = function
   | "Clock!sleep"
-  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "Env!set" | "Env!clear"-> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -729,32 +749,41 @@ let run_with_default_handler (thunk : unit -> value) : value =
                        Error ("rename: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
-          (* A copy of an executable is executable, and a copy of a private
-             file is private: the destination is created with the source's
-             permissions rather than the channel default, which turned 0600
-             into 0644 and dropped the bit that made a copied script
-             runnable. A destination that already exists keeps its own
-             permissions -- what `cp` does, and the copy is not the place
-             to widen a file somebody else's mode was chosen for. *)
           | WandEffect ("FS!copy", VTuple [VPath src; VPath dst]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try
-                       let mode = (Unix.stat src).Unix.st_perm in
-                       let existed = Sys.file_exists dst in
-                       let content = In_channel.with_open_bin src In_channel.input_all in
-                       Out_channel.with_open_gen
-                         [Open_wronly; Open_creat; Open_trunc; Open_binary]
-                         mode dst
-                         (fun oc -> Out_channel.output_string oc content);
-                       (* The open honours the umask, which can only take
-                          bits away; a copy is meant to carry the source's
-                          own mode, so a new file is set to it outright. *)
-                       if not existed then Unix.chmod dst mode;
-                       Ok ()
+              match (try copy_file src dst; Ok ()
                      with
                      | Sys_error m -> Error ("copy: " ^ m)
                      | Unix.Unix_error (e, _, _) ->
                        Error ("copy: " ^ Unix.error_message e)) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* The tree under `src`, placed at `dst`. A directory is created
+             with the source's permissions, a file is copied by the same
+             rule a single copy uses, and a symlink is recreated as a
+             symlink rather than followed -- a tree that links to itself
+             would otherwise be copied until the disk filled. *)
+          | WandEffect ("FS!copy_tree", VTuple [VPath src; VPath dst]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let rec cp s d =
+                let st = Unix.lstat s in
+                match st.Unix.st_kind with
+                | Unix.S_LNK ->
+                  (* `symlink` fails on a name that exists, and a re-run of
+                     a copy is an ordinary thing to do. *)
+                  if Sys.file_exists d then Sys.remove d;
+                  Unix.symlink (Unix.readlink s) d
+                | Unix.S_DIR ->
+                  if not (Sys.file_exists d) then Unix.mkdir d st.Unix.st_perm;
+                  Array.iter (fun e -> cp (Filename.concat s e) (Filename.concat d e))
+                    (Sys.readdir s)
+                | _ -> copy_file s d
+              in
+              match (try cp src dst; Ok ()
+                     with
+                     | Sys_error m -> Error ("copy_tree: " ^ m)
+                     | Unix.Unix_error (e, _, _) ->
+                       Error ("copy_tree: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           (* Read-only operations: performed so a trace can see them, and

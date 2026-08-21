@@ -96,7 +96,7 @@ wand is claiming to fix.
 | 1 | CI glue: run build/test/lint, wire env, propagate status | `cmd; echo ok` succeeds after `cmd` fails; `set -euo pipefail` is a ritual, not a guarantee | `$?()` yields a `ShellResult`; dropping it is `V-DROP1` |
 | 2 | Extract from logs and API output | `grep \| sed \| awk \| jq` re-parses text at every stage, silently empty on a schema change | `Regex`, `Decode`, `Stream` |
 | 3 | HTTP with auth and retry | `curl` without `--fail` returns 0 on a 500; retry loops are hand-rolled | `Shell(curl)` plus `Decode`, and `Shell.timeout` for the retry |
-| 4 | File munging: `find`/`xargs`, `rsync`, `tar`, permissions | filenames with spaces; `-print0` as folklore | `FS`, `Glob`, `Path` — but see **G3**, **G4** |
+| 4 | File munging: `find`/`xargs`, `rsync`, `tar`, permissions | filenames with spaces; `-print0` as folklore | `FS`, `Glob`, `Path` — but see **G4** |
 | 5 | Wait for a port or health endpoint | busy loop with `sleep`, no deadline, hangs forever | `Clock.sleep`, `Par.timeout`, `Par.race` |
 | 6 | Wrap a cloud CLI: `aws`/`gcloud`/`kubectl … -o json \| jq` | untyped JSON, unpinned binaries, no record of what the script may invoke | `Shell(kubectl, aws)` in the manifest plus a derived decoder — wand's strongest showing |
 | 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends |
@@ -204,9 +204,9 @@ already puns for maps. Minor next to the annotation, and it disappears
 almost entirely once a parameter can carry a type, since the reason to
 destructure at all is usually just to reach a field.
 
-**`ShellResult` has no `ok?`.** Checking whether a command worked — the
-single most common thing done with a `$?()` — is `r.code == 0`. Minor,
-but it is the first thing every ported script does.
+**`ShellResult` had no `ok?`.** Checking whether a command worked — the
+single most common thing done with a `$?()` — was `r.code == 0`. Shipped
+as `Shell.ok?`.
 
 ### What went right
 
@@ -267,18 +267,18 @@ arithmetic behind it. That arithmetic is why this did not ship with the
 rest: `now - mtime` is sound and `now - an_earlier_now` is not, and they
 are the same operator.
 
-### G3 — `FS` stops at a single file
+### G3 — `FS` stopped at a single file — closed
 
-`FS.delete` removes a file or an *empty* directory. Recursive delete
-exists as the builtin `fs_delete_tree` and is used internally by
-`FS.temp_dir`'s release, but is not exposed. `FS.copy` copies one file;
-there is no recursive copy, and nothing resembling `rsync`. So `rm -rf
-build/` and `cp -r` — two of the most-typed commands in existence — have
-no wand spelling and must shell out.
+`FS.delete` removes a file or an *empty* directory, and `FS.copy` copied
+one file. So `rm -rf build/` and `cp -r` — two of the most-typed commands
+in existence — had no wand spelling and shelled out.
 
-Cheap to close: `fs_delete_tree` is already written and already typed.
-Exposing it needs a name and a decision about whether the danger of `rm
--rf` deserves a more deliberate one than `FS.delete_tree`.
+`FS.delete_tree` and `FS.copy_tree` ship now, each with a raising sibling.
+The name carries the deliberation: `delete_tree` is not a word anyone
+types by accident, where `delete_all` or a recursive flag on `delete`
+would be. Neither follows a symlink out of the tree — a delete unlinks it,
+a copy recreates it — so a tree that links to itself is not a way to fill
+the disk. `rsync` remains unmatched, and is not the same job.
 
 ### G4 — no permissions, no symlinks, no ownership
 
@@ -342,9 +342,11 @@ walls, none of them where the gap list expected them:
   `(None)`. Both of these are in [`../gaps.md`](../gaps.md).
 
 Two things the language got right, worth recording because they were
-recent: the parameter annotation carried `ci-gate.wand`'s
-`fn (r: ShellResult) -> r.code == 0`, which had no spelling before 0.24.0,
-and the block binding carried the fold in `normalize-names.wand`.
+recent: the parameter annotation gave `ci-gate.wand` a way to say
+`(r: ShellResult)`, which had no spelling before 0.24.0, and the block
+binding carried the fold in `normalize-names.wand`. `Shell.ok?` has since
+taken that annotation out of `ci-gate.wand`, and `release-check.wand`
+needs one.
 
 ## What the second five found
 
@@ -453,8 +455,9 @@ covered end to end.
 4. ~~**Decide `Clock` (G1)**~~ Shipped in 0.25.0, ahead of this order,
    because the ports kept meeting it. **Reading the clock (G2)** is still
    open, and unblocks row 9 on its own.
-5. **Close the cheap ones** — G3 in particular is nearly free, and
-   `ShellResult.ok?` is a one-liner.
+5. ~~**Close the cheap ones.**~~ Shipped: `FS.delete_tree` and
+   `FS.copy_tree` close G3, and `Shell.ok?` answers the question every
+   ported script asks first.
 6. **Port the rest**, in row order.
 
 The original plan had step 3 first and no steps 1 or 2 at all, which is

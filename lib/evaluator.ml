@@ -2262,6 +2262,9 @@ let stdlib_eval_env : env = [
   ("fs_copy",    VBuiltin (fun src ->
     VBuiltin (fun dst ->
       Effect.perform (WandEffect ("FS!copy", VTuple [src; dst])))));
+  ("fs_copy_tree", VBuiltin (fun src ->
+    VBuiltin (fun dst ->
+      Effect.perform (WandEffect ("FS!copy_tree", VTuple [src; dst])))));
   ("fs_cwd",     VBuiltin (fun v -> Effect.perform (WandEffect ("FS!cwd", v))));
   ("fs_mtime",   VBuiltin (fun v -> Effect.perform (WandEffect ("FS!mtime", v))));
   ("fs_size",    VBuiltin (fun v -> Effect.perform (WandEffect ("FS!size", v))));

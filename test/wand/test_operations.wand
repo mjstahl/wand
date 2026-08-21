@@ -180,6 +180,22 @@ group "FS writes" (fn () -> [
     handle (fn () -> (let _ = FS.copy absent absent in missed)) () with
     | FS!copy _ _ -> caught
   )),
+  test "FS!copy_tree" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.copy_tree! absent absent in missed)) () with
+    | FS!copy_tree _ _ -> caught
+  )),
+  test "FS!copy_tree via FS.copy_tree" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.copy_tree absent absent in missed)) () with
+    | FS!copy_tree _ _ -> caught
+  )),
+  test "FS!delete_tree" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.delete_tree! absent in missed)) () with
+    | FS!delete_tree _ _ -> caught
+  )),
+  test "FS!delete_tree via FS.delete_tree" (fn t -> t.eq caught (
+    handle (fn () -> (let _ = FS.delete_tree absent in missed)) () with
+    | FS!delete_tree _ _ -> caught
+  )),
   -- A bracket acquires when the body starts, so naming one performs nothing
   -- until it is used: `with` is the call.
   test "FS!temp_file" (fn t -> t.eq caught (
@@ -190,9 +206,9 @@ group "FS writes" (fn () -> [
     handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
     | FS!temp_dir _ _ -> caught
   )),
-  -- The tree goes when the scratch directory is released, which is the only
-  -- place anything removes one. Declining to resume is the assertion here as
-  -- everywhere else; that it works from inside a release is test_resource's.
+  -- A scratch directory takes its tree with it, so the release performs the
+  -- same operation the two calls above do. That it works from inside a
+  -- release is test_resource's.
   test "FS!delete_tree via FS.temp_dir's release" (fn t -> t.eq caught (
     handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
     | FS!temp_dir _ k -> k absent

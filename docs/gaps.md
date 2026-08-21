@@ -107,10 +107,6 @@ Found by porting shell scripts, and argued in
 [`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels
 below.
 
-- **G3 — `FS` stops at a single file.** No recursive delete and no recursive
-  copy, so `rm -rf build/` and `cp -r` shell out. `fs_delete_tree` is
-  already written and used internally; exposing it needs a name and a
-  decision about how deliberate that name should be.
 - **G4 — no permissions, no symlinks, no ownership.** No `chmod`, `chown`,
   `symlink` or `readlink`, and no mode on a stat. An ssh key needs `0600`
   and a script needs `+x`, so provisioning is a row of `$()` calls.
@@ -122,5 +118,3 @@ below.
   a fine answer if it is written down.
 - **G7 — no archive story.** No `tar`, `zip` or `unzip`. Shelling out is
   fine; recorded so a port does not stall while someone wonders.
-- **`ShellResult` has no `ok?`.** Checking whether a command worked is
-  `r.code == 0`, and it is the first thing every ported script does.

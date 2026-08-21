@@ -12,6 +12,13 @@ uses {Clock}
    `Decode.int` reads the digits, because a decoder reads a value out of
    text. See `Decode`. *)
 
+(** Whether a command succeeded: its exit code is zero.
+    
+    `$?(cmd)` gives a `ShellResult`, and the first thing a script asks of
+    one is whether it worked. That question is `r.code == 0`, which every
+    caller was writing out. *)
+let ok? (r: ShellResult) = r.code == 0
+
 (** Read the whole capture as one value, ignoring surrounding whitespace. *)
 let decode d out = shell_decode d out
 

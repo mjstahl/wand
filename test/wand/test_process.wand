@@ -1,5 +1,6 @@
 uses {Shell}
 
+import Shell
 import String
 
 let {test} = import Test
@@ -41,6 +42,10 @@ test "code zero" (fn t -> let r = $?(true) in t.eq 0 r.code)
 test "code non-zero" (fn t -> let r = $?(false) in t.eq 1 r.code)
 
 test "never raises" (fn t -> let r = $?(exit 42) in t.eq true (r.code == 42))
+
+(* The first question a script asks of a ShellResult. *)
+test "ok? on a command that worked" (fn t -> t.eq true (Shell.ok? $?(true)))
+test "ok? on one that did not" (fn t -> t.eq false (Shell.ok? $?(exit 3)))
 
 (* ── stdin via |> ──────────────────────────────────────────────────────── *)
 

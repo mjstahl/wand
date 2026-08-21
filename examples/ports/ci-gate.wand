@@ -3,6 +3,7 @@ uses {IO, Proc, Shell(dune, make)}
 import IO
 import List
 import Proc
+import Shell
 
 (* Run each stage of a build, report which failed, and exit with the verdict.
 
@@ -19,7 +20,7 @@ import Proc
    `$?()` answers with a `ShellResult` rather than raising, so a stage that
    fails is a value the script can hold. *)
 
-let stage name (r: ShellResult) = (name, r.code == 0)
+let stage name r = (name, Shell.ok? r)
 
 let failed stages = List.filter (fn (_, ok?) -> !ok?) stages
 
