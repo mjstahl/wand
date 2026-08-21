@@ -71,7 +71,8 @@
  ; The whole fixture tree, because the suite discovers what to run rather
  ; than naming each file -- an enumeration here would drift from the
  ; directory exactly as the one in test_wand_stdlib.ml did.
- (deps (source_tree wand))
+ (deps
+  (source_tree wand))
  (libraries wand alcotest))
 
 (test
