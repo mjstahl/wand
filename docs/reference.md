@@ -432,8 +432,9 @@ println "working";
 42
 ```
 
-A newline alone ends a statement, so at the top level of a file `;` is only
-needed to put several on one line or to make the sequencing explicit.
+A newline alone ends a statement. So at the top level of a file you need `;`
+in two cases only: to put several statements on one line, or to make the
+sequence explicit.
 
 A newline does not end a statement if the next line starts with an operator.
 That line continues the statement. A pipeline that leads with `|>` needs
@@ -456,10 +457,10 @@ let a = 1
 
 Write `let b = -2` if you want a second statement.
 
-Inside a function body — or anywhere else an expression is expected — a
-newline cannot separate statements, because inside brackets a newline is just
-formatting and an application may continue across it. There, statements
-sequence with `;` inside parentheses:
+A newline cannot separate statements inside a function body. The same holds
+anywhere else that wand expects an expression. Inside brackets a newline is
+formatting, and an application can continue across it. So there you sequence
+statements with `;` inside parentheses:
 
 ```
 let deploy! target = (
@@ -469,12 +470,12 @@ let deploy! target = (
 )
 ```
 
-The value of the sequence is the last expression; a trailing `;` before the
-`)` is allowed. Every statement before the last is discarded, so a discarded
-`Result` is flagged by `V-DROP1` exactly as a bare top-level statement's
-would be — match it, call the `!` sibling, or bind it to `_` to say the
-failure does not matter. `let () = e1 in e2` still works and means the same
-thing, with the stricter guarantee that `e1` must be `Unit`.
+The value of the sequence is the last expression. A `;` before the `)` is
+allowed. wand discards each statement before the last one. So `V-DROP1` reports
+a discarded `Result` here, as it does for a top-level statement. Match it, call
+the `!` sibling, or bind it to `_` to say that the failure does not matter.
+`let () = e1 in e2` still works and means the same thing. It also guarantees
+that `e1` is `Unit`.
 
 ---
 
@@ -1109,9 +1110,9 @@ A file without a manifest is unconstrained, so casual scripts pay nothing.
 
 ### Doing more than you declared is an error
 
-The manifest is checked against everything the file defines, not only what
-running it performs — a function that shells out still shells out when
-another file imports and calls it.
+wand checks the manifest against everything that the file defines. It does
+not check only what a run performs. A function that runs a command still runs
+it when another file imports it and calls it.
 
 ```
 $ wand t --file deploy.wand
@@ -1174,10 +1175,10 @@ that runs nothing drops the label.
 
 What is checked, and when:
 
-- **`wand t` checks each literal command word.** These are the first word
-  of each `$()` and `$?()`, and the first word after each top-level `|`,
-  `&&`, `||` and `;`. A word that the list omits is a type error. The error
-  names the word and the manifest line that admits it. wand skips a prefix
+- **`wand t` checks each literal command word.** A command word is the first
+  word of a `$()` or a `$?()`. It is also the first word after a top-level
+  `|`, `&&`, `||` or `;`. A word that the list omits is a type error. The
+  error names the word and the manifest line that admits it. wand skips a prefix
   assignment, so `$(FOO=1 git status)` checks `git`. It skips a redirection
   and its target. It honours quoting, so a `|` inside an argument separates
   nothing. A subshell `(...)`, a substitution `$(...)` and a backtick span
@@ -1193,9 +1194,9 @@ What is checked, and when:
   warning, and an error under `--strict`, for a repository that wants each
   command word readable from the text.
 - **You cannot narrow shell control flow.** A reserved word in command
-  position, as in `$(for f in *; do ...; done)`, is a type error under a
-  narrowed manifest. Neither check can bound what the body runs. The
-  message tells you to write the loop in wand, or to declare bare
+  position is a type error under a narrowed manifest, as in
+  `$(for f in *; do ...; done)`. Neither check can bound what the body runs.
+  The message tells you to write the loop in wand, or to declare bare
   `Shell`.
 
 What counts as the binary:
@@ -1345,10 +1346,10 @@ with FS.temp_file "build_" ".tar" as archive ->
   publish! archive
 ```
 
-**A `with` always releases, however the script ends.** The script can
-return, raise, call `Proc.exit`, meet a handler that answers without resuming,
-take Ctrl-C, or take a `kill`. There is no `defer`, no `trap`, and nothing to
-remember at each exit.
+**A `with` always releases, however the script ends.** It releases when the
+script returns, when it raises, and when it calls `Proc.exit`. It releases when
+a handler answers without resuming. It releases on Ctrl-C and on a `kill`.
+There is no `defer`, no `trap`, and nothing to remember at each exit.
 
 There is one exception: a process that is destroyed, not stopped. `kill -9`
 and a power loss take the program away. It runs nothing on the way out.
@@ -3101,8 +3102,8 @@ writes it and reads it. A script does not have to.
   does not ask the reader what `()` binds.
 
 - **Prefer `match` to several equations.** Two definitions with different
-  patterns are legal, as in `let failed? (Error _) = true` and
-  `let failed? (Ok _) = false`. The standard library uses that form. A script
+  patterns are legal. The standard library uses that form, as in
+  `let failed? (Error _) = true` and `let failed? (Ok _) = false`. A script
   writes one definition and matches:
 
   ```
@@ -3459,12 +3460,12 @@ author put it. Everything else has a formatting rule.
 
 `wand lsp` starts the language server. It speaks LSP over stdio. It is a
 subcommand of the compiler binary, so the editor gets the same inference, the
-same lint rules and the same formatter. The two cannot disagree. An editor that
-connects to it gets these: a diagnostic on each change; hover, which shows the
-signature with its effect set and the doc string; completion; a quick fix that
-carries the correction that `wand t --fix` applies; formatting of the whole
-document; and go to definition. A jump into the standard library opens the
-source of the module from the binary, as a read-only document.
+same lint rules and the same formatter. The two cannot disagree. An editor that connects to it gets six things. It gets a diagnostic on each
+change. It gets hover, which shows the signature with its effect set, and the
+doc string. It gets completion. It gets a quick fix that carries the correction
+that `wand t --fix` applies. It gets formatting of the whole document. It gets
+go to definition, and a jump into the standard library opens the source of the
+module from the binary, as a read-only document.
 
 A qualified name resolves as you type it. Write `FS.write_file!` in a buffer
 that has not imported `FS`, and the editor inserts `import FS` into the sorted
