@@ -1427,8 +1427,8 @@ let pod =
 JSON.decode pod (JSON.parse! out)   -- Result String Pod
 ```
 
-A decoder is a value. Naming one reads nothing, and the same decoder can be
-run against several documents.
+A decoder is a value. To name one reads nothing. You can run the same
+decoder against several documents.
 
 ### Failure names the field
 
@@ -1437,9 +1437,9 @@ run against several documents.
 .spec.replicas: no such field
 ```
 
-The path is the point. Reading fields one at a time gets a null when the
-name is wrong and carries on, so the run fails somewhere else, later; a
-decoder stops at the field that was wrong and says which one it was.
+The path is the point. Read fields one at a time, and a wrong name gives you
+a null. The run continues and fails later, somewhere else. A decoder stops at
+the field that was wrong, and it names that field.
 
 ### The combinators
 
@@ -1457,8 +1457,8 @@ Decode.succeed v  Decode.fail msg
 Decode.one_of [a, b, ...]      -- the first that works
 ```
 
-`map2` covers a two-field record. Wider ones chain through `and_then`, which
-is also where validation goes:
+`map2` covers a record with two fields. For a wider record, chain through
+`and_then`. Validation also goes there:
 
 ```
 let pod =
@@ -1470,8 +1470,8 @@ let pod =
      (Decode.field "name" Decode.string))
 ```
 
-`one_of` reports every alternative's complaint when none of them works, since
-which one was the real reason is not the decoder's to guess.
+If no alternative works, `one_of` reports the complaint of each one. The
+decoder does not guess which one you meant.
 
 ### A field that may not be there
 
@@ -1487,27 +1487,28 @@ Decode.optional "restarts" Decode.int    -- Decoder (Option Int)
 {"restarts": "many"} -- Error .restarts: expected Int, got "many"
 ```
 
-The last line is the point. `optional` says the field may be *missing*, not
-that its contents may be anything — a field that is there and will not decode
-is a failure, exactly as it is under `field`. The version that writes itself,
-`one_of [field name inner, succeed None]`, gets this wrong: it turns a renamed
-or retyped field into `None` as readily as a missing one, which is the silent
-null the whole layer exists to replace.
+The last line is the point. `optional` says that the field can be missing.
+It does not say that the contents can be anything. A field that is there and
+does not decode is a failure, as it is under `field`. The obvious substitute,
+`one_of [field name inner, succeed None]`, gets this wrong. It turns a renamed
+field or a retyped field into `None`, as readily as a missing one. That is the
+silent null that this layer replaces.
 
 ### Keys that are data, and values that are null
 
-`Decode.field` wants a name the program knows in advance. When the keys *are*
-the data — a label map, per-host counts — `Decode.dict` reads the object into
-a `Map`, and a failure names the key it was under:
+`Decode.field` needs a name that the program knows in advance. Sometimes the
+keys are the data, as in a label map or a count for each host. Then
+`Decode.dict` reads the object into a `Map`. A failure names the key it was
+under:
 
 ```
 {"web-01": 3, "db-01": 12}   Decode.dict Decode.int   -- Ok (Map of 2)
 {"a": 1, "b": "x"}           Decode.dict Decode.int   -- Error .b: expected Int, got "x"
 ```
 
-`Decode.nullable` is `optional`'s value-level sibling. `optional` asks whether
-a *field* is there, which only a lookup can ask; `nullable` asks whether a
-value is null, which is the question an element of a list raises:
+`Decode.nullable` is the sibling of `optional`, one level down. `optional`
+asks whether a field is there. Only a lookup can ask that. `nullable` asks
+whether a value is null. An element of a list raises that question:
 
 ```
 [1, null, 3]   Decode.list (Decode.nullable Decode.int)   -- Ok [Some 1, None, Some 3]
@@ -1520,40 +1521,39 @@ Decode.path  Decode.duration  Decode.url   Decode.size  Decode.version
 Decode.date  Decode.time      Decode.datetime  Decode.ipv4  Decode.cidr  Decode.port
 ```
 
-`"30s"` in a document lexes exactly as `30s` in a script, so the boundary
-produces the type the rest of the program is written against rather than a
-`String` to convert later. All twelve domain types have a decoder.
+`"30s"` in a document lexes as `30s` in a script. So the boundary gives you
+the type that the rest of the program uses. You do not convert a `String`
+later. Each of the twelve domain types has a decoder.
 
-Each reads exactly what could have been written in the source, and nothing
-the source would have rejected — the same lexer decides both. `port` is the
-one that shows it, since a script writes `:8080` but a document usually holds
-the bare number: `8080`, `"8080"` and `":8080"` all read. A port is 0 to
-65535, so `65536` and `-1` do not — and the failure gives the rule rather
-than only the refusal:
+Each decoder reads what the source could hold, and nothing that the source
+would refuse. The same lexer decides both. `port` shows this best. A script
+writes `:8080`, and a document usually holds the bare number. `8080`, `"8080"`
+and `":8080"` all read. A port is 0 to 65535, so `65536` and `-1` do not. The
+failure gives the rule, not only the refusal:
 
 ```
 .port: invalid port :65536: must be 0-65535
 ```
 
-That sentence comes from the lexer, which is the only place that knows it.
-`String.to_port` and `String.to_ipv4` report it the same way, and
+That sentence comes from the lexer. The lexer is the only place that knows
+it. `String.to_port` and `String.to_ipv4` report it the same way, and
 `String.to_port` accepts the same two spellings.
 
 ### Text is read, never written
 
-A backend that carries types hands over an `Int` as an `Int`. A backend that
-does not — a CSV cell, a line of output — hands over the text, and
-`Decode.int` reads it exactly as `String.to_int` would. So one decoder serves
-a document and a command's output both:
+A backend that carries types gives an `Int` as an `Int`. A backend without
+types gives the text, as a CSV cell does, or a line of output. Then
+`Decode.int` reads it as `String.to_int` reads it. So one decoder serves a
+document and the output of a command:
 
 ```
 {"restarts": 4}     Decode.int   -- Ok 4
 {"restarts": "4"}   Decode.int   -- Ok 4
 ```
 
-The reverse never happens. `Decode.string` does not accept a number and
-stringify it, because a `string` that accepts anything is the scrape it
-exists to replace:
+The reverse never happens. `Decode.string` does not take a number and make a
+string of it. A `string` that accepts anything is the scrape that this layer
+replaces:
 
 ```
 {"restarts": 4}     Decode.string   -- Error .restarts: expected String, got Int
@@ -1561,8 +1561,8 @@ exists to replace:
 
 ### Running one
 
-Every backend presents what it read in the same shape, so the combinators
-above are the whole surface — what changes is only where the data came from:
+Each backend presents what it read in the same shape. So the combinators
+above are the whole surface. Only the source of the data changes:
 
 ```
 JSON.decode  : Decoder 'a -> JSON   -> Result String 'a
@@ -1572,13 +1572,13 @@ Shell.decode : Decoder 'a -> String -> Result String 'a
 Shell.lines  : Decoder 'a -> String -> Result String (List 'a)
 ```
 
-A CSV's first row names its columns, so a row is read by field name like any
-other record; a file without a header row is what `CSV.parse` is for. For
-`Shell.lines`, `$()` strips the trailing newline, so a capture with nothing
-in it is no lines rather than one empty line.
+The first row of a CSV names its columns. So you read a row by field name,
+as you read any record. Use `CSV.parse` for a file with no header row. For
+`Shell.lines`, `$()` removes the trailing newline. So a capture with nothing in
+it gives no lines, not one empty line.
 
-Backends that read one record per row or per line say which one failed
-before saying what was wrong with it:
+A backend that reads one record per row, or per line, first says which
+record failed. Then it says what was wrong:
 
 ```
 [2].restarts: expected Int, got "many"
@@ -1586,8 +1586,8 @@ before saying what was wrong with it:
 
 ### A type is its own decoder
 
-A type with one constructor and named fields already says what a decoder for
-it would do, so it has one:
+A type with one constructor and named fields already says what its decoder
+does. So it has one:
 
 ```
 type Pod (name : String, restarts : Int, timeout : Duration)
@@ -1596,10 +1596,11 @@ JSON.decode Pod.decoder (JSON.parse! out)   -- Result String Pod
 ```
 
 `Pod.decoder : Decoder Pod` reads each field by its own name. Add a field to
-the type and it is read; there is no second copy to keep in step.
+the type, and the decoder reads it. There is no second copy to keep in
+step.
 
-A field whose type is an `Option` may be absent, and every other field may
-not — which is what the type already says:
+A field whose type is an `Option` can be absent. Every other field must be
+there. The type already says this:
 
 ```
 type Job (name : String, owner : Option String)
@@ -1614,8 +1615,8 @@ Fields may hold lists, other derivable types, and the type being defined:
 type Node (label : String, children : List Node)
 ```
 
-A type with parameters takes one decoder for each, in the order it declares
-them:
+A type with parameters takes one decoder for each parameter, in the order
+that the type declares them:
 
 ```
 type Paged 'a (items : List 'a, total : Int)
@@ -1626,10 +1627,10 @@ Paged.encoder : ('a -> JSON) -> Paged 'a -> JSON
 JSON.decode (Paged.decoder Pod.decoder) doc
 ```
 
-Derivation covers the flat record whose keys are its field names. A document
-with nested keys, different names, or values needing validation is what a
-hand-written decoder is for — deriving removes the boilerplate ones, not the
-interesting ones, and the two mix freely:
+Derivation covers a flat record whose keys are its field names. Write a
+decoder by hand for a document with nested keys, with other names, or with
+values to validate. Derivation removes the dull decoders, not the interesting
+ones. The two mix freely:
 
 ```
 Decode.field "items" (Decode.list Pod.decoder)
@@ -1643,10 +1644,10 @@ There is a worked example of each in `examples/`:
 | `decode-nested-fields.wand` | the value is nested deeper than the type — mirror the shape, or reach through it |
 | `decode-tagged-union.wand` | a `kind` field says which constructor to build |
 
-`T.encoder` is derived from the same fields, so a type states its shape once
-and both directions follow.
+`T.encoder` comes from the same fields. A type states its shape once, and
+both directions follow.
 
-A type that is not a single-constructor record has neither, and naming one
+A type with more than one constructor has neither. Name one, and the error
 says which:
 
 ```
@@ -1657,8 +1658,8 @@ Shape.decoder
 
 ### Writing it back out
 
-The same type gives an encoder, and it is an ordinary function rather than a
-type of its own — encoding cannot fail, so there is nothing for one to carry:
+The same type gives an encoder. It is an ordinary function, not a type of
+its own. Encoding cannot fail, so there is nothing to carry:
 
 ```
 Pod.encoder : Pod -> JSON
@@ -1675,14 +1676,14 @@ read:
 {"name":"api","port":8080,"timeout":"30s","replicas":4}          -- out
 ```
 
-A field holding `None` is left out rather than written as null. Both read
-back as `None`, and a config is tidier without the empty keys.
+A field that holds `None` is left out. It is not written as null. Both read
+back as `None`, and a config file is tidier without the empty keys.
 
 ### Decoding is pure
 
-The functions a decoder is built from carry the empty effect set, so a
-decoder cannot read a file or run a command on the way past. Getting the data
-is the caller's job, and already says so in the caller's signature.
+The functions that build a decoder carry the empty effect set. So a decoder
+cannot read a file, and it cannot run a command. The caller gets the data, and
+the signature of the caller says so.
 
 ```
 Decode.map2 (fn a b -> let _ = $(echo hi) in a) Decode.int Decode.int
