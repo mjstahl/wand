@@ -89,10 +89,21 @@ match arm and inside a tuple. `Ok (v: T)` is a parse error: the payload
 branch reads `(` as the start of an argument list and never looks for a
 `:`. One branch wide. Found porting `pod-restarts.wand`.
 
-**Two imported files may export the same name, and the second wins.**
-`let {over} = import ./a` then `let {over} = import ./b` binds `b`'s, with
-no warning. A type error catches it when the types differ, and nothing
-catches it when they do not. Found porting `pod-restarts.wand`.
+**A destructured import is replaced by a later one, above the line as well
+as below it.** Every import binds before the file's own bindings, wherever
+it is written, so the last import of a name decides every use of it:
+
+```ocaml
+let {f} = import ./a
+let () = println (f 1)     -- ./b's f, not ./a's
+let {f} = import ./b
+```
+
+`V-IMP1` warns when the first import is never used. It stays quiet here,
+because `f` is used. Two files exporting one name at one type then differ
+in nothing an error can catch. Found porting `pod-restarts.wand`, which
+collided with earlier ports three times; a type error caught each, and
+would not have if the types had matched.
 
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each

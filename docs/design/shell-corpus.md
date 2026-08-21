@@ -408,11 +408,14 @@ Two things it found:
   error: the payload branch reads `(` as the start of an argument list
   and never looks for a `:`. The port does not need it -- the decoder
   pins the type -- but the hole is one branch wide.
-- **Two imported files may export the same name, and the second wins.**
-  `let {over} = import ./a` then `let {over} = import ./b` binds `b`'s,
-  with no warning. This port had three collisions with earlier ports
-  (`over`, `describe`, `read`) and was renamed around all three. A type
-  error caught one; two same-typed functions would not be caught at all.
+- **A destructured import is replaced by a later one, above the line as
+  well as below it.** Every import binds before the file's own bindings,
+  wherever it is written, so the last import of a name decides every use.
+  `V-IMP1` warns when the first is never used and stays quiet when it is.
+  This port collided with earlier ports three times in
+  `test/wand/test_ports.wand` (`over`, `describe`, `read`) and was renamed
+  around all three. A type error caught each, and would not have if the
+  types had matched.
 
 ## Problems with the approach itself
 
