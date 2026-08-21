@@ -341,14 +341,42 @@ let is_mutation = function
 (* What an operation hands back when it is reported instead of carried out.
    Whatever this is steers the rest of the script, so a rehearsal says what it
    substituted rather than letting the script appear to have real output. *)
+(* A rehearsal answers a temp-file request with a name rather than a file,
+   and the name has to be one nobody else can hold first. `/tmp/wand-dry-run-dir`
+   was the same path every time, in a directory every user on the machine can
+   write: anyone could create it, or a symlink under it, and wait -- a script
+   reading back what it believes it just created would read what was left
+   there instead. Eight bytes of randomness per call, and the temp directory
+   the environment names rather than `/tmp` outright, which on macOS is
+   already a private one. *)
+let random_tag () =
+  let bytes = Bytes.create 8 in
+  (try
+     let fd = Unix.openfile "/dev/urandom" [Unix.O_RDONLY] 0 in
+     Fun.protect ~finally:(fun () -> try Unix.close fd with Unix.Unix_error _ -> ())
+       (fun () -> ignore (Unix.read fd bytes 0 (Bytes.length bytes)))
+   with Unix.Unix_error _ | Sys_error _ ->
+     (* Without /dev/urandom the name is merely unlikely to collide, which
+        is the most this can offer. *)
+     Bytes.blit_string
+       (Printf.sprintf "%08x" (Hashtbl.hash (Unix.gettimeofday (), Unix.getpid ())))
+       0 bytes 0 8);
+  String.concat ""
+    (List.init (Bytes.length bytes)
+       (fun i -> Printf.sprintf "%02x" (Char.code (Bytes.get bytes i))))
+
+let dry_run_path suffix =
+  Filename.concat (Filename.get_temp_dir_name ())
+    (Printf.sprintf "wand-dry-run-%s%s" (random_tag ()) suffix)
+
 let substitute_for name =
   match name with
   | "Shell!run"-> Some (VString "", "\"\"")
   | "Shell!capture"->
     Some (shell_result "" "" 0, "exit 0, no output")
   | "Shell!exit_code" -> Some (VInt 0, "0")
-  | "FS!temp_file"      -> Some (VPath "/tmp/wand-dry-run", "/tmp/wand-dry-run")
-  | "FS!temp_dir"       -> Some (VPath "/tmp/wand-dry-run-dir", "/tmp/wand-dry-run-dir")
+  | "FS!temp_file"      -> let p = dry_run_path ""     in Some (VPath p, p)
+  | "FS!temp_dir"       -> let p = dry_run_path "-dir" in Some (VPath p, p)
   | _ -> None
 
 (* The spawn-time half of a `Shell(git, curl)` manifest. The site's own
@@ -479,9 +507,16 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("read_file: " ^ m)) with
               | Ok s    -> Effect.Deep.continue    k (VString s)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* 0644, as `FS.create_file` and `FS.append` already asked for.
+             This one took the channel default of 0666, which a umask
+             usually trims to the same thing and does not have to: under
+             `umask 0` -- a container, a daemon, a CI runner that set it --
+             the file a script wrote came out world-writable, while the
+             file its sibling wrote two lines later did not. *)
           | WandEffect ("FS!write_file", VTuple [(VString path | VPath path); VString content]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match (try Out_channel.with_open_text path
+              match (try Out_channel.with_open_gen
+                           [Open_wronly; Open_creat; Open_trunc] 0o644 path
                            (fun oc -> Out_channel.output_string oc content); Ok ()
                      with Sys_error m -> Error ("write_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
@@ -569,14 +604,32 @@ let run_with_default_handler (thunk : unit -> value) : value =
                        Error ("rename: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* A copy of an executable is executable, and a copy of a private
+             file is private: the destination is created with the source's
+             permissions rather than the channel default, which turned 0600
+             into 0644 and dropped the bit that made a copied script
+             runnable. A destination that already exists keeps its own
+             permissions -- what `cp` does, and the copy is not the place
+             to widen a file somebody else's mode was chosen for. *)
           | WandEffect ("FS!copy", VTuple [VPath src; VPath dst]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try
+                       let mode = (Unix.stat src).Unix.st_perm in
+                       let existed = Sys.file_exists dst in
                        let content = In_channel.with_open_bin src In_channel.input_all in
-                       Out_channel.with_open_bin dst
+                       Out_channel.with_open_gen
+                         [Open_wronly; Open_creat; Open_trunc; Open_binary]
+                         mode dst
                          (fun oc -> Out_channel.output_string oc content);
+                       (* The open honours the umask, which can only take
+                          bits away; a copy is meant to carry the source's
+                          own mode, so a new file is set to it outright. *)
+                       if not existed then Unix.chmod dst mode;
                        Ok ()
-                     with Sys_error m -> Error ("copy: " ^ m)) with
+                     with
+                     | Sys_error m -> Error ("copy: " ^ m)
+                     | Unix.Unix_error (e, _, _) ->
+                       Error ("copy: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           (* Read-only operations: performed so a trace can see them, and
@@ -1078,17 +1131,21 @@ let run_in_mode mode (thunk : unit -> value) : value =
                 Some (fun (k : (a, value) Effect.Deep.continuation) ->
                   let described = describe_operation name v in
                   let withhold = mode = DryRun && is_mutation name in
+                  (* Decided once: the substitute is now a fresh name each
+                     time it is asked for, and the line reporting it has to
+                     name the one the script was actually handed. *)
+                  let substitute = if withhold then substitute_for name else None in
                   (match described with
                    | Some (verb, what) ->
                      if withhold then
-                       (match substitute_for name with
+                       (match substitute with
                         | Some (_, shown) ->
                           report "would %s: %s -> %s\n" verb what shown
                         | None -> report "would %s: %s\n" verb what)
                      else report "%s: %s\n" verb what
                    | None -> ());
                   if withhold then
-                    match substitute_for name with
+                    match substitute with
                     | Some (v, _) -> Effect.Deep.continue k v
                     | None        -> Effect.Deep.continue k VUnit
                   else

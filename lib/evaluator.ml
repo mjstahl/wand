@@ -1926,8 +1926,27 @@ let stdlib_eval_env : env = [
             else pat
           in
           let re = Re.compile (Re.Glob.glob ~anchored:true ~double_asterisk:true norm_pat) in
-          let rec collect path rel acc =
-            if not (Sys.file_exists path) then acc
+          let is_link p =
+            match Unix.lstat p with
+            | { Unix.st_kind = Unix.S_LNK; _ } -> true
+            | _ -> false
+            | exception Unix.Unix_error _ -> false
+          in
+          (* A symlink is an entry like any other -- it can match, and is
+             answered with as itself -- but the walk does not go through it.
+             Walking through one left the base directory the caller named:
+             a link inside `./data` pointing at `/etc` had
+             `FS.glob_in **.conf ./data` answering with files `./data` does
+             not contain, which is not what the argument says. A link back
+             to an ancestor was worse -- the walk went round it until the
+             path outgrew what the system would take.
+
+             The base itself is followed, since naming it is what asks for
+             it. *)
+          let rec collect ~walk_link path rel acc =
+            if (not walk_link) && is_link path then
+              (if Re.execp re rel then VPath path :: acc else acc)
+            else if not (Sys.file_exists path) then acc
             else if Sys.is_directory path then begin
               let entries = Sys.readdir path in
               Array.sort String.compare entries;
@@ -1935,11 +1954,11 @@ let stdlib_eval_env : env = [
                 let child_path = Filename.concat path name in
                 let child_rel  = if rel = "" then name
                                  else rel ^ "/" ^ name in
-                collect child_path child_rel a) acc entries
+                collect ~walk_link:false child_path child_rel a) acc entries
             end else if Re.execp re rel then VPath path :: acc
             else acc
           in
-          let results = List.rev (collect base "" []) in
+          let results = List.rev (collect ~walk_link:true base "" []) in
           VList results
         | _ -> raise (EvalError "fs_glob: second argument must be Path"))
     | _ -> raise (EvalError "fs_glob: first argument must be Glob or String")));

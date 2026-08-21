@@ -29,7 +29,8 @@
 
 (test
  (name test_fs)
- (libraries wand alcotest))
+ (deps %{exe:../bin/wand.exe})
+ (libraries wand alcotest unix))
 
 (test
  (name test_signals)

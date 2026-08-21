@@ -796,6 +796,12 @@ FS.glob_in ./**/*.ml ./src   -- List Path, relative to ./src
 Both always return a list (empty if nothing matches, never raises).
 Results are sorted lexicographically.
 
+A symlink is matched like any other entry and comes back as itself, but the
+walk does not go through one: everything answered is under the directory
+named. A link pointing out of that directory would otherwise put files it
+does not contain in the answer, and a link pointing back into it would send
+the walk round in a circle.
+
 ---
 
 ## Regular expressions
@@ -2341,6 +2347,12 @@ with FS.temp_dir "build_" as dir ->
 
 A scratch directory exists to be filled, so release takes the tree rather
 than requiring the body to empty it first.
+
+A file wand creates is created 0644, and a directory 0755, before the
+umask has its say. `copy` is the exception: a new destination is given the
+source's own permissions, so a copied script is still executable and a
+copy of a private file is still private. A destination that already exists
+keeps the permissions it had.
 
 ### `Resource`
 
