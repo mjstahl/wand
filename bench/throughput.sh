@@ -21,9 +21,14 @@ def run(src, args=()):
         ts = []
         for _ in range(3):
             t0 = time.perf_counter()
-            subprocess.run([wand, path, *args], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+            p = subprocess.run([wand, path, *args], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE)
             ts.append((time.perf_counter() - t0) * 1000)
+            # A workload that does not run is a fast workload, and reads as a
+            # healthy line rather than as a broken one. The cons pattern below
+            # spent a release measuring a parse error this way.
+            if p.returncode != 0:
+                sys.exit("workload failed:\n" + p.stderr.decode().strip())
         return statistics.median(ts)
     finally:
         os.unlink(path)
@@ -33,7 +38,7 @@ WORKLOADS = {
     # the remaining list, which is where a quadratic once hid.
     "list walk (cons pattern)": lambda n: f"""import List
 let walk [] = 0
-let walk [_ : t] = 1 + walk t
+let walk [_ :: t] = 1 + walk t
 walk (List.range 1 {n})""",
     # Tail recursion through a stdlib higher-order function.
     "fold_left": lambda n: f"""import List
@@ -42,6 +47,12 @@ List.fold_left (fn a b -> a + b) 0 (List.range 1 {n})""",
     "plain recursion": lambda n: f"""let count 0 = 0
 let count n = 1 + count (n - 1)
 count {n}""",
+    # The same count with nothing waiting on the call. A tail call reuses the
+    # frame, so this one holds a stack of constant depth however far it goes,
+    # and the line stays flat where the one above it climbs.
+    "tail recursion": lambda n: f"""let go 0 acc = acc
+let go n acc = go (n - 1) (acc + 1)
+go {n} 0""",
 }
 
 # How lookup scales with the number of names in scope, rather than with the
@@ -63,6 +74,10 @@ for label, build in WORKLOADS.items():
     cells = " ".join(f"{t:7.0f}ms" for t in times)
     print(f"{label:28} {cells}   {growth:4.1f}x per 2x")
 print("\nhealthy is ~2.0x per doubling")
+print("'tail recursion' holds that however deep it goes -- a tail call reuses")
+print("the frame. 'plain recursion' keeps a frame per level and every minor")
+print("collection rescans them all, so it climbs past 2.0x once it is deep")
+print("enough for that to show: around 100k, well past the sizes above.")
 
 print()
 print(f"{'names in scope before the callee':32} {'median':>9}   growth")
