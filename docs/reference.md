@@ -3060,10 +3060,22 @@ until the subprocess does. Put `Shell.timeout` in the thunk to bound that:
 Par.race (List.map (fn u -> fn () -> Shell.timeout 2s (fn () -> $(curl %{u}))) mirrors)
 ```
 
-Watched — a mock, `--dry-run`, `--trace` — a race is left-biased and
-deterministic. There is no overlap to have, because an effect cannot reach
-a handler on another domain, so the first thunk is the one that finishes
-first.
+**A race inside a handler is refused.** An effect cannot reach a handler on
+another domain, so the branches cannot run where they were written: the race
+would answer with its first thunk and say nothing, and a test of racing code
+would test one branch and pass. Move the handler inside each thunk instead:
+
+```ocaml
+Par.race [
+  fn () -> Test.with_shell mocks (fn () -> probe a),
+  fn () -> Test.with_shell mocks (fn () -> probe b)
+]
+```
+
+Under `--dry-run` and `--trace` a race still runs. Each reports what the
+work would do, and the report costs nothing by the collapse, so the race is
+left-biased and deterministic there: the first thunk is the one that
+finishes first.
 
 `timeout` puts a deadline on wand code, where `Shell.timeout` puts one on a
 command:
@@ -3083,10 +3095,11 @@ step, giving back what it holds. Work inside a command finishes that
 command first. Put `Shell.timeout` in the thunk to bound that too. A thunk
 that raises comes back as `Error`, as it does under `race`.
 
-**A virtual clock does not fire a deadline.** `Test.with_clock` makes the
-work's own sleeps instant, and a watched race is left-biased, so the work
-wins and `timeout` answers `Ok`. Test a deadline against real time, with a
-duration short enough to wait for.
+**A deadline inside a handler is refused**, for the reason a race is: the
+sleeper is a branch, and a branch cannot run where the handler is. Test a
+deadline against real time, with a duration short enough to wait for, and
+put the handler inside the thunk — `Par.timeout d (fn () -> with_shell
+mocks (fn () -> work ()))`.
 
 **A handler always reaches a worker.** When nothing watches, a worker
 performs its own effects, and twenty slow commands do overlap. When a handler

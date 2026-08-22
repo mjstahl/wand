@@ -1889,10 +1889,16 @@ let par_run limit f items ~collect =
    machine goes quiet: a loser blocked in a subprocess finishes that
    subprocess. `Shell.timeout` inside the thunk is how to bound that.
 
-   Watched -- a mock, a rehearsal, a trace -- there is no overlap to have,
-   because an effect cannot reach a handler on another domain. The race is
-   then left-biased and deterministic: the first thunk is the one that
-   finishes first. *)
+   Under a handler, refused. An effect cannot reach a handler on another
+   domain, so the branches cannot run where they were written; the race
+   would collapse to its first thunk and say nothing, and a test of racing
+   code would then test one branch and pass. `Par.timeout` refuses for the
+   same reason.
+
+   A rehearsal and a trace are observers as well, and are not refused: each
+   reports what the work would do, and the collapse costs the report
+   nothing. The race is then left-biased and deterministic -- the first
+   thunk is the one that finishes first. *)
 let par_race thunks =
   let items = Array.of_list thunks in
   let n = Array.length items in
@@ -1904,6 +1910,10 @@ let par_race thunks =
   in
   if n = 0 then
     VConstr ("Error", [VString "race: nothing to race"])
+  else if Atomic.get handlers > 0 then
+    raise (EvalError
+      "a race inside a handler runs its first thunk only. Move the handler \
+       inside each thunk, or take it off.")
   else if Atomic.get observers > 0 then
     outcome_of (fun () -> apply items.(0) VUnit)
   else begin
@@ -2533,13 +2543,12 @@ let stdlib_eval_env : env = [
         match limit, xs with
         | VInt n, VList items -> par_run n f items ~collect:true
         | _ -> raise (EvalError "par_map: expected a limit and a list")))));
-  (* `Par.timeout` is a race between the work and a sleeper, and a race
-     under a handler runs its first thunk only -- a handler is installed in
-     this fiber and the other branches would run in their own, where it
-     cannot be reached. So under a handler the sleeper never exists: the
-     deadline does not fire, and work that only the deadline would have
-     stopped runs forever. Refused, with the reason, rather than hanging a
-     test suite with no message.
+  (* `Par.timeout` is a race between the work and a sleeper, and `par_race`
+     refuses inside a handler. This guard runs first so the message is about
+     the deadline: the sleeper is a branch, a branch cannot run where the
+     handler is, and work that only the deadline would have stopped would
+     run forever. Refused, with the reason, rather than hanging a test suite
+     with no message.
 
      A rehearsal and a trace are observers too, and are not refused: a
      rehearsal collapsing the race still reports what the work would do.

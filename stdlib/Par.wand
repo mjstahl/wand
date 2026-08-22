@@ -42,6 +42,17 @@ let each limit f xs = par_each limit f xs
 -- What a race bounds is when you get the answer, not when the machine goes
 -- quiet. A loser blocked in a subprocess finishes that subprocess; wrap it
 -- in `Shell.timeout` to bound that too.
+--
+-- Refused inside a handler. An effect cannot reach a handler on another
+-- domain, so the branches cannot run where they were written: the race
+-- would answer with its first thunk and say nothing. Move the handler
+-- inside each thunk:
+--
+-- Par.race [fn () -> with_shell mocks (fn () -> probe a),
+--           fn () -> with_shell mocks (fn () -> probe b)]
+--
+-- A rehearsal and a trace still run it, left-biased: each reports what the
+-- work would do, and the collapse costs the report nothing.
 let race thunks = par_race thunks
 
 -- Run `thunk` with a deadline. The result is `Error` if the deadline
@@ -59,9 +70,9 @@ let race thunks = par_race thunks
 -- A `thunk` that raises comes back as `Error` too, as it does under
 -- `race`.
 --
--- Refused under a handler. A race runs only its first thunk while one is
--- installed, so the sleeper never runs and the deadline never fires. Put
--- the handler inside the thunk instead:
+-- Refused inside a handler, for the reason a race is: the sleeper is a
+-- branch, and a branch cannot run where the handler is, so the deadline
+-- would never fire. Put the handler inside the thunk instead:
 --
 -- Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
 --

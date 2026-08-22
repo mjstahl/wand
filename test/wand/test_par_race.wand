@@ -1,4 +1,4 @@
-uses {Clock, FS.Read, FS.Write, Shell(sh)}
+uses {Clock, FS.Read, FS.Write, Shell(git, sh)}
 
 let {test, group} = import Test
 import Clock
@@ -54,14 +54,23 @@ test "a cancelled loser releases" (fn t ->
   let loser = fn () -> with holder as _ -> spin 400000000 in
   let _ = Par.race [loser, fn () -> 1] in t.eq false (FS.exists? held))
 
--- Watched, there is no overlap to have, so the race is left-biased and
--- says the same thing every time.
-test "under a mock the first thunk wins" (fn t ->
+-- A branch cannot run where the handler is, so a race inside one would
+-- answer with its first thunk and say nothing. Refused instead, whatever
+-- the handler has to do with the work.
+test "a race inside a handler is refused" (fn t ->
+  t.raises (fn () ->
+    Test.with_shell [("anything", "x")] (fn () ->
+      Par.race [fn () -> "first", fn () -> "second"])))
+
+-- The handler belongs inside each thunk, where it stands for that branch
+-- and the race still runs.
+test "a handler inside each thunk stands" (fn t ->
   t.eq
-    (Ok "first")
-    (Test.with_shell [("anything", "x")] (fn () ->
-      Par.race [fn () -> "first", fn () -> "second"])
-    ))
+    (Ok "mocked")
+    (Par.race [
+      fn () -> Test.with_shell [("git", "mocked")] (fn () -> $(git describe)),
+      fn () -> let () = Clock.sleep 5s in "slept"
+    ]))
 
 -- ── A deadline on wand code ─────────────────────────────────────────────
 
@@ -80,10 +89,9 @@ group "Par.timeout" (fn () -> [
     match Par.timeout 5s (fn () -> $(sh -c 'exit 5')) with
     | Ok v -> t.fail "expected an Error, got %{v}"
     | Error why -> t.ok (String.contains? "code 5" why)),
-    -- A race under a handler runs its first thunk only, so the sleeper never
-  -- exists and the deadline never fires. Work that only the deadline would
-  -- have stopped then runs forever, which is a test suite hanging with no
-  -- message. Refused instead.
+  -- The sleeper is a branch, so a deadline inside a handler never fires.
+  -- Work that only the deadline would have stopped then runs forever, which
+  -- is a test suite hanging with no message. Refused instead.
   test "a deadline under a handler is refused" (fn t ->
     t.raises (fn () ->
       Test.with_clock (fn () -> Par.timeout 5s (fn () -> Clock.sleep 1s)))),
