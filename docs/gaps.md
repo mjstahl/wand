@@ -146,20 +146,26 @@ field to its own name, the way `{a, b}` already puns for maps. Noted in
 
 ## The standard library
 
-Found by porting shell scripts, and argued in
-[`docs/design/shell-corpus.md`](design/shell-corpus.md) under the labels
-below.
+Found by porting shell scripts. Each is argued at length in
+[`docs/design/shell-corpus.md`](design/shell-corpus.md).
 
-- **G4 — no permissions, no symlinks, no ownership.** No `chmod`, `chown`,
-  `symlink` or `readlink`, and no mode on a stat. An ssh key needs `0600`
-  and a script needs `+x`, so provisioning is a row of `$()` calls.
-- **G5 — no process surface beyond exiting.** `Proc` has `exit`. No pid, no
-  "is it running", no signal, no listing. Managing a daemon goes through
-  `$(ps)` and `$(kill)` and parses text.
-- **G6 — no HTTP client, on purpose.** Row 3 of the corpus goes through
-  `$(curl ...)`, and stays there. `curl` is on every machine a script runs
-  on, it is named in the manifest as `Shell(curl)` like any other binary,
-  and `Shell.decode` reads its output. A client inside wand would carry
-  TLS, redirects, proxies and retries, and would still be behind curl.
-- **G7 — no archive story.** No `tar`, `zip` or `unzip`. Shelling out is
-  fine; recorded so a port does not stall while someone wonders.
+**No permissions, no symlinks, no ownership.** No `chmod`, `chown`,
+`symlink` or `readlink`, and no mode on a stat. An ssh key needs `0600` and
+a script needs `+x`, so provisioning is a row of `$()` calls. This is what
+stops a provisioning script — users, packages, keys, firewall — from being
+written in wand at all.
+
+**No process surface beyond exiting.** `Proc` has `exit`. No pid, no "is it
+running", no signal, no listing. Managing a daemon goes through `$(ps)` and
+`$(kill)` and parses text.
+
+**No HTTP client, on purpose.** A script that talks to an API goes through
+`$(curl ...)`, and stays there. `curl` is on every machine a script runs
+on, it is named in the manifest as `Shell(curl)` like any other binary, and
+`Shell.decode` reads its output. A client inside wand would carry TLS,
+redirects, proxies and retries, and would still be behind curl.
+[`examples/ports/http-retry.wand`](../examples/ports/http-retry.wand) is
+that decision written out.
+
+**No archive story.** No `tar`, `zip` or `unzip`. Shelling out is fine;
+recorded so a port does not stall while someone wonders.

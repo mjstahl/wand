@@ -87,24 +87,26 @@ which are not copyrightable, and no lines.
 ## What the shell is actually used for
 
 Ranked by how much of the modern working day each accounts for, with the
-wand surface it lands on. The middle column is the reason a port is worth
+wand surface it lands on. The third column is the reason a port is worth
 reading: a bash script's failure mode is not incidental, it is the thing
-wand is claiming to fix.
+wand is claiming to fix. The last column is where the corpus stands —
+fifteen ports in [`examples/ports/`](../../examples/ports), covering every
+row that is not blocked.
 
-| # | The job | How bash gets it wrong | Where it lands in wand |
-|---|---|---|---|
-| 1 | CI glue: run build/test/lint, wire env, propagate status | `cmd; echo ok` succeeds after `cmd` fails; `set -euo pipefail` is a ritual, not a guarantee | `$?()` yields a `ShellResult`; dropping it is `V-DROP1` |
-| 2 | Extract from logs and API output | `grep \| sed \| awk \| jq` re-parses text at every stage, silently empty on a schema change | `Regex`, `Decode`, `Stream` |
-| 3 | HTTP with auth and retry | `curl` without `--fail` returns 0 on a 500; retry loops are hand-rolled | `Shell(curl)` plus `Decode`, and `Shell.timeout` for the retry |
-| 4 | File munging: `find`/`xargs`, `rsync`, `tar`, permissions | filenames with spaces; `-print0` as folklore | `FS`, `Glob`, `Path` — but see **G4** |
-| 5 | Wait for a port or health endpoint | busy loop with `sleep`, no deadline, hangs forever | `Clock.sleep`, `Par.timeout`, `Par.race` |
-| 6 | Wrap a cloud CLI: `aws`/`gcloud`/`kubectl … -o json \| jq` | untyped JSON, unpinned binaries, no record of what the script may invoke | `Shell(kubectl, aws)` in the manifest plus a derived decoder — wand's strongest showing |
-| 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends |
-| 8 | Parallel fan-out | `xargs -P` and `&`/`wait`, with interleaved output and lost exit codes | `Par.map limit f xs` |
-| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | still blocked — **G2** |
-| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison |
-| 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder |
-| 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — **G4** |
+| # | The job | How bash gets it wrong | Where it lands in wand | Ported |
+|---|---|---|---|---|
+| 1 | CI glue: run build/test/lint, wire env, propagate status | `cmd; echo ok` succeeds after `cmd` fails; `set -euo pipefail` is a ritual, not a guarantee | `$?()` yields a `ShellResult`; dropping it is `V-DROP1` | `ci-gate`, `env-check` |
+| 2 | Extract from logs and API output | `grep \| sed \| awk \| jq` re-parses text at every stage, silently empty on a schema change | `Regex`, `Decode`, `Stream` | `log-top-talkers`, `error-rate`, `release-check` |
+| 3 | HTTP with auth and retry | `curl` without `--fail` returns 0 on a 500; retry loops are hand-rolled | `Shell(curl)` plus `Decode`, and `Shell.timeout` for the retry | `http-retry` |
+| 4 | File munging: `find`/`xargs`, `rsync`, `tar`, permissions | filenames with spaces; `-print0` as folklore | `FS`, `Glob`, `Path` — but see **G4** | `large-files`, `normalize-names`, `empty-dirs` |
+| 5 | Wait for a port or health endpoint | busy loop with `sleep`, no deadline, hangs forever | `Clock.sleep`, `Par.timeout`, `Par.race` | `wait-for-port` |
+| 6 | Wrap a cloud CLI: `aws`/`gcloud`/`kubectl … -o json \| jq` | untyped JSON, unpinned binaries, no record of what the script may invoke | `Shell(kubectl, aws)` in the manifest plus a derived decoder — wand's strongest showing | `pod-restarts` |
+| 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends | `stage-release` |
+| 8 | Parallel fan-out | `xargs -P` and `&`/`wait`, with interleaved output and lost exit codes | `Par.map limit f xs` | `verify-archives` |
+| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | `FS.mtime`, `DateTime` and `Duration` — see **G2** | **blocked** — nothing reads the clock |
+| 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison | `disk-threshold`, `dir-budget` |
+| 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder | `probe-args` |
+| 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — see **G4** | **blocked** — no permissions or symlinks |
 
 Rows 6, 7, 8 and 11 were expected to be where wand does not merely
 match bash but embarrasses it, and rows 5 and 9 where it plainly loses.
