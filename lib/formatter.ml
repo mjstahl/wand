@@ -294,10 +294,36 @@ let is_binop_or_unop e = match strip_located e with
    binds, the bracket opens on the binding's line and the items carry the
    break. Given a line of its own the bracket says nothing -- the items sit
    at the same column either way -- while costing a line at the top of
-   every list, map, and tuple wide enough to wrap. *)
+   every list, map, and tuple wide enough to wrap.
+
+   A block writes its parenthesis in `emit_block`, which reaches it by three
+   shapes, not one: a bare sequence, and a sequence whose first statement is
+   a binding. All three belong here, or a block that opens with a `let`
+   spends the line the other two are spared. *)
 let opens_a_bracket e = match strip_located e with
   | Seq _ | List _ | Tuple _ | MapLit _ -> true
+  | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> true
   | _ -> false
+
+(* Where a bracket carries the break, the value can start on the line that
+   introduces it rather than taking a line of its own. That is a bracket of
+   the value's own, and also a call whose last argument is one: `emit_app`
+   opens that bracket on the call's line, so `report [` leaves the first
+   line as unfinished as a bare `[` does. An `App` is left-nested, so the
+   argument beside the outermost one is the last. *)
+(* Where text leaves the cursor. A prefix that wrapped carries its own
+   indentation in its last line, so that line's length is the column
+   outright; one that did not starts wherever the caller said. *)
+let column_after col s =
+  match String.rindex_opt s '\n' with
+  | None -> col + String.length s
+  | Some i -> String.length s - i - 1
+
+let carries_the_break e =
+  opens_a_bracket e
+  || (match strip_located e with
+      | App (_, last) -> opens_a_bracket last
+      | _ -> false)
 
 (* A nested `App` used as another App's argument/target must be wrapped --
    without parens, juxtaposition would flatten it into the outer call's
@@ -320,28 +346,28 @@ let is_app e = match strip_located e with
    definition: the parser breaks an expression at a line end only while no
    bracket is open, so the same shape nested inside a call is fine as it
    stands. *)
+(* The parser continues a definition onto the next line only while a bracket
+   is still open -- `test "x" (fn t ->` ends inside one, so what follows
+   belongs to it. A line that closes everything it opened ends the
+   definition, and the lines after it become something else. So this counts
+   the brackets left open at the end of the first line -- the same three
+   pairs the parser counts for the same purpose. *)
+let depth_after_first_line str =
+  let n = String.length str in
+  let rec go i depth in_string =
+    if i >= n then depth
+    else
+      match str.[i] with
+      | '\n' when not in_string -> depth
+      | '\\' when in_string -> go (i + 2) depth in_string
+      | '"' -> go (i + 1) depth (not in_string)
+      | ('(' | '[' | '{') when not in_string -> go (i + 1) (depth + 1) in_string
+      | (')' | ']' | '}') when not in_string -> go (i + 1) (depth - 1) in_string
+      | _ -> go (i + 1) depth in_string
+  in
+  go 0 0 false
+
 let bracket_if_wrapped_app body emitted =
-  (* The parser continues a definition onto the next line only while a
-     bracket is still open -- `test "x" (fn t ->` ends inside one, so what
-     follows belongs to it. A line that closes everything it opened ends the
-     definition, and the lines after it become something else. That is the
-     condition, so that is what is checked: unclosed brackets at the end of
-     the first line. *)
-    let depth_after_first_line str =
-      let n = String.length str in
-      let rec go i depth in_string =
-        if i >= n then depth
-        else
-          match str.[i] with
-          | '\n' when not in_string -> depth
-          | '\\' when in_string -> go (i + 2) depth in_string
-          | '"' -> go (i + 1) depth (not in_string)
-          | ('(' | '[') when not in_string -> go (i + 1) (depth + 1) in_string
-          | (')' | ']') when not in_string -> go (i + 1) (depth - 1) in_string
-          | _ -> go (i + 1) depth in_string
-      in
-      go 0 0 false
-    in
     (* Both conditions, and only together. A `match` or an `if` is safe with
        nothing left open, because its parse is not finished at the first line
        -- the cases are still owed. An application's is: it ends where the
@@ -371,12 +397,19 @@ let rec emit_expr ?col indent e =
 and parenthesize indent s =
   if not (String.contains s '\n') then "(" ^ s ^ ")"
   else
-    let closer = "\n" ^ String.make indent ' ' ^ ")" in
+    let ind = String.make indent ' ' in
     (* Unless what is being wrapped already closed on a line of its own, at
        the same indent -- a lambda around a block opens both brackets on one
-       line, and closing them on two says nothing the one line does not. *)
-    if String.ends_with ~suffix:closer s then "(" ^ s ^ ")"
-    else "(" ^ s ^ closer
+       line, and closing them on two says nothing the one line does not.
+       Which bracket closed there does not matter: `]` at this indent ends a
+       line as plainly as `)` does, and a `)` alone on the next one repeats
+       it a column over. *)
+    let closed_here =
+      List.exists (fun c -> String.ends_with ~suffix:("\n" ^ ind ^ c) s)
+        [")"; "]"; "}"]
+    in
+    if closed_here then "(" ^ s ^ ")"
+    else "(" ^ s ^ "\n" ^ ind ^ ")"
 
 (* What goes between `%{` and `}`. A newline in there ends the string as far
    as the lexer is concerned, and the rest of the splice is then read as
@@ -650,6 +683,21 @@ and emit_app ?col indent e =
             if opens_a_bracket body then
               head_s ^ " " ^ emit_expr ~col:(indent + String.length head_s + 1) indent body ^ ")"
             else head_s ^ "\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
+          (* A trailing bracket is the other common shape -- `report [...]`,
+             `handle {...}` -- and reads the way a trailing lambda does: the
+             bracket opens on the call's own line and the items carry the
+             break. One argument per line under the head instead would spend
+             a line on the bracket alone and push every item two columns
+             further in, and would leave the call's first line closed, which
+             costs it a pair of parentheses on top. *)
+          | last_v when opens_a_bracket last_v ->
+            let prefix =
+              String.concat " "
+                (emit_atom indent head
+                 :: List.map (fun a -> emit_arg ~last:false indent a) before)
+            in
+            prefix ^ " "
+            ^ emit_expr ~col:(column_after col prefix + 1) indent last_v
           | _ ->
             (* Otherwise one argument per line, under the head. *)
             emit_atom indent head ^ "\n" ^ inner
@@ -813,19 +861,13 @@ and emit_fn_clauses ~col indent p params fbody =
   let clause_indent i = if i = 0 then indent else name_column indent let_keyword in
   let lines = List.mapi (fun i (pats, body) ->
     let ci = clause_indent i in
-    let cind = String.make ci ' ' in
     let kw = if i = 0 then let_keyword ^ " " ^ name else name in
     let (annot_s, body) = split_clause_annot body in
     let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
     let clause_col = if i = 0 then col else ci in
     let oneline = head ^ " = " ^ emit_expr ci body in
     if fits clause_col oneline then oneline
-    else if opens_a_bracket body then
-      head ^ " = "
-      ^ emit_expr ~col:(clause_col + String.length head + 3) ci body
-    else
-      head ^ " =\n" ^ cind ^ "  "
-      ^ bracket_if_wrapped_app body (emit_expr (ci + 2) body)
+    else emit_bound_value ~col:clause_col ci head body
   ) clauses in
   String.concat "\n"
     (List.mapi (fun i l ->
@@ -904,14 +946,9 @@ and emit_let ?col indent p e1 e2 =
       (if opens_a_bracket e2 then
          bound ^ " " ^ emit_expr ~col:(col + String.length bound + 1) indent e2
        else bound ^ "\n" ^ ind ^ e2s)
-    else if opens_a_bracket e1 then
-      let head = "let " ^ emit_pat p ^ " = " in
-      head ^ emit_expr ~col:(col + String.length head) indent e1
-      ^ "\n" ^ ind ^ "in\n" ^ ind ^ e2s
     else
-      Printf.sprintf "let %s =\n%s  %s\n%sin\n%s%s"
-        (emit_pat p) ind
-        (bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1)) ind ind e2s
+      emit_bound_value ~col indent ("let " ^ emit_pat p) e1
+      ^ "\n" ^ ind ^ "in\n" ^ ind ^ e2s
 
 (* The `let f ... and g ...` group on its own, without whatever reads it:
    the `in` form puts its body below, the block form puts a `;`. *)
@@ -1039,14 +1076,40 @@ and emit_match ?col indent scr cases =
   "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)
 
+(* The value after an `=`, once it is known not to fit on one line. It stays
+   on the `=` line only when it carries the break itself and still needs
+   more than one line. Otherwise it takes the next line, and an application
+   that wrapped there gets its parentheses. *)
+and emit_bound_value ~col indent head body =
+  let below = "\n" ^ String.make (indent + 2) ' ' in
+  let cuddled () = emit_expr ~col:(col + String.length head + 3) indent body in
+  (* The value's own bracket goes here whatever it costs: given a line of
+     its own it says nothing, since the items sit at the same column either
+     way. *)
+  if opens_a_bracket body then head ^ " = " ^ cuddled ()
+  else
+    let indented = emit_expr (indent + 2) body in
+    (* A call is not its bracket, so the choice is open. Its own line is
+       what it was denied, and the room may be all it needed -- one line
+       under the head beats a bracket opened here and closed three lines
+       down. *)
+    if not (String.contains indented '\n') then head ^ " =" ^ below ^ indented
+    else
+      let c = cuddled () in
+      (* The shape says the call ends in a bracket; this says the bracket is
+         still open where the first line ends, which is the whole reason the
+         value may start here. A short one stays on that line and closes
+         it, and then the definition would end there. *)
+      if carries_the_break body && depth_after_first_line c > 0 then
+        head ^ " = " ^ c
+      else head ^ " =" ^ below ^ bracket_if_wrapped_app body indented
+
 let emit_one_equation head_kw pats body =
   let (annot_s, body) = split_clause_annot body in
   let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
   let oneline = head ^ " = " ^ emit_expr 0 body in
   if fits 0 oneline then oneline
-  else if opens_a_bracket body then
-    head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
-  else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
+  else emit_bound_value ~col:0 0 head body
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
 
@@ -1133,17 +1196,12 @@ let emit_top_item_pretty = function
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys in
     if fits 0 oneline then oneline
-    else if opens_a_bracket body then
-      head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
-    else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
+    else emit_bound_value ~col:0 0 head body
   | TLLet (name, [], e) ->
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" name body in
     if fits 0 oneline then oneline
-    else if opens_a_bracket e then
-      let head = "let " ^ name ^ " = " in
-      head ^ emit_expr ~col:(String.length head) 0 e
-    else Printf.sprintf "let %s =\n  %s" name (bracket_if_wrapped_app e (emit_expr 2 e))
+    else emit_bound_value ~col:0 0 ("let " ^ name) e
   | TLLet (name, params, e) ->
     (match try_multi_equation params e with
      | Some clauses ->
@@ -1154,16 +1212,7 @@ let emit_top_item_pretty = function
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        let oneline = head ^ " = " ^ emit_expr 0 e in
        if fits 0 oneline then oneline
-       (* A bracketed body opens on the `=` line, so the block reads
-          brace-style. *)
-       else if opens_a_bracket e then
-         head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 e
-       (* An application that wrapped needs its brackets back, exactly as
-          the multi-equation path above gives them: the definition ends at
-          the first line, and the argument below it reads as something new.
-          Without this `let f x = g (long argument)` formatted to source
-          that would not parse. *)
-       else head ^ " =\n  " ^ bracket_if_wrapped_app e (emit_expr 2 e))
+       else emit_bound_value ~col:0 0 head e)
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
@@ -1172,9 +1221,7 @@ let emit_top_item_pretty = function
         ^ annot_s in
       let oneline = head ^ " = " ^ emit_expr 0 body in
       if fits 0 oneline then oneline
-      else if opens_a_bracket body then
-        head ^ " = " ^ emit_expr ~col:(String.length head + 3) 0 body
-      else head ^ " =\n  " ^ bracket_if_wrapped_app body (emit_expr 2 body)
+      else emit_bound_value ~col:0 0 head body
     in
     (match bindings with
      | [] -> ""

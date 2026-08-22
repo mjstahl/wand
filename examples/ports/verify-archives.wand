@@ -69,18 +69,17 @@ let failures checked =
       | Ok (Error why) -> Some (file, why)
       | Error why -> Some (file, why))
 
-let report! limit dir =
-  (
-    let files = FS.glob_in *.sha256 dir;
-    let bad = failures (verify! limit files);
-    println "%{List.length files} checked, %{List.length bad} failed";
-    match bad with
-    | [] -> ()
-    | _ -> (
-      bad |> List.each (fn (file, why) -> IO.println_err "  %{Path.to_string file}: %{why}");
-      Proc.exit 1
-    )
+let report! limit dir = (
+  let files = FS.glob_in *.sha256 dir;
+  let bad = failures (verify! limit files);
+  println "%{List.length files} checked, %{List.length bad} failed";
+  match bad with
+  | [] -> ()
+  | _ -> (
+    bad |> List.each (fn (file, why) -> IO.println_err "  %{Path.to_string file}: %{why}");
+    Proc.exit 1
   )
+)
 
 let main! () = report! 4 ./dist
 

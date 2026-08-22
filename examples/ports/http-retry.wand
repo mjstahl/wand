@@ -39,13 +39,12 @@ let fetch url token =
   let header = "Authorization: Bearer %{token}" in
   $?(curl --fail --silent --show-error -H %{header} %{url})
 
-let attempt tries wait thunk =
-  (
-    let r = thunk ();
-    if Shell.ok? r then Ok r.stdout
-    else if tries <= 1 then Error (String.trim r.stderr)
-    else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
-  )
+let attempt tries wait thunk = (
+  let r = thunk ();
+  if Shell.ok? r then Ok r.stdout
+  else if tries <= 1 then Error (String.trim r.stderr)
+  else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
+)
 
 let read out =
   match JSON.parse out with

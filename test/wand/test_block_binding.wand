@@ -42,13 +42,12 @@ test "let ... in scopes over one expression" (fn t ->
    it costs no indentation. *)
 test "a block that does real work" (fn t ->
   with FS.temp_dir "block_" as d ->
-  let done? =
-    (
-      let stage = Path.join d (Path.of_string "pkg");
-      let note = Path.join stage (Path.of_string "note.txt");
-      FS.mkdir! stage;
-      FS.write_file! note "hello";
-      FS.exists? note
-    )
+  let done? = (
+    let stage = Path.join d (Path.of_string "pkg");
+    let note = Path.join stage (Path.of_string "note.txt");
+    FS.mkdir! stage;
+    FS.write_file! note "hello";
+    FS.exists? note
+  )
   in
   t.ok done?)

@@ -64,15 +64,13 @@ test "dotenv formats" (fn t ->
   with FS.temp_file "wand_env_fmt_" ".env" as p ->
   let () = FS.write_file! p dotenv_fmt in
   let m = Env.read! p in
-  (t.eq
-    ("hello", "quoted", "single", "exported", "has=equals")
-    (
-      Map.get! "KEY1" m,
-      Map.get! "KEY2" m,
-      Map.get! "KEY3" m,
-      Map.get! "KEY4" m,
-      Map.get! "KEY5" m
-    )))
+  t.eq ("hello", "quoted", "single", "exported", "has=equals") (
+    Map.get! "KEY1" m,
+    Map.get! "KEY2" m,
+    Map.get! "KEY3" m,
+    Map.get! "KEY4" m,
+    Map.get! "KEY5" m
+  ))
 
 test "load sets env var" (fn t ->
   with FS.temp_file "wand_load_" ".env" as p ->

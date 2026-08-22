@@ -34,8 +34,10 @@ let report stages = (
 
 (* The commands run in `main`, so importing this file runs none of them and
    a test can hand `report` a list of its own. *)
-let main () =
-  (report
-    [stage "build" $?(dune build), stage "test" $?(dune test), stage "lint" $?(make lint)])
+let main () = report [
+  stage "build" $?(dune build),
+  stage "test" $?(dune test),
+  stage "lint" $?(make lint)
+]
 
 main ()

@@ -187,28 +187,26 @@ test "size error carries no position" (fn t ->
 
 (* ── whole trees ───────────────────────────────────────────────────────── *)
 
-test "copy_tree carries the files under a directory" (fn t ->
-  (
-    let src = Path.of_string "%{scratch}/tree_src";
-    let dst = Path.of_string "%{scratch}/tree_dst";
-    FS.mkdir! src;
-    FS.mkdir! (Path.of_string "%{scratch}/tree_src/inner");
-    FS.write_file! (Path.of_string "%{scratch}/tree_src/inner/a.txt") "a";
-    FS.copy_tree! src dst;
-    let got = FS.read_file (Path.of_string "%{scratch}/tree_dst/inner/a.txt");
-    FS.delete_tree! src;
-    FS.delete_tree! dst;
-    t.eq (Ok "a") got
-  ))
+test "copy_tree carries the files under a directory" (fn t -> (
+  let src = Path.of_string "%{scratch}/tree_src";
+  let dst = Path.of_string "%{scratch}/tree_dst";
+  FS.mkdir! src;
+  FS.mkdir! (Path.of_string "%{scratch}/tree_src/inner");
+  FS.write_file! (Path.of_string "%{scratch}/tree_src/inner/a.txt") "a";
+  FS.copy_tree! src dst;
+  let got = FS.read_file (Path.of_string "%{scratch}/tree_dst/inner/a.txt");
+  FS.delete_tree! src;
+  FS.delete_tree! dst;
+  t.eq (Ok "a") got
+))
 
-test "delete_tree takes the directory with its contents" (fn t ->
-  (
-    let dir = Path.of_string "%{scratch}/doomed";
-    FS.mkdir! dir;
-    FS.write_file! (Path.of_string "%{scratch}/doomed/a.txt") "a";
-    FS.delete_tree! dir;
-    t.eq false (FS.exists? dir)
-  ))
+test "delete_tree takes the directory with its contents" (fn t -> (
+  let dir = Path.of_string "%{scratch}/doomed";
+  FS.mkdir! dir;
+  FS.write_file! (Path.of_string "%{scratch}/doomed/a.txt") "a";
+  FS.delete_tree! dir;
+  t.eq false (FS.exists? dir)
+))
 
 test "delete_tree on a path that is not there" (fn t ->
   match FS.delete_tree (Path.of_string "/no/such/path/wand_test_xyz") with

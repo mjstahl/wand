@@ -731,15 +731,11 @@ let test_a_block_binding_round_trips () =
      inside a lambda, inside a call. *)
   fmt_eq "a block in a lambda in a call"
     {|let plan paths = (List.fold_right (fn p acc -> (let name = basename p; let wanted = tidy name; if wanted == name then acc else (p, wanted) :: acc)) paths [])|}
-    {|let plan paths =
-  (List.fold_right
-    (fn p acc -> (
-      let name = basename p;
-      let wanted = tidy name;
-      if wanted == name then acc else (p, wanted) :: acc
-    ))
-    paths
-    [])|};
+    {|let plan paths = List.fold_right (fn p acc -> (
+  let name = basename p;
+  let wanted = tidy name;
+  if wanted == name then acc else (p, wanted) :: acc
+)) paths []|};
   (* A binding written with `in` inside a sequence is a statement like any
      other and stays where it is. *)
   fmt_eq "the in form inside a sequence"
@@ -750,13 +746,9 @@ let test_a_block_binding_round_trips () =
      the second binding read as the statement after the lambda. *)
   fmt_eq "a let chain in a lambda wraps under it"
     {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc) paths [])|}
-    {|let plan paths =
-  (List.fold_right
-    (fn p acc -> let name = basename p in
-      let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
-    )
-    paths
-    [])|};
+    {|let plan paths = List.fold_right (fn p acc -> let name = basename p in
+  let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
+) paths []|};
   assert_idempotent "a block is a fixed point"
     {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
   assert_idempotent "and so is a block with no sequence in it"

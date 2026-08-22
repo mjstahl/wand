@@ -31,13 +31,12 @@ let used dir =
       | Error _ -> None)
     |> List.fold_left (fn total size -> total + size) 0B
 
-let check budget dir =
-  (
-    let total = used dir;
-    println "%{Path.to_string dir} is %{Size.format total}";
-    if total > budget then
-      (IO.println_err "over budget by %{Size.format (total - budget)}"; Proc.exit 1)
-  )
+let check budget dir = (
+  let total = used dir;
+  println "%{Path.to_string dir} is %{Size.format total}";
+  if total > budget then
+    (IO.println_err "over budget by %{Size.format (total - budget)}"; Proc.exit 1)
+)
 
 let main () = check 500MB ./stdlib
 

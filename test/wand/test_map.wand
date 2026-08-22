@@ -14,9 +14,11 @@ test "a literal holds a repeated key once, taking the last value" (fn t ->
   t.eq {a = 9, b = 2} {a = 1, b = 2, a = 9})
 
 test "and the count agrees with what can be reached" (fn t ->
-  t.eq
-    (1, ["a"], Some 9)
-    (Map.size {a = 1, a = 9}, Map.keys {a = 1, a = 9}, Map.get "a" {a = 1, a = 9}))
+  t.eq (1, ["a"], Some 9) (
+    Map.size {a = 1, a = 9},
+    Map.keys {a = 1, a = 9},
+    Map.get "a" {a = 1, a = 9}
+  ))
 
 test "from_list resolves them the same way" (fn t ->
   t.eq {a = 9, b = 2} (Map.from_list [("a", 1), ("b", 2), ("a", 9)]))

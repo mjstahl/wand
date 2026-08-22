@@ -18,9 +18,10 @@ group "the first to finish wins" (fn () -> [
   test "over commands" (fn t ->
     t.eq
       (Ok "quick")
-      (Par.race
-        [fn () -> $(sh -c 'sleep 2; echo slow'), fn () -> $(sh -c 'sleep 0.1; echo quick')]
-      )),
+      (Par.race [
+        fn () -> $(sh -c 'sleep 2; echo slow'),
+        fn () -> $(sh -c 'sleep 0.1; echo quick')
+      ])),
   test "over wand work" (fn t ->
     let spin n = if n == 0 then "slow" else spin (n - 1)
     in t.eq (Ok "fast") (Par.race [fn () -> spin 200000000, fn () -> "fast"]))

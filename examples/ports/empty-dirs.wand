@@ -31,13 +31,12 @@ let empty? dir =
   | Ok entries -> List.empty? entries
   | Error _ -> false
 
-let report root =
-  (
-    let found = dirs root |> List.filter empty?;
-    match found with
-    | [] -> println "nothing empty under %{Path.to_string root}"
-    | _ -> found |> List.each (fn d -> println (Path.to_string d))
-  )
+let report root = (
+  let found = dirs root |> List.filter empty?;
+  match found with
+  | [] -> println "nothing empty under %{Path.to_string root}"
+  | _ -> found |> List.each (fn d -> println (Path.to_string d))
+)
 
 let main () = report ./examples
 

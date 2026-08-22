@@ -45,13 +45,12 @@ let share (tally: Tally) =
   let served = tally.ok + tally.failed in
   if served == 0 then 0.0 else Float.of_int tally.failed * 100.0 / Float.of_int served
 
-let report limit (tally: Tally) =
-  (
-    let served = tally.ok + tally.failed;
-    println
-      "%{served} requests, %{tally.failed} of them 5xx (%{Float.format 1 (share tally)}%)";
-    if share tally > limit then (IO.println_err "over the %{limit}% budget"; Proc.exit 1)
-  )
+let report limit (tally: Tally) = (
+  let served = tally.ok + tally.failed;
+  println
+    "%{served} requests, %{tally.failed} of them 5xx (%{Float.format 1 (share tally)}%)";
+  if share tally > limit then (IO.println_err "over the %{limit}% budget"; Proc.exit 1)
+)
 
 (* The stream is in `main!`: an import runs a file's bindings, so reading
    stdin at the top level would read it the moment a test imported this. *)

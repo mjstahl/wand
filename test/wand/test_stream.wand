@@ -51,9 +51,10 @@ test "an unmocked path streams empty under with_lines" (fn t ->
 
 test "each fold reads the source afresh" (fn t ->
   let s = Stream.of_list [1, 2, 3] in
-  (t.eq
-    (6, 6)
-    (Stream.fold_left (fn a x -> a + x) 0 s, Stream.fold_left (fn a x -> a + x) 0 s)))
+  t.eq (6, 6) (
+    Stream.fold_left (fn a x -> a + x) 0 s,
+    Stream.fold_left (fn a x -> a + x) 0 s
+  ))
 
 test "a missing file raises at the fold, catchably" (fn t ->
   let go () = FS.stream_lines ./does-not-exist.log |> Stream.fold_left (fn n _ -> n + 1) 0
