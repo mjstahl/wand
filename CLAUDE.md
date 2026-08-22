@@ -130,9 +130,21 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `{a = 1}` map; `{a, b = x}` pattern (puns) | `{a: 1}`, `[a = 1]` |
 | `T(r, b = 3)` record update | `{r with b = 3}` |
 | `type Shape = Circle Int \| Rect Int Int` | `Circle of Int` |
-| `type Point = (Int, Int)`, `type Pair 'a = ('a, 'a)` an alias — transparent, no constructor | a distinct type |
 | `try e` yields a `Result` | `try ... with`, `raise` |
 | no mutation — bind a new name | `ref`, `mutable`, `:=` |
+
+`type X = <a type>` is an alias — another name for a type that already
+exists, not a new one: `type Point = (Int, Int)`, `type Ids = List Int`,
+`type F = Int -> Int`, `type This = That`, and parameterised,
+`type Pair 'a = ('a, 'a)`. It is transparent, so the two are one type and
+interchangeable both ways; it buys a name, not a type the checker keeps
+apart, which is what a record is for. It declares no constructor, so an
+alias is not a value. A type shows with the alias it was written as —
+`Pair Int (= (Int, Int))`.
+
+A name declares one thing. Two `type`s of one name, two constructors
+sharing one, or a declaration over a built-in's name are all errors naming
+which to rename.
 
 Arithmetic (`+ - * /`) works on `Int` and `Float` alike — one numeric
 type per expression, never mixed implicitly (`Float.of_int` /
