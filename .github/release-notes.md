@@ -19,6 +19,13 @@ the name in the message:
 
     let p : Point = (1, 2)        -- p : Point (= (Int, Int))
 
+An alias takes parameters, bound to the arguments at the use site:
+
+    type Pair 'a      = ('a, 'a)
+    type Either 'a 'b = ('a, 'b)
+
+    let p : Pair Int = (1, 2)     -- p : Pair Int (= (Int, Int))
+
 `type Point = (Int, Int)` and `type F = Int -> Int` did not parse at all
 before this.
 

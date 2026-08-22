@@ -11,6 +11,10 @@
   and write, not a distinct type; a record is still what the checker keeps
   apart. A type shows with the alias it was written as, `Point (= (Int,
   Int))`, so the name in the source is the name in the message
+- An alias takes parameters: `type Pair 'a = ('a, 'a)`,
+  `type Either 'a 'b = ('a, 'b)`. They are bound to the arguments at the use
+  site, so the same alias answers differently each time it is applied, and
+  the wrong number of arguments says how many it takes
 - `type Point = (Int, Int)` and `type F = Int -> Int` parse at all, which
   they did not before
 
