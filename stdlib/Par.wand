@@ -57,8 +57,13 @@ let race thunks = par_race thunks
     `Shell.timeout` there as well to bound it.
     
     A `thunk` that raises comes back as `Error` too, as it does under
-    `race`. *)
+    `race`.
+    
+    Refused under a handler. A race runs its first thunk only when one is
+    installed, so the sleeper never runs and the deadline never fires. Test
+    a deadline against real time. *)
 let timeout d thunk =
+  let () = par_deadline_guard () in
   let work = fn () -> Ok (thunk ()) in
   let sleeper = fn () -> let () = Clock.sleep d in Error "timed out after %{d}" in
   match race [work, sleeper] with

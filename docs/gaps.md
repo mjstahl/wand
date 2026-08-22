@@ -28,13 +28,30 @@ and the choice is not free. On Linux `CLOCK_MONOTONIC` excludes time spent
 suspended and `CLOCK_BOOTTIME` includes it; on macOS the names are
 inverted. Whatever ships pins the semantics per platform and says which.
 
+**A race under a handler runs its first thunk only.** A handler is
+installed in the fiber that wrote it, and the other branches would run in
+their own, where an effect cannot reach it. So `par_race` runs the first
+thunk in the calling fiber instead, and the rest never run:
+
+```ocaml
+Par.race [slow, fast]                          -- Ok(fast)
+with_shell [] (fn () -> Par.race [slow, fast]) -- Ok(slow)
+```
+
+The handler need have nothing to do with what is raced. Anything testing
+racing code under a mock is testing the first branch, and nothing says so.
+A rehearsal and a trace are handlers for this purpose as well.
+
 **A deadline cannot be tested against a virtual clock.** `Test.with_clock`
 answers `Clock.sleep` at no cost, so a test of an hour of backoff runs in
 microseconds. Two waits it does not shorten. `Shell.timeout` belongs to the
-operating system, which does not take a handler. `Par.timeout` answers `Ok`
-under a virtual clock, because a watched race is left-biased and the work
-wins; firing a virtual deadline would need a clock handler that knows the
-deadline. Test a deadline against real time.
+operating system, which does not take a handler. `Par.timeout` is a race,
+so under a handler its sleeper never runs and the deadline never fires —
+work that only the deadline would have stopped then runs forever. That is
+refused now, with the reason, rather than hanging a suite with no message.
+Test a deadline against real time: `Par.timeout 200ms` costs 200ms. A
+deadline too long to wait for stays untestable, and firing a virtual one
+would mean scheduling raced thunks as fibers in one domain.
 
 **A killed command may leave children.** wand signals what it started. So
 `Shell.timeout 1s (fn () -> $(sh -c "sleep 30"))` kills the `sh` and leaves

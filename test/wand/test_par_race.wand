@@ -65,8 +65,8 @@ test "under a mock the first thunk wins" (fn t ->
 (* ── A deadline on wand code ───────────────────────────────────────────── *)
 
 (* `Par.timeout` is a race between the work and a sleeper. The durations
-   here are short, because the wait is real: a virtual clock makes the
-   work's own sleeps instant, so the work wins and no deadline fires. *)
+   here are short, because the wait is real: a deadline under a handler is
+   refused, for the reason the last test in this group states. *)
 
 group "Par.timeout" (fn () -> [
   test "work that finishes in time" (fn t ->
@@ -78,7 +78,17 @@ group "Par.timeout" (fn () -> [
   test "a thunk that raises comes back as Error" (fn t ->
     match Par.timeout 5s (fn () -> $(sh -c 'exit 5')) with
     | Ok v -> t.fail "expected an Error, got %{v}"
-    | Error why -> t.ok (String.contains? "code 5" why))
+    | Error why -> t.ok (String.contains? "code 5" why)),
+  (* A race under a handler runs its first thunk only, so the sleeper never
+     exists and the deadline never fires. Work that only the deadline would
+     have stopped then runs forever, which is a test suite hanging with no
+     message. Refused instead. *)
+  test "a deadline under a handler is refused" (fn t ->
+    t.raises (fn () ->
+      Test.with_clock (fn () -> Par.timeout 5s (fn () -> Clock.sleep 1s)))),
+  test "and under a handler that has nothing to do with clocks" (fn t ->
+    t.raises (fn () ->
+      Test.with_shell [] (fn () -> Par.timeout 5s (fn () -> 1))))
 ])
 
 (* Work that is stopped gives back what it holds, as a losing racer does. *)

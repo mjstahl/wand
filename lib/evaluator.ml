@@ -695,6 +695,16 @@ let observed f =
   ignore (Atomic.fetch_and_add observers 1);
   Fun.protect ~finally:(fun () -> ignore (Atomic.fetch_and_add observers (-1))) f
 
+(* The observers that are a `handle` written in wand, which is the subset a
+   rehearsal and a trace are not. `Par.timeout` consults this: a rehearsal
+   collapsing a race still reports what the work would do, where a handler
+   collapsing it takes the deadline away and says nothing. *)
+let handlers = Atomic.make 0
+
+let handled f =
+  ignore (Atomic.fetch_and_add handlers 1);
+  Fun.protect ~finally:(fun () -> ignore (Atomic.fetch_and_add handlers (-1))) f
+
 (* Installs the runtime's own handlers. Set by the runner, which owns them. *)
 let with_default_handler : ((unit -> value) -> value) ref = ref (fun f -> f ())
 
@@ -1011,7 +1021,7 @@ let rec eval (env : env) (e : expr) : value =
       | Some (Ast.ReturnCase (p, b)) -> eval (bind_pat p v env) b
       | Some (Ast.EffectCase _) -> assert false
     in
-    observed (fun () ->
+    observed (fun () -> handled (fun () ->
     Effect.Deep.match_with (fun () -> eval env body_expr) ()
       { Effect.Deep.
           retc = apply_return;
@@ -1069,7 +1079,7 @@ let rec eval (env : env) (e : expr) : value =
               in
               try_cases effect_cases
             | _ -> None
-      })
+      }))
   | RawString s -> VString s
   | Interp (parts, tail) | RawInterp (parts, tail) ->
     let buf = Buffer.create 32 in
@@ -2523,6 +2533,28 @@ let stdlib_eval_env : env = [
         match limit, xs with
         | VInt n, VList items -> par_run n f items ~collect:true
         | _ -> raise (EvalError "par_map: expected a limit and a list")))));
+  (* `Par.timeout` is a race between the work and a sleeper, and a race
+     under a handler runs its first thunk only -- a handler is installed in
+     this fiber and the other branches would run in their own, where it
+     cannot be reached. So under a handler the sleeper never exists: the
+     deadline does not fire, and work that only the deadline would have
+     stopped runs forever. Refused, with the reason, rather than hanging a
+     test suite with no message.
+
+     A rehearsal and a trace are observers too, and are not refused: a
+     rehearsal collapsing the race still reports what the work would do.
+
+     This is a run-time error, not the `Raise` effect, as division by zero
+     is -- the signature says nothing about it because no wand code can
+     answer it. *)
+  ("par_deadline_guard", VBuiltin (fun _ ->
+    if Atomic.get handlers > 0 then
+      raise (EvalError
+        "a deadline cannot run under a handler: a race runs its first thunk \
+         only when one is installed, so the deadline never fires. Test a \
+         deadline against real time -- `Par.timeout 200ms` costs 200ms -- \
+         or move the handler inside the thunk")
+    else VUnit));
   ("par_race", VBuiltin (function
     | VList thunks -> par_race thunks
     | _ -> raise (EvalError "par_race: expected a list of thunks")));

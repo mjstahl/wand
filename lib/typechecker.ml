@@ -2763,6 +2763,7 @@ let stdlib_type_env : env = [
   (* Every thunk performs the same effects, and the race performs them too:
      one of the thunks really runs. It waits on workers, not on a clock, so
      no Clock. *)
+  ("par_deadline_guard", generalize [] ((TUnit @-> TUnit)));
   ("par_race", let a = fresh () in
                let e = Effect_set.unknown () in
                generalize [] (TFun (TList (TFun (TUnit, a, e)),
