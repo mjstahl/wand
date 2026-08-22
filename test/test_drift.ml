@@ -29,8 +29,7 @@ let ok label src =
 (* ── OCaml ────────────────────────────────────────────────────────────────── *)
 
 (* `::` is cons. It used to be corrected to `:`, which is the drift rule
-   that argued for this spelling in the first place -- see
-   `docs/design/cons-migration.md`. *)
+   that argued for this spelling in the first place. *)
 let test_ocaml_cons () =
   ok "cons in an expression" "1 :: [2, 3]";
   ok "cons in a pattern" "let f l = match l with | [h :: t] -> h | [] -> 0\nf [1]"
