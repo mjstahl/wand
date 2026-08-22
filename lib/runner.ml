@@ -1344,6 +1344,9 @@ let run_program ?(mode = Normal) ~base_dir prog =
    | Ok _ ->
      let result = run_in_mode mode (fun () ->
        let ((_, last), _) = List.fold_left (fun ((env, last), since) item ->
+         (* Each statement starts without a position, so a failure before it
+            reaches one is not reported against the statement before it. *)
+         Evaluator.forget_loc ();
          let (env, last) =
            match item with
            | Ast.TLExpr e -> (env, eval env e)
@@ -1372,7 +1375,7 @@ let run_string src =
     let prog   = Parser.parse_program tokens in
     run_program ~base_dir:(Sys.getcwd ()) prog
   with
-  | EvalError msg -> Error ("eval error: " ^ msg)
+  | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
@@ -1442,7 +1445,7 @@ let run_file ?(mode = Normal) path =
     run_program ~mode ~base_dir prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
-  | EvalError msg -> Error ("eval error: " ^ msg)
+  | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
@@ -1490,12 +1493,13 @@ let run_test_program ~base_dir ?(item_locs = []) prog
     let outcomes = ref [] in
     ignore (run_with_default_handler (fun () ->
       ignore (List.fold_left (fun env item ->
+        Evaluator.forget_loc ();
         match item with
         | Ast.TLExpr e ->
           let result =
             try Ok (eval env e)
             with
-            | EvalError msg -> Error msg
+            | EvalError msg -> Error (Evaluator.stamp_loc msg)
             | Failure msg   -> Error msg
           in
           let with_path path s = String.concat " / " (path @ [s]) in
@@ -1571,7 +1575,7 @@ let run_test_file path : (test_outcome list, string) result =
     run_test_program ~base_dir ~item_locs prog
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
-  | EvalError msg -> Error ("eval error: " ^ msg)
+  | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
@@ -1775,6 +1779,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         let last_ref = ref VUnit in
         ignore (run_with_default_handler (fun () ->
           List.iter (fun item ->
+            Evaluator.forget_loc ();
             match item with
             | Ast.TLLet (_, [], body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLet (name, [], body) ->
@@ -1877,7 +1882,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         Ok (new_sess, display)
       end
   with
-  | EvalError msg -> Error ("runtime error: " ^ msg)
+  | EvalError msg -> Error ("runtime error: " ^ Evaluator.stamp_loc msg)
   | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
     Error (legacy_of_exn e)
 

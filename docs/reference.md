@@ -426,6 +426,33 @@ Each member of an `and` group must be a function with at least one
 parameter. wand evaluates eagerly, so a plain value cannot use a sibling that
 does not exist yet. Only the body of a function waits for a call.
 
+### A call in tail position
+
+A call is in tail position when its value is the value of the body around
+it. That is the last statement of a block, either branch of an `if`, the
+body of a match arm, and the body of a `let ... in`.
+
+A tail call does not grow the stack, so a loop written as one runs to any
+depth:
+
+```ocaml
+let sum 0 acc = acc
+let sum n acc = sum (n - 1) (acc + n)     -- tail: nothing waits on it
+
+sum 10000000 0
+```
+
+A call that is not in tail position leaves work behind it, so it keeps a
+frame per level and its depth is bounded by memory:
+
+```ocaml
+let sum 0 = 0
+let sum n = n + sum (n - 1)               -- not tail: the `+` waits
+```
+
+Both compute the same answer. The first is the one to write for a list or a
+count that is not small.
+
 ---
 
 ## If expressions

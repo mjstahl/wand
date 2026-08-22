@@ -440,6 +440,60 @@ let request_interrupt code = Atomic.set interrupt_requested code
    and would re-raise on its first step against a request that still stood
    for this domain. A second signal is dealt with by the signal handler
    itself, which stops the process outright. *)
+(* Where evaluation stands, for stamping a runtime error with a position.
+
+   The position used to come from an exception handler wrapped around every
+   `Located` node, which is the obvious way to do it and the one that costs
+   the most: a handler is a stack frame, and a `Located` sits on every
+   function body and every match arm, so a frame stayed behind on each one.
+   Frames on the tail path never come back, so the stack grew with the call
+   chain rather than with the nesting -- and every minor collection rescans
+   that whole stack as roots, which makes a long recursion quadratic in its
+   own depth. Recording the position instead of catching at it costs two
+   stores and leaves the tail call a tail call.
+
+   Two integers rather than the `Token.loc` they came from, because this is
+   written on the way into every function body and arm: a record would be a
+   pointer store, which is a write barrier, and wrapping it to say "none" is
+   an allocation. Line 0 is what nowhere-in-particular is spelled as.
+
+   Per-domain because Par's workers each evaluate their own program.
+
+   Read only when an error is being reported. Until then it is written and
+   never looked at. *)
+type loc_cell = { mutable at_line : int; mutable at_col : int }
+
+let current_loc : loc_cell Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> { at_line = 0; at_col = 0 })
+
+(* The position an error is reported at is the innermost `Located` still
+   being evaluated. That is what the cell holds, provided every construct
+   that carries on after a subexpression finishes puts back what it found --
+   otherwise a call that has already returned leaves its own body's position
+   behind, and the next failure is reported against a line in whichever file
+   that body came from. Tail positions are exempt: nothing carries on after
+   them, so there is nothing to put back, which is the whole point. *)
+let loc_cell () = Domain.DLS.get current_loc
+
+let mark_loc (c : loc_cell) (l : Token.loc) =
+  c.at_line <- l.Token.line;
+  c.at_col  <- l.Token.col
+
+(* Prefix a runtime error with where it was raised, unless it says already. *)
+let stamp_loc msg =
+  let c = loc_cell () in
+  if c.at_line = 0 || Util.has_loc_prefix msg then msg
+  else Printf.sprintf "%d:%d: %s" c.at_line c.at_col msg
+
+(* Forget the position between runs. A session evaluates one statement after
+   another, and an error raised before the next one reaches a `Located` --
+   while an import is being resolved, say -- would otherwise be reported
+   against the statement before it. *)
+let forget_loc () =
+  let c = loc_cell () in
+  c.at_line <- 0;
+  c.at_col <- 0
+
 let interrupt_taken = Domain.DLS.new_key (fun () -> ref false)
 
 (* Stretches where this domain must not unwind, however urgently the program
@@ -895,7 +949,13 @@ let derive_decoder : (string -> value) ref =
 let derive_encoder : (string -> value) ref =
   ref (fun _ -> raise (EvalError "encoder derivation is not wired up"))
 
-let rec eval (env : env) (e : expr) : value =
+let rec eval (env : env) (e : expr) : value = eval_at false env e
+
+(* Evaluate in tail position: the value of `e` is the value of whatever
+   called us, so no frame here has any work left to do. *)
+and eval_tail (env : env) (e : expr) : value = eval_at true env e
+
+and eval_at (tail : bool) (env : env) (e : expr) : value =
   check_interrupt ();
   match e with
   | Int n      -> VInt n
@@ -948,7 +1008,7 @@ let rec eval (env : env) (e : expr) : value =
   | App (f, x) ->
     let vf = eval env f in
     let vx = eval env x in
-    apply vf vx
+    if tail then apply_tail vf vx else apply vf vx
   | Let (p, e1, e2, _) ->
     let v1 = eval env e1 in
     let v1 = match p, v1 with
@@ -956,19 +1016,19 @@ let rec eval (env : env) (e : expr) : value =
         VFix (name, fenv, params, body)
       | _ -> v1
     in
-    eval (bind_pat ~prefix:true p v1 env) e2
+    eval_at tail (bind_pat ~prefix:true p v1 env) e2
   | LetRec (bindings, e2, _) ->
     let env' = List.fold_left (fun acc (name, _, _) ->
       (name, VFixGroup (bindings, env, name)) :: acc) env bindings in
-    eval env' e2
+    eval_at tail env' e2
   | If (cond, then_, else_) ->
     (match eval env cond with
-     | VBool true  -> eval env then_
-     | VBool false -> eval env else_
+     | VBool true  -> eval_at tail env then_
+     | VBool false -> eval_at tail env else_
      | _           -> raise (EvalError "if condition must be a bool"))
   | Match (scrutinee, cases) ->
     let sv = eval env scrutinee in
-    eval_match env sv cases
+    eval_match tail env sv cases
   | Tuple es  -> VTuple (List.map (eval env) es)
   | List es   -> VList  (List.map (eval env) es)
   | ConstrApp (name, fields) ->
@@ -1040,7 +1100,7 @@ let rec eval (env : env) (e : expr) : value =
             "constructor '%s' has no named fields" name)))
      | _ -> raise (EvalError "field access on non-record")))
   | Seq (a, b) ->
-    ignore (eval env a); eval env b
+    ignore (eval env a); eval_at tail env b
   | ImportExpr _ ->
     raise (EvalError "import expressions must be handled by the runner")
   | RegexLit (pat, flags) ->
@@ -1177,6 +1237,10 @@ let rec eval (env : env) (e : expr) : value =
     ) ens;
     v
   | Try e ->
+    let c = loc_cell () in
+    let line = c.at_line and col = c.at_col in
+    let restore v = c.at_line <- line; c.at_col <- col; v in
+    restore @@
     Effect.Deep.match_with (fun () -> eval env e) ()
       { Effect.Deep.
           retc = (fun v -> VConstr ("Ok", [v]));
@@ -1214,32 +1278,51 @@ let rec eval (env : env) (e : expr) : value =
      | other ->
        raise (EvalError (Printf.sprintf
          "with expects a resource, got %s" (show_value other))))
-  | Annot (_, e) -> eval env e
+  | Annot (_, e) -> eval_at tail env e
   | Located (loc, e) ->
-    (try eval env e
-     with EvalError msg ->
-       if Util.has_loc_prefix msg then raise (EvalError msg)
-       else raise (EvalError (Printf.sprintf "%d:%d: %s"
-              loc.Token.line loc.Token.col msg)))
+    let c = loc_cell () in
+    if tail then (mark_loc c loc; eval_tail env e)
+    else begin
+      let line = c.at_line and col = c.at_col in
+      mark_loc c loc;
+      let v = eval env e in
+      (* Only on the way out through a value. An error on its way past wants
+         the position it was raised at, not the one being returned to. *)
+      c.at_line <- line;
+      c.at_col <- col;
+      v
+    end
 
 and apply vf vx =
+  (* The call is left with work to do after this returns -- it is a builtin
+     applying a function it was handed, or a caller evaluating the rest of
+     an expression -- so the callee's position goes back where it was found.
+     `apply_tail` is the same call with nothing to come back to. *)
+  let c = loc_cell () in
+  let line = c.at_line and col = c.at_col in
+  let v = apply_tail vf vx in
+  c.at_line <- line;
+  c.at_col  <- col;
+  v
+
+and apply_tail vf vx =
   match vf with
   | VBuiltin f -> f vx
   | VFun (fenv, params, body) ->
     (match params with
      | []      -> raise (EvalError "function with no parameters")
-     | [p]     -> eval (bind_pat p vx fenv) body
+     | [p]     -> eval_tail (bind_pat p vx fenv) body
      | p :: rest ->
        let env' = bind_pat p vx fenv in
        VFun (env', rest, body))
   | VFix (name, fenv, params, body) ->
     let fenv' = (name, VFix (name, fenv, params, body)) :: fenv in
-    apply (VFun (fenv', params, body)) vx
+    apply_tail (VFun (fenv', params, body)) vx
   | VFixGroup (bindings, fenv, my_name) ->
     let fenv' = List.fold_left (fun acc (n, _, _) ->
       (n, VFixGroup (bindings, fenv, n)) :: acc) fenv bindings in
     let (_, params, body) = List.find (fun (n, _, _) -> n = my_name) bindings in
-    apply (VFun (fenv', params, body)) vx
+    apply_tail (VFun (fenv', params, body)) vx
   | VPartialConstr (name, 1, args) -> VConstr (name, args @ [vx])
   | VPartialConstr (name, n, args) -> VPartialConstr (name, n - 1, args @ [vx])
   | _ -> raise (EvalError "cannot apply a non-function")
@@ -1249,12 +1332,12 @@ and bind_pat ?(prefix = false) (p : pat) v (env : env) : env =
   | Some env' -> env'
   | None      -> raise (EvalError "pattern match failure")
 
-and eval_match (env : env) sv cases =
+and eval_match (tail : bool) (env : env) sv cases =
   match cases with
   | [] -> raise (EvalError "non-exhaustive match")
   | (p, guard, body) :: rest ->
     (match try_match p sv env with
-     | None      -> eval_match env sv rest
+     | None      -> eval_match tail env sv rest
      | Some env' ->
        let passes = match guard with
          | None   -> true
@@ -1263,8 +1346,8 @@ and eval_match (env : env) sv cases =
             | VBool b -> b
             | _       -> raise (EvalError "guard must evaluate to a bool"))
        in
-       if passes then eval env' body
-       else eval_match env sv rest)
+       if passes then eval_at tail env' body
+       else eval_match tail env sv rest)
 
 and eval_binop (env : env) op a b : value =
   match op with

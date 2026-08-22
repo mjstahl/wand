@@ -1,0 +1,139 @@
+open Wand
+
+(* Two properties of the evaluator, kept together because one pays for the
+   other.
+
+   A wand tail call is an OCaml tail call: a function whose body ends in a
+   call to itself runs in a stack that does not grow. That used to be untrue
+   for a reason that had nothing to do with calls -- every `Located` node
+   installed an exception handler to stamp a position onto an error passing
+   through it, and a handler is a frame that stays. A `Located` sits on
+   every function body and every match arm, so the stack grew with the call
+   chain, and since a minor collection rescans the whole stack as roots, a
+   long recursion cost time quadratic in its own depth.
+
+   The position now travels in a cell rather than in a handler, which is
+   what makes the tail call a tail call. That trades an exact mechanism for
+   a maintained one: a handler could not report the wrong position, whereas
+   a cell can if anything that carries on after a subexpression forgets to
+   put back what it found. So the second half of this file pins the position
+   a runtime error is reported at, in the shapes where forgetting would
+   show. *)
+
+let wand_binary =
+  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
+  Filename.concat (Filename.concat dir "bin") "wand.exe"
+
+let run ?env src =
+  let path = Filename.temp_file "wand_tail" ".wand" in
+  Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc src);
+  Fun.protect ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () ->
+       let prefix = match env with None -> "" | Some e -> e ^ " " in
+       let cmd = prefix ^ Filename.quote wand_binary ^ " " ^ Filename.quote path
+                 ^ " 2>&1" in
+       let ic = Unix.open_process_in cmd in
+       let out = In_channel.input_all ic in
+       let code = match Unix.close_process_in ic with
+         | Unix.WEXITED n -> n
+         | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
+       in
+       (code, String.trim out))
+
+(* ── The tail call ───────────────────────────────────────────────────────── *)
+
+(* Deliberately run against a stack far smaller than the recursion is deep,
+   so the answer is the property itself rather than how long it took: a
+   frame per iteration cannot fit in 4096 words, and before this it did not
+   -- the same script died with "Fatal error: exception Stack overflow". *)
+let tiny_stack = "OCAMLRUNPARAM=l=4096"
+
+let loop n = Printf.sprintf
+  "let go 0 acc = acc\nlet go n acc = go (n - 1) (acc + 1)\ngo %d 0\n" n
+
+let test_tail_recursion_is_flat () =
+  let (code, out) = run ~env:tiny_stack (loop 200_000) in
+  Alcotest.(check int) "200k tail calls in a 4096-word stack" 0 code;
+  Alcotest.(check string) "and the answer is right" "200000" out
+
+let test_tail_call_through_if () =
+  (* The tail position of an `if` is each branch, not the `if`. *)
+  let (code, out) = run ~env:tiny_stack
+    "let go n acc = if n == 0 then acc else go (n - 1) (acc + 1)\ngo 200000 0\n" in
+  Alcotest.(check int) "a branch is a tail position" 0 code;
+  Alcotest.(check string) "answer" "200000" out
+
+let test_tail_call_through_match () =
+  let (code, out) = run ~env:tiny_stack
+    "let go n acc = match n with\n  | 0 -> acc\n  | _ -> go (n - 1) (acc + 1)\n\
+     go 200000 0\n" in
+  Alcotest.(check int) "an arm body is a tail position" 0 code;
+  Alcotest.(check string) "answer" "200000" out
+
+let test_tail_call_through_block () =
+  (* The last statement of a `;` block, and a `let ... in` body. *)
+  let (code, out) = run ~env:tiny_stack
+    "let go n acc = (\n  let step = acc + 1;\n  \
+     if n == 0 then acc else go (n - 1) step\n)\ngo 200000 0\n" in
+  Alcotest.(check int) "the last statement of a block is a tail position" 0 code;
+  Alcotest.(check string) "answer" "200000" out
+
+(* ── Where an error says it happened ─────────────────────────────────────── *)
+
+let at src expected name =
+  let (code, out) = run src in
+  if code = 0 then Alcotest.failf "%s: expected a failure, got: %s" name out;
+  match String.index_opt out ':' with
+  | None -> Alcotest.failf "%s: no position in: %s" name out
+  | Some _ ->
+    (* "Error: eval error: 4:11: pattern match failure" -- the position is
+       the digits before the message. *)
+    let re = Str.regexp "\\([0-9]+\\):\\([0-9]+\\): [a-z]" in
+    (try
+       ignore (Str.search_forward re out 0);
+       Alcotest.(check string) name expected
+         (Str.matched_group 1 out ^ ":" ^ Str.matched_group 2 out)
+     with Not_found -> Alcotest.failf "%s: no position in: %s" name out)
+
+let test_loc_after_a_call_returns () =
+  (* The failing line is the caller's. A call that has already returned must
+     not leave its own body's position behind, or this reports line 2 --
+     which for a stdlib call is a line in a file the script never opened. *)
+  at "import List\nlet helper x = x + 1\nlet main () = helper 1 + List.head! []\nmain ()\n"
+    "3:15" "after a call returns"
+
+let test_loc_after_a_builtin_applied_closure () =
+  at "import List\nlet each () = (\n  let r = try List.map (fn x -> x + 1) [1, 2];\n  \
+      List.head! []\n)\neach ()\n"
+    "4:3" "after a builtin ran a closure"
+
+let test_loc_after_a_caught_raise () =
+  (* `try` turns a raise into a value and carries on. The position it failed
+     at goes with it. *)
+  at "import List\nlet bad () = List.head! []\nlet after () = (\n  \
+      let r = try bad ();\n  List.head! []\n)\nafter ()\n"
+    "5:3" "after a caught raise"
+
+let test_loc_inside_a_deep_tail_recursion () =
+  (* The tail path is the one that does not put anything back, so this is
+     where a wrong position would be most likely. *)
+  at "import List\nlet deep n = if n == 0 then List.head! [] else deep (n - 1)\ndeep 5000\n"
+    "2:29" "inside a tail recursion"
+
+let () =
+  Alcotest.run "tail calls" [
+    "a tail call does not grow the stack", [
+      Alcotest.test_case "plain recursion"  `Quick test_tail_recursion_is_flat;
+      Alcotest.test_case "through an if"    `Quick test_tail_call_through_if;
+      Alcotest.test_case "through a match"  `Quick test_tail_call_through_match;
+      Alcotest.test_case "through a block"  `Quick test_tail_call_through_block;
+    ];
+    "an error still says where it happened", [
+      Alcotest.test_case "after a call returns" `Quick test_loc_after_a_call_returns;
+      Alcotest.test_case "after a builtin ran a closure" `Quick
+        test_loc_after_a_builtin_applied_closure;
+      Alcotest.test_case "after a caught raise" `Quick test_loc_after_a_caught_raise;
+      Alcotest.test_case "inside a tail recursion" `Quick
+        test_loc_inside_a_deep_tail_recursion;
+    ];
+  ]
