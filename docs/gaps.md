@@ -125,6 +125,20 @@ error caught each, and would not have if the types had matched, so the
 rule was widened to cover every import in the file rather than the leading
 run.
 
+**Nothing derives usage text from a decoder.** `Args.parse` reads a
+command line against a type, and refusing `--port http` names the field.
+The usage line is still a string written by hand, so it can drift from the
+type the way a `getopts` usage message drifts from its case arms — which
+is half of what makes the shell version bad. Found porting
+`probe-args.wand`, which carries the string and says so.
+
+**A block comment ends at the first unbalanced `*)`.** Comments nest, so
+the closer is counted rather than matched, and text holding a `*)` with no
+`(*` before it closes the comment early. Quoted shell is full of them: a
+`case` arm is `*)`. The workaround is a `--` line comment; quoting the
+`"*)"` does not work, because a string inside a comment is tracked and
+then runs to the end. Found quoting `getopts` in `probe-args.wand`.
+
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in

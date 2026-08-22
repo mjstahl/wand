@@ -14,6 +14,8 @@ let {attempt, read} = import ../../examples/ports/http-retry
 let {answering?, wait_for} = import ../../examples/ports/wait-for-port
 let {lock_at, missing} = import ../../examples/ports/stage-release
 let {failures, stated} = import ../../examples/ports/verify-archives
+let {opts, render} = import ../../examples/ports/probe-args
+import Args
 import Env
 import FS
 import Float
@@ -308,4 +310,37 @@ group "verify-archives" (fn () -> [
         (Ok ("abc123", Path.join dir (Path.of_string "a.tar.gz")))
         (stated sums)
     ))
+])
+
+(* argv is a list of strings, so the whole parser is testable without a
+   command line. `verbose` is named because whether a flag takes a value is
+   the one fact a list of strings cannot reveal. *)
+let read argv = Args.parse_with ["verbose"] opts argv
+
+group "probe-args" (fn () -> [
+  test "a host and nothing else takes the defaults" (fn t ->
+    t.eq
+      (Ok Opts(host = "web-01", port = :8080, timeout = 30s, verbose = false))
+      (read ["web-01"])),
+  test "every flag, read as its type" (fn t ->
+    t.eq
+      (Ok Opts(host = "web-01", port = :9000, timeout = 5s, verbose = true))
+      (read ["--port", ":9000", "--timeout", "5s", "--verbose", "web-01"])),
+  test "the flag order does not matter" (fn t ->
+    t.eq (read ["--port", ":9000", "web-01"]) (read ["web-01", "--port", ":9000"])),
+  (* getopts takes `-p http` and fails somewhere else. *)
+  test "a port that is not one names the field" (fn t ->
+    match read ["--port", "http", "web-01"] with
+    | Ok o -> t.fail "expected a refusal, got %{render o}"
+    | Error why -> t.ok (String.contains? "port" why)),
+  test "no host is refused" (fn t ->
+    t.eq (Error "expected a host") (read [])),
+  test "and so is a second one" (fn t ->
+    match read ["web-01", "web-02"] with
+    | Ok o -> t.fail "expected a refusal, got %{render o}"
+    | Error why -> t.ok (String.contains? "one host" why)),
+  test "the line it reports" (fn t ->
+    match read ["--verbose", "web-01"] with
+    | Ok o -> t.eq "web-01:8080 timeout 30s (verbose)" (render o)
+    | Error why -> t.fail why)
 ])
