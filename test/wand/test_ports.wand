@@ -1,4 +1,4 @@
-uses {Clock, Env, Shell(dune)}
+uses {Clock, Env, FS.Read, FS.Write, Shell(dune)}
 
 import Test
 let {group, test, with_clock} = import Test
@@ -12,7 +12,9 @@ let {blockers} = import ../../examples/ports/release-check
 let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
 let {attempt, read} = import ../../examples/ports/http-retry
 let {answering?, wait_for} = import ../../examples/ports/wait-for-port
+let {lock_at, missing} = import ../../examples/ports/stage-release
 import Env
+import FS
 import Float
 import List
 import Map
@@ -244,4 +246,25 @@ group "wait-for-port" (fn () -> [
     t.eq
       "nc -z 'localhost' '8080'"
       (command_of (fn () -> answering? "localhost" :8080)))
+])
+
+group "stage-release" (fn () -> [
+  test "a complete release is missing nothing" (fn t ->
+    t.eq [] (missing [./VERSION, ./LICENSE, ./wand])),
+  test "and reports every file that is not there" (fn t ->
+    t.eq ["LICENSE", "wand"] (missing [./VERSION])),
+  (* The staged directory holds more than a release needs, which is not a
+     reason to refuse it. *)
+  test "extra files are not a problem" (fn t ->
+    t.eq [] (missing [./VERSION, ./LICENSE, ./wand, ./notes.md])),
+  test "a path is read by its last element" (fn t ->
+    t.eq [] (missing [./dist/VERSION, ./dist/LICENSE, ./dist/wand])),
+  (* The lock exists for the body and not after it, which is the half of
+     `trap ... EXIT` that a second trap used to take away. *)
+  test "the lock is held for the body and released after" (fn t ->
+    with FS.temp_dir "lock_" as dir -> (
+      let path = Path.join dir (Path.of_string "held.lock");
+      let inside = with lock_at path as _ -> FS.exists? path;
+      t.eq (true, false) (inside, FS.exists? path)
+    ))
 ])

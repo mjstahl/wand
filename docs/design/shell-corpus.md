@@ -437,6 +437,31 @@ succeed, because `--fail` does not hand back the status code.
 `--write-out "%{http_code}"` does, at the cost of parsing the number back
 out of the output. The bash retries a 404 too.
 
+## Rows 5 and 7, ported
+
+`wait-for-port.wand` and `stage-release.wand`. Neither needed a language
+change, and one needed a library one that came first: `Port.to_int`,
+because `nc` wants the number as its own argument and nothing took `8080`
+out of `:8080`.
+
+Row 5's bash is `until nc -z localhost 8080; do sleep 1; done`, which has
+no deadline. The port takes one as an argument, and both paths were run
+against a real socket: `timed out after 2s` with nothing listening,
+`answered` with `nc -l 8080` up.
+
+Row 7's bash writes two `trap ... EXIT` lines, and the second replaces the
+first, so the scratch directory outlives the script. The port nests two
+brackets whose cleanups have nothing to do with each other -- a temp
+directory and a lock file outside it -- and both released on the exit
+path, which is the one a trap is worst at.
+
+One finding, in [`../gaps.md`](../gaps.md): `Test.with_shell` reads
+`Shell!run`, and `$?()` performs `Shell!capture`, so a mock written for a
+script that inspects an exit code does nothing and the test passes for the
+wrong reason. That happened to me here. `ci-gate.wand` hit it first and
+hand-wrote a handler; this port reused it, which is how I noticed it was
+structural rather than a one-off.
+
 ## Problems with the approach itself
 
 Separate from what wand is missing, four ways this project could produce
