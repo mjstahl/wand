@@ -1,0 +1,105 @@
+uses {IO, Proc, Shell(apt-get, chmod, ln, useradd)}
+
+import IO
+import List
+import Path
+import Proc
+import Shell
+
+-- Provision a host: a package, a service user, a key with the mode ssh
+-- insists on, and a config linked into /etc. Run it twice and the second
+-- run changes nothing.
+--
+-- bash:  apt-get install -y nginx || true
+--        useradd -r deploy || true
+--        chmod 0600 /home/deploy/.ssh/id_ed25519
+--        ln -sf /opt/app/nginx.conf /etc/nginx/conf.d/app.conf
+--
+-- `|| true` is how a bash provisioning script becomes re-runnable, and it
+-- is the bug. `useradd` exits 9 when the user is already there and 1 when
+-- the command was wrong; `apt-get` exits 100 when it could not take the
+-- dpkg lock. `|| true` reads all three as success, so the run where
+-- another process held the lock and nothing was installed is the run that
+-- reports nothing wrong. The script is idempotent and dishonest at once.
+--
+-- The exit code is the whole of the difference, and `$?()` hands it back
+-- as a value. Each step names the one code that means "already done", so
+-- everything else is still a failure and stays one.
+--
+-- This is the row where wand shells out for nearly all of it. There is no
+-- `chmod`, no `symlink`, and no ownership in `FS` (see G4 in the design
+-- doc), so those two steps are `$()` calls and read like it. What wand
+-- adds here is the manifest -- every binary this file may run is on line
+-- one, checked -- and an exit code that has to be looked at rather than
+-- discarded.
+
+-- What a step's exit code meant. `Failed` carries the code because the
+-- number is what tells someone which failure it was.
+type Outcome = Made | Already | Failed Int
+
+-- One step of the desired state: the command that makes it so, and the
+-- single exit code that means the machine was already that way.
+type Step(name: String, done?: Int)
+
+let steps = [
+  Step(name = "package nginx", done? = 0),
+  Step(name = "user deploy", done? = 9),
+  Step(name = "key mode", done? = 0),
+  Step(name = "config link", done? = 0)
+]
+
+-- The decision `|| true` throws away. `done?` is the one code that is not
+-- a failure; every other non-zero still is.
+let outcome (step: Step) (r: ShellResult) =
+  if r.code == 0 then Made else if r.code == step.done? then Already else Failed r.code
+
+-- A run changed the host if any step did. The second run of a correct
+-- script answers false, which is the property `|| true` cannot report
+-- because it cannot tell the cases apart.
+let changed? results = List.any (fn (_, o) -> o == Made) results
+
+-- The name and code of a step that failed, and nothing for one that did
+-- not. Taking the step and the outcome as two arguments rather than a pair
+-- is what lets the step carry its type.
+let failure (step: Step) o =
+  match o with
+  | Failed code -> Some (step.name, code)
+  | Made -> None
+  | Already -> None
+
+let failures results = results |> List.filter_map (fn (step, o) -> failure step o)
+
+let line (step: Step) o =
+  match o with
+  | Made -> "made     %{step.name}"
+  | Already -> "already  %{step.name}"
+  | Failed code -> "FAILED   %{step.name} (exit %{code})"
+
+-- The effectful edge: one command per step, in the order the steps are
+-- written. Everything above decides; this runs.
+let apply () = [
+  $?(apt-get install -y nginx),
+  $?(useradd -r deploy),
+  $?(chmod 0600 /home/deploy/.ssh/id_ed25519),
+  $?(ln -sfn /opt/app/nginx.conf /etc/nginx/conf.d/app.conf)
+]
+
+-- The steps and what running them answered, paired. `List.zip` keeps them
+-- in step order, so the report reads in the order the file declares.
+let outcomes steps results =
+  List.zip steps results |> List.map (fn (step, r) -> (step, outcome step r))
+
+let main () = (
+  let results = outcomes steps (apply ());
+  results |> List.each (fn (step, o) -> IO.println (line step o));
+  match failures results with
+  | [] -> (IO.println
+    (if changed? results then "host changed" else "host already as declared"))
+  | bad -> (
+    IO.println_err "%{List.length bad} step(s) failed:";
+    bad |> List.each (fn (name, code) -> IO.println_err "  %{name} exited %{code}");
+    Proc.exit 1
+  )
+)
+
+main ()

@@ -1,10 +1,11 @@
 # Design: porting a shell corpus
 
 **Status: in progress.** A plan for what to port, where the port will hit
-a wall, and what each wall costs to remove. Seventeen ports are in
-`examples/ports/`, covering every row but 12. The doc retires when the
+a wall, and what each wall costs to remove. Eighteen ports are in
+`examples/ports/`, covering all twelve rows. The doc retires when the
 corpus lands in `examples/` and the gaps it names are either closed or
-deliberately declined; G4 is the one still open.
+deliberately declined; **G4** and **G5** are open and undecided, which is
+what is left.
 
 ## The problem
 
@@ -91,8 +92,8 @@ Ranked by how much of the modern working day each accounts for, with the
 wand surface it lands on. The third column is the reason a port is worth
 reading: a bash script's failure mode is not incidental, it is the thing
 wand is claiming to fix. The last column is where the corpus stands —
-seventeen ports in [`examples/ports/`](../../examples/ports), covering
-every row but 12.
+eighteen ports in [`examples/ports/`](../../examples/ports), covering all
+twelve rows.
 
 | # | The job | How bash gets it wrong | Where it lands in wand | Ported |
 |---|---|---|---|---|
@@ -107,7 +108,7 @@ every row but 12.
 | 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | `FS.mtime`, `DateTime` and `Duration` | `rotate-backups` |
 | 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison | `disk-threshold`, `dir-budget` |
 | 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder | `probe-args` |
-| 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — see **G4** | **blocked** — no permissions or symlinks |
+| 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — see **G4** | `provision-host` |
 
 Rows 6, 7, 8 and 11 were expected to be where wand does not merely
 match bash but embarrasses it, and rows 5 and 9 where it plainly loses.
@@ -297,6 +298,17 @@ not run; half of provisioning is links into `/etc`. Row 12 is
 consequently a row of `$()` calls, which is a legitimate answer — the
 manifest still records `Shell(chmod, ln)` — but it means the ported
 script is bash with extra steps, and reads that way.
+
+Ported on those terms:
+[`provision-host`](../../examples/ports/provision-host.wand). Two of its
+four steps are `chmod` and `ln` through `$?()`, and the file says so. What
+the port has that the bash does not is the exit code: `|| true` is how a
+provisioning script becomes re-runnable, and it reads "already there" and
+"could not take the dpkg lock" as the same answer. Each step names the one
+code that means already-done, so every other non-zero stays a failure, and
+whether the run changed the host is a value rather than something nobody
+can ask. The gap itself is still open — closing it would move those two
+steps into `FS` and leave the rest as it is.
 
 Closing it is unglamorous surface area: a `Mode` type or an octal
 literal, and six or so `FS` functions.
@@ -554,9 +566,12 @@ covered end to end.
 5. ~~**Close the cheap ones.**~~ Shipped: `FS.delete_tree` and
    `FS.copy_tree` close G3, and `Shell.ok?` answers the question every
    ported script asks first.
-6. **Port the rest**, in row order. Rows 1 to 11 are done. Row 12 is the
-   one left, blocked on G4 — no permissions, symlinks or ownership — and
-   it is the only thing between this doc and its retirement.
+6. ~~**Port the rest**, in row order.~~ All twelve rows are ported.
+7. **Decide G4 and G5.** Both are open, and neither blocks a row any
+   longer: row 12 shells out for permissions and links, and nothing in
+   the table needs a process surface. So each is now a question about the
+   language's scope rather than about the corpus, and answering them —
+   either way — is what retires this doc.
 
 The original plan had step 3 first and no steps 1 or 2 at all, which is
 the argument for doing a handful of ports before designing anything: four

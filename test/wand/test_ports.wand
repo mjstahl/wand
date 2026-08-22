@@ -17,6 +17,10 @@ let {failures, stated} = import ../../examples/ports/verify-archives
 let {opts, render} = import ../../examples/ports/probe-args
 let {age, backup_name, expired, expired?, ours?, window} =
   import ../../examples/ports/rotate-backups
+-- `failures` is verify-archives' already, and the last import of a name
+-- decides every use of it (V-IMP1), so this one is renamed here.
+let {changed?, failures = unmet, line, outcome, outcomes, steps} =
+  import ../../examples/ports/provision-host
 import Args
 import Env
 import FS
@@ -364,4 +368,63 @@ group "rotate-backups" (fn () -> [
   -- `date +%F` is a day, so two backups on one day are one file.
   test "the name carries the time, not just the day" (fn t ->
     t.ok (backup_name 2026-08-22T01:00:00Z != backup_name 2026-08-22T02:00:00Z))
+])
+
+group "provision-host" (fn () -> [
+  -- The whole of what `|| true` throws away. `useradd` exits 9 for a user
+  -- that is already there and 1 for a command that was wrong; one of those
+  -- is fine and the other is not.
+  test "exit zero made it" (fn t ->
+    t.eq (Made) (outcome Step(name = "user deploy", done? = 9)
+      ShellResult(stdout = "", stderr = "", code = 0))),
+  test "the code that means already there is not a failure" (fn t ->
+    t.eq (Already) (outcome Step(name = "user deploy", done? = 9)
+      ShellResult(stdout = "", stderr = "", code = 9))),
+  test "and every other code still is" (fn t ->
+    t.eq (Failed 1) (outcome Step(name = "user deploy", done? = 9)
+      ShellResult(stdout = "", stderr = "", code = 1))),
+  -- apt-get exits 100 when it could not take the dpkg lock. Nothing was
+  -- installed, and `|| true` reports that run as a success.
+  test "a lock it could not take is a failure, not a no-op" (fn t ->
+    t.eq (Failed 100) (outcome Step(name = "package nginx", done? = 0)
+      ShellResult(stdout = "", stderr = "", code = 100))),
+  test "a step with no already-there code treats every non-zero as failure"
+    (fn t ->
+      t.eq (Failed 9) (outcome Step(name = "key mode", done? = 0)
+        ShellResult(stdout = "", stderr = "", code = 9))),
+  -- The property the bash cannot report: whether the second run did
+  -- anything.
+  test "a run that made nothing did not change the host" (fn t ->
+    t.eq false (changed? [
+      (Step(name = "a", done? = 9), Already),
+      (Step(name = "b", done? = 0), Already)
+    ])),
+  test "and one that made something did" (fn t ->
+    t.ok (changed? [
+      (Step(name = "a", done? = 9), Already),
+      (Step(name = "b", done? = 0), Made)
+    ])),
+  test "every failure is named with its code, not just the first" (fn t ->
+    t.eq [("a", 1), ("c", 100)] (unmet [
+      (Step(name = "a", done? = 0), Failed 1),
+      (Step(name = "b", done? = 0), Made),
+      (Step(name = "c", done? = 0), Failed 100)
+    ])),
+  test "a clean run has no failures" (fn t ->
+    t.eq [] (unmet [(Step(name = "a", done? = 0), Made)])),
+  test "the line says which of the three it was" (fn t ->
+    t.eq "already  user deploy"
+      (line Step(name = "user deploy", done? = 9) Already)),
+  test "and a failure carries the code" (fn t ->
+    t.eq "FAILED   package nginx (exit 100)"
+      (line Step(name = "package nginx", done? = 0) (Failed 100))),
+  -- The steps and the results are paired in step order, so the report
+  -- reads in the order the file declares.
+  test "outcomes pairs each step with its own result" (fn t ->
+    t.eq [Made, Already] (List.map (fn (_, o) -> o) (outcomes
+      [Step(name = "a", done? = 0), Step(name = "b", done? = 9)]
+      [ShellResult(stdout = "", stderr = "", code = 0),
+       ShellResult(stdout = "", stderr = "", code = 9)]))),
+  test "every step this script declares is covered" (fn t ->
+    t.eq 4 (List.length steps))
 ])
