@@ -356,6 +356,17 @@ let operations : operation list =
     { op_name = "Clock!sleep"; op_effect = Clock;
       op_types = t TDuration TUnit;
       op_performers = ["Clock.sleep"] };
+    (* Reading the clock. A handler that answers this one pins the instant,
+       so a test of "older than thirty days" needs neither a real file nor a
+       wait. *)
+    { op_name = "Clock!now"; op_effect = Clock;
+      op_types = t TUnit TDateTime;
+      op_performers = ["Clock.now"] };
+    (* The reading `Clock.timed` brackets work with. A handler that answers
+       it decides what the work appears to have taken. *)
+    { op_name = "Clock!elapsed"; op_effect = Clock;
+      op_types = t TUnit TDuration;
+      op_performers = ["Clock.timed"] };
   ]
 
 let operation_index : (string, operation) Hashtbl.t = Hashtbl.create 64
@@ -2401,11 +2412,33 @@ and infer_binop tenv (env : env) op a b : typ =
   | "+" | "-" ->
     (* One type throughout, resolved by use and dispatched by the evaluator
        on the value's tag. Nothing defaults: an unpinned `fn x -> x + x`
-       stays `Add -> Add` and works at all four. *)
-    let n = fresh_add () in
-    unify (infer tenv env a) n;
-    unify (infer tenv env b) n;
-    n
+       stays `Add -> Add` and works at all four.
+
+       An instant is the exception, and it is why both sides are inferred
+       before either is unified. A `DateTime` is a point rather than a
+       quantity: a `Duration` moves it, and two of them subtract to the
+       length between them. Two of them do not add -- there is no instant
+       twice as late as another -- and a `Duration` does not subtract an
+       instant. *)
+    let ta = infer tenv env a in
+    let tb = infer tenv env b in
+    (match repr ta, repr tb, op with
+     | TDateTime, TDuration, _ -> TDateTime
+     | TDuration, TDateTime, "+" -> TDateTime
+     | TDateTime, TDateTime, "-" -> TDuration
+     | TDateTime, TDateTime, _ ->
+       raise (TypeError
+         "two instants do not add. Subtract them for the Duration between \
+          them, or add a Duration to one of them")
+     | TDuration, TDateTime, _ ->
+       raise (TypeError
+         "an instant cannot be subtracted from a Duration. Write the \
+          instant first: `deadline - 30s`")
+     | _ ->
+       let n = fresh_add () in
+       unify ta n;
+       unify tb n;
+       n)
   | "*" | "/" ->
     (* One numeric type throughout: Int -> Int -> Int or the same at
        Float. A `Size` times a `Size` is not a `Size`, so the quantities
@@ -2477,6 +2510,8 @@ let stdlib_type_env : env = [
   ("println",    let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_set.Proc] (TInt) (a)));
   ("clock_sleep", generalize [] (effs [Effect_set.Clock] (TDuration) (TUnit)));
+  ("clock_now", generalize [] (effs [Effect_set.Clock] (TUnit) (TDateTime)));
+  ("clock_elapsed", generalize [] (effs [Effect_set.Clock] (TUnit) (TDuration)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TUnit) (a)));
   (* A file is named by a Path, like every other filesystem operation. These
      two took a String, so a script holding a Path had to convert away from

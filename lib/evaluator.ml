@@ -495,6 +495,30 @@ let datetime_epoch s =
     | '-' -> secs + (num 20 2 * 3600 + num 23 2 * 60)
     | _   -> secs
 
+(* The inverse: an instant written back as a `DateTime` in UTC. Every
+   instant wand produces is written this way -- `Z`, whole seconds -- so a
+   value that came from `Clock.now` reads like a value that was written by
+   hand. The algorithm is the one `days_from_civil` reverses, from the same
+   note by Howard Hinnant. *)
+let civil_from_days z =
+  let z = z + 719468 in
+  let era = (if z >= 0 then z else z - 146096) / 146097 in
+  let doe = z - era * 146097 in
+  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 in
+  let y = yoe + era * 400 in
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100) in
+  let mp = (5 * doy + 2) / 153 in
+  let d = doy - (153 * mp + 2) / 5 + 1 in
+  let m = if mp < 10 then mp + 3 else mp - 9 in
+  ((if m <= 2 then y + 1 else y), m, d)
+
+let datetime_of_epoch secs =
+  let days = if secs >= 0 then secs / 86400 else (secs - 86399) / 86400 in
+  let rest = secs - days * 86400 in
+  let (y, m, d) = civil_from_days days in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+    y m d (rest / 3600) (rest mod 3600 / 60) (rest mod 60)
+
 (* A size in bytes. A `KB` is 1000 bytes, not 1024: the spelling is the SI
    one, and SI says 1000. Reading it as 1024 would be lying about the unit
    the author wrote. Binary units would be `KiB`, which wand does not lex.
@@ -1224,6 +1248,10 @@ and eval_binop (env : env) op a b : value =
      | VFloat x, VFloat y -> VFloat (x +. y)
      | VSize x,  VSize y  -> VSize (Printf.sprintf "%dB" (size_bytes x + size_bytes y))
      | VDuration x, VDuration y -> VDuration (format_dur_ms (parse_dur_ms x + parse_dur_ms y))
+     (* A Duration moves an instant, from either side. The instant carries
+        whole seconds, so a duration below a second moves it nowhere. *)
+     | VDateTime x, VDuration d | VDuration d, VDateTime x ->
+       VDateTime (datetime_of_epoch (datetime_epoch x + parse_dur_ms d / 1000))
      | _ -> raise (EvalError "'+' requires matching types"))
   | "-"  ->
     (match eval env a, eval env b with
@@ -1233,6 +1261,13 @@ and eval_binop (env : env) op a b : value =
        VSize (Printf.sprintf "%dB" (max 0 (size_bytes x - size_bytes y)))
      | VDuration x, VDuration y ->
        VDuration (format_dur_ms (max 0 (parse_dur_ms x - parse_dur_ms y)))
+     | VDateTime x, VDuration d ->
+       VDateTime (datetime_of_epoch (datetime_epoch x - parse_dur_ms d / 1000))
+     (* The length between two instants. It floors at zero like every other
+        Duration subtraction, so a file stamped in the future reads as no
+        age rather than a negative one. *)
+     | VDateTime x, VDateTime y ->
+       VDuration (format_dur_ms (max 0 ((datetime_epoch x - datetime_epoch y) * 1000)))
      | _ -> raise (EvalError "'-' requires matching types"))
   | "*"  ->
     (match eval env a, eval env b with
@@ -1335,6 +1370,11 @@ let sleep_ms ms =
     remaining := !remaining -. this
   done;
   check_interrupt ()
+
+(* Milliseconds since an arbitrary point in this run, from a clock that no
+   NTP correction can move. `lib/ext/clock.c` states which clock each
+   platform uses and why. *)
+external elapsed_ms : unit -> int = "wand_elapsed_ms"
 
 let performing name f =
   Hashtbl.replace direct_impl name f;
@@ -2103,6 +2143,20 @@ let stdlib_eval_env : env = [
   ("clock_sleep", performing "Clock!sleep" (function
     | VDuration d -> sleep_ms (parse_dur_ms d); VUnit
     | _ -> raise (EvalError "Clock.sleep: expected Duration")));
+  (* Reading the clock is an effect for the same reason waiting is: a
+     handler can answer it, so a test pins the instant instead of arranging
+     for one. UTC always -- a local reading would make one script answer
+     differently on two machines. *)
+  (* The reading behind `Clock.timed`. It is a primitive rather than a
+     module export on purpose: two readings of a monotonic clock subtract
+     soundly, and there is nothing else to do with one, so the only shape
+     wand offers is the bracket. See `lib/ext/clock.c`. *)
+  ("clock_elapsed", performing "Clock!elapsed" (function
+    | VUnit -> VDuration (format_dur_ms (elapsed_ms ()))
+    | _ -> raise (EvalError "Clock.timed: expected Unit")));
+  ("clock_now", performing "Clock!now" (function
+    | VUnit -> VDateTime (datetime_of_epoch (int_of_float (Unix.gettimeofday ())))
+    | _ -> raise (EvalError "Clock.now: expected Unit")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));

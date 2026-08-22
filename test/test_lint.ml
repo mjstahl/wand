@@ -43,6 +43,29 @@ let test_imp1 () =
     "let {parse} = import JSON\nlet j = parse \"1\"\n\
      let {upper} = import String\nupper \"a\""
 
+(* The civil clock steps, so the length between two readings of it is wrong
+   or zero on the day it does. The rule catches the shape a script is
+   written in -- save a reading, work, subtract -- as well as the inline
+   one, and leaves alone the subtraction that is sound: an instant that came
+   from somewhere else. *)
+let test_clock1 () =
+  fires "two readings inline"
+    "uses {Clock}\nimport Clock\nClock.now () - Clock.now ()"
+    "V-CLOCK1";
+  fires "a reading saved and subtracted"
+    "uses {Clock}\nimport Clock\n\
+     let took = (let before = Clock.now () in Clock.now () - before)\ntook"
+    "V-CLOCK1";
+  silent "an age, which is what subtraction is for"
+    "uses {Clock, FS.Read}\nimport Clock\nimport FS\n\
+     Clock.now () - FS.mtime! /etc/hosts";
+  silent "a name rebound to something else is not a reading"
+    "uses {Clock, FS.Read}\nimport Clock\nimport FS\n\
+     let t = (let before = Clock.now () in \
+     let before = FS.mtime! /etc/hosts in Clock.now () - before)\nt";
+  silent "measuring the way that works"
+    "uses {Clock}\nimport Clock\nClock.timed (fn () -> 1 + 1)"
+
 let test_pred1 () =
   fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
   silent "Bool predicate" "let big? n = n > 2\nbig? 3";
@@ -427,6 +450,7 @@ let () =
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
       Alcotest.test_case "V-DROP2"  `Quick test_drop2;
       Alcotest.test_case "V-IMP1"   `Quick test_imp1;
+      Alcotest.test_case "V-CLOCK1" `Quick test_clock1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;

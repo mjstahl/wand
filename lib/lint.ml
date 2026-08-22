@@ -96,9 +96,31 @@ let shell_threshold = 3
 
 (* ── Traversal ───────────────────────────────────────────────────────────── *)
 
+let is_clock_now (e : Ast.expr) =
+  match strip_located e with
+  | Ast.App (f, arg) when strip_located arg = Ast.Unit ->
+    (match strip_located f with
+     | Ast.Field (m, "now") ->
+       (match strip_located m with
+        | Ast.Var "Clock" | Ast.Constr "Clock" -> true
+        | _ -> false)
+     | _ -> false)
+  | _ -> false
+
 let walk_expr start_loc (e : Ast.expr) : finding list =
   let acc = ref [] in
   let here = ref start_loc in
+  (* Names bound to a reading of the clock, so that the shape a script is
+     written in is caught as well as the inline one: save a reading, do the
+     work, subtract. A name bound to anything else drops out again, which is
+     what keeps a rebinding from being read as a reading. *)
+  let readings = ref [] in
+  let is_reading e =
+    is_clock_now e
+    || (match strip_located e with
+        | Ast.Var n -> List.mem n !readings
+        | _ -> false)
+  in
   let rec go (e : Ast.expr) =
     match e with
     | Ast.Located (l, inner) ->
@@ -130,10 +152,25 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
       go inner
     | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go e) parts
+    (* Measuring by subtracting two readings of the civil clock. Only the
+       qualified form is matched: a destructured `now` says nothing about
+       which module it came from, and guessing would fire on somebody
+       else's function. *)
+    | Ast.BinOp ("-", a, b) when is_reading a && is_reading b ->
+      acc := { rule = Lint_rules.V_CLOCK1; loc = !here;
+               text = Lint_rules.clock1; fix = None } :: !acc;
+      go a; go b
     | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> go a; go b
     | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
     | Ast.Field (a, _) | Ast.Try a -> go a
-    | Ast.Let (_, a, b, _) -> go a; go b
+    | Ast.Let (p, a, b, _) ->
+      go a;
+      (match p with
+       | Ast.PVar name ->
+         if is_clock_now a then readings := name :: !readings
+         else readings := List.filter (fun n -> n <> name) !readings
+       | _ -> ());
+      go b
     | Ast.LetRec (bs, b, _) -> List.iter (fun (_, _, x) -> go x) bs; go b
     | Ast.If (c, t, f) -> go c; go t; go f
     | Ast.Match (s, cases) ->

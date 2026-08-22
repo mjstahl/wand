@@ -1,5 +1,14 @@
+; C sources live in `ext/`, which `include_subdirs` is here to reach. It
+; also means any `.ml` under `lib/` is a module of this library, so `ext/`
+; is for C and nothing else.
+
+(include_subdirs unqualified)
+
 (library
  (name wand)
+ (foreign_stubs
+  (language c)
+  (names clock))
  (libraries unix re re.pcre yojson toml linenoise))
 
 ; The standard library, compiled into the binary as source text. The glob is

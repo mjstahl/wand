@@ -10,24 +10,6 @@ argument. Nothing is duplicated between here and there.
 
 ## Waiting and the clock
 
-**Reading the clock.** `Clock.sleep` waits, and nothing reads the current
-instant. `Clock.now` would be nearly inert, because `DateTime` has no
-arithmetic, and adding that arithmetic arms a trap: `now - mtime` is sound
-and `now - an_earlier_now` is not, and they are the same operator. The two
-land together, later.
-
-Without it there is no timestamped name, no "older than thirty days", and no
-"the last successful run was more than an hour ago". `FS.mtime` answers a
-`DateTime` that can be compared against a literal written in the source, and
-that is the whole of what can be done with an instant.
-
-That work brings back the monotonic-clock question, which nothing today
-asks: every deadline wand has is a wait of a length, and a length needs no
-clock. Measuring elapsed time is the one use a civil clock cannot serve,
-and the choice is not free. On Linux `CLOCK_MONOTONIC` excludes time spent
-suspended and `CLOCK_BOOTTIME` includes it; on macOS the names are
-inverted. Whatever ships pins the semantics per platform and says which.
-
 **A deadline cannot be tested against a virtual clock.** `Test.with_clock`
 answers `Clock.sleep` at no cost, so a test of an hour of backoff runs in
 microseconds. Two waits it does not shorten. `Shell.timeout` belongs to the

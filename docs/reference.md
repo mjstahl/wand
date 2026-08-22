@@ -1447,7 +1447,7 @@ appears in an effect set:
 | `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
-| `Clock` | `sleep` |
+| `Clock` | `sleep`, `now`, `elapsed` |
 
 Type `FS!` in an editor, and it lists them. Each entry says what the
 operation carries and what performs it. The editor reads the table that the
@@ -2712,6 +2712,8 @@ with `lines`. Any other path streams as empty.
 
 ```ocaml
 sleep : Duration -> Unit ! {Clock}
+now   : Unit -> DateTime ! {Clock}
+timed : (Unit -> 'a ! 'e) -> (Duration, 'a) ! {Clock | 'e}
 ```
 
 Waits for at least the duration given. It is a floor, not a promise: a
@@ -2729,9 +2731,41 @@ stepped around by a value that happens to be zero.
 
 Ctrl-C during a sleep takes effect at once.
 
-Reading the clock is not here yet. `Clock.now` and arithmetic on a
-`DateTime` land together, because each is nearly useless without the
-other.
+`now` answers the current instant in UTC. There is no local form: a local
+reading would make one script answer differently on two machines, and a
+wall clock a human reads is `$(date)`.
+
+A `Duration` moves an instant, and two instants subtract to the length
+between them:
+
+```ocaml
+Clock.now () - FS.mtime! log > 30d     -- older than thirty days
+Clock.now () + 1h                      -- an hour from now
+FS.mtime! b - FS.mtime! a              -- how much later b was written
+```
+
+Two instants do not add, and a `Duration` does not subtract an instant.
+Both are type errors that name the form to write. A difference floors at
+zero, as every `Duration` subtraction does, so a file stamped in the future
+reads as no age rather than a negative one. An instant carries whole
+seconds, so a duration below a second moves it nowhere.
+
+`timed` runs a thunk and answers with how long it took, beside what it
+returned:
+
+```ocaml
+let (took, report) = Clock.timed (fn () -> build ())
+```
+
+It is the only way wand measures a length of time. Two readings of `now`
+subtract to something a clock step can spoil, so `timed` reads a clock that
+no correction moves. Time while the machine is suspended counts, because a
+laptop that slept for seven hours did take seven hours. `V-CLOCK1` names
+`timed` when a subtraction has `now` on both sides.
+
+A virtual clock does not shorten it. `Test.with_clock` makes the sleeps
+inside cost nothing, and `timed` then reports the real time taken, which is
+almost none. The virtual total is what `with_clock` itself answers.
 
 Under a handler the clock is whatever the handler says. `Test.with_clock`
 supplies one that costs no time, so a test of an hour of backoff runs in
@@ -3254,6 +3288,7 @@ without_writes     : (Unit -> 'a ! 'e) -> 'a ! 'e
 with_lines         : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes             : (Unit -> 'a ! 'e) -> List Path ! 'e
 with_clock         : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
+at                 : DateTime -> (Unit -> 'a ! 'e) -> 'a ! 'e
 ```
 
 The handle that a test block receives carries `ok`, `not_ok`, `eq`,
@@ -3419,6 +3454,7 @@ Test.with_shell_results [(fragment, result), ...] thunk -- answer `$?()` with wh
 Test.shell_calls thunk                                  -- the commands it would run
 Test.without_writes thunk                               -- swallow writes, keep the result
 Test.writes thunk                                       -- the paths it would write
+Test.at instant thunk                                   -- pin what `Clock.now` answers
 ```
 
 `with_shell` and `shell_calls` answer a command run either way: `$(cmd)`
@@ -3716,6 +3752,7 @@ punish the safer choice.
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
 | `V-DROP2` | a statement's value is a `TestOutcome` nothing reads, so the test cannot fail |
 | `V-IMP1` | two imports bind the same name, so the first binding is dead — every use reads the second, above its line as well as below — rename one (`let {parse = csv_parse} = import CSV`) or drop it |
+| `V-CLOCK1` | a length of time is measured by subtracting two readings of `Clock.now`, which a clock step spoils — wrap the work in `Clock.timed` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |

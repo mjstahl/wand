@@ -55,3 +55,71 @@ group "a capped backoff" (fn () -> [
     let (elapsed, _) = Test.with_clock (fn () -> backoff 8) in
     t.eq 121s elapsed)
 ])
+
+-- Reading the clock is an effect as well, so a test pins the instant
+-- instead of arranging for one.
+
+group "reading the clock" (fn () -> [
+  test "the instant a handler gives" (fn t ->
+    t.eq
+      2026-03-01T00:00:00Z
+      (Test.at 2026-03-01T00:00:00Z (fn () -> Clock.now ()))),
+  -- Two readings, and not subtracted: that shape is `V-CLOCK1`, whatever
+  -- answers it.
+  test "every reading inside is the same one" (fn t ->
+    t.eq
+      (2026-03-01T00:00:00Z, 2026-03-01T00:00:00Z)
+      (Test.at 2026-03-01T00:00:00Z (fn () -> (Clock.now (), Clock.now ())))),
+  -- The shape a script is written in: how old is this, and is that too old.
+  test "an age against a deadline" (fn t ->
+    t.ok
+      (Test.at 2026-03-01T00:00:00Z (fn () ->
+        Clock.now () - 2026-01-01T00:00:00Z > 30d))),
+  test "and one that is not too old" (fn t ->
+    t.eq
+      false
+      (Test.at 2026-03-01T00:00:00Z (fn () ->
+        Clock.now () - 2026-02-25T00:00:00Z > 30d)))
+])
+
+-- An instant moves by a Duration, from either side, and the answer is
+-- written the way a literal is: UTC, whole seconds.
+
+group "instant arithmetic" (fn () -> [
+  test "a duration moves it forward" (fn t ->
+    t.eq 2026-03-01T01:30:00Z (2026-03-01T00:00:00Z + 90min)),
+  test "from either side" (fn t ->
+    t.eq 2026-03-01T01:30:00Z (90min + 2026-03-01T00:00:00Z)),
+  test "and back" (fn t ->
+    t.eq 2026-02-28T23:00:00Z (2026-03-01T00:00:00Z - 1h)),
+  test "an offset is the same instant" (fn t ->
+    t.eq 2026-03-01T00:00:00Z (2026-03-01T05:30:00+05:30 + 0s)),
+  test "the length between two instants" (fn t ->
+    t.eq 25h (2026-03-02T01:00:00Z - 2026-03-01T00:00:00Z)),
+  -- A file stamped in the future reads as no age, the way every other
+  -- Duration subtraction floors.
+  test "a difference the wrong way round floors at zero" (fn t ->
+    t.eq 0ms (2026-03-01T00:00:00Z - 2026-03-02T00:00:00Z)),
+  test "seconds are the resolution" (fn t ->
+    t.eq 2026-03-01T00:00:00Z (2026-03-01T00:00:00Z + 500ms))
+])
+
+-- `Clock.timed` is the only way to measure a length of time. The durations
+-- here are short, because this one waits for real.
+
+group "measuring" (fn () -> [
+  test "a sleep takes at least its length" (fn t ->
+    let (took, _) = Clock.timed (fn () -> Clock.sleep 120ms) in t.ok (took >= 120ms)),
+  test "and the thunk's answer comes back with it" (fn t ->
+    let (_, answer) = Clock.timed (fn () -> "built") in t.eq "built" answer),
+  test "work that does nothing takes almost none" (fn t ->
+    let (took, _) = Clock.timed (fn () -> 1 + 1) in t.ok (took < 100ms)),
+  -- The reading is an effect, so a handler catches it. One that answers
+  -- every reading with the same value reports no time passing.
+  test "a handler answers the reading" (fn t ->
+    let (took, _) =
+      handle Clock.timed (fn () -> "work") with
+      | Clock!elapsed _ k -> k 5min
+    in
+    t.eq 0ms took)
+])

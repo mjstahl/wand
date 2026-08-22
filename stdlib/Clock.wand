@@ -2,8 +2,7 @@ uses {Clock}
 
 -- Waiting.
 --
--- wand asks the clock for one thing today: to wait. Reading the clock is
--- not here yet, and that is deliberate -- see the reference.
+-- Waiting, and reading the current instant.
 --
 -- `sleep` waits at least the duration it is given. A loaded machine, a
 -- descheduled worker, or an interrupt window all make it longer. It is a
@@ -18,3 +17,34 @@ uses {Clock}
 
 -- Wait for at least this long.
 let sleep d = clock_sleep d
+
+-- The current instant, in UTC. A local reading would make one script
+-- answer differently on two machines, so there is no local form: use
+-- `$(date)` where a human has to read a wall clock.
+--
+-- A `Duration` moves an instant, and two instants subtract to the length
+-- between them:
+--
+-- Clock.now () - FS.mtime! log > 30d
+-- Clock.now () + 1h
+--
+-- Reading it twice to measure how long work took is the one thing not to
+-- do: a civil clock steps, so the second reading can be earlier than the
+-- first. `Clock.timed` measures.
+let now () = clock_now ()
+
+-- Run `thunk` and answer with how long it took, beside what it returned:
+--
+-- let (took, report) = Clock.timed (fn () -> build ())
+--
+-- The length comes from a clock that no correction can move, so it is
+-- right across an NTP step. It measures real elapsed time, and time while
+-- the machine is suspended counts.
+--
+-- This is the only way wand measures a length of time. Two readings of
+-- `Clock.now` would subtract to something a clock step can spoil.
+let timed thunk = (
+  let before = clock_elapsed ();
+  let answer = thunk ();
+  (clock_elapsed () - before, answer)
+)

@@ -160,6 +160,18 @@ let with_lines path lines thunk =
   handle thunk () with
   | FS!stream_lines p k -> if p == path then k lines else k []
 
+-- Run `thunk` with `Clock.now` answering `instant`. A test of "older than
+-- thirty days" then needs neither a real file nor a wait:
+--
+-- Test.at 2026-03-01T00:00:00Z (fn () -> stale? log)
+--
+-- Every reading inside answers the same instant. Nothing here advances a
+-- clock, and `with_clock` does not move it either: each stands in for one
+-- operation.
+let at instant thunk =
+  handle thunk () with
+  | Clock!now _ k -> k instant
+
 -- Run `thunk` with a clock that costs no time. `Clock!sleep` returns at
 -- once, and the durations it was asked for are added up, so a test that
 -- exercises an hour of backoff runs in microseconds.

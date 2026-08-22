@@ -22,6 +22,7 @@ type id =
   | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
+  | V_CLOCK1   (* two readings of the civil clock subtracted: a step spoils it *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -83,6 +84,13 @@ let all = [
   { id = V_IMP1;   code = "V-IMP1";
     summary = "an imported name is rebound by a later import";
     kind = Violation };
+  (* The civil clock steps: NTP corrects it, an operator sets it. So the
+     second reading can be earlier than the first, and the length between
+     them is wrong or zero. `Clock.timed` reads a clock that no correction
+     moves. *)
+  { id = V_CLOCK1; code = "V-CLOCK1";
+    summary = "a length of time measured by subtracting two clock readings";
+    kind = Violation };
   { id = A_SHELL1; code = "A-SHELL1";
     summary = "a large shell pipeline inside $() could be wand-level stages";
     kind = Advisory };
@@ -132,6 +140,12 @@ let imp1 ~name ~first ~second ~line =
      '%s' reads %s's -- above that line as well as below it; drop this \
      import, or rename one binding ({%s = other_name})"
     name first second line name second name
+
+let clock1 =
+  "this measures a length of time by subtracting two readings of the civil \
+   clock, which steps: the second reading can be earlier than the first. \
+   Wrap the work in `Clock.timed`, which answers how long it took beside \
+   what it returned"
 
 let drop1 ~typ =
   Printf.sprintf
