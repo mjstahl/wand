@@ -2928,8 +2928,8 @@ load! : Path -> Unit ! {Env, FS.Read, Raise}
 ```ocaml
 parse          : String -> List (List String)
 parse_with     : String -> String -> List (List String)
-stringify      : List (List String) -> String
-stringify_with : String -> List (List String) -> String
+stringify      : List (List 'a) -> String
+stringify_with : String -> List (List 'a) -> String
 read_file      : Path -> Result String (List (List String)) ! {FS.Read}
 read_file!     : Path -> List (List String) ! {FS.Read, Raise}
 rows           : Decoder 'a -> String -> Result String (List 'a)
@@ -2967,6 +2967,8 @@ read_file        : Path -> Result String JSON ! {FS.Read}
 read_file!       : Path -> JSON ! {FS.Read, Raise}
 null             : JSON
 of_bool          : Bool -> JSON
+of               : 'a -> Result String JSON
+of!              : 'a -> JSON ! {Raise}
 of_int           : Int -> JSON
 of_float         : Float -> JSON
 of_string        : String -> JSON
@@ -2988,6 +2990,14 @@ decode           : Decoder 'a -> JSON -> Result String 'a
 `Result String JSON`. The `!` forms raise. Each typed extractor returns a
 `Result`.
 
+`of` writes any value as JSON in one call, so a structure does not have to
+be converted a piece at a time: numbers, text, every domain type, lists,
+maps, options and records, and any nesting of them. A function, a resource
+or a stream cannot be written, and that is the `Error`; `of!` raises
+instead. The `of_*` builders take one converted value each and cannot fail.
+
+A `Map` holds one type, so a document whose fields differ is a record.
+
 `of_map` is the inverse of `get_object`. It writes the keys in the order that
 the `Map` holds them, which keeps a diff small. A `Map` cannot hold a key
 twice, so wand writes it once, at its first position. That is the value that
@@ -3003,11 +3013,16 @@ match JSON.field "name" j with
 | Error _ -> Error "missing"
 
 -- Building JSON
-let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
-JSON.stringify arr    -- "[1,2]"
+JSON.stringify (JSON.of! [1, 2])              -- "[1,2]"
+JSON.stringify (JSON.of! {name = "web"})      -- {"name":"web"}
 
-JSON.of_map [name = JSON.of_string "web", "content-type" = JSON.of_string "json"]
-                      -- {"name":"web","content-type":"json"}
+-- A record is how a document with fields of different types is written.
+type Pod (name : String, port : Int)
+JSON.stringify (JSON.of! Pod(name = "web", port = 8080))
+                                              -- {"name":"web","port":8080}
+
+-- The precise builders are still there, and cannot fail.
+let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
 
 match JSON.read_file ./config.json with
 | Ok cfg -> JSON.field! "host" cfg
@@ -3019,6 +3034,8 @@ match JSON.read_file ./config.json with
 ```ocaml
 parse      : String -> Result String TOML
 parse!     : String -> TOML ! {Raise}
+of         : 'a -> Result String TOML
+of!        : 'a -> TOML ! {Raise}
 stringify  : TOML -> String
 read_file  : Path -> Result String TOML ! {FS.Read}
 read_file! : Path -> TOML ! {FS.Read, Raise}
@@ -3034,6 +3051,13 @@ field      : String -> TOML -> Result String TOML
 field!     : String -> TOML -> TOML ! {Raise}
 decode     : Decoder 'a -> TOML -> Result String 'a
 ```
+
+`of` writes a value as TOML, which is what builds a document rather than
+re-printing a parsed one. A TOML document is a table, so the value is a map
+or a record; a bare number says so rather than producing something no parser
+would read back. An array holds one type, as a wand list does, and a field
+that is `None` is left out — TOML has no null, so writing one would not read
+back the same.
 
 `TOML` is an opaque type for any TOML value: a table, a string, an int, a
 float, a bool or an array. The top-level parse always gives a table. Each typed

@@ -2821,7 +2821,10 @@ let stdlib_type_env : env = [
   ("env_load_file",   generalize [] (effs [Effect_set.Env; Effect_set.FsRead; Effect_set.Raise] (TPath) (TUnit)));
   (* CSV primitives *)
   ("csv_parse",         generalize [] ((TString @-> (TString @-> TList (TList TString)))));
-  ("csv_stringify",     generalize [] ((TString @-> (TList (TList TString) @-> TString))));
+  (* A cell is text, and every value has a text form, so a row does not have
+     to be converted before it is written. Nothing here can fail. *)
+  ("csv_stringify",     let a = fresh () in
+                        generalize [] ((TString @-> (TList (TList a) @-> TString))));
   (* JSON primitives *)
   ("json_parse",         generalize [] ((TString @-> TResult (TString, TJson))));
   ("json_parse_exn",     generalize [] (effs [Effect_set.Raise] (TString) (TJson)));
@@ -2833,6 +2836,14 @@ let stdlib_type_env : env = [
   ("json_of_int",       generalize [] ((TInt @-> TJson)));
   ("json_of_float",     generalize [] ((TFloat @-> TJson)));
   ("json_of_string",    generalize [] ((TString @-> TJson)));
+  ("toml_of",         let a = fresh () in
+                      generalize [] ((a @-> TResult (TString, TToml))));
+  ("toml_of_exn",     let a = fresh () in
+                      generalize [] (effs [Effect_set.Raise] (a) (TToml)));
+  ("json_of",         let a = fresh () in
+                      generalize [] ((a @-> TResult (TString, TJson))));
+  ("json_of_exn",     let a = fresh () in
+                      generalize [] (effs [Effect_set.Raise] (a) (TJson)));
   ("json_of_list",      generalize [] ((TList TJson @-> TJson)));
   ("json_of_map",       generalize [] ((TMap TJson @-> TJson)));
   ("json_is_null",      generalize [] ((TJson @-> TBool)));

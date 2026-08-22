@@ -177,11 +177,14 @@ let peek_field_after_comma s =
 
 let keywords = [
   "let"; "in"; "match"; "with"; "if"; "then"; "else"; "fn"; "fun";
-  "type"; "import"; "when"; "of"; "and"; "or";
+  "type"; "import"; "when"; "and"; "or";
   "handle"; "return"
 ]
 
 let keyword_hint = function
+  | Token.Ident "of" ->
+    " -- a constructor takes its payload directly: 'Circle Int', \
+     not 'Circle of Int'"
   | Token.Ident s -> Util.hint s keywords
   (* Corrections for reserved words a reader of OCaml or Python would
      reach for; naming the wand spelling here is what makes the
@@ -190,9 +193,6 @@ let keyword_hint = function
     " -- the boolean operator is '&&'; 'and' only joins mutually \
      recursive let bindings"
   | Token.Or -> " -- the boolean operator is '||'"
-  | Token.Of ->
-    " -- a constructor takes its payload directly: 'Circle Int', \
-     not 'Circle of Int'"
   | Token.End ->
     " -- expressions group with parentheses, not 'begin ... end'"
   | _ -> ""
@@ -1444,6 +1444,12 @@ let parse_type_def s =
         | Token.Upper n -> n
         | t -> fail_at loc (Format.asprintf "expected constructor name, got %a" Token.pp t)
       in
+      (* `of` is an ordinary word, so the OCaml spelling is caught where it
+         is written rather than by reserving it everywhere. *)
+      (if peek s = Token.Ident "of" then
+         fail_at (peek_loc s)
+           "a constructor takes its payload directly: 'Circle Int', not \
+            'Circle of Int'");
       let fields = parse_ctor_fields () in
       { Ast.name; fields }
     in

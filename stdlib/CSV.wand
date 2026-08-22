@@ -7,7 +7,8 @@ let parse src = csv_parse "," src
 -- Parse a CSV string with a custom separator character.
 let parse_with sep src = csv_parse sep src
 
--- Serialise a list of rows back to a CSV string (comma-separated).
+-- Write rows as CSV. A cell is text, and every value has a text form, so
+-- a row of numbers or domain values needs no conversion first.
 let stringify rows = csv_stringify "," rows
 
 -- Serialise a list of rows with a custom separator.

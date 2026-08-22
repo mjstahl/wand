@@ -61,3 +61,15 @@ test "read_file! row count" (fn t ->
 
 test "read_file! raises on missing" (fn t ->
   t.raises (fn () -> CSV.read_file! (Path.of_string "/nonexistent/wand_missing.csv")))
+
+-- A cell is text, and every value has a text form, so a row of numbers or
+-- domain values needs no conversion first.
+test "a row of ints" (fn t -> t.eq "1,2" (CSV.stringify [[1, 2]]))
+test "a row of domain values" (fn t ->
+  t.eq
+    "2024-01-15T00:00:00Z,2024-02-01T00:00:00Z"
+    (CSV.stringify [[2024-01-15, 2024-02-01]]))
+-- A row is a list, so it holds one type. Cells of different types are
+-- written as text, which is what a cell is.
+test "mixed cells are written as text" (fn t ->
+  t.eq "web,8080" (CSV.stringify [["web", "%{8080}"]]))

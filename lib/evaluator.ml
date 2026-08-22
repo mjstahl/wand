@@ -3695,7 +3695,98 @@ let () = decode_registry := decode_builtins
 let () = derive_decoder := decoder_value
 let () = derive_encoder := encoder_value
 
-let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins @ stream_builtins
+(* Any wand value as TOML. TOML has no way to write a bare scalar, so the
+   top level must be a table -- a map or a record -- and anything else says
+   so rather than producing a document nothing can read.
+
+   An array in this representation is homogeneous: the library holds one
+   node per element type, so a list wand allows through its own `List 'a`
+   is already uniform, and an empty one is `NodeEmpty`. *)
+let rec toml_of_value (v : value) : Toml.Types.value =
+  match v with
+  | VInt n    -> Toml.Types.TInt n
+  | VFloat f  -> Toml.Types.TFloat f
+  | VString s -> Toml.Types.TString s
+  | VBool b   -> Toml.Types.TBool b
+  | VPath s | VDuration s | VURL s | VSize s | VVersion s
+  | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> Toml.Types.TString s
+  | VPort n -> Toml.Types.TInt n
+  | VConstr ("Some", [x]) -> toml_of_value x
+  | VList vs -> Toml.Types.TArray (toml_array vs)
+  | VMap kvs -> Toml.Types.TTable (toml_table kvs)
+  | VRecord kvs -> Toml.Types.TTable (toml_table kvs)
+  | VConstr (ctor, vals) ->
+    (match Hashtbl.find_opt constr_fields ctor with
+     | Some names when List.length names = List.length vals ->
+       let pairs =
+         List.concat (List.map2 (fun n v ->
+           match n, v with
+           | Some _, VConstr ("None", []) -> []   (* absent, not empty *)
+           | Some name, v -> [(name, v)]
+           | None, _ -> []) names vals)
+       in
+       Toml.Types.TTable (toml_table pairs)
+     | _ ->
+       raise (EvalError (Printf.sprintf
+         "cannot write '%s' as TOML: it has no named fields" ctor)))
+  | _ -> raise (EvalError "cannot write this value as TOML")
+
+and toml_table kvs =
+  List.fold_left (fun tbl (k, v) ->
+    (* A key that is absent is left out rather than written empty: TOML has
+       no null, so the two would not read back the same. *)
+    match v with
+    | VConstr ("None", []) -> tbl
+    | _ -> Toml.Types.Table.add (Toml.Min.key k) (toml_of_value v) tbl)
+    Toml.Types.Table.empty kvs
+
+and toml_array vs =
+  match List.map toml_of_value vs with
+  | [] -> Toml.Types.NodeEmpty
+  | Toml.Types.TInt _ :: _ as ts ->
+    Toml.Types.NodeInt (List.map (function Toml.Types.TInt n -> n | _ -> 0) ts)
+  | Toml.Types.TFloat _ :: _ as ts ->
+    Toml.Types.NodeFloat (List.map (function Toml.Types.TFloat f -> f | _ -> 0.) ts)
+  | Toml.Types.TBool _ :: _ as ts ->
+    Toml.Types.NodeBool (List.map (function Toml.Types.TBool b -> b | _ -> false) ts)
+  | Toml.Types.TString _ :: _ as ts ->
+    Toml.Types.NodeString (List.map (function Toml.Types.TString s -> s | _ -> "") ts)
+  | Toml.Types.TTable _ :: _ as ts ->
+    Toml.Types.NodeTable (List.map (function Toml.Types.TTable t -> t | _ -> Toml.Types.Table.empty) ts)
+  | Toml.Types.TArray _ :: _ as ts ->
+    Toml.Types.NodeArray (List.map (function Toml.Types.TArray a -> a | _ -> Toml.Types.NodeEmpty) ts)
+  | _ -> raise (EvalError "cannot write this list as a TOML array")
+
+(* The top of a TOML document is a table, so a scalar is refused here rather
+   than written into something no parser would accept back. *)
+let toml_document v =
+  match toml_of_value v with
+  | Toml.Types.TTable _ as t -> t
+  | _ ->
+    raise (EvalError
+      "a TOML document is a table: write a map or a record, not a bare value")
+
+(* Any wand value as JSON, in one call, so a structure does not have to be
+   converted a piece at a time. `json_of_value` already walks numbers, text,
+   every domain type, lists, maps, options and records; what it cannot write
+   is a function, a resource or a stream, and that is an `Error` rather than
+   a raise. Registered here because it is defined after the table above. *)
+let serialise_builtins : env = [
+  ("json_of", VBuiltin (fun v ->
+    match json_of_value v with
+    | j -> VConstr ("Ok", [VJson j])
+    | exception EvalError m -> VConstr ("Error", [VString m])));
+  ("json_of_exn", VBuiltin (fun v -> VJson (json_of_value v)));
+  ("toml_of", VBuiltin (fun v ->
+    match toml_document v with
+    | t -> VConstr ("Ok", [VToml t])
+    | exception EvalError m -> VConstr ("Error", [VString m])));
+  ("toml_of_exn", VBuiltin (fun v -> VToml (toml_document v)));
+]
+
+let stdlib_eval_env =
+  stdlib_eval_env @ map_builtins @ decode_builtins @ stream_builtins
+  @ serialise_builtins
 
 (* Every function a file calls comes from a module it imported. These two
    are constructors of a built-in type, so there is no module to import

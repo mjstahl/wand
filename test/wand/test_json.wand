@@ -3,6 +3,7 @@ uses {FS.Read, FS.Write}
 let {test} = import Test
 import Decode
 import JSON
+import String
 import List
 import Map
 import Path
@@ -254,3 +255,24 @@ test "a document that names a key twice reads the later one, whichever way it is
     via_object,
     JSON.decode (Decode.field "a" Decode.int) doc
   ))
+
+-- `of` writes a whole structure, so nothing has to be converted a piece at
+-- a time. The `of_*` builders above take one converted value each.
+test "of a list of ints" (fn t -> t.eq "[1,2,3]" (JSON.stringify (JSON.of! [1, 2, 3])))
+test "of a list of strings" (fn t ->
+  t.eq `["a","b"]` (JSON.stringify (JSON.of! ["a", "b"])))
+test "of a map" (fn t -> t.eq `{"a":1,"b":2}` (JSON.stringify (JSON.of! {a = 1, b = 2})))
+test "of a nested structure" (fn t ->
+  t.eq `{"tags":["a","b"]}` (JSON.stringify (JSON.of! {tags = ["a", "b"]})))
+test "of a domain value" (fn t ->
+  t.eq `["2024-01-15"]` (JSON.stringify (JSON.of! [2024-01-15])))
+test "of an empty list" (fn t -> t.eq "[]" (JSON.stringify (JSON.of! [])))
+-- What cannot be written is a value that holds code.
+test "of a function is an Error" (fn t ->
+  match JSON.of (fn x -> x) with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "cannot encode" why))
+test "and the raising form raises" (fn t -> t.raises (fn () -> JSON.of! (fn x -> x)))
+-- A JSON value passes through, so a structure may hold both.
+test "of a JSON value is itself" (fn t ->
+  t.eq "1" (JSON.stringify (JSON.of! (JSON.of_int 1))))

@@ -3,6 +3,7 @@ uses {FS.Read, FS.Write}
 let {test} = import Test
 import TOML
 import List
+import String
 import Map
 import Path
 import FS
@@ -177,4 +178,24 @@ test "read_file missing file returns Error" (fn t ->
     (match TOML.read_file (Path.of_string "/nonexistent/wand_missing.toml") with
     | Ok _ -> "ok"
     | Error _ -> "error"
+    ))
+
+-- `of` is what builds a TOML document; before it, a value could only be
+-- re-printed after being parsed.
+test "of a map" (fn t -> t.eq "a = 1\nb = 2\n" (TOML.stringify (TOML.of! {a = 1, b = 2})))
+test "of a list" (fn t ->
+  t.eq `tags = ["a", "b"]` (String.trim (TOML.stringify (TOML.of! {tags = ["a", "b"]}))))
+test "a document is a table" (fn t ->
+  match TOML.of 5 with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "is a table" why))
+test "a function cannot be written" (fn t ->
+  match TOML.of {f = fn x -> x} with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "cannot write" why))
+test "it round trips" (fn t ->
+  t.eq
+    (Ok 8080)
+    (TOML.get_int
+      (TOML.field! "port" (TOML.parse! (TOML.stringify (TOML.of! {port = 8080}))))
     ))

@@ -25,6 +25,14 @@ let read_file path = try read_file! path
 let null = json_null
 
 -- Construct JSON values from wand primitives.
+-- Any value as JSON, in one call: a list, a map, a record, a domain value,
+-- or a structure of them. What cannot be written is a function, a resource
+-- or a stream, and that is the `Error`.
+let of v = json_of v
+
+-- Any value as JSON. Raises on what cannot be written.
+let of! v = json_of_exn v
+
 let of_bool b = json_of_bool b
 let of_int n = json_of_int n
 let of_float f = json_of_float f
