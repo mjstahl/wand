@@ -445,7 +445,7 @@ let test_domain_literals () =
      by the lexer, and `test_domain_tokens.ml` holds that. *)
   expr_is "date" "2024-01-15" "DateTime";
   expr_is "duration" "5min" "Duration";
-  expr_is "url" "https://example.com" "Url";
+  expr_is "url" "https://example.com" "URL";
   expr_is "ipv4" "192.168.1.1" "IPv4";
   expr_is "cidr" "10.0.0.0/24" "CIDR";
   expr_is "port" ":8080" "Port";

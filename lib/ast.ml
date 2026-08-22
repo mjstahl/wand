@@ -34,7 +34,7 @@ type pat =
   | Path     of string
   | DateTime of string
   | Duration of string
-  | Url      of string
+  | URL      of string
   | IPv4     of string
   | CIDR     of string
   | Port     of int
@@ -68,7 +68,7 @@ type expr =
   | Glob     of string
   | DateTime of string
   | Duration of string
-  | Url      of string
+  | URL      of string
   | IPv4     of string
   | CIDR     of string
   | Port     of int
@@ -149,7 +149,7 @@ let rec show_pat : pat -> string = function
   | Path s     -> Printf.sprintf "path:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s
   | Duration s -> Printf.sprintf "dur:%s" s
-  | Url s      -> Printf.sprintf "url:%s" s
+  | URL s      -> Printf.sprintf "url:%s" s
   | IPv4 s     -> Printf.sprintf "ipv4:%s" s
   | CIDR s     -> Printf.sprintf "cidr:%s" s
   | Port n     -> Printf.sprintf "port:%d" n
@@ -179,7 +179,7 @@ let rec show : expr -> string = function
   | Glob s     -> Printf.sprintf "glob:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s
   | Duration s -> Printf.sprintf "dur:%s" s
-  | Url s      -> Printf.sprintf "url:%s" s
+  | URL s      -> Printf.sprintf "url:%s" s
   | IPv4 s     -> Printf.sprintf "ipv4:%s" s
   | CIDR s     -> Printf.sprintf "cidr:%s" s
   | Port n     -> Printf.sprintf "port:%d" n

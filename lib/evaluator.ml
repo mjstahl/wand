@@ -67,7 +67,7 @@ type value =
   | VGlob     of string
   | VDateTime of string
   | VDuration of string
-  | VUrl      of string
+  | VURL      of string
   | VIPv4     of string
   | VCIDR     of string
   | VPort     of int
@@ -267,7 +267,7 @@ let rec show_value = function
      formatter's business rather than this one's. *)
   | VDateTime s -> datetime_of_epoch (datetime_epoch s)
   | VDuration s -> s
-  | VUrl s      -> s
+  | VURL s      -> s
   | VIPv4 s     -> s
   | VCIDR s     -> s
   | VPort n     -> Printf.sprintf ":%d" n
@@ -907,7 +907,7 @@ let rec eval (env : env) (e : expr) : value =
   | Glob s     -> VGlob s
   | DateTime s -> VDateTime s
   | Duration s -> VDuration s
-  | Url s      -> VUrl s
+  | URL s      -> VURL s
   | IPv4 s     -> VIPv4 s
   | CIDR s     -> VCIDR s
   | Port n     -> VPort n
@@ -2324,7 +2324,7 @@ let stdlib_eval_env : env = [
     | VString s -> VPath s
     | _ -> raise (EvalError "str_to_path: expected String")));
   ("str_to_url", VBuiltin (function
-    | VString s -> to_domain "Url" (function Token.Url v -> Some (VUrl v) | _ -> None) s
+    | VString s -> to_domain "URL" (function Token.URL v -> Some (VURL v) | _ -> None) s
     | _ -> raise (EvalError "str_to_url: expected String")));
   ("str_to_ipv4", VBuiltin (function
     | VString s -> to_domain "IPv4" (function Token.IPv4 v -> Some (VIPv4 v) | _ -> None) s
@@ -3181,7 +3181,7 @@ let rec decoder_of_type_expr venv (te : type_expr) :
     | "Bool"     -> scalar_decoder "decode_bool"
     | "Path"     -> scalar_decoder "decode_path"
     | "Duration" -> scalar_decoder "decode_duration"
-    | "Url"      -> scalar_decoder "decode_url"
+    | "URL"      -> scalar_decoder "decode_url"
     | "Size"     -> scalar_decoder "decode_size"
     | "Version"  -> scalar_decoder "decode_version"
     | "Date"     -> scalar_decoder "decode_date"
@@ -3344,7 +3344,7 @@ and json_of_value (v : value) : Yojson.Basic.t =
   | VString s -> `String s
   | VBool b   -> `Bool b
   | VUnit     -> `Null
-  | VPath s | VDuration s | VUrl s | VSize s | VVersion s
+  | VPath s | VDuration s | VURL s | VSize s | VVersion s
   | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> `String s
   (* A port reads back from either spelling, so it goes out as the number a
      document would have held. *)
@@ -3598,8 +3598,8 @@ let decode_builtins : env = [
     match j with `String s -> Ok (VPath s) | _ -> expected "Path" path j));
   ("decode_duration", VDecoder (decode_lexed "Duration"
     (function Token.Duration v -> Some (VDuration v) | _ -> None)));
-  ("decode_url", VDecoder (decode_lexed "Url"
-    (function Token.Url v -> Some (VUrl v) | _ -> None)));
+  ("decode_url", VDecoder (decode_lexed "URL"
+    (function Token.URL v -> Some (VURL v) | _ -> None)));
   ("decode_size", VDecoder (decode_lexed "Size"
     (function Token.Size v -> Some (VSize v) | _ -> None)));
   ("decode_version", VDecoder (decode_lexed "Version"

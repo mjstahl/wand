@@ -326,7 +326,7 @@ let read_url s scheme =
      && not (List.mem (peek s) [' '; '\t'; '\n'; '\r'; ')'; ']'; '}'; ',']) do
     Buffer.add_char buf (advance s)
   done;
-  Url (Buffer.contents buf)
+  URL (Buffer.contents buf)
 
 (* ── Size units ─────────────────────────────────────────────────────────── *)
 

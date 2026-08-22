@@ -253,7 +253,7 @@ let rec emit_pat (p : pat) : string = match p with
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s | DateTime s | Duration s
-  | Url s | CIDR s | Version s | Size s | IPv4 s -> s
+  | URL s | CIDR s | Version s | Size s | IPv4 s -> s
   | Port n     -> ":" ^ string_of_int n
   | PVar x     -> x
   | Wild       -> "_"
@@ -505,7 +505,7 @@ and emit_expr_inner ?col indent e =
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s | Glob s | DateTime s | Duration s
-  | Url s | CIDR s | Version s | Size s | IPv4 s -> s
+  | URL s | CIDR s | Version s | Size s | IPv4 s -> s
   | Port n     -> ":" ^ string_of_int n
   | Var x      -> x
   | Constr x   -> x

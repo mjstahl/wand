@@ -196,7 +196,7 @@ import Decode
 import Env
 import IO
 
-type Cmd = Serve Port | Fetch Url
+type Cmd = Serve Port | Fetch URL
 
 let cmd = (Decode.and_then
   (fn mode -> match mode with

@@ -190,7 +190,7 @@ let test_domain_lits () =
   e "path"     "/etc/foo"             (Path "/etc/foo");
   e "date"     "2024-01-15"           (DateTime "2024-01-15");
   e "duration" "5min"                 (Duration "5min");
-  e "url"      "https://example.com"  (Url "https://example.com");
+  e "url"      "https://example.com"  (URL "https://example.com");
   e "ipv4"     "192.168.1.1"          (IPv4 "192.168.1.1");
   e "size"     "10MB"                 (Size "10MB")
 

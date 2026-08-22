@@ -82,10 +82,10 @@ let test_durations () =
 (* ── URLs ───────────────────────────────────────────────────────────────── *)
 
 let test_urls () =
-  check "https bare"   "https://example.com"           [Url "https://example.com"];
-  check "http"         "http://localhost:8080"          [Url "http://localhost:8080"];
-  check "with path"    "https://example.com/api/v1"    [Url "https://example.com/api/v1"];
-  check "with query"   "https://example.com/s?q=foo"   [Url "https://example.com/s?q=foo"]
+  check "https bare"   "https://example.com"           [URL "https://example.com"];
+  check "http"         "http://localhost:8080"          [URL "http://localhost:8080"];
+  check "with path"    "https://example.com/api/v1"    [URL "https://example.com/api/v1"];
+  check "with query"   "https://example.com/s?q=foo"   [URL "https://example.com/s?q=foo"]
 
 (* ── IPv4 ───────────────────────────────────────────────────────────────── *)
 

@@ -167,7 +167,7 @@ Values are written directly; the shape carries the type:
 | `30s`, `5min`, `2h` | Duration |
 | `100MB`, `4KB` | Size |
 | `2024-01-15T14:30:00Z`, `2024-01-15` | DateTime — the bare day is that day at midnight UTC |
-| `https://example.com` | Url |
+| `https://example.com` | URL |
 | `192.168.1.1`, `10.0.0.0/8` | IPv4, CIDR |
 | `:8080` | Port |
 | `1.2.3` | Version |

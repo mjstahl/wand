@@ -26,7 +26,7 @@ type t =
   | Glob of string
   | DateTime of string
   | Duration of string
-  | Url of string
+  | URL of string
   | IPv4 of string
   | CIDR of string
   | Port of int
@@ -144,7 +144,7 @@ let pp ppf tok =
     | Glob s     -> Printf.sprintf "Glob(%s)" s
     | DateTime s -> Printf.sprintf "DateTime(%s)" s
     | Duration s -> Printf.sprintf "Duration(%s)" s
-    | Url s      -> Printf.sprintf "Url(%s)" s
+    | URL s      -> Printf.sprintf "URL(%s)" s
     | IPv4 s     -> Printf.sprintf "IPv4(%s)" s
     | CIDR s     -> Printf.sprintf "CIDR(%s)" s
     | Port n     -> Printf.sprintf "Port(%d)" n

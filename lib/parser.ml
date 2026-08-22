@@ -244,7 +244,7 @@ let lbp = function
 let is_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.Bool _
   | Token.Path _ | Token.Glob _ | Token.DateTime _
-  | Token.Duration _ | Token.Url _ | Token.IPv4 _ | Token.CIDR _
+  | Token.Duration _ | Token.URL _ | Token.IPv4 _ | Token.CIDR _
   | Token.Port _ | Token.Version _ | Token.Size _
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket | Token.LBrace
@@ -287,7 +287,7 @@ let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
 
 let builtin_types = [
   "Int"; "Float"; "String"; "Bool"; "Unit"; "Path";
-  "DateTime"; "Duration"; "Url";
+  "DateTime"; "Duration"; "URL";
   "IPv4"; "CIDR"; "Port"; "Version"; "Size"
 ]
 
@@ -699,7 +699,7 @@ and atom_base_ s =
   | Token.Glob g     -> Glob g
   | Token.DateTime d -> DateTime d
   | Token.Duration d -> Duration d
-  | Token.Url u      -> Url u
+  | Token.URL u      -> URL u
   | Token.IPv4 a     -> IPv4 a
   | Token.CIDR c     -> CIDR c
   | Token.Port n     -> Port n

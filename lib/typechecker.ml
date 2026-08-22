@@ -17,7 +17,7 @@ let stdlib_module_names =
 type typ =
   | TInt | TFloat | TString | TBool | TUnit
   | TPath | TGlob | TDateTime | TDuration
-  | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
+  | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TVar    of tv
   | TFun    of typ * typ * Effect_set.t  (* arg, result, effects of calling *)
   | TTuple  of typ list
@@ -447,7 +447,7 @@ let string_of_typ t =
     | TBool     -> "Bool"     | TUnit     -> "Unit"
     | TPath     -> "Path"     | TGlob     -> "Glob"
     | TDateTime -> "DateTime" | TDuration -> "Duration"
-    | TUrl      -> "Url"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
+    | TURL      -> "URL"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
     | TRegex    -> "Regex"
     | TJson     -> "JSON"
@@ -582,7 +582,7 @@ let rec unify_ t1 t2 =
   | TBool,     TBool     | TUnit,     TUnit
   | TPath,     TPath     | TGlob,     TGlob
   | TDateTime, TDateTime | TDuration, TDuration
-  | TUrl,      TUrl      | TIPv4,     TIPv4     | TCIDR,    TCIDR
+  | TURL,      TURL      | TIPv4,     TIPv4     | TCIDR,    TCIDR
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
   | TRegex,    TRegex    -> ()
   | TJson,     TJson     -> ()
@@ -967,12 +967,13 @@ let known_type_names : string list option ref = ref None
 
 (* The names `type_of_te_bound` resolves without consulting a file: the
    primitives, and the four that only ever appear applied to an argument. *)
-let builtin_type_name = function
-  | "Int" | "Float" | "String" | "Bool" | "Unit" | "Path" | "Glob"
-  | "DateTime" | "Duration" | "Url" | "IPv4" | "CIDR"
-  | "Port" | "Version" | "Size" | "JSON" | "TOML"
-  | "List" | "Map" | "Result" | "Decoder" -> true
-  | _ -> false
+let builtin_type_names =
+  [ "Int"; "Float"; "String"; "Bool"; "Unit"; "Path"; "Glob";
+    "DateTime"; "Duration"; "URL"; "IPv4"; "CIDR";
+    "Port"; "Version"; "Size"; "JSON"; "TOML";
+    "List"; "Map"; "Result"; "Decoder" ]
+
+let builtin_type_name n = List.mem n builtin_type_names
 
 let with_known_type_names names f =
   let saved = !known_type_names in
@@ -1034,7 +1035,7 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | "String"   -> TString   | "Bool"     -> TBool
        | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
        | "DateTime" -> TDateTime | "Duration" -> TDuration
-       | "Url"      -> TUrl      | "IPv4"     -> TIPv4
+       | "URL"      -> TURL      | "IPv4"     -> TIPv4
        | "CIDR"     -> TCIDR     | "Port"     -> TPort
        | "Version"  -> TVersion  | "Size"     -> TSize
        | "JSON"     -> TJson
@@ -1043,7 +1044,7 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
          (match !known_type_names with
           | Some known when not (builtin_type_name n || List.mem n known) ->
             raise (TypeError (Printf.sprintf "unknown type '%s'%s"
-              n (Util.hint n known)))
+              n (Util.hint n (known @ builtin_type_names))))
           | _ -> TName n))
     | TEVar name ->
       (match Hashtbl.find_opt vars name with
@@ -1222,7 +1223,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
 let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) result =
   match te with
   | TEName ("Int" | "Float" | "String" | "Bool" | "Path" | "Glob" | "Duration"
-           | "Url" | "Size" | "Version" | "Date" | "Time" | "DateTime"
+           | "URL" | "Size" | "Version" | "Date" | "Time" | "DateTime"
            | "IPv4" | "CIDR" | "Port") -> Ok ()
   | TEName tname ->
     if List.mem tname seen then Ok ()   (* recursive: read when it is reached *)
@@ -1380,7 +1381,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | Path _     -> unify_expected ~expected:t ~got:TPath;     env
   | DateTime _ -> unify_expected ~expected:t ~got:TDateTime; env
   | Duration _ -> unify_expected ~expected:t ~got:TDuration; env
-  | Url _      -> unify_expected ~expected:t ~got:TUrl;      env
+  | URL _      -> unify_expected ~expected:t ~got:TURL;      env
   | IPv4 _     -> unify_expected ~expected:t ~got:TIPv4;     env
   | CIDR _     -> unify_expected ~expected:t ~got:TCIDR;     env
   | Port _     -> unify_expected ~expected:t ~got:TPort;     env
@@ -1579,7 +1580,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
      | None -> [])
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
-  | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
+  | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TRegex | TJson | TToml | TFun _ | TResource _ | TStream _
   | TDecoder _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
@@ -1589,7 +1590,7 @@ let is_infinite_domain t =
   | TApp _ when app_head_name t <> None -> false
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
-  | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
+  | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TStream _
   | TDecoder _ -> true
   | _ -> false
@@ -1727,7 +1728,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Glob _     -> TGlob
   | DateTime _ -> TDateTime
   | Duration _ -> TDuration
-  | Url _      -> TUrl
+  | URL _      -> TURL
   | IPv4 _     -> TIPv4
   | CIDR _     -> TCIDR
   | Port _     -> TPort
@@ -2543,7 +2544,7 @@ let stdlib_type_env : env = [
   ("str_to_float",     generalize [] ((TString @-> TResult (TString, TFloat))));
   ("str_to_bool",      generalize [] ((TString @-> TResult (TString, TBool))));
   ("str_to_path",      generalize [] ((TString @-> TPath)));
-  ("str_to_url",       generalize [] ((TString @-> TResult (TString, TUrl))));
+  ("str_to_url",       generalize [] ((TString @-> TResult (TString, TURL))));
   ("str_to_ipv4",      generalize [] ((TString @-> TResult (TString, TIPv4))));
   ("str_to_cidr",      generalize [] ((TString @-> TResult (TString, TCIDR))));
   ("port_to_int",      generalize [] ((TPort @-> TInt)));
@@ -2743,7 +2744,7 @@ let stdlib_type_env : env = [
   ("decode_bool",     Mono (TDecoder TBool));
   ("decode_path",     Mono (TDecoder TPath));
   ("decode_duration", Mono (TDecoder TDuration));
-  ("decode_url",      Mono (TDecoder TUrl));
+  ("decode_url",      Mono (TDecoder TURL));
   ("decode_size",     Mono (TDecoder TSize));
   ("decode_version",  Mono (TDecoder TVersion));
   ("decode_datetime", Mono (TDecoder TDateTime));
@@ -3222,7 +3223,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
               in
               raise (TypeError (Printf.sprintf
                 "unknown type '%s' in %s%s%s"
-                n where decl (Util.hint n known))))
+                n where decl (Util.hint n (known @ builtin_type_names)))))
             (te_names te))
           c.fields)
         ctors

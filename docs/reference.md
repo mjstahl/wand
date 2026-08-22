@@ -188,7 +188,7 @@ number below a word. So
 the order above rather than with the order of their text.
 
 Not ordered: `Path` and `Glob`, because text order reads as tree order and
-is not; `Url`, which has no natural one; `CIDR`, because two networks that
+is not; `URL`, which has no natural one; `CIDR`, because two networks that
 overlap are neither above nor below; `Regex`; `Bool`; and the containers.
 
 [semver]: https://semver.org/spec/v2.0.0.html
@@ -283,7 +283,7 @@ you gave where a `Duration` belongs.
 | `Glob` | `*.wand` `./**/*.ml` `**.wand` |
 | `DateTime` | `2024-01-15T14:30:00Z` `2024-01-15T09:00:00+05:30` `2024-01-15` |
 | `Duration` | `5min` `1h30m` `2d` `500ms` `1w` |
-| `Url` | `https://example.com` `http://localhost:8080/api` |
+| `URL` | `https://example.com` `http://localhost:8080/api` |
 | `IPv4` | `192.168.1.1` `10.0.0.1` |
 | `CIDR` | `192.168.0.0/24` `10.0.0.0/8` |
 | `Port` | `:80` `:8080` `:443` — 0 to 65535; outside that is a lex error naming the rule |
@@ -2473,7 +2473,7 @@ to_int       : String -> Result String Int
 to_float     : String -> Result String Float
 to_bool      : String -> Result String Bool
 to_path      : String -> Path
-to_url       : String -> Result String Url
+to_url       : String -> Result String URL
 to_ipv4      : String -> Result String IPv4
 to_cidr      : String -> Result String CIDR
 to_port      : String -> Result String Port
@@ -3266,7 +3266,7 @@ fail     : String -> Decoder 'a
 one_of   : List Decoder 'a -> Decoder 'a
 path     : Decoder Path
 duration : Decoder Duration
-url      : Decoder Url
+url      : Decoder URL
 size     : Decoder Size
 version  : Decoder Version
 
