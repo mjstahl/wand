@@ -55,6 +55,13 @@ deadline fires. The wait is real, so a deadline too long to wait for stays
 untestable; firing a virtual one would mean scheduling raced thunks as
 fibers in one domain.
 
+**`Test.with_shell` does not see `$?()`.** It reads `Shell!run`, and
+`$?(cmd)` performs `Shell!capture`, so a mock written for a script that
+inspects an exit code stands and does nothing. `Test.shell_calls` is the
+same. Both scripts that use `$?()` — `ci-gate.wand` and
+`wait-for-port.wand` — write a handler for `Shell!capture` by hand, and
+the second one wrote it because the first had to.
+
 **A killed command may leave children.** wand signals what it started. So
 `Shell.timeout 1s (fn () -> $(sh -c "sleep 30"))` kills the `sh` and leaves
 the `sleep`, and wand stops waiting on it rather than waiting for a process

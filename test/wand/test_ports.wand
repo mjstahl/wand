@@ -1,5 +1,6 @@
 uses {Clock, Env, Shell(dune)}
 
+import Test
 let {group, test, with_clock} = import Test
 let {busiest, client} = import ../../examples/ports/log-top-talkers
 let {over, usage} = import ../../examples/ports/disk-threshold
@@ -10,6 +11,7 @@ let {count_into, share, status} = import ../../examples/ports/error-rate
 let {blockers} = import ../../examples/ports/release-check
 let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
 let {attempt, read} = import ../../examples/ports/http-retry
+let {answering?, wait_for} = import ../../examples/ports/wait-for-port
 import Env
 import Float
 import List
@@ -64,6 +66,12 @@ group "normalize-names" (fn () -> [
 
 (* The effectful half is testable too: a case for `Shell!capture` answers
    the three commands, so the gate can be run with any verdict. *)
+(* The command a thunk would run, without running it. *)
+let command_of thunk =
+  handle thunk () with
+  | Shell!capture cmd _ -> cmd
+  | return _ -> ""
+
 let with_codes codes thunk =
   handle thunk () with
   | Shell!capture cmd k -> (k
@@ -206,4 +214,34 @@ group "http-retry" (fn () -> [
     match read `{"status":"ok"}` with
     | Ok _ -> t.ok false
     | Error e -> t.ok (String.contains? "version" e))
+])
+
+(* The deadline is real, so the durations are short. It cannot be virtual:
+   a race runs only its first thunk while a handler is installed, so the
+   sleeper never runs and the deadline never fires. The probe is a thunk,
+   so no socket is opened here. *)
+group "wait-for-port" (fn () -> [
+  test "a probe that answers returns at once" (fn t ->
+    t.eq (Ok true) (wait_for 200ms 50ms (fn () -> true))),
+  test "and one that never does hits the deadline" (fn t ->
+    match wait_for 200ms 50ms (fn () -> false) with
+    | Ok _ -> t.ok false
+    | Error why -> t.ok (String.contains? "200ms" why)),
+  (* `nc -z` exits zero when the port answers. `Test.with_shell` reads
+     `Shell!run` and `$?()` performs `Shell!capture`, so this uses the
+     handler `ci-gate` needed for the same reason. *)
+  test "an open port is answering" (fn t ->
+    t.ok (with_codes Map.empty (fn () -> answering? "localhost" :8080))),
+  test "and a closed one is not" (fn t ->
+    t.eq
+      false
+      (with_codes
+        (Map.from_list [("nc -z 'localhost' '8080'", 1)])
+        (fn () -> answering? "localhost" :8080))),
+  (* The port goes in as a number and each splice is one argument, which is
+     what keeps a host with a space in it from becoming two. *)
+  test "the command as it is run" (fn t ->
+    t.eq
+      "nc -z 'localhost' '8080'"
+      (command_of (fn () -> answering? "localhost" :8080)))
 ])
