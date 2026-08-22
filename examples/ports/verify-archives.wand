@@ -1,0 +1,87 @@
+uses {FS.Read, IO, Proc, Shell(shasum)}
+
+import FS
+import IO
+import List
+import Par
+import Path
+import Proc
+import Shell
+import String
+
+(* Check every archive's checksum at once, and say which ones failed.
+
+   bash:  find dist -name '*.sha256' -print0 | xargs -0 -P 8 -n1 shasum -c
+
+   `xargs` exits 123 when any invocation failed, so the script knows that
+   something did and not what. Finding out means running it again without
+   `-P`, one at a time, which is the run you did not want. Eight `shasum`
+   processes also write to the same terminal, so a failure can land in the
+   middle of another's line. `-print0` and `-0` are the pair that keeps a
+   filename with a space in it from becoming two arguments; leaving either
+   off is the folklore half of this pipeline.
+
+   `Par.map` answers a `Result` per item, in the order the items were
+   given, so which one failed is a value rather than a thing to go looking
+   for. Nothing is printed until every check is done.
+
+   What that orders is this script's report. A command still writes its own
+   stderr when it likes, so `shasum` complaining about a file that is not
+   there arrives mid-run. `$?()` would hold that too, at the cost of the
+   message when nothing is wrong with it. *)
+
+(* A `.sha256` file holds one line: the digest, then the name it was taken
+   from. The name is bare, so it is read against the directory the file
+   sits in rather than against wherever this runs. *)
+let stated file =
+  match FS.read_file file with
+  | Error why -> Error why
+  | Ok text -> (
+    match String.words text with
+    | [digest, name] -> Ok (digest, Path.join (Path.parent file) (Path.of_string name))
+    | _ -> Error "not one digest and one name"
+  )
+
+let taken! archive =
+  match String.words $(shasum -a 256 %{archive}) with
+  | [digest, _] -> Ok digest
+  | _ -> Error "shasum answered something else"
+
+let check! file =
+  match stated file with
+  | Error why -> Error why
+  | Ok (digest, archive) -> (
+    match taken! archive with
+    | Error why -> Error why
+    | Ok got -> Ok (got == digest)
+  )
+
+let verify! limit files = List.zip files (Par.map limit check! files)
+
+(* Two layers of `Result`: `Par.map` answers one per item for the work that
+   raised, and `check!` answers one for the archive that did not match. *)
+let failures checked =
+  checked
+    |> List.filter_map (fn (file, outcome) ->
+      match outcome with
+      | Ok (Ok true) -> None
+      | Ok (Ok false) -> Some (file, "digest does not match")
+      | Ok (Error why) -> Some (file, why)
+      | Error why -> Some (file, why))
+
+let report! limit dir =
+  (
+    let files = FS.glob_in *.sha256 dir;
+    let bad = failures (verify! limit files);
+    println "%{List.length files} checked, %{List.length bad} failed";
+    match bad with
+    | [] -> ()
+    | _ -> (
+      bad |> List.each (fn (file, why) -> IO.println_err "  %{Path.to_string file}: %{why}");
+      Proc.exit 1
+    )
+  )
+
+let main! () = report! 4 ./dist
+
+main! ()
