@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.36.0] - 2026-08-22
+
+### Added
+
+- `Clock.now` answers the current instant in UTC, and a `Duration` moves an
+  instant while two instants subtract to the length between them. Two
+  instants do not add, and a `Duration` does not subtract an instant: both
+  are type errors that name the form to write
+- `Clock.timed` runs a thunk and answers how long it took beside what it
+  returned. It reads a clock no correction can move, and time while the
+  machine is suspended counts
+- `Test.at` pins what `Clock.now` answers, so a test of "older than thirty
+  days" needs neither a real file nor a wait
+- `V-CLOCK1` names `Clock.timed` when a length of time is measured by
+  subtracting two readings of `Clock.now`, which a clock step spoils
+
+[0.36.0]: https://github.com/mjstahl/wand/releases/tag/v0.36.0
+
 ## [0.35.0] - 2026-08-22
 
 ### Changed

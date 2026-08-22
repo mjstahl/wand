@@ -1,19 +1,29 @@
-## 0.35.0 - 2026-08-22
+## 0.36.0 - 2026-08-22
 
-A race inside a handler is refused. Move the handler inside each thunk,
-where it stands for that branch and the race still runs:
+wand can read the clock.
 
-    Par.race [
-      fn () -> Test.with_shell mocks (fn () -> probe a),
-      fn () -> Test.with_shell mocks (fn () -> probe b)
-    ]
+    Clock.now () - FS.mtime! log > 30d     -- older than thirty days
+    Clock.now () + 1h                      -- an hour from now
 
-An effect cannot reach a handler on another domain, so the branches cannot
-run where they were written. The race answered with its first thunk and
-said nothing, so a test of racing code tested one branch and passed.
+`Clock.now` answers the current instant in UTC. A `Duration` moves an
+instant, and two instants subtract to the length between them. Two instants
+do not add, and a `Duration` does not subtract an instant.
 
-`--dry-run` and `--trace` still run a race, left-biased. Each reports what
-the work would do, and the collapse costs the report nothing.
+### Measuring how long work took
+
+    let (took, report) = Clock.timed (fn () -> build ())
+
+`Clock.timed` is the only way wand measures a length of time. It reads a
+clock that no correction can move, so it stays right across an NTP step.
+Time while the machine is suspended counts. `V-CLOCK1` names it when a
+length comes from subtracting two readings of `Clock.now`.
+
+### Testing it
+
+    Test.at 2026-03-01T00:00:00Z (fn () -> stale? log)
+
+Reading the clock is an effect, so a handler answers it. `Test.at` pins the
+instant, and a test of an age needs neither a real file nor a wait.
 
 ---
 
