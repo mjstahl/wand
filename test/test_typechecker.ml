@@ -620,6 +620,19 @@ let test_a_name_is_declared_once () =
   err_contains "a type declared twice"
     "type A = Foo\ntype A = Bar\nBar"
     "'A' is declared twice";
+  (* A builtin's name is taken too. This was accepted, and then field access
+     on the result answered "field access requires a named type, got Size",
+     which reads like nonsense: the name resolved to the builtin while the
+     constructor came from the declaration. *)
+  err_contains "over a builtin"
+    "type Size(a: Int)\nlet f (s: Size) = s.a\nf Size(a = 1)"
+    "'Size' is a built-in type";
+  err_contains "including a parameterised one"
+    "type List(a: Int)\nList(a = 1).a"
+    "'List' is a built-in type";
+  err_contains "and the message names the fix"
+    "type Path(a: Int)\nPath(a = 1).a"
+    "the declaration is the one to rename";
   (* The single-constructor shorthand names the type and its constructor the
      same on purpose, so the two namespaces do not collide. *)
   ok "a record names both the same" "type P(i: Int)\nP(i = 1).i" "1";

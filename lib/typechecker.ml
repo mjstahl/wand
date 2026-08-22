@@ -3239,6 +3239,15 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   let seen_ctors = Hashtbl.create 16 in
   List.iter (function
     | TLType (Variants (tname, _, ctors)) ->
+      (* A builtin's name is taken too. Declaring over one used to be
+         accepted, and then field access on the result answered "field
+         access requires a named type, got Size" -- which reads like
+         nonsense, because the name resolved to the builtin while the
+         constructor came from here. *)
+      if builtin_type_name tname then
+        raise (TypeError (Printf.sprintf
+          "'%s' is a built-in type, so it cannot be declared; the \
+           declaration is the one to rename" tname));
       if Hashtbl.mem seen_types tname then
         raise (TypeError (Printf.sprintf
           "'%s' is declared twice; a type is declared once, and the second \
