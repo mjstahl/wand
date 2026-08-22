@@ -9,9 +9,10 @@
   item a verbatim slice of the source, so `wand f` never looked at its code
   and `tools/check_fmt.wand` could not either — the better-commented a
   definition was, the less the formatter saw of it. A comment on its own
-  line is now written above the match arm, block statement or list element
-  it sits on, and the rest of the item is printed as usual. Ten corpus
-  files held items the formatter had never formatted
+  line is now written above the match arm, block statement, list element or
+  `let ... in` binding it sits on, and above the body of the definition
+  when it opens one; the rest of the item is printed as usual. Ten corpus
+  files held items the formatter had never formatted, and none now do
 - A comment that follows code on its line still pins its item. Lifting it
   onto a line of its own would point it at the line below, so the item is
   left exactly as written. Each comment is counted in the rendered item and

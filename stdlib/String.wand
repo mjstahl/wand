@@ -113,5 +113,5 @@ let words s =
   -- Splitting on a single space made every extra space its own empty word --
   -- `words "  a  b  "` came back with seven elements, five of them "" -- and
   -- a tab separated nothing at all.
-  let spaced = str_replace "\t" " " (str_replace "\r" " " (str_replace "\n" " " s))
-  in List.filter (fn w -> w != "") (str_split " " spaced)
+  let spaced = str_replace "\t" " " (str_replace "\r" " " (str_replace "\n" " " s)) in
+  List.filter (fn w -> w != "") (str_split " " spaced)

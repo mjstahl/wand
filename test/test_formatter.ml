@@ -770,6 +770,33 @@ let test_a_comment_inside_an_item () =
   | [h :: t] -> h + 1
 f [1, 2]|} "2"
 
+(* The two other places a comment sits inside a definition: at the very
+   start of the body, and between a `let ... in` and what reads it. Both
+   left the whole definition unformatted until they were reached. *)
+let test_a_comment_in_a_let_in_chain () =
+  fmt_eq "at the start of a definition's body"
+    {|let words s =
+  -- why it is done this way
+  let spaced = replace  s in
+  filter   spaced|}
+    {|let words s =
+  -- why it is done this way
+  let spaced = replace s in filter spaced|};
+  fmt_eq "between a binding and what reads it"
+    {|let f () =
+  let out = compute_something_here () in
+  -- why the next step is needed
+  let () = cleanup () in
+  out|}
+    {|let f () =
+  let out = compute_something_here () in
+  -- why the next step is needed
+  let () = cleanup () in out|};
+  assert_idempotent "a let-in chain with a comment is a fixed point"
+    {|let words s =
+  -- why it is done this way
+  let spaced = replace s in filter spaced|}
+
 (* A comment that follows code on its line is about that code. Lifting it
    onto a line of its own would point it at the line below instead, so the
    item stays exactly as written -- which is what every item with a comment
@@ -969,6 +996,8 @@ let () =
         test_a_trailing_comment_pins_its_item;
       Alcotest.test_case "a wrapping let-in arm body" `Quick
         test_a_wrapping_let_in_arm_body;
+      Alcotest.test_case "a comment in a let-in chain" `Quick
+        test_a_comment_in_a_let_in_chain;
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;

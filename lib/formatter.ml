@@ -64,6 +64,12 @@ let all_comments src tokens : comment_tok list =
    descends into it. *)
 let interior : comment_tok list ref = ref []
 
+(* Where the item being printed starts. A comment at the very top of a
+   definition's body has nothing before it to open a window against; the
+   item's own start is the bound, since `interior` holds only what is
+   inside this item. *)
+let item_start = ref 0
+
 (* Only a comment on a line of its own can be written above a construct. A
    trailing one stays unplaced, which sends its item to a verbatim slice
    rather than moving the note off the code it is about. *)
@@ -904,6 +910,23 @@ and emit_binop ?col indent op a b =
    the clause head and the real body to print after `=`. Printed after `=`
    instead, `: T` is ambiguous with the cons operator (same hazard as
    emit_let's own Annot case below), so it must move before it. *)
+(* A comment between a definition's `=` and the body it introduces -- the
+   first thing inside the definition. The item's start bounds it below, and
+   only `let name params =` lies in between. *)
+and body_lead e =
+  match loc_of e with
+  | Some l -> comments_between !item_start l.Token.offset
+  | None -> []
+
+and with_body_lead head indent e fallback =
+  match body_lead e with
+  | [] -> fallback ()
+  | cs ->
+    let inner = String.make (indent + 2) ' ' in
+    head ^ " =\n"
+    ^ String.concat "" (List.map (fun c -> inner ^ c.c_text ^ "\n") cs)
+    ^ inner ^ emit_expr (indent + 2) e
+
 and split_clause_annot body =
   match strip_located body with
   | Annot (te, real_body) -> (" : " ^ emit_type_expr te, real_body)
@@ -1051,6 +1074,18 @@ and emit_binding ?col indent p e1 =
 
 and emit_let ?col indent p e1 e2 =
   let col = match col with Some c -> c | None -> indent in
+  (* A comment between this binding and what reads it: after the value ends
+     and before the body begins. It is written above the body, on the lines
+     it already occupies. A binding that has one cannot be written on a
+     single line. *)
+  let ind0 = String.make indent ' ' in
+  let after_in =
+    match loc_of e1, loc_of e2 with
+    | Some a, Some b -> comments_between a.Token.end_offset b.Token.offset
+    | _ -> []
+  in
+  let commented = after_in <> [] in
+  let above = String.concat "" (List.map (fun c -> ind0 ^ c.c_text ^ "\n") after_in) in
   match e1 with
   | Fn (params, fbody) ->
     (* A *raw* (non-`Located`) `Fn` as a `let` RHS only ever comes from the
@@ -1065,9 +1100,9 @@ and emit_let ?col indent p e1 e2 =
        the group from the keyword's own column, so the block reads as one
        shape rather than a stack of unrelated lines. *)
     let ind = String.make indent ' ' in
+    let tail = bracket_if_wrapped_app e2 (emit_expr indent e2) in
     emit_fn_clauses ~col indent p params fbody
-    ^ "\n" ^ ind ^ "in "
-    ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
+    ^ "\n" ^ ind ^ (if commented then "in\n" ^ above ^ ind ^ tail else "in " ^ tail)
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
        be genuinely ambiguous: the parser's infix `:` in expression position
@@ -1080,10 +1115,10 @@ and emit_let ?col indent p e1 e2 =
     let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
-    if fits col oneline then oneline
+    if (not commented) && fits col oneline then oneline
     else
       let ind = String.make indent ' ' in
-      Printf.sprintf "%s = %s in\n%s%s" head bodys ind e2s
+      Printf.sprintf "%s = %s in\n%s%s%s" head bodys above ind e2s
   | _ ->
   let e1s = emit_expr indent e1 in
   (* A wrapped application after `in` needs its brackets for the same reason
@@ -1092,7 +1127,7 @@ and emit_let ?col indent p e1 e2 =
   let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
   let ind = String.make indent ' ' in
-  if fits col oneline then oneline
+  if (not commented) && fits col oneline then oneline
   else
     (* Splitting after `in` is the first thing to try, but the binding alone
        may still be too long -- and the value was rendered as though it began
@@ -1102,12 +1137,12 @@ and emit_let ?col indent p e1 e2 =
     if fits col bound then
       (* A bracketed tail after `in` opens on the same line, brace-style,
          like a bracketed value after `=`. *)
-      (if opens_a_bracket e2 then
+      (if opens_a_bracket e2 && not commented then
          bound ^ " " ^ emit_expr ~col:(col + String.length bound + 1) indent e2
-       else bound ^ "\n" ^ ind ^ e2s)
+       else bound ^ "\n" ^ above ^ ind ^ e2s)
     else
       emit_bound_value ~col indent ("let " ^ emit_pat p) e1
-      ^ "\n" ^ ind ^ "in\n" ^ ind ^ e2s
+      ^ "\n" ^ ind ^ "in\n" ^ above ^ ind ^ e2s
 
 (* The `let f ... and g ...` group on its own, without whatever reads it:
    the `in` form puts its body below, the block form puts a `;`. *)
@@ -1392,21 +1427,29 @@ let emit_top_item_pretty = function
     if fits 0 oneline then oneline
     else emit_bound_value ~col:0 0 head body
   | TLLet (name, [], e) ->
-    let body = emit_expr 0 e in
-    let oneline = Printf.sprintf "let %s = %s" name body in
-    if fits 0 oneline then oneline
-    else emit_bound_value ~col:0 0 ("let " ^ name) e
+    with_body_lead ("let " ^ name) 0 e (fun () ->
+      let body = emit_expr 0 e in
+      let oneline = Printf.sprintf "let %s = %s" name body in
+      if fits 0 oneline then oneline
+      else emit_bound_value ~col:0 0 ("let " ^ name) e)
   | TLLet (name, params, e) ->
     (match try_multi_equation params e with
      | Some clauses ->
        String.concat "\n" (List.map (fun (pats, body) ->
          emit_one_equation ("let " ^ name) pats body) clauses)
      | None ->
+       let lead = body_lead e in
        let (annot_s, e) = split_clause_annot e in
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
-       let oneline = head ^ " = " ^ emit_expr 0 e in
-       if fits 0 oneline then oneline
-       else emit_bound_value ~col:0 0 head e)
+       (match lead with
+        | [] ->
+          let oneline = head ^ " = " ^ emit_expr 0 e in
+          if fits 0 oneline then oneline
+          else emit_bound_value ~col:0 0 head e
+        | cs ->
+          head ^ " =\n"
+          ^ String.concat "" (List.map (fun c -> "  " ^ c.c_text ^ "\n") cs)
+          ^ "  " ^ emit_expr 2 e))
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
@@ -1503,8 +1546,9 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
       if mine = [] then Some (emit_top_item_pretty item)
       else begin
         interior := List.sort (fun a b -> compare a.c_offset b.c_offset) mine;
+        item_start := start_loc.offset;
         let text = emit_top_item_pretty item in
-        interior := [];
+        interior := []; item_start := 0;
         let ok =
           List.for_all (fun c ->
             let wanted = List.length (List.filter (fun d -> d.c_text = c.c_text) mine) in

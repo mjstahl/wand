@@ -82,8 +82,7 @@ test "a handler may decline to resume an operation performed in a release" (fn t
     | FS!delete _ _ -> "declined"
   in
   -- The delete never reached the disk, so the marker is still there.
-  let () = FS.delete! (marker "n") in
-  t.eq "declined" out)
+  let () = FS.delete! (marker "n") in t.eq "declined" out)
 
 -- Each bracket the unwinding passes through wraps the raise once more.
 test "and through two brackets" (fn t ->
