@@ -1533,6 +1533,39 @@ let looks_like_manifest s =
     is_manifest
   | _ -> false
 
+(* Documentation is a run of `--` lines directly above a definition, the way
+   a reader already writes it. Each line stands alone -- a comment after code
+   on the same line documents nothing -- the lines are consecutive, and the
+   last one sits on the line above the definition. A blank line between the
+   run and the definition separates them, which is how a file header stays a
+   file header. *)
+let doc_run_before s =
+  let n = Array.length s.tokens in
+  let j = ref s.pos in
+  while !j < n && is_skippable (fst s.tokens.(!j)) do incr j done;
+  if !j >= n then None
+  else begin
+    (* Standalone: nothing but the line's indentation before it, which the
+       lexer reports as a `Newline` immediately behind it. *)
+    let standalone i = i = 0 || (match fst s.tokens.(i - 1) with
+      | Token.Newline -> true | _ -> false) in
+    let line_of i = (snd s.tokens.(i)).Token.line in
+    let want = ref (line_of !j) in
+    let lines = ref [] in
+    let i = ref (!j - 1) in
+    let continue_ = ref true in
+    while !continue_ && !i >= 0 do
+      (match fst s.tokens.(!i) with
+       | Token.Newline -> decr i
+       | Token.LineComment text when line_of !i = !want - 1 && standalone !i ->
+         lines := String.trim text :: !lines;
+         want := line_of !i;
+         decr i
+       | _ -> continue_ := false)
+    done;
+    match !lines with [] -> None | ls -> Some (String.concat "\n" ls)
+  end
+
 let parse_program_generic ~on_item tokens =
   let s = make tokens in
   let items = ref [] in
@@ -1563,6 +1596,9 @@ let parse_program_generic ~on_item tokens =
   let previous_item = ref None in
   let continue_ = ref true in
   while !continue_ do
+    (match doc_run_before s with
+     | Some d -> pending_doc := Some d
+     | None -> ());
     let start_loc = peek_loc s in
     (match !previous_item with
      (* Only where an item is about to begin on a later line: the end of the

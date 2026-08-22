@@ -8,49 +8,49 @@ import String
 import Map
 import FS
 
-(* ── get ───────────────────────────────────────────────────────────────── *)
+-- ── get ─────────────────────────────────────────────────────────────────
 
 let () = Env.set "WAND_TEST_VAR" "hello"
 test "get existing" (fn t -> t.eq (Some "hello") (Env.get "WAND_TEST_VAR"))
 test "get missing returns None" (fn t -> Env.get "WAND_TEST_NONEXISTENT_XYZ" |> t.eq None)
 
-(* ── get! ──────────────────────────────────────────────────────────────── *)
+-- ── get! ────────────────────────────────────────────────────────────────
 
 let () = Env.set "WAND_TEST_VAR" "world"
 test "get! existing" (fn t -> t.eq "world" (Env.get! "WAND_TEST_VAR"))
 test "get! missing raises" (fn t ->
   t.raises (fn () -> Env.get! "WAND_TEST_NONEXISTENT_XYZ"))
 
-(* ── set ───────────────────────────────────────────────────────────────── *)
+-- ── set ─────────────────────────────────────────────────────────────────
 
 test "set then get" (fn t ->
   let () = Env.set "WAND_TEST_SET" "value" in t.eq (Some "value") (Env.get "WAND_TEST_SET"))
 
-(* ── clear ─────────────────────────────────────────────────────────────── *)
+-- ── clear ───────────────────────────────────────────────────────────────
 
 let () = Env.set "WAND_TEST_CLEAR" "before"
 test "clear empties value" (fn t ->
   let () = Env.clear "WAND_TEST_CLEAR" in t.eq (Some "") (Env.get "WAND_TEST_CLEAR"))
 
-(* ── all ───────────────────────────────────────────────────────────────── *)
+-- ── all ─────────────────────────────────────────────────────────────────
 
 let () = Env.set "WAND_TEST_ALL" "present"
 test "all contains set var" (fn t ->
   let pairs = Env.all () in t.ok (List.any (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
 
-(* ── args ──────────────────────────────────────────────────────────────── *)
+-- ── args ────────────────────────────────────────────────────────────────
 
 test "args returns list" (fn t -> t.ok (List.empty? (Env.args ()) == false || true))
 
-(* ── home ──────────────────────────────────────────────────────────────── *)
+-- ── home ────────────────────────────────────────────────────────────────
 
 test "home returns path" (fn t -> t.ok (Path.absolute? (Env.home ())))
 
-(* ── user ──────────────────────────────────────────────────────────────── *)
+-- ── user ────────────────────────────────────────────────────────────────
 
 test "user returns non-empty string" (fn t -> t.ok (String.length (Env.user ()) > 0))
 
-(* ── Env.read / Env.load ──────────────────────────────────────────────── *)
+-- ── Env.read / Env.load ────────────────────────────────────────────────
 
 test "basic key=value" (fn t ->
   with FS.temp_file "wand_env_rd_" ".env" as p ->

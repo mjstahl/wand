@@ -2,7 +2,7 @@ let {test} = import Test
 
 import List
 
-(* ── Literals ──────────────────────────────────────────────────────────── *)
+-- ── Literals ────────────────────────────────────────────────────────────
 
 test "int" (fn t -> t.eq 42 42)
 test "float" (fn t -> t.eq 3.14 3.14)
@@ -20,7 +20,7 @@ test "ipv4" (fn t -> t.eq "192.168.1.1" "%{192.168.1.1}")
 test "version" (fn t -> t.eq "1.2.3" "%{1.2.3}")
 test "size" (fn t -> t.eq "10MB" "%{10MB}")
 
-(* ── Sequencing with `;` inside parentheses ────────────────────────────── *)
+-- ── Sequencing with `;` inside parentheses ──────────────────────────────
 
 test "seq values the last statement" (fn t -> t.eq 3 (1; 2; 3))
 test "seq allows a trailing semicolon" (fn t -> t.eq 2 (1; 2))
@@ -28,7 +28,7 @@ test "seq in a function body" (fn t ->
   let f x = (x + 1; x * 2)
   in t.eq 6 (f 3))
 
-(* ── Arithmetic ────────────────────────────────────────────────────────── *)
+-- ── Arithmetic ──────────────────────────────────────────────────────────
 
 test "add" (fn t -> t.eq 3 (1 + 2))
 test "sub" (fn t -> t.eq 2 (5 - 3))
@@ -37,10 +37,10 @@ test "div" (fn t -> t.eq 5 (10 / 2))
 test "neg" (fn t -> t.eq (-7) (-7))
 test "prec" (fn t -> t.eq 14 (2 + 3 * 4))
 
-(* ── Overflow ──────────────────────────────────────────────────────────── *)
+-- ── Overflow ────────────────────────────────────────────────────────────
 
-(* Int is a machine word, so these have no representable result. Each used
-   to wrap silently and hand back a number that looked like an answer. *)
+-- Int is a machine word, so these have no representable result. Each used
+-- to wrap silently and hand back a number that looked like an answer.
 
 let max_int = 4611686018427387903
 let min_int = -4611686018427387903 - 1
@@ -51,8 +51,8 @@ test "mul overflows" (fn t -> t.raises (fn () -> max_int * 2))
 test "div overflows" (fn t -> t.raises (fn () -> min_int / -1))
 test "neg overflows" (fn t -> t.raises (fn () -> 0 - min_int))
 
-(* -1 * min_int wraps to min_int, and dividing that back by -1 wraps to
-   min_int again -- so checking the product by division alone misses it. *)
+-- -1 * min_int wraps to min_int, and dividing that back by -1 wraps to
+-- min_int again -- so checking the product by division alone misses it.
 test "mul overflows at -1" (fn t -> t.raises (fn () -> min_int * -1))
 
 test "arithmetic up to the boundary is unchanged" (fn t -> t.eq max_int (max_int - 1 + 1))
@@ -61,9 +61,9 @@ test "eq true" (fn t -> t.eq true (1 == 1))
 test "eq false" (fn t -> t.eq false (1 == 2))
 test "neq" (fn t -> t.eq true (1 != 2))
 
-(* Comparing a value that carries a function raises a catchable error rather
-   than a fatal OCaml exception -- `==` and `!=` typecheck for any type, so a
-   function-typed operand reaches the polymorphic comparison. *)
+-- Comparing a value that carries a function raises a catchable error rather
+-- than a fatal OCaml exception -- `==` and `!=` typecheck for any type, so a
+-- function-typed operand reaches the polymorphic comparison.
 test "eq of functions raises" (fn t -> t.raises (fn () -> println == println))
 test "neq of functions raises" (fn t -> t.raises (fn () -> println != println))
 test "sort of functions raises" (fn t -> t.raises (fn () -> List.sort [println, print]))
@@ -73,8 +73,8 @@ test "gt" (fn t -> t.eq true (3 > 2))
 test "lte" (fn t -> t.eq true (2 <= 2))
 test "gte" (fn t -> t.eq false (3 >= 4))
 
-(* Strings order lexicographically under all four operators -- `<=` and `>=`
-   once accepted only numbers while `<` and `>` took strings too. *)
+-- Strings order lexicographically under all four operators -- `<=` and `>=`
+-- once accepted only numbers while `<` and `>` took strings too.
 test "string lt" (fn t -> t.eq true ("apple" < "banana"))
 test "string lte" (fn t -> t.eq true ("apple" <= "apple"))
 test "string gte" (fn t -> t.eq false ("apple" >= "banana"))
@@ -86,14 +86,14 @@ test "or ff" (fn t -> t.eq false (false || false))
 test "not t" (fn t -> t.eq false (!true))
 test "not f" (fn t -> t.eq true (!false))
 
-(* ── If ────────────────────────────────────────────────────────────────── *)
+-- ── If ──────────────────────────────────────────────────────────────────
 
 test "true branch" (fn t -> t.eq 1 (if true then 1 else 0))
 test "false branch" (fn t -> t.eq 0 (if false then 1 else 0))
 test "nested" (fn t -> t.eq 2 (if true then if false then 1 else 2 else 3))
 test "cond expr" (fn t -> t.eq "yes" (if 1 == 1 then "yes" else "no"))
 
-(* ── Let ───────────────────────────────────────────────────────────────── *)
+-- ── Let ─────────────────────────────────────────────────────────────────
 
 test "simple" (fn t -> t.eq 42 (let x = 42 in x))
 test "arith" (fn t -> t.eq 15 (let x = 10 in x + 5))
@@ -101,7 +101,7 @@ test "shadow" (fn t -> t.eq 2 (let x = 1 in let x = 2 in x))
 test "wildcard" (fn t -> t.eq 99 (let _ = 1 in 99))
 test "tuple pat" (fn t -> t.eq 7 (let (a, b) = (3, 4) in a + b))
 
-(* ── Functions ─────────────────────────────────────────────────────────── *)
+-- ── Functions ───────────────────────────────────────────────────────────
 
 test "identity" (fn t -> t.eq 42 ((fn x -> x) 42))
 test "add one" (fn t -> t.eq 6 ((fn x -> x + 1) 5))
@@ -109,13 +109,13 @@ test "two args" (fn t -> t.eq 7 ((fn x -> fn y -> x + y) 3 4))
 test "wildcard fn" (fn t -> t.eq 99 ((fn _ -> 99) true))
 test "closure" (fn t -> t.eq 15 (let n = 10 in (fn x -> x + n) 5))
 
-(* ── Higher-order ──────────────────────────────────────────────────────── *)
+-- ── Higher-order ────────────────────────────────────────────────────────
 
 test "apply" (fn t -> let apply = fn f -> fn x -> f x in t.eq 10 (apply (fn x -> x * 2) 5))
 
 test "compose" (fn t -> let f = fn x -> x + 1 in let g = fn x -> x * 2 in t.eq 7 (f (g 3)))
 
-(* ── Match ─────────────────────────────────────────────────────────────── *)
+-- ── Match ───────────────────────────────────────────────────────────────
 
 test "first case" (fn t ->
   t.eq
@@ -157,27 +157,27 @@ test "guard fail" (fn t ->
     | _ -> false
     ))
 
-(* ── Tuples ────────────────────────────────────────────────────────────── *)
+-- ── Tuples ──────────────────────────────────────────────────────────────
 
 test "pair" (fn t -> t.eq (1, 2) (1, 2))
 test "triple" (fn t -> t.eq (1, 2, 3) (1, 2, 3))
 test "mixed" (fn t -> t.eq (1, true) (1, true))
 test "nested tuple" (fn t -> t.eq ((1, 2), 3) ((1, 2), 3))
 
-(* ── Lists ─────────────────────────────────────────────────────────────── *)
+-- ── Lists ───────────────────────────────────────────────────────────────
 
 test "empty" (fn t -> t.eq [] [])
 test "ints" (fn t -> t.eq [1, 2, 3] [1, 2, 3])
 test "strings" (fn t -> t.eq ["a", "b"] ["a", "b"])
 test "computed" (fn t -> t.eq [2, 4] [1 + 1, 2 + 2])
 
-(* ── Pipeline ──────────────────────────────────────────────────────────── *)
+-- ── Pipeline ────────────────────────────────────────────────────────────
 
 test "pipeline" (fn t -> t.eq 6 (5 |> (fn x -> x + 1)))
 test "double pipe" (fn t -> t.eq 12 (5 |> (fn x -> x + 1 |> (fn x -> x * 2))))
 test "with let" (fn t -> let double = fn x -> x * 2 in t.eq 6 (3 |> double))
 
-(* ── Recursive let ─────────────────────────────────────────────────────── *)
+-- ── Recursive let ───────────────────────────────────────────────────────
 
 test "factorial" (fn t ->
   let fact n = if n <= 0 then 1 else n * fact (n - 1)

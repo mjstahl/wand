@@ -9,10 +9,10 @@ import Resource
 import String
 import Test
 
-(* A race runs every thunk at once and answers with the first to finish.
-
-   These use short commands, because the wait is real: a loser inside a
-   subprocess cannot answer wand until the subprocess does. *)
+-- A race runs every thunk at once and answers with the first to finish.
+--
+-- These use short commands, because the wait is real: a loser inside a
+-- subprocess cannot answer wand until the subprocess does.
 
 group "the first to finish wins" (fn () -> [
   test "over commands" (fn t ->
@@ -27,7 +27,7 @@ group "the first to finish wins" (fn () -> [
     in t.eq (Ok "fast") (Par.race [fn () -> spin 200000000, fn () -> "fast"]))
 ])
 
-(* First to finish, not first to succeed. *)
+-- First to finish, not first to succeed.
 group "what comes back" (fn () -> [
   test "a winner that raises is an Error" (fn t ->
     match Par.race [fn () -> $(sh -c 'exit 4')] with
@@ -43,7 +43,7 @@ group "what comes back" (fn () -> [
     | Error why -> t.ok (String.contains? "nothing" why))
 ])
 
-(* A loser stops where it stands, and gives back what it holds. *)
+-- A loser stops where it stands, and gives back what it holds.
 test "a cancelled loser releases" (fn t ->
   with FS.temp_dir "race_" as d ->
   let held = Path.join d (Path.of_string "held") in
@@ -54,8 +54,8 @@ test "a cancelled loser releases" (fn t ->
   let loser = fn () -> with holder as _ -> spin 400000000 in
   let _ = Par.race [loser, fn () -> 1] in t.eq false (FS.exists? held))
 
-(* Watched, there is no overlap to have, so the race is left-biased and
-   says the same thing every time. *)
+-- Watched, there is no overlap to have, so the race is left-biased and
+-- says the same thing every time.
 test "under a mock the first thunk wins" (fn t ->
   t.eq
     (Ok "first")
@@ -63,11 +63,11 @@ test "under a mock the first thunk wins" (fn t ->
       Par.race [fn () -> "first", fn () -> "second"])
     ))
 
-(* ── A deadline on wand code ───────────────────────────────────────────── *)
+-- ── A deadline on wand code ─────────────────────────────────────────────
 
-(* `Par.timeout` is a race between the work and a sleeper. The durations
-   here are short, because the wait is real: a deadline under a handler is
-   refused, for the reason the last test in this group states. *)
+-- `Par.timeout` is a race between the work and a sleeper. The durations
+-- here are short, because the wait is real: a deadline under a handler is
+-- refused, for the reason the last test in this group states.
 
 group "Par.timeout" (fn () -> [
   test "work that finishes in time" (fn t ->
@@ -80,10 +80,10 @@ group "Par.timeout" (fn () -> [
     match Par.timeout 5s (fn () -> $(sh -c 'exit 5')) with
     | Ok v -> t.fail "expected an Error, got %{v}"
     | Error why -> t.ok (String.contains? "code 5" why)),
-  (* A race under a handler runs its first thunk only, so the sleeper never
-     exists and the deadline never fires. Work that only the deadline would
-     have stopped then runs forever, which is a test suite hanging with no
-     message. Refused instead. *)
+    -- A race under a handler runs its first thunk only, so the sleeper never
+  -- exists and the deadline never fires. Work that only the deadline would
+  -- have stopped then runs forever, which is a test suite hanging with no
+  -- message. Refused instead.
   test "a deadline under a handler is refused" (fn t ->
     t.raises (fn () ->
       Test.with_clock (fn () -> Par.timeout 5s (fn () -> Clock.sleep 1s)))),
@@ -92,7 +92,7 @@ group "Par.timeout" (fn () -> [
       Test.with_shell [] (fn () -> Par.timeout 5s (fn () -> 1))))
 ])
 
-(* Work that is stopped gives back what it holds, as a losing racer does. *)
+-- Work that is stopped gives back what it holds, as a losing racer does.
 test "work stopped by a deadline releases" (fn t ->
   with FS.temp_dir "timeout_" as d ->
   let held = Path.join d (Path.of_string "held") in

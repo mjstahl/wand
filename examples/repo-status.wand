@@ -4,16 +4,16 @@ import Decode
 import List
 import Shell
 
-(* git prints a count on a line of its own. A repo with no upstream prints
-   nothing at all, so a count that cannot be read is zero rather than a
-   failure. *)
+-- git prints a count on a line of its own. A repo with no upstream prints
+-- nothing at all, so a count that cannot be read is zero rather than a
+-- failure.
 let count out =
   match Shell.decode Decode.int out with
   | Ok n -> n
   | Error _ -> 0
 
-(* One entry per line. An empty capture is no entries -- not one empty
-   entry, which is the mistake a line count invites. *)
+-- One entry per line. An empty capture is no entries -- not one empty
+-- entry, which is the mistake a line count invites.
 let entries out =
   match Shell.lines Decode.string out with
   | Ok es -> es

@@ -4,13 +4,13 @@ import JSON
 import Map
 import Option
 
-(* A single-constructor type whose fields are named already says what a
-   decoder for it would do: the field names, and what each one holds. So
-   `T.decoder` is read off the definition rather than written out beside it,
-   and a field added to the type is a field added to the decoder.
-
-   Only the flat record is covered. Nested keys, renamed keys and validation
-   are what a hand-written decoder is for. *)
+-- A single-constructor type whose fields are named already says what a
+-- decoder for it would do: the field names, and what each one holds. So
+-- `T.decoder` is read off the definition rather than written out beside it,
+-- and a field added to the type is a field added to the decoder.
+--
+-- Only the flat record is covered. Nested keys, renamed keys and validation
+-- are what a hand-written decoder is for.
 
 type Pod(name: String, restarts: Int, timeout: Duration)
 
@@ -19,8 +19,8 @@ let doc = JSON.parse! `{"name": "web-01", "restarts": 4, "timeout": "30s"}`
 test "a type is its own decoder" (fn t ->
   t.eq (Ok Pod(name = "web-01", restarts = 4, timeout = 30s)) (JSON.decode Pod.decoder doc))
 
-(* The whole point of deriving: there is no second copy to go stale. This
-   type has a field the one above does not, and nothing else was written. *)
+-- The whole point of deriving: there is no second copy to go stale. This
+-- type has a field the one above does not, and nothing else was written.
 type Pod2(name: String, restarts: Int, timeout: Duration, node: String)
 
 test "a field added to the type is read by the decoder" (fn t ->
@@ -38,7 +38,7 @@ test "a field of the wrong type is named too" (fn t ->
   let wrong = JSON.parse! `{"name": "a", "restarts": "many", "timeout": "1h"}` in
   t.eq (Error `.restarts: expected Int, got "many"`) (JSON.decode Pod.decoder wrong))
 
-(* A domain literal decodes as itself here as anywhere else. *)
+-- A domain literal decodes as itself here as anywhere else.
 type Server(host: IPv4, port: Port, at: Time)
 
 test "domain fields decode as themselves" (fn t ->
@@ -47,8 +47,8 @@ test "domain fields decode as themselves" (fn t ->
     (Ok Server(host = 10.0.0.4, port = :8080, at = 14:30:00))
     (JSON.decode Server.decoder s)))
 
-(* An `Option` field is the one that may be absent -- which is what the type
-   says. Every other field must be there. *)
+-- An `Option` field is the one that may be absent -- which is what the type
+-- says. Every other field must be there.
 type Job(name: String, owner: Option String)
 
 test "an Option field may be absent" (fn t ->
@@ -66,7 +66,7 @@ test "but is still refused when it is there and wrong" (fn t ->
     (Error ".owner: expected String, got Int")
     (JSON.decode Job.decoder (JSON.parse! `{"name": "b", "owner": 3}`)))
 
-(* A field holding another derivable type, and the path through both. *)
+-- A field holding another derivable type, and the path through both.
 type Meta(name: String, ready: Bool)
 
 type Wrapper(metadata: Meta, replicas: Int)
@@ -81,9 +81,9 @@ test "and the path names every step of the way in" (fn t ->
   let w = JSON.parse! `{"metadata": {"name": 1, "ready": true}, "replicas": 3}` in
   t.eq (Error ".metadata.name: expected String, got Int") (JSON.decode Wrapper.decoder w))
 
-(* A type that mentions itself. The decoders of the types a field mentions
-   are found when that field is decoded, not when the decoder is built --
-   which is the only reason this terminates. *)
+-- A type that mentions itself. The decoders of the types a field mentions
+-- are found when that field is decoded, not when the decoder is built --
+-- which is the only reason this terminates.
 type Node(label: String, children: List Node)
 
 test "a recursive type has a decoder" (fn t ->
@@ -100,16 +100,16 @@ test "and reports where in the tree it gave up" (fn t ->
     (Error ".children[0].label: expected String, got Int")
     (JSON.decode Node.decoder tree)))
 
-(* A derived decoder is an ordinary value: it can be named, passed, and used
-   with every combinator a hand-written one can. *)
+-- A derived decoder is an ordinary value: it can be named, passed, and used
+-- with every combinator a hand-written one can.
 test "a derived decoder is a value like any other" (fn t ->
   let pods = Decode.field "items" (Decode.list Pod.decoder) in
   let doc2 = JSON.parse! `{"items": [{"name": "a", "restarts": 0, "timeout": "5s"}]}` in
   t.eq (Ok [Pod(name = "a", restarts = 0, timeout = 5s)]) (JSON.decode pods doc2))
 
-(* The other direction. An encoder is an ordinary function -- encoding cannot
-   fail, so there is nothing for a type of its own to carry -- and it is
-   derived from the same fields the decoder reads. *)
+-- The other direction. An encoder is an ordinary function -- encoding cannot
+-- fail, so there is nothing for a type of its own to carry -- and it is
+-- derived from the same fields the decoder reads.
 
 type Endpoint(host: IPv4, port: Port, timeout: Duration, label: Option String)
 
@@ -122,14 +122,14 @@ test "a type writes itself back out" (fn t ->
     `{"host":"10.0.0.4","port":8080,"timeout":"30s","label":"web"}`
     (JSON.stringify (Endpoint.encoder one)))
 
-(* A field holding None is left out rather than written as null. Both read
-   back as None; a config is tidier without the empty keys. *)
+-- A field holding None is left out rather than written as null. Both read
+-- back as None; a config is tidier without the empty keys.
 test "an absent field is left out" (fn t ->
   t.eq
     `{"host":"10.0.0.5","port":9090,"timeout":"1h"}`
     (JSON.stringify (Endpoint.encoder bare)))
 
-(* What the pair is for: read a document, and write back what you read. *)
+-- What the pair is for: read a document, and write back what you read.
 test "what is decoded encodes back to itself" (fn t ->
   t.eq (Ok one) (JSON.decode Endpoint.decoder (Endpoint.encoder one)))
 
@@ -144,8 +144,8 @@ test "and so does a document with lists, maps and nested types in it" (fn t ->
   in
   t.eq (Ok c) (JSON.decode Cluster.decoder (Cluster.encoder c)))
 
-(* The whole point, at the level a script sees it: a document in, the same
-   document out, but for the change. *)
+-- The whole point, at the level a script sees it: a document in, the same
+-- document out, but for the change.
 type Config(name: String, port: Port, timeout: Duration, replicas: Int)
 
 test "a document read, changed, and written back" (fn t ->
@@ -159,8 +159,8 @@ test "a document read, changed, and written back" (fn t ->
     `{"name":"api","port":8080,"timeout":"30s","replicas":4}`
     (JSON.stringify (Config.encoder scaled))))
 
-(* A type with parameters takes one decoder for each, in the order it
-   declares them, and gives back a decoder for the applied type. *)
+-- A type with parameters takes one decoder for each, in the order it
+-- declares them, and gives back a decoder for the applied type.
 
 type Paged 'a(items: List 'a, total: Int)
 
@@ -184,17 +184,17 @@ test "a failure inside the parameter still names its place" (fn t ->
     (Error `.items[1]: expected Int, got "x"`)
     (JSON.decode (Paged.decoder Decode.int) doc)))
 
-(* Generic and recursive at once: the type mentions itself with the same
-   argument, and the decoders are found when the field is reached. *)
+-- Generic and recursive at once: the type mentions itself with the same
+-- argument, and the decoders are found when the field is reached.
 test "a generic type may mention itself" (fn t ->
   let doc = JSON.parse! `{"value": 1, "children": [{"value": 2, "children": []}]}` in
   (t.eq
     (Ok Tree(value = 1, children = [Tree(value = 2, children = [])]))
     (JSON.decode (Tree.decoder Decode.int) doc)))
 
-(* The encoder takes one encoder per parameter, and the one supplied is the
-   one that runs -- it is not a structural walk that ignores what it is
-   given. *)
+-- The encoder takes one encoder per parameter, and the one supplied is the
+-- one that runs -- it is not a structural walk that ignores what it is
+-- given.
 test "a generic type is encoded by supplying an encoder per parameter" (fn t ->
   t.eq
     `{"items":[1,2,3],"total":3}`

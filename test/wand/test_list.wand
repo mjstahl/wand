@@ -6,34 +6,34 @@ import List
 import Path
 import String
 
-(* ── sort ──────────────────────────────────────────────────────────────── *)
+-- ── sort ────────────────────────────────────────────────────────────────
 
 test "sort ints" (fn t -> t.eq [1, 2, 3] (List.sort [3, 1, 2]))
 test "sort strings" (fn t ->
   t.eq ["apple", "banana", "cherry"] (List.sort ["banana", "apple", "cherry"]))
 test "sort empty" (fn t -> let empty : List Int = [] in t.eq [] (List.sort empty))
 
-(* ── sort_by ───────────────────────────────────────────────────────────── *)
+-- ── sort_by ─────────────────────────────────────────────────────────────
 
 test "sort_by string length" (fn t ->
   t.eq ["fig", "kiwi", "banana"] (List.sort_by String.length ["banana", "kiwi", "fig"]))
 test "sort_by negate (descending)" (fn t ->
   t.eq [5, 4, 3, 1, 1] (List.sort_by (fn x -> 0 - x) [3, 1, 4, 1, 5]))
 
-(* ── unique ────────────────────────────────────────────────────────────── *)
+-- ── unique ──────────────────────────────────────────────────────────────
 
 test "unique ints" (fn t -> t.eq [1, 2, 3] (List.unique [1, 2, 1, 3, 2]))
 test "unique preserves order" (fn t ->
   t.eq ["c", "a", "b"] (List.unique ["c", "a", "b", "a", "c"]))
 test "unique empty" (fn t -> let empty : List Int = [] in t.eq [] (List.unique empty))
 
-(* ── range ─────────────────────────────────────────────────────────────── *)
+-- ── range ───────────────────────────────────────────────────────────────
 
 test "range basic" (fn t -> t.eq [1, 2, 3, 4, 5] (List.range 1 5))
 test "range single" (fn t -> t.eq [3] (List.range 3 3))
 test "range empty (hi < lo)" (fn t -> t.eq [] (List.range 5 1))
 
-(* ── flatten ───────────────────────────────────────────────────────────── *)
+-- ── flatten ─────────────────────────────────────────────────────────────
 
 test "flatten basic" (fn t -> t.eq [1, 2, 3, 4, 5] (List.flatten [[1, 2], [3], [4, 5]]))
 test "flatten empty lists" (fn t ->
@@ -41,7 +41,7 @@ test "flatten empty lists" (fn t ->
 test "flatten empty" (fn t ->
   let empty : List (List Int) = [] in t.eq [] (List.flatten empty))
 
-(* ── concat ────────────────────────────────────────────────────────────── *)
+-- ── concat ──────────────────────────────────────────────────────────────
 
 test "concat basic" (fn t -> t.eq [1, 2, 3, 4] (List.concat [1, 2] [3, 4]))
 test "concat with empty" (fn t ->
@@ -49,7 +49,7 @@ test "concat with empty" (fn t ->
 test "concat both empty" (fn t ->
   let empty : List Int = [] in t.eq [] (List.concat empty empty))
 
-(* ── filter_map ────────────────────────────────────────────────────────── *)
+-- ── filter_map ──────────────────────────────────────────────────────────
 
 test "filter_map keeps what answered Some" (fn t ->
   t.eq
@@ -62,7 +62,7 @@ test "filter_map that keeps nothing" (fn t ->
 test "filter_map changes the element type" (fn t ->
   t.eq ["2"] (List.filter_map (fn x -> if x > 1 then Some "%{x}" else None) [1, 2]))
 
-(* ── pipeline ──────────────────────────────────────────────────────────── *)
+-- ── pipeline ────────────────────────────────────────────────────────────
 
 test "range |> filter |> sort_by" (fn t ->
   let got =
@@ -73,7 +73,7 @@ test "flatten after map" (fn t ->
   let got = List.range 1 3 |> List.map (fn x -> [x, x * 2]) |> List.flatten in
   t.eq [1, 2, 2, 4, 3, 6] got)
 
-(* ── get / get! ────────────────────────────────────────────────────────── *)
+-- ── get / get! ──────────────────────────────────────────────────────────
 
 test "get 0" (fn t ->
   t.eq
@@ -97,7 +97,7 @@ test "get! works on nested lists" (fn t ->
   t.eq 3 (List.get! 0 (List.get! 1 [[1, 2], [3, 4]])))
 test "get! out of bounds raises" (fn t -> t.raises (fn () -> List.get! 9 [1, 2, 3]))
 
-(* ── take_while / drop_while ──────────────────────────────────────────── *)
+-- ── take_while / drop_while ────────────────────────────────────────────
 
 test "take_while stops at first miss" (fn t ->
   t.eq [1, 2] (List.take_while (fn x -> x < 3) [1, 2, 3, 4, 1]))
@@ -111,12 +111,12 @@ test "drop_while empty list" (fn t -> t.eq [] (List.drop_while (fn x -> x < 3) [
 test "drop_while all match" (fn t -> t.eq [] (List.drop_while (fn x -> x < 10) [1, 2]))
 test "drop_while no match" (fn t -> t.eq [1, 2] (List.drop_while (fn x -> x < 0) [1, 2]))
 
-(* ── each ──────────────────────────────────────────────────────────────── *)
+-- ── each ────────────────────────────────────────────────────────────────
 
-(* `each` takes the element, as `map` and `filter` do. It used to take
-   `(index, element)`, which meant every call site wanting a side effect
-   opened with `fn (_, x) ->` -- and every one in the corpus discarded the
-   index. Tested through a real side effect, which also pins the order. *)
+-- `each` takes the element, as `map` and `filter` do. It used to take
+-- `(index, element)`, which meant every call site wanting a side effect
+-- opened with `fn (_, x) ->` -- and every one in the corpus discarded the
+-- index. Tested through a real side effect, which also pins the order.
 test "each sees every element, in order" (fn t ->
   with FS.temp_dir "list_each_" as d ->
   let log = Path.join d (Path.of_string "log") in
@@ -131,14 +131,14 @@ test "each on an empty list does nothing" (fn t ->
   let empty : List String = [] in
   let () = List.each (fn x -> FS.append! log x) empty in t.eq "" (FS.read_file! log))
 
-(* ── indexed ───────────────────────────────────────────────────────────── *)
+-- ── indexed ─────────────────────────────────────────────────────────────
 
 test "indexed counts from zero" (fn t ->
   t.eq [(0, "a"), (1, "b"), (2, "c")] (List.indexed ["a", "b", "c"]))
 test "indexed empty" (fn t -> let empty : List Int = [] in t.eq [] (List.indexed empty))
 
-(* The position, when it is wanted, is one call away rather than in every
-   signature that never uses it. *)
+-- The position, when it is wanted, is one call away rather than in every
+-- signature that never uses it.
 test "indexed pairs with each" (fn t ->
   with FS.temp_dir "list_indexed_" as d ->
   let log = Path.join d (Path.of_string "log") in

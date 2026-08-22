@@ -7,7 +7,7 @@ import Map
 import Path
 import FS
 
-(* ── parse ─────────────────────────────────────────────────────────────── *)
+-- ── parse ───────────────────────────────────────────────────────────────
 
 test "valid TOML returns Ok" (fn t ->
   t.eq
@@ -29,7 +29,7 @@ test "parse! valid" (fn t -> let tm = TOML.parse! "x = 1\n" in t.eq true (TOML.t
 
 test "parse! invalid raises" (fn t -> t.raises (fn () -> TOML.parse! "bad = = toml"))
 
-(* ── field / field! ────────────────────────────────────────────────────── *)
+-- ── field / field! ──────────────────────────────────────────────────────
 
 test "field exists" (fn t ->
   let tm = TOML.parse! "name = \"Alice\"\nage = 30\n" in
@@ -61,7 +61,7 @@ test "field! exists" (fn t ->
 test "field! missing raises" (fn t ->
   let tm = TOML.parse! "a = 1\n" in t.raises (fn () -> TOML.field! "z" tm))
 
-(* ── get_* extractors ──────────────────────────────────────────────────── *)
+-- ── get_* extractors ────────────────────────────────────────────────────
 
 test "get_string" (fn t ->
   let tm = TOML.parse! "s = \"hello\"\n" in
@@ -130,7 +130,7 @@ test "get_array int elements" (fn t ->
     | Error _ -> -1
     )))
 
-(* ── nested tables ─────────────────────────────────────────────────────── *)
+-- ── nested tables ───────────────────────────────────────────────────────
 
 test "nested table access" (fn t ->
   let src = "[server]\nhost = \"localhost\"\nport = 8080\n" in
@@ -143,7 +143,7 @@ test "nested table access" (fn t ->
     | Error _ -> ""
     )))
 
-(* ── get_table ─────────────────────────────────────────────────────────── *)
+-- ── get_table ───────────────────────────────────────────────────────────
 
 test "get_table returns Map" (fn t ->
   let tm = TOML.parse! "a = 1\nb = 2\n" in
@@ -154,7 +154,7 @@ test "get_table returns Map" (fn t ->
     | Error _ -> -1
     )))
 
-(* ── read_file ─────────────────────────────────────────────────────────── *)
+-- ── read_file ───────────────────────────────────────────────────────────
 
 test "read_file ok" (fn t ->
   with FS.temp_file "wand_toml_rd_" ".toml" as p ->

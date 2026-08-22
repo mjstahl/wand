@@ -1,34 +1,34 @@
 uses {IO}
 
-(** Print a value without a trailing newline. *)
+-- Print a value without a trailing newline.
 let print = print
 
-(** Print a value followed by a newline. *)
+-- Print a value followed by a newline.
 let println = println
 
-(** Print a value to stderr without a trailing newline. *)
+-- Print a value to stderr without a trailing newline.
 let print_err s = io_print_err s
 
-(** Print a value to stderr followed by a newline. *)
+-- Print a value to stderr followed by a newline.
 let println_err s = io_println_err s
 
-(** Read a line from stdin, returning the string without the newline.
-    Raises at end of input. *)
+-- Read a line from stdin, returning the string without the newline.
+-- Raises at end of input.
 let read_line! () = io_read_line ()
 
-(** Read a line from stdin, returning the string without the newline. *)
+-- Read a line from stdin, returning the string without the newline.
 let read_line () = try read_line! ()
 
-(** Read all remaining input from stdin as a single string. Raises on a
-    read error. *)
+-- Read all remaining input from stdin as a single string. Raises on a
+-- read error.
 let read_all! () = io_read_all ()
 
-(** Read all remaining input from stdin as a single string. *)
+-- Read all remaining input from stdin as a single string.
 let read_all () = try read_all! ()
 
-(** Flush stdout, ensuring all buffered output is written. *)
+-- Flush stdout, ensuring all buffered output is written.
 let flush () = io_flush ()
 
-(** A stream of stdin's lines. The real stdin can be streamed once; a
-    second run raises. See Stream. *)
+-- A stream of stdin's lines. The real stdin can be streamed once; a
+-- second run raises. See Stream.
 let stdin_lines () = io_stdin_lines ()

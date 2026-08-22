@@ -7,26 +7,26 @@ import Path
 import Proc
 import Resource
 
-(* Build a release in a scratch directory, under a lock, and clean up both
-   however it ends.
+-- Build a release in a scratch directory, under a lock, and clean up both
+-- however it ends.
+--
+-- bash:  tmp=$(mktemp -d)
+--        trap 'rm -rf "$tmp"' EXIT
+--        touch /var/lock/release
+--        trap 'rm -f /var/lock/release' EXIT     # clobbers the first
+--        ... build into $tmp ...
+--
+-- The second `trap ... EXIT` replaces the first rather than adding to it,
+-- so the scratch directory outlives the script. Nothing says so. Writing
+-- both into one trap is the fix, and it means every cleanup in the script
+-- has to be written in one place, in reverse order, by hand.
+--
+-- A bracket is a value here. Two of them nest, both release, and the
+-- release runs however the body ends -- returning, raising, or exiting.
+-- The order is the reverse of acquisition without anyone maintaining it.
 
-   bash:  tmp=$(mktemp -d)
-          trap 'rm -rf "$tmp"' EXIT
-          touch /var/lock/release
-          trap 'rm -f /var/lock/release' EXIT     # clobbers the first
-          ... build into $tmp ...
-
-   The second `trap ... EXIT` replaces the first rather than adding to it,
-   so the scratch directory outlives the script. Nothing says so. Writing
-   both into one trap is the fix, and it means every cleanup in the script
-   has to be written in one place, in reverse order, by hand.
-
-   A bracket is a value here. Two of them nest, both release, and the
-   release runs however the body ends -- returning, raising, or exiting.
-   The order is the reverse of acquisition without anyone maintaining it. *)
-
-(* What a release needs. A staged directory missing any of these is not one,
-   and the check is a function so it can be tested without staging. *)
+-- What a release needs. A staged directory missing any of these is not one,
+-- and the check is a function so it can be tested without staging.
 let required = ["VERSION", "LICENSE", "wand"]
 
 let missing staged =
@@ -42,8 +42,8 @@ let stage! dir = (
   FS.list_dir! dir
 )
 
-(* The lock is outside the scratch directory on purpose: two cleanups that
-   have nothing to do with each other are what the bash cannot write. *)
+-- The lock is outside the scratch directory on purpose: two cleanups that
+-- have nothing to do with each other are what the bash cannot write.
 let main! () =
   with FS.temp_dir "release_" as dir ->
   with lock_at ./release.lock as _ ->

@@ -2,14 +2,14 @@ import Duration
 import List
 import String
 
-(** The outcome of a single assertion: Pass carries the test's label,
-    Fail carries a message that already includes the label. A Suite is a
-    group's outcome -- its label over its children, kept as a tree so
-    `wand s` can print each child under the path of labels that led
-    to it. *)
+-- The outcome of a single assertion: Pass carries the test's label,
+-- Fail carries a message that already includes the label. A Suite is a
+-- group's outcome -- its label over its children, kept as a tree so
+-- `wand s` can print each child under the path of labels that led
+-- to it.
 type TestOutcome = Pass String | Fail String | Suite String (List TestOutcome)
 
-(** A handle passed into a test block, exposing assertion helpers. *)
+-- A handle passed into a test block, exposing assertion helpers.
 type Testing 'a 'b(
   ok: (Bool -> TestOutcome),
   not_ok: (Bool -> TestOutcome),
@@ -19,26 +19,26 @@ type Testing 'a 'b(
   fail: (String -> TestOutcome)
 )
 
-(** Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/
-    `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label.
-    
-    `eq` takes what the value should be first and the value second, as
-    every other wand function takes its subject last -- so it pipes:
-    
-    t.eq 4 (2 + 2)
-    (2 + 2) |> t.eq 4
-    
-    Either way a failure reads `expected 4, got 5`, with `got` naming the
-    code under test.
-    
-    A raise inside the block -- outside `t.raises` -- is this test
-    failing, not the file breaking: it comes back as a Fail carrying the
-    label, and the tests after it still run.
-    
-    `raises` says `! 'e` on both the thunk and itself, so calling it
-    performs whatever the thunk performs: a test whose thunk shells out
-    declares `Shell` like any other code. Without that the two sides would
-    be unrelated and the thunk's effects would stop at the field. *)
+-- Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/
+-- `eq`/`not_eq`/`raises` return a TestOutcome tagged with the given label.
+--
+-- `eq` takes what the value should be first and the value second, as
+-- every other wand function takes its subject last -- so it pipes:
+--
+-- t.eq 4 (2 + 2)
+-- (2 + 2) |> t.eq 4
+--
+-- Either way a failure reads `expected 4, got 5`, with `got` naming the
+-- code under test.
+--
+-- A raise inside the block -- outside `t.raises` -- is this test
+-- failing, not the file breaking: it comes back as a Fail carrying the
+-- label, and the tests after it still run.
+--
+-- `raises` says `! 'e` on both the thunk and itself, so calling it
+-- performs whatever the thunk performs: a test whose thunk shells out
+-- declares `Shell` like any other code. Without that the two sides would
+-- be unrelated and the thunk's effects would stop at the field.
 let test label f =
   let t =
     Testing(
@@ -59,43 +59,43 @@ let test label f =
   | Ok outcome -> outcome
   | Error why -> Fail "%{label}: raised: %{why}"
 
-(** Run child tests that share this label and whatever the body binds:
-    
-    group "parse" (fn () -> let doc = JSON.parse! source in
-    [test "has a name" (fn t -> t.ok (JSON.field? "name" doc))])
-    
-    The body is ordinary code, which is the whole design: bindings above
-    the child list are setup shared by every child, `with r as x -> [...]`
-    is teardown that releases however the body ends, and a handler around
-    the list mocks every child at once. Groups nest -- a `group` is one
-    more child -- and `wand s` prints each test under the path of
-    labels that led to it. A raise in the body itself is the group's one
-    failure; the children it prevented are not invented. *)
+-- Run child tests that share this label and whatever the body binds:
+--
+-- group "parse" (fn () -> let doc = JSON.parse! source in
+-- [test "has a name" (fn t -> t.ok (JSON.field? "name" doc))])
+--
+-- The body is ordinary code, which is the whole design: bindings above
+-- the child list are setup shared by every child, `with r as x -> [...]`
+-- is teardown that releases however the body ends, and a handler around
+-- the list mocks every child at once. Groups nest -- a `group` is one
+-- more child -- and `wand s` prints each test under the path of
+-- labels that led to it. A raise in the body itself is the group's one
+-- failure; the children it prevented are not invented.
 let group label thunk =
   match try thunk () with
   | Ok children -> Suite label children
   | Error why -> Suite label [Fail "setup raised: %{why}"]
 
-(* ── Testing effectful code ─────────────────────────────────────────────
-   A script's risky parts are the ones that reach outside it, which is
-   exactly what a handler can stand in for. These cover the common case so
-   a test does not have to write a handler by hand.
+-- ── Testing effectful code ─────────────────────────────────────────────
+-- A script's risky parts are the ones that reach outside it, which is
+-- exactly what a handler can stand in for. These cover the common case so
+-- a test does not have to write a handler by hand.
+--
+-- Each stands in for the operations named, not for a whole effect:
+-- `without_writes` answers `FS!write_file`, and a body that also appends
+-- reaches the real disk. So a test file using these still declares the
+-- effect in its manifest -- an effect is only dropped from a signature when
+-- every operation carrying it is handled. Declaring it is the honest
+-- reading: statically, the body may still perform it.
 
-   Each stands in for the operations named, not for a whole effect:
-   `without_writes` answers `FS!write_file`, and a body that also appends
-   reaches the real disk. So a test file using these still declares the
-   effect in its manifest -- an effect is only dropped from a signature when
-   every operation carrying it is handled. Declaring it is the honest
-   reading: statically, the body may still perform it. *)
-
-(** Run `thunk` with the commands it runs answered from a table instead of
-    executed. Each entry is (fragment, output): the first fragment that
-    appears in a command supplies its output, and a command matching nothing
-    returns "".
-    
-    Both ways of running one are answered: `$(cmd)` gives the output, and
-    `$?(cmd)` gives it as the `stdout` of a `ShellResult` that exited zero.
-    For a command that has to fail, see `with_shell_results`. *)
+-- Run `thunk` with the commands it runs answered from a table instead of
+-- executed. Each entry is (fragment, output): the first fragment that
+-- appears in a command supplies its output, and a command matching nothing
+-- returns "".
+--
+-- Both ways of running one are answered: `$(cmd)` gives the output, and
+-- `$?(cmd)` gives it as the `stdout` of a `ShellResult` that exited zero.
+-- For a command that has to fail, see `with_shell_results`.
 let with_shell mocks thunk =
   handle thunk () with
   | Shell!run cmd k -> (
@@ -109,17 +109,17 @@ let with_shell mocks thunk =
     | None -> k ShellResult(stdout = "", stderr = "", code = 0)
   )
 
-(** Run `thunk` with `$?(cmd)` -- the form that reports an exit code rather
-    than raising on one -- answered from a table of whole results. Each entry
-    is (fragment, result), matched the way `with_shell` matches, and a
-    command matching nothing exits zero with no output:
-    
-    let red = ShellResult(stdout = "", stderr = "", code = 1) in
-    Test.with_shell_results [("dune test", red)] (fn () -> gate ())
-    
-    This is what tests a script's failure path. `$(cmd)` is not intercepted,
-    because a failure there is a raise and not a value; nest `with_shell`
-    around this one for a body that uses both. *)
+-- Run `thunk` with `$?(cmd)` -- the form that reports an exit code rather
+-- than raising on one -- answered from a table of whole results. Each entry
+-- is (fragment, result), matched the way `with_shell` matches, and a
+-- command matching nothing exits zero with no output:
+--
+-- let red = ShellResult(stdout = "", stderr = "", code = 1) in
+-- Test.with_shell_results [("dune test", red)] (fn () -> gate ())
+--
+-- This is what tests a script's failure path. `$(cmd)` is not intercepted,
+-- because a failure there is a raise and not a value; nest `with_shell`
+-- around this one for a body that uses both.
 let with_shell_results mocks thunk =
   handle thunk () with
   | Shell!capture cmd k -> (
@@ -128,48 +128,48 @@ let with_shell_results mocks thunk =
     | None -> k ShellResult(stdout = "", stderr = "", code = 0)
   )
 
-(** Return the commands `thunk` would run, in order, without running any of
-    them. `$(cmd)` answers with "" and `$?(cmd)` with a zero exit and no
-    output. *)
+-- Return the commands `thunk` would run, in order, without running any of
+-- them. `$(cmd)` answers with "" and `$?(cmd)` with a zero exit and no
+-- output.
 let shell_calls thunk =
   handle thunk () with
   | Shell!run cmd k -> let rest = k "" in cmd :: rest
   | Shell!capture cmd k -> let rest = k ShellResult(stdout = "", stderr = "", code = 0) in cmd :: rest
   | return _ -> []
 
-(** Run `thunk` with `FS!write_file` swallowed, returning what it returned.
-    Handlers compose, so this nests inside `with_shell` to hold back both.
-    Other FS.Write operations -- append, delete, mkdir -- still reach the
-    disk. *)
+-- Run `thunk` with `FS!write_file` swallowed, returning what it returned.
+-- Handlers compose, so this nests inside `with_shell` to hold back both.
+-- Other FS.Write operations -- append, delete, mkdir -- still reach the
+-- disk.
 let without_writes thunk =
   handle thunk () with
   | FS!write_file _ k -> k ()
 
-(** Return the paths `thunk` would pass to `FS!write_file`, in order,
-    without writing them. They come back as `Path`s, which is what the write
-    carried. Other FS.Write operations still reach the disk. *)
+-- Return the paths `thunk` would pass to `FS!write_file`, in order,
+-- without writing them. They come back as `Path`s, which is what the write
+-- carried. Other FS.Write operations still reach the disk.
 let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path :: rest
   | return _ -> []
 
-(** Run `thunk` with streamed files answered from `lines` instead of the
-    disk: every `FS.stream_lines` whose path matches is fed them, and any
-    other path streams as empty. *)
+-- Run `thunk` with streamed files answered from `lines` instead of the
+-- disk: every `FS.stream_lines` whose path matches is fed them, and any
+-- other path streams as empty.
 let with_lines path lines thunk =
   handle thunk () with
   | FS!stream_lines p k -> if p == path then k lines else k []
 
-(** Run `thunk` with a clock that costs no time. `Clock!sleep` returns at
-    once, and the durations it was asked for are added up, so a test that
-    exercises an hour of backoff runs in microseconds.
-    
-    Answers with the total virtual time and the value the thunk returned:
-    
-    let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
-    
-    Reading a clock is not in the language yet, so the elapsed total is
-    reported here rather than observed by the code under test. *)
+-- Run `thunk` with a clock that costs no time. `Clock!sleep` returns at
+-- once, and the durations it was asked for are added up, so a test that
+-- exercises an hour of backoff runs in microseconds.
+--
+-- Answers with the total virtual time and the value the thunk returned:
+--
+-- let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
+--
+-- Reading a clock is not in the language yet, so the elapsed total is
+-- reported here rather than observed by the code under test.
 let with_clock thunk =
   handle (fn () -> (0ms, thunk ())) () with
   | Clock!sleep d k -> let (so_far, v) = k () in (Duration.add so_far d, v)

@@ -1,13 +1,13 @@
 let {test} = import Test
 
-(* ── Cons operator (expressions) ──────────────────────────────────────── *)
+-- ── Cons operator (expressions) ────────────────────────────────────────
 
 test "prepend one" (fn t -> t.eq [1, 2, 3] (1 :: [2, 3]))
 test "chain cons" (fn t -> t.eq [1, 2, 3] (1 :: 2 :: 3 :: []))
 test "cons onto empty" (fn t -> t.eq [42] (42 :: []))
 test "string cons" (fn t -> t.eq ["a", "b", "c"] ("a" :: ["b", "c"]))
 
-(* ── List patterns ─────────────────────────────────────────────────────── *)
+-- ── List patterns ───────────────────────────────────────────────────────
 
 test "match empty" (fn t ->
   t.eq
@@ -88,7 +88,7 @@ test "chain falls through on too-short list" (fn t ->
 let lp_third! [_ :: _ :: x :: _] = x
 test "chain in a function multi-equation" (fn t -> t.eq 30 (lp_third! [10, 20, 30, 40]))
 
-(* ── Recursive functions over lists ───────────────────────────────────── *)
+-- ── Recursive functions over lists ─────────────────────────────────────
 
 let lp_len [] = 0
 let lp_len [_ :: tl] = 1 + lp_len tl
@@ -118,7 +118,7 @@ let lp_rev_acc [h :: tl] acc = lp_rev_acc tl (h :: acc)
 let lp_reverse xs = lp_rev_acc xs []
 test "reverse" (fn t -> t.eq [5, 4, 3, 2, 1] (lp_reverse [1, 2, 3, 4, 5]))
 
-(* ── Destructuring let ─────────────────────────────────────────────────── *)
+-- ── Destructuring let ───────────────────────────────────────────────────
 
 let lp_xs = [1, 2, 3]
 let [lp_a, lp_b] = lp_xs
@@ -151,4 +151,4 @@ let lp_only! [x] = x
 test "a function equation still means the exact length" (fn t ->
   t.raises (fn () -> lp_only! [1, 2]))
 
-(* ── Type errors ───────────────────────────────────────────────────────── *)
+-- ── Type errors ─────────────────────────────────────────────────────────

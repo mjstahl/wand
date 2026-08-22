@@ -2,7 +2,7 @@ let {test} = import Test
 import Option
 import String
 
-(* ── Parsing generic type declarations ────────────────────────────────── *)
+-- ── Parsing generic type declarations ──────────────────────────────────
 
 type Box 'a = Box 'a
 type GPair 'a 'b = GPair 'a 'b
@@ -10,7 +10,7 @@ type GPair 'a 'b = GPair 'a 'b
 test "single param" (fn t -> t.ok true)
 test "multi param" (fn t -> t.ok true)
 
-(* ── Construction and pattern matching ────────────────────────────────── *)
+-- ── Construction and pattern matching ──────────────────────────────────
 
 type Opt 'a = ONone | OSome 'a
 
@@ -27,17 +27,17 @@ let get_or d o =
   | ONone -> d
 test "extract value" (fn t -> t.eq 42 (get_or 0 (OSome 42)))
 
-(* ── No cross-instantiation collision ─────────────────────────────────── *)
+-- ── No cross-instantiation collision ───────────────────────────────────
 
-(* `Box` is the only constructor of its type, so the pattern cannot fail and
-   the function cannot raise -- which is why the name has no `!`. *)
+-- `Box` is the only constructor of its type, so the pattern cannot fail and
+-- the function cannot raise -- which is why the name has no `!`.
 let unbox (Box x) = x
 test "same generic type at two different type args" (fn t ->
   t.eq (1, "s") (unbox (Box 1), unbox (Box "s")))
 
-(* ── Negative cases ────────────────────────────────────────────────────── *)
+-- ── Negative cases ──────────────────────────────────────────────────────
 
-(* ── Option module ─────────────────────────────────────────────────────── *)
+-- ── Option module ───────────────────────────────────────────────────────
 
 test "map" (fn t ->
   t.eq
@@ -77,7 +77,7 @@ test "to_result error" (fn t ->
 test "get! present" (fn t -> t.eq 7 (Option.get! (Some 7)))
 test "get! absent raises" (fn t -> t.raises (fn () -> Option.get! None))
 
-(* ── Result generalization ─────────────────────────────────────────────── *)
+-- ── Result generalization ───────────────────────────────────────────────
 
 type ParseError = UnexpectedToken String | UnexpectedEof
 

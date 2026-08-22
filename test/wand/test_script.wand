@@ -6,14 +6,14 @@ import String
 import List
 import Env
 
-(* Program-level "what value does a whole file evaluate to, with no
-   trailing expression" semantics (test_value_let/test_start's "no start"
-   cases) are a CLI/Runner-level artifact, not something a Test.wand
-   assertion can observe -- every .wand file in this suite already
-   demonstrates ordinary top-level `let` bindings work by virtue of
-   running at all, so those specific sub-cases aren't ported. *)
+-- Program-level "what value does a whole file evaluate to, with no
+-- trailing expression" semantics (test_value_let/test_start's "no start"
+-- cases) are a CLI/Runner-level artifact, not something a Test.wand
+-- assertion can observe -- every .wand file in this suite already
+-- demonstrates ordinary top-level `let` bindings work by virtue of
+-- running at all, so those specific sub-cases aren't ported.
 
-(* ── Value bindings ────────────────────────────────────────────────────── *)
+-- ── Value bindings ──────────────────────────────────────────────────────
 
 let single_binding = 42
 test "single binding" (fn t -> t.eq 42 single_binding)
@@ -27,7 +27,7 @@ test "two params" (fn t -> t.eq 7 (add_two 3 4))
 let quad x = double_val (double_val x)
 test "chained" (fn t -> t.eq 12 (quad 3))
 
-(* ── Imports ───────────────────────────────────────────────────────────── *)
+-- ── Imports ─────────────────────────────────────────────────────────────
 
 let Lib = import ./imports_fixture
 
@@ -35,7 +35,7 @@ test "import binding" (fn t -> t.eq 42 Lib.answer)
 test "import function" (fn t -> t.eq 42 (Lib.double 21))
 test "import multiple bindings" (fn t -> t.eq "hello!" (Lib.shout Lib.greeting))
 
-(* ── Stdlib imports ────────────────────────────────────────────────────── *)
+-- ── Stdlib imports ──────────────────────────────────────────────────────
 
 test "List.map" (fn t -> t.eq [2, 4, 6] (List.map (fn x -> x * 2) [1, 2, 3]))
 test "List.filter" (fn t -> t.eq [3, 4, 5] (List.filter (fn x -> x > 2) [1, 2, 3, 4, 5]))
@@ -44,7 +44,7 @@ test "List.reverse" (fn t -> t.eq [3, 2, 1] (List.reverse [1, 2, 3]))
 test "List.fold_left sum" (fn t ->
   t.eq 15 (List.fold_left (fn acc x -> acc + x) 0 [1, 2, 3, 4, 5]))
 
-(* ── Recursive top-level functions ────────────────────────────────────── *)
+-- ── Recursive top-level functions ──────────────────────────────────────
 
 let script_fact n = if n <= 0 then 1 else n * script_fact (n - 1)
 test "factorial" (fn t -> t.eq 120 (script_fact 5))
@@ -52,7 +52,7 @@ test "factorial" (fn t -> t.eq 120 (script_fact 5))
 let script_fib n = if n <= 1 then n else script_fib (n - 1) + script_fib (n - 2)
 test "fibonacci" (fn t -> t.eq 55 (script_fib 10))
 
-(* ── Mutually-recursive top-level functions (`and`) ───────────────────── *)
+-- ── Mutually-recursive top-level functions (`and`) ─────────────────────
 
 let is_even n = if n == 0 then true else is_odd (n - 1)
 and is_odd n = if n == 0 then false else is_even (n - 1)
@@ -73,9 +73,9 @@ test "local let ... and ... in" (fn t ->
   in
   t.eq false x)
 
-(* ── Source locations in type errors ──────────────────────────────────── *)
+-- ── Source locations in type errors ────────────────────────────────────
 
-(* ── Multi-equation functions ─────────────────────────────────────────── *)
+-- ── Multi-equation functions ───────────────────────────────────────────
 
 let mfact 0 = 1
 let mfact n = n * mfact (n - 1)
@@ -99,18 +99,18 @@ let label _ = "other"
 test "wildcard catch-all" (fn t ->
   t.eq "one, two, other" "%{label 1}, %{label 2}, %{label 99}")
 
-(* ── Environment variables ────────────────────────────────────────────── *)
+-- ── Environment variables ──────────────────────────────────────────────
 
 test "basic" (fn t -> t.eq (Env.get! "HOME") $HOME)
 test "in let" (fn t -> let d = $HOME in t.eq (Env.get! "HOME") d)
 test "concatenation" (fn t -> t.eq (Env.get! "HOME" ++ "/bin") ($HOME ++ "/bin"))
 test "interpolation" (fn t -> t.eq ("home: " ++ Env.get! "HOME") "home: %{$HOME}")
-(* `$NAME` in a string is text. Built from pieces on the left so that an
-   interpolation on the right, if there were one, would show as a mismatch. *)
+-- `$NAME` in a string is text. Built from pieces on the left so that an
+-- interpolation on the right, if there were one, would show as a mismatch.
 test "a $NAME in a string is text" (fn t -> t.eq ("home: $" ++ "HOME") "home: $HOME")
 test "unset var" (fn t -> t.raises (fn () -> $WAND_UNSET_XYZ_99999))
 
-(* ── Type annotations ─────────────────────────────────────────────────── *)
+-- ── Type annotations ───────────────────────────────────────────────────
 
 let value_annot : Int = 42
 test "value annot" (fn t -> t.eq 42 value_annot)
@@ -118,15 +118,15 @@ test "value annot" (fn t -> t.eq 42 value_annot)
 let annot_double x : Int = x * 2
 test "fn return annot" (fn t -> t.eq 6 (annot_double 3))
 
-(* ── Errors ────────────────────────────────────────────────────────────── *)
+-- ── Errors ──────────────────────────────────────────────────────────────
 
-(* ── Names are found the same way however many there are ────────────────── *)
+-- ── Names are found the same way however many there are ──────────────────
 
-(* A name is bound by pushing it in front of what was there, and found by
-   walking back. The environment carries indexes over the parts that are
-   settled, so a lookup does not get slower because a file is longer -- and
-   what matters here is that indexing changes nothing about *which* binding
-   is found. The one in front still wins. *)
+-- A name is bound by pushing it in front of what was there, and found by
+-- walking back. The environment carries indexes over the parts that are
+-- settled, so a lookup does not get slower because a file is longer -- and
+-- what matters here is that indexing changes nothing about *which* binding
+-- is found. The one in front still wins.
 
 let shadowed = "first"
 
@@ -154,8 +154,8 @@ let a8 = 8
 
 test "a name defined early is still found from far away" (fn t -> t.eq "defined early" deep)
 
-(* A script may shadow a name the standard library defines; the index over
-   the builtins must not get consulted before the script's own bindings. *)
+-- A script may shadow a name the standard library defines; the index over
+-- the builtins must not get consulted before the script's own bindings.
 let length = "mine"
 
 test "a script's own name beats a builtin of the same name" (fn t -> t.eq "mine" length)

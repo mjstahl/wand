@@ -8,10 +8,10 @@ import Shell
 import String
 import TOML
 
-(* A decoder's job is not only to produce a value. It is to say what was
-   wrong when it cannot, and to say it about the field rather than about the
-   document -- which is the whole difference between this and poking at
-   fields one at a time. So most of these check the message. *)
+-- A decoder's job is not only to produce a value. It is to say what was
+-- wrong when it cannot, and to say it about the field rather than about the
+-- document -- which is the whole difference between this and poking at
+-- fields one at a time. So most of these check the message.
 
 type Pod(name: String, restarts: Int)
 
@@ -36,8 +36,8 @@ test "reads an int, a bool" (fn t ->
     decoded (Decode.field "ready" Decode.bool)
   ))
 
-(* The named field is the moment: a scrape that reads the wrong field gets a
-   null and carries on, so the run fails somewhere else, later. *)
+-- The named field is the moment: a scrape that reads the wrong field gets a
+-- null and carries on, so the run fails somewhere else, later.
 test "a missing field is named" (fn t ->
   t.eq ".restarrts: no such field" (failure (Decode.field "restarrts" Decode.int)))
 
@@ -54,7 +54,7 @@ test "a list decodes every element" (fn t ->
   let counts = JSON.parse! `{"counts": [1, 2, 3]}` in
   t.eq (Ok [1, 2, 3]) (JSON.decode (Decode.field "counts" (Decode.list Decode.int)) counts))
 
-(* Two fields into a record. Wider records go through and_then. *)
+-- Two fields into a record. Wider records go through and_then.
 test "map2 builds a record" (fn t ->
   let pod =
     (Decode.map2
@@ -93,15 +93,15 @@ test "one_of takes the first that works" (fn t ->
       ])
     ))
 
-(* Which alternative was the real one is not the decoder's to guess, so it
-   reports all of them rather than picking. *)
+-- Which alternative was the real one is not the decoder's to guess, so it
+-- reports all of them rather than picking.
 test "one_of reports every alternative when none works" (fn t ->
   t.eq
     `no alternative matched: .nope: no such field; .name: expected Int, got "web-01"`
     (failure (Decode.one_of [Decode.field "nope" Decode.int, Decode.field "name" Decode.int])))
 
-(* A domain literal decodes as itself, so the boundary produces the type the
-   rest of the program is written against. *)
+-- A domain literal decodes as itself, so the boundary produces the type the
+-- rest of the program is written against.
 test "domain literals decode as themselves" (fn t ->
   t.eq (Ok 30s, Ok 1.4.2, Ok /var/log/app) (
     decoded (Decode.field "timeout" Decode.duration),
@@ -114,9 +114,9 @@ test "and a string that is not one says so" (fn t ->
     `.name: expected Duration, got "web-01"`
     (failure (Decode.field "name" Decode.duration)))
 
-(* Text backends hand over text, so a decoder reads a value out of it. The
-   reverse never happens: `string` does not stringify a number, since that
-   would make it accept anything. *)
+-- Text backends hand over text, so a decoder reads a value out of it. The
+-- reverse never happens: `string` does not stringify a number, since that
+-- would make it accept anything.
 test "a number written as text still reads as a number" (fn t ->
   let text = JSON.parse! `{"n": "42", "f": "1.5", "b": "true"}` in
   t.eq (Ok 42, Ok 1.5, Ok true) (
@@ -135,16 +135,16 @@ test "reading a field of something that is not an object" (fn t ->
     `.name: expected an object, got "web-01"`
     (failure (Decode.field "name" (Decode.field "deeper" Decode.string))))
 
-(* A decoder is a value: naming one runs nothing, and one can be used
-   against several documents. *)
+-- A decoder is a value: naming one runs nothing, and one can be used
+-- against several documents.
 test "a decoder is a value" (fn t ->
   let name = Decode.field "name" Decode.string in
   let other = JSON.parse! `{"name": "db-01"}` in
   t.eq (Ok "web-01", Ok "db-01") (JSON.decode name j, JSON.decode name other))
 
-(* The other three backends. Each presents what it read in the same shape,
-   so the combinators above are the whole surface: what changes is only
-   where the data came from. *)
+-- The other three backends. Each presents what it read in the same shape,
+-- so the combinators above are the whole surface: what changes is only
+-- where the data came from.
 
 test "TOML decodes by field, and nests" (fn t ->
   let cfg = TOML.parse! "name = \"app\"\ntimeout = \"30s\"\n[server]\nport = 8080" in
@@ -159,8 +159,8 @@ test "TOML names a missing field with its path" (fn t ->
     (Error ".server.prt: no such field")
     (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg)))
 
-(* A CSV's first row names the columns, so a row is read by field like any
-   other record -- and the cells are text, which `int` reads. *)
+-- A CSV's first row names the columns, so a row is read by field like any
+-- other record -- and the cells are text, which `int` reads.
 test "CSV reads rows by column name" (fn t ->
   let src = "host,restarts\nweb-01,4\ndb-01,0" in
   t.eq (Ok [4, 0]) (CSV.rows (Decode.field "restarts" Decode.int) src))
@@ -173,8 +173,8 @@ test "CSV says which row was wrong" (fn t ->
 
 test "one line, one value" (fn t -> t.eq (Ok [1, 2, 3]) (Shell.lines Decode.int "1\n2\n3"))
 
-(* $() strips the trailing newline, so nothing captured is no lines. A hand
-   written count reports one here, and every caller has to remember. *)
+-- $() strips the trailing newline, so nothing captured is no lines. A hand
+-- written count reports one here, and every caller has to remember.
 test "an empty capture is no lines" (fn t -> t.eq (Ok []) (Shell.lines Decode.string ""))
 
 test "the whole capture as one value" (fn t ->
@@ -183,9 +183,9 @@ test "the whole capture as one value" (fn t ->
 test "and the line that could not be read is named" (fn t ->
   t.eq (Error `[2]: expected Int, got "x"`) (Shell.lines Decode.int "1\n2\nx"))
 
-(* A field that may not be there. The distinction that matters is between a
-   field that is absent and a field that is there and wrong: the first is an
-   answer, the second is the silent null this layer exists to replace. *)
+-- A field that may not be there. The distinction that matters is between a
+-- field that is absent and a field that is there and wrong: the first is an
+-- answer, the second is the silent null this layer exists to replace.
 
 test "an absent field is None" (fn t ->
   t.eq (Ok None) (decoded (Decode.optional "restarrts" Decode.int)))
@@ -197,8 +197,8 @@ test "a null field is None -- absence written down" (fn t ->
 test "a present field is Some" (fn t ->
   t.eq (Ok (Some 4)) (decoded (Decode.optional "restarts" Decode.int)))
 
-(* `optional` says the field may be missing. It does not say its contents
-   may be anything. *)
+-- `optional` says the field may be missing. It does not say its contents
+-- may be anything.
 test "a present field that will not decode is still a failure" (fn t ->
   t.eq `.name: expected Int, got "web-01"` (failure (Decode.optional "name" Decode.int)))
 
@@ -214,9 +214,9 @@ test "the remaining domain literals" (fn t ->
     JSON.decode (Decode.field "net" Decode.cidr) doc
   ))
 
-(* A port is `:8080` in a script and usually a bare number in a document.
-   Every form goes through the lexer, so a decoder accepts exactly what could
-   have been written in the source -- and nothing it would have rejected. *)
+-- A port is `:8080` in a script and usually a bare number in a document.
+-- Every form goes through the lexer, so a decoder accepts exactly what could
+-- have been written in the source -- and nothing it would have rejected.
 test "a port reads however it was written" (fn t ->
   let doc = JSON.parse! `{"a": 8080, "b": "8080", "c": ":8080", "d": " :8080 "}` in
   t.eq (Ok :8080, Ok :8080, Ok :8080, Ok :8080) (
@@ -226,9 +226,9 @@ test "a port reads however it was written" (fn t ->
     JSON.decode (Decode.field "d" Decode.port) doc
   ))
 
-(* The number and the text are read by one rule -- the lexer -- so they
-   cannot disagree about the same port, and neither can a literal. A port
-   outside 0-65535 is not one. *)
+-- The number and the text are read by one rule -- the lexer -- so they
+-- cannot disagree about the same port, and neither can a literal. A port
+-- outside 0-65535 is not one.
 test "and what is not a port is not a port, written either way" (fn t ->
   let doc = JSON.parse! `{"a": -1, "b": ":-1", "c": "http", "d": 65536, "e": 65535}` in
   t.eq (
@@ -245,8 +245,8 @@ test "and what is not a port is not a port, written either way" (fn t ->
     JSON.decode (Decode.field "e" Decode.port) doc
   ))
 
-(* An object whose keys are data rather than field names. Nothing else in the
-   set can read one: `field` wants a name the program knows in advance. *)
+-- An object whose keys are data rather than field names. Nothing else in the
+-- set can read one: `field` wants a name the program knows in advance.
 
 test "an object with dynamic keys reads as a Map" (fn t ->
   let counts = JSON.parse! `{"web-01": 3, "db-01": 12}` in
@@ -258,9 +258,9 @@ test "and a bad value names the key it was under" (fn t ->
   let counts = JSON.parse! `{"a": 1, "b": "x"}` in
   t.eq (Error `.b: expected Int, got "x"`) (JSON.decode (Decode.dict Decode.int) counts))
 
-(* `optional` asks whether a field is there, which only a lookup can ask.
-   `nullable` asks whether a value is null, which is the question an element
-   of a list raises. *)
+-- `optional` asks whether a field is there, which only a lookup can ask.
+-- `nullable` asks whether a value is null, which is the question an element
+-- of a list raises.
 
 test "a null inside a list" (fn t ->
   t.eq
@@ -272,8 +272,8 @@ test "nullable still refuses a value that is neither" (fn t ->
     (Error `expected Int, got "x"`)
     (JSON.decode (Decode.nullable Decode.int) (JSON.parse! `"x"`)))
 
-(* Three fields, combined by hand. Wider than that is `and_then`, or the
-   derived decoder. *)
+-- Three fields, combined by hand. Wider than that is `and_then`, or the
+-- derived decoder.
 type Release(version: Version, draft: Bool, count: Int)
 
 test "map3 reads three fields" (fn t -> (

@@ -1,30 +1,30 @@
 uses {FS.Read}
 
-(** Parse a TOML string.  Returns Ok TOML or Error message. *)
+-- Parse a TOML string.  Returns Ok TOML or Error message.
 let parse src = toml_parse src
 
-(** Parse a TOML string, raising on error. *)
+-- Parse a TOML string, raising on error.
 let parse! src = toml_parse_exn src
 
-(** Serialise a TOML table back to a TOML string. *)
+-- Serialise a TOML table back to a TOML string.
 let stringify t = toml_stringify t
 
-(** Read and parse a TOML file, raising on error. Reading is the same
-    `FS!read_file` every other reader performs, so this is `FS.Read` like
-    any other read: a handler mocking the filesystem stands in for it, and
-    `--dry-run` sees it. *)
+-- Read and parse a TOML file, raising on error. Reading is the same
+-- `FS!read_file` every other reader performs, so this is `FS.Read` like
+-- any other read: a handler mocking the filesystem stands in for it, and
+-- `--dry-run` sees it.
 let read_file! path = parse! (read_file path)
 
-(** Read and parse a TOML file.  Returns Ok TOML or Error message. *)
+-- Read and parse a TOML file.  Returns Ok TOML or Error message.
 let read_file path = try read_file! path
 
-(** True if the value is a TOML table. *)
+-- True if the value is a TOML table.
 let table? t = toml_is_table t
 
-(** True if the value is a TOML array. *)
+-- True if the value is a TOML array.
 let array? t = toml_is_array t
 
-(** Extract typed values.  Each returns Ok v or Error message. *)
+-- Extract typed values.  Each returns Ok v or Error message.
 let get_bool t = toml_get_bool t
 let get_int t = toml_get_int t
 let get_float t = toml_get_float t
@@ -32,12 +32,12 @@ let get_string t = toml_get_string t
 let get_array t = toml_get_array t
 let get_table t = toml_get_table t
 
-(** Look up a key in a TOML table.  Returns Ok TOML or Error message. *)
+-- Look up a key in a TOML table.  Returns Ok TOML or Error message.
 let field key t = toml_field key t
 
-(** Look up a key in a TOML table, raising if absent. *)
+-- Look up a key in a TOML table, raising if absent.
 let field! key t = toml_field_exn key t
 
-(** Read a typed value out of a TOML document. Failure names the field that
-    failed and the path to it. See `Decode`. *)
+-- Read a typed value out of a TOML document. Failure names the field that
+-- failed and the path to it. See `Decode`.
 let decode d t = toml_decode d t

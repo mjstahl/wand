@@ -6,25 +6,25 @@ import List
 import Path
 import String
 
-(* How a value gets into a command.
-
-   `%{x}` is quote interpolate: the value becomes exactly one argument,
-   whatever it contains. `%!{x}` is raw! interpolate: the value is spliced
-   into the command as shell source, which the shell then reads.
-
-   The difference is the whole safety story of `$()`. A path with a space
-   in it, a value carrying `;` or `$(...)`, a filename that happens to
-   contain `*` -- under `%{}` none of them can change what the command
-   does. Under `%!{}` all of them can, on purpose, and `%!{}` is greppable
-   for exactly that reason.
-
-   `printf "[%s]"` prints one bracketed field per argument, which is how
-   these tell "one argument" from "several". *)
+-- How a value gets into a command.
+--
+-- `%{x}` is quote interpolate: the value becomes exactly one argument,
+-- whatever it contains. `%!{x}` is raw! interpolate: the value is spliced
+-- into the command as shell source, which the shell then reads.
+--
+-- The difference is the whole safety story of `$()`. A path with a space
+-- in it, a value carrying `;` or `$(...)`, a filename that happens to
+-- contain `*` -- under `%{}` none of them can change what the command
+-- does. Under `%!{}` all of them can, on purpose, and `%!{}` is greppable
+-- for exactly that reason.
+--
+-- `printf "[%s]"` prints one bracketed field per argument, which is how
+-- these tell "one argument" from "several".
 
 let quoted! v = $(printf "[%s]" %{v})
 let raw! v = $(printf "[%s]" %!{v})
 
-(* ── Quote interpolate: one value, one argument ────────────────────────── *)
+-- ── Quote interpolate: one value, one argument ──────────────────────────
 
 test "a plain value is one argument" (fn t -> t.eq "[one]" (quoted! "one"))
 
@@ -34,28 +34,28 @@ test "a tab does not split it" (fn t -> t.eq "[a\tb]" (quoted! "a\tb"))
 
 test "quotes in the value are kept" (fn t -> t.eq `[say "hi"]` (quoted! `say "hi"`))
 
-(* The one character single quotes cannot carry is the single quote, which
-   is closed, escaped and reopened. It has to survive that. *)
+-- The one character single quotes cannot carry is the single quote, which
+-- is closed, escaped and reopened. It has to survive that.
 test "a single quote survives" (fn t -> t.eq "[it's]" (quoted! "it's"))
 
 test "an empty value is one empty argument" (fn t -> t.eq "[]" (quoted! ""))
 
-(* ── Quote interpolate: nothing expands ────────────────────────────────── *)
+-- ── Quote interpolate: nothing expands ──────────────────────────────────
 
 test "a glob is literal text" (fn t -> t.eq "[*.txt]" (quoted! "*.txt"))
 
 test "a tilde is literal text" (fn t -> t.eq "[~]" (quoted! "~"))
 
-(* No escape needed: `$HOME` in a wand string is the text `$HOME`. Passing
-   it through `%{}` quotes it, so the shell receives the name rather than
-   expanding it. *)
+-- No escape needed: `$HOME` in a wand string is the text `$HOME`. Passing
+-- it through `%{}` quotes it, so the shell receives the name rather than
+-- expanding it.
 test "a variable reference is literal text" (fn t -> t.eq "[$HOME]" (quoted! "$HOME"))
 
-(* ── Quote interpolate: nothing runs ───────────────────────────────────── *)
+-- ── Quote interpolate: nothing runs ─────────────────────────────────────
 
-(* These are the ones that matter. A value carrying shell syntax is data,
-   not source, so a script cannot be made to run something by what it was
-   handed. *)
+-- These are the ones that matter. A value carrying shell syntax is data,
+-- not source, so a script cannot be made to run something by what it was
+-- handed.
 test "a semicolon does not start a second command" (fn t ->
   t.eq "[x; echo INJECTED]" (quoted! "x; echo INJECTED"))
 
@@ -67,14 +67,14 @@ test "command substitution does not run" (fn t ->
 
 test "backticks do not run" (fn t -> t.eq "[`echo TICK`]" (quoted! "`echo TICK`"))
 
-(* The same attempt that used to write a file, now inert. *)
+-- The same attempt that used to write a file, now inert.
 test "an interpolated value cannot perform effects of its own" (fn t ->
   with FS.temp_dir "shell_inject_" as d ->
   let marker = "%{Path.to_string d}/written-by-the-value" in
   let payload = "harmless; touch %{marker}" in
   let _ = $?(echo %{payload}) in t.eq false (FS.exists? (Path.of_string marker)))
 
-(* ── Raw interpolate: the value is shell source ────────────────────────── *)
+-- ── Raw interpolate: the value is shell source ──────────────────────────
 
 test "raw! splits on spaces" (fn t -> t.eq "[a][b]" (raw! "a b"))
 
@@ -85,21 +85,21 @@ test "raw! expands a glob" (fn t ->
   let pattern = "%{Path.to_string d}/*.txt" in
   t.eq 2 (List.length (String.lines $(ls %!{pattern}))))
 
-(* What raw! is for: a command assembled elsewhere and then run. *)
+-- What raw! is for: a command assembled elsewhere and then run.
 test "raw! can be the whole command" (fn t -> let c = "echo whole" in t.eq "whole" $(%!{c}))
 
 test "raw! runs what the value says" (fn t ->
   t.eq true (String.contains? "RAN" (raw! "x; echo RAN")))
 
-(* ── Both forms in one command ─────────────────────────────────────────── *)
+-- ── Both forms in one command ───────────────────────────────────────────
 
-(* The mixture is the ordinary case: flags that are shell source, an
-   argument that is data. *)
+-- The mixture is the ordinary case: flags that are shell source, an
+-- argument that is data.
 test "a command can use both" (fn t ->
   let flags = "-n -e" in
   let value = "two words" in t.eq "[-n][-e][two words]" $(printf "[%s]" %!{flags} %{value}))
 
-(* ── $?() is the same mechanism ────────────────────────────────────────── *)
+-- ── $?() is the same mechanism ──────────────────────────────────────────
 
 test "$?() quotes the same way" (fn t ->
   let v = "a b" in let r = $?(printf "[%s]" %{v}) in t.eq "[a b]" r.stdout)
@@ -107,13 +107,13 @@ test "$?() quotes the same way" (fn t ->
 test "$?() splices the same way" (fn t ->
   let v = "a b" in let r = $?(printf "[%s]" %!{v}) in t.eq "[a][b]" r.stdout)
 
-(* ── Inside the author's own quotes ────────────────────────────────────── *)
+-- ── Inside the author's own quotes ──────────────────────────────────────
 
-(* `%{x}` between quotes the author wrote is part of the word they are
-   building, so it is escaped for that quote instead of wrapped in one of
-   its own. Wrapping it there quoted nothing -- inside "..." a single quote
-   is an ordinary character -- and the value went into text the shell still
-   read, which is how `"hi %{name}"` ran whatever a name held. *)
+-- `%{x}` between quotes the author wrote is part of the word they are
+-- building, so it is escaped for that quote instead of wrapped in one of
+-- its own. Wrapping it there quoted nothing -- inside "..." a single quote
+-- is an ordinary character -- and the value went into text the shell still
+-- read, which is how `"hi %{name}"` ran whatever a name held.
 
 let in_double! v = $(printf "[%s]" "pre %{v} post")
 let in_single! v = $(printf "[%s]" 'pre %{v} post')
@@ -142,7 +142,7 @@ test "a backslash in the value survives double quotes" (fn t ->
 test "a single quote in the value does not close the word" (fn t ->
   t.eq "[pre it's post]" (in_single! "it's"))
 
-(* The command ends at its closing paren, and a paren the author quoted is
-   not it. Counting parens blind cut the command in half and read the rest
-   of the line as wand source. *)
+-- The command ends at its closing paren, and a paren the author quoted is
+-- not it. Counting parens blind cut the command in half and read the rest
+-- of the line as wand source.
 test "a quoted paren does not end the command" (fn t -> t.eq "[a)b]" $(printf "[%s]" "a)b"))

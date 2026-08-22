@@ -7,13 +7,13 @@ import List
 import String
 import Path
 
-(* A resource bracket has one job: whatever the body does, the release runs.
-   These check it against each way a body can leave -- returning, raising,
-   and being stopped by a handler that answers without resuming -- because
-   the happy path is the one case that was never in doubt.
-
-   Cleanup is observed through a real file rather than a counter, so a test
-   passes only if the release actually happened. *)
+-- A resource bracket has one job: whatever the body does, the release runs.
+-- These check it against each way a body can leave -- returning, raising,
+-- and being stopped by a handler that answers without resuming -- because
+-- the happy path is the one case that was never in doubt.
+--
+-- Cleanup is observed through a real file rather than a counter, so a test
+-- passes only if the release actually happened.
 
 let marker name = Path.of_string "/tmp/wand_res_%{name}"
 
@@ -30,8 +30,8 @@ test "released after the body returns" (fn t ->
 
 test "held while the body runs" (fn t -> t.eq true (with tracked "c" as _ -> held? "c"))
 
-(* Release has to happen before `try` turns the raise into a value, or a
-   failing script leaves its lock behind. *)
+-- Release has to happen before `try` turns the raise into a value, or a
+-- failing script leaves its lock behind.
 test "released when the body raises" (fn t ->
   let r = try with tracked "d" as _ -> List.get! 9 [1] in
   let failed =
@@ -44,7 +44,7 @@ test "released when the body raises" (fn t ->
 test "the raise still reaches the caller" (fn t ->
   t.raises (fn () -> with tracked "e" as _ -> List.get! 9 [1]))
 
-(* Innermost first: the order things were acquired, reversed. *)
+-- Innermost first: the order things were acquired, reversed.
 test "nested brackets release inside out" (fn t ->
   let _ = with tracked "f" as _ -> with tracked "g" as _ -> 1 in
   t.eq [false, false] [held? "f", held? "g"])
@@ -54,9 +54,9 @@ test "the outer one is still held inside the inner" (fn t ->
     [true, true]
     (with tracked "h" as _ -> with tracked "i" as _ -> [held? "h", held? "i"]))
 
-(* A handler that answers on its own ends the body. What the body was
-   holding still comes back -- otherwise a mock would leak every lock the
-   code it stands in for had taken. *)
+-- A handler that answers on its own ends the body. What the body was
+-- holding still comes back -- otherwise a mock would leak every lock the
+-- code it stands in for had taken.
 test "released when a handler does not resume" (fn t ->
   let out =
     handle with tracked "j" as _ -> let c = $(echo hi) in c with
@@ -71,11 +71,11 @@ test "released when a handler does resume" (fn t ->
   in
   t.eq ("mocked", false) (out, held? "k"))
 
-(* The release itself performs, and a handler is free to decline to resume
-   what it performs. That unwinds the bracket like any other abandoned
-   region -- it used to reach the top level as a fatal error instead, since
-   the raise doing the unwinding comes from inside the release, which runs
-   as `Fun.protect`'s finally and has whatever it raises wrapped. *)
+-- The release itself performs, and a handler is free to decline to resume
+-- what it performs. That unwinds the bracket like any other abandoned
+-- region -- it used to reach the top level as a fatal error instead, since
+-- the raise doing the unwinding comes from inside the release, which runs
+-- as `Fun.protect`'s finally and has whatever it raises wrapped.
 test "a handler may decline to resume an operation performed in a release" (fn t ->
   let out =
     handle with tracked "n" as _ -> "body" with
@@ -94,8 +94,8 @@ test "and through two brackets" (fn t ->
   let () = FS.delete! (marker "o") in
   let () = FS.delete! (marker "p") in t.eq "declined" out)
 
-(* A resource is a description, not something already open, so naming one
-   acquires nothing and using it twice acquires twice. *)
+-- A resource is a description, not something already open, so naming one
+-- acquires nothing and using it twice acquires twice.
 test "naming a resource acquires nothing" (fn t ->
   let r = tracked "l" in t.eq false (held? "l"))
 
@@ -104,11 +104,11 @@ test "one resource used twice" (fn t ->
   let first = with r as x -> x in
   let second = with r as x -> x in t.eq ["m", "m"] [first, second])
 
-(* ── FS.temp_dir ───────────────────────────────────────────────────────── *)
+-- ── FS.temp_dir ─────────────────────────────────────────────────────────
 
-(* A scratch directory exists to be filled, so release has to take the tree
-   with it -- an empty-directory removal would fail on the first file the
-   body wrote, which is every real use. *)
+-- A scratch directory exists to be filled, so release has to take the tree
+-- with it -- an empty-directory removal would fail on the first file the
+-- body wrote, which is every real use.
 test "temp_dir removes a directory that is not empty" (fn t ->
   let kept =
     with FS.temp_dir "wand_td_" as d ->
@@ -128,8 +128,8 @@ test "two temp_dirs do not collide" (fn t ->
   in
   t.eq true both)
 
-(* The tree goes even when the body leaves by raising. The directory's name
-   is written outside it first, so the check survives the body it came from. *)
+-- The tree goes even when the body leaves by raising. The directory's name
+-- is written outside it first, so the check survives the body it came from.
 test "temp_dir cleans up when the body raises" (fn t ->
   let note = marker "raise_case" in
   let r =

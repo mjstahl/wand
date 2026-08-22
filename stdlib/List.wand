@@ -1,131 +1,131 @@
 import Option
 
-(** Apply a function to every element of a list, returning a new list. *)
+-- Apply a function to every element of a list, returning a new list.
 let map _ [] = []
 let map f [h :: t] = f h :: map f t
 
-(** Keep only elements satisfying a predicate. *)
+-- Keep only elements satisfying a predicate.
 let filter _ [] = []
 let filter p [h :: t] = if p h then h :: filter p t else filter p t
 
-(** Apply a function to every element, keeping each Some value and dropping each None. *)
+-- Apply a function to every element, keeping each Some value and dropping each None.
 let filter_map _ [] = []
 let filter_map f [h :: t] =
   match f h with
   | Some v -> v :: filter_map f t
   | None -> filter_map f t
 
-(** Reduce a list left to right with an accumulator. *)
+-- Reduce a list left to right with an accumulator.
 let fold_left f acc [] = acc
 let fold_left f acc [h :: t] = fold_left f (f acc h) t
 
-(** Reduce a list right to left with an accumulator. *)
+-- Reduce a list right to left with an accumulator.
 let fold_right f [] acc = acc
 let fold_right f [h :: t] acc = f h (fold_right f t acc)
 
-(** Return the number of elements in a list. *)
+-- Return the number of elements in a list.
 let length [] = 0
 let length [_ :: t] = 1 + length t
 
-(** Concatenate two lists. *)
+-- Concatenate two lists.
 let append [] ys = ys
 let append [h :: t] ys = h :: append t ys
 
-(** Reverse a list. *)
+-- Reverse a list.
 let reverse xs = fold_left (fn acc x -> x :: acc) [] xs
 
-(** Return the first element of a list, or None if it is empty. *)
+-- Return the first element of a list, or None if it is empty.
 let head [] = None
 let head [h :: _] = Some h
 
-(** Return the first element of a list. Raises on empty list. *)
+-- Return the first element of a list. Raises on empty list.
 let head! [h :: _] = h
 
-(** Return all elements after the first, or None if the list is empty. *)
+-- Return all elements after the first, or None if the list is empty.
 let tail [] = None
 let tail [_ :: t] = Some t
 
-(** Return all elements after the first. Raises on empty list. *)
+-- Return all elements after the first. Raises on empty list.
 let tail! [_ :: t] = t
 
-(** Return true if the list is empty. *)
+-- Return true if the list is empty.
 let empty? [] = true
 let empty? _ = false
 
-(** Return true if any element satisfies the predicate. *)
+-- Return true if any element satisfies the predicate.
 let any _ [] = false
 let any p [h :: t] = if p h then true else any p t
 
-(** Return true if all elements satisfy the predicate. *)
+-- Return true if all elements satisfy the predicate.
 let all _ [] = true
 let all p [h :: t] = if p h then all p t else false
 
-(** Return the first element satisfying the predicate, or None. *)
+-- Return the first element satisfying the predicate, or None.
 let find _ [] = None
 let find p [h :: t] = if p h then Some h else find p t
 
-(** Pair up elements from two lists. Stops at the shorter list. *)
+-- Pair up elements from two lists. Stops at the shorter list.
 let zip [] _ = []
 let zip _ [] = []
 let zip [a :: t] [b :: u] = (a, b) :: zip t u
 
-(** Take the first n elements. *)
+-- Take the first n elements.
 let take 0 _ = []
 let take _ [] = []
 let take n [h :: t] = h :: take (n - 1) t
 
-(** Drop the first n elements. *)
+-- Drop the first n elements.
 let drop 0 xs = xs
 let drop _ [] = []
 let drop n [_ :: t] = drop (n - 1) t
 
-(** Take elements while the predicate holds, stopping at the first miss. *)
+-- Take elements while the predicate holds, stopping at the first miss.
 let take_while _ [] = []
 let take_while p [h :: t] = if p h then h :: take_while p t else []
 
-(** Drop elements while the predicate holds, returning the remainder. *)
+-- Drop elements while the predicate holds, returning the remainder.
 let drop_while _ [] = []
 let drop_while p [h :: t] = if p h then drop_while p t else h :: t
 
-(** Call f on each element, for side effects. Takes the element, as `map`
-    and `filter` do; pair it with `indexed` when the position is wanted.
-    
-    Whatever f returns is dropped. Most commands run for their effect
-    produce something anyway -- `$()` hands back stdout whether or not the
-    command wrote any -- and requiring Unit taxed every one of those call
-    sites with a `let _ = ... in ()` that said nothing. *)
+-- Call f on each element, for side effects. Takes the element, as `map`
+-- and `filter` do; pair it with `indexed` when the position is wanted.
+--
+-- Whatever f returns is dropped. Most commands run for their effect
+-- produce something anyway -- `$()` hands back stdout whether or not the
+-- command wrote any -- and requiring Unit taxed every one of those call
+-- sites with a `let _ = ... in ()` that said nothing.
 let each _ [] = ()
 let each f [h :: t] = let _ = f h in each f t
 
-(** Pair each element with its position, counting from zero. *)
+-- Pair each element with its position, counting from zero.
 let indexed xs =
   let go _ [] = []
       go i [h :: t] = (i, h) :: go (i + 1) t
   in go 0 xs
 
-(** Return the element at index n, or None if out of bounds. *)
+-- Return the element at index n, or None if out of bounds.
 let get n xs =
   match list_get n xs with
   | Ok v -> Some v
   | Error _ -> None
 
-(** Return the element at index n.  Raises if out of bounds. *)
+-- Return the element at index n.  Raises if out of bounds.
 let get! n xs = list_get_exn n xs
 
-(** Sort a list using the default ordering. *)
+-- Sort a list using the default ordering.
 let sort xs = list_sort xs
 
-(** Sort a list by a key function. *)
+-- Sort a list by a key function.
 let sort_by f xs = list_sort_by f xs
 
-(** Remove duplicate elements. *)
+-- Remove duplicate elements.
 let unique xs = list_unique xs
 
-(** Generate a list of integers from lo to hi (exclusive). *)
+-- Generate a list of integers from lo to hi (exclusive).
 let range lo hi = list_range lo hi
 
-(** Flatten a list of lists into a single list. *)
+-- Flatten a list of lists into a single list.
 let flatten xs = list_flatten xs
 
-(** Concatenate two lists. Alias for append. *)
+-- Concatenate two lists. Alias for append.
 let concat xs ys = list_concat xs ys

@@ -5,17 +5,17 @@ import FS
 import Path
 import List
 
-(* Glob literal syntax (`*.wand`, `**`, `./**/*.ml`, ...) is a distinct
-   token/type from Path -- raw lexer-level assertions for that stay in
-   test_glob.ml (no wand-source equivalent). This file covers the type
-   and the real FS.glob/FS.glob_in behavior. *)
+-- Glob literal syntax (`*.wand`, `**`, `./**/*.ml`, ...) is a distinct
+-- token/type from Path -- raw lexer-level assertions for that stay in
+-- test_glob.ml (no wand-source equivalent). This file covers the type
+-- and the real FS.glob/FS.glob_in behavior.
 
 test "glob literal type" (fn t -> let g = *.wand in t.ok true)
 
-(* ── FS.glob ──────────────────────────────────────────────────────────── *)
+-- ── FS.glob ────────────────────────────────────────────────────────────
 
-(* A unique name, borrowed from a temp file that the bracket removes on
-   the way out -- so nothing is left behind and nothing has to remember. *)
+-- A unique name, borrowed from a temp file that the bracket removes on
+-- the way out -- so nothing is left behind and nothing has to remember.
 let scratch = with FS.temp_file "wand_glob_test_" "" as p -> Path.to_string p
 let () = FS.mkdir! (Path.of_string scratch)
 

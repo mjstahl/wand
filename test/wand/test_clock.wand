@@ -5,12 +5,12 @@ import Clock
 import Duration
 import Test
 
-(* Waiting is an effect, so a handler can answer it. That is what makes a
-   deadline testable instead of slow: `Test.with_clock` supplies a clock
-   that costs no time and reports what was asked of it.
-
-   Nothing here sleeps for real. A test that took the durations it names
-   would take over an hour. *)
+-- Waiting is an effect, so a handler can answer it. That is what makes a
+-- deadline testable instead of slow: `Test.with_clock` supplies a clock
+-- that costs no time and reports what was asked of it.
+--
+-- Nothing here sleeps for real. A test that took the durations it names
+-- would take over an hour.
 
 group "the virtual clock" (fn () -> [
   test "an hour costs nothing" (fn t ->
@@ -25,9 +25,9 @@ group "the virtual clock" (fn () -> [
     let (elapsed, v) = Test.with_clock (fn () -> 42) in t.eq (0ms, 42) (elapsed, v))
 ])
 
-(* A zero sleep still performs the effect, so a handler sees it and a trace
-   reports it. Nothing is stepped around by a value that happens to be
-   zero. *)
+-- A zero sleep still performs the effect, so a handler sees it and a trace
+-- reports it. Nothing is stepped around by a value that happens to be
+-- zero.
 group "the edges" (fn () -> [
   test "zero is still a sleep" (fn t ->
     let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 0ms) in t.eq 0ms elapsed),
@@ -38,7 +38,7 @@ group "the edges" (fn () -> [
     t.eq 5s elapsed)
 ])
 
-(* A backoff loop is the reason ordering had to come first. *)
+-- A backoff loop is the reason ordering had to come first.
 let backoff attempts =
   let step d n =
     if n == 0 then 0ms
@@ -50,7 +50,7 @@ group "a capped backoff" (fn () -> [
   test "doubles until the cap" (fn t ->
     let (elapsed, _) = Test.with_clock (fn () -> backoff 3) in
     t.eq 7s elapsed),
-  (* 1 + 2 + 4 + 8 + 16 + 30 + 30 + 30: the last three are the cap. *)
+    -- 1 + 2 + 4 + 8 + 16 + 30 + 30 + 30: the last three are the cap.
   test "and never sleeps longer than the cap" (fn t ->
     let (elapsed, _) = Test.with_clock (fn () -> backoff 8) in
     t.eq 121s elapsed)

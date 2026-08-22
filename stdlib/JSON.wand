@@ -1,47 +1,47 @@
 uses {FS.Read}
 
-(** Parse a JSON string.  Returns Ok JSON or Error message. *)
+-- Parse a JSON string.  Returns Ok JSON or Error message.
 let parse src = json_parse src
 
-(** Parse a JSON string, raising on error. *)
+-- Parse a JSON string, raising on error.
 let parse! src = json_parse_exn src
 
-(** Serialise a JSON value to a compact string. *)
+-- Serialise a JSON value to a compact string.
 let stringify j = json_stringify j
 
-(** Serialise a JSON value to a pretty-printed string. *)
+-- Serialise a JSON value to a pretty-printed string.
 let stringify_pretty j = json_stringify_pretty j
 
-(** Read and parse a JSON file, raising on error. Reading is the same
-    `FS!read_file` every other reader performs, so this is `FS.Read` like
-    any other read: a handler mocking the filesystem stands in for it, and
-    `--dry-run` sees it. *)
+-- Read and parse a JSON file, raising on error. Reading is the same
+-- `FS!read_file` every other reader performs, so this is `FS.Read` like
+-- any other read: a handler mocking the filesystem stands in for it, and
+-- `--dry-run` sees it.
 let read_file! path = parse! (read_file path)
 
-(** Read and parse a JSON file.  Returns Ok JSON or Error message. *)
+-- Read and parse a JSON file.  Returns Ok JSON or Error message.
 let read_file path = try read_file! path
 
-(** The JSON null value. *)
+-- The JSON null value.
 let null = json_null
 
-(** Construct JSON values from wand primitives. *)
+-- Construct JSON values from wand primitives.
 let of_bool b = json_of_bool b
 let of_int n = json_of_int n
 let of_float f = json_of_float f
 let of_string s = json_of_string s
 let of_list xs = json_of_list xs
-(** Build an object from a Map, written in the order the Map holds -- the
-    inverse of `get_object`. Keys need not be identifiers: a map literal
-    takes them quoted, as in `["content-type" = JSON.of_string "json"]`.
-    
-    A key the Map holds twice is written once, at its first position, which
-    is the one `Map.get` would find. *)
+-- Build an object from a Map, written in the order the Map holds -- the
+-- inverse of `get_object`. Keys need not be identifiers: a map literal
+-- takes them quoted, as in `["content-type" = JSON.of_string "json"]`.
+--
+-- A key the Map holds twice is written once, at its first position, which
+-- is the one `Map.get` would find.
 let of_map m = json_of_map m
 
-(** Test whether a JSON value is null. *)
+-- Test whether a JSON value is null.
 let null? j = json_is_null j
 
-(** Extract typed values.  Each returns Ok v or Error message. *)
+-- Extract typed values.  Each returns Ok v or Error message.
 let get_bool j = json_get_bool j
 let get_int j = json_get_int j
 let get_float j = json_get_float j
@@ -49,12 +49,12 @@ let get_string j = json_get_string j
 let get_array j = json_get_array j
 let get_object j = json_get_object j
 
-(** Look up a field in a JSON object.  Returns Ok JSON or Error message. *)
+-- Look up a field in a JSON object.  Returns Ok JSON or Error message.
 let field key j = json_field key j
 
-(** Look up a field, raising if absent or not an object. *)
+-- Look up a field, raising if absent or not an object.
 let field! key j = json_field_exn key j
 
-(** Read a typed value out of a JSON document. Failure names the field that
-    failed and the path to it. See `Decode`. *)
+-- Read a typed value out of a JSON document. Failure names the field that
+-- failed and the path to it. See `Decode`.
 let decode d j = json_decode d j

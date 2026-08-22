@@ -5,20 +5,20 @@ import List
 import Proc
 import Shell
 
-(* Run each stage of a build, report which failed, and exit with the verdict.
-
-   bash:  set -e
-          make build
-          make test
-          make lint
-
-   `set -e` is the ritual, and it is not a guarantee: a stage inside a
-   pipeline, a command substitution, or an `if` does not stop the script,
-   and `cmd; echo ok` reports ok after cmd failed. This runs each stage,
-   keeps its exit code, and decides at the end.
-
-   `$?()` answers with a `ShellResult` rather than raising, so a stage that
-   fails is a value the script can hold. *)
+-- Run each stage of a build, report which failed, and exit with the verdict.
+--
+-- bash:  set -e
+--        make build
+--        make test
+--        make lint
+--
+-- `set -e` is the ritual, and it is not a guarantee: a stage inside a
+-- pipeline, a command substitution, or an `if` does not stop the script,
+-- and `cmd; echo ok` reports ok after cmd failed. This runs each stage,
+-- keeps its exit code, and decides at the end.
+--
+-- `$?()` answers with a `ShellResult` rather than raising, so a stage that
+-- fails is a value the script can hold.
 
 let stage name r = (name, Shell.ok? r)
 
@@ -32,8 +32,8 @@ let report stages = (
   | bad -> (println "%{List.length bad} stage(s) failed"; Proc.exit 1)
 )
 
-(* The commands run in `main`, so importing this file runs none of them and
-   a test can hand `report` a list of its own. *)
+-- The commands run in `main`, so importing this file runs none of them and
+-- a test can hand `report` a list of its own.
 let main () = report [
   stage "build" $?(dune build),
   stage "test" $?(dune test),

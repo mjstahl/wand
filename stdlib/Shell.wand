@@ -1,38 +1,38 @@
 uses {Clock}
 
-(* Reading what a command wrote.
+-- Reading what a command wrote.
+--
+-- A command's output has no types of its own -- it is text, and the shape
+-- is whatever the command decided. These two run a decoder over it, so the
+-- reading is done in one place with a message that says what was wrong,
+-- rather than by a chain of scrapes that each assume the last one worked.
+--
+--     let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
+--
+-- `Decode.int` reads the digits, because a decoder reads a value out of
+-- text. See `Decode`.
 
-   A command's output has no types of its own -- it is text, and the shape
-   is whatever the command decided. These two run a decoder over it, so the
-   reading is done in one place with a message that says what was wrong,
-   rather than by a chain of scrapes that each assume the last one worked.
-
-       let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
-
-   `Decode.int` reads the digits, because a decoder reads a value out of
-   text. See `Decode`. *)
-
-(** Whether a command succeeded: its exit code is zero.
-    
-    `$?(cmd)` gives a `ShellResult`, and the first thing a script asks of
-    one is whether it worked. That question is `r.code == 0`, which every
-    caller was writing out. *)
+-- Whether a command succeeded: its exit code is zero.
+--
+-- `$?(cmd)` gives a `ShellResult`, and the first thing a script asks of
+-- one is whether it worked. That question is `r.code == 0`, which every
+-- caller was writing out.
 let ok? (r: ShellResult) = r.code == 0
 
-(** Read the whole capture as one value, ignoring surrounding whitespace. *)
+-- Read the whole capture as one value, ignoring surrounding whitespace.
 let decode d out = shell_decode d out
 
-(** Read one value per line. `$()` strips the trailing newline, so a capture
-    with nothing in it is no lines rather than one empty line. *)
+-- Read one value per line. `$()` strips the trailing newline, so a capture
+-- with nothing in it is no lines rather than one empty line.
 let lines d out = shell_lines d out
 
-(** Run `thunk` with a deadline on each command it runs. A command that has
-    not finished in `d` is sent SIGTERM, and SIGKILL five seconds later.
-    
-    The result is `Error` only when a command ran out of time; the message
-    names the command and the deadline. Any other failure passes through, so
-    a command that exits non-zero raises as it always does.
-    
-    The deadline is per command, not for the whole thunk: a thunk that runs
-    three commands may take three deadlines. *)
+-- Run `thunk` with a deadline on each command it runs. A command that has
+-- not finished in `d` is sent SIGTERM, and SIGKILL five seconds later.
+--
+-- The result is `Error` only when a command ran out of time; the message
+-- names the command and the deadline. Any other failure passes through, so
+-- a command that exits non-zero raises as it always does.
+--
+-- The deadline is per command, not for the whole thunk: a thunk that runs
+-- three commands may take three deadlines.
 let timeout d thunk = shell_timeout d thunk

@@ -7,7 +7,7 @@ let try_msg thunk =
   | Ok _ -> ""
   | Error e -> e
 
-(* ── requires ──────────────────────────────────────────────────────────── *)
+-- ── requires ────────────────────────────────────────────────────────────
 
 let abs_req x =
   requires x >= 0
@@ -18,7 +18,7 @@ test "requires fails" (fn t ->
 test "requires shows condition" (fn t ->
   t.ok (String.contains? "x >= 0" (try_msg (fn () -> abs_req (-1)))))
 
-(* ── multiple requires ─────────────────────────────────────────────────── *)
+-- ── multiple requires ───────────────────────────────────────────────────
 
 let clamp_req lo hi x =
   requires lo <= hi
@@ -28,7 +28,7 @@ test "all requires pass" (fn t -> t.eq 5 (clamp_req 0 10 5))
 test "first requires fails" (fn t ->
   t.ok (String.contains? "precondition failed" (try_msg (fn () -> clamp_req 10 0 5))))
 
-(* ── ensures ───────────────────────────────────────────────────────────── *)
+-- ── ensures ─────────────────────────────────────────────────────────────
 
 let abs_ens x =
   ensures result >= 0
@@ -43,7 +43,7 @@ test "ensures fails" (fn t ->
 test "ensures shows condition" (fn t ->
   t.ok (String.contains? "result > 100" (try_msg (fn () -> broken 5))))
 
-(* ── requires + ensures ────────────────────────────────────────────────── *)
+-- ── requires + ensures ──────────────────────────────────────────────────
 
 let clamp_both lo hi x =
   requires lo <= hi
@@ -57,4 +57,4 @@ let double_ens x =
   x * 2
 test "result equals expected" (fn t -> t.eq 14 (double_ens 7))
 
-(* ── type errors ───────────────────────────────────────────────────────── *)
+-- ── type errors ─────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 let {test} = import Test
 
-(* ── Enum-style variants (no payload) ─────────────────────────────────── *)
+-- ── Enum-style variants (no payload) ───────────────────────────────────
 
 type Color = Red | Green | Blue
 
@@ -8,7 +8,7 @@ test "nullary constructor" (fn t -> t.eq "Red" "%{Red}")
 test "constructor equality" (fn t -> t.eq true (Red == Red))
 test "constructor inequality" (fn t -> t.eq false (Red == Green))
 
-(* ── Variants with payloads ────────────────────────────────────────────── *)
+-- ── Variants with payloads ──────────────────────────────────────────────
 
 type Wrap = Wrap Int
 type Pair = Pair Int Int
@@ -16,7 +16,7 @@ type Pair = Pair Int Int
 test "single payload" (fn t -> t.eq "Wrap(42)" "%{Wrap 42}")
 test "two payloads" (fn t -> t.eq "Pair(3, 4)" "%{Pair 3 4}")
 
-(* ── Pattern matching on variants ─────────────────────────────────────── *)
+-- ── Pattern matching on variants ───────────────────────────────────────
 
 let describe_color c =
   match c with
@@ -31,7 +31,7 @@ let area r =
   | Rect w h -> w * h
 test "match payload" (fn t -> t.eq 12 (area (Rect 3 4)))
 
-(* ── Single-constructor shorthand (named fields) ──────────────────────── *)
+-- ── Single-constructor shorthand (named fields) ────────────────────────
 
 type Point(x: Int, y: Int)
 type Circle(radius: Int)
@@ -43,7 +43,7 @@ test "second field" (fn t -> let origin = Point(x = 0, y = 0) in t.eq 0 origin.y
 test "field on function result" (fn t ->
   let unit_circle = Circle(radius = 1) in t.eq 1 unit_circle.radius)
 
-(* ── Named constructor patterns ───────────────────────────────────────── *)
+-- ── Named constructor patterns ─────────────────────────────────────────
 
 test "destructure named fields" (fn t ->
   let p = Point(x = 3, y = 4) in
@@ -64,7 +64,7 @@ test "wildcard field" (fn t ->
 let add_coords p = let Point(x = a, y = b) = p in a + b
 test "in local let binding" (fn t -> t.eq 15 (add_coords Point(x = 7, y = 8)))
 
-(* ── Named-field types are destructured by name ────────────────────────── *)
+-- ── Named-field types are destructured by name ──────────────────────────
 
 test "single field by name" (fn t ->
   let c = Circle(radius = 7) in let Circle(radius = r) = c in t.eq 7 r)
@@ -83,12 +83,12 @@ test "match case by name" (fn t ->
 let circle_area c = let Circle(radius = r) = c in r * r
 test "in local let inside fn" (fn t -> t.eq 25 (circle_area Circle(radius = 5)))
 
-(* ── Errors ────────────────────────────────────────────────────────────── *)
+-- ── Errors ──────────────────────────────────────────────────────────────
 
-(* ── A type on a parameter ─────────────────────────────────────────────── *)
+-- ── A type on a parameter ───────────────────────────────────────────────
 
-(* Dot access needs a named type, and a definition is generalized before any
-   call is seen. So the type comes from the definition. *)
+-- Dot access needs a named type, and a definition is generalized before any
+-- call is seen. So the type comes from the definition.
 
 let radius_of (c: Circle) = c.radius
 test "a parameter carries its type" (fn t -> t.eq 7 (radius_of Circle(radius = 7)))
@@ -109,7 +109,7 @@ test "and an arm of a match" (fn t ->
 let named (c: Circle) : Int = c.radius
 test "with a return annotation as well" (fn t -> t.eq 2 (named Circle(radius = 2)))
 
-(* ── Record update ────────────────────────────────────────────────────── *)
+-- ── Record update ──────────────────────────────────────────────────────
 
 type Tally(ok: Int, failed: Int, label: String)
 
@@ -125,10 +125,10 @@ test "the base is left alone" (fn t -> (let _ = Tally(base, failed = 9); t.eq 2 
 test "the base is any expression" (fn t ->
   t.eq 9 Tally(Tally(base, ok = 3), failed = 9).failed)
 
-(* ── A type on a payload pattern ──────────────────────────────────────── *)
+-- ── A type on a payload pattern ────────────────────────────────────────
 
-(* Where a decoder's result lands, so it is where the type is most often
-   already known and most often still worth writing. *)
+-- Where a decoder's result lands, so it is where the type is most often
+-- already known and most often still worth writing.
 type Boxed(n: Int)
 
 test "a payload carries its type" (fn t -> (

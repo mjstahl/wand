@@ -12,17 +12,17 @@ import TOML
 
 let {test, group} = import Test
 
-(* Every `op_performers` entry in the operations table (typechecker.ml)
-   claims that calling something performs a particular operation. The claim
-   is what the editor shows after `FS!` -- "handles the FS.Write effect of
-   FS.write_file and FS.write_file!" -- and it is the one part of the table
-   no analysis can derive, so it is checked here instead of trusted.
-
-   Each case runs the performer under a handler for its operation and does
-   not resume: reaching the handler is the whole assertion, so the value it
-   answers with stands in for "the operation was performed". A performer
-   that stopped performing its operation would run for real instead, and
-   these tests would fail -- loudly, and usually by touching the disk. *)
+-- Every `op_performers` entry in the operations table (typechecker.ml)
+-- claims that calling something performs a particular operation. The claim
+-- is what the editor shows after `FS!` -- "handles the FS.Write effect of
+-- FS.write_file and FS.write_file!" -- and it is the one part of the table
+-- no analysis can derive, so it is checked here instead of trusted.
+--
+-- Each case runs the performer under a handler for its operation and does
+-- not resume: reaching the handler is the whole assertion, so the value it
+-- answers with stands in for "the operation was performed". A performer
+-- that stopped performing its operation would run for real instead, and
+-- these tests would fail -- loudly, and usually by touching the disk.
 
 let caught = "caught"
 let missed = "missed"

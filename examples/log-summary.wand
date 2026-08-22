@@ -4,8 +4,8 @@ import IO
 import Stream
 import String
 
-(* One pass over stdin: each line lands in its buckets as it goes by, so
-   the log never has to fit in memory. *)
+-- One pass over stdin: each line lands in its buckets as it goes by, so
+-- the log never has to fit in memory.
 let tally (total, errors, warns, infos, first_err) line = (
   total + 1,
   if String.contains? "ERROR" line then errors + 1 else errors,

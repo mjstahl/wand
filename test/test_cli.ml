@@ -120,7 +120,26 @@ let double x = x * 2|} with
    | Some doc ->
      if not (String.length doc > 0) then
        Alcotest.fail "doc: doc string is empty"
-   | None -> Alcotest.fail "doc: doc string not stored")
+   | None -> Alcotest.fail "doc: doc string not stored");
+  (* Documentation is a run of `--` lines directly above the definition. Each
+     line stands alone, the lines are consecutive, and the last one sits on
+     the line above -- so a comment after code documents nothing, and a blank
+     line ends the run. *)
+  let doc_of src name =
+    match Runner.run_session (make_sess ()) src with
+    | Ok (s, _) -> List.assoc_opt name s.Runner.s_docs
+    | Error m -> Alcotest.failf "doc run eval error: %s" m
+  in
+  (match doc_of "-- Doubles a number.\n-- Twice, in fact.\nlet double x = x * 2" "double" with
+   | Some doc ->
+     Alcotest.(check string) "both lines, in order" "Doubles a number.\nTwice, in fact." doc
+   | None -> Alcotest.fail "doc: a run of line comments did not attach");
+  (match doc_of "let plain x = x  -- trails the code" "plain" with
+   | Some d -> Alcotest.failf "doc: a trailing comment documented a binding: %s" d
+   | None -> ());
+  (match doc_of "-- A file header.\n\nlet far x = x" "far" with
+   | Some d -> Alcotest.failf "doc: a blank line did not end the run: %s" d
+   | None -> ())
 
 (* ── wand v (list all) ─────────────────────────────────────────────────── *)
 

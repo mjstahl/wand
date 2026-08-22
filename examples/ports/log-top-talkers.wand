@@ -6,16 +6,16 @@ import Map
 import Stream
 import String
 
-(* Which clients made the most requests.
+-- Which clients made the most requests.
+--
+-- bash:  awk '{print $1}' access.log | sort | uniq -c | sort -rn | head -5
+--
+-- The pipeline re-reads the text four times and sorts the whole file to
+-- count it. This counts as it goes, so the log never has to fit in memory,
+-- and only the tally is sorted.
 
-   bash:  awk '{print $1}' access.log | sort | uniq -c | sort -rn | head -5
-
-   The pipeline re-reads the text four times and sorts the whole file to
-   count it. This counts as it goes, so the log never has to fit in memory,
-   and only the tally is sorted. *)
-
-(* The first field of a common-log line is the client address. A line with
-   nothing on it contributes nothing. *)
+-- The first field of a common-log line is the client address. A line with
+-- nothing on it contributes nothing.
 let client line = List.head (String.words line)
 
 let count_into counts line =
@@ -27,8 +27,8 @@ let count_into counts line =
     | None -> Map.set who 1 counts
   )
 
-(* Map.to_list gives pairs in key order, so the sort decides the rest: by
-   count, and by name where two clients tie. *)
+-- Map.to_list gives pairs in key order, so the sort decides the rest: by
+-- count, and by name where two clients tie.
 let busiest n counts =
   counts |> Map.to_list |> List.sort_by (fn (who, count) -> (0 - count, who)) |> List.take n
 
@@ -38,9 +38,9 @@ let report counts = (
   busiest 5 counts |> List.each (fn (who, count) -> println "%{count}\t%{who}")
 )
 
-(* The stream is in `main` rather than in a binding: an import runs a
-   file's bindings, so a top-level `let counts = ...stdin...` would read
-   stdin the moment a test imported this. *)
+-- The stream is in `main` rather than in a binding: an import runs a
+-- file's bindings, so a top-level `let counts = ...stdin...` would read
+-- stdin the moment a test imported this.
 let main! () = report (Stream.fold_left count_into Map.empty (IO.stdin_lines ()))
 
 main! ()

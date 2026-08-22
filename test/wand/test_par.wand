@@ -9,7 +9,7 @@ import FS
 import Path
 import String
 
-(* ── Results keep the list's order ─────────────────────────────────────── *)
+-- ── Results keep the list's order ───────────────────────────────────────
 
 test "results come back in order, not completion order" (fn t ->
   t.eq [Ok 2, Ok 4, Ok 6, Ok 8, Ok 10] (Par.map 4 (fn x -> x * 2) [1, 2, 3, 4, 5]))
@@ -22,10 +22,10 @@ test "a limit larger than the work is fine" (fn t ->
 test "a limit of one still works" (fn t ->
   t.eq [Ok 2, Ok 3, Ok 4] (Par.map 1 (fn x -> x + 1) [1, 2, 3]))
 
-(* ── A failure is a value ──────────────────────────────────────────────── *)
+-- ── A failure is a value ────────────────────────────────────────────────
 
-(* One item raising does not cancel its siblings or fail the call: it comes
-   back as an Error where its result would have been. *)
+-- One item raising does not cancel its siblings or fail the call: it comes
+-- back as an Error where its result would have been.
 test "a failure lands in its own position" (fn t ->
   t.eq
     [Ok 1, Error "map key not found: k", Ok 3]
@@ -37,7 +37,7 @@ test "and the error carries no source position" (fn t ->
   | Some (Error e) -> t.ok (String.starts_with? "map key not found" e)
   | _ -> t.ok false)
 
-(* ── each runs for effects ─────────────────────────────────────────────── *)
+-- ── each runs for effects ───────────────────────────────────────────────
 
 test "each visits every element" (fn t ->
   with FS.temp_dir "wand_par_" as d ->
@@ -47,30 +47,30 @@ test "each visits every element" (fn t ->
   in
   t.eq 3 (List.length (FS.glob_in *.txt (Path.of_string dir))))
 
-(* ── Effects performed inside a worker are still interceptable ─────────── *)
+-- ── Effects performed inside a worker are still interceptable ───────────
 
-(* Each worker installs the program's handlers on its own domain. Without
-   that an effect performed in a worker would escape a rehearsal, which is
-   the one thing a rehearsal must not allow. *)
+-- Each worker installs the program's handlers on its own domain. Without
+-- that an effect performed in a worker would escape a rehearsal, which is
+-- the one thing a rehearsal must not allow.
 test "a worker's commands are seen by a handler" (fn t ->
   let cmds = Test.shell_calls (fn () -> Par.each 3 (fn n -> $(echo hi)) [1, 2]) in
   t.eq 2 (List.length cmds))
 
-(* Watching costs the overlap, so it is only paid when someone is watching:
-   with no handler in scope a worker performs its own effects on its own
-   domain, and the work really does run at the same time. *)
+-- Watching costs the overlap, so it is only paid when someone is watching:
+-- with no handler in scope a worker performs its own effects on its own
+-- domain, and the work really does run at the same time.
 test "a mock still answers a worker's commands" (fn t ->
   let out =
     Test.with_shell [("echo", "mocked")] (fn () -> Par.map 3 (fn n -> $(echo hi)) [1, 2])
   in
   t.eq [Ok "mocked", Ok "mocked"] out)
 
-(* Several workers, each performing several effects, all watched. A worker's
-   effects are answered one at a time on the calling domain, and the reply
-   carries no idea of who asked -- so with two workers waiting, one could
-   take the answer meant for the other and leave it waiting for a reply that
-   had already been consumed. Eight rounds of it, since a race that only
-   sometimes loses is a race that passes once and fails in CI. *)
+-- Several workers, each performing several effects, all watched. A worker's
+-- effects are answered one at a time on the calling domain, and the reply
+-- carries no idea of who asked -- so with two workers waiting, one could
+-- take the answer meant for the other and leave it waiting for a reply that
+-- had already been consumed. Eight rounds of it, since a race that only
+-- sometimes loses is a race that passes once and fails in CI.
 test "many watched workers, several effects each" (fn t ->
   let round =
     fn _ -> Test.shell_calls (fn () ->

@@ -43,9 +43,9 @@ test "IO.flush mock" (fn t ->
   in
   t.eq "flushed" outcome)
 
-(* ── Proc.exit ─────────────────────────────────────────────────────────── *)
+-- ── Proc.exit ───────────────────────────────────────────────────────────
 
 let exit_poly_test () : Int = if true then 1 else Proc.exit 1
 test "exit is polymorphic in return type" (fn t -> t.eq 1 (exit_poly_test ()))
 
-(* ── Type errors ───────────────────────────────────────────────────────── *)
+-- ── Type errors ─────────────────────────────────────────────────────────

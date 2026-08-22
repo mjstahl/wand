@@ -7,20 +7,20 @@ import List
 import Path
 import String
 
-(* Rename files to a house style: lower case, dashes for spaces.
-
-   bash:  for f in *.txt; do
-           mv -- "$f" "$(echo "$f" | tr 'A-Z ' 'a-z-')"
-         done
-
-   The `--` is there because a filename can start with a dash, the quotes
-   because it can hold a space, and the subshell runs `tr` once per file. A
-   name that needs no change is renamed onto itself.
-
-   Here the plan is a value: a list of pairs, computed without touching the
-   disk, and a name that is already in the house style is not in it. So
-   `wand --dry-run` reports exactly what would move, and the plan can be
-   tested without a filesystem at all. *)
+-- Rename files to a house style: lower case, dashes for spaces.
+--
+-- bash:  for f in *.txt; do
+--         mv -- "$f" "$(echo "$f" | tr 'A-Z ' 'a-z-')"
+--       done
+--
+-- The `--` is there because a filename can start with a dash, the quotes
+-- because it can hold a space, and the subshell runs `tr` once per file. A
+-- name that needs no change is renamed onto itself.
+--
+-- Here the plan is a value: a list of pairs, computed without touching the
+-- disk, and a name that is already in the house style is not in it. So
+-- `wand --dry-run` reports exactly what would move, and the plan can be
+-- tested without a filesystem at all.
 
 let tidy name = String.lower (String.replace " " "-" name)
 
@@ -38,8 +38,8 @@ let rename_all! moves =
       FS.rename! from to
     ))
 
-(* argv is an effect, and an import runs a file's bindings, so reading it
-   here would read it on import. In `main!` it does not. *)
+-- argv is an effect, and an import runs a file's bindings, so reading it
+-- here would read it on import. In `main!` it does not.
 let main! () =
   let dir =
     match List.head (Env.args ()) with

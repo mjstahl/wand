@@ -1,38 +1,38 @@
-(** Join two path segments. *)
+-- Join two path segments.
 let join p1 p2 = path_join p1 p2
 
-(** Return the parent directory of a path. *)
+-- Return the parent directory of a path.
 let parent p = path_parent p
 
-(** Return the final component of a path, without directories. It is a
-    Path, not a String: a basename is a one-segment relative path, and the
-    thing you most often do next is join it onto a directory. Use
-    `Path.to_string` when the text itself is what you want. *)
+-- Return the final component of a path, without directories. It is a
+-- Path, not a String: a basename is a one-segment relative path, and the
+-- thing you most often do next is join it onto a directory. Use
+-- `Path.to_string` when the text itself is what you want.
 let basename p = path_basename p
 
-(** Alias for parent: return the directory portion of a path. *)
+-- Alias for parent: return the directory portion of a path.
 let dirname p = path_parent p
 
-(** Return the file extension including the leading dot, or "" if none. *)
+-- Return the file extension including the leading dot, or "" if none.
 let extension p = path_extension p
 
-(** Return the path with its extension replaced. *)
+-- Return the path with its extension replaced.
 let with_extension ext p = path_with_extension ext p
 
-(** Return true if the path is absolute. *)
+-- Return true if the path is absolute.
 let absolute? p = path_is_absolute p
 
-(** Return true if the path is relative. *)
+-- Return true if the path is relative.
 let relative? p = path_is_relative p
 
-(** Resolve . and .. components in a path. *)
+-- Resolve . and .. components in a path.
 let normalize p = path_normalize p
 
-(** Convert a path to its string representation. *)
+-- Convert a path to its string representation.
 let to_string p = path_to_string p
 
-(** Parse a string as a path. *)
+-- Parse a string as a path.
 let of_string s = path_of_string s
 
-(** Return a list of the path's components as strings. *)
+-- Return a list of the path's components as strings.
 let components p = path_components p

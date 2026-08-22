@@ -6,7 +6,7 @@ import List
 import Path
 import FS
 
-(* ── parse ─────────────────────────────────────────────────────────────── *)
+-- ── parse ───────────────────────────────────────────────────────────────
 
 test "single row" (fn t -> t.eq 1 (List.length (CSV.parse "a,b,c")))
 test "field value" (fn t ->
@@ -20,14 +20,14 @@ test "embedded comma" (fn t -> t.eq "a,b" (List.head! (List.head! (CSV.parse `"a
 test "escaped quote" (fn t ->
   t.eq `say "hi"` (List.head! (List.head! (CSV.parse `"say ""hi""",b`))))
 
-(* ── parse_with ────────────────────────────────────────────────────────── *)
+-- ── parse_with ──────────────────────────────────────────────────────────
 
 test "tab separator field count" (fn t ->
   t.eq 3 (List.length (List.head! (CSV.parse_with "\t" "a\tb\tc"))))
 test "pipe separator second field" (fn t ->
   t.eq "y" (List.head! (List.tail! (List.head! (CSV.parse_with "|" "x|y")))))
 
-(* ── stringify ─────────────────────────────────────────────────────────── *)
+-- ── stringify ───────────────────────────────────────────────────────────
 
 test "simple two-row output" (fn t ->
   t.eq "a,b\nc,d" (CSV.stringify [["a", "b"], ["c", "d"]]))
@@ -35,7 +35,7 @@ test "quotes field containing comma" (fn t -> t.eq `"a,b",c` (CSV.stringify [["a
 test "stringify_with custom separator" (fn t ->
   t.eq "x|y" (CSV.stringify_with "|" [["x", "y"]]))
 
-(* ── read_file ─────────────────────────────────────────────────────────── *)
+-- ── read_file ───────────────────────────────────────────────────────────
 
 test "read_file row count and header" (fn t ->
   with FS.temp_file "wand_csv_rd_" ".csv" as p ->

@@ -2,71 +2,71 @@ uses {Clock}
 
 import Clock
 
-(* Fork-join parallelism, and nothing else.
+-- Fork-join parallelism, and nothing else.
+--
+-- Both functions take the most workers to run at once as their first
+-- argument, stated rather than inferred: how much a script may do at the
+-- same time is a decision about the machine it runs on.
+--
+-- Workers never outlive the call. There is no handle to a running one, no
+-- way to start one outside these two functions, and nothing to await -- so
+-- there is no unstructured concurrency to build out of them, and no
+-- function needs a different colour for being called from one.
+--
+-- A worker is never outside a handler's reach. With nothing watching it
+-- performs its own effects on its own domain, so twenty slow commands
+-- really do overlap. With a handler in scope -- a mock, `--dry-run`,
+-- `--trace` -- effects are carried back to the calling domain and taken one
+-- at a time, because an effect cannot reach a handler on another domain.
+-- So a test can never be bypassed by moving work into `Par`: being watched
+-- costs the overlap, and nothing rehearses for speed.
 
-   Both functions take the most workers to run at once as their first
-   argument, stated rather than inferred: how much a script may do at the
-   same time is a decision about the machine it runs on.
-
-   Workers never outlive the call. There is no handle to a running one, no
-   way to start one outside these two functions, and nothing to await -- so
-   there is no unstructured concurrency to build out of them, and no
-   function needs a different colour for being called from one.
-
-   A worker is never outside a handler's reach. With nothing watching it
-   performs its own effects on its own domain, so twenty slow commands
-   really do overlap. With a handler in scope -- a mock, `--dry-run`,
-   `--trace` -- effects are carried back to the calling domain and taken one
-   at a time, because an effect cannot reach a handler on another domain.
-   So a test can never be bypassed by moving work into `Par`: being watched
-   costs the overlap, and nothing rehearses for speed. *)
-
-(** Apply `f` to every element, at most `limit` at a time, and collect the
-    results in the list's own order. An element whose work raises comes back
-    as an `Error` in its place rather than failing the others. *)
+-- Apply `f` to every element, at most `limit` at a time, and collect the
+-- results in the list's own order. An element whose work raises comes back
+-- as an `Error` in its place rather than failing the others.
 let map limit f xs = par_map limit f xs
 
-(** Apply `f` to every element for its effects, at most `limit` at a time.
-    A failure raises once the work is done. *)
+-- Apply `f` to every element for its effects, at most `limit` at a time.
+-- A failure raises once the work is done.
 let each limit f xs = par_each limit f xs
 
-(** Run every thunk at once and answer with the first to finish. The rest
-    are told to stop, and every one of them is joined before this returns.
-    
-    First to *finish*, not first to succeed: a winner that raised comes back
-    as `Error`, and a loser that raised is discarded.
-    
-    There is no worker limit. The count is the length of the list, and it is
-    already at the call site.
-    
-    What a race bounds is when you get the answer, not when the machine goes
-    quiet. A loser blocked in a subprocess finishes that subprocess; wrap it
-    in `Shell.timeout` to bound that too. *)
+-- Run every thunk at once and answer with the first to finish. The rest
+-- are told to stop, and every one of them is joined before this returns.
+--
+-- First to *finish*, not first to succeed: a winner that raised comes back
+-- as `Error`, and a loser that raised is discarded.
+--
+-- There is no worker limit. The count is the length of the list, and it is
+-- already at the call site.
+--
+-- What a race bounds is when you get the answer, not when the machine goes
+-- quiet. A loser blocked in a subprocess finishes that subprocess; wrap it
+-- in `Shell.timeout` to bound that too.
 let race thunks = par_race thunks
 
-(** Run `thunk` with a deadline. The result is `Error` if the deadline
-    passed first, and the message says how long it waited.
-    
-    A deadline on wand code, where `Shell.timeout` is a deadline on a
-    command. It is a race between the work and a sleeper, which is what
-    makes it a wait of a length rather than a wait until an instant -- the
-    difference that keeps it right on a machine whose clock steps.
-    
-    The work is asked to stop when the deadline passes, and stops at its
-    next step. Work inside a command finishes that command first: put
-    `Shell.timeout` there as well to bound it.
-    
-    A `thunk` that raises comes back as `Error` too, as it does under
-    `race`.
-    
-    Refused under a handler. A race runs only its first thunk while one is
-    installed, so the sleeper never runs and the deadline never fires. Put
-    the handler inside the thunk instead:
-    
-    Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
-    
-    The mock still stands and the deadline still fires. The wait is real,
-    so give it a length you are willing to wait for. *)
+-- Run `thunk` with a deadline. The result is `Error` if the deadline
+-- passed first, and the message says how long it waited.
+--
+-- A deadline on wand code, where `Shell.timeout` is a deadline on a
+-- command. It is a race between the work and a sleeper, which is what
+-- makes it a wait of a length rather than a wait until an instant -- the
+-- difference that keeps it right on a machine whose clock steps.
+--
+-- The work is asked to stop when the deadline passes, and stops at its
+-- next step. Work inside a command finishes that command first: put
+-- `Shell.timeout` there as well to bound it.
+--
+-- A `thunk` that raises comes back as `Error` too, as it does under
+-- `race`.
+--
+-- Refused under a handler. A race runs only its first thunk while one is
+-- installed, so the sleeper never runs and the deadline never fires. Put
+-- the handler inside the thunk instead:
+--
+-- Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
+--
+-- The mock still stands and the deadline still fires. The wait is real,
+-- so give it a length you are willing to wait for.
 let timeout d thunk =
   let () = par_deadline_guard () in
   let work = fn () -> Ok (thunk ()) in

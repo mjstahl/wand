@@ -8,7 +8,7 @@ import Map
 import Path
 import FS
 
-(* ── parse ─────────────────────────────────────────────────────────────── *)
+-- ── parse ───────────────────────────────────────────────────────────────
 
 test "null" (fn t ->
   t.eq
@@ -45,7 +45,7 @@ test "bad JSON returns Error" (fn t ->
 test "parse! valid" (fn t -> t.eq "true" (JSON.stringify (JSON.parse! "true")))
 test "parse! invalid raises" (fn t -> t.raises (fn () -> JSON.parse! "not json"))
 
-(* ── get_* extractors ─────────────────────────────────────────────────── *)
+-- ── get_* extractors ───────────────────────────────────────────────────
 
 test "get_bool true" (fn t ->
   t.eq
@@ -119,7 +119,7 @@ test "get_object then field" (fn t ->
     | Error _ -> ""
     ))
 
-(* ── field / field! ────────────────────────────────────────────────────── *)
+-- ── field / field! ──────────────────────────────────────────────────────
 
 test "field exists" (fn t ->
   let j = JSON.parse! `{"name":"Alice","age":30}` in
@@ -145,7 +145,7 @@ test "field! exists" (fn t ->
 test "field! missing raises" (fn t ->
   let j = JSON.parse! `{"a":1}` in t.raises (fn () -> JSON.field! "z" j))
 
-(* ── construction ──────────────────────────────────────────────────────── *)
+-- ── construction ────────────────────────────────────────────────────────
 
 test "of_bool" (fn t -> t.eq "true" (JSON.stringify (JSON.of_bool true)))
 test "of_int" (fn t -> t.eq "7" (JSON.stringify (JSON.of_int 7)))
@@ -155,7 +155,7 @@ test "of_list" (fn t ->
   t.eq "[1,2]" (JSON.stringify (JSON.of_list [JSON.of_int 1, JSON.of_int 2])))
 test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 
-(* ── stringify_pretty ──────────────────────────────────────────────────── *)
+-- ── stringify_pretty ────────────────────────────────────────────────────
 
 test "pretty round-trips" (fn t ->
   let j = JSON.parse! `{"a":1}` in
@@ -167,7 +167,7 @@ test "pretty round-trips" (fn t ->
     | Error _ -> "error"
     )))
 
-(* ── read_file ─────────────────────────────────────────────────────────── *)
+-- ── read_file ───────────────────────────────────────────────────────────
 
 test "read_file ok" (fn t ->
   with FS.temp_file "wand_json_rd_" ".json" as p ->
@@ -187,11 +187,11 @@ test "read_file missing file returns Error" (fn t ->
     | Error _ -> "error"
     ))
 
-(* ── Building an object ──────────────────────────────────────────────────── *)
+-- ── Building an object ────────────────────────────────────────────────────
 
-(* `get_object` gives back a Map, and this is its inverse. Keys need not be
-   identifiers -- a map literal takes them quoted -- which is what lets a
-   document with real-world keys be written at all. *)
+-- `get_object` gives back a Map, and this is its inverse. Keys need not be
+-- identifiers -- a map literal takes them quoted -- which is what lets a
+-- document with real-world keys be written at all.
 
 test "an object is built from a Map, in the order it holds" (fn t ->
   t.eq
@@ -205,8 +205,8 @@ test "a key that is not an identifier is written quoted" (fn t ->
       (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})
     ))
 
-(* Nothing to guard against here: a Map holds a key once, so a repeat was
-   resolved before it reached the writer. *)
+-- Nothing to guard against here: a Map holds a key once, so a repeat was
+-- resolved before it reached the writer.
 test "a repeated key was already resolved by the Map" (fn t ->
   t.eq `{"a":9}` (JSON.stringify (JSON.of_map {a = JSON.of_int 1, a = JSON.of_int 9})))
 
@@ -229,10 +229,10 @@ test "and what was read can be written back" (fn t ->
   | Ok m -> t.eq doc (JSON.stringify (JSON.of_map m))
   | Error why -> t.eq doc why)
 
-(* A document may name a key twice even though a Map cannot hold one twice.
-   Every reader here takes the later one -- which is what the parsers
-   everywhere else do -- so no two readers of the same document in the same
-   program can disagree about it. *)
+-- A document may name a key twice even though a Map cannot hold one twice.
+-- Every reader here takes the later one -- which is what the parsers
+-- everywhere else do -- so no two readers of the same document in the same
+-- program can disagree about it.
 test "a document that names a key twice reads the later one, whichever way it is read" (fn t ->
   let doc = JSON.parse! `{"a": 1, "a": 9}` in
   let via_field =

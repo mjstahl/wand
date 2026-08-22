@@ -5,22 +5,22 @@ import JSON
 import List
 import Proc
 
-(* Which pods are restarting, and how much.
-
-   bash:  kubectl get pods -o json | jq -r '
-            .items[]
-            | select(.status.containerStatuses[0].restartCount > 3)
-            | "\(.metadata.name) \(.status.phase)"'
-
-   `[0]` reads the first container and no other, so a pod whose sidecar is
-   crash-looping is invisible while its main container sits at zero. It is
-   not a typo: jq has no way to say "the sum over the containers" that
-   fits on that line, so every copy of this pipeline says `[0]`.
-
-   The manifest says `Shell(kubectl)`, so this file cannot run anything
-   else. The document's shape is four types, every decoder derives from
-   them, and a document that does not match names the field it stopped
-   at. *)
+-- Which pods are restarting, and how much.
+--
+-- bash:  kubectl get pods -o json | jq -r '
+--          .items[]
+--          | select(.status.containerStatuses[0].restartCount > 3)
+--          | "\(.metadata.name) \(.status.phase)"'
+--
+-- `[0]` reads the first container and no other, so a pod whose sidecar is
+-- crash-looping is invisible while its main container sits at zero. It is
+-- not a typo: jq has no way to say "the sum over the containers" that
+-- fits on that line, so every copy of this pipeline says `[0]`.
+--
+-- The manifest says `Shell(kubectl)`, so this file cannot run anything
+-- else. The document's shape is four types, every decoder derives from
+-- them, and a document that does not match names the field it stopped
+-- at.
 
 type Container(name: String, restartCount: Int)
 
@@ -32,7 +32,7 @@ type Pod(metadata: Meta, status: Status)
 
 type PodList(items: List Pod)
 
-(* Every container, not the first. *)
+-- Every container, not the first.
 let restarts (p: Pod) =
   p.status.containerStatuses
     |> List.fold_left (fn total (c: Container) -> total + c.restartCount) 0
@@ -56,8 +56,8 @@ let report limit pods =
   | [] -> println "no pod has restarted more than %{limit} times"
   | bad -> bad |> List.each (fn p -> println (summary p))
 
-(* The command runs in `main!`, so importing this file runs nothing and a
-   test can hand `pods` a document of its own. *)
+-- The command runs in `main!`, so importing this file runs nothing and a
+-- test can hand `pods` a document of its own.
 let main! () =
   match pods $(kubectl get pods -o json) with
   | Error why -> (IO.println_err "kubectl: %{why}"; Proc.exit 1)

@@ -6,21 +6,21 @@ import List
 import Path
 import Size
 
-(* The biggest files in a tree.
-
-   bash:  find . -type f -size +4k -exec ls -l {} \; | sort -k5 -rn
-
-   `find`'s `-size +4k` counts blocks and rounds up, `ls -l` prints a number
-   to sort on, and `sort -k5 -rn` reads it back out of the column it landed
-   in. Three spellings of one number, and a filename with a space in it
-   breaks the last two.
-
-   The threshold is the literal `4KB`, because `FS.size` answers a `Size`
-   and sizes compare. Sorting biggest-first is ascending and reversed: a
-   size has no negation to sort by.
-
-   A file whose size cannot be read is not in the answer, which is what
-   `List.filter_map` says in one stage. *)
+-- The biggest files in a tree.
+--
+-- bash:  find . -type f -size +4k -exec ls -l {} \; | sort -k5 -rn
+--
+-- `find`'s `-size +4k` counts blocks and rounds up, `ls -l` prints a number
+-- to sort on, and `sort -k5 -rn` reads it back out of the column it landed
+-- in. Three spellings of one number, and a filename with a space in it
+-- breaks the last two.
+--
+-- The threshold is the literal `4KB`, because `FS.size` answers a `Size`
+-- and sizes compare. Sorting biggest-first is ascending and reversed: a
+-- size has no negation to sort by.
+--
+-- A file whose size cannot be read is not in the answer, which is what
+-- `List.filter_map` says in one stage.
 
 let sized paths =
   paths

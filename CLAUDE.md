@@ -121,7 +121,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 
 | wand | not |
 |---|---|
-| `-- comment` and `(* block *)` | `//`, `#` |
+| `-- comment`, and a run of them above a definition is its doc | `//`, `#`, `(* block *)` |
 | `fn x -> x + 1` | `fun`, `\x ->`, `lambda` |
 | `h :: t` cons, `[h :: t]` in patterns | `:` for cons, `(x : xs)` |
 | `"hi %{name}"` interpolation | `${x}`, `#{x}`, f-strings |

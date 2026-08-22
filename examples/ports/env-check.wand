@@ -5,24 +5,24 @@ import IO
 import List
 import Proc
 
-(* Refuse to start until the environment is complete.
-
-   bash:  for v in DATABASE_URL API_TOKEN DEPLOY_ENV; do
-            if [ -z "${!v}" ]; then echo "missing $v" >&2; exit 1; fi
-          done
-
-   `${!v}` is indirect expansion, which is bash and not sh. `[ -z ]` reads
-   an unset variable and one set to the empty string as the same thing, so
-   the message is wrong half the time it fires: a deploy that exported
-   `DEPLOY_ENV=` is told the variable is missing, and goes looking for the
-   export that is already there.
-
-   `Env.get` answers an `Option String`, so the two states are different
-   values and the report says which one it found. *)
+-- Refuse to start until the environment is complete.
+--
+-- bash:  for v in DATABASE_URL API_TOKEN DEPLOY_ENV; do
+--          if [ -z "${!v}" ]; then echo "missing $v" >&2; exit 1; fi
+--        done
+--
+-- `${!v}` is indirect expansion, which is bash and not sh. `[ -z ]` reads
+-- an unset variable and one set to the empty string as the same thing, so
+-- the message is wrong half the time it fires: a deploy that exported
+-- `DEPLOY_ENV=` is told the variable is missing, and goes looking for the
+-- export that is already there.
+--
+-- `Env.get` answers an `Option String`, so the two states are different
+-- values and the report says which one it found.
 
 type Gap = Unset String | Empty String
 
-(* The variables that are not usable, in the order they were asked for. *)
+-- The variables that are not usable, in the order they were asked for.
 let gaps names =
   names
     |> List.filter_map (fn name ->

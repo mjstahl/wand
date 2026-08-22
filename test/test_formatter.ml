@@ -522,24 +522,43 @@ let test_trailing_comment_stays_on_line () =
     (List.exists (fun l ->
        contains l "let x = 1" && contains l "-- trailing")
      (String.split_on_char '\n' out));
+  (* A block comment is rewritten as a line comment, and stays where it was
+     written. *)
   let out2 = fmt "let x = 1  (* trailing *)\nlet y = 2\nx" in
-  Alcotest.(check bool) "block comment stays on the binding's line" true
+  Alcotest.(check bool) "a rewritten trailing comment stays on the binding's line" true
     (List.exists (fun l ->
-       contains l "let x = 1" && contains l "(* trailing *)")
+       contains l "let x = 1" && contains l "-- trailing")
      (String.split_on_char '\n' out2));
   let out3 = fmt "(* lead *) let x = 1\nx" in
   assert_appears_before "a comment written before an item still precedes it"
     out3 "lead" "let x = 1"
 
-(* A doc comment's continuation lines are indented under the opening
-   delimiter. The lexer strips their indentation so `wand d` prints clean
-   prose, which means the formatter has to put it back. *)
-let test_doc_comment_continuation_indent () =
+(* Documentation is a run of `--` lines above the definition, so a doc
+   comment written the old way comes back as one. Continuation lines are
+   aligned under the opening delimiter, which is alignment and not prose;
+   what sits deeper than it is a sample, and stays indented. *)
+let test_doc_comment_becomes_line_run () =
   let out = fmt "(** first line\n    second line *)\nlet x = 1\nx" in
-  assert_contains "doc text preserved" out "second line";
-  Alcotest.(check bool) "continuation is indented, not flush left" true
-    (List.exists (fun l -> l = "    second line *)")
-       (String.split_on_char '\n' out))
+  let lines = String.split_on_char '\n' out in
+  Alcotest.(check bool) "first line" true (List.exists (fun l -> l = "-- first line") lines);
+  Alcotest.(check bool) "second line, flush with the first" true
+    (List.exists (fun l -> l = "-- second line") lines);
+  let sample = fmt "(** prose\n\n        a sample\n\n    more prose *)\nlet x = 1\nx" in
+  Alcotest.(check bool) "a sample keeps the indentation that made it one" true
+    (List.exists (fun l -> l = "--     a sample")
+       (String.split_on_char '\n' sample))
+
+(* The rewrite reaches a comment wherever it sits, and refuses only the one
+   place `--` would change the meaning: code after the comment on its line. *)
+let test_block_comments_become_line_comments () =
+  let body = fmt "let f x = (\n  (* why *)\n  x\n)\nf 1" in
+  assert_contains "a comment inside a body is rewritten" body "-- why";
+  Alcotest.(check bool) "and no block comment is left" false (contains body "(*");
+  let nested = fmt "(* outer (* inner *) after *)\nlet x = 1\nx" in
+  assert_contains "a nested comment is text now" nested "-- outer (* inner *) after";
+  let inline = fmt "let x = (* n *) 1\nx" in
+  Alcotest.(check bool) "code after a comment on its line keeps the brackets" true
+    (contains inline "(* n *)")
 
 (* A verbatim item's slice runs to the next item, absorbing any comment
    between them; if its recorded extent ignores that, a blank line gets
@@ -552,7 +571,7 @@ let test_no_blank_between_doc_and_binding () =
   let lines = String.split_on_char '\n' out in
   let rec check = function
     | a :: b :: tl ->
-      if contains a "(** doc *)" && String.trim b = "" then
+      if contains a "-- doc" && String.trim b = "" then
         Alcotest.failf "blank line separates the doc comment from its binding:\n%s" out
       else check (b :: tl)
     | _ -> ()
@@ -886,7 +905,8 @@ let () =
       Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
       Alcotest.test_case "trailing stays on line" `Quick test_trailing_comment_stays_on_line;
-      Alcotest.test_case "doc continuation indent" `Quick test_doc_comment_continuation_indent;
+      Alcotest.test_case "doc becomes a line run" `Quick test_doc_comment_becomes_line_run;
+      Alcotest.test_case "blocks become line comments" `Quick test_block_comments_become_line_comments;
       Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;
       Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
     ];

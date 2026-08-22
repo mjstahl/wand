@@ -7,27 +7,27 @@ import Port
 import Proc
 import Shell
 
-(* Wait for a service to answer, and give up if it never does.
-
-   bash:  until nc -z localhost 8080; do sleep 1; done
-
-   There is no deadline. If the service never comes up the loop runs until
-   something else kills the script, which in CI is the job timeout twenty
-   minutes later, with nothing in the log saying what was waited for.
-   Writing the deadline in is a second counter, and every script writes it
-   differently.
-
-   Here the deadline is an argument. `Par.timeout` races the polling
-   against a sleeper, so the wait ends either way, and the failure says
-   which deadline was missed.
-
-   The port is a `Port`, so it compares and decodes as one. `nc` wants the
-   number as its own argument, which is what `Port.to_int` is for. *)
+-- Wait for a service to answer, and give up if it never does.
+--
+-- bash:  until nc -z localhost 8080; do sleep 1; done
+--
+-- There is no deadline. If the service never comes up the loop runs until
+-- something else kills the script, which in CI is the job timeout twenty
+-- minutes later, with nothing in the log saying what was waited for.
+-- Writing the deadline in is a second counter, and every script writes it
+-- differently.
+--
+-- Here the deadline is an argument. `Par.timeout` races the polling
+-- against a sleeper, so the wait ends either way, and the failure says
+-- which deadline was missed.
+--
+-- The port is a `Port`, so it compares and decodes as one. `nc` wants the
+-- number as its own argument, which is what `Port.to_int` is for.
 
 let answering? host port = Shell.ok? $?(nc -z %{host} %{Port.to_int port})
 
-(* Never answers false: it either succeeds or is stopped by the deadline
-   above it. That is the whole shape a poll has. *)
+-- Never answers false: it either succeeds or is stopped by the deadline
+-- above it. That is the whole shape a poll has.
 let poll every probe = if probe () then true else (Clock.sleep every; poll every probe)
 
 let wait_for limit every probe = Par.timeout limit (fn () -> poll every probe)

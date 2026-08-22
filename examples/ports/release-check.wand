@@ -5,26 +5,26 @@ import JSON
 import List
 import Proc
 
-(* Read a release manifest and say whether it may ship.
-
-   bash:  ver=$(jq -r .version release.json)
-          if [ "$(jq -r '.artifacts | length' release.json)" -lt 4 ]; then
-            echo "not every platform built" >&2; exit 1
-          fi
-
-   `jq -r` prints `null` for a field that is not there, and the shell then
-   compares the four characters `null` against a version. A missing
-   `artifacts` array prints nothing at all, and `[ -lt ]` reads the empty
-   string as an error the script does not check. Every field is a string
-   until something treats it otherwise.
-
-   The type names each field and what it holds, once, and `Release.decoder`
-   is read off that. A document that does not match says which field, and
-   the version compares as a version. *)
+-- Read a release manifest and say whether it may ship.
+--
+-- bash:  ver=$(jq -r .version release.json)
+--        if [ "$(jq -r '.artifacts | length' release.json)" -lt 4 ]; then
+--          echo "not every platform built" >&2; exit 1
+--        fi
+--
+-- `jq -r` prints `null` for a field that is not there, and the shell then
+-- compares the four characters `null` against a version. A missing
+-- `artifacts` array prints nothing at all, and `[ -lt ]` reads the empty
+-- string as an error the script does not check. Every field is a string
+-- until something treats it otherwise.
+--
+-- The type names each field and what it holds, once, and `Release.decoder`
+-- is read off that. A document that does not match says which field, and
+-- the version compares as a version.
 
 type Release(version: Version, draft: Bool, artifacts: List String)
 
-(* Every reason this release cannot ship, rather than the first one. *)
+-- Every reason this release cannot ship, rather than the first one.
 let blockers floor (r: Release) =
   [
       (r.draft, "still a draft"),

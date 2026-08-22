@@ -8,8 +8,8 @@ import FS
 import Path
 import Shell
 
-(* A script whose real execution would push to production and rewrite a
-   config. Every test below runs it, and neither happens. *)
+-- A script whose real execution would push to production and rewrite a
+-- config. Every test below runs it, and neither happens.
 
 let deploy! () =
   let version = $(git describe --tags) in
@@ -18,12 +18,12 @@ let deploy! () =
   in
   let _ = $(rsync -a ./build/ web@host:/srv/app) in "deployed %{version}"
 
-(* Handlers compose: each holds back one family, so a script touching two
-   needs both, nested. *)
+-- Handlers compose: each holds back one family, so a script touching two
+-- needs both, nested.
 let sealed thunk =
   Test.with_shell [("git describe", "v2.1.0")] (fn () -> Test.without_writes thunk)
 
-(* ── It runs, against canned output ────────────────────────────────────── *)
+-- ── It runs, against canned output ──────────────────────────────────────
 
 test "runs to completion without the network" (fn t ->
   t.eq "deployed v2.1.0" (sealed deploy!))
@@ -31,7 +31,7 @@ test "runs to completion without the network" (fn t ->
 test "a command matching nothing answers empty" (fn t ->
   t.eq "deployed " (Test.with_shell [] (fn () -> Test.without_writes deploy!)))
 
-(* ── What it attempted ─────────────────────────────────────────────────── *)
+-- ── What it attempted ───────────────────────────────────────────────────
 
 test "reports every command, in order" (fn t ->
   t.eq
@@ -45,17 +45,17 @@ test "pushes exactly once" (fn t ->
 test "reports what it would write" (fn t ->
   t.eq [/etc/app/config.toml] (Test.with_shell [] (fn () -> Test.writes deploy!)))
 
-(* ── And nothing actually happened ─────────────────────────────────────── *)
+-- ── And nothing actually happened ───────────────────────────────────────
 
 test "the config was never written" (fn t ->
   let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))
 
-(* ── The other way to run a command ────────────────────────────────────── *)
+-- ── The other way to run a command ──────────────────────────────────────
 
-(* `$?()` reports an exit code instead of raising on one, and the same
-   handlers answer it: `with_shell` supplies its output at exit zero, and
-   `with_shell_results` supplies a whole result, which is how a failure is
-   rehearsed. *)
+-- `$?()` reports an exit code instead of raising on one, and the same
+-- handlers answer it: `with_shell` supplies its output at exit zero, and
+-- `with_shell_results` supplies a whole result, which is how a failure is
+-- rehearsed.
 let gate () =
   let r = $?(dune build) in
   match Shell.ok? r with

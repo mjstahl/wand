@@ -5,23 +5,23 @@ import List
 import Option
 import String
 
-(* Which filesystems are fuller than a threshold.
+-- Which filesystems are fuller than a threshold.
+--
+-- bash:  df -P | awk 'NR>1 && $5+0 > 90 {print $6, $5}'
+--
+-- `$5+0` is how bash gets a number out of "91%": concatenate with zero and
+-- let the shell reinterpret it. `NR>1` skips the header by counting lines.
+-- Both are the script working around text that was never typed.
+--
+-- Everything that decides is a function here, and the command is in
+-- `main`. That is what lets `test/wand/test_ports.wand` import this file
+-- and check the parse without a machine to read: an import runs a file's
+-- bindings, not its bare expressions, so nothing happens until the test
+-- calls something.
 
-   bash:  df -P | awk 'NR>1 && $5+0 > 90 {print $6, $5}'
-
-   `$5+0` is how bash gets a number out of "91%": concatenate with zero and
-   let the shell reinterpret it. `NR>1` skips the header by counting lines.
-   Both are the script working around text that was never typed.
-
-   Everything that decides is a function here, and the command is in
-   `main`. That is what lets `test/wand/test_ports.wand` import this file
-   and check the parse without a machine to read: an import runs a file's
-   bindings, not its bare expressions, so nothing happens until the test
-   calls something. *)
-
-(* A `df -P` row is: filesystem, blocks, used, available, capacity, mount.
-   Capacity carries a `%`. A row without six fields is the header, or a
-   filesystem whose name wrapped, and contributes nothing. *)
+-- A `df -P` row is: filesystem, blocks, used, available, capacity, mount.
+-- Capacity carries a `%`. A row without six fields is the header, or a
+-- filesystem whose name wrapped, and contributes nothing.
 let usage row =
   match String.words row with
   | [_, _, _, _, capacity, mount] -> (
@@ -31,7 +31,7 @@ let usage row =
   )
   | _ -> None
 
-(* The mounts over a percentage, in the order the rows came in. *)
+-- The mounts over a percentage, in the order the rows came in.
 let over limit rows =
   rows |> List.filter_map usage |> List.filter (fn (_, percent) -> percent > limit)
 

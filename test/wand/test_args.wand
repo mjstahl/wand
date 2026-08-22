@@ -4,19 +4,19 @@ import Decode
 import List
 import String
 
-(* Reading a command line with a decoder.
-
-   The point of this module is that it adds no combinators: argv becomes a
-   document, and `Decode` reads it exactly as it reads JSON or TOML. So
-   these tests are mostly about the one thing `Args` does -- turning a list
-   of strings into that document -- and about the errors naming the flag
-   they came from. *)
+-- Reading a command line with a decoder.
+--
+-- The point of this module is that it adds no combinators: argv becomes a
+-- document, and `Decode` reads it exactly as it reads JSON or TOML. So
+-- these tests are mostly about the one thing `Args` does -- turning a list
+-- of strings into that document -- and about the errors naming the flag
+-- they came from.
 
 type Opts(port: Port, timeout: Duration, config: Path)
 
 let opts args = Args.parse Opts.decoder args
 
-(* ── Both spellings of a flag ──────────────────────────────────────────── *)
+-- ── Both spellings of a flag ────────────────────────────────────────────
 
 test "--key=value" (fn t ->
   t.eq
@@ -33,16 +33,16 @@ test "the two can be mixed" (fn t ->
     (Ok Opts(port = :8080, timeout = 30s, config = ./app.toml))
     (opts ["--port=8080", "--timeout", "30s", "--config=./app.toml"]))
 
-(* A value with an `=` in it survives, because only the first one splits. *)
+-- A value with an `=` in it survives, because only the first one splits.
 test "a value may contain =" (fn t ->
   t.eq (Ok "a=b") (Args.parse (Decode.field "q" Decode.string) ["--q=a=b"]))
 
-(* ── Domain types, which is the reason for doing it this way ───────────── *)
+-- ── Domain types, which is the reason for doing it this way ─────────────
 
-(* Reading a field off the decoded record, which is what a script does
-   next -- and the case `t.fail` exists for: an Error here is a broken
-   test, not a wrong value, and should say so rather than being compared
-   against something. *)
+-- Reading a field off the decoded record, which is what a script does
+-- next -- and the case `t.fail` exists for: an Error here is a broken
+-- test, not a wrong value, and should say so rather than being compared
+-- against something.
 test "values arrive as the type the field asked for" (fn t ->
   match opts ["--port=8080", "--timeout=30s", "--config=./app.toml"] with
   | Ok o -> t.eq :8080 o.port
@@ -56,7 +56,7 @@ test "a bad value names the flag it came from" (fn t ->
 test "a missing flag names the field" (fn t ->
   t.eq (Error ".config: no such field") (opts ["--port=8080", "--timeout=30s"]))
 
-(* ── Flags that take no value ──────────────────────────────────────────── *)
+-- ── Flags that take no value ────────────────────────────────────────────
 
 let verbose args = Args.parse_with ["verbose"] (Decode.optional "verbose" Decode.bool) args
 
@@ -65,8 +65,8 @@ test "a named boolean flag is true when present" (fn t ->
 
 test "and absent otherwise" (fn t -> t.eq (Ok None) (verbose []))
 
-(* Without the name, a flag takes whatever follows -- which is the whole
-   reason `parse_with` exists. *)
+-- Without the name, a flag takes whatever follows -- which is the whole
+-- reason `parse_with` exists.
 test "an undeclared flag consumes the next argument" (fn t ->
   t.eq
     (Ok (Some "deploy.wand"))
@@ -77,7 +77,7 @@ test "a flag with nothing after it is an error" (fn t ->
     (Error "--config expects a value")
     (Args.parse (Decode.field "config" Decode.string) ["--config"]))
 
-(* ── Positional arguments ──────────────────────────────────────────────── *)
+-- ── Positional arguments ────────────────────────────────────────────────
 
 let files args = Args.parse (Decode.field "_" (Decode.list Decode.string)) args
 
@@ -89,8 +89,8 @@ test "positionals survive being mixed with flags" (fn t ->
 
 test "no arguments is an empty list, not an error" (fn t -> t.eq (Ok []) (files []))
 
-(* Only `--name` is a flag. A single dash keeps `-5` an argument rather
-   than an option nobody declared. *)
+-- Only `--name` is a flag. A single dash keeps `-5` an argument rather
+-- than an option nobody declared.
 test "a single dash is positional" (fn t -> t.eq (Ok ["-5"]) (files ["-5"]))
 
 test "so are short flags, which this module does not have" (fn t ->

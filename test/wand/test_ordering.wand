@@ -1,15 +1,15 @@
 let {test, group} = import Test
 import List
 
-(* What wand orders, and on what.
-
-   `<`, `>`, `<=` and `>=` take an `Ord`: a type wand knows how to order.
-   The constraint is what makes a type outside that set a type error rather
-   than a failure during the run.
-
-   Every comparison is on the normalized value. The stored text is not the
-   value: `1min` and `60s` are one duration, and one instant has as many
-   spellings as there are offsets. *)
+-- What wand orders, and on what.
+--
+-- `<`, `>`, `<=` and `>=` take an `Ord`: a type wand knows how to order.
+-- The constraint is what makes a type outside that set a type error rather
+-- than a failure during the run.
+--
+-- Every comparison is on the normalized value. The stored text is not the
+-- value: `1min` and `60s` are one duration, and one instant has as many
+-- spellings as there are offsets.
 
 group "the types that were always ordered" (fn () -> [
   test "Int" (fn t -> t.ok (1 < 2)),
@@ -33,14 +33,14 @@ group "Date and Time" (fn () -> [
 group "DateTime is an instant" (fn () -> [
   test "same day" (fn t ->
     t.ok (2024-01-15T14:30:00Z < 2024-01-15T20:00:00Z)),
-  (* The offset is part of the value. These two are the same moment. *)
+    -- The offset is part of the value. These two are the same moment.
   test "an offset is applied" (fn t ->
     t.ok (2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z)),
   test "and it decides the order" (fn t ->
     t.ok (2024-01-15T00:00:00-08:00 > 2024-01-15T00:00:00Z)),
   test "midnight rolls the day" (fn t ->
     t.ok (2024-02-29T23:00:00Z < 2024-03-01T01:00:00Z)),
-  (* A value with no offset is read as UTC. *)
+    -- A value with no offset is read as UTC.
   test "no offset is UTC" (fn t ->
     t.ok (2024-01-15T14:30:00 == 2024-01-15T14:30:00Z))
 ])
@@ -53,8 +53,8 @@ group "equality agrees with ordering" (fn () -> [
     let b = 2024-01-15T20:00:00+05:30 in t.ok (a == b && !(a < b) && !(a > b)))
 ])
 
-(* `Ord` composes like `Num`: a function that only compares stays
-   polymorphic over every ordered type. *)
+-- `Ord` composes like `Num`: a function that only compares stays
+-- polymorphic over every ordered type.
 let later a b = if a < b then b else a
 group "Ord is a constraint, not a type" (fn () -> [
   test "at Duration" (fn t -> t.eq 5min (later 30s 5min)),
@@ -62,13 +62,13 @@ group "Ord is a constraint, not a type" (fn () -> [
   test "at Date" (fn t -> t.eq 2024-02-01 (later 2024-01-15 2024-02-01))
 ])
 
-(* The four whose text order is not their value order. Each line below is a
-   case where comparing the spelling gives the wrong answer. *)
+-- The four whose text order is not their value order. Each line below is a
+-- case where comparing the spelling gives the wrong answer.
 
 group "Size" (fn () -> [
   test "across units" (fn t -> t.ok (100MB < 1GB)),
   test "a bigger number in a smaller unit" (fn t -> t.ok (1GB > 999MB)),
-  (* A KB is 1000 bytes: the spelling is the SI one. *)
+    -- A KB is 1000 bytes: the spelling is the SI one.
   test "the unit is decimal" (fn t -> t.ok (1KB == 1000B)),
   test "a decimal literal" (fn t -> t.ok (1.5GB == 1500000000B))
 ])
@@ -92,8 +92,8 @@ group "Port and IPv4" (fn () -> [
   test "a padded octet is the same address" (fn t -> t.ok (192.168.001.1 == 192.168.1.1))
 ])
 
-(* Sorting reads a value the same way. Each of these came back in the order
-   of its text before. *)
+-- Sorting reads a value the same way. Each of these came back in the order
+-- of its text before.
 group "List.sort agrees" (fn () -> [
   test "addresses" (fn t ->
     t.eq [10.0.0.2, 10.0.0.9, 10.0.0.10] (List.sort [10.0.0.10, 10.0.0.9, 10.0.0.2])),

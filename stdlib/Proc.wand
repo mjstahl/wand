@@ -1,15 +1,15 @@
 uses {Proc}
 
-(* The running program itself.
+-- The running program itself.
+--
+-- One operation, because ending the program is the only thing a script
+-- does to its own process that the rest of the standard library does not
+-- already cover.
 
-   One operation, because ending the program is the only thing a script
-   does to its own process that the rest of the standard library does not
-   already cover. *)
-
-(** End the program with the given exit code, running the cleanup of every
-    `with` that is still holding something on the way out. The type is
-    whatever the caller needs, since nothing follows it:
-    
-    if broken? then Proc.exit 1 else continue! () *)
+-- End the program with the given exit code, running the cleanup of every
+-- `with` that is still holding something on the way out. The type is
+-- whatever the caller needs, since nothing follows it:
+--
+-- if broken? then Proc.exit 1 else continue! ()
 
 let exit code = proc_exit code

@@ -3,34 +3,34 @@ import List
 import Map
 import String
 
-(* Reading a command line.
+-- Reading a command line.
+--
+-- Arguments are another untyped boundary, and the language already has one
+-- blessed way to read those. So argv becomes an object and a `Decoder`
+-- reads it -- every combinator, every domain reader, derivation, and the
+-- error that names the field, all of it already written:
+--
+--     type Opts (port : Port, timeout : Duration, config : Path)
+--
+--     Args.parse Opts.decoder (Env.args ())
+--     -- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
+--     -- Error .port: expected Port, got "http"
+--
+-- There is no second set of combinators here on purpose. What this module
+-- does is turn a list of strings into a document; `Decode` does the rest.
 
-   Arguments are another untyped boundary, and the language already has one
-   blessed way to read those. So argv becomes an object and a `Decoder`
-   reads it -- every combinator, every domain reader, derivation, and the
-   error that names the field, all of it already written:
+-- ── What counts as a flag ───────────────────────────────────────────────
 
-       type Opts (port : Port, timeout : Duration, config : Path)
-
-       Args.parse Opts.decoder (Env.args ())
-       -- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
-       -- Error .port: expected Port, got "http"
-
-   There is no second set of combinators here on purpose. What this module
-   does is turn a list of strings into a document; `Decode` does the rest. *)
-
-(* ── What counts as a flag ─────────────────────────────────────────────── *)
-
-(* Only `--name`. A single dash is not a flag, which is what keeps `-5` a
-   positional argument rather than an option nobody declared, and short
-   flags out of a design that has no room for them. *)
+-- Only `--name`. A single dash is not a flag, which is what keeps `-5` a
+-- positional argument rather than an option nobody declared, and short
+-- flags out of a design that has no room for them.
 let _flag? arg = String.starts_with? "--" arg
 
 let _name_of arg = String.slice 2 (String.length arg) arg
 
-(* `--key=value` is unambiguous on its own. Anything else needs to know
-   whether the flag takes a value, which is the one fact a list of strings
-   cannot supply -- hence `parse_with`. *)
+-- `--key=value` is unambiguous on its own. Anything else needs to know
+-- whether the flag takes a value, which is the one fact a list of strings
+-- cannot supply -- hence `parse_with`.
 let _inline? arg = String.contains? "=" arg
 
 let _inline_pair arg =
@@ -38,13 +38,13 @@ let _inline_pair arg =
   | [k :: rest] -> (k, String.join "=" rest)
   | [] -> (_name_of arg, "")
 
-(* ── argv to an object ─────────────────────────────────────────────────── *)
+-- ── argv to an object ───────────────────────────────────────────────────
 
-(* Positional arguments live under `_`, which cannot collide with a flag:
-   `--_` is not a name anyone writes, and `_` is already the language's
-   word for "the part with no name".
-
-       Args.parse (Decode.field "_" (Decode.list Decode.string)) args *)
+-- Positional arguments live under `_`, which cannot collide with a flag:
+-- `--_` is not a name anyone writes, and `_` is already the language's
+-- word for "the part with no name".
+--
+--     Args.parse (Decode.field "_" (Decode.list Decode.string)) args
 let _positional_key = "_"
 
 let _object_of flags args =
@@ -72,23 +72,23 @@ let _object_of flags args =
     (JSON.of_map
       (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) fields))
 
-(* ── Parsing ───────────────────────────────────────────────────────────── *)
+-- ── Parsing ─────────────────────────────────────────────────────────────
 
-(** Read arguments, naming the flags that take no value. Those become
-    `true` when present, and are absent otherwise -- so a `Bool` field
-    wants `Decode.optional`, or a decoder that supplies a default.
-    
-    Args.parse_with ["verbose"] Opts.decoder (Env.args ())
-    
-    Which flags are boolean is the only fact a list of strings cannot
-    reveal: without it, `--message -5` and a flag followed by a positional
-    are the same shape. Everything else the type already says. *)
+-- Read arguments, naming the flags that take no value. Those become
+-- `true` when present, and are absent otherwise -- so a `Bool` field
+-- wants `Decode.optional`, or a decoder that supplies a default.
+--
+-- Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+--
+-- Which flags are boolean is the only fact a list of strings cannot
+-- reveal: without it, `--message -5` and a flag followed by a positional
+-- are the same shape. Everything else the type already says.
 let parse_with flags decoder args =
   match _object_of flags args with
   | Error e -> Error e
   | Ok obj -> JSON.decode decoder obj
 
-(** Read arguments with a decoder. Every flag is assumed to take a value:
-    `--port 8080` and `--port=8080` are the same thing. Use `parse_with`
-    when some flags are on/off. *)
+-- Read arguments with a decoder. Every flag is assumed to take a value:
+-- `--port 8080` and `--port=8080` are the same thing. Use `parse_with`
+-- when some flags are on/off.
 let parse decoder args = parse_with [] decoder args

@@ -1,32 +1,32 @@
 let {test} = import Test
 import Path
 
-(* ── join ──────────────────────────────────────────────────────────────── *)
+-- ── join ────────────────────────────────────────────────────────────────
 
 test "join absolute + segment" (fn t -> t.eq /usr/local/bin (Path.join /usr/local /bin))
 test "join relative" (fn t -> t.eq ./foo/bar (Path.join ./foo /bar))
 test "join nested" (fn t -> t.eq /var/log (Path.join /var /log))
 
-(* ── parent / dirname ──────────────────────────────────────────────────── *)
+-- ── parent / dirname ────────────────────────────────────────────────────
 
 test "parent" (fn t -> t.eq /usr/local (Path.parent /usr/local/bin))
 test "dirname alias" (fn t -> t.eq /usr/local (Path.dirname /usr/local/bin))
 test "parent top-level" (fn t -> t.eq (Path.of_string "/") (Path.parent /usr))
 
-(* ── basename ──────────────────────────────────────────────────────────── *)
+-- ── basename ────────────────────────────────────────────────────────────
 
 test "basename with ext" (fn t ->
   t.eq (Path.of_string "wand") (Path.basename /usr/local/bin/wand))
 test "basename file" (fn t -> t.eq (Path.of_string "hosts") (Path.basename /etc/hosts))
 
-(* A basename is a Path, so it joins onto a directory without anyone
-   building a separator by hand. *)
+-- A basename is a Path, so it joins onto a directory without anyone
+-- building a separator by hand.
 test "basename joins onto a directory" (fn t ->
   t.eq /backup/wand (Path.join /backup (Path.basename /usr/local/bin/wand)))
 test "basename as text" (fn t ->
   t.eq "wand" (Path.to_string (Path.basename /usr/local/bin/wand)))
 
-(* ── extension ─────────────────────────────────────────────────────────── *)
+-- ── extension ───────────────────────────────────────────────────────────
 
 test "extension dot txt" (fn t -> t.eq ".txt" (Path.extension /foo/bar.txt))
 test "extension none" (fn t -> t.eq "" (Path.extension /foo/bar))
@@ -34,10 +34,10 @@ test "with_extension add" (fn t -> t.eq /foo/bar.ml (Path.with_extension ".ml" /
 test "with_extension replace" (fn t ->
   t.eq /foo/bar.ml (Path.with_extension ".ml" /foo/bar.wand))
 
-(* `Path.extension` answers with the dot, so that spelling goes back in
-   unchanged -- and the extension written the way it is said means the same
-   thing. Without the dot the two were pasted together, so /foo/bar.wand
-   became /foo/barml: a path with no extension at all. *)
+-- `Path.extension` answers with the dot, so that spelling goes back in
+-- unchanged -- and the extension written the way it is said means the same
+-- thing. Without the dot the two were pasted together, so /foo/bar.wand
+-- became /foo/barml: a path with no extension at all.
 test "with_extension without the dot" (fn t ->
   t.eq /foo/bar.ml (Path.with_extension "ml" /foo/bar.wand))
 test "with_extension without the dot, on a path that had none" (fn t ->
@@ -47,25 +47,25 @@ test "with_extension round-trips what extension gives" (fn t ->
 test "an empty extension takes it off" (fn t ->
   t.eq /foo/bar (Path.with_extension "" /foo/bar.wand))
 
-(* ── absolute? / relative? ───────────────────────────────────────── *)
+-- ── absolute? / relative? ─────────────────────────────────────────
 
 test "absolute? /" (fn t -> t.ok (Path.absolute? /etc/hosts))
 test "absolute? ./" (fn t -> t.eq false (Path.absolute? ./foo))
 test "relative? ./" (fn t -> t.ok (Path.relative? ./foo))
 test "relative? /" (fn t -> t.eq false (Path.relative? /usr))
 
-(* ── normalize ─────────────────────────────────────────────────────────── *)
+-- ── normalize ───────────────────────────────────────────────────────────
 
 test "normalize double slash" (fn t -> t.eq /usr/local (Path.normalize /usr//local))
 test "normalize dot component" (fn t -> t.eq /usr/local (Path.normalize /usr/./local))
 test "normalize dotdot" (fn t -> t.eq /usr/bin (Path.normalize /usr/local/../bin))
 
-(* ── to_string / of_string ────────────────────────────────────────────── *)
+-- ── to_string / of_string ──────────────────────────────────────────────
 
 test "to_string" (fn t -> t.eq "/etc/hosts" (Path.to_string /etc/hosts))
 test "of_string" (fn t -> t.eq "/etc/hosts" (Path.to_string (Path.of_string "/etc/hosts")))
 
-(* ── components ────────────────────────────────────────────────────────── *)
+-- ── components ──────────────────────────────────────────────────────────
 
 test "components absolute" (fn t ->
   t.eq ["usr", "local", "bin"] (Path.components /usr/local/bin))

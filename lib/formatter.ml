@@ -1362,6 +1362,10 @@ let assemble pieces =
   Buffer.contents buf
 
 let format_source src =
+  (* One comment form: `(* ... *)` is rewritten to `--` lines before
+     anything is laid out, so formatting a file written the old way is the
+     way to move it. See `Comment_style`. *)
+  let src = Comment_style.to_line_comments src in
   let tokens = Lexer.tokenize src in
   let (prog, item_locs) = Parser.parse_program_with_locs tokens in
   let comments = all_comments tokens in

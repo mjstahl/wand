@@ -125,12 +125,12 @@ type the way a `getopts` usage message drifts from its case arms — which
 is half of what makes the shell version bad. Found porting
 `probe-args.wand`, which carries the string and says so.
 
-**A block comment ends at the first unbalanced `*)`.** Comments nest, so
-the closer is counted rather than matched, and text holding a `*)` with no
-`(*` before it closes the comment early. Quoted shell is full of them: a
-`case` arm is `*)`. The workaround is a `--` line comment; quoting the
-`"*)"` does not work, because a string inside a comment is tracked and
-then runs to the end. Found quoting `getopts` in `probe-args.wand`.
+**A block comment still reads, and still ends early.** A comment is a `--`
+line now, and a run of them above a definition is its documentation. The
+block forms are read for one more release so that `wand f` can rewrite a
+file that carries them; until they are removed, a block comment holding a
+bare `*)` — every shell `case` arm has one — still ends where it was not
+meant to.
 
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each

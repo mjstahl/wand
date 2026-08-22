@@ -1,6 +1,6 @@
 let {test} = import Test
 
-(* ── String concatenation ──────────────────────────────────────────────── *)
+-- ── String concatenation ────────────────────────────────────────────────
 
 test "simple concat" (fn t -> t.eq "hello world" ("hello" ++ " world"))
 
@@ -9,7 +9,7 @@ test "concat with var" (fn t ->
 
 test "concat empty" (fn t -> t.eq "abc" ("" ++ "abc"))
 
-(* ── String interpolation ──────────────────────────────────────────────── *)
+-- ── String interpolation ────────────────────────────────────────────────
 
 test "simple interp" (fn t -> let name = "World" in t.eq "Hello, World!" "Hello, %{name}!")
 
@@ -20,10 +20,10 @@ test "no interp" (fn t -> t.eq "plain string" "plain string")
 test "multiple interps" (fn t ->
   let x = "a" in let y = "b" in t.eq "a and b" "%{x} and %{y}")
 
-(* ── Backtick strings ──────────────────────────────────────────────────── *)
+-- ── Backtick strings ────────────────────────────────────────────────────
 
-(* Everything between backticks is itself. The point is text that would
-   otherwise be a wall of backslashes: JSON, a regex, a Windows path. *)
+-- Everything between backticks is itself. The point is text that would
+-- otherwise be a wall of backslashes: JSON, a regex, a Windows path.
 
 test "a quote needs no escape" (fn t -> t.eq `{"hello": "world"}` `{"hello": "world"}`)
 
@@ -34,8 +34,8 @@ test "shell source is kept as written" (fn t ->
 
 test "it is an ordinary String" (fn t -> t.eq "abc" (`ab` ++ `c`))
 
-(* A newline straight after the opening backtick is layout, not text.
-   Nothing else is trimmed -- the indent and the last newline are kept. *)
+-- A newline straight after the opening backtick is layout, not text.
+-- Nothing else is trimmed -- the indent and the last newline are kept.
 
 test "the opening newline is dropped" (fn t ->
   t.eq

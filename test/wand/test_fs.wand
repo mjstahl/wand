@@ -6,14 +6,14 @@ import Path
 import List
 import String
 
-(* Real filesystem operations, self-contained: this file creates its own
-   scratch directory (via FS.temp_file, so it can't collide with another
-   run) and cleans up after itself, using FS.write_file/read_file as the
-   trusted foundation (verified separately in test_fs.ml against an
-   OCaml-managed temp file). *)
+-- Real filesystem operations, self-contained: this file creates its own
+-- scratch directory (via FS.temp_file, so it can't collide with another
+-- run) and cleans up after itself, using FS.write_file/read_file as the
+-- trusted foundation (verified separately in test_fs.ml against an
+-- OCaml-managed temp file).
 
-(* A unique name, borrowed from a temp file that the bracket removes on
-   the way out -- so nothing is left behind and nothing has to remember. *)
+-- A unique name, borrowed from a temp file that the bracket removes on
+-- the way out -- so nothing is left behind and nothing has to remember.
 let scratch = with FS.temp_file "wand_fs_test_" "" as p -> Path.to_string p
 let () = FS.mkdir! (Path.of_string scratch)
 
@@ -24,12 +24,12 @@ test "temp_file gives a unique file that exists while it is held" (fn t ->
   in
   t.eq (true, true, true) inner)
 
-(* The point of the bracket: nobody has to remember the delete. *)
+-- The point of the bracket: nobody has to remember the delete.
 test "temp_file removes the file when the bracket ends" (fn t ->
   let p = with FS.temp_file "wand_" ".txt" as p -> p in t.eq false (FS.exists? p))
 
-(* A body may publish the file by renaming it; cleanup then has nothing to
-   do and must not fail on the way out. *)
+-- A body may publish the file by renaming it; cleanup then has nothing to
+-- do and must not fail on the way out.
 test "temp_file tolerates the file being renamed away" (fn t ->
   let dst = Path.of_string "%{scratch}/published.txt" in
   let () = with FS.temp_file "wand_" ".txt" as p -> FS.rename! p dst in
@@ -91,9 +91,9 @@ test "list_dir lists immediate children" (fn t ->
   let () = FS.delete! (Path.of_string "%{scratch}/list_dir_case/b.txt") in
   let () = FS.delete! dir in t.eq ["a.txt", "b.txt"] names)
 
-(* `**` is the replacement for the removed FS.walk: it crosses directory
-   separators and matches names without a dot, so `plain` below is included.
-   `**.*` would silently drop it -- that is why the migration uses `**`. *)
+-- `**` is the replacement for the removed FS.walk: it crosses directory
+-- separators and matches names without a dot, so `plain` below is included.
+-- `**.*` would silently drop it -- that is why the migration uses `**`.
 test "glob ** recurses into subdirectories" (fn t ->
   let base = "%{scratch}/walk_case" in
   let () = FS.mkdir! (Path.of_string "%{base}/sub") in
@@ -128,13 +128,13 @@ test "cwd returns an existing directory" (fn t -> t.ok (FS.dir? (FS.cwd ())))
 test "cleanup scratch directory" (fn t ->
   let () = FS.delete! (Path.of_string scratch) in t.ok true)
 
-(* ── type errors ───────────────────────────────────────────────────────── *)
+-- ── type errors ─────────────────────────────────────────────────────────
 
-(* ── effect handler mocking ────────────────────────────────────────────── *)
+-- ── effect handler mocking ──────────────────────────────────────────────
 
-(* FS.append! performs an fs_append effect rather than touching the
-   filesystem directly; a handler installed here intercepts it and
-   resumes without ever writing to disk. *)
+-- FS.append! performs an fs_append effect rather than touching the
+-- filesystem directly; a handler installed here intercepts it and
+-- resumes without ever writing to disk.
 test "mock append does not touch real filesystem" (fn t ->
   let outcome =
     handle let () = FS.append! (Path.of_string "/dev/null") "data" in "done" with
@@ -143,10 +143,10 @@ test "mock append does not touch real filesystem" (fn t ->
   in
   t.eq "done" outcome)
 
-(* read_file/write_file perform bare `read_file`/`write_file` effects
-   (no fs_ prefix, unlike the mutating ops above) -- mocking them the
-   same way lets a test substitute fake file content/paths without
-   touching disk at all. *)
+-- read_file/write_file perform bare `read_file`/`write_file` effects
+-- (no fs_ prefix, unlike the mutating ops above) -- mocking them the
+-- same way lets a test substitute fake file content/paths without
+-- touching disk at all.
 
 test "mock read_file returns substituted content" (fn t ->
   let outcome =
@@ -171,10 +171,10 @@ test "mock write_file can capture the path/content argument" (fn t ->
   in
   t.eq "/tmp/foo.txt: okwrote" outcome)
 
-(* ── Result payloads carry no source position ──────────────────────────── *)
+-- ── Result payloads carry no source position ────────────────────────────
 
-(* The failing frame is inside FS.wand, so stamping its line/col onto the
-   message would report a stdlib position to a caller holding the Result. *)
+-- The failing frame is inside FS.wand, so stamping its line/col onto the
+-- message would report a stdlib position to a caller holding the Result.
 test "read_file error names the file, not a stdlib line" (fn t ->
   match FS.read_file (Path.of_string "/no/such/path/wand_test_xyz") with
   | Ok _ -> t.ok false
@@ -185,7 +185,7 @@ test "size error carries no position" (fn t ->
   | Ok _ -> t.ok false
   | Error e -> t.ok (String.starts_with? "size:" e))
 
-(* ── whole trees ───────────────────────────────────────────────────────── *)
+-- ── whole trees ─────────────────────────────────────────────────────────
 
 test "copy_tree carries the files under a directory" (fn t -> (
   let src = Path.of_string "%{scratch}/tree_src";

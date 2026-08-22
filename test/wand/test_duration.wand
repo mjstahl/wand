@@ -2,7 +2,7 @@ let {test} = import Test
 import Duration
 import String
 
-(* ── constructors ──────────────────────────────────────────────────────── *)
+-- ── constructors ────────────────────────────────────────────────────────
 
 test "zero" (fn t -> t.eq 0s Duration.zero)
 test "seconds" (fn t -> t.eq 30s (Duration.seconds 30))
@@ -11,21 +11,21 @@ test "hours" (fn t -> t.eq 2h (Duration.hours 2))
 test "days" (fn t -> t.eq 3d (Duration.days 3))
 test "weeks" (fn t -> t.eq 1w (Duration.weeks 1))
 
-(* ── literals round-trip via format ───────────────────────────────────── *)
+-- ── literals round-trip via format ─────────────────────────────────────
 
 test "format simple" (fn t -> t.eq "5m" (Duration.format 5min))
 test "format compound" (fn t -> t.eq "1h30m" (Duration.format 1h30m))
 test "format millis" (fn t -> t.eq "500ms" (Duration.format 500ms))
 test "format complex" (fn t -> t.eq "2d12h30m" (Duration.format 2d12h30m))
 
-(* ── to_ms ─────────────────────────────────────────────────────────────── *)
+-- ── to_ms ───────────────────────────────────────────────────────────────
 
 test "to_ms 1s" (fn t -> t.eq 1000 (Duration.to_ms 1s))
 test "to_ms 1min" (fn t -> t.eq 60000 (Duration.to_ms 1min))
 test "to_ms 1h" (fn t -> t.eq 3600000 (Duration.to_ms 1h))
 test "to_ms 500ms" (fn t -> t.eq 500 (Duration.to_ms 500ms))
 
-(* ── add ───────────────────────────────────────────────────────────────── *)
+-- ── add ─────────────────────────────────────────────────────────────────
 
 test "add hours + minutes" (fn t ->
   t.eq "1h30m" (Duration.format (Duration.add (Duration.hours 1) (Duration.minutes 30))))
@@ -33,37 +33,37 @@ test "add seconds + seconds" (fn t ->
   t.eq "1m15s" (Duration.format (Duration.add (Duration.seconds 30) (Duration.seconds 45))))
 test "add zero" (fn t -> t.eq "5m" (Duration.format (Duration.add 5min Duration.zero)))
 
-(* ── sub ───────────────────────────────────────────────────────────────── *)
+-- ── sub ─────────────────────────────────────────────────────────────────
 
 test "sub hours - minutes" (fn t ->
   t.eq "1h30m" (Duration.format (Duration.sub (Duration.hours 2) (Duration.minutes 30))))
 test "sub clamp to zero" (fn t ->
   t.eq "0s" (Duration.format (Duration.sub (Duration.minutes 1) (Duration.hours 1))))
 
-(* ── scale ─────────────────────────────────────────────────────────────── *)
+-- ── scale ───────────────────────────────────────────────────────────────
 
 test "scale double" (fn t ->
   t.eq "2h" (Duration.format (Duration.scale 2 (Duration.hours 1))))
 test "scale triple" (fn t -> t.eq "1m30s" (Duration.format (Duration.scale 3 30s)))
 test "scale zero" (fn t -> t.eq "0s" (Duration.format (Duration.scale 0 1h)))
 
-(* ── pipeline ──────────────────────────────────────────────────────────── *)
+-- ── pipeline ────────────────────────────────────────────────────────────
 
 test "pipe" (fn t -> t.eq "1m30s" (Duration.seconds 90 |> Duration.format))
 
-(* A duration whose number is past what an Int holds is too large, not
-   malformed -- and the message says which. It used to escape as OCaml's own
-   "int_of_string", which said neither. *)
+-- A duration whose number is past what an Int holds is too large, not
+-- malformed -- and the message says which. It used to escape as OCaml's own
+-- "int_of_string", which said neither.
 test "a duration too large to convert says so" (fn t ->
   match try Duration.to_ms 99999999999999999999s with
   | Ok _ -> t.ok false
   | Error why -> t.ok (String.contains? "too large" why))
 
-(* ── Ordering and equality compare the value, not the text ─────────────── *)
+-- ── Ordering and equality compare the value, not the text ───────────────
 
-(* A duration is a sum of units, so `1min` and `60s` are one value written
-   two ways. Ordering normalizes, and equality has to agree with it: a
-   value that is neither below nor above another is equal to it. *)
+-- A duration is a sum of units, so `1min` and `60s` are one value written
+-- two ways. Ordering normalizes, and equality has to agree with it: a
+-- value that is neither below nor above another is equal to it.
 
 test "ordering normalizes" (fn t -> t.ok (30s < 5min))
 test "and in the other direction" (fn t -> t.ok (90s > 1min))
@@ -74,7 +74,7 @@ test "and inequality" (fn t -> t.ok (30s != 45s))
 test "the three relations agree" (fn t ->
   let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b)))
 
-(* ── + and - ───────────────────────────────────────────────────────────── *)
+-- ── + and - ─────────────────────────────────────────────────────────────
 
 test "the operator adds" (fn t -> t.eq 1h30m (1h + 30min))
 test "and matches Duration.add" (fn t -> t.eq (Duration.add 1h 30min) (1h + 30min))

@@ -1,25 +1,25 @@
-(* Things that must be given back.
+-- Things that must be given back.
+--
+-- A resource is a pair: how to acquire something, and how to release it.
+-- It is a description rather than something already open, so it can be
+-- named, passed to a function, and used twice -- and the two halves stay
+-- together, where a reviewer can see that they match.
+--
+-- `with` is the only thing that runs one:
+--
+--     with FS.temp_dir "build-" as tmp ->
+--       ...
+--
+-- Release runs however the script ends: returning, raising, `Proc.exit`, a
+-- handler that answered without resuming, or a signal. Only a process
+-- destroyed rather than stopped -- `kill -9` -- skips it. Nested brackets
+-- release innermost-first.
+--
+-- What acquiring and releasing perform is part of the resource's type, so
+-- a file that takes a lock says `FS.Write` in its signature. A bracket
+-- guarantees the release runs; it does not hide what running it costs.
 
-   A resource is a pair: how to acquire something, and how to release it.
-   It is a description rather than something already open, so it can be
-   named, passed to a function, and used twice -- and the two halves stay
-   together, where a reviewer can see that they match.
-
-   `with` is the only thing that runs one:
-
-       with FS.temp_dir "build-" as tmp ->
-         ...
-
-   Release runs however the script ends: returning, raising, `Proc.exit`, a
-   handler that answered without resuming, or a signal. Only a process
-   destroyed rather than stopped -- `kill -9` -- skips it. Nested brackets
-   release innermost-first.
-
-   What acquiring and releasing perform is part of the resource's type, so
-   a file that takes a lock says `FS.Write` in its signature. A bracket
-   guarantees the release runs; it does not hide what running it costs. *)
-
-(** Pair an acquire with a release. `acquire` is called when the `with`
-    is entered, and its result is bound by the pattern; `release` is called
-    with that same value on the way out. *)
+-- Pair an acquire with a release. `acquire` is called when the `with`
+-- is entered, and its result is bound by the pattern; `release` is called
+-- with that same value on the way out.
 let make acquire release = resource_make acquire release

@@ -1,14 +1,14 @@
 let {test} = import Test
 import Map
 
-(* ── A key is held once ──────────────────────────────────────────────────── *)
+-- ── A key is held once ────────────────────────────────────────────────────
 
-(* Two entries under one key means one of them is unreachable: `get` finds a
-   single value while `size`, `keys` and any fold see both, and a document
-   read in and written back would carry the ghost along. The last value given
-   wins, as an assignment implies, and it sits where the key first appeared --
-   because a Map is written back out in the order it holds, and a config that
-   reorders itself on every edit makes a diff nobody can read. *)
+-- Two entries under one key means one of them is unreachable: `get` finds a
+-- single value while `size`, `keys` and any fold see both, and a document
+-- read in and written back would carry the ghost along. The last value given
+-- wins, as an assignment implies, and it sits where the key first appeared --
+-- because a Map is written back out in the order it holds, and a config that
+-- reorders itself on every edit makes a diff nobody can read.
 
 test "a literal holds a repeated key once, taking the last value" (fn t ->
   t.eq {a = 9, b = 2} {a = 1, b = 2, a = 9})
@@ -23,8 +23,8 @@ test "and the count agrees with what can be reached" (fn t ->
 test "from_list resolves them the same way" (fn t ->
   t.eq {a = 9, b = 2} (Map.from_list [("a", 1), ("b", 2), ("a", 9)]))
 
-(* Where a key already is, is where it stays -- otherwise editing one field
-   of a config rewrites the order of the whole file. *)
+-- Where a key already is, is where it stays -- otherwise editing one field
+-- of a config rewrites the order of the whole file.
 test "set replaces in place rather than moving the key to the front" (fn t ->
   t.eq {a = 1, b = 99, c = 3} (Map.set "b" 99 {a = 1, b = 2, c = 3}))
 
@@ -34,7 +34,7 @@ test "and merge keeps the order the left already had" (fn t ->
 test "a key merge adds goes on the end" (fn t ->
   t.eq {a = 1, b = 2} (Map.merge {a = 1} {b = 2}))
 
-(* ── Braces ──────────────────────────────────────────────────────────────── *)
+-- ── Braces ────────────────────────────────────────────────────────────────
 
 test "the empty braces are Map.empty" (fn t -> t.eq Map.empty {})
 

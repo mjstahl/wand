@@ -9,49 +9,49 @@ import Path
 import Proc
 import String
 
-(* `wand f` is the canonical form: running it over a formatted tree changes
-   nothing. Checked on a copy, so a failure reports rather than rewrites --
-   the formatter has produced source that does not parse before, and leaving
-   a mangled file on disk turns one bug into two.
+-- `wand f` is the canonical form: running it over a formatted tree changes
+-- nothing. Checked on a copy, so a failure reports rather than rewrites --
+-- the formatter has produced source that does not parse before, and leaving
+-- a mangled file on disk turns one bug into two.
+--
+-- This is wand's own CI step, written in wand. It runs after the suites, so
+-- the binary it uses has already been exercised by tests that do not depend
+-- on it.
 
-   This is wand's own CI step, written in wand. It runs after the suites, so
-   the binary it uses has already been exercised by tests that do not depend
-   on it. *)
-
-(* The binary to check with -- the one this build just produced, not
-   whatever is on PATH. CI sets it; a bare `wand` is the fallback for
-   running this by hand. *)
+-- The binary to check with -- the one this build just produced, not
+-- whatever is on PATH. CI sets it; a bare `wand` is the fallback for
+-- running this by hand.
 let wand = Env.get "WAND" |> Option.default "wand"
 
-(* Everything the formatter is the authority on: the standard library, the
-   wand-level tests, and the examples. The tests and examples were outside
-   this gate and drifted -- nothing was checking them, so a formatter change
-   left them behind and only a reader noticed. *)
+-- Everything the formatter is the authority on: the standard library, the
+-- wand-level tests, and the examples. The tests and examples were outside
+-- this gate and drifted -- nothing was checking them, so a formatter change
+-- left them behind and only a reader noticed.
 let checked_dirs = ["stdlib", "test/wand", "examples"]
 
-(* `**.wand` rather than `*.wand`: a directory of ports sits under
-   `examples/`, and a file the gate cannot see is a file that drifts. *)
+-- `**.wand` rather than `*.wand`: a directory of ports sits under
+-- `examples/`, and a file the gate cannot see is a file that drifts.
 let sources =
   checked_dirs |> List.map (fn d -> FS.glob_in **.wand (Path.of_string d)) |> List.flatten
 
-(* The copies go in one flat directory, so the name carries the path it came
-   from: `test/wand/test_fs.wand` becomes `test_wand_test_fs.wand`. Two
-   directories are free to hold the same file name, and a copy named after
-   the basename alone would let one silently stand in for the other. *)
+-- The copies go in one flat directory, so the name carries the path it came
+-- from: `test/wand/test_fs.wand` becomes `test_wand_test_fs.wand`. Two
+-- directories are free to hold the same file name, and a copy named after
+-- the basename alone would let one silently stand in for the other.
 let copy_of dir src =
   Path.join dir (Path.of_string (String.replace "/" "_" (Path.to_string src)))
 
 let copy_into! dir = sources |> List.each (fn src -> FS.copy! src (copy_of dir src))
 
-(* One file per call rather than a glob. `%{dir}/*.wand` does not parse --
-   `*.wand` is a glob literal, so the `/` reads as division -- and passing
-   each path is clearer than relying on the shell to expand one. *)
+-- One file per call rather than a glob. `%{dir}/*.wand` does not parse --
+-- `*.wand` is a glob literal, so the `/` reads as division -- and passing
+-- each path is clearer than relying on the shell to expand one.
 let format_in! dir = sources |> List.each (fn src -> $(%{wand} f %{copy_of dir src}))
 
-(* A file that changed is one `wand f` would rewrite, which means the tree
-   checked in is not what the formatter produces. Every one of them is
-   reported: fixing them one CI run at a time is how a five-minute job
-   becomes an afternoon. *)
+-- A file that changed is one `wand f` would rewrite, which means the tree
+-- checked in is not what the formatter produces. Every one of them is
+-- reported: fixing them one CI run at a time is how a five-minute job
+-- becomes an afternoon.
 let rewritten! dir =
   sources |> List.filter (fn src -> FS.read_file! src != FS.read_file! (copy_of dir src))
 

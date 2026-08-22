@@ -1,9 +1,9 @@
 let {test} = import Test
 
-(* Private-symbol-access denial and missing-destructure-field errors both
-   fail the whole file to typecheck before any test body runs, and both need
-   a relative import resolved against this file's own directory, so those two
-   cases live in test_imports.ml. Everything else is here. *)
+-- Private-symbol-access denial and missing-destructure-field errors both
+-- fail the whole file to typecheck before any test body runs, and both need
+-- a relative import resolved against this file's own directory, so those two
+-- cases live in test_imports.ml. Everything else is here.
 
 let mylib = import ./imports_fixture
 

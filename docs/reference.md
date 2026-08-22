@@ -3459,23 +3459,36 @@ The last line is the point. The script ran, and nothing happened.
 
 ## Comments
 
-Line comments run to the end of the line:
+A comment starts with `--` and runs to the end of the line. That is the
+whole form:
 
 ```ocaml
 -- this is a comment
 let x = 1     -- so is this
 ```
 
-Block comments, nestable:
+A comment reads no brackets, so pasted text survives whatever it holds —
+including the `*)` that a shell `case` arm writes.
+
+Documentation is a run of comment lines directly above a definition. `wand
+d` prints it, and so does an editor on hover:
 
 ```ocaml
-(* this is a comment *)
-
-(*
-  multi-line
-  (* nested comment *)
-*)
+-- Whether a command succeeded: its exit code is zero.
+--
+-- `$?(cmd)` gives a `ShellResult`, and the first thing a script asks of one
+-- is whether it worked.
+let ok? (r: ShellResult) = r.code == 0
 ```
+
+Each line stands alone, the lines are consecutive, and the last one sits on
+the line above the definition. So a comment after code documents nothing,
+and a blank line ends the run — which is how a file header stays a file
+header.
+
+wand still reads the block forms `(* ... *)` and `(** ... *)`, and `wand f`
+rewrites them as comment lines. They are removed in the next release, so
+run `wand f` over files that still carry them.
 
 ---
 
@@ -3832,8 +3845,11 @@ overwrites each file with the formatted text, and prints one line for each
 file. A shell glob works: `wand f stdlib/*.wand` formats every file in
 `stdlib/`.
 
-wand keeps each comment: `-- ...`, `(* ... *)` and the doc form `(** ... *)`.
-It never drops one, and it never rewrites one style into the other. It writes a
+wand keeps each comment and never drops one. It rewrites a block comment as
+comment lines, which is the one rewrite it does: `(* ... *)` and `(** ... *)`
+come back as `--` lines carrying the same prose, and a sample indented inside
+one keeps its indentation. A comment with code after it on the same line is
+left alone, because `--` would comment that code out. It writes a
 function of several equations back as separate clauses, as in
 `let f 0 = ...` and `let f n = ...`. It does not leave the `match` that those
 equations become.
