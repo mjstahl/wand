@@ -63,9 +63,9 @@ that runs when the file is the script and not when it is imported.
 **A bare `None` still has to be bracketed.** Parentheses after a
 constructor are its payload, whatever its arity, so `t.eq None (usage row)`
 reads as `t.eq (None (usage row))` and `(None)` is the way to write it.
-The checker now names the constructor and says to bracket it, where the
-error used to be about the application. The parse stands: reading arity
-here is what made `Ctor (a, b)` mean different things in different files.
+The checker names the constructor and says to bracket it. The parse
+stands: reading arity here is what made `Ctor (a, b)` mean different
+things in different files.
 
 **A destructured import is replaced by a later one, above the line as well
 as below it — warned, not fixed.** Every import binds before the file's own bindings, wherever

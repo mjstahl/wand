@@ -784,8 +784,8 @@ length fails the same way. The keys of a map are not part of its type.
 An empty map is `Map.empty`, and `{}` is the same value written as a
 literal.
 
-Brackets mean lists and nothing else. wand refuses the map forms from
-before 0.17, `[x = 1]` and `[x = a]`. The error names the brace spelling.
+Brackets mean lists and nothing else. `[x = 1]` and `[x = a]` are refused,
+and the error names the brace spelling.
 
 ---
 
@@ -2311,9 +2311,10 @@ let xs = 1 :: [2, 3]        -- cons is `::`, and takes no `:`
 
 There is no inline ascription `(e : T)`. Annotate the binding instead.
 
-Cons is `::`. It was `:` until 0.31.0, which is why a `:` between two
-expressions, or in a pattern where no type follows it, is refused with the
-correction rather than read on.
+Cons is `::`, and a `:` gives a name a type. So a `:` between two
+expressions, or in a pattern with no type after it, is refused where it
+stands and the error names `::`, rather than being read on until the
+expression fails somewhere else.
 
 ---
 
