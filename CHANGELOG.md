@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.32.0] - 2026-08-21
+
+### Added
+
+- `Port.to_int` and `Port.of_int`. `Port` could be written, ordered,
+  compared, decoded and interpolated, and nothing took `8080` out of
+  `:8080`, so a script could not pass a port to a command. The string form
+  is unchanged and is the address: `"host%{:8080}"` is `"host:8080"`.
+  `of_int` refuses a number outside 0–65535 (`2738ddc`)
+
+### Changed
+
+- **Breaking:** `Par.timeout` refuses to run under a handler. A race runs
+  only its first thunk while one is installed, so the sleeper never ran and
+  the deadline never fired — work that only the deadline would have stopped
+  ran forever, hanging a test suite with no message. Put the handler inside
+  the thunk instead: `Par.timeout d (fn () -> with_shell mocks (fn () ->
+  ...))` keeps the mock and fires the deadline. A rehearsal and a trace are
+  not refused (`7016818`)
+- `wand f` keeps a value that ends in a bracket on the line that opens it,
+  the way a value that is a bracket already did. Run `wand f` over a
+  formatted repository once: files laid out by 0.31.0 will change
+  (`9cdb6f1`)
+
+[0.32.0]: https://github.com/mjstahl/wand/releases/tag/v0.32.0
+
 ## [0.31.0] - 2026-08-21
 
 ### Changed

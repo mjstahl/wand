@@ -1,28 +1,50 @@
-## 0.31.0 - 2026-08-21
+## 0.32.0 - 2026-08-21
 
-`:` is no longer cons.
+`wand f` keeps a value that ends in a bracket on the line that opens it:
 
-    1 : [2, 3]
-    -- parse error: cons is '::' -- a single ':' gives a name a type
+    let hosts = [
+      "web-01",
+      "web-02"
+    ]
 
-0.30.0 read both spellings so that a script written before it would run
-long enough to be formatted. This removes the old one. `:` is a type
-annotation or a port literal, and nothing else.
+    report [
+      stage "build" $?(dune build),
+      stage "test" $?(dune test)
+    ]
 
-The `:` still binds where cons bound, so the error lands on it rather than
-appearing as "expected ->, got :" from wherever the expression happened to
-end.
+A value that *is* a bracket already did this. A call whose last argument is
+one broke under its head instead, which spent a line on the bracket, pushed
+the items two columns further in, and closed the call's first line — so the
+definition ended there and needed parentheses to survive.
 
-### Migrating
+Run `wand f` over a formatted repository once. Files laid out by 0.31.0
+will change.
 
-    wand f script.wand
+### A deadline inside a handler is refused
 
-Then fix whatever still fails to parse. `wand f` is most of a migration
-and not all of it: it does not rewrite a construct holding an interior
-comment, because the construct is pinned and written back as it stands so
-the comment does not move. Five cons patterns in wand's own standard
-library were pinned that way and survived a 90-file sweep. They surfaced
-when `:` stopped parsing, which is what this release does.
+`Par.timeout` is a race between the work and a sleeper, and a race runs
+only its first thunk while a handler is installed. So the sleeper never
+ran, the deadline never fired, and work that only the deadline would have
+stopped ran forever — a test suite hanging with no message.
+
+Put the handler inside the thunk:
+
+    Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
+
+The mock stands and the deadline fires. A rehearsal and a trace are not
+refused.
+
+### A port crosses to its number
+
+`Port` could be written, ordered, compared, decoded and interpolated, and
+nothing took `8080` out of `:8080` — so a script could not hand a port to a
+command that wanted the number as an argument of its own.
+
+    Port.to_int :8080                     -- 8080
+    "host%{:8080}"                        -- "host:8080", unchanged
+    $?(nc -z %{host} %{Port.to_int port})
+
+`Port.of_int` goes back, and refuses a number outside 0–65535.
 
 ---
 
