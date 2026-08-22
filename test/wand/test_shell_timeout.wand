@@ -14,7 +14,7 @@ group "a command that runs late" (fn () -> [
     match Shell.timeout 200ms (fn () -> $(sleep 5)) with
     | Ok _ -> t.fail "expected the deadline to fire"
     | Error _ -> t.ok true),
-    -- The message is what ends up in a log, so it names both.
+  -- The message is what ends up in a log, so it names both.
   test "naming the deadline and the command" (fn t ->
     match Shell.timeout 200ms (fn () -> $(sleep 5)) with
     | Ok _ -> t.fail "expected the deadline to fire"

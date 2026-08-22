@@ -19,6 +19,59 @@ open Ast
    handful of lines that end up in the diff. *)
 let max_width = ref 92
 
+type comment_tok = {
+  c_offset : int; c_start_line : int; c_end_line : int; c_text : string;
+  (* Whether the comment begins its line. One that follows code on the same
+     line annotates that code, so it cannot be lifted onto a line of its own
+     without changing what it points at. *)
+  c_own_line : bool;
+}
+
+let starts_its_line src off =
+  let rec back i = i < 0 || (match src.[i] with
+    | '\n' -> true
+    | ' ' | '\t' | '\r' -> back (i - 1)
+    | _ -> false)
+  in back (off - 1)
+
+let all_comments src tokens : comment_tok list =
+  List.filter_map (fun (tok, (loc : Token.loc)) ->
+    match tok with
+    | Token.LineComment text ->
+      (* A comment is always exactly one line. *)
+      Some { c_offset = loc.offset; c_start_line = loc.line;
+             c_end_line = loc.line; c_text = "--" ^ text;
+             c_own_line = starts_its_line src loc.offset }
+    | _ -> None
+  ) tokens
+
+(* ── Comments inside an item ──────────────────────────────────────────────── *)
+
+(* A comment between two top-level items is a piece of its own, laid out by
+   `assemble`. One *inside* an item has to be written by whichever emitter
+   reaches the boundary it sits at, because pretty-printing rebuilds those
+   lines from the AST and the AST does not carry it.
+
+   `interior` holds the comments inside the item being printed. Reading it
+   is a lookup, never a removal: the emitters render candidate layouts and
+   throw most of them away -- a `match` is rendered to find out whether it
+   fits before it is rendered to be kept -- and a comment consumed by a
+   draft would vanish with it.
+
+   So an emitter asks for the comments between where the construct before it
+   ended and where this one starts. A comment *within* the previous
+   construct falls outside that window and is left for the emitter that
+   descends into it. *)
+let interior : comment_tok list ref = ref []
+
+(* Only a comment on a line of its own can be written above a construct. A
+   trailing one stays unplaced, which sends its item to a verbatim slice
+   rather than moving the note off the code it is about. *)
+let comments_between lo hi =
+  List.filter (fun c -> c.c_own_line && c.c_offset > lo && c.c_offset < hi) !interior
+
+let loc_of = function Located (l, _) -> Some l | _ -> None
+
 (* Run `f` against a different column budget and put the old one back. Only
    the tests narrow it: formatting the corpus at a margin nothing fits under
    is how the "emitted source that will not parse" bugs are found, and every
@@ -487,7 +540,7 @@ and emit_expr_inner ?col indent e =
      rendering it at the sequence's own indent puts an item's continuation
      lines to the left of the item itself. *)
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
-  | List es  -> emit_sequence ~col indent "[" "]" (List.map (emit_expr (indent + 2)) es)
+  | List es  -> emit_list ~col indent es
   | ConstrApp (name, kvs) ->
     let field (k, v) =
       (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
@@ -745,6 +798,46 @@ and emit_field indent e l =
    brackets carry the break rather than the items being aligned under the
    opening one: alignment moves every line when the head changes, which
    makes a diff of a formatted file larger than the edit that caused it. *)
+(* A list whose elements have comments between them. The elements carry
+   locations, so the same previous-sibling window the arms of a `match` use
+   applies; a list that takes one is written one element per line, because a
+   comment cannot sit inside `[a, b]`. *)
+and emit_list ?col indent es =
+  let col = match col with Some c -> c | None -> indent in
+  let prev_end = ref max_int in
+  let claimed = ref false in
+  let piece e =
+    let above =
+      match loc_of e with
+      | None -> []
+      | Some l ->
+        let cs = comments_between !prev_end l.Token.offset in
+        if cs <> [] then claimed := true;
+        List.map (fun c -> c.c_text) cs
+    in
+    let text = emit_expr (indent + 2) e in
+    (match loc_of e with
+     | Some l -> prev_end := l.Token.end_offset
+     | None -> prev_end := max_int);
+    (above, text)
+  in
+  let parts = List.map piece es in
+  if not !claimed then
+    emit_sequence ~col indent "[" "]" (List.map snd parts)
+  else begin
+    let inner = String.make (indent + 2) ' ' in
+    let buf = Buffer.create 128 in
+    let n = List.length parts in
+    Buffer.add_string buf "[\n";
+    List.iteri (fun i (above, text) ->
+      List.iter (fun c -> Buffer.add_string buf (inner ^ c ^ "\n")) above;
+      Buffer.add_string buf (inner ^ text);
+      if i < n - 1 then Buffer.add_string buf ",\n"
+    ) parts;
+    Buffer.add_string buf ("\n" ^ String.make indent ' ' ^ "]");
+    Buffer.contents buf
+  end
+
 and emit_sequence ?col indent opening closing items =
   let col = match col with Some c -> c | None -> indent in
   let oneline = opening ^ String.concat ", " items ^ closing in
@@ -834,23 +927,89 @@ and is_block e =
 
 and emit_block ?col indent e =
   let col = match col with Some c -> c | None -> indent in
+  (* Statements are the other boundary a comment sits at. Each carries a
+     location, so the same previous-sibling window applies. A statement is
+     paired with the comments above it rather than joined to them, because
+     the `;` between statements must not land after a comment.
+
+     The first statement has no sibling before it, and the block's own `(`
+     is not in the AST, so there is nothing to open its window against. It
+     claims nothing: a comment above the first statement leaves the item
+     verbatim rather than risk being lifted out of the construct that
+     encloses the block. *)
+  let prev_end = ref max_int in
+  let claimed = ref false in
+  (* The comments above a statement that starts at `hi`. *)
+  let lead hi =
+    let cs = comments_between !prev_end hi in
+    if cs <> [] then claimed := true;
+    List.map (fun c -> c.c_text) cs
+  in
+  (* Where a statement starts. A `let` in a block is not wrapped in a
+     `Located` -- the keyword is consumed before the node is built -- so its
+     value's start stands in. The only text between the two is `let <pat> =`,
+     which no comment can sit inside without ending the line. *)
+  let starts_at = function
+    | Some (l : Token.loc) -> Some l.Token.offset
+    | None -> None
+  in
+  let advance_past = function
+    | Some (l : Token.loc) -> prev_end := l.Token.end_offset
+    | None -> prev_end := max_int
+  in
   let rec items ind e =
     match strip_located e with
-    | Seq (a, b) -> emit_expr ind a :: items ind b
+    | Seq (a, b) ->
+      let above = match starts_at (loc_of a) with Some hi -> lead hi | None -> [] in
+      let a_text = emit_expr ind a in
+      advance_past (loc_of a);
+      (above, a_text) :: items ind b
     | Let (p, e1, body, LetBlock) ->
-      emit_binding ~col:ind ind p e1 :: items ind body
+      let above = match starts_at (loc_of e1) with Some hi -> lead hi | None -> [] in
+      let text = emit_binding ~col:ind ind p e1 in
+      advance_past (loc_of e1);
+      (above, text) :: items ind body
     | LetRec (bindings, body, LetBlock) ->
-      emit_letrec_bindings ind bindings :: items ind body
-    | other -> [emit_expr ind other]
+      let above =
+        match bindings with
+        | (_, _, first) :: _ ->
+          (match starts_at (loc_of first) with Some hi -> lead hi | None -> [])
+        | [] -> []
+      in
+      let text = emit_letrec_bindings ind bindings in
+      (match List.rev bindings with
+       | (_, _, last) :: _ -> advance_past (loc_of last)
+       | [] -> prev_end := max_int);
+      (above, text) :: items ind body
+    | other ->
+      let above = match starts_at (loc_of e) with Some hi -> lead hi | None -> [] in
+      [(above, emit_expr ind other)]
   in
-  let oneline = "(" ^ String.concat "; " (items indent e) ^ ")" in
-  if fits col oneline && not (String.contains oneline '\n') then oneline
-  else
+  (* The one-line form is measured at this indent and the wrapped one two
+     further in, so the walk runs twice. Reading comments does not consume
+     them, so the second walk sees what the first did; `prev_end` is put
+     back so its windows open in the same places. *)
+  let probe = items indent e in
+  let probe_claimed = !claimed in
+  prev_end := max_int; claimed := false;
+  let oneline = "(" ^ String.concat "; " (List.map snd probe) ^ ")" in
+  if not probe_claimed && fits col oneline && not (String.contains oneline '\n')
+  then oneline
+  else begin
+    let stmts = items (indent + 2) e in
     let ind = String.make indent ' ' in
     let inner = String.make (indent + 2) ' ' in
-    "(\n" ^ inner
-    ^ String.concat (";\n" ^ inner) (items (indent + 2) e)
-    ^ "\n" ^ ind ^ ")"
+    let buf = Buffer.create 128 in
+    let n = List.length stmts in
+    Buffer.add_string buf "(\n";
+    List.iteri (fun i (above, text) ->
+      List.iter (fun c -> Buffer.add_string buf (inner ^ c ^ "\n")) above;
+      Buffer.add_string buf (inner ^ text);
+      if i < n - 1 then Buffer.add_string buf ";\n"
+    ) stmts;
+    Buffer.add_string buf ("\n" ^ ind ^ ")");
+    Buffer.contents buf
+  end
 
 and emit_fn_clauses ~col indent p params fbody =
   let name = match p with PVar n -> n | _ -> "_" in
@@ -1044,7 +1203,22 @@ and emit_case_body ?col indent body =
      and the argument left below is read as continuing the definition the
      whole match belongs to. Without them the formatter turned a working
      file into one that does not parse. *)
-  | _ -> bracket_if_wrapped_app body (emit_expr ?col indent body)
+  | _ ->
+    let flat = emit_expr ?col indent body in
+    (* A `let ... in` body that does not fit on the arrow's line put its
+       continuation at the arm's own indent, level with the `|` above it,
+       where it read as the next statement rather than the rest of this
+       arm. It takes the block shape a nested match takes, for the reason
+       a nested match takes it. *)
+    let is_let_in = match strip_located body with
+      | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> true
+      | _ -> false
+    in
+    if is_let_in && String.contains flat '\n' then begin
+      let ind = String.make indent ' ' in
+      let inner = String.make (indent + 2) ' ' in
+      "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
+    end else bracket_if_wrapped_app body flat
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's
    "with", so an unparenthesized nested Match there is fragile even when
@@ -1063,7 +1237,26 @@ and emit_match ?col indent scr cases =
      does, instead of landing flush with the line that introduced it. *)
   let arm_indent = if col > indent then indent + 2 else indent in
   let ind = String.make arm_indent ' ' in
+  (* Where the arm before this one ended. A comment after that point and
+     before this arm's own start belongs above this arm; one before it sits
+     inside the previous arm and is that arm's to write. *)
+  let prev_end = ref (match loc_of scr with Some l -> l.Token.end_offset | None -> max_int) in
   let emit_case (p, guard, body) =
+    (* The arm itself has no location, so its start is taken from the first
+       located part of it -- the guard when there is one, otherwise the
+       body. Both begin after the `|`, which only widens the window
+       leftward into the arrow and pattern, where no comment can sit
+       without ending the line. *)
+    let lead =
+      match loc_of (match guard with Some g -> g | None -> body) with
+      | None -> []
+      | Some l ->
+        List.map (fun c -> ind ^ c.c_text ^ "\n")
+          (comments_between !prev_end l.Token.offset)
+    in
+    (match loc_of body with
+     | Some l -> prev_end := l.Token.end_offset
+     | None -> prev_end := max_int);
     let guard_s = match guard with
       | None -> ""
       | Some g -> " when " ^ emit_expr arm_indent g
@@ -1071,7 +1264,8 @@ and emit_match ?col indent scr cases =
     (* The body starts after the pattern and the arrow, not at the case's
        indent -- which is the whole of this bug. *)
     let prefix = ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " in
-    prefix ^ emit_case_body ~col:(String.length prefix) arm_indent body
+    let text = prefix ^ emit_case_body ~col:(String.length prefix) arm_indent body in
+    String.concat "" lead ^ text
   in
   "match " ^ emit_scrutinee indent scr ^ " with\n"
   ^ String.concat "\n" (List.map emit_case cases)
@@ -1256,18 +1450,6 @@ type piece = {
   blank_after : bool;
 }
 
-type comment_tok = { c_offset : int; c_start_line : int; c_end_line : int; c_text : string }
-
-let all_comments tokens : comment_tok list =
-  List.filter_map (fun (tok, (loc : Token.loc)) ->
-    match tok with
-    | Token.LineComment text ->
-      (* A comment is always exactly one line. *)
-      Some { c_offset = loc.offset; c_start_line = loc.line;
-             c_end_line = loc.line; c_text = "--" ^ text }
-    | _ -> None
-  ) tokens
-
 (* Trim trailing whitespace/newlines only -- leading indentation and
    interior formatting are preserved exactly (verbatim rendering). *)
 let rstrip_ws raw =
@@ -1295,13 +1477,47 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
     let item = items.(i) in
     let (start_loc, end_loc) : Token.loc * Token.loc = locs.(i) in
     let stop = stop_offset i in
-    let has_interior_comment =
-      List.exists (fun c -> c.c_offset > start_loc.offset && c.c_offset < end_loc.offset) comments
+    let mine =
+      List.filter (fun c -> c.c_offset > start_loc.offset && c.c_offset < end_loc.offset)
+        comments
     in
-    let is_verbatim = has_interior_comment in
+    (* An interior comment is offered to the emitters, which write it above
+       whichever arm or statement it sits on.
+
+       What comes back is then checked against what went in, by counting
+       each comment's text in the rendered item. The emitters render drafts
+       and discard them, and a construct can be reached by more than one
+       path, so a comment can go missing or be written twice -- and neither
+       may reach a file. Anything but exactly once sends the item back to a
+       verbatim slice, which is what every item with an interior comment
+       used to be. *)
+    let occurrences text hay =
+      let n = String.length text and h = String.length hay in
+      let count = ref 0 in
+      for i = 0 to h - n do
+        if String.sub hay i n = text then incr count
+      done;
+      !count
+    in
+    let attempt =
+      if mine = [] then Some (emit_top_item_pretty item)
+      else begin
+        interior := List.sort (fun a b -> compare a.c_offset b.c_offset) mine;
+        let text = emit_top_item_pretty item in
+        interior := [];
+        let ok =
+          List.for_all (fun c ->
+            let wanted = List.length (List.filter (fun d -> d.c_text = c.c_text) mine) in
+            occurrences c.c_text text = wanted) mine
+        in
+        if ok then Some text else None
+      end
+    in
+    let is_verbatim = attempt = None in
     let text =
-      if is_verbatim then rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
-      else emit_top_item_pretty item
+      match attempt with
+      | Some t -> t
+      | None -> rstrip_ws (String.sub src start_loc.offset (stop - start_loc.offset))
     in
     (* A verbatim slice runs to the next item's offset, so it absorbs any
        comment sitting between the two. Its text therefore ends later than
@@ -1315,7 +1531,16 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
     in
     let piece = { offset = start_loc.offset; start_line = start_loc.line;
                   end_line; text; is_comment = false; blank_after = false } in
-    (is_verbatim, start_loc.offset, stop, piece))
+    (* What the item's own text now accounts for. A verbatim slice runs to
+       the next item and absorbs the comments between the two; a
+       pretty-printed item ends where the item ends, so a comment below it
+       is still a piece of its own. *)
+    let consumed =
+      if mine = [] then None
+      else if is_verbatim then Some (start_loc.offset, stop)
+      else Some (start_loc.offset, end_loc.Token.offset)
+    in
+    (is_verbatim, consumed, start_loc.offset, stop, piece))
 
 let assemble pieces =
   (* Source order, not line order: an item and a comment can start on the
@@ -1346,17 +1571,20 @@ let assemble pieces =
 let format_source src =
   let tokens = Lexer.tokenize src in
   let (prog, item_locs) = Parser.parse_program_with_locs tokens in
-  let comments = all_comments tokens in
+  let comments = all_comments src tokens in
   let items = item_pieces src prog item_locs comments in
-  let verbatim_spans = List.filter_map (fun (v, s, e, _) -> if v then Some (s, e) else None) items in
-  let in_any_span off = List.exists (fun (s, e) -> off > s && off < e) verbatim_spans in
+  (* Every item that held an interior comment, verbatim or not: in both
+     cases the comment is already inside the item's own text, so it must not
+     be laid out a second time as a piece of its own. *)
+  let consumed_spans = List.filter_map (fun (_, c, _, _, _) -> c) items in
+  let in_any_span off = List.exists (fun (s, e) -> off > s && off < e) consumed_spans in
   let comment_pcs = List.filter_map (fun c ->
     if in_any_span c.c_offset then None
     else Some { offset = c.c_offset; start_line = c.c_start_line;
                 end_line = c.c_end_line; text = c.c_text; is_comment = true;
                 blank_after = false }
   ) comments in
-  let item_pcs = List.map (fun (_, _, _, p) -> p) items in
+  let item_pcs = List.map (fun (_, _, _, _, p) -> p) items in
   (* The leading import region -- the run of imports before the first item
      of anything else -- is grouped: plain `import M` first, alphabetized,
      then let-imports in source order. Plain imports may be sorted because
@@ -1383,11 +1611,11 @@ let format_source src =
     if k < 2 then item_pcs
     else begin
       let region = List.filteri (fun i _ -> i < k) items in
-      let region_start = match region with (_, s, _, _) :: _ -> s | [] -> 0 in
+      let region_start = match region with (_, _, s, _, _) :: _ -> s | [] -> 0 in
       let region_stop =
-        List.fold_left (fun _ (_, _, stop, _) -> stop) region_start region in
+        List.fold_left (fun _ (_, _, _, stop, _) -> stop) region_start region in
       let untouchable =
-        List.exists (fun (v, _, _, _) -> v) region
+        List.exists (fun (v, _, _, _, _) -> v) region
         || List.exists (fun c ->
              c.c_offset >= region_start && c.c_offset < region_stop) comments
       in

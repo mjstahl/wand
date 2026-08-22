@@ -900,9 +900,11 @@ and list_ s =
       fail_at (snd s.tokens.(s.pos - 1))
         "a map is written in braces -- {k = v}, not [k = v]"
     else begin
-      let elems = ref [expr_ 0 s] in
+      (* Located for the same reason a match arm's body is: a comment
+         between two elements needs the boundary between them. *)
+      let elems = ref [locate s (fun () -> expr_ 0 s)] in
       while peek s = Token.Comma do
-        ignore (advance s); elems := !elems @ [expr_ 0 s]
+        ignore (advance s); elems := !elems @ [locate s (fun () -> expr_ 0 s)]
       done;
       expect s Token.RBracket;
       List !elems
@@ -1136,7 +1138,11 @@ and if_ s =
 and match_ s =
   (* match already consumed *)
   s.with_owners <- s.with_owners + 1;
-  let scrutinee = expr_ 0 s in
+  (* Located so the formatter knows where the scrutinee ends: a comment
+     above the first arm sits between that point and the arm, and without
+     the bound there is nothing to tell it from a comment above the whole
+     `match`. *)
+  let scrutinee = locate s (fun () -> expr_ 0 s) in
   expect s Token.With;
   s.with_owners <- s.with_owners - 1;
   let arms_loc = peek_loc s in

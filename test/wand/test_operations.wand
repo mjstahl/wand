@@ -32,189 +32,275 @@ let missed = "missed"
 let absent = Path.of_string "/wand-test-operations/definitely/not/here"
 
 group "FS reads" (fn () -> [
-  test "FS!read_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.read_file! absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via FS.read_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.read_file absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via JSON.read_file!" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = JSON.read_file! absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via JSON.read_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = JSON.read_file absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via CSV.read_file!" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = CSV.read_file! absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via CSV.read_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = CSV.read_file absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via TOML.read_file!" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = TOML.read_file! absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via TOML.read_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = TOML.read_file absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
-  test "FS!read_file via Env.read!" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = Env.read! absent in missed)) () with
-    | FS!read_file _ _ -> caught
-  )),
+  test "FS!read_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.read_file! absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via FS.read_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.read_file absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via JSON.read_file!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = JSON.read_file! absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via JSON.read_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = JSON.read_file absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via CSV.read_file!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = CSV.read_file! absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via CSV.read_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = CSV.read_file absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via TOML.read_file!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = TOML.read_file! absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via TOML.read_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = TOML.read_file absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
+  test "FS!read_file via Env.read!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Env.read! absent in missed) () with
+      | FS!read_file _ _ -> caught
+      )),
   -- A stream reads nothing until the fold runs it, so the fold is the call.
-  test "FS!stream_lines" (fn t -> t.eq caught (
-    handle (fn () -> (Stream.fold_left (fn a _ -> a) 0 (FS.stream_lines absent); missed)) () with
-    | FS!stream_lines _ _ -> caught
-  )),
-  test "FS!list_dir" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.list_dir! absent in missed)) () with
-    | FS!list_dir _ _ -> caught
-  )),
-  test "FS!list_dir via FS.list_dir" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.list_dir absent in missed)) () with
-    | FS!list_dir _ _ -> caught
-  )),
-  test "FS!glob" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.glob *.nothing in missed)) () with
-    | FS!glob _ _ -> caught
-  )),
-  test "FS!glob via FS.glob_in" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.glob_in *.nothing absent in missed)) () with
-    | FS!glob _ _ -> caught
-  )),
-  test "FS!exists" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.exists? absent in missed)) () with
-    | FS!exists _ _ -> caught
-  )),
-  test "FS!file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.file? absent in missed)) () with
-    | FS!file _ _ -> caught
-  )),
-  test "FS!dir" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.dir? absent in missed)) () with
-    | FS!dir _ _ -> caught
-  )),
-  test "FS!mtime" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.mtime! absent in missed)) () with
-    | FS!mtime _ _ -> caught
-  )),
-  test "FS!mtime via FS.mtime" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.mtime absent in missed)) () with
-    | FS!mtime _ _ -> caught
-  )),
-  test "FS!size" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.size! absent in missed)) () with
-    | FS!size _ _ -> caught
-  )),
-  test "FS!size via FS.size" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.size absent in missed)) () with
-    | FS!size _ _ -> caught
-  )),
-  test "FS!cwd" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.cwd () in missed)) () with
-    | FS!cwd _ _ -> caught
-  ))
+  test "FS!stream_lines" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> (Stream.fold_left (fn a _ -> a) 0 (FS.stream_lines absent); missed)) () with
+      | FS!stream_lines _ _ -> caught
+      )),
+  test "FS!list_dir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.list_dir! absent in missed) () with
+      | FS!list_dir _ _ -> caught
+      )),
+  test "FS!list_dir via FS.list_dir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.list_dir absent in missed) () with
+      | FS!list_dir _ _ -> caught
+      )),
+  test "FS!glob" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.glob *.nothing in missed) () with
+      | FS!glob _ _ -> caught
+      )),
+  test "FS!glob via FS.glob_in" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.glob_in *.nothing absent in missed) () with
+      | FS!glob _ _ -> caught
+      )),
+  test "FS!exists" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.exists? absent in missed) () with
+      | FS!exists _ _ -> caught
+      )),
+  test "FS!file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.file? absent in missed) () with
+      | FS!file _ _ -> caught
+      )),
+  test "FS!dir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.dir? absent in missed) () with
+      | FS!dir _ _ -> caught
+      )),
+  test "FS!mtime" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.mtime! absent in missed) () with
+      | FS!mtime _ _ -> caught
+      )),
+  test "FS!mtime via FS.mtime" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.mtime absent in missed) () with
+      | FS!mtime _ _ -> caught
+      )),
+  test "FS!size" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.size! absent in missed) () with
+      | FS!size _ _ -> caught
+      )),
+  test "FS!size via FS.size" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.size absent in missed) () with
+      | FS!size _ _ -> caught
+      )),
+  test "FS!cwd" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.cwd () in missed) () with
+      | FS!cwd _ _ -> caught
+      ))
 ])
 
 group "FS writes" (fn () -> [
-  test "FS!write_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.write_file! absent "x" in missed)) () with
-    | FS!write_file _ _ -> caught
-  )),
-  test "FS!write_file via FS.write_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.write_file absent "x" in missed)) () with
-    | FS!write_file _ _ -> caught
-  )),
-  test "FS!append" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.append! absent "x" in missed)) () with
-    | FS!append _ _ -> caught
-  )),
-  test "FS!append via FS.append" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.append absent "x" in missed)) () with
-    | FS!append _ _ -> caught
-  )),
-  test "FS!create_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.create_file! absent in missed)) () with
-    | FS!create_file _ _ -> caught
-  )),
-  test "FS!create_file via FS.create_file" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.create_file absent in missed)) () with
-    | FS!create_file _ _ -> caught
-  )),
-  test "FS!delete" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.delete! absent in missed)) () with
-    | FS!delete _ _ -> caught
-  )),
-  test "FS!delete via FS.delete" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.delete absent in missed)) () with
-    | FS!delete _ _ -> caught
-  )),
-  test "FS!mkdir" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.mkdir! absent in missed)) () with
-    | FS!mkdir _ _ -> caught
-  )),
-  test "FS!mkdir via FS.mkdir" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.mkdir absent in missed)) () with
-    | FS!mkdir _ _ -> caught
-  )),
-  test "FS!rename" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.rename! absent absent in missed)) () with
-    | FS!rename _ _ -> caught
-  )),
-  test "FS!rename via FS.rename" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.rename absent absent in missed)) () with
-    | FS!rename _ _ -> caught
-  )),
-  test "FS!copy" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.copy! absent absent in missed)) () with
-    | FS!copy _ _ -> caught
-  )),
-  test "FS!copy via FS.copy" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.copy absent absent in missed)) () with
-    | FS!copy _ _ -> caught
-  )),
-  test "FS!copy_tree" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.copy_tree! absent absent in missed)) () with
-    | FS!copy_tree _ _ -> caught
-  )),
-  test "FS!copy_tree via FS.copy_tree" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.copy_tree absent absent in missed)) () with
-    | FS!copy_tree _ _ -> caught
-  )),
-  test "FS!delete_tree" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.delete_tree! absent in missed)) () with
-    | FS!delete_tree _ _ -> caught
-  )),
-  test "FS!delete_tree via FS.delete_tree" (fn t -> t.eq caught (
-    handle (fn () -> (let _ = FS.delete_tree absent in missed)) () with
-    | FS!delete_tree _ _ -> caught
-  )),
+  test "FS!write_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.write_file! absent "x" in missed) () with
+      | FS!write_file _ _ -> caught
+      )),
+  test "FS!write_file via FS.write_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.write_file absent "x" in missed) () with
+      | FS!write_file _ _ -> caught
+      )),
+  test "FS!append" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.append! absent "x" in missed) () with
+      | FS!append _ _ -> caught
+      )),
+  test "FS!append via FS.append" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.append absent "x" in missed) () with
+      | FS!append _ _ -> caught
+      )),
+  test "FS!create_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.create_file! absent in missed) () with
+      | FS!create_file _ _ -> caught
+      )),
+  test "FS!create_file via FS.create_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.create_file absent in missed) () with
+      | FS!create_file _ _ -> caught
+      )),
+  test "FS!delete" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.delete! absent in missed) () with
+      | FS!delete _ _ -> caught
+      )),
+  test "FS!delete via FS.delete" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.delete absent in missed) () with
+      | FS!delete _ _ -> caught
+      )),
+  test "FS!mkdir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.mkdir! absent in missed) () with
+      | FS!mkdir _ _ -> caught
+      )),
+  test "FS!mkdir via FS.mkdir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.mkdir absent in missed) () with
+      | FS!mkdir _ _ -> caught
+      )),
+  test "FS!rename" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.rename! absent absent in missed) () with
+      | FS!rename _ _ -> caught
+      )),
+  test "FS!rename via FS.rename" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.rename absent absent in missed) () with
+      | FS!rename _ _ -> caught
+      )),
+  test "FS!copy" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.copy! absent absent in missed) () with
+      | FS!copy _ _ -> caught
+      )),
+  test "FS!copy via FS.copy" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.copy absent absent in missed) () with
+      | FS!copy _ _ -> caught
+      )),
+  test "FS!copy_tree" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.copy_tree! absent absent in missed) () with
+      | FS!copy_tree _ _ -> caught
+      )),
+  test "FS!copy_tree via FS.copy_tree" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.copy_tree absent absent in missed) () with
+      | FS!copy_tree _ _ -> caught
+      )),
+  test "FS!delete_tree" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.delete_tree! absent in missed) () with
+      | FS!delete_tree _ _ -> caught
+      )),
+  test "FS!delete_tree via FS.delete_tree" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.delete_tree absent in missed) () with
+      | FS!delete_tree _ _ -> caught
+      )),
   -- A bracket acquires when the body starts, so naming one performs nothing
   -- until it is used: `with` is the call.
-  test "FS!temp_file" (fn t -> t.eq caught (
-    handle (fn () -> (with (FS.temp_file "w" ".tmp") as _ -> missed)) () with
-    | FS!temp_file _ _ -> caught
-  )),
-  test "FS!temp_dir" (fn t -> t.eq caught (
-    handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
-    | FS!temp_dir _ _ -> caught
-  )),
+  test "FS!temp_file" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> with FS.temp_file "w" ".tmp" as _ -> missed) () with
+      | FS!temp_file _ _ -> caught
+      )),
+  test "FS!temp_dir" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> with FS.temp_dir "w" as _ -> missed) () with
+      | FS!temp_dir _ _ -> caught
+      )),
   -- A scratch directory takes its tree with it, so the release performs the
   -- same operation the two calls above do. That it works from inside a
   -- release is test_resource's.
-  test "FS!delete_tree via FS.temp_dir's release" (fn t -> t.eq caught (
-    handle (fn () -> (with (FS.temp_dir "w") as _ -> missed)) () with
-    | FS!temp_dir _ k -> k absent
-    | FS!exists _ k -> k true
-    | FS!delete_tree _ _ -> caught
-  ))
+  test "FS!delete_tree via FS.temp_dir's release" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> with FS.temp_dir "w" as _ -> missed) () with
+      | FS!temp_dir _ k -> k absent
+      | FS!exists _ k -> k true
+      | FS!delete_tree _ _ -> caught
+      ))
 ])
 
 group "the program's own streams" (fn () -> [

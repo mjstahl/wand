@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.38.0] - 2026-08-22
+
+### Fixed
+
+- A comment inside a definition no longer stops the definition being
+  formatted. One comment anywhere inside a top-level item made the whole
+  item a verbatim slice of the source, so `wand f` never looked at its code
+  and `tools/check_fmt.wand` could not either — the better-commented a
+  definition was, the less the formatter saw of it. A comment on its own
+  line is now written above the match arm, block statement or list element
+  it sits on, and the rest of the item is printed as usual. Ten corpus
+  files held items the formatter had never formatted
+- A comment that follows code on its line still pins its item. Lifting it
+  onto a line of its own would point it at the line below, so the item is
+  left exactly as written. Each comment is counted in the rendered item and
+  anything but exactly once sends the item back to a verbatim slice, so a
+  comment cannot be dropped, duplicated or moved
+- A `let ... in` arm body too wide for the arrow's line put its
+  continuation at the arm's own indent, level with the `|` above it, where
+  it read as the next arm. It takes the block shape a nested match takes.
+  This was not caused by the change above but was hidden by it:
+  `test_derive.wand` and `demos/09-fork-overhead/crunch.wand` held the
+  wrapped form with no comment in sight
+
+[0.38.0]: https://github.com/mjstahl/wand/releases/tag/v0.38.0
+
 ## [0.37.0] - 2026-08-22
 
 ### Changed

@@ -95,9 +95,10 @@ let to_datetime s = str_to_datetime s
 let to_duration s = str_to_duration s
 
 -- Join a list of strings with a separator.
-let join sep xs = match xs with
+let join sep xs =
+  match xs with
   | [] -> ""
-    -- Which element comes first is a question about the list, not about what
+  -- Which element comes first is a question about the list, not about what
   -- the elements hold: testing the accumulator for "" made an empty first
   -- element look like "nothing yet", so `join "," ["", "b"]` answered "b"
   -- and dropped a field that was empty on purpose.
@@ -109,7 +110,7 @@ let lines s = str_split "\n" s
 -- Split a string into words: any run of whitespace separates them, and
 -- leading or trailing whitespace adds none.
 let words s =
-    -- Splitting on a single space made every extra space its own empty word --
+  -- Splitting on a single space made every extra space its own empty word --
   -- `words "  a  b  "` came back with seven elements, five of them "" -- and
   -- a tab separated nothing at all.
   let spaced = str_replace "\t" " " (str_replace "\r" " " (str_replace "\n" " " s))

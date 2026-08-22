@@ -712,6 +712,95 @@ let test_string_openers_come_back_escaped () =
    back as itself, including the shape that has no `;` left in it:
    `(let x = 1; x + 2)` used to normalize to `in`, which turned the block
    spelling into the one the style guide keeps for naming. *)
+(* ── A comment inside a definition ────────────────────────────────────────── *)
+
+(* A comment inside an item used to make the whole item a verbatim slice of
+   the source, so none of it was formatted -- one comment on the last line
+   of a definition exempted every line of it, and `check_fmt` could not see
+   in. The emitters write the comment above the arm or statement it sits on
+   and the rest is printed as usual. *)
+let test_a_comment_inside_an_item () =
+  fmt_eq "an arm below a comment is still formatted"
+    {|let f xs = match xs with
+  | [] -> 0
+  -- why the next arm is what it is
+  | [h :: t] ->    h+1|}
+    {|let f xs =
+  match xs with
+  | [] -> 0
+  -- why the next arm is what it is
+  | [h :: t] -> h + 1|};
+  fmt_eq "and a statement below one"
+    {|let f () = (
+  let x = 1;
+  -- what the next line is for
+  g   x;
+  x+1
+)|}
+    {|let f () = (
+  let x = 1;
+  -- what the next line is for
+  g x;
+  x + 1
+)|};
+  (* Two in a row, and one against the first arm. *)
+  fmt_eq "several comments keep their order and their arm"
+    {|let f xs = match xs with
+  -- about the empty case
+  | [] -> 0
+  -- one
+  -- two
+  | [h :: t] ->  h|}
+    {|let f xs =
+  match xs with
+  -- about the empty case
+  | [] -> 0
+  -- one
+  -- two
+  | [h :: t] -> h|};
+  assert_idempotent "an item with a comment in it is a fixed point"
+    {|let f xs = match xs with
+  | [] -> 0
+  -- why
+  | [h :: t] -> h + 1|};
+  ok_after_format "and it still runs"
+    {|let f xs = match xs with
+  | [] -> 0
+  -- why
+  | [h :: t] -> h + 1
+f [1, 2]|} "2"
+
+(* A comment that follows code on its line is about that code. Lifting it
+   onto a line of its own would point it at the line below instead, so the
+   item stays exactly as written -- which is what every item with a comment
+   in it used to do. *)
+let test_a_trailing_comment_pins_its_item () =
+  fmt_eq "a trailing comment leaves the item alone"
+    {|let f xs = match xs with
+  | [] -> 0     -- about the empty case
+  | [h :: t] ->    h+1|}
+    {|let f xs = match xs with
+  | [] -> 0     -- about the empty case
+  | [h :: t] ->    h+1|}
+
+(* A `let ... in` arm body that does not fit on the arrow's line put its
+   continuation at the arm's own indent, level with the `|` above it, where
+   it read as the next arm rather than the rest of this one. *)
+let test_a_wrapping_let_in_arm_body () =
+  fmt_eq "the body takes a block instead of dangling"
+    {|let f xs = match xs with
+  | [] -> 0
+  | [h :: t] ->
+    let k = some_quite_long_helper_name h in
+    another_long_function k (with_more_arguments h) (and_yet_another t) 12345|}
+    {|let f xs =
+  match xs with
+  | [] -> 0
+  | [h :: t] -> (
+    let k = some_quite_long_helper_name h in
+    another_long_function k (with_more_arguments h) (and_yet_another t) 12345
+  )|}
+
 let test_a_block_binding_round_trips () =
   fmt_eq "a binding and two statements"
     {|let f () = (let x = 1; IO.println "a"; x + 1)|}
@@ -875,6 +964,11 @@ let () =
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
       Alcotest.test_case "string openers" `Quick test_string_openers_come_back_escaped;
       Alcotest.test_case "a block binding" `Quick test_a_block_binding_round_trips;
+      Alcotest.test_case "a comment inside an item" `Quick test_a_comment_inside_an_item;
+      Alcotest.test_case "a trailing comment pins its item" `Quick
+        test_a_trailing_comment_pins_its_item;
+      Alcotest.test_case "a wrapping let-in arm body" `Quick
+        test_a_wrapping_let_in_arm_body;
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;

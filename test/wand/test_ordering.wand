@@ -31,18 +31,15 @@ group "Date and Time" (fn () -> [
 ])
 
 group "DateTime is an instant" (fn () -> [
-  test "same day" (fn t ->
-    t.ok (2024-01-15T14:30:00Z < 2024-01-15T20:00:00Z)),
-    -- The offset is part of the value. These two are the same moment.
+  test "same day" (fn t -> t.ok (2024-01-15T14:30:00Z < 2024-01-15T20:00:00Z)),
+  -- The offset is part of the value. These two are the same moment.
   test "an offset is applied" (fn t ->
     t.ok (2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z)),
   test "and it decides the order" (fn t ->
     t.ok (2024-01-15T00:00:00-08:00 > 2024-01-15T00:00:00Z)),
-  test "midnight rolls the day" (fn t ->
-    t.ok (2024-02-29T23:00:00Z < 2024-03-01T01:00:00Z)),
-    -- A value with no offset is read as UTC.
-  test "no offset is UTC" (fn t ->
-    t.ok (2024-01-15T14:30:00 == 2024-01-15T14:30:00Z))
+  test "midnight rolls the day" (fn t -> t.ok (2024-02-29T23:00:00Z < 2024-03-01T01:00:00Z)),
+  -- A value with no offset is read as UTC.
+  test "no offset is UTC" (fn t -> t.ok (2024-01-15T14:30:00 == 2024-01-15T14:30:00Z))
 ])
 
 group "equality agrees with ordering" (fn () -> [
@@ -68,7 +65,7 @@ group "Ord is a constraint, not a type" (fn () -> [
 group "Size" (fn () -> [
   test "across units" (fn t -> t.ok (100MB < 1GB)),
   test "a bigger number in a smaller unit" (fn t -> t.ok (1GB > 999MB)),
-    -- A KB is 1000 bytes: the spelling is the SI one.
+  -- A KB is 1000 bytes: the spelling is the SI one.
   test "the unit is decimal" (fn t -> t.ok (1KB == 1000B)),
   test "a decimal literal" (fn t -> t.ok (1.5GB == 1500000000B))
 ])

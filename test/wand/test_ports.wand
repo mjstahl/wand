@@ -38,9 +38,8 @@ group "log-top-talkers" (fn () -> [
     t.eq (Some "10.0.0.9") (client `10.0.0.9 - - [x] "GET /" 200`)),
   test "a blank line has no client" (fn t -> t.ok (Option.none? (client ""))),
   test "the busiest come first" (fn t ->
-    t.eq [("a", 3), ("b", 2)]
-      (busiest 2 (Map.from_list [("a", 3), ("b", 2), ("c", 1)]))),
-    -- A tie is broken by name, so the report does not shuffle between runs.
+    t.eq [("a", 3), ("b", 2)] (busiest 2 (Map.from_list [("a", 3), ("b", 2), ("c", 1)]))),
+  -- A tie is broken by name, so the report does not shuffle between runs.
   test "a tie is broken by name" (fn t ->
     t.eq [("a", 2), ("b", 2)] (busiest 2 (Map.from_list [("b", 2), ("a", 2)])))
 ])
@@ -61,7 +60,7 @@ group "normalize-names" (fn () -> [
   test "spaces and case" (fn t -> t.eq "notes-on-rust.txt" (tidy "Notes On Rust.txt")),
   test "a name already in the house style is not in the plan" (fn t ->
     t.eq [] (plan [./fine.txt])),
-    -- A path literal holds no space, so a name with one is written as a
+  -- A path literal holds no space, so a name with one is written as a
   -- string and converted.
   test "and one that is not, is" (fn t -> (
     let messy = Path.of_string "./A File.txt";
@@ -98,10 +97,8 @@ group "ci-gate" (fn () -> [
 -- environment under names nothing else uses.
 group "env-check" (fn () -> [
   test "a variable that is not set" (fn t ->
-    t.eq
-      ["WAND_PORTS_ABSENT is not set"]
-      (List.map describe (gaps ["WAND_PORTS_ABSENT"]))),
-    -- The distinction bash cannot make: exported and empty is not unset.
+    t.eq ["WAND_PORTS_ABSENT is not set"] (List.map describe (gaps ["WAND_PORTS_ABSENT"]))),
+  -- The distinction bash cannot make: exported and empty is not unset.
   test "and one set to the empty string" (fn t -> (
     Env.set "WAND_PORTS_EMPTY" "";
     t.eq
@@ -126,7 +123,7 @@ group "error-rate" (fn () -> [
     t.eq
       Tally(ok = 1, failed = 0)
       (count_into Tally(ok = 0, failed = 0) `- - - [x] "GET /" 404 1`)),
-    -- The integer division bash does here answers 0.
+  -- The integer division bash does here answers 0.
   test "a share below one percent is not zero" (fn t ->
     t.eq "0.8" (Float.format 1 (share Tally(ok = 992, failed = 8)))),
   test "no requests is no failures" (fn t -> t.eq 0.0 (share Tally(ok = 0, failed = 0)))
@@ -175,9 +172,10 @@ group "pod-restarts" (fn () -> [
     match pods doc with
     | Ok [first, _] -> t.eq "default/web-01\tRunning\t7 restarts" (summary first)
     | _ -> t.ok false),
-    -- A document that does not match names the field it stopped at.
+  -- A document that does not match names the field it stopped at.
   test "a missing field is named" (fn t ->
-    match pods `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}` with
+    match (pods
+      `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}`) with
     | Ok _ -> t.ok false
     | Error e -> t.ok (String.contains? "namespace" e))
 ])
@@ -194,13 +192,15 @@ group "http-retry" (fn () -> [
       (attempt 3 1s (fn () -> ShellResult(stdout = "body", stderr = "", code = 0)))),
   test "a failure gives up after the last try" (fn t ->
     t.eq (Error "curl: (22) no") (attempt 3 1s (fn () -> failure 22))),
-    -- 1s then 2s: the backoff doubles, and three tries wait twice.
+  -- 1s then 2s: the backoff doubles, and three tries wait twice.
   test "the backoff doubles and the tries are capped" (fn t -> (
     let (waited, _) = with_clock (fn () -> attempt 3 1s (fn () -> failure 22));
     t.eq 3s waited
   )),
   test "a body reads into the type" (fn t ->
-    t.eq (Ok Health(status = "ok", version = 1.2.0)) (read `{"status":"ok","version":"1.2.0"}`)),
+    t.eq
+      (Ok Health(status = "ok", version = 1.2.0))
+      (read `{"status":"ok","version":"1.2.0"}`)),
   test "and a document that does not match names the field" (fn t ->
     match read `{"status":"ok"}` with
     | Ok _ -> t.ok false
@@ -217,17 +217,17 @@ group "wait-for-port" (fn () -> [
     match wait_for 200ms 50ms (fn () -> false) with
     | Ok _ -> t.ok false
     | Error why -> t.ok (String.contains? "200ms" why)),
-    -- `nc -z` exits zero when the port answers, and the probe reads nothing
+  -- `nc -z` exits zero when the port answers, and the probe reads nothing
   -- else, so the whole test is which code comes back.
   test "an open port is answering" (fn t ->
     t.ok (Test.with_shell_results [] (fn () -> answering? "localhost" :8080))),
   test "and a closed one is not" (fn t ->
     t.eq
       false
-      (Test.with_shell_results
-        [failing "nc -z 'localhost' '8080'"]
-        (fn () -> answering? "localhost" :8080))),
-    -- The port goes in as a number and each splice is one argument, which is
+      (Test.with_shell_results [failing "nc -z 'localhost' '8080'"] (fn () ->
+        answering? "localhost" :8080)
+      )),
+  -- The port goes in as a number and each splice is one argument, which is
   -- what keeps a host with a space in it from becoming two.
   test "the command as it is run" (fn t ->
     t.eq
@@ -240,16 +240,17 @@ group "stage-release" (fn () -> [
     t.eq [] (missing [./VERSION, ./LICENSE, ./wand])),
   test "and reports every file that is not there" (fn t ->
     t.eq ["LICENSE", "wand"] (missing [./VERSION])),
-    -- The staged directory holds more than a release needs, which is not a
+  -- The staged directory holds more than a release needs, which is not a
   -- reason to refuse it.
   test "extra files are not a problem" (fn t ->
     t.eq [] (missing [./VERSION, ./LICENSE, ./wand, ./notes.md])),
   test "a path is read by its last element" (fn t ->
     t.eq [] (missing [./dist/VERSION, ./dist/LICENSE, ./dist/wand])),
-    -- The lock exists for the body and not after it, which is the half of
+  -- The lock exists for the body and not after it, which is the half of
   -- `trap ... EXIT` that a second trap used to take away.
   test "the lock is held for the body and released after" (fn t ->
-    with FS.temp_dir "lock_" as dir -> (
+    with FS.temp_dir "lock_" as dir ->
+    (
       let path = Path.join dir (Path.of_string "held.lock");
       let inside = with lock_at path as _ -> FS.exists? path;
       t.eq (true, false) (inside, FS.exists? path)
@@ -263,36 +264,31 @@ group "verify-archives" (fn () -> [
   test "a matching digest is not a failure" (fn t ->
     t.eq [] (failures [(./a.sha256, Ok (Ok true))])),
   test "one that does not match is named" (fn t ->
-    t.eq
-      [(./a.sha256, "digest does not match")]
-      (failures [(./a.sha256, Ok (Ok false))])),
+    t.eq [(./a.sha256, "digest does not match")] (failures [(./a.sha256, Ok (Ok false))])),
   test "a check that could not run is named" (fn t ->
-    t.eq
-      [(./a.sha256, "no such file")]
-      (failures [(./a.sha256, Ok (Error "no such file"))])),
+    t.eq [(./a.sha256, "no such file")] (failures [(./a.sha256, Ok (Error "no such file"))])),
   test "and work that raised is named" (fn t ->
-    t.eq
-      [(./a.sha256, "exited 1")]
-      (failures [(./a.sha256, Error "exited 1")])),
+    t.eq [(./a.sha256, "exited 1")] (failures [(./a.sha256, Error "exited 1")])),
   test "the order is the order the files came in" (fn t ->
     t.eq
       [./b.sha256, ./d.sha256]
       (List.map
         (fn (file, _) -> file)
-        (failures
-          [(./a.sha256, Ok (Ok true)),
-           (./b.sha256, Ok (Ok false)),
-           (./c.sha256, Ok (Ok true)),
-           (./d.sha256, Error "exited 1")]))),
-    -- The name in a `.sha256` is bare, so it is read against the directory
+        (failures [
+          (./a.sha256, Ok (Ok true)),
+          (./b.sha256, Ok (Ok false)),
+          (./c.sha256, Ok (Ok true)),
+          (./d.sha256, Error "exited 1")
+        ])
+      )),
+  -- The name in a `.sha256` is bare, so it is read against the directory
   -- the file sits in and not against wherever the script runs.
   test "the archive is found beside its checksum" (fn t ->
-    with FS.temp_dir "sha_" as dir -> (
+    with FS.temp_dir "sha_" as dir ->
+    (
       let sums = Path.join dir (Path.of_string "a.tar.gz.sha256");
       FS.write_file! sums "abc123  a.tar.gz\n";
-      t.eq
-        (Ok ("abc123", Path.join dir (Path.of_string "a.tar.gz")))
-        (stated sums)
+      t.eq (Ok ("abc123", Path.join dir (Path.of_string "a.tar.gz"))) (stated sums)
     ))
 ])
 
@@ -312,13 +308,12 @@ group "probe-args" (fn () -> [
       (read ["--port", ":9000", "--timeout", "5s", "--verbose", "web-01"])),
   test "the flag order does not matter" (fn t ->
     t.eq (read ["--port", ":9000", "web-01"]) (read ["web-01", "--port", ":9000"])),
-    -- getopts takes `-p http` and fails somewhere else.
+  -- getopts takes `-p http` and fails somewhere else.
   test "a port that is not one names the field" (fn t ->
     match read ["--port", "http", "web-01"] with
     | Ok o -> t.fail "expected a refusal, got %{render o}"
     | Error why -> t.ok (String.contains? "port" why)),
-  test "no host is refused" (fn t ->
-    t.eq (Error "expected a host") (read [])),
+  test "no host is refused" (fn t -> t.eq (Error "expected a host") (read [])),
   test "and so is a second one" (fn t ->
     match read ["web-01", "web-02"] with
     | Ok o -> t.fail "expected a refusal, got %{render o}"

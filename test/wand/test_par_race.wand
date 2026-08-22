@@ -93,11 +93,9 @@ group "Par.timeout" (fn () -> [
   -- Work that only the deadline would have stopped then runs forever, which
   -- is a test suite hanging with no message. Refused instead.
   test "a deadline under a handler is refused" (fn t ->
-    t.raises (fn () ->
-      Test.with_clock (fn () -> Par.timeout 5s (fn () -> Clock.sleep 1s)))),
+    t.raises (fn () -> Test.with_clock (fn () -> Par.timeout 5s (fn () -> Clock.sleep 1s)))),
   test "and under a handler that has nothing to do with clocks" (fn t ->
-    t.raises (fn () ->
-      Test.with_shell [] (fn () -> Par.timeout 5s (fn () -> 1))))
+    t.raises (fn () -> Test.with_shell [] (fn () -> Par.timeout 5s (fn () -> 1))))
 ])
 
 -- Work that is stopped gives back what it holds, as a losing racer does.
