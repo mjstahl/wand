@@ -130,7 +130,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `{a = 1}` map; `{a, b = x}` pattern (puns) | `{a: 1}`, `[a = 1]` |
 | `T(r, b = 3)` record update | `{r with b = 3}` |
 | `type Shape = Circle Int \| Rect Int Int` | `Circle of Int` |
-| `type Point = (Int, Int)` an alias — transparent, no constructor | a distinct type |
+| `type Point = (Int, Int)`, `type Pair 'a = ('a, 'a)` an alias — transparent, no constructor | a distinct type |
 | `try e` yields a `Result` | `try ... with`, `raise` |
 | no mutation — bind a new name | `ref`, `mutable`, `:=` |
 

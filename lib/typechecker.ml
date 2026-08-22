@@ -32,7 +32,7 @@ type typ =
 
      It sits where the annotation was, and is never merged with another, so
      two aliases of one type cannot argue over which name to print. *)
-  | TAlias  of string * typ
+  | TAlias  of string * typ list * typ
   | TRegex
   (* A resource: how to acquire an 'a and give it back, and what doing
      either performs. The effects are carried rather than hidden -- a bracket
@@ -401,7 +401,7 @@ let operation_types op : (typ * typ) option =
 (* An alias name over what it names, with the name taken off. Everything
    that asks what a type *is* goes through here, so an alias needs no case
    of its own anywhere; only printing looks under the name. *)
-let rec strip_alias t = match t with TAlias (_, u) -> strip_alias u | _ -> t
+let rec strip_alias t = match t with TAlias (_, _, u) -> strip_alias u | _ -> t
 
 let rec repr t =
   match t with
@@ -411,7 +411,7 @@ let rec repr t =
       let t'' = repr t' in
       tv.def <- Some t'';
       t'')
-  | TAlias (_, u) -> repr u
+  | TAlias (_, _, u) -> repr u
   | _ -> t
 
 (* ── string_of_typ ────────────────────────────────────────────────────────── *)
@@ -460,10 +460,14 @@ let string_of_typ t =
        with what it names, so the name the reader wrote is in the message
        and no message can claim two identical types differ. *)
     match t with
-    | TAlias (n, u) -> Printf.sprintf "%s (= %s)" n (go u)
+    | TAlias (n, args, u) ->
+      let applied =
+        if args = [] then n
+        else n ^ " " ^ String.concat " " (List.map go args) in
+      Printf.sprintf "%s (= %s)" applied (go u)
     | _ ->
     match repr t with
-    | TAlias (_, u) -> go u   (* `repr` strips it; here for the compiler *)
+    | TAlias (_, _, u) -> go u   (* `repr` strips it; here for the compiler *)
     | TInt      -> "Int"      | TFloat    -> "Float"    | TString   -> "String"
     | TBool     -> "Bool"     | TUnit     -> "Unit"
     | TPath     -> "Path"     | TGlob     -> "Glob"
@@ -989,7 +993,7 @@ let known_type_names : string list option ref = ref None
 (* The aliases in scope, by name. Set alongside `known_type_names` and for
    the same reason: `type_of_te` runs where there is no file to draw them
    from, and an empty table there simply resolves nothing. *)
-let known_aliases : (string * Ast.type_expr) list ref = ref []
+let known_aliases : (string * (string list * Ast.type_expr)) list ref = ref []
 
 (* The names `type_of_te_bound` resolves without consulting a file: the
    primitives, and the four that only ever appear applied to an argument. *)
@@ -1050,16 +1054,35 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
   (* An alias being resolved, so `type A = A` and a ring of them stop rather
      than run forever. *)
   let resolving = ref [] in
-  let rec go = function
+  (* An alias applied to its arguments. The parameters are bound to the
+     argument types for as long as the target is being read, so `'a` in
+     `type Pair 'a = ('a, 'a)` is the type at the use site rather than a
+     fresh variable. Whatever those names meant outside is put back after:
+     an alias's `'a` is its own, not the enclosing signature's. *)
+  let rec apply_alias name args =
+    let (params, target) = List.assoc name !known_aliases in
+    let want = List.length params and got = List.length args in
+    if want <> got then
+      raise (TypeError (Printf.sprintf
+        "'%s' takes %d type argument%s, not %d"
+        name want (if want = 1 then "" else "s") got));
+    let arg_ts = List.map go args in
+    let saved = List.map (fun p -> (p, Hashtbl.find_opt vars p)) params in
+    List.iter2 (fun p t -> Hashtbl.replace vars p t) params arg_ts;
+    resolving := name :: !resolving;
+    let t = go target in
+    resolving := List.tl !resolving;
+    List.iter (fun (p, prev) ->
+      match prev with
+      | Some t -> Hashtbl.replace vars p t
+      | None   -> Hashtbl.remove vars p) saved;
+    TAlias (name, arg_ts, t)
+  and go = function
     | TEName name when List.mem_assoc name !known_aliases
                     && not (List.mem name !resolving) ->
       (* The name is kept over what it names, for the message. Everything
          that reads the type goes through `repr`, which takes it off. *)
-      let target = List.assoc name !known_aliases in
-      resolving := name :: !resolving;
-      let t = go target in
-      resolving := List.tl !resolving;
-      TAlias (name, t)
+      apply_alias name []
     | TEName name when List.mem name !resolving ->
       raise (TypeError (Printf.sprintf
         "'%s' is an alias for itself; an alias names a type that already \
@@ -1094,6 +1117,18 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | None -> let t = fresh () in Hashtbl.add vars name t; t)
     | TEFun (a, b, eff) -> TFun (go a, go b, effects_of eff)
     | TETuple ts    -> TTuple (List.map go ts)
+    | TEApp _ as te when (
+        let rec head = function TEApp (f, _) -> head f | h -> h in
+        match head te with
+        | TEName n -> List.mem_assoc n !known_aliases && not (List.mem n !resolving)
+        | _ -> false) ->
+      let rec peel acc = function
+        | TEApp (f, a) -> peel (a :: acc) f
+        | TEName n -> (n, acc)
+        | _ -> assert false
+      in
+      let (name, args) = peel [] te in
+      apply_alias name args
     | TEApp (TEName "List", arg)   -> TList   (go arg)
     | TEApp (TEName "Decoder", arg) -> TDecoder (go arg)
     | TEApp (TEApp (TEName "Result", e), a) -> TResult (go e, go a)
@@ -1605,7 +1640,7 @@ let rec ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list
     (name, arg_ts)
   in
   match repr t with
-  | TAlias (_, u) -> ctors_of_type tenv ctor_env u   (* `repr` strips it *)
+  | TAlias (_, _, u) -> ctors_of_type tenv ctor_env u   (* `repr` strips it *)
   | TBool -> [("true", []); ("false", [])]
   | TUnit -> [("()", [])]
   | TTuple ts -> [("(tuple)", ts)]
@@ -3378,7 +3413,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | _ -> ()) prog.items;
   known_aliases :=
     List.filter_map (function
-      | (n, Alias (_, _, te)) -> Some (n, te)
+      | (n, Alias (_, params, te)) -> Some (n, (params, te))
       | _ -> None) tenv;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in

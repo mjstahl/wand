@@ -1934,6 +1934,21 @@ This
 -- 'This' is a type, not a value; it is an alias, so build the type it names
 ```
 
+An alias takes parameters like any other type, and they are bound to the
+arguments at the use site:
+
+```ocaml
+type Pair 'a   = ('a, 'a)
+type Many 'a   = List 'a
+type Either 'a 'b = ('a, 'b)
+
+let p : Pair Int = (1, 2)          -- p : Pair Int (= (Int, Int))
+```
+
+Applying one with the wrong number of arguments says so, and an alias's own
+`'a` is its own — applying it twice in a definition does not tie the two
+uses together.
+
 Whether a lone name after `=` is a constructor or a type is settled after
 every declaration has been read. `type Colour = Red` is a variant when no
 `Red` type exists and an alias when one does, and a constructor saying its

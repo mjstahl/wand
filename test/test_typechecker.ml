@@ -670,6 +670,34 @@ let test_type_aliases () =
   prog_is "nor is a payload whose name is no type"
     "type Shape = Circle Int\nCircle 3" "Shape";
   (* An alias for itself, directly or round a ring, would resolve forever. *)
+  (* Parameters are bound to the arguments at the use site, so the same
+     alias reads differently each time it is applied. *)
+  prog_is "a parameterised alias"
+    "type Pair 'a = ('a, 'a)\nlet p : Pair Int = (1, 2)\np"
+    "Pair Int (= (Int, Int))";
+  prog_is "instantiated differently"
+    "type Pair 'a = ('a, 'a)\nlet p : Pair String = (\"a\", \"b\")\np"
+    "Pair String (= (String, String))";
+  prog_is "two parameters"
+    "type Either 'a 'b = ('a, 'b)\nlet e : Either Int String = (1, \"a\")\ne"
+    "Either Int String (= (Int, String))";
+  prog_is "over an applied type"
+    "type Many 'a = List 'a\nlet x : Many Int = [1]\nx" "Many Int (= List Int)";
+  ok "still transparent"
+    "type Pair 'a = ('a, 'a)\nlet f (t: (Int, Int)) = 1\nlet p : Pair Int = (1, 2)\nf p"
+    "1";
+  (* An alias's own `'a` is its own: the binding is put back after the
+     target has been read, so applying it twice in one definition does not
+     tie the two uses together. *)
+  ok "a parameter does not leak between uses"
+    "type Pair 'a = ('a, 'a)\nlet g (p: Pair Int) (q: Pair String) = 1\ng (1, 2) (\"a\", \"b\")"
+    "1";
+  err_contains "too few arguments"
+    "type Pair 'a = ('a, 'a)\nlet p : Pair = (1, 2)\np"
+    "'Pair' takes 1 type argument, not 0";
+  err_contains "too many"
+    "type Pair 'a = ('a, 'a)\nlet p : Pair Int String = (1, 2)\np"
+    "takes 1 type argument, not 2";
   (* `type A = A` says the type's own name, which is the nullary form, not
      an alias to itself. *)
   prog_is "a type naming itself is a constructor" "type A = A\nA" "A";
