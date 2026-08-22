@@ -603,6 +603,29 @@ let test_contract_clauses_must_be_bool () =
   rejects_program "requires must be Bool" "let f x =\n  requires x + 1\n  x\nf 1";
   rejects_program "ensures must be Bool" "let f x =\n  ensures result + 1\n  x\nf 1"
 
+(* A name declares one thing. Both of these used to be taken silently, and
+   which declaration won differed between a file and the REPL -- so one text
+   had two meanings, and the losing type stayed constructible while quietly
+   becoming unmatchable. *)
+let test_a_name_is_declared_once () =
+  err_contains "twice in one declaration"
+    "type A = Foo | Foo\nFoo"
+    "constructor 'Foo' is declared twice in 'A'";
+  err_contains "across two declarations"
+    "type A = Foo | Bar\ntype B = Foo\nFoo"
+    "declared by 'A' and by 'B'";
+  err_contains "and the message names the fix"
+    "type A = Foo\ntype B = Foo\nFoo"
+    "rename one of them";
+  err_contains "a type declared twice"
+    "type A = Foo\ntype A = Bar\nBar"
+    "'A' is declared twice";
+  (* The single-constructor shorthand names the type and its constructor the
+     same on purpose, so the two namespaces do not collide. *)
+  ok "a record names both the same" "type P(i: Int)\nP(i = 1).i" "1";
+  ok "and two records may sit beside each other"
+    "type P(i: Int)\ntype Q(i: Int)\nP(i = 1).i + Q(i = 2).i" "3"
+
 let test_unbound_names () =
   rejects "unbound variable" "x";
   rejects_program "unbound in a let" "let x = y; x";
@@ -1386,6 +1409,7 @@ let () =
     ];
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;
+      Alcotest.test_case "a name is declared once" `Quick test_a_name_is_declared_once;
       Alcotest.test_case "unbound names"       `Quick test_unbound_names;
       Alcotest.test_case "bare-word glob"      `Quick test_bare_word_glob;
       Alcotest.test_case "generics"            `Quick test_generic_type_errors;

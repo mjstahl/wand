@@ -3227,6 +3227,35 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
           c.fields)
         ctors
     | _ -> ()) prog.items;
+  (* A name declares one thing. Two `type` declarations of one name, or two
+     constructors sharing one, used to be taken silently -- and which of
+     them won differed between a file and the REPL, so one text had two
+     meanings. Worse, the loser stayed constructible and stopped being
+     matchable: `match x with | Foo -> ...` reported the other type.
+
+     A file is one text, so a repeat there is a mistake rather than an
+     intent. The REPL still replaces, which is what a REPL is for. *)
+  let seen_types = Hashtbl.create 16 in
+  let seen_ctors = Hashtbl.create 16 in
+  List.iter (function
+    | TLType (Variants (tname, _, ctors)) ->
+      if Hashtbl.mem seen_types tname then
+        raise (TypeError (Printf.sprintf
+          "'%s' is declared twice; a type is declared once, and the second \
+           declaration is the one to rename or remove" tname));
+      Hashtbl.add seen_types tname ();
+      List.iter (fun c ->
+        (match Hashtbl.find_opt seen_ctors c.name with
+         | Some owner ->
+           let where =
+             if owner = tname then Printf.sprintf "twice in '%s'" tname
+             else Printf.sprintf "by '%s' and by '%s'" owner tname
+           in
+           raise (TypeError (Printf.sprintf
+             "constructor '%s' is declared %s; a constructor names one thing, \
+              so rename one of them" c.name where))
+         | None -> Hashtbl.add seen_ctors c.name tname)) ctors
+    | _ -> ()) prog.items;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let item_index = ref (-1) in
