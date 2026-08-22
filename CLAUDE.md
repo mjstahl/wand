@@ -137,7 +137,9 @@ Arithmetic (`+ - * /`) works on `Int` and `Float` alike — one numeric
 type per expression, never mixed implicitly (`Float.of_int` /
 `Float.round` convert); `%` is `Int`-only; `Num` in a signature means
 "`Int` or `Float`, decided at use". `+` and `-` also add two `Size`s or
-two `Duration`s (`Add` in a signature); `*` and `/` do not.
+two `Duration`s (`Add` in a signature); `*` and `/` do not. A `Duration`
+also moves a `DateTime`, and two `DateTime`s subtract to the `Duration`
+between them — two instants do not add.
 
 Statements: one per line at the top level, nothing else needed. Inside a
 function body, sequence with `;` in parentheses:
@@ -164,12 +166,24 @@ Values are written directly; the shape carries the type:
 | `*.wand`, `./file*.txt` | Glob — a *relative* glob with a directory part needs the `./` prefix |
 | `30s`, `5min`, `2h` | Duration |
 | `100MB`, `4KB` | Size |
-| `2024-01-15` | DateTime (midnight UTC) |
+| `2024-01-15T14:30:00Z`, `2024-01-15` | DateTime — the bare day is that day at midnight UTC |
 | `https://example.com` | Url |
 | `192.168.1.1`, `10.0.0.0/8` | IPv4, CIDR |
 | `:8080` | Port |
 | `1.2.3` | Version |
 | `r/pat/i` | Regex |
+
+There is one type for a point in time and one resolution, the second.
+`14:30:00` is not a value — a time of day belongs to a day, so it is a
+`Duration` on top of one: `DateTime.on! 2026 8 22 + 14h + 30min`. A value
+prints in full and in UTC (`"%{2026-08-22}"` is `2026-08-22T00:00:00Z`);
+`DateTime.date_string` writes the short form. Source keeps whichever
+spelling was written.
+
+`DateTime` opens an instant — `year`, `month`, `day`, `hour`, `minute`,
+`second`, `weekday` (ISO 8601, Monday 1), `day_start`, `on`/`on!`,
+`date_string`, `time_string`. It reads no clock: `Clock.now` does that, so
+today at midnight is `Clock.now () |> DateTime.day_start`.
 
 ### Shell
 
