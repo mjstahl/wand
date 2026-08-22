@@ -6,6 +6,7 @@ import List
 import String
 import FS
 import Path
+import Shell
 
 (* A script whose real execution would push to production and rewrite a
    config. Every test below runs it, and neither happens. *)
@@ -48,3 +49,34 @@ test "reports what it would write" (fn t ->
 
 test "the config was never written" (fn t ->
   let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))
+
+(* ── The other way to run a command ────────────────────────────────────── *)
+
+(* `$?()` reports an exit code instead of raising on one, and the same
+   handlers answer it: `with_shell` supplies its output at exit zero, and
+   `with_shell_results` supplies a whole result, which is how a failure is
+   rehearsed. *)
+let gate () =
+  let r = $?(dune build) in
+  match Shell.ok? r with
+  | true -> "built %{r.stdout}"
+  | false -> "failed %{r.code}: %{r.stderr}"
+
+test "a capture reads the same table" (fn t ->
+  t.eq "built ok" (Test.with_shell [("dune build", "ok")] gate))
+
+test "and one matching nothing exits zero" (fn t -> t.eq "built " (Test.with_shell [] gate))
+
+test "a result stands in for the failure" (fn t ->
+  t.eq
+    "failed 2: broke"
+    (Test.with_shell_results
+      [("dune build", ShellResult(stdout = "", stderr = "broke", code = 2))]
+      gate
+    ))
+
+test "and a command the table misses succeeded" (fn t ->
+  t.eq "built " (Test.with_shell_results [] gate))
+
+test "a capture is reported as a command it would run" (fn t ->
+  t.eq ["dune build"] (Test.shell_calls gate))

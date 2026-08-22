@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.33.0] - 2026-08-21
+
+### Added
+
+- `Test.with_shell_results` supplies the `ShellResult` for each `$?(cmd)` a
+  test runs, so a command can exit non-zero and the failure path can be
+  tested. A command the test does not name exits zero with no output
+
+### Changed
+
+- `Test.with_shell` and `Test.shell_calls` now stand in for `$?(cmd)` as
+  well as `$(cmd)`. Both handled `Shell!run` only, and `$?(cmd)` performs
+  `Shell!capture`, so a mock written for a script that inspects an exit code
+  did nothing and the test passed for the wrong reason. Under `with_shell` a
+  `$?(cmd)` exits zero and carries the output written for that command
+
+[0.33.0]: https://github.com/mjstahl/wand/releases/tag/v0.33.0
+
 ## [0.32.0] - 2026-08-21
 
 ### Added

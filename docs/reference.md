@@ -3232,14 +3232,15 @@ the front. bash has `$0` and C has `argv[0]`; wand has neither.
 ### `Test`
 
 ```ocaml
-test           : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
-group          : String -> (Unit -> List TestOutcome ! 'e) -> TestOutcome ! 'e
-with_shell     : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
-shell_calls    : (Unit -> 'a ! 'e) -> List 'b ! 'e
-without_writes : (Unit -> 'a ! 'e) -> 'a ! 'e
-with_lines     : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
-writes         : (Unit -> 'a ! 'e) -> List Path ! 'e
-with_clock     : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
+test               : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
+group              : String -> (Unit -> List TestOutcome ! 'e) -> TestOutcome ! 'e
+with_shell         : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
+with_shell_results : List (String, ShellResult) -> (Unit -> 'a ! 'e) -> 'a ! 'e
+shell_calls        : (Unit -> 'a ! 'e) -> List 'b ! 'e
+without_writes     : (Unit -> 'a ! 'e) -> 'a ! 'e
+with_lines         : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
+writes             : (Unit -> 'a ! 'e) -> List Path ! 'e
+with_clock         : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
 ```
 
 The handle that a test block receives carries `ok`, `not_ok`, `eq`,
@@ -3400,11 +3401,29 @@ in for exactly that. `Test` covers the common cases, so a test does not write
 a handler by hand:
 
 ```ocaml
-Test.with_shell [(fragment, output), ...] thunk   -- answer commands from a table
-Test.shell_calls thunk                            -- the commands it would run
-Test.without_writes thunk                         -- swallow writes, keep the result
-Test.writes thunk                                 -- the paths it would write
+Test.with_shell [(fragment, output), ...] thunk          -- answer commands from a table
+Test.with_shell_results [(fragment, result), ...] thunk -- answer `$?()` with whole results
+Test.shell_calls thunk                                  -- the commands it would run
+Test.without_writes thunk                               -- swallow writes, keep the result
+Test.writes thunk                                       -- the paths it would write
 ```
+
+`with_shell` and `shell_calls` answer a command run either way: `$(cmd)`
+gets the output, and `$?(cmd)` gets it as the `stdout` of a `ShellResult`
+that exited zero. A test of a failure path supplies the whole result:
+
+```ocaml
+test "a red build stops the gate" (fn t ->
+  t.eq
+    [("test", false)]
+    (Test.with_shell_results
+      [("dune test", ShellResult(stdout = "", stderr = "", code = 1))]
+      (fn () -> gate ())))
+```
+
+A command the table misses exits zero with no output.
+`$(cmd)` is not intercepted there, because a failure there is a raise and
+not a value; nest `with_shell` around it for a body that uses both forms.
 
 Given a deploy that pushes and rewrites a config:
 

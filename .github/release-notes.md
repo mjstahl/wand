@@ -1,50 +1,31 @@
-## 0.32.0 - 2026-08-21
+## 0.33.0 - 2026-08-21
 
-`wand f` keeps a value that ends in a bracket on the line that opens it:
+### A test can stand in for `$?(cmd)`
 
-    let hosts = [
-      "web-01",
-      "web-02"
-    ]
+`Test.with_shell` stood in for `$(cmd)` and nothing else. `$?(cmd)` — the
+form that reports an exit code instead of raising on one — ran for real, so
+a mock written for a script that inspects an exit code did nothing, and the
+test passed for the wrong reason.
 
-    report [
-      stage "build" $?(dune build),
-      stage "test" $?(dune test)
-    ]
+`Test.with_shell` and `Test.shell_calls` now stand in for both forms. A
+`$?(cmd)` they answer exits zero and carries the output written for that
+command.
 
-A value that *is* a bracket already did this. A call whose last argument is
-one broke under its head instead, which spent a line on the bracket, pushed
-the items two columns further in, and closed the call's first line — so the
-definition ended there and needed parentheses to survive.
+### And give it the exit code it turns on
 
-Run `wand f` over a formatted repository once. Files laid out by 0.31.0
-will change.
+No output expresses a failure, so `Test.with_shell_results` supplies whole
+results:
 
-### A deadline inside a handler is refused
+    let red = ShellResult(stdout = "", stderr = "", code = 1)
 
-`Par.timeout` is a race between the work and a sleeper, and a race runs
-only its first thunk while a handler is installed. So the sleeper never
-ran, the deadline never fired, and work that only the deadline would have
-stopped ran forever — a test suite hanging with no message.
+    test "a red build stops the gate" (fn t ->
+      t.eq
+        [("test", false)]
+        (Test.with_shell_results [("dune test", red)] (fn () -> gate ())))
 
-Put the handler inside the thunk:
-
-    Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
-
-The mock stands and the deadline fires. A rehearsal and a trace are not
-refused.
-
-### A port crosses to its number
-
-`Port` could be written, ordered, compared, decoded and interpolated, and
-nothing took `8080` out of `:8080` — so a script could not hand a port to a
-command that wanted the number as an argument of its own.
-
-    Port.to_int :8080                     -- 8080
-    "host%{:8080}"                        -- "host:8080", unchanged
-    $?(nc -z %{host} %{Port.to_int port})
-
-`Port.of_int` goes back, and refuses a number outside 0–65535.
+A command the test does not name exits zero with no output. `$(cmd)` is not
+answered there, because a failure in that form is a raise and not a value.
+A script that uses both forms nests `with_shell` around it.
 
 ---
 

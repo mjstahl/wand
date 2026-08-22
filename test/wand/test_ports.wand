@@ -69,24 +69,10 @@ group "normalize-names" (fn () -> [
   ))
 ])
 
-(* The effectful half is testable too: a case for `Shell!capture` answers
-   the three commands, so the gate can be run with any verdict. *)
-(* The command a thunk would run, without running it. *)
-let command_of thunk =
-  handle thunk () with
-  | Shell!capture cmd _ -> cmd
-  | return _ -> ""
-
-let with_codes codes thunk =
-  handle thunk () with
-  | Shell!capture cmd k -> (k
-    ShellResult(
-      stdout = "",
-      stderr = "",
-      code = match Map.get cmd codes with
-        | Some c -> c
-        | None -> 0
-    ))
+(* The effectful half is testable too: `Test.with_shell_results` answers the three
+   commands, so the gate can be run with any verdict. A command the table
+   misses exits zero. *)
+let failing cmd = (cmd, ShellResult(stdout = "", stderr = "", code = 1))
 
 group "ci-gate" (fn () -> [
   test "a stage is its exit code" (fn t ->
@@ -96,13 +82,13 @@ group "ci-gate" (fn () -> [
   test "nothing failed when every command answers zero" (fn t ->
     t.eq
       []
-      (with_codes Map.empty (fn () ->
+      (Test.with_shell_results [] (fn () ->
         failed [stage "build" $?(dune build), stage "test" $?(dune test)])
       )),
   test "the failing stage is named" (fn t ->
     t.eq
       [("test", false)]
-      (with_codes (Map.from_list [("dune test", 1)]) (fn () ->
+      (Test.with_shell_results [failing "dune test"] (fn () ->
         failed [stage "build" $?(dune build), stage "test" $?(dune test)])
       ))
 ])
@@ -232,23 +218,22 @@ group "wait-for-port" (fn () -> [
     match wait_for 200ms 50ms (fn () -> false) with
     | Ok _ -> t.ok false
     | Error why -> t.ok (String.contains? "200ms" why)),
-  (* `nc -z` exits zero when the port answers. `Test.with_shell` reads
-     `Shell!run` and `$?()` performs `Shell!capture`, so this uses the
-     handler `ci-gate` needed for the same reason. *)
+  (* `nc -z` exits zero when the port answers, and the probe reads nothing
+     else, so the whole test is which code comes back. *)
   test "an open port is answering" (fn t ->
-    t.ok (with_codes Map.empty (fn () -> answering? "localhost" :8080))),
+    t.ok (Test.with_shell_results [] (fn () -> answering? "localhost" :8080))),
   test "and a closed one is not" (fn t ->
     t.eq
       false
-      (with_codes
-        (Map.from_list [("nc -z 'localhost' '8080'", 1)])
+      (Test.with_shell_results
+        [failing "nc -z 'localhost' '8080'"]
         (fn () -> answering? "localhost" :8080))),
   (* The port goes in as a number and each splice is one argument, which is
      what keeps a host with a space in it from becoming two. *)
   test "the command as it is run" (fn t ->
     t.eq
-      "nc -z 'localhost' '8080'"
-      (command_of (fn () -> answering? "localhost" :8080)))
+      ["nc -z 'localhost' '8080'"]
+      (Test.shell_calls (fn () -> answering? "localhost" :8080)))
 ])
 
 group "stage-release" (fn () -> [

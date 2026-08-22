@@ -457,12 +457,14 @@ brackets whose cleanups have nothing to do with each other -- a temp
 directory and a lock file outside it -- and both released on the exit
 path, which is the one a trap is worst at.
 
-One finding, in [`../gaps.md`](../gaps.md): `Test.with_shell` reads
-`Shell!run`, and `$?()` performs `Shell!capture`, so a mock written for a
-script that inspects an exit code does nothing and the test passes for the
-wrong reason. That happened to me here. `ci-gate.wand` hit it first and
+One finding, since fixed: `Test.with_shell` read `Shell!run` only, and
+`$?()` performs `Shell!capture`, so a mock written for a script that
+inspects an exit code did nothing and the test passed for the wrong
+reason. That happened to me here. `ci-gate.wand` hit it first and
 hand-wrote a handler; this port reused it, which is how I noticed it was
-structural rather than a one-off.
+structural rather than a one-off. `Test.with_shell` and
+`Test.shell_calls` now answer both forms, and `Test.with_shell_results` supplies
+a whole `ShellResult` for a command that has to fail.
 
 ## Problems with the approach itself
 

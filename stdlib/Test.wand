@@ -81,17 +81,21 @@ let group label thunk =
    exactly what a handler can stand in for. These cover the common case so
    a test does not have to write a handler by hand.
 
-   Each stands in for one operation, not for a whole effect: `with_shell`
-   answers `Shell!run`, and a body that also asks for an exit code reaches
-   the real shell. So a test file using these still declares the effect in
-   its manifest -- an effect is only dropped from a signature when every
-   operation carrying it is handled. Declaring it is the honest reading:
-   statically, the body may still perform it. *)
+   Each stands in for the operations named, not for a whole effect:
+   `without_writes` answers `FS!write_file`, and a body that also appends
+   reaches the real disk. So a test file using these still declares the
+   effect in its manifest -- an effect is only dropped from a signature when
+   every operation carrying it is handled. Declaring it is the honest
+   reading: statically, the body may still perform it. *)
 
-(** Run `thunk` with `Shell!run` answered from a table instead of
+(** Run `thunk` with the commands it runs answered from a table instead of
     executed. Each entry is (fragment, output): the first fragment that
     appears in a command supplies its output, and a command matching nothing
-    returns "". Other Shell operations are not intercepted. *)
+    returns "".
+    
+    Both ways of running one are answered: `$(cmd)` gives the output, and
+    `$?(cmd)` gives it as the `stdout` of a `ShellResult` that exited zero.
+    For a command that has to fail, see `with_shell_results`. *)
 let with_shell mocks thunk =
   handle thunk () with
   | Shell!run cmd k -> (
@@ -99,12 +103,38 @@ let with_shell mocks thunk =
     | Some (_, out) -> k out
     | None -> k ""
   )
+  | Shell!capture cmd k -> (
+    match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
+    | Some (_, out) -> k ShellResult(stdout = out, stderr = "", code = 0)
+    | None -> k ShellResult(stdout = "", stderr = "", code = 0)
+  )
+
+(** Run `thunk` with `$?(cmd)` -- the form that reports an exit code rather
+    than raising on one -- answered from a table of whole results. Each entry
+    is (fragment, result), matched the way `with_shell` matches, and a
+    command matching nothing exits zero with no output:
+    
+    let red = ShellResult(stdout = "", stderr = "", code = 1) in
+    Test.with_shell_results [("dune test", red)] (fn () -> gate ())
+    
+    This is what tests a script's failure path. `$(cmd)` is not intercepted,
+    because a failure there is a raise and not a value; nest `with_shell`
+    around this one for a body that uses both. *)
+let with_shell_results mocks thunk =
+  handle thunk () with
+  | Shell!capture cmd k -> (
+    match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
+    | Some (_, r) -> k r
+    | None -> k ShellResult(stdout = "", stderr = "", code = 0)
+  )
 
 (** Return the commands `thunk` would run, in order, without running any of
-    them. Every command answers with "". *)
+    them. `$(cmd)` answers with "" and `$?(cmd)` with a zero exit and no
+    output. *)
 let shell_calls thunk =
   handle thunk () with
   | Shell!run cmd k -> let rest = k "" in cmd :: rest
+  | Shell!capture cmd k -> let rest = k ShellResult(stdout = "", stderr = "", code = 0) in cmd :: rest
   | return _ -> []
 
 (** Run `thunk` with `FS!write_file` swallowed, returning what it returned.
