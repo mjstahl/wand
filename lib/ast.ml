@@ -32,8 +32,6 @@ type pat =
   | Bool     of bool
   | Unit
   | Path     of string
-  | Date     of string
-  | Time     of string
   | DateTime of string
   | Duration of string
   | Url      of string
@@ -68,8 +66,6 @@ type expr =
   | Unit
   | Path     of string
   | Glob     of string
-  | Date     of string
-  | Time     of string
   | DateTime of string
   | Duration of string
   | Url      of string
@@ -151,8 +147,6 @@ let rec show_pat : pat -> string = function
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s     -> Printf.sprintf "path:%s" s
-  | Date s     -> Printf.sprintf "date:%s" s
-  | Time s     -> Printf.sprintf "time:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s
   | Duration s -> Printf.sprintf "dur:%s" s
   | Url s      -> Printf.sprintf "url:%s" s
@@ -183,8 +177,6 @@ let rec show : expr -> string = function
   | Unit       -> "()"
   | Path s     -> Printf.sprintf "path:%s" s
   | Glob s     -> Printf.sprintf "glob:%s" s
-  | Date s     -> Printf.sprintf "date:%s" s
-  | Time s     -> Printf.sprintf "time:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s
   | Duration s -> Printf.sprintf "dur:%s" s
   | Url s      -> Printf.sprintf "url:%s" s

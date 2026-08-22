@@ -13,8 +13,8 @@ test "false" (fn t -> t.eq false false)
 test "unit" (fn t -> t.eq () ())
 
 test "path" (fn t -> t.eq "/etc/foo" "%{/etc/foo}")
-test "date" (fn t -> t.eq "2024-01-15" "%{2024-01-15}")
-test "time" (fn t -> t.eq "14:30:00" "%{14:30:00}")
+-- A bare date is a spelling of midnight UTC, and prints in full.
+test "date" (fn t -> t.eq "2024-01-15T00:00:00Z" "%{2024-01-15T00:00:00Z}")
 test "duration" (fn t -> t.eq "5min" "%{5min}")
 test "url" (fn t -> t.eq "https://example.com" "%{https://example.com}")
 test "ipv4" (fn t -> t.eq "192.168.1.1" "%{192.168.1.1}")

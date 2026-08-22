@@ -39,12 +39,12 @@ test "a field of the wrong type is named too" (fn t ->
   t.eq (Error `.restarts: expected Int, got "many"`) (JSON.decode Pod.decoder wrong))
 
 -- A domain literal decodes as itself here as anywhere else.
-type Server(host: IPv4, port: Port, at: Time)
+type Server(host: IPv4, port: Port, at: DateTime)
 
 test "domain fields decode as themselves" (fn t ->
-  let s = JSON.parse! `{"host": "10.0.0.4", "port": 8080, "at": "14:30:00"}` in
+  let s = JSON.parse! `{"host": "10.0.0.4", "port": 8080, "at": "2024-01-15T14:30:00Z"}` in
   (t.eq
-    (Ok Server(host = 10.0.0.4, port = :8080, at = 14:30:00))
+    (Ok Server(host = 10.0.0.4, port = :8080, at = 2024-01-15T14:30:00Z))
     (JSON.decode Server.decoder s)))
 
 -- An `Option` field is the one that may be absent -- which is what the type

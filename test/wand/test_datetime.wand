@@ -1,0 +1,91 @@
+let {test, group} = import Test
+
+import DateTime
+
+-- One instant type. A bare date is a spelling of midnight UTC, so
+-- everything here is the same type written two ways.
+
+group "a day is an instant" (fn () -> [
+  test "a bare date is midnight" (fn t -> t.eq 2024-01-15T00:00:00Z 2024-01-15),
+  test "and prints in full" (fn t -> t.eq "2024-01-15T00:00:00Z" "%{2024-01-15}"),
+  -- The rule that existed only to keep two resolutions apart is gone: a
+  -- Duration moves a day the same amount it moves an instant.
+  test "a Duration moves it" (fn t -> t.eq 2024-01-15T05:00:00Z (2024-01-15 + 5h)),
+  test "and back" (fn t -> t.eq 2024-01-14T19:00:00Z (2024-01-15 - 5h)),
+  test "two instants subtract to the length between" (fn t ->
+    t.eq 1d (2024-01-16 - 2024-01-15))
+])
+
+group "taking one apart" (fn () -> [
+  test "year" (fn t -> t.eq 2024 (DateTime.year 2024-01-15T14:30:45Z)),
+  test "month" (fn t -> t.eq 1 (DateTime.month 2024-01-15T14:30:45Z)),
+  test "day" (fn t -> t.eq 15 (DateTime.day 2024-01-15T14:30:45Z)),
+  test "hour" (fn t -> t.eq 14 (DateTime.hour 2024-01-15T14:30:45Z)),
+  test "minute" (fn t -> t.eq 30 (DateTime.minute 2024-01-15T14:30:45Z)),
+  test "second" (fn t -> t.eq 45 (DateTime.second 2024-01-15T14:30:45Z)),
+  -- An offset names a moment, not a text, so the parts are the UTC ones.
+  test "an offset is resolved before it is read" (fn t ->
+    t.eq 14 (DateTime.hour 2024-01-15T20:00:00+05:30)),
+  test "and it can carry the reading into the previous day" (fn t ->
+    t.eq 14 (DateTime.day 2024-01-15T02:00:00+05:30))
+])
+
+group "weekday" (fn () -> [
+  -- ISO 8601: Monday is 1, Sunday is 7.
+  test "monday" (fn t -> t.eq 1 (DateTime.weekday 2026-08-24)),
+  test "saturday" (fn t -> t.eq 6 (DateTime.weekday 2026-08-22)),
+  test "sunday" (fn t -> t.eq 7 (DateTime.weekday 2026-08-23)),
+  test "the epoch was a thursday" (fn t -> t.eq 4 (DateTime.weekday 1970-01-01)),
+  test "a leap day" (fn t -> t.eq 2 (DateTime.weekday 2000-02-29)),
+  -- Before the epoch the arithmetic has to floor rather than truncate.
+  test "and a day before the epoch" (fn t -> t.eq 3 (DateTime.weekday 1969-12-31))
+])
+
+group "day_start" (fn () -> [
+  test "an instant falls back to its midnight" (fn t ->
+    t.eq 2024-01-15 (DateTime.day_start 2024-01-15T14:30:45Z)),
+  test "a midnight is already one" (fn t -> t.eq 2024-01-15 (DateTime.day_start 2024-01-15)),
+  test "the last second of a day still belongs to it" (fn t ->
+    t.eq 2024-01-15 (DateTime.day_start 2024-01-15T23:59:59Z)),
+  test "before the epoch too" (fn t ->
+    t.eq 1969-12-31 (DateTime.day_start 1969-12-31T12:00:00Z))
+])
+
+group "on" (fn () -> [
+  test "a day" (fn t -> t.eq (Ok 2026-08-22) (DateTime.on 2026 8 22)),
+  test "a leap day in a leap year" (fn t -> t.eq (Ok 2024-02-29) (DateTime.on 2024 2 29)),
+  -- The round trip is what refuses it: the arithmetic alone would answer
+  -- March the 1st and say nothing.
+  test "and not in a common one" (fn t ->
+    t.eq (Error "2023-02-29 is not a day") (DateTime.on 2023 2 29)),
+  test "a day past the end of the month" (fn t ->
+    t.eq (Error "2026-02-30 is not a day") (DateTime.on 2026 2 30)),
+  test "a month that is not one" (fn t ->
+    t.eq (Error "2026-13-01 is not a day") (DateTime.on 2026 13 1)),
+  test "a zero" (fn t -> t.eq (Error "2026-00-01 is not a day") (DateTime.on 2026 0 1)),
+  test "the raising sibling answers the day" (fn t ->
+    t.eq 2026-08-22 (DateTime.on! 2026 8 22)),
+  test "and raises on one that is not" (fn t -> t.raises (fn () -> DateTime.on! 2026 2 30)),
+  -- A time of day is a Duration on top, so there is no rule about what an
+  -- hour of 25 would mean.
+  test "a time of day goes on top" (fn t ->
+    t.eq 2026-08-22T14:30:00Z (DateTime.on! 2026 8 22 + 14h + 30min)),
+  test "and past midnight is the next day" (fn t ->
+    t.eq 2026-08-23T01:00:00Z (DateTime.on! 2026 8 22 + 25h))
+])
+
+group "writing one out" (fn () -> [
+  test "the date alone" (fn t ->
+    t.eq "2024-01-15" (DateTime.date_string 2024-01-15T14:30:45Z)),
+  test "the time alone" (fn t ->
+    t.eq "14:30:45" (DateTime.time_string 2024-01-15T14:30:45Z)),
+  test "a midnight" (fn t -> t.eq "00:00:00" (DateTime.time_string 2024-01-15)),
+  -- An offset is resolved first here too, so the two strings agree with
+  -- the accessors above.
+  test "an offset is resolved before it is written" (fn t ->
+    t.eq "2024-01-15" (DateTime.date_string 2024-01-15T20:00:00+05:30)),
+  test "the stamped-name case" (fn t ->
+    t.eq
+      "backup-2024-01-15.tar.gz"
+      "backup-%{DateTime.date_string 2024-01-15T14:30:45Z}.tar.gz")
+])

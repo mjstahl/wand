@@ -23,11 +23,14 @@ group "Duration" (fn () -> [
   test "milliseconds against seconds" (fn t -> t.ok (30s <= 30000ms))
 ])
 
-group "Date and Time" (fn () -> [
-  test "a later date" (fn t -> t.ok (2024-01-15 < 2024-02-01)),
-  test "across a year" (fn t -> t.ok (2023-12-31 < 2024-01-01)),
-  test "a later time" (fn t -> t.ok (14:30:00 < 15:00:00)),
-  test "to the second" (fn t -> t.ok (14:30:00 < 14:30:01))
+group "instants" (fn () -> [
+  test "a later date" (fn t -> t.ok (2024-01-15T00:00:00Z < 2024-02-01T00:00:00Z)),
+  test "across a year" (fn t -> t.ok (2023-12-31T00:00:00Z < 2024-01-01T00:00:00Z)),
+  test "a later time of day" (fn t -> t.ok (2024-01-15T14:30:00Z < 2024-01-15T15:00:00Z)),
+  test "to the second" (fn t -> t.ok (2024-01-15T14:30:00Z < 2024-01-15T14:30:01Z)),
+  -- A bare day is midnight, so it sorts before every instant in it.
+  test "a day comes before the day it opens" (fn t ->
+    t.ok (2024-01-15T00:00:00Z < 2024-01-15T00:00:01Z))
 ])
 
 group "DateTime is an instant" (fn () -> [
@@ -56,7 +59,8 @@ let later a b = if a < b then b else a
 group "Ord is a constraint, not a type" (fn () -> [
   test "at Duration" (fn t -> t.eq 5min (later 30s 5min)),
   test "at Int" (fn t -> t.eq 9 (later 9 2)),
-  test "at Date" (fn t -> t.eq 2024-02-01 (later 2024-01-15 2024-02-01))
+  test "at Date" (fn t ->
+    t.eq 2024-02-01T00:00:00Z (later 2024-01-15T00:00:00Z 2024-02-01T00:00:00Z))
 ])
 
 -- The four whose text order is not their value order. Each line below is a

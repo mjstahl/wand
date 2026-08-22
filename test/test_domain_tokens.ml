@@ -25,10 +25,13 @@ let test_paths () =
 
 (* ── Dates ──────────────────────────────────────────────────────────────── *)
 
+(* A bare date is a spelling of midnight UTC: one instant type, and the
+   text kept as it was written, the way an offset form is. It becomes the
+   instant it names wherever the meaning is read. *)
 let test_dates () =
-  check "basic date"   "2024-01-15"  [Date "2024-01-15"];
-  check "end of year"  "2024-12-31"  [Date "2024-12-31"];
-  check "epoch"        "1970-01-01"  [Date "1970-01-01"]
+  check "basic date"   "2024-01-15"  [DateTime "2024-01-15"];
+  check "end of year"  "2024-12-31"  [DateTime "2024-12-31"];
+  check "epoch"        "1970-01-01"  [DateTime "1970-01-01"]
 
 let test_date_disambiguation () =
   (* space before minus → int + minus, not date *)
@@ -46,10 +49,19 @@ let test_datetimes () =
 
 (* ── Times ──────────────────────────────────────────────────────────────── *)
 
+(* A time of day is not a value. The shape is still read, so the refusal
+   can name the instant form rather than failing on the `:` further on. *)
+let refuses label input needle =
+  match (try Ok (tokens input) with Lexer.LexError (_, m) -> Error m) with
+  | Ok _ -> Alcotest.failf "%s: expected a lex error" label
+  | Error m ->
+    if not (Lint.contains m needle) then
+      Alcotest.failf "%s: expected %S in: %s" label needle m
+
 let test_times () =
-  check "afternoon" "14:32:01"  [Time "14:32:01"];
-  check "midnight"  "00:00:00"  [Time "00:00:00"];
-  check "noon"      "12:00:00"  [Time "12:00:00"]
+  refuses "afternoon" "14:32:01" "a time of day is not a value";
+  refuses "midnight"  "00:00:00" "2026-08-22T";
+  refuses "noon"      "12:00:00" "DateTime.on!"
 
 let test_time_disambiguation () =
   (* colon with space → colon + int, not time *)

@@ -164,7 +164,7 @@ Values are written directly; the shape carries the type:
 | `*.wand`, `./file*.txt` | Glob — a *relative* glob with a directory part needs the `./` prefix |
 | `30s`, `5min`, `2h` | Duration |
 | `100MB`, `4KB` | Size |
-| `2024-01-15`, `14:30:00` | Date, Time |
+| `2024-01-15` | DateTime (midnight UTC) |
 | `https://example.com` | Url |
 | `192.168.1.1`, `10.0.0.0/8` | IPv4, CIDR |
 | `:8080` | Port |
@@ -195,7 +195,7 @@ let {helper} = import ./util    -- another file, by path
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
 Float, Proc, Env, CSV, JSON, TOML, Duration, Clock, Par, Shell, Decode,
-Args, Test, Option. Every function comes from a module: printing is
+Args, Test, Option, DateTime. Every function comes from a module: printing is
 `IO.println`, and a file that prints writes `import IO`.
 
 Big files stream instead of loading: `FS.stream_lines log |>

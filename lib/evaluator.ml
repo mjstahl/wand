@@ -65,8 +65,6 @@ type value =
   | VUnit
   | VPath     of string
   | VGlob     of string
-  | VDate     of string
-  | VTime     of string
   | VDateTime of string
   | VDuration of string
   | VUrl      of string
@@ -174,6 +172,85 @@ let rec lookup_var name (e : env) =
      | None -> lookup_var name rest)
   | (k, v) :: rest -> if String.equal k name then Some v else lookup_var name rest
 
+(* ── Instants ───────────────────────────────────────────────────────────── *)
+
+(* Days from 1970-01-01 to a civil date, by Howard Hinnant's algorithm. It
+   is exact for every proleptic Gregorian date and needs no table. *)
+let days_from_civil y m d =
+  let y = if m <= 2 then y - 1 else y in
+  let era = (if y >= 0 then y else y - 399) / 400 in
+  let yoe = y - era * 400 in
+  let mp = (m + 9) mod 12 in
+  let doy = (153 * mp + 2) / 5 + d - 1 in
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy in
+  era * 146097 + doe - 719468
+
+(* A DateTime as seconds from the epoch, so that two spellings of one
+   instant compare equal: `2024-01-15T20:00:00+05:30` and
+   `2024-01-15T14:30:00Z` are the same moment.
+
+   The lexer has already fixed the shape -- `YYYY-MM-DDTHH:MM:SS`, then
+   `Z`, `+HH:MM`, `-HH:MM`, or nothing -- so the digits are where this
+   expects them. A value with no offset is read as UTC. Reading it as local
+   time would make one script answer differently on two machines. *)
+let datetime_epoch s =
+  let num at len = int_of_string (String.sub s at len) in
+  let days = days_from_civil (num 0 4) (num 5 2) (num 8 2) in
+  (* A bare day is that day at midnight. The lexer keeps the short
+     spelling, so this is where the two forms become one meaning. *)
+  if String.length s = 10 then days * 86400
+  else
+  let secs = days * 86400 + num 11 2 * 3600 + num 14 2 * 60 + num 17 2 in
+  if String.length s <= 19 then secs
+  else
+    match s.[19] with
+    | 'Z' -> secs
+    | '+' -> secs - (num 20 2 * 3600 + num 23 2 * 60)
+    | '-' -> secs + (num 20 2 * 3600 + num 23 2 * 60)
+    | _   -> secs
+
+(* The inverse: an instant written back as a `DateTime` in UTC. Every
+   instant wand produces is written this way -- `Z`, whole seconds -- so a
+   value that came from `Clock.now` reads like a value that was written by
+   hand. The algorithm is the one `days_from_civil` reverses, from the same
+   note by Howard Hinnant. *)
+let civil_from_days z =
+  let z = z + 719468 in
+  let era = (if z >= 0 then z else z - 146096) / 146097 in
+  let doe = z - era * 146097 in
+  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 in
+  let y = yoe + era * 400 in
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100) in
+  let mp = (5 * doy + 2) / 153 in
+  let d = doy - (153 * mp + 2) / 5 + 1 in
+  let m = if mp < 10 then mp + 3 else mp - 9 in
+  ((if m <= 2 then y + 1 else y), m, d)
+
+(* Whole days since the epoch, flooring so that an instant before 1970
+   lands in the day it belongs to rather than the one after. *)
+let epoch_days secs = if secs >= 0 then secs / 86400 else (secs - 86399) / 86400
+
+let seconds_into_day secs = secs - epoch_days secs * 86400
+
+(* A day at midnight UTC, or why it is not a day. `days_from_civil` maps
+   any three numbers to some day, so `2026-02-30` would come back as March
+   the 2nd; converting back and comparing is what refuses it. *)
+let day_at y m d =
+  if m < 1 || m > 12 || d < 1 || d > 31 then
+    Error (Printf.sprintf "%04d-%02d-%02d is not a day" y m d)
+  else
+    let days = days_from_civil y m d in
+    let (y', m', d') = civil_from_days days in
+    if y' = y && m' = m && d' = d then Ok days
+    else Error (Printf.sprintf "%04d-%02d-%02d is not a day" y m d)
+
+let datetime_of_epoch secs =
+  let days = if secs >= 0 then secs / 86400 else (secs - 86399) / 86400 in
+  let rest = secs - days * 86400 in
+  let (y, m, d) = civil_from_days days in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+    y m d (rest / 3600) (rest mod 3600 / 60) (rest mod 60)
+
 (* ── Display ──────────────────────────────────────────────────────────────── *)
 
 let rec show_value = function
@@ -184,9 +261,11 @@ let rec show_value = function
   | VUnit       -> "()"
   | VPath s     -> s
   | VGlob s     -> s
-  | VDate s     -> s
-  | VTime s     -> s
-  | VDateTime s -> s
+  (* An instant shows as the moment it names, in UTC and in full, whichever
+     of its spellings was written. A bare day is that day at midnight, and
+     an offset resolves; the source keeps whatever it wrote, which is the
+     formatter's business rather than this one's. *)
+  | VDateTime s -> datetime_of_epoch (datetime_epoch s)
   | VDuration s -> s
   | VUrl s      -> s
   | VIPv4 s     -> s
@@ -464,61 +543,6 @@ let parse_dur_ms s =
 
 (* ── The order wand gives a value ─────────────────────────────────────── *)
 
-(* Days from 1970-01-01 to a civil date, by Howard Hinnant's algorithm. It
-   is exact for every proleptic Gregorian date and needs no table. *)
-let days_from_civil y m d =
-  let y = if m <= 2 then y - 1 else y in
-  let era = (if y >= 0 then y else y - 399) / 400 in
-  let yoe = y - era * 400 in
-  let mp = (m + 9) mod 12 in
-  let doy = (153 * mp + 2) / 5 + d - 1 in
-  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy in
-  era * 146097 + doe - 719468
-
-(* A DateTime as seconds from the epoch, so that two spellings of one
-   instant compare equal: `2024-01-15T20:00:00+05:30` and
-   `2024-01-15T14:30:00Z` are the same moment.
-
-   The lexer has already fixed the shape -- `YYYY-MM-DDTHH:MM:SS`, then
-   `Z`, `+HH:MM`, `-HH:MM`, or nothing -- so the digits are where this
-   expects them. A value with no offset is read as UTC. Reading it as local
-   time would make one script answer differently on two machines. *)
-let datetime_epoch s =
-  let num at len = int_of_string (String.sub s at len) in
-  let days = days_from_civil (num 0 4) (num 5 2) (num 8 2) in
-  let secs = days * 86400 + num 11 2 * 3600 + num 14 2 * 60 + num 17 2 in
-  if String.length s <= 19 then secs
-  else
-    match s.[19] with
-    | 'Z' -> secs
-    | '+' -> secs - (num 20 2 * 3600 + num 23 2 * 60)
-    | '-' -> secs + (num 20 2 * 3600 + num 23 2 * 60)
-    | _   -> secs
-
-(* The inverse: an instant written back as a `DateTime` in UTC. Every
-   instant wand produces is written this way -- `Z`, whole seconds -- so a
-   value that came from `Clock.now` reads like a value that was written by
-   hand. The algorithm is the one `days_from_civil` reverses, from the same
-   note by Howard Hinnant. *)
-let civil_from_days z =
-  let z = z + 719468 in
-  let era = (if z >= 0 then z else z - 146096) / 146097 in
-  let doe = z - era * 146097 in
-  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 in
-  let y = yoe + era * 400 in
-  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100) in
-  let mp = (5 * doy + 2) / 153 in
-  let d = doy - (153 * mp + 2) / 5 + 1 in
-  let m = if mp < 10 then mp + 3 else mp - 9 in
-  ((if m <= 2 then y + 1 else y), m, d)
-
-let datetime_of_epoch secs =
-  let days = if secs >= 0 then secs / 86400 else (secs - 86399) / 86400 in
-  let rest = secs - days * 86400 in
-  let (y, m, d) = civil_from_days days in
-  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
-    y m d (rest / 3600) (rest mod 3600 / 60) (rest mod 60)
-
 (* A size in bytes. A `KB` is 1000 bytes, not 1024: the spelling is the SI
    one, and SI says 1000. Reading it as 1024 would be lying about the unit
    the author wrote. Binary units would be `KiB`, which wand does not lex.
@@ -648,8 +672,6 @@ let wand_order a b =
   | VFloat x,    VFloat y    -> compare x y
   | VString x,   VString y   -> compare x y
   | VDuration x, VDuration y -> compare (parse_dur_ms x) (parse_dur_ms y)
-  | VDate x,     VDate y     -> compare x y
-  | VTime x,     VTime y     -> compare x y
   | VDateTime x, VDateTime y -> compare (datetime_epoch x) (datetime_epoch y)
   | VSize x,     VSize y     -> compare (size_bytes x) (size_bytes y)
   | VVersion x,  VVersion y  -> compare_versions x y
@@ -883,8 +905,6 @@ let rec eval (env : env) (e : expr) : value =
   | Unit       -> VUnit
   | Path s     -> VPath s
   | Glob s     -> VGlob s
-  | Date s     -> VDate s
-  | Time s     -> VTime s
   | DateTime s -> VDateTime s
   | Duration s -> VDuration s
   | Url s      -> VUrl s
@@ -2340,12 +2360,71 @@ let stdlib_eval_env : env = [
   ("str_to_size", VBuiltin (function
     | VString s -> to_domain "Size" (function Token.Size v -> Some (VSize v) | _ -> None) s
     | _ -> raise (EvalError "str_to_size: expected String")));
-  ("str_to_date", VBuiltin (function
-    | VString s -> to_domain "Date" (function Token.Date v -> Some (VDate v) | _ -> None) s
-    | _ -> raise (EvalError "str_to_date: expected String")));
-  ("str_to_time", VBuiltin (function
-    | VString s -> to_domain "Time" (function Token.Time v -> Some (VTime v) | _ -> None) s
-    | _ -> raise (EvalError "str_to_time: expected String")));
+  (* ── Taking an instant apart ────────────────────────────────────────── *)
+
+  (* Every one of these reads the value's own digits through
+     `datetime_epoch`, so an instant written with an offset answers for the
+     UTC moment it names rather than for the text it was written in:
+     `2026-08-22T20:00:00+05:30` is the 22nd at 14:30 UTC, and `hour`
+     answers 14. *)
+  ("dt_year", VBuiltin (function
+    | VDateTime s ->
+      let (y, _, _) = civil_from_days (epoch_days (datetime_epoch s)) in VInt y
+    | _ -> raise (EvalError "DateTime.year: expected DateTime")));
+  ("dt_month", VBuiltin (function
+    | VDateTime s ->
+      let (_, m, _) = civil_from_days (epoch_days (datetime_epoch s)) in VInt m
+    | _ -> raise (EvalError "DateTime.month: expected DateTime")));
+  ("dt_day", VBuiltin (function
+    | VDateTime s ->
+      let (_, _, d) = civil_from_days (epoch_days (datetime_epoch s)) in VInt d
+    | _ -> raise (EvalError "DateTime.day: expected DateTime")));
+  ("dt_hour", VBuiltin (function
+    | VDateTime s -> VInt (seconds_into_day (datetime_epoch s) / 3600)
+    | _ -> raise (EvalError "DateTime.hour: expected DateTime")));
+  ("dt_minute", VBuiltin (function
+    | VDateTime s -> VInt (seconds_into_day (datetime_epoch s) mod 3600 / 60)
+    | _ -> raise (EvalError "DateTime.minute: expected DateTime")));
+  ("dt_second", VBuiltin (function
+    | VDateTime s -> VInt (seconds_into_day (datetime_epoch s) mod 60)
+    | _ -> raise (EvalError "DateTime.second: expected DateTime")));
+  (* ISO 8601: Monday is 1 and Sunday is 7. 1970-01-01 was a Thursday, so
+     the epoch day itself is 4. *)
+  ("dt_weekday", VBuiltin (function
+    | VDateTime s ->
+      let d = epoch_days (datetime_epoch s) in
+      VInt (((d + 3) mod 7 + 7) mod 7 + 1)
+    | _ -> raise (EvalError "DateTime.weekday: expected DateTime")));
+  (* Midnight UTC of the day the instant falls in. *)
+  ("dt_day_start", VBuiltin (function
+    | VDateTime s ->
+      VDateTime (datetime_of_epoch (epoch_days (datetime_epoch s) * 86400))
+    | _ -> raise (EvalError "DateTime.day_start: expected DateTime")));
+  (* The one builder. A day that is not a day is refused rather than
+     silently shifted, so `2026 2 30` does not answer March the 2nd: the
+     round trip through `civil_from_days` is what catches it. *)
+  ("dt_on", VBuiltin (function
+    | VTuple [VInt y; VInt m; VInt d] ->
+      (match day_at y m d with
+       | Ok days -> VConstr ("Ok", [VDateTime (datetime_of_epoch (days * 86400))])
+       | Error msg -> VConstr ("Error", [VString msg]))
+    | _ -> raise (EvalError "DateTime.on: expected three Ints")));
+  (* The raising sibling, over the same answer, so the two say the same
+     thing about the same day. *)
+  ("dt_on_exn", VBuiltin (function
+    | VTuple [VInt y; VInt m; VInt d] ->
+      (match day_at y m d with
+       | Ok days -> VDateTime (datetime_of_epoch (days * 86400))
+       | Error msg -> raise (EvalError msg))
+    | _ -> raise (EvalError "DateTime.on!: expected three Ints")));
+  ("dt_date_string", VBuiltin (function
+    | VDateTime s -> VString (String.sub (datetime_of_epoch (datetime_epoch s)) 0 10)
+    | _ -> raise (EvalError "DateTime.date_string: expected DateTime")));
+  ("dt_time_string", VBuiltin (function
+    | VDateTime s ->
+      VString (String.sub (datetime_of_epoch (datetime_epoch s)) 11 8)
+    | _ -> raise (EvalError "DateTime.time_string: expected DateTime")));
+
   ("str_to_datetime", VBuiltin (function
     | VString s -> to_domain "DateTime" (function Token.DateTime v -> Some (VDateTime v) | _ -> None) s
     | _ -> raise (EvalError "str_to_datetime: expected String")));
@@ -3266,7 +3345,7 @@ and json_of_value (v : value) : Yojson.Basic.t =
   | VBool b   -> `Bool b
   | VUnit     -> `Null
   | VPath s | VDuration s | VUrl s | VSize s | VVersion s
-  | VDate s | VTime s | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> `String s
+  | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> `String s
   (* A port reads back from either spelling, so it goes out as the number a
      document would have held. *)
   | VPort n -> `Int n
@@ -3525,10 +3604,6 @@ let decode_builtins : env = [
     (function Token.Size v -> Some (VSize v) | _ -> None)));
   ("decode_version", VDecoder (decode_lexed "Version"
     (function Token.Version v -> Some (VVersion v) | _ -> None)));
-  ("decode_date", VDecoder (decode_lexed "Date"
-    (function Token.Date v -> Some (VDate v) | _ -> None)));
-  ("decode_time", VDecoder (decode_lexed "Time"
-    (function Token.Time v -> Some (VTime v) | _ -> None)));
   ("decode_datetime", VDecoder (decode_lexed "DateTime"
     (function Token.DateTime v -> Some (VDateTime v) | _ -> None)));
   ("decode_ipv4", VDecoder (decode_lexed "IPv4"

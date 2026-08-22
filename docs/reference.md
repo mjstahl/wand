@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -134,7 +134,7 @@ take an `Ord`: a type that wand orders. These eleven are ordered:
 
 ```text
 Int   Float   String
-Duration   Date   Time   DateTime
+Duration   DateTime
 Size   Version   Port   IPv4
 ```
 
@@ -166,9 +166,7 @@ value has more than one spelling. Equality reads it the same way:
 2024-01-15T20:00:00+05:30 == 2024-01-15T14:30:00Z -- true, one instant
 ```
 
-A `DateTime` with no offset is read as UTC. `Date` and `Time` are
-fixed-width and zero-padded, so their text order is already their value
-order.
+A `DateTime` with no offset is read as UTC.
 
 The other three read the same way, and each is a case where the text order
 is wrong:
@@ -276,16 +274,14 @@ match answer with
 ## Lexical domain types
 
 wand has literal syntax for the values a script uses most. Each one is a
-type of its own, not a string. So the type checker catches a `Date` that you
-gave where a `Duration` belongs.
+type of its own, not a string. So the type checker catches a `DateTime` that
+you gave where a `Duration` belongs.
 
 | Type | Example literals |
 |---|---|
 | `Path` | `/etc/hosts` `/home/user/file.txt` `./relative` |
 | `Glob` | `*.wand` `./**/*.ml` `**.wand` |
-| `Date` | `2024-01-15` |
-| `Time` | `14:30:00` |
-| `DateTime` | `2024-01-15T14:30:00Z` `2024-01-15T09:00:00+05:30` |
+| `DateTime` | `2024-01-15T14:30:00Z` `2024-01-15T09:00:00+05:30` `2024-01-15` |
 | `Duration` | `5min` `1h30m` `2d` `500ms` `1w` |
 | `Url` | `https://example.com` `http://localhost:8080/api` |
 | `IPv4` | `192.168.1.1` `10.0.0.1` |
@@ -1647,7 +1643,7 @@ whether a value is null. An element of a list raises that question:
 
 ```ocaml
 Decode.path  Decode.duration  Decode.url   Decode.size  Decode.version
-Decode.date  Decode.time      Decode.datetime  Decode.ipv4  Decode.cidr  Decode.port
+Decode.datetime  Decode.ipv4  Decode.cidr  Decode.port
 ```
 
 `"30s"` in a document lexes as `30s` in a script. So the boundary gives you
@@ -2483,8 +2479,6 @@ to_cidr      : String -> Result String CIDR
 to_port      : String -> Result String Port
 to_version   : String -> Result String Version
 to_size      : String -> Result String Size
-to_date      : String -> Result String Date
-to_time      : String -> Result String Time
 to_datetime  : String -> Result String DateTime
 to_duration  : String -> Result String Duration
 ```
@@ -2713,6 +2707,61 @@ A read performs one effect for each open. `FS.read_file` works at the same
 level. So a fold traces as one line, and a test mocks the whole file.
 `Test.with_lines path lines thunk` answers each `FS.stream_lines` for `path`
 with `lines`. Any other path streams as empty.
+
+### `DateTime`
+
+```ocaml
+year        : DateTime -> Int
+month       : DateTime -> Int
+day         : DateTime -> Int
+hour        : DateTime -> Int
+minute      : DateTime -> Int
+second      : DateTime -> Int
+weekday     : DateTime -> Int
+day_start   : DateTime -> DateTime
+on          : Int -> Int -> Int -> Result String DateTime
+on!         : Int -> Int -> Int -> DateTime ! {Raise}
+date_string : DateTime -> String
+time_string : DateTime -> String
+```
+
+There is one instant type and one resolution, the second. `2024-01-15` is a
+spelling of `2024-01-15T00:00:00Z`, so a day and an instant are one value
+written two ways, and a `Duration` moves either by the same amount. A value
+prints in full; `date_string` is how the short form is written.
+
+Nothing here reads a clock — `Clock.now` does, and this module takes what it
+answers apart:
+
+```ocaml
+Clock.now () |> DateTime.day_start            -- today at midnight
+```
+
+`weekday` is ISO 8601: Monday is 1 and Sunday is 7. A number rather than a
+variant, because it sorts and compares.
+
+`on` is the only builder, and it answers a `Result` because `2026 2 30` is
+not a day. A time of day goes on top as a `Duration`, since a `Duration`
+already moves an instant:
+
+```ocaml
+DateTime.on! 2026 8 22 + 14h + 30min          -- 2026-08-22T14:30:00Z
+```
+
+That needs no rule for what `at 25 0 0` would mean: adding 25 hours to a
+midnight is the next day at one.
+
+`date_string` is the stamped-name case, which is why there is no format
+string:
+
+```ocaml
+let name = "backup-%{DateTime.date_string (Clock.now ())}.tar.gz"
+```
+
+Every instant is UTC. A local reading would make one script answer
+differently on two machines, and the timezone database is not going in the
+binary. There is no calendar arithmetic: a month is not a fixed length, so
+it is not a `Duration`.
 
 ### `Clock`
 
@@ -3220,8 +3269,7 @@ duration : Decoder Duration
 url      : Decoder Url
 size     : Decoder Size
 version  : Decoder Version
-date     : Decoder Date
-time     : Decoder Time
+
 datetime : Decoder DateTime
 ipv4     : Decoder IPv4
 cidr     : Decoder CIDR

@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.39.0] - 2026-08-22
+
+### Added
+
+- `DateTime` is a module as well as a type: `year`, `month`, `day`, `hour`,
+  `minute`, `second`, `weekday`, `day_start`, `on`, `on!`, `date_string`
+  and `time_string`. Nothing in it reads a clock — `Clock.now` does, and
+  this takes what it answers apart. `weekday` is ISO 8601, Monday 1 to
+  Sunday 7
+- `DateTime.on` is the only builder, and answers a `Result` because
+  `2026 2 30` is not a day. A time of day goes on top as a `Duration`, so
+  `DateTime.on! 2026 8 22 + 14h + 30min` — which needs no rule for what an
+  hour of 25 would mean
+- `examples/ports/rotate-backups.wand` and
+  `examples/ports/provision-host.wand` finish the shell corpus: eighteen
+  ports covering all twelve of the jobs it set out to cover
+
+### Changed
+
+- **Breaking:** there is one instant type. `2026-08-22` is a spelling of
+  `2026-08-22T00:00:00Z`, so `Date` is gone as a type name and
+  `2026-08-22 + 5h` moves five hours instead of standing still. The rule
+  that kept two resolutions apart existed for that pair alone
+- **Breaking:** an instant prints in full and in UTC, whichever spelling
+  was written: `"%{2026-08-22}"` is `2026-08-22T00:00:00Z`, and
+  `date_string` is the short form. Source keeps what was written — `wand f`
+  leaves `2026-08-22` alone, as it already left an offset alone
+- **Breaking:** `14:30:00` is not a value. `Time` had no module, no
+  arithmetic and no use anywhere in the corpus; a time of day belongs to a
+  day. The lexer still reads the shape and names the instant form
+- **Breaking:** `Decode.date`, `Decode.time`, `String.to_date` and
+  `String.to_time` are gone. `Decode.datetime` and `String.to_datetime`
+  read both spellings
+- Permissions, symlinks, ownership and a process surface stay out of the
+  standard library, recorded in `docs/gaps.md` as decisions rather than
+  omissions: they are POSIX one-liners the manifest already names, and no
+  port reached for a process it had not started
+
+[0.39.0]: https://github.com/mjstahl/wand/releases/tag/v0.39.0
+
 ## [0.38.0] - 2026-08-22
 
 ### Fixed

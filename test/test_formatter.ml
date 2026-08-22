@@ -797,6 +797,19 @@ let test_a_comment_in_a_let_in_chain () =
   -- why it is done this way
   let spaced = replace s in filter spaced|}
 
+(* A bare date is a spelling of midnight UTC, and an offset form names a
+   moment in a timezone. Both keep the text they were written with: the
+   value normalises where its meaning is read, and expanding the source
+   would delete a spelling the language offers. *)
+let test_an_instant_keeps_its_spelling () =
+  fmt_eq "a bare day stays short"
+    {|let d = 2024-01-15|} {|let d = 2024-01-15|};
+  fmt_eq "an offset stays as written"
+    {|let d = 2024-01-15T09:00:00+05:30|} {|let d = 2024-01-15T09:00:00+05:30|};
+  fmt_eq "and a full UTC instant stays full"
+    {|let d = 2024-01-15T00:00:00Z|} {|let d = 2024-01-15T00:00:00Z|};
+  assert_idempotent "a bare day is a fixed point" {|let d = 2024-01-15|}
+
 (* A comment that follows code on its line is about that code. Lifting it
    onto a line of its own would point it at the line below instead, so the
    item stays exactly as written -- which is what every item with a comment
@@ -998,6 +1011,8 @@ let () =
         test_a_wrapping_let_in_arm_body;
       Alcotest.test_case "a comment in a let-in chain" `Quick
         test_a_comment_in_a_let_in_chain;
+      Alcotest.test_case "an instant keeps its spelling" `Quick
+        test_an_instant_keeps_its_spelling;
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;

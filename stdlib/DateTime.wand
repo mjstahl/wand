@@ -1,0 +1,62 @@
+-- Taking an instant apart, and building one.
+--
+-- There is one instant type and one resolution, the second. `2026-08-22`
+-- is a spelling of `2026-08-22T00:00:00Z`, so a date and an instant are
+-- the same value written two ways, and a `Duration` moves either of them
+-- by the same amount.
+--
+-- Nothing here reads a clock. `Clock.now` does that, and this module takes
+-- what it answers apart:
+--
+--     Clock.now () |> DateTime.day_start        -- today at midnight
+--
+-- Every instant is UTC. An instant written with an offset answers for the
+-- moment it names rather than the text it was written in, so
+-- `DateTime.hour 2026-08-22T20:00:00+05:30` is 14.
+
+-- The year.
+let year d = dt_year d
+
+-- The month, 1 to 12.
+let month d = dt_month d
+
+-- The day of the month, 1 to 31.
+let day d = dt_day d
+
+-- The hour, 0 to 23.
+let hour d = dt_hour d
+
+-- The minute, 0 to 59.
+let minute d = dt_minute d
+
+-- The second, 0 to 59.
+let second d = dt_second d
+
+-- The day of the week, ISO 8601: Monday is 1 and Sunday is 7. A number
+-- rather than a variant, because it sorts and compares.
+let weekday d = dt_weekday d
+
+-- Midnight UTC of the day this instant falls in.
+let day_start d = dt_day_start d
+
+-- A day at midnight, or the reason it is not a day. This is the only
+-- builder: a time of day is a `Duration` on top of it, because a
+-- `Duration` already moves an instant.
+--
+--     DateTime.on! 2026 8 22 + 14h + 30min      -- 2026-08-22T14:30:00Z
+--
+-- So there is no rule about what `at 25 0 0` would mean: adding 25 hours
+-- to a midnight is the next day at one, which is what it should be.
+let on y m d = dt_on (y, m, d)
+
+-- A day at midnight. Raises if it is not a day.
+let on! y m d = dt_on_exn (y, m, d)
+
+-- The date alone, as `2026-08-22`. The stamped-name case, which is why
+-- there is no format string:
+--
+--     "backup-%{DateTime.date_string (Clock.now ())}.tar.gz"
+let date_string d = dt_date_string d
+
+-- The time of day alone, as `14:30:00`.
+let time_string d = dt_time_string d

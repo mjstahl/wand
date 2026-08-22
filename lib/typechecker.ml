@@ -9,13 +9,14 @@ open Ast
 let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
-    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port" ]
+    "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
+    "DateTime" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
 type typ =
   | TInt | TFloat | TString | TBool | TUnit
-  | TPath | TGlob | TDate | TTime | TDateTime | TDuration
+  | TPath | TGlob | TDateTime | TDuration
   | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TVar    of tv
   | TFun    of typ * typ * Effect_set.t  (* arg, result, effects of calling *)
@@ -152,7 +153,7 @@ let fresh_ord () = fresh_as Ord
    right order -- stated because it was checked, not assumed. *)
 let is_ordered = function
   | TInt | TFloat | TString
-  | TDuration | TDate | TTime | TDateTime
+  | TDuration | TDateTime
   | TSize | TVersion | TPort | TIPv4 -> true
   | _ -> false
 
@@ -444,7 +445,7 @@ let string_of_typ t =
     match repr t with
     | TInt      -> "Int"      | TFloat    -> "Float"    | TString   -> "String"
     | TBool     -> "Bool"     | TUnit     -> "Unit"
-    | TPath     -> "Path"     | TGlob     -> "Glob"     | TDate     -> "Date"     | TTime     -> "Time"
+    | TPath     -> "Path"     | TGlob     -> "Glob"
     | TDateTime -> "DateTime" | TDuration -> "Duration"
     | TUrl      -> "Url"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
@@ -579,7 +580,7 @@ let rec unify_ t1 t2 =
   match repr t1, repr t2 with
   | TInt,      TInt      | TFloat,    TFloat    | TString,  TString
   | TBool,     TBool     | TUnit,     TUnit
-  | TPath,     TPath     | TGlob,     TGlob     | TDate,     TDate     | TTime,    TTime
+  | TPath,     TPath     | TGlob,     TGlob
   | TDateTime, TDateTime | TDuration, TDuration
   | TUrl,      TUrl      | TIPv4,     TIPv4     | TCIDR,    TCIDR
   | TPort,     TPort     | TVersion,  TVersion  | TSize,    TSize  -> ()
@@ -968,7 +969,7 @@ let known_type_names : string list option ref = ref None
    primitives, and the four that only ever appear applied to an argument. *)
 let builtin_type_name = function
   | "Int" | "Float" | "String" | "Bool" | "Unit" | "Path" | "Glob"
-  | "Date" | "Time" | "DateTime" | "Duration" | "Url" | "IPv4" | "CIDR"
+  | "DateTime" | "Duration" | "Url" | "IPv4" | "CIDR"
   | "Port" | "Version" | "Size" | "JSON" | "TOML"
   | "List" | "Map" | "Result" | "Decoder" -> true
   | _ -> false
@@ -1032,7 +1033,6 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | "Int"      -> TInt      | "Float"    -> TFloat
        | "String"   -> TString   | "Bool"     -> TBool
        | "Unit"     -> TUnit     | "Path"     -> TPath     | "Glob"     -> TGlob
-       | "Date"     -> TDate     | "Time"     -> TTime
        | "DateTime" -> TDateTime | "Duration" -> TDuration
        | "Url"      -> TUrl      | "IPv4"     -> TIPv4
        | "CIDR"     -> TCIDR     | "Port"     -> TPort
@@ -1378,8 +1378,6 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | Bool _     -> unify_expected ~expected:t ~got:TBool;     env
   | Unit       -> unify_expected ~expected:t ~got:TUnit;     env
   | Path _     -> unify_expected ~expected:t ~got:TPath;     env
-  | Date _     -> unify_expected ~expected:t ~got:TDate;     env
-  | Time _     -> unify_expected ~expected:t ~got:TTime;     env
   | DateTime _ -> unify_expected ~expected:t ~got:TDateTime; env
   | Duration _ -> unify_expected ~expected:t ~got:TDuration; env
   | Url _      -> unify_expected ~expected:t ~got:TUrl;      env
@@ -1580,7 +1578,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
         | None -> [])
      | None -> [])
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
-  | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
+  | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TRegex | TJson | TToml | TFun _ | TResource _ | TStream _
   | TDecoder _ ->
@@ -1590,7 +1588,7 @@ let is_infinite_domain t =
   match repr t with
   | TApp _ when app_head_name t <> None -> false
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
-  | TInt | TFloat | TString | TPath | TGlob | TDate | TTime | TDateTime
+  | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TUrl | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TStream _
   | TDecoder _ -> true
@@ -1727,8 +1725,6 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Unit       -> TUnit
   | Path _     -> TPath
   | Glob _     -> TGlob
-  | Date _     -> TDate
-  | Time _     -> TTime
   | DateTime _ -> TDateTime
   | Duration _ -> TDuration
   | Url _      -> TUrl
@@ -2555,8 +2551,20 @@ let stdlib_type_env : env = [
   ("str_to_port",      generalize [] ((TString @-> TResult (TString, TPort))));
   ("str_to_version",   generalize [] ((TString @-> TResult (TString, TVersion))));
   ("str_to_size",      generalize [] ((TString @-> TResult (TString, TSize))));
-  ("str_to_date",      generalize [] ((TString @-> TResult (TString, TDate))));
-  ("str_to_time",      generalize [] ((TString @-> TResult (TString, TTime))));
+  ("dt_year",         generalize [] ((TDateTime @-> TInt)));
+  ("dt_month",        generalize [] ((TDateTime @-> TInt)));
+  ("dt_day",          generalize [] ((TDateTime @-> TInt)));
+  ("dt_hour",         generalize [] ((TDateTime @-> TInt)));
+  ("dt_minute",       generalize [] ((TDateTime @-> TInt)));
+  ("dt_second",       generalize [] ((TDateTime @-> TInt)));
+  ("dt_weekday",      generalize [] ((TDateTime @-> TInt)));
+  ("dt_day_start",    generalize [] ((TDateTime @-> TDateTime)));
+  ("dt_on",           generalize [] ((TTuple [TInt; TInt; TInt]
+                                      @-> TResult (TString, TDateTime))));
+  ("dt_on_exn",       generalize [] (effs [Effect_set.Raise]
+                                      (TTuple [TInt; TInt; TInt]) (TDateTime)));
+  ("dt_date_string",  generalize [] ((TDateTime @-> TString)));
+  ("dt_time_string",  generalize [] ((TDateTime @-> TString)));
   ("str_to_datetime",  generalize [] ((TString @-> TResult (TString, TDateTime))));
   ("str_to_duration",  generalize [] ((TString @-> TResult (TString, TDuration))));
   (* Regex primitives *)
@@ -2738,8 +2746,6 @@ let stdlib_type_env : env = [
   ("decode_url",      Mono (TDecoder TUrl));
   ("decode_size",     Mono (TDecoder TSize));
   ("decode_version",  Mono (TDecoder TVersion));
-  ("decode_date",     Mono (TDecoder TDate));
-  ("decode_time",     Mono (TDecoder TTime));
   ("decode_datetime", Mono (TDecoder TDateTime));
   ("decode_ipv4",     Mono (TDecoder TIPv4));
   ("decode_cidr",     Mono (TDecoder TCIDR));

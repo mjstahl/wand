@@ -24,8 +24,6 @@ type t =
   (* Domain literals *)
   | Path of string
   | Glob of string
-  | Date of string
-  | Time of string
   | DateTime of string
   | Duration of string
   | Url of string
@@ -144,8 +142,6 @@ let pp ppf tok =
     | Bool b     -> Printf.sprintf "Bool(%b)" b
     | Path s     -> Printf.sprintf "Path(%s)" s
     | Glob s     -> Printf.sprintf "Glob(%s)" s
-    | Date s     -> Printf.sprintf "Date(%s)" s
-    | Time s     -> Printf.sprintf "Time(%s)" s
     | DateTime s -> Printf.sprintf "DateTime(%s)" s
     | Duration s -> Printf.sprintf "Duration(%s)" s
     | Url s      -> Printf.sprintf "Url(%s)" s

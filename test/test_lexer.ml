@@ -147,7 +147,7 @@ let test_line_comments () =
   check_tokens "spaced double minus"     "5 - -3"  [Int 5; Minus; Minus; Int 3];
   check_tokens "arrow unaffected"        "x -> y"  [Ident "x"; Arrow; Ident "y"];
   check_tokens "dashed path unaffected"  "./my-file"  [Path "./my-file"];
-  check_tokens "date literal unaffected" "2024-01-15" [Date "2024-01-15"]
+  check_tokens "date literal unaffected" "2024-01-15" [DateTime "2024-01-15"]
 
 (* ── Whitespace ─────────────────────────────────────────────────────────── *)
 

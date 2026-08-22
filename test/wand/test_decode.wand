@@ -205,10 +205,12 @@ test "a present field that will not decode is still a failure" (fn t ->
 test "the remaining domain literals" (fn t ->
   let doc =
     (JSON.parse!
-      `{"at": "14:30:00", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`)
+      `{"at": "2024-01-15", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`)
   in
-  t.eq (Ok 14:30:00, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8) (
-    JSON.decode (Decode.field "at" Decode.time) doc,
+  -- A bare day and a full instant both read as `DateTime`; the day is
+  -- midnight UTC.
+  t.eq (Ok 2024-01-15T00:00:00Z, Ok 2024-01-15T09:00:00Z, Ok 10.0.0.4, Ok 10.0.0.0/8) (
+    JSON.decode (Decode.field "at" Decode.datetime) doc,
     JSON.decode (Decode.field "when" Decode.datetime) doc,
     JSON.decode (Decode.field "ip" Decode.ipv4) doc,
     JSON.decode (Decode.field "net" Decode.cidr) doc

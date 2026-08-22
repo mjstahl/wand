@@ -489,9 +489,19 @@ let read_numeric s first_char =
       done;
       DateTime (Buffer.contents dt)
     end else
-      Date date
+      (* A bare date is a spelling of midnight UTC, not a type of its own.
+         One instant type, one resolution: `2026-08-22 + 5h` moves five
+         hours, where two types needed a rule for each to stand still at
+         its own.
 
-  (* Colon: Time (requires exactly 2-digit hour) *)
+         The text is kept as it was written, the way an offset form is:
+         `datetime_epoch` reads the meaning out of either, and a formatter
+         that expanded this would delete a spelling the language offers. *)
+      DateTime date
+
+  (* Colon: a time of day, which is not a value. The shape is still read,
+     so the refusal can name what to write instead of failing on the `:`
+     somewhere further along. A time of day belongs to a day. *)
   | ':' when String.length first = 2
           && is_digit (char_at s 1) && is_digit (char_at s 2)
           && char_at s 3 = ':'
@@ -500,7 +510,11 @@ let read_numeric s first_char =
     let mm1 = advance s and mm2 = advance s in
     ignore (advance s);
     let ss1 = advance s and ss2 = advance s in
-    Time (Printf.sprintf "%s:%c%c:%c%c" first mm1 mm2 ss1 ss2)
+    let t = Printf.sprintf "%s:%c%c:%c%c" first mm1 mm2 ss1 ss2 in
+    raise (Fail (Printf.sprintf
+      "a time of day is not a value on its own -- write the instant, \
+       2026-08-22T%s, or a Duration onto a day, DateTime.on! 2026 8 22 + %sh"
+      t (String.sub t 0 2)))
 
   (* Duration suffix (lowercase unit letters) *)
   | c when is_duration_start c ->

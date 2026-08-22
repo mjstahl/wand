@@ -81,14 +81,9 @@ let to_version s = str_to_version s
 -- Parse a size string (e.g. "10MB"). Returns Ok size or Error msg.
 let to_size s = str_to_size s
 
--- Parse a date string (e.g. "2024-01-15"). Returns Ok date or Error msg.
-let to_date s = str_to_date s
-
--- Parse a time string (e.g. "14:30:00"). Returns Ok time or Error msg.
-let to_time s = str_to_time s
-
--- Parse a datetime string (e.g. "2024-01-15T14:30:00Z").
--- Returns Ok datetime or Error msg.
+-- Parse an instant, written either way: "2024-01-15T14:30:00Z" or the bare
+-- day "2024-01-15", which is midnight UTC. Returns Ok datetime or Error
+-- msg.
 let to_datetime s = str_to_datetime s
 
 -- Parse a duration string (e.g. "5min", "1h30m"). Returns Ok duration or Error msg.

@@ -107,10 +107,8 @@ let size = decode_size
 
 let version = decode_version
 
-let date = decode_date
-
-let time = decode_time
-
+-- An instant, written either way: "2024-01-15T14:30:00Z" or the bare day
+-- "2024-01-15", which is midnight UTC.
 let datetime = decode_datetime
 
 let ipv4 = decode_ipv4

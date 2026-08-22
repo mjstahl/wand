@@ -441,8 +441,9 @@ let test_primitive_literals () =
 
 let test_domain_literals () =
   expr_is "path" "/etc/foo" "Path";
-  expr_is "date" "2024-01-15" "Date";
-  expr_is "time" "14:30:00" "Time";
+  (* A bare date is a spelling of midnight UTC; a time of day is refused
+     by the lexer, and `test_domain_tokens.ml` holds that. *)
+  expr_is "date" "2024-01-15" "DateTime";
   expr_is "duration" "5min" "Duration";
   expr_is "url" "https://example.com" "Url";
   expr_is "ipv4" "192.168.1.1" "IPv4";
