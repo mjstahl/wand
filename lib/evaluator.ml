@@ -527,7 +527,18 @@ let cancelled : bool ref Domain.DLS.key = Domain.DLS.new_key (fun () -> ref fals
 
 let cancel_this_domain flag = Domain.DLS.set cancelled flag
 
-let check_interrupt () =
+(* Races currently running. Nothing but a race cancels a domain, and it can
+   only cancel one it is still waiting on, so while this is zero no domain
+   is carrying a cancellation and there is nothing for the check below to
+   find. Counted rather than flagged, because a thunk in a race may itself
+   race. *)
+let races_running = Atomic.make 0
+
+let with_race_running f =
+  Atomic.incr races_running;
+  Fun.protect ~finally:(fun () -> Atomic.decr races_running) f
+
+let check_interrupt_now () =
   (* Raised once, then cleared, for the reason the program-wide interrupt is
      taken once: a release is ordinary evaluation, and a flag that still
      stood would raise again on the first step of the cleanup, so nothing
@@ -539,6 +550,18 @@ let check_interrupt () =
     let taken = Domain.DLS.get interrupt_taken in
     if not !taken then begin taken := true; raise (Interrupted code) end
   end
+
+(* Every step of evaluation asks whether it should stop, and almost every
+   time the answer is no. What that answer used to cost was two reads of
+   domain-local state, which is a call and an indirection each -- more, on
+   the shapes a script actually runs, than resolving all its names.
+
+   Both reasons to stop are announced globally before any domain can see
+   them, so two atomic loads decide it. Whatever they cannot rule out is
+   left to the full check, which is unchanged. *)
+let check_interrupt () =
+  if Atomic.get interrupt_requested <> 0 || Atomic.get races_running <> 0 then
+    check_interrupt_now ()
 
 (* Structural comparison that a script can catch. OCaml's `=` and `compare`
    raise Invalid_argument when they reach a closure, and a value may carry one
@@ -2071,7 +2094,7 @@ let par_race thunks =
        inside each thunk, or take it off.")
   else if Atomic.get observers > 0 then
     outcome_of (fun () -> apply items.(0) VUnit)
-  else begin
+  else with_race_running (fun () ->
     let flags = Array.init n (fun _ -> ref false) in
     let m = Mutex.create () in
     let done_ = Condition.create () in
@@ -2108,8 +2131,7 @@ let par_race thunks =
         | exception Fun.Finally_raised (Interrupted _) -> ()) domains);
     match !winner with
     | Some o -> o
-    | None -> VConstr ("Error", [VString "race: no thunk finished"])
-  end
+    | None -> VConstr ("Error", [VString "race: no thunk finished"]))
 
 (* ── Streams: running a terminal operation ────────────────────────────────
    A terminal operation performs one open-granularity effect per source --
