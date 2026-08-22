@@ -1339,8 +1339,15 @@ and apply_tail vf vx =
        let env' = bind_pat p vx fenv in
        VFun (env', rest, body))
   | VFix (name, fenv, params, body) ->
-    let fenv' = (name, VFix (name, fenv, params, body)) :: fenv in
-    apply_tail (VFun (fenv', params, body)) vx
+    (* `vf` is the value being bound, so binding it costs nothing to build.
+       Rebuilding it made a second copy of the same closure on every call,
+       and going back through `apply_tail` made a `VFun` to carry it there.
+       Neither outlived the call. *)
+    let fenv' = (name, vf) :: fenv in
+    (match params with
+     | []        -> raise (EvalError "function with no parameters")
+     | [p]       -> eval_tail (bind_pat p vx fenv') body
+     | p :: rest -> VFun (bind_pat p vx fenv', rest, body))
   | VFixGroup (bindings, fenv, my_name) ->
     let fenv' = List.fold_left (fun acc (n, _, _) ->
       (n, VFixGroup (bindings, fenv, n)) :: acc) fenv bindings in

@@ -56,6 +56,13 @@ Changing anything on the startup path gets before-and-after numbers in the
 commit message, from several runs. Readings move ~15% between runs, so one
 reading cannot tell an improvement from noise.
 
+The drift is slow as well as wide, so measuring one build and then the other
+attributes to the change whatever the machine did in between. Keep both
+binaries -- `cp _build/default/bin/wand.exe` before and after -- and
+interleave the runs, taking the minimum rather than the median: drift only
+ever adds. Sequential measurement of the same two builds has reported a 26%
+cost that interleaving put at 4%.
+
 ### Releasing
 
 `VERSION` holds the number, and it is bumped in the commit that warrants it
