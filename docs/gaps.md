@@ -10,6 +10,21 @@ argument. Nothing is duplicated between here and there.
 
 ## Waiting and the clock
 
+**No module for dates and times.** `Clock.now` answers an instant and a
+`Duration` moves it, and that is all a script can do with one. Nothing takes
+a `DateTime` apart or puts one together: no year, month, day or weekday, no
+hour or minute, and no string but the one spelling a value interpolates
+with. So the first thing a script reaches for — a file named for today —
+cannot be written, because the date cannot be lifted out of the instant.
+
+`Date` and `Time` do less still. Neither moves: `2026-08-22 + 1d` is a type
+error. Each compares, each decodes out of JSON, and that is the whole of
+it.
+
+[`docs/design/datetime.md`](design/datetime.md) is the plan: one instant
+type, `Date` folded into it, `Time` removed, and a `DateTime` module that
+opens one.
+
 **A deadline cannot be tested against a virtual clock.** `Test.with_clock`
 answers `Clock.sleep` at no cost, so a test of an hour of backoff runs in
 microseconds. Two waits it does not shorten. `Shell.timeout` belongs to the
