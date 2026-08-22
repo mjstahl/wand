@@ -2550,10 +2550,12 @@ let stdlib_eval_env : env = [
   ("par_deadline_guard", VBuiltin (fun _ ->
     if Atomic.get handlers > 0 then
       raise (EvalError
-        "a deadline cannot run under a handler: a race runs its first thunk \
-         only when one is installed, so the deadline never fires. Test a \
-         deadline against real time -- `Par.timeout 200ms` costs 200ms -- \
-         or move the handler inside the thunk")
+        "a deadline inside a handler never fires. A race runs only its \
+         first thunk while a handler is installed, so the sleeper that \
+         ends the wait never runs. Move the handler inside the thunk -- \
+         `Par.timeout d (fn () -> with_clock (fn () -> ...))` -- or take \
+         it off. The wait is real either way, so give the deadline a \
+         length you are willing to wait for")
     else VUnit));
   ("par_race", VBuiltin (function
     | VList thunks -> par_race thunks

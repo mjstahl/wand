@@ -59,9 +59,14 @@ let race thunks = par_race thunks
     A `thunk` that raises comes back as `Error` too, as it does under
     `race`.
     
-    Refused under a handler. A race runs its first thunk only when one is
-    installed, so the sleeper never runs and the deadline never fires. Test
-    a deadline against real time. *)
+    Refused under a handler. A race runs only its first thunk while one is
+    installed, so the sleeper never runs and the deadline never fires. Put
+    the handler inside the thunk instead:
+    
+    Par.timeout 200ms (fn () -> Test.with_shell mocks (fn () -> work ()))
+    
+    The mock still stands and the deadline still fires. The wait is real,
+    so give it a length you are willing to wait for. *)
 let timeout d thunk =
   let () = par_deadline_guard () in
   let work = fn () -> Ok (thunk ()) in

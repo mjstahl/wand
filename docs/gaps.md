@@ -49,9 +49,11 @@ operating system, which does not take a handler. `Par.timeout` is a race,
 so under a handler its sleeper never runs and the deadline never fires —
 work that only the deadline would have stopped then runs forever. That is
 refused now, with the reason, rather than hanging a suite with no message.
-Test a deadline against real time: `Par.timeout 200ms` costs 200ms. A
-deadline too long to wait for stays untestable, and firing a virtual one
-would mean scheduling raced thunks as fibers in one domain.
+Put the handler inside the thunk — `Par.timeout 200ms (fn () ->
+Test.with_shell mocks (fn () -> work ()))` — and the mock stands while the
+deadline fires. The wait is real, so a deadline too long to wait for stays
+untestable; firing a virtual one would mean scheduling raced thunks as
+fibers in one domain.
 
 **A killed command may leave children.** wand signals what it started. So
 `Shell.timeout 1s (fn () -> $(sh -c "sleep 30"))` kills the `sh` and leaves
