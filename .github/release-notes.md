@@ -1,20 +1,19 @@
-## 0.34.0 - 2026-08-22
+## 0.35.0 - 2026-08-22
 
-A comment is `--` to the end of the line, and that is the whole form. It
-reads no brackets, so pasted text survives whatever it holds.
+A race inside a handler is refused. Move the handler inside each thunk,
+where it stands for that branch and the race still runs:
 
-### Documentation is a run of comment lines
+    Par.race [
+      fn () -> Test.with_shell mocks (fn () -> probe a),
+      fn () -> Test.with_shell mocks (fn () -> probe b)
+    ]
 
-    -- Whether a command succeeded: its exit code is zero.
-    --
-    -- `$?(cmd)` gives a `ShellResult`, and the first thing a script asks
-    -- of one is whether it worked.
-    let ok? (r: ShellResult) = r.code == 0
+An effect cannot reach a handler on another domain, so the branches cannot
+run where they were written. The race answered with its first thunk and
+said nothing, so a test of racing code tested one branch and passed.
 
-`wand d` prints it, and so does an editor on hover. Each line stands alone,
-the lines are consecutive, and the last one sits on the line above the
-definition. A comment after code documents nothing, and a blank line ends
-the run.
+`--dry-run` and `--trace` still run a race, left-biased. Each reports what
+the work would do, and the collapse costs the report nothing.
 
 ---
 

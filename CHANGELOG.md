@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.35.0] - 2026-08-22
+
+### Changed
+
+- **Breaking:** `Par.race` refuses inside a handler. An effect cannot reach
+  a handler on another domain, so the branches cannot run where they were
+  written: the race answered with its first thunk and said nothing, and a
+  test of racing code tested one branch and passed. The message names the
+  fix — move the handler inside each thunk. `--dry-run` and `--trace` still
+  run a race, left-biased, because each only reports what the work would do
+
+[0.35.0]: https://github.com/mjstahl/wand/releases/tag/v0.35.0
+
 ## [0.34.0] - 2026-08-22
 
 ### Changed
