@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.37.0] - 2026-08-22
+
+### Changed
+
+- **Breaking:** `print` and `println` are no longer in scope without an
+  import. Printing is `IO.print` and `IO.println`, so a file that prints
+  writes `import IO`. Every function a file calls now comes from a module it
+  imported, with no exceptions — `Ok` and `Error` stay, because a
+  constructor of a built-in type has no module to come from. The old
+  spelling answers `unbound variable 'println' -- printing is IO.println
+  (import IO)`, as `printf`, `puts` and `echo` already did
+
+### Fixed
+
+- Comparing two functions raises, whichever functions they are. `==` and
+  `List.sort` relied on the runtime reaching the function inside, so two
+  wand-defined functions whose bodies already differ compared as ordinary
+  values and sorted into an order that meant nothing
+
+[0.37.0]: https://github.com/mjstahl/wand/releases/tag/v0.37.0
+
 ## [0.36.0] - 2026-08-22
 
 ### Added

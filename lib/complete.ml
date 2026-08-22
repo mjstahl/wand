@@ -14,7 +14,7 @@ let has_prefix ~prefix s =
   String.length s >= lp && String.sub s 0 lp = prefix
 
 (* Names that exist without an import. *)
-let builtin_names = ["print"; "println"; "Ok"; "Error"]
+let builtin_names = ["Ok"; "Error"]
 
 (* What the identifier ending at the end of the line could become. `start`
    is where the completed text begins: every candidate replaces the line

@@ -34,7 +34,7 @@ let plan paths = List.fold_right (fn p acc -> (
 let rename_all! moves =
   moves
     |> List.each (fn (from, to) -> (
-      println "%{Path.to_string from} -> %{Path.to_string to}";
+      IO.println "%{Path.to_string from} -> %{Path.to_string to}";
       FS.rename! from to
     ))
 

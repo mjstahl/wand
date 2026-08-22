@@ -19,12 +19,12 @@ let tally (total, errors, warns, infos, first_err) line = (
 let (total, errors, warns, infos, first_err) =
   Stream.fold_left tally (0, 0, 0, 0, None) (IO.stdin_lines ())
 
-println "Log Summary"
-println "-----------"
-println "Total lines : %{total}"
-println "Errors      : %{errors}"
-println "Warnings    : %{warns}"
-println "Info        : %{infos}"
+IO.println "Log Summary"
+IO.println "-----------"
+IO.println "Total lines : %{total}"
+IO.println "Errors      : %{errors}"
+IO.println "Warnings    : %{warns}"
+IO.println "Info        : %{infos}"
 match first_err with
-| Some e -> println "First error : %{e}"
-| None -> println "No errors found."
+| Some e -> IO.println "First error : %{e}"
+| None -> IO.println "No errors found."

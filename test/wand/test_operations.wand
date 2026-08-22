@@ -221,7 +221,7 @@ group "the program's own streams" (fn () -> [
   test "IO!print" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = print "x" in missed) () with
+      (handle (fn () -> let _ = IO.print "x" in missed) () with
       | IO!print _ _ -> caught
       )),
   test "IO!print via IO.print" (fn t ->
@@ -233,7 +233,7 @@ group "the program's own streams" (fn () -> [
   test "IO!println" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = println "x" in missed) () with
+      (handle (fn () -> let _ = IO.println "x" in missed) () with
       | IO!println _ _ -> caught
       )),
   test "IO!println via IO.println" (fn t ->

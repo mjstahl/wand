@@ -714,11 +714,11 @@ let test_string_openers_come_back_escaped () =
    spelling into the one the style guide keeps for naming. *)
 let test_a_block_binding_round_trips () =
   fmt_eq "a binding and two statements"
-    {|let f () = (let x = 1; println "a"; x + 1)|}
-    {|let f () = (let x = 1; println "a"; x + 1)|};
+    {|let f () = (let x = 1; IO.println "a"; x + 1)|}
+    {|let f () = (let x = 1; IO.println "a"; x + 1)|};
   fmt_eq "two bindings"
-    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|}
-    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
+    {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|}
+    {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|};
   (* One statement after the binding: still the block that was written. *)
   fmt_eq "a block whose last statement is the only one"
     {|let f () = (let x = 1; x + 2)|}
@@ -749,7 +749,7 @@ let test_a_block_binding_round_trips () =
   let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
 ) paths []|};
   assert_idempotent "a block is a fixed point"
-    {|let f () = (let x = 1; let y = 2; println "a"; x + y)|};
+    {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|};
   assert_idempotent "and so is a block with no sequence in it"
     {|let f () = (let x = 1; x + 2)|};
   ok_after_format "and it still runs"

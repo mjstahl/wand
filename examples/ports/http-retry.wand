@@ -51,7 +51,7 @@ let read out =
   | Error why -> Error why
   | Ok doc -> JSON.decode Health.decoder doc
 
-let report (h: Health) = println "%{h.status}, version %{h.version}"
+let report (h: Health) = IO.println "%{h.status}, version %{h.version}"
 
 let main () =
   match Env.get "TOKEN" with

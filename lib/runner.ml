@@ -1569,7 +1569,7 @@ let run_test_file path : (test_outcome list, string) result =
     Error (legacy_of_exn e)
 
 (* Under --json the only stdout contract is the JSON value, but a test is
-   free to print -- println is itself a thing the wand tests test. Run
+   free to print -- IO.println is itself a thing the wand tests test. Run
    them with stdout routed to stderr, so their prints stay visible
    without corrupting the stream a consumer parses. *)
 let with_stdout_to_stderr f =

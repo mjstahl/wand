@@ -37,8 +37,8 @@ let over limit rows =
 
 let report full =
   match full with
-  | [] -> println "every filesystem is under 90%"
-  | _ -> full |> List.each (fn (mount, percent) -> println "%{percent}%\t%{mount}")
+  | [] -> IO.println "every filesystem is under 90%"
+  | _ -> full |> List.each (fn (mount, percent) -> IO.println "%{percent}%\t%{mount}")
 
 let main! () = report (over 90 (String.lines $(df -P)))
 

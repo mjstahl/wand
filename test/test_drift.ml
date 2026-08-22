@@ -87,7 +87,7 @@ let test_ocaml_unbound_names () =
   expect_error "raise" "raise \"boom\""
     "errors are values: return an Error";
   expect_error "print_endline" "print_endline \"hi\""
-    "printing is println"
+    "printing is IO.println (import IO)"
 
 (* ── Haskell ──────────────────────────────────────────────────────────────── *)
 

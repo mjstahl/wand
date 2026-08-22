@@ -44,7 +44,7 @@ type, `DateTime`, and one resolution, the second.
 `14:30:00` is not a value. The lexer still recognises the shape, and
 refuses it with the form to write: a time of day belongs to a day.
 
-A value prints in full. `println 2026-08-22` writes `2026-08-22T00:00:00Z`,
+A value prints in full. `IO.println 2026-08-22` writes `2026-08-22T00:00:00Z`,
 and the short string comes from the module. This is the one change a reader
 sees.
 

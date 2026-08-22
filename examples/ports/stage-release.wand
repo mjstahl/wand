@@ -48,7 +48,7 @@ let main! () =
   with FS.temp_dir "release_" as dir ->
   with lock_at ./release.lock as _ ->
   match missing (stage! dir) with
-  | [] -> println "staged %{Path.to_string dir}"
+  | [] -> IO.println "staged %{Path.to_string dir}"
   | gaps -> (
     IO.println_err "not a release, %{List.length gaps} file(s) short:";
     gaps |> List.each (fn name -> IO.println_err "  %{name}");

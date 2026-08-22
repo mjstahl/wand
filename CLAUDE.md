@@ -195,7 +195,8 @@ let {helper} = import ./util    -- another file, by path
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
 Float, Proc, Env, CSV, JSON, TOML, Duration, Clock, Par, Shell, Decode,
-Args, Test, Option. Builtins like `println` need no import.
+Args, Test, Option. Every function comes from a module: printing is
+`IO.println`, and a file that prints writes `import IO`.
 
 Big files stream instead of loading: `FS.stream_lines log |>
 Stream.filter p |> Stream.fold_left f init` — a stream reads nothing

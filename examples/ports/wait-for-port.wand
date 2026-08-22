@@ -34,7 +34,7 @@ let wait_for limit every probe = Par.timeout limit (fn () -> poll every probe)
 
 let report limit host port =
   match wait_for limit 1s (fn () -> answering? host port) with
-  | Ok _ -> println "%{host}%{port} answered"
+  | Ok _ -> IO.println "%{host}%{port} answered"
   | Error why -> (IO.println_err "%{host}%{port}: %{why}"; Proc.exit 1)
 
 let main () = report 30s "localhost" :8080

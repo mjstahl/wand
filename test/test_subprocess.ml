@@ -76,9 +76,10 @@ let test_captured_stderr_past_the_buffer () =
     finished "a command writing 500KB to stderr"
       (run_script (Printf.sprintf
          {|uses {IO, Shell(sh)}
+import IO
 import String
 let r = $?(sh -c 'yes err | head -c %d >&2; echo done')
-println "%%{r.code} %%{r.stdout} %%{String.length r.stderr}"|}
+IO.println "%%{r.code} %%{r.stdout} %%{String.length r.stderr}"|}
          big))
   in
   Alcotest.(check int) "the script ran" 0 code;
@@ -94,9 +95,10 @@ let test_stdin_past_the_buffer () =
     finished "a command fed 400KB on stdin"
       (run_script
          {|uses {IO, Shell(sh)}
+import IO
 import String
 let sent = String.repeat 400000 "x"
-println "%{String.length (sent |> $(sh -c 'cat'))}"|})
+IO.println "%{String.length (sent |> $(sh -c 'cat'))}"|})
   in
   Alcotest.(check int) "the script ran" 0 code;
   Alcotest.(check string) "everything written came back" "400000\n" out
@@ -109,7 +111,8 @@ let test_piped_command_keeps_its_stderr () =
     finished "a command on the right of |>"
       (run_script
          {|uses {IO, Shell(sh)}
-println ("got " ++ ("hello" |> $(sh -c 'echo explained >&2; cat')))|})
+import IO
+IO.println ("got " ++ ("hello" |> $(sh -c 'echo explained >&2; cat')))|})
   in
   Alcotest.(check int) "the script ran" 0 code;
   Alcotest.(check string) "the answer" "got hello\n" out;
@@ -124,13 +127,14 @@ let test_closed_reader_still_releases () =
   let src = Printf.sprintf
     {|uses {IO, FS.Write}
 import FS
+import IO
 import List
 import Path
 import Resource
 import String
 let mark = fn s -> FS.write_file! (Path.of_string "%s") s
 let held = Resource.make (fn () -> mark "held") (fn _ -> mark "released")
-with held as _ -> List.each (fn i -> println "%%{i} %%{String.repeat 200 "x"}") (List.range 1 5000)|}
+with held as _ -> List.each (fn i -> IO.println "%%{i} %%{String.repeat 200 "x"}") (List.range 1 5000)|}
     marker
   in
   let path = write_script src in

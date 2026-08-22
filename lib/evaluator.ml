@@ -668,8 +668,18 @@ let normalized = function
   | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ -> true
   | _ -> false
 
+(* A value that holds code. Two of these cannot be compared, and the walk
+   has to say so itself: OCaml's `compare` raises only when it reaches the
+   function inside, and two closures whose bodies already differ answer
+   before it gets there. *)
+let functional = function
+  | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> true
+  | _ -> false
+
 let rec wand_equal a b =
   match a, b with
+  | _ when functional a || functional b ->
+    raise (EvalError "cannot compare functions for equality")
   | _ when normalized a && normalized b ->
     (try wand_order a b = 0 with EvalError _ -> false)
   (* A value that normalizes can sit inside another value, so the walk goes
@@ -692,7 +702,9 @@ let rec wand_equal a b =
    order, so it keeps structural comparison and reaches for `wand_order`
    only where wand defines one. *)
 let wand_compare a b =
-  if normalized a && normalized b then wand_order a b
+  if functional a || functional b then
+    raise (EvalError "cannot order functions")
+  else if normalized a && normalized b then wand_order a b
   else
     try compare a b
     with Invalid_argument _ -> raise (EvalError "cannot order functions")
@@ -2113,8 +2125,8 @@ let stream_builtins : env = [
 ]
 
 let stdlib_eval_env : env = [
-  ("print",      VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
-  ("println",    VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
+  ("io_print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
+  ("io_println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
   ("proc_exit",  performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
   (* A deadline on the commands a thunk runs. It is set for the extent of
      the call and taken off after, so a command outside the thunk waits as
@@ -3610,10 +3622,10 @@ let () = derive_encoder := encoder_value
 
 let stdlib_eval_env = stdlib_eval_env @ map_builtins @ decode_builtins @ stream_builtins
 
-(* User-visible globals — the only names available without an import *)
+(* Every function a file calls comes from a module it imported. These two
+   are constructors of a built-in type, so there is no module to import
+   them from. *)
 let base_eval_env : env = [
-  ("print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
-  ("println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
 ]

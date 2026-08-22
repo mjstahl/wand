@@ -53,8 +53,8 @@ let pods out =
 
 let report limit pods =
   match flapping limit pods with
-  | [] -> println "no pod has restarted more than %{limit} times"
-  | bad -> bad |> List.each (fn p -> println (summary p))
+  | [] -> IO.println "no pod has restarted more than %{limit} times"
+  | bad -> bad |> List.each (fn p -> IO.println (summary p))
 
 -- The command runs in `main!`, so importing this file runs nothing and a
 -- test can hand `pods` a document of its own.

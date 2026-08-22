@@ -1,5 +1,6 @@
 uses {Env, FS.Read, IO}
 
+import IO
 import List
 import String
 import Map
@@ -36,7 +37,7 @@ let count k =
 let components =
   List.length (List.filter (fn k -> String.starts_with? "c:" k) (Map.keys counts))
 
-println "ERROR %{count "ERROR"}"
-println "WARN %{count "WARN"}"
-println "INFO %{count "INFO"}"
-println "components-with-errors %{components}"
+IO.println "ERROR %{count "ERROR"}"
+IO.println "WARN %{count "WARN"}"
+IO.println "INFO %{count "INFO"}"
+IO.println "components-with-errors %{components}"

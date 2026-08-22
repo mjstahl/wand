@@ -289,10 +289,10 @@ let operations : operation list =
     { op_name = "IO!print"; op_effect = IO;
       (* Printing takes whatever it is given. *)
       op_types = (fun () -> Some (fresh (), TUnit));
-      op_performers = ["print"; "IO.print"] };
+      op_performers = ["IO.print"] };
     { op_name = "IO!println"; op_effect = IO;
       op_types = (fun () -> Some (fresh (), TUnit));
-      op_performers = ["println"; "IO.println"] };
+      op_performers = ["IO.println"] };
     { op_name = "IO!print_err"; op_effect = IO;
       op_types = (fun () -> Some (fresh (), TUnit));
       op_performers = ["IO.print_err"] };
@@ -716,10 +716,12 @@ let foreign_name_hint = function
   | "raise" | "throw" ->
     Some "errors are values: return an Error, call a !-suffixed \
           function to raise, or wrap a call with try"
-  | "printf" | "puts" | "print_endline" | "print_string" | "print_newline"
-  | "print_int" | "print_float" | "console" ->
-    Some "printing is println (or IO.println)"
-  | "echo" -> Some "println prints a line; $(echo ...) runs the command"
+  | "print" | "println" | "printf" | "puts" | "print_endline"
+  | "print_string" | "print_newline" | "print_int" | "print_float"
+  | "console" ->
+    Some "printing is IO.println (import IO)"
+  | "echo" ->
+    Some "IO.println prints a line (import IO); $(echo ...) runs the command"
   | "lambda" -> Some "a lambda is 'fn x -> ...'"
   | "elif" -> Some "write 'else if'"
   | "len" -> Some "List.length and String.length measure things"
@@ -2506,8 +2508,8 @@ let infer_expr (e : expr) : (typ, string) result =
 
 (* All primitives — used when typechecking stdlib modules *)
 let stdlib_type_env : env = [
-  ("print",      let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
-  ("println",    let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
+  ("io_print",   let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
+  ("io_println", let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_set.Proc] (TInt) (a)));
   ("clock_sleep", generalize [] (effs [Effect_set.Clock] (TDuration) (TUnit)));
   ("clock_now", generalize [] (effs [Effect_set.Clock] (TUnit) (TDateTime)));
@@ -2877,11 +2879,10 @@ let builtin_tenv : typedef_env = [
   ("ShellResult", shell_result_tdef);
 ]
 
-(* User-visible globals — the only names available without an import *)
-let builtin_type_env : env = [
-  ("print",   let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
-  ("println", let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
-]
+(* Every function a file calls comes from a module it imported, so nothing
+   is in scope here. `Ok` and `Error` are constructors of a built-in type,
+   which the typechecker knows about elsewhere. *)
+let builtin_type_env : env = []
 
 (* ── Manifests ────────────────────────────────────────────────────────────── *)
 

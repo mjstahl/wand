@@ -441,7 +441,7 @@ if x > 0 then "positive" else "non-positive"
 An `if` with nothing to do when the condition is false leaves the branch out:
 
 ```ocaml
-if stashes > 0 then println "Stashes: %{stashes} saved"
+if stashes > 0 then IO.println "Stashes: %{stashes} saved"
 ```
 
 This is the same expression as `else ()`. It is not a second kind of
@@ -517,8 +517,8 @@ Expressions evaluated for their effects are separated with `;`; the value of
 the sequence is the last expression:
 
 ```ocaml
-println "starting";
-println "working";
+IO.println "starting";
+IO.println "working";
 42
 ```
 
@@ -2286,6 +2286,12 @@ stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 `Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
 `Resource`, `Stream` and `Proc`.
 
+Every function a file calls comes from a module it imported, with no
+exceptions. Printing is `IO.println`, so a file that prints writes
+`import IO`. The only names in scope without an import are `Ok` and
+`Error`, which are constructors of a built-in type and have no module to
+come from.
+
 Imported names are available under the module prefix:
 
 ```ocaml
@@ -3599,7 +3605,9 @@ A script can also run itself, with a shebang line and the executable bit:
 
 ```ocaml
 #!/usr/bin/env wand
-println "hello"
+uses {IO}
+import IO
+IO.println "hello"
 ```
 
 ```sh

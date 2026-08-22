@@ -301,8 +301,8 @@ let code_action_at id uri sl el =
              ("context", `Assoc [("diagnostics", `List [])])])
 
 let test_code_action_updates_manifest () =
-  let text = "uses {IO}\nimport FS\nlet r = FS.write_file! /tmp/wand_lsp_ca \"hi\"\nprintln \"done\"\n" in
-  let (_, outs) = session [did_open uri text; code_action_at 18 uri 0 3] in
+  let text = "uses {IO}\nimport FS\nimport IO\nlet r = FS.write_file! /tmp/wand_lsp_ca \"hi\"\nIO.println \"done\"\n" in
+  let (_, outs) = session [did_open uri text; code_action_at 18 uri 0 4] in
   match items_of (response_for 18 outs) with
   | [action] ->
     Alcotest.(check bool) "titled as a manifest update" true

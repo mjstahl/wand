@@ -88,7 +88,7 @@ it is written, so the last import of a name decides every use of it:
 
 ```ocaml
 let {f} = import ./a
-let () = println (f 1)     -- ./b's f, not ./a's
+let () = IO.println (f 1)  -- ./b's f, not ./a's
 let {f} = import ./b
 ```
 

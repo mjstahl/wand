@@ -301,8 +301,10 @@ handle Env.get! "ANYTHING" with
    construct. The branch must therefore be Unit, and saying only "expected
    Unit, got Int" would leave the reader looking for the Unit. *)
 let test_one_armed_if () =
-  ok "does the thing"      "if 1 > 0 then println \"a\"" "()";
-  ok "or does nothing"     "if 1 > 2 then println \"a\"" "()";
+  ok "does the thing"
+    "uses {IO}\nimport IO\nif 1 > 0 then IO.println \"a\"" "()";
+  ok "or does nothing"
+    "uses {IO}\nimport IO\nif 1 > 2 then IO.println \"a\"" "()";
   err_contains "a branch that is not Unit says why"
     "if true then 1"
     "an `if` with no `else` does nothing when the condition is false";
@@ -603,7 +605,8 @@ let test_contract_clauses_must_be_bool () =
 let test_unbound_names () =
   rejects "unbound variable" "x";
   rejects_program "unbound in a let" "let x = y; x";
-  rejects_program "unbound argument" "println undefined_var"
+  rejects_program "unbound argument"
+    "uses {IO}\nimport IO\nIO.println undefined_var"
 
 (* `file*.txt` is not multiplication: `*.txt` lexes as a glob, so it reads as
    applying `file` to it. "unbound variable 'file'" sends the reader after a

@@ -20,9 +20,8 @@ let test_bare_ident () =
     (contains_str candidates "frobnicate")
 
 let test_builtins_without_env () =
-  let { Complete.candidates; _ } = Complete.ident_at [] "prin" in
-  Alcotest.(check bool) "print" true (contains_str candidates "print");
-  Alcotest.(check bool) "println" true (contains_str candidates "println")
+  let { Complete.candidates; _ } = Complete.ident_at [] "O" in
+  Alcotest.(check bool) "Ok" true (contains_str candidates "Ok")
 
 let test_namespace_member () =
   let { Complete.start; candidates } =

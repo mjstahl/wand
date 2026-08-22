@@ -35,7 +35,7 @@ let blockers floor (r: Release) =
 
 let report floor r =
   match blockers floor r with
-  | [] -> println "ready"
+  | [] -> IO.println "ready"
   | reasons -> (reasons |> List.each (fn why -> IO.println_err why); Proc.exit 1)
 
 let read path =

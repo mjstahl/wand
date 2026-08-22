@@ -1,10 +1,10 @@
 uses {IO}
 
 -- Print a value without a trailing newline.
-let print = print
+let print v = io_print v
 
 -- Print a value followed by a newline.
-let println = println
+let println v = io_println v
 
 -- Print a value to stderr without a trailing newline.
 let print_err s = io_print_err s

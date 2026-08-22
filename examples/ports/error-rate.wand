@@ -47,7 +47,7 @@ let share (tally: Tally) =
 
 let report limit (tally: Tally) = (
   let served = tally.ok + tally.failed;
-  println
+  IO.println
     "%{served} requests, %{tally.failed} of them 5xx (%{Float.format 1 (share tally)}%)";
   if share tally > limit then (IO.println_err "over the %{limit}% budget"; Proc.exit 1)
 )

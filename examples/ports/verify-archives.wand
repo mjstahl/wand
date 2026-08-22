@@ -72,7 +72,7 @@ let failures checked =
 let report! limit dir = (
   let files = FS.glob_in *.sha256 dir;
   let bad = failures (verify! limit files);
-  println "%{List.length files} checked, %{List.length bad} failed";
+  IO.println "%{List.length files} checked, %{List.length bad} failed";
   match bad with
   | [] -> ()
   | _ -> (

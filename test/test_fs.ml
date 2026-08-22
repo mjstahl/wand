@@ -197,8 +197,9 @@ let rehearse src =
 let temp_dir_script =
   {|uses {FS.Read, FS.Write, IO}
 import FS
+import IO
 import Path
-with FS.temp_dir "build-" as d -> println (Path.to_string d)|}
+with FS.temp_dir "build-" as d -> IO.println (Path.to_string d)|}
 
 let test_a_rehearsal_names_a_fresh_directory () =
   if not (Sys.file_exists wand_binary) then

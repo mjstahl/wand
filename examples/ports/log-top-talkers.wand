@@ -33,9 +33,9 @@ let busiest n counts =
   counts |> Map.to_list |> List.sort_by (fn (who, count) -> (0 - count, who)) |> List.take n
 
 let report counts = (
-  println "Top talkers";
-  println "-----------";
-  busiest 5 counts |> List.each (fn (who, count) -> println "%{count}\t%{who}")
+  IO.println "Top talkers";
+  IO.println "-----------";
+  busiest 5 counts |> List.each (fn (who, count) -> IO.println "%{count}\t%{who}")
 )
 
 -- The stream is in `main` rather than in a binding: an import runs a

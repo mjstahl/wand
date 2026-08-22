@@ -77,7 +77,7 @@ let render (o: Opts) =
 
 let main () =
   match Args.parse_with ["verbose"] opts (Env.args ()) with
-  | Ok o -> println (render o)
+  | Ok o -> IO.println (render o)
   | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
 
 main ()

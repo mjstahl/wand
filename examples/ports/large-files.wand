@@ -37,9 +37,9 @@ let over limit dir =
     |> List.reverse
 
 let report limit dir = (
-  println "Over %{Size.format limit} in %{Path.to_string dir}";
+  IO.println "Over %{Size.format limit} in %{Path.to_string dir}";
   over limit dir
-    |> List.each (fn (p, size) -> println "%{Size.format size}\t%{Path.to_string p}")
+    |> List.each (fn (p, size) -> IO.println "%{Size.format size}\t%{Path.to_string p}")
 )
 
 let main () = report 4KB ./stdlib

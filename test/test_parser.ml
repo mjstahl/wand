@@ -38,8 +38,14 @@ let test_a_binding_in_a_block () =
   runs "one binding" "(let x = 1; x + 2)" "3";
   runs "two, in one block" "(let x = 1; let y = 2; x + y)" "3";
   runs "each sees the one before" "(let x = 1; let y = x + 1; y * 3)" "6";
-  runs "statements after it" {|(let x = 1; println "a"; x + 1)|} "2";
-  runs "a binding after a statement" {|(println "a"; let x = 1; x)|} "1";
+  runs "statements after it"
+    {|uses {IO}
+import IO
+(let x = 1; IO.println "a"; x + 1)|} "2";
+  runs "a binding after a statement"
+    {|uses {IO}
+import IO
+(IO.println "a"; let x = 1; x)|} "1";
   (* Every binding form reaches the same place in the parser. *)
   runs "annotated" "(let x : Int = 1; x + 1)" "2";
   runs "a function" "(let helper y = y + 1; helper 4)" "5";
@@ -67,7 +73,7 @@ let test_a_dead_binding_becomes_live () =
    silent before -- the binding took Unit for a body. *)
 let test_a_block_cannot_end_with_a_binding () =
   refuses "on its own" "(let x = 1)" "this binding has no body";
-  refuses "after a statement" {|(println "a"; let x = 1)|} "this binding has no body";
+  refuses "after a statement" {|(IO.println "a"; let x = 1)|} "this binding has no body";
   refuses "with a trailing semicolon" "(let x = 1;)" "this binding has no body"
 
 (* ── A type on a pattern ─────────────────────────────────────────────────── *)

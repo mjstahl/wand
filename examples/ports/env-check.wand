@@ -38,7 +38,7 @@ let describe gap =
 
 let check names =
   match gaps names with
-  | [] -> println "%{List.length names} variables, all set"
+  | [] -> IO.println "%{List.length names} variables, all set"
   | found -> (found |> List.each (fn gap -> IO.println_err (describe gap)); Proc.exit 1)
 
 let main () = check ["DATABASE_URL", "API_TOKEN", "DEPLOY_ENV"]

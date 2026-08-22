@@ -1,6 +1,7 @@
 uses {IO, Shell(echo, git)}
 
 import Decode
+import IO
 import List
 import Shell
 
@@ -31,8 +32,8 @@ let status_msg = if dirty > 0 then "%{dirty} file(s) changed" else "clean"
 let sync_msg =
   if ahead > 0 || behind > 0 then "^%{ahead} ahead  v%{behind} behind" else "up to date"
 
-println "Branch:  %{branch}"
-println "Status:  %{status_msg}"
-println "Sync:    %{sync_msg}"
-if stashes > 0 then println "Stashes: %{stashes} saved"
-println "Last:    %{last}"
+IO.println "Branch:  %{branch}"
+IO.println "Status:  %{status_msg}"
+IO.println "Sync:    %{sync_msg}"
+if stashes > 0 then IO.println "Stashes: %{stashes} saved"
+IO.println "Last:    %{last}"

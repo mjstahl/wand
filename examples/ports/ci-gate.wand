@@ -26,10 +26,10 @@ let failed stages = List.filter (fn (_, ok?) -> !ok?) stages
 
 let report stages = (
   stages
-    |> List.each (fn (name, ok?) -> println "%{if ok? then "ok  " else "FAIL"} %{name}");
+    |> List.each (fn (name, ok?) -> IO.println "%{if ok? then "ok  " else "FAIL"} %{name}");
   match failed stages with
-  | [] -> println "all stages passed"
-  | bad -> (println "%{List.length bad} stage(s) failed"; Proc.exit 1)
+  | [] -> IO.println "all stages passed"
+  | bad -> (IO.println "%{List.length bad} stage(s) failed"; Proc.exit 1)
 )
 
 -- The commands run in `main`, so importing this file runs none of them and
