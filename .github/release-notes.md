@@ -6,7 +6,8 @@ One comment anywhere inside a top-level definition used to make the whole
 definition a verbatim copy of the source. None of its code was formatted,
 and `tools/check_fmt.wand` could not see in either — so a definition was
 exempt in proportion to how well it was commented. Ten files in this
-repository held definitions the formatter had never once formatted.
+repository held definitions the formatter had never once formatted; none
+do now.
 
     let f xs =
       match xs with
@@ -14,8 +15,10 @@ repository held definitions the formatter had never once formatted.
       -- why the next arm is what it is
       | [h :: t] ->    h+1        -- this line was never formatted
 
-A comment on its own line is now written above the match arm, block
-statement or list element it sits on, and the rest is printed as usual.
+A comment on its own line is written above whatever it introduces — a
+match arm, a statement in a block, an element of a list, a `let ... in`
+binding, or the body of the definition itself — and the rest is printed as
+usual.
 
 ### What is left alone
 
