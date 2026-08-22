@@ -107,23 +107,31 @@ is half of what makes the shell version bad. Found porting
 
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
-field to its own name, the way `{a, b}` already puns for maps. Noted in
-[`docs/design/shell-corpus.md`](design/shell-corpus.md).
+field to its own name, the way `{a, b}` already puns for maps. Found
+porting the shell corpus.
 
 ## The standard library
 
-Found by porting shell scripts. Each is argued at length in
-[`docs/design/shell-corpus.md`](design/shell-corpus.md).
+Found by porting shell scripts, in `examples/ports/`. Each is a decision
+rather than an omission: the corpus reached all twelve of the jobs it set
+out to cover without them.
 
-**No permissions, no symlinks, no ownership.** No `chmod`, `chown`,
-`symlink` or `readlink`, and no mode on a stat. An ssh key needs `0600` and
-a script needs `+x`, so provisioning is a row of `$()` calls. This is what
-stops a provisioning script — users, packages, keys, firewall — from being
-written in wand at all.
+**No permissions, no symlinks, no ownership, on purpose.** No `chmod`,
+`chown`, `symlink` or `readlink`, and no mode on a stat. They are POSIX
+one-liners on every machine, so `provision-host.wand` calls them through
+`$()` with the manifest recording `Shell(chmod, ln)`. The cost is that
+`chmod` and `ln -sfn` exit 0 whether or not they changed anything, so a
+step cannot report that it had nothing to do; reading a mode back is the
+one part a shell cannot do portably (`stat -c '%a'` is GNU, `stat -f
+'%Lp'` is BSD), and a mode wants a domain type rather than a string of
+octal digits to be worth having. Revisit when something needs it.
 
-**No process surface beyond exiting.** `Proc` has `exit`. No pid, no "is it
-running", no signal, no listing. Managing a daemon goes through `$(ps)` and
-`$(kill)` and parses text.
+**No process surface beyond exiting, on purpose.** `Proc` has `exit`. No
+pid, no "is it running", no signal, no listing. Managing a daemon goes
+through `$(ps)` and `$(kill)` and parses text. No port ever reached for
+it, and signalling a process this program did not start is a different
+authority from the rest of the effect set — which is about what this
+program itself does — with no word for it in a manifest.
 
 **No HTTP client, on purpose.** A script that talks to an API goes through
 `$(curl ...)`, and stays there. `curl` is on every machine a script runs

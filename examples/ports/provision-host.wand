@@ -26,12 +26,19 @@ import Shell
 -- as a value. Each step names the one code that means "already done", so
 -- everything else is still a failure and stays one.
 --
--- This is the row where wand shells out for nearly all of it. There is no
--- `chmod`, no `symlink`, and no ownership in `FS` (see G4 in the design
--- doc), so those two steps are `$()` calls and read like it. What wand
--- adds here is the manifest -- every binary this file may run is on line
--- one, checked -- and an exit code that has to be looked at rather than
--- discarded.
+-- This is the row where wand shells out for nearly all of it. Nothing in
+-- `FS` sets a mode, a symlink or an owner, so those two steps are `$()`
+-- calls and read like it. What wand adds is the manifest -- every binary
+-- this file may run is on line one, checked -- and an exit code that has
+-- to be looked at rather than discarded.
+--
+-- What an exit code cannot do is worth knowing, because it bounds the two
+-- steps below it: `chmod` and `ln -sfn` exit 0 whether or not they changed
+-- anything. So those two always report `made`, and a run that changed
+-- nothing cannot say so. Telling them apart means reading the mode and the
+-- link back, and reading a mode is the one thing here a shell cannot do
+-- portably -- `stat -c '%a'` is GNU, `stat -f '%Lp'` is BSD. That is the
+-- price of the decision, paid here.
 
 -- What a step's exit code meant. `Failed` carries the code because the
 -- number is what tells someone which failure it was.
@@ -53,9 +60,10 @@ let steps = [
 let outcome (step: Step) (r: ShellResult) =
   if r.code == 0 then Made else if r.code == step.done? then Already else Failed r.code
 
--- A run changed the host if any step did. The second run of a correct
--- script answers false, which is the property `|| true` cannot report
--- because it cannot tell the cases apart.
+-- A run changed the host if any step did. `|| true` cannot report this at
+-- all; here it is right for the package and the user, whose exit codes
+-- distinguish, and always true while the last two steps are told rather
+-- than asked.
 let changed? results = List.any (fn (_, o) -> o == Made) results
 
 -- The name and code of a step that failed, and nothing for one that did

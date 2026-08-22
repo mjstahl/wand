@@ -1,11 +1,10 @@
 # Design: porting a shell corpus
 
-**Status: in progress.** A plan for what to port, where the port will hit
-a wall, and what each wall costs to remove. Eighteen ports are in
-`examples/ports/`, covering all twelve rows. The doc retires when the
-corpus lands in `examples/` and the gaps it names are either closed or
-deliberately declined; **G4** and **G5** are open and undecided, which is
-what is left.
+**Status: done.** A plan for what to port, where the port will hit a wall,
+and what each wall costs to remove. Eighteen ports are in
+`examples/ports/`, covering all twelve rows, and every gap it names is
+closed or declined. The friction inventory it produced lives on in
+[`../gaps.md`](../gaps.md).
 
 ## The problem
 
@@ -290,7 +289,7 @@ would be. Neither follows a symlink out of the tree — a delete unlinks it,
 a copy recreates it — so a tree that links to itself is not a way to fill
 the disk. `rsync` remains unmatched, and is not the same job.
 
-### G4 — no permissions, no symlinks, no ownership
+### G4 — no permissions, no symlinks, no ownership — declined
 
 No `chmod`, no `chown`, no `symlink`, no `readlink`, no mode on a stat.
 An ssh key needs `0600` or ssh refuses it; a script needs `+x` or it does
@@ -298,6 +297,22 @@ not run; half of provisioning is links into `/etc`. Row 12 is
 consequently a row of `$()` calls, which is a legitimate answer — the
 manifest still records `Shell(chmod, ln)` — but it means the ported
 script is bash with extra steps, and reads that way.
+
+Declined, and row 12 is ported on those terms:
+[`provision-host`](../../examples/ports/provision-host.wand). `chmod`, `ln`
+and `chown` are POSIX one-liners on every machine a script runs on, and
+wrapping them adds a surface without adding an answer — the reasoning that
+declines an HTTP client in G6.
+
+The reading half was weighed separately and declined with it. `chmod` and
+`ln -sfn` exit 0 whether or not they changed anything, so a script built
+out of exit codes reports "changed" on every run; telling those apart
+needs the mode and the link read back, and reading a mode is the one part
+of this a shell cannot do portably (`stat -c '%a'` is GNU, `stat -f '%Lp'`
+is BSD). But a mode wants a domain type to be worth having — a `String` of
+octal digits is the weak version of one, and a `Mode` literal is a
+language change for a single caller. Not at this stage. The port states
+the limit where it bites, which is the honest version of not having it.
 
 Ported on those terms:
 [`provision-host`](../../examples/ports/provision-host.wand). Two of its
@@ -313,13 +328,21 @@ steps into `FS` and leave the rest as it is.
 Closing it is unglamorous surface area: a `Mode` type or an octal
 literal, and six or so `FS` functions.
 
-### G5 — no process surface beyond exiting
+### G5 — no process surface beyond exiting — declined
 
 `Proc` has `exit` and nothing else. No pid, no "is it running," no
 sending a signal, no process listing. Anything that manages a daemon
 rather than merely invoking one — which is most of what a service script
 does — goes through `$(ps)` and `$(kill)` and parses text, which is the
 practice wand exists to end.
+
+Declined. No row needed it: all twelve are ported and none reached for a
+process it had not started — it is the one gap on this list no port ever
+hit. Signalling a pid this program did not spawn is also a different kind
+of authority from the rest of the effect set, which is about what this
+program itself does, and the manifest has no word for it; `Shell(kill)` at
+least names the binary. Worth revisiting when a job turns up that needs
+it.
 
 ### G6 — no HTTP client — decided
 
@@ -567,11 +590,9 @@ covered end to end.
    `FS.copy_tree` close G3, and `Shell.ok?` answers the question every
    ported script asks first.
 6. ~~**Port the rest**, in row order.~~ All twelve rows are ported.
-7. **Decide G4 and G5.** Both are open, and neither blocks a row any
-   longer: row 12 shells out for permissions and links, and nothing in
-   the table needs a process surface. So each is now a question about the
-   language's scope rather than about the corpus, and answering them —
-   either way — is what retires this doc.
+7. ~~**Decide G4 and G5.**~~ Both declined: permissions and links stay
+   `$()` calls, and nothing that manages a process it did not start is
+   worth a surface yet. Neither blocked a row.
 
 The original plan had step 3 first and no steps 1 or 2 at all, which is
 the argument for doing a handful of ports before designing anything: four
