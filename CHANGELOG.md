@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.40.0] - 2026-08-22
+
+### Added
+
+- `type X = <a type>` is an alias: another name for a type that already
+  exists. `type Point = (Int, Int)`, `type Ids = List Int`,
+  `type F = Int -> Int`, `type This = That`. It is transparent — the two are
+  one type, interchangeable in both directions — so it buys a name to read
+  and write, not a distinct type; a record is still what the checker keeps
+  apart. A type shows with the alias it was written as, `Point (= (Int,
+  Int))`, so the name in the source is the name in the message
+- `type Point = (Int, Int)` and `type F = Int -> Int` parse at all, which
+  they did not before
+
+### Changed
+
+- **Breaking:** `Url` is `URL`. An acronym is written in capitals, which
+  `IPv4`, `CIDR`, `JSON`, `TOML` and `CSV` already were. The old spelling is
+  an unknown type whose hint names the new one — which meant teaching that
+  hint about built-in type names at all, so `Strig` now suggests `String`
+- **Breaking:** a name declares one thing. Two `type` declarations of one
+  name, or two constructors sharing one, were taken silently, and which of
+  them won differed between a file and the REPL. The loser stayed
+  constructible and stopped being matchable, so a declared type could no
+  longer be taken apart and nothing said why. A file refuses it now; the
+  REPL still replaces, which is what a REPL is for
+- **Breaking:** a built-in type's name cannot be declared. `type Size(a:
+  Int)` was accepted, and then field access on the result answered "field
+  access requires a named type, got Size" — the name resolved to the
+  built-in while the constructor came from the declaration. Ten names did
+  this
+- A name that is a type rather than a constructor says so, instead of being
+  called an unknown constructor and sending the reader after a declaration
+  that is right there
+
+[0.40.0]: https://github.com/mjstahl/wand/releases/tag/v0.40.0
+
 ## [0.39.0] - 2026-08-22
 
 ### Added
