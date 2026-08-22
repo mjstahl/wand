@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.34.0] - 2026-08-22
+
+### Changed
+
+- **Breaking:** a comment is `--` to the end of the line, and that is the
+  whole form. `(*` is a lex error that names it. A comment reads no
+  brackets, so pasted text survives whatever it holds — including the `*)`
+  that a shell `case` arm writes
+- **Breaking:** documentation is a run of comment lines directly above a
+  definition, which `wand d` and an editor hover print. Each line stands
+  alone, the lines are consecutive, and the last one sits on the line
+  above, so a comment after code documents nothing and a blank line ends
+  the run
+
+[0.34.0]: https://github.com/mjstahl/wand/releases/tag/v0.34.0
+
 ## [0.33.0] - 2026-08-21
 
 ### Added

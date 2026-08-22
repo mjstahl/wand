@@ -1,31 +1,20 @@
-## 0.33.0 - 2026-08-21
+## 0.34.0 - 2026-08-22
 
-### A test can stand in for `$?(cmd)`
+A comment is `--` to the end of the line, and that is the whole form. It
+reads no brackets, so pasted text survives whatever it holds.
 
-`Test.with_shell` stood in for `$(cmd)` and nothing else. `$?(cmd)` — the
-form that reports an exit code instead of raising on one — ran for real, so
-a mock written for a script that inspects an exit code did nothing, and the
-test passed for the wrong reason.
+### Documentation is a run of comment lines
 
-`Test.with_shell` and `Test.shell_calls` now stand in for both forms. A
-`$?(cmd)` they answer exits zero and carries the output written for that
-command.
+    -- Whether a command succeeded: its exit code is zero.
+    --
+    -- `$?(cmd)` gives a `ShellResult`, and the first thing a script asks
+    -- of one is whether it worked.
+    let ok? (r: ShellResult) = r.code == 0
 
-### And give it the exit code it turns on
-
-No output expresses a failure, so `Test.with_shell_results` supplies whole
-results:
-
-    let red = ShellResult(stdout = "", stderr = "", code = 1)
-
-    test "a red build stops the gate" (fn t ->
-      t.eq
-        [("test", false)]
-        (Test.with_shell_results [("dune test", red)] (fn () -> gate ())))
-
-A command the test does not name exits zero with no output. `$(cmd)` is not
-answered there, because a failure in that form is a raise and not a value.
-A script that uses both forms nests `with_shell` around it.
+`wand d` prints it, and so does an editor on hover. Each line stands alone,
+the lines are consecutive, and the last one sits on the line above the
+definition. A comment after code documents nothing, and a blank line ends
+the run.
 
 ---
 
