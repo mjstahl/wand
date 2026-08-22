@@ -1,34 +1,39 @@
-## 0.37.0 - 2026-08-22
+## 0.38.0 - 2026-08-22
 
-Printing comes from a module.
+`wand f` now formats the inside of a definition that has a comment in it.
 
-    uses {IO}
-    import IO
-    IO.println "hi"
+One comment anywhere inside a top-level definition used to make the whole
+definition a verbatim copy of the source. None of its code was formatted,
+and `tools/check_fmt.wand` could not see in either — so a definition was
+exempt in proportion to how well it was commented. Ten files in this
+repository held definitions the formatter had never once formatted.
 
-`print` and `println` were the only functions a file could call without an
-import. They are gone. Printing is `IO.print` and `IO.println`, and a file
-that prints writes `import IO`.
+    let f xs =
+      match xs with
+      | [] -> 0
+      -- why the next arm is what it is
+      | [h :: t] ->    h+1        -- this line was never formatted
 
-One rule is now true with no exceptions: every function a file calls comes
-from a module it imported. `Ok` and `Error` stay — constructors of a
-built-in type have no module to come from.
+A comment on its own line is now written above the match arm, block
+statement or list element it sits on, and the rest is printed as usual.
 
-### Updating a script
+### What is left alone
 
-The old spelling names the new one where the mistake is:
+A comment that follows code on its line is about that code. Lifting it onto
+a line of its own would point it at the line below, so its definition is
+left exactly as written.
 
-    unbound variable 'println' -- printing is IO.println (import IO)
-
-That is the same answer `printf`, `puts` and `echo` already gave. Add
-`import IO`, and write the calls qualified.
+Every comment is counted in the formatted definition, and anything but
+exactly once puts the definition back to a verbatim copy. A comment cannot
+be dropped, duplicated or moved.
 
 ### Also fixed
 
-Comparing two functions raises, whichever functions they are. `==` and
-`List.sort` waited for the runtime to reach the function inside, so two
-wand-defined functions whose bodies already differ compared as ordinary
-values and sorted into an order that meant nothing.
+A `let ... in` arm body too wide for the arrow's line put its continuation
+at the arm's own indent, level with the `|` above it, where it read as the
+next arm rather than the rest of this one. It now takes the block shape a
+nested match takes. This was a separate fault that the old behaviour had
+been hiding.
 
 ---
 
