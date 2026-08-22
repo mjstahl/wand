@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.41.0] - 2026-08-22
+
+### Added
+
+- `JSON.of` and `JSON.of!` write any value as JSON in one call: numbers,
+  text, every domain type, lists, maps, options and records, and any nesting
+  of them. A structure no longer has to be converted a piece at a time —
+  `JSON.of! [1, 2, 3]` where it was
+  `JSON.of_list (List.map JSON.of_int [1, 2, 3])`. What cannot be written is
+  a value holding code, and that is the `Error`; the `of_*` builders stay,
+  precise and total
+- `TOML.of` and `TOML.of!` build a TOML document. `TOML` had no constructors
+  at all, so a document could be parsed and re-printed but never built from
+  a script's own data. A document is a table, so a bare value says so, and a
+  field that is `None` is left out — TOML has no null, and writing one would
+  not read back the same
+
+### Changed
+
+- `CSV.stringify` and `stringify_with` take `List (List 'a)`. A cell is
+  text and every value has a text form, so a row of numbers or instants
+  needs no conversion first. Both stay total
+- `of` is an ordinary word. It was reserved so that `Circle of Int` could be
+  corrected, and that correction now fires where the mistake is written,
+  after a constructor name, with the same message
+
+### Fixed
+
+- `:reset` in the REPL opens what a session opens with. It built its own
+  list of modules and had been missing eighteen of them since they were
+  added, so a reset session could not reach `Map`, `JSON`, `Test` or twenty
+  others that a fresh one could, and nothing said why
+
+[0.41.0]: https://github.com/mjstahl/wand/releases/tag/v0.41.0
+
 ## [0.40.0] - 2026-08-22
 
 ### Added

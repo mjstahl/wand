@@ -1,60 +1,49 @@
-## 0.40.0 - 2026-08-22
+## 0.41.0 - 2026-08-22
 
-A type can have another name.
+A value can be written out without being converted first.
 
-    type Point = (Int, Int)
-    type Ids   = List Int
-    type F     = Int -> Int
-    type This  = That
+    JSON.of! [1, 2, 3]                        -- [1,2,3]
+    JSON.of! Pod(name = "web", port = 8080)   -- {"name":"web","port":8080}
+    TOML.of! {port = 8080}                    -- port = 8080
+    CSV.stringify [[1, 2], [3, 4]]            -- the two rows, 1,2 and 3,4
 
-`type X = <a type>` is an alias: another name for a type that already
-exists, rather than a new one. It is transparent — the two are one type,
-interchangeable in both directions — so it buys a name to read and write,
-not a distinct type. Nothing stops a `(width, height)` where a `Point` is
-meant; a record, `type Point (x : Int, y : Int)`, is what the checker keeps
-apart.
+`JSON.of_list` and `JSON.of_map` take values already converted, so writing a
+structure meant converting it a piece at a time —
+`JSON.of_list (List.map JSON.of_int xs)`. `JSON.of` writes the whole thing:
+numbers, text, every domain type, lists, maps, options and records, and any
+nesting of them. What it cannot write is a value holding code — a function,
+a resource, a stream — and that is the `Error`. `JSON.of!` raises instead.
+The `of_*` builders stay, precise and total.
 
-A type shows with the alias it was written as, so the name in the source is
-the name in the message:
+### TOML can be written
 
-    let p : Point = (1, 2)        -- p : Point (= (Int, Int))
+`TOML` had no constructors at all. A document could be parsed and
+re-printed, and never built from a script's own data. `TOML.of` and `of!`
+build one.
 
-An alias takes parameters, bound to the arguments at the use site:
+A TOML document is a table, so the value is a map or a record; a bare number
+says so rather than producing something no parser reads back. A field that
+is `None` is left out, because TOML has no null and writing one would not
+read back the same.
 
-    type Pair 'a      = ('a, 'a)
-    type Either 'a 'b = ('a, 'b)
+### CSV takes any cell
 
-    let p : Pair Int = (1, 2)     -- p : Pair Int (= (Int, Int))
+`CSV.stringify` already wrote a non-text cell, and only its signature
+refused one. It takes `List (List 'a)` now and stays total — a cell is text,
+and every value has a text form.
 
-`type Point = (Int, Int)` and `type F = Int -> Int` did not parse at all
-before this.
+A list and a map each hold one type, so a structure whose parts differ is a
+record. That is what `of` walks best.
 
-### A name declares one thing
+### Also
 
-Two `type` declarations of one name, or two constructors sharing one, were
-taken silently — and which of them won differed between a file and the
-REPL, so one text had two meanings. The loser did not merely lose: it
-stayed constructible and stopped being matchable, so a declared type could
-no longer be taken apart and nothing had said why.
+`of` is an ordinary word now. It was reserved so `Circle of Int` could be
+corrected, and that correction fires where the mistake is written instead.
 
-A file refuses it now, naming which declaration to rename. The REPL still
-replaces, which is what a REPL is for.
-
-A built-in's name is taken too. `type Size(a: Int)` was accepted, and then
-field access on the result answered "field access requires a named type,
-got Size" — the name resolved to the built-in while the constructor came
-from the declaration. Ten names did this.
-
-And a name that is a type rather than a constructor now says so, instead of
-being called unknown and sending you after a declaration that is right
-there.
-
-### `Url` is `URL`
-
-An acronym is written in capitals, which `IPv4`, `CIDR`, `JSON`, `TOML` and
-`CSV` already were. The old spelling is an unknown type whose hint names the
-new one — which meant teaching that hint about built-in type names at all,
-so `Strig` now suggests `String`.
+`:reset` in the REPL opens what a session opens with. It built its own list
+of modules and had been missing eighteen of them since they were added, so a
+reset session could not reach `Map`, `JSON` or `Test` while a fresh one
+could.
 
 ---
 
