@@ -1,29 +1,34 @@
-## 0.36.0 - 2026-08-22
+## 0.37.0 - 2026-08-22
 
-wand can read the clock.
+Printing comes from a module.
 
-    Clock.now () - FS.mtime! log > 30d     -- older than thirty days
-    Clock.now () + 1h                      -- an hour from now
+    uses {IO}
+    import IO
+    IO.println "hi"
 
-`Clock.now` answers the current instant in UTC. A `Duration` moves an
-instant, and two instants subtract to the length between them. Two instants
-do not add, and a `Duration` does not subtract an instant.
+`print` and `println` were the only functions a file could call without an
+import. They are gone. Printing is `IO.print` and `IO.println`, and a file
+that prints writes `import IO`.
 
-### Measuring how long work took
+One rule is now true with no exceptions: every function a file calls comes
+from a module it imported. `Ok` and `Error` stay — constructors of a
+built-in type have no module to come from.
 
-    let (took, report) = Clock.timed (fn () -> build ())
+### Updating a script
 
-`Clock.timed` is the only way wand measures a length of time. It reads a
-clock that no correction can move, so it stays right across an NTP step.
-Time while the machine is suspended counts. `V-CLOCK1` names it when a
-length comes from subtracting two readings of `Clock.now`.
+The old spelling names the new one where the mistake is:
 
-### Testing it
+    unbound variable 'println' -- printing is IO.println (import IO)
 
-    Test.at 2026-03-01T00:00:00Z (fn () -> stale? log)
+That is the same answer `printf`, `puts` and `echo` already gave. Add
+`import IO`, and write the calls qualified.
 
-Reading the clock is an effect, so a handler answers it. `Test.at` pins the
-instant, and a test of an age needs neither a real file nor a wait.
+### Also fixed
+
+Comparing two functions raises, whichever functions they are. `==` and
+`List.sort` waited for the runtime to reach the function inside, so two
+wand-defined functions whose bodies already differ compared as ordinary
+values and sorted into an order that meant nothing.
 
 ---
 
