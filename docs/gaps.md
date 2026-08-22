@@ -125,13 +125,6 @@ type the way a `getopts` usage message drifts from its case arms — which
 is half of what makes the shell version bad. Found porting
 `probe-args.wand`, which carries the string and says so.
 
-**A block comment still reads, and still ends early.** A comment is a `--`
-line now, and a run of them above a definition is its documentation. The
-block forms are read for one more release so that `wand f` can rewrite a
-file that carries them; until they are removed, a block comment holding a
-bare `*)` — every shell `case` arm has one — still ends where it was not
-meant to.
-
 **A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
 name and is the form to use. There is no `Repo(name, url)` binding each
 field to its own name, the way `{a, b}` already puns for maps. Noted in

@@ -127,11 +127,11 @@ let test_python_unbound_names () =
 
 let test_c_comment () =
   expect_error "// comment" "1 // one"
-    "or '(* ... *)' -- not '//'"
+    "a comment is '-- ...' to the end of the line, not '//'"
 
 let test_hash_comment () =
   expect_error "# comment" "1 # one"
-    "or '(* ... *)' -- not '# ...'"
+    "a comment is '-- ...' to the end of the line, not '# ...'"
 
 (* ── String interpolation ─────────────────────────────────────────────────── *)
 

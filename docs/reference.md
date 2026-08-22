@@ -3486,10 +3486,6 @@ the line above the definition. So a comment after code documents nothing,
 and a blank line ends the run — which is how a file header stays a file
 header.
 
-wand still reads the block forms `(* ... *)` and `(** ... *)`, and `wand f`
-rewrites them as comment lines. They are removed in the next release, so
-run `wand f` over files that still carry them.
-
 ---
 
 ## Style for scripts
@@ -3845,11 +3841,7 @@ overwrites each file with the formatted text, and prints one line for each
 file. A shell glob works: `wand f stdlib/*.wand` formats every file in
 `stdlib/`.
 
-wand keeps each comment and never drops one. It rewrites a block comment as
-comment lines, which is the one rewrite it does: `(* ... *)` and `(** ... *)`
-come back as `--` lines carrying the same prose, and a sample indented inside
-one keeps its indentation. A comment with code after it on the same line is
-left alone, because `--` would comment that code out. It writes a
+wand keeps each comment and never drops one. It writes a
 function of several equations back as separate clauses, as in
 `let f 0 = ...` and `let f n = ...`. It does not leave the `match` that those
 equations become.

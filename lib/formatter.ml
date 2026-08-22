@@ -1261,28 +1261,10 @@ type comment_tok = { c_offset : int; c_start_line : int; c_end_line : int; c_tex
 let all_comments tokens : comment_tok list =
   List.filter_map (fun (tok, (loc : Token.loc)) ->
     match tok with
-    | Token.Comment text ->
-      let rendered = "(*" ^ text ^ "*)" in
-      let nlines = List.length (String.split_on_char '\n' text) in
-      Some { c_offset = loc.offset; c_start_line = loc.line;
-             c_end_line = loc.line + nlines - 1; c_text = rendered }
     | Token.LineComment text ->
-      (* Rendered back as `--`: the formatter must not rewrite one comment
-         style into the other. A line comment is always exactly one line. *)
+      (* A comment is always exactly one line. *)
       Some { c_offset = loc.offset; c_start_line = loc.line;
              c_end_line = loc.line; c_text = "--" ^ text }
-    | Token.DocComment text ->
-      (* The lexer strips each line's indentation and star prefix, so that
-         `wand d` prints clean prose. Re-indent continuation lines under the
-         opening delimiter rather than emitting them flush left. *)
-      let rendered =
-        "(** "
-        ^ String.concat "\n    " (String.split_on_char '\n' text)
-        ^ " *)"
-      in
-      let nlines = List.length (String.split_on_char '\n' text) in
-      Some { c_offset = loc.offset; c_start_line = loc.line;
-             c_end_line = loc.line + nlines - 1; c_text = rendered }
     | _ -> None
   ) tokens
 
@@ -1362,10 +1344,6 @@ let assemble pieces =
   Buffer.contents buf
 
 let format_source src =
-  (* One comment form: `(* ... *)` is rewritten to `--` lines before
-     anything is laid out, so formatting a file written the old way is the
-     way to move it. See `Comment_style`. *)
-  let src = Comment_style.to_line_comments src in
   let tokens = Lexer.tokenize src in
   let (prog, item_locs) = Parser.parse_program_with_locs tokens in
   let comments = all_comments tokens in

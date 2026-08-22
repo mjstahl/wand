@@ -472,12 +472,12 @@ let assert_contains label out needle =
     Alcotest.failf "%s: expected to find %S in output:\n%s" label needle out
 
 let test_comments_preserved () =
-  let src = "(* a leading comment *)\nlet x = 1\nx + 1" in
+  let src = "-- a leading comment\nlet x = 1\nx + 1" in
   assert_contains "leading comment" (fmt src) "a leading comment";
-  let src2 = "let x = 1 (* trailing note *)\nlet y = 2\nx + y" in
+  let src2 = "let x = 1 -- trailing note\nlet y = 2\nx + y" in
   assert_contains "same-line comment" (fmt src2) "trailing note";
-  let src3 = "(** a doc comment *)\nlet x = 1\nx" in
-  assert_contains "doc comment" (fmt src3) "a doc comment"
+  let src3 = "-- documents the binding below\nlet x = 1\nx" in
+  assert_contains "documentation" (fmt src3) "documents the binding below"
 
 (* A comment inside an item's own span (between multi-equation clauses,
    or inside a function body) must stay where it was, not get silently
@@ -501,12 +501,12 @@ let assert_appears_before label out needle_before needle_after =
     Alcotest.failf "%s: expected %S before %S, got:\n%s" label needle_before needle_after out
 
 let test_interior_comment_position () =
-  let src = "let f 0 = \"zero\"\n(* second clause *)\nlet f n = \"other\"\nf 3" in
+  let src = "let f 0 = \"zero\"\n-- second clause\nlet f n = \"other\"\nf 3" in
   let out = fmt src in
   assert_contains "comment between multi-equation clauses" out "second clause";
   assert_appears_before "comment stays between clauses, not after both"
     out "second clause" "let f n";
-  let src2 = "let f x =\n  (* explain this *)\n  x + 1\nf 5" in
+  let src2 = "let f x =\n  -- explain this\n  x + 1\nf 5" in
   let out2 = fmt src2 in
   assert_contains "comment inside function body" out2 "explain this";
   assert_appears_before "comment stays inside body, not after the function"
@@ -522,43 +522,23 @@ let test_trailing_comment_stays_on_line () =
     (List.exists (fun l ->
        contains l "let x = 1" && contains l "-- trailing")
      (String.split_on_char '\n' out));
-  (* A block comment is rewritten as a line comment, and stays where it was
-     written. *)
-  let out2 = fmt "let x = 1  (* trailing *)\nlet y = 2\nx" in
-  Alcotest.(check bool) "a rewritten trailing comment stays on the binding's line" true
-    (List.exists (fun l ->
-       contains l "let x = 1" && contains l "-- trailing")
-     (String.split_on_char '\n' out2));
-  let out3 = fmt "(* lead *) let x = 1\nx" in
+  let out3 = fmt "-- lead\nlet x = 1\nx" in
   assert_appears_before "a comment written before an item still precedes it"
     out3 "lead" "let x = 1"
 
-(* Documentation is a run of `--` lines above the definition, so a doc
-   comment written the old way comes back as one. Continuation lines are
-   aligned under the opening delimiter, which is alignment and not prose;
-   what sits deeper than it is a sample, and stays indented. *)
-let test_doc_comment_becomes_line_run () =
-  let out = fmt "(** first line\n    second line *)\nlet x = 1\nx" in
+(* Documentation is a run of comment lines above the definition, and the
+   formatter leaves the run where it is: it never merges the lines, and it
+   never puts a blank line between the run and what it documents. *)
+let test_doc_run_kept_together () =
+  let out = fmt "-- first line\n-- second line\nlet x = 1\nx" in
   let lines = String.split_on_char '\n' out in
-  Alcotest.(check bool) "first line" true (List.exists (fun l -> l = "-- first line") lines);
-  Alcotest.(check bool) "second line, flush with the first" true
-    (List.exists (fun l -> l = "-- second line") lines);
-  let sample = fmt "(** prose\n\n        a sample\n\n    more prose *)\nlet x = 1\nx" in
-  Alcotest.(check bool) "a sample keeps the indentation that made it one" true
-    (List.exists (fun l -> l = "--     a sample")
-       (String.split_on_char '\n' sample))
-
-(* The rewrite reaches a comment wherever it sits, and refuses only the one
-   place `--` would change the meaning: code after the comment on its line. *)
-let test_block_comments_become_line_comments () =
-  let body = fmt "let f x = (\n  (* why *)\n  x\n)\nf 1" in
-  assert_contains "a comment inside a body is rewritten" body "-- why";
-  Alcotest.(check bool) "and no block comment is left" false (contains body "(*");
-  let nested = fmt "(* outer (* inner *) after *)\nlet x = 1\nx" in
-  assert_contains "a nested comment is text now" nested "-- outer (* inner *) after";
-  let inline = fmt "let x = (* n *) 1\nx" in
-  Alcotest.(check bool) "code after a comment on its line keeps the brackets" true
-    (contains inline "(* n *)")
+  let rec adjacent = function
+    | a :: b :: c :: _ when a = "-- first line" && b = "-- second line"
+                            && contains c "let x = 1" -> true
+    | _ :: tl -> adjacent tl
+    | [] -> false
+  in
+  Alcotest.(check bool) "the run sits directly above the binding" true (adjacent lines)
 
 (* A verbatim item's slice runs to the next item, absorbing any comment
    between them; if its recorded extent ignores that, a blank line gets
@@ -566,7 +546,7 @@ let test_block_comments_become_line_comments () =
    of the constructs that triggers the verbatim path. *)
 let test_no_blank_between_doc_and_binding () =
   let out =
-    fmt "let a =\n  match try (f ()) with\n  | Ok v -> v\n  | Error _ -> 0\n\n         (** doc *)\nlet b = 2\nb"
+    fmt "let a =\n  match try (f ()) with\n  | Ok v -> v\n  | Error _ -> 0\n\n         -- doc\nlet b = 2\nb"
   in
   let lines = String.split_on_char '\n' out in
   let rec check = function
@@ -905,8 +885,7 @@ let () =
       Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
       Alcotest.test_case "trailing stays on line" `Quick test_trailing_comment_stays_on_line;
-      Alcotest.test_case "doc becomes a line run" `Quick test_doc_comment_becomes_line_run;
-      Alcotest.test_case "blocks become line comments" `Quick test_block_comments_become_line_comments;
+      Alcotest.test_case "doc run kept together" `Quick test_doc_run_kept_together;
       Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;
       Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
     ];

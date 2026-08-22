@@ -109,9 +109,9 @@ let test_doc () =
 
 let test_doc_strings () =
   let sess = make_sess () in
-  (* user-defined doc string is stored *)
+  (* A run of comment lines above a definition is its documentation. *)
   let sess2 = match Runner.run_session sess
-    {|(** Doubles a number. *)
+    {|-- Doubles a number.
 let double x = x * 2|} with
     | Ok (s, _) -> s
     | Error m   -> Alcotest.failf "doc string eval error: %s" m

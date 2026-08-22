@@ -44,7 +44,7 @@ let qualified_refs text : (string * string) list =
   let toks =
     List.filter (fun (t, _) ->
       match t with
-      | Token.Comment _ | Token.LineComment _ | Token.DocComment _ -> false
+      | Token.LineComment _ -> false
       | _ -> true)
       (tokens_of text)
   in

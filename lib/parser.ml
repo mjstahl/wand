@@ -36,11 +36,11 @@ let make tokens =
     paren_depth = 0; top_fns = Hashtbl.create 16; with_owners = 0;
     shell_allow = None }
 
-(* Plain `Comment _` tokens are invisible to the real parser, exactly like
-   `Newline` -- only `DocComment` is left unfiltered (parse_program's
-   dispatch relies on seeing it for doc-string attachment). *)
+(* Comments are invisible to the real parser, exactly like `Newline`. A run
+   of them above a definition is that definition's documentation, which
+   `doc_run_before` reads straight from the token array. *)
 let is_skippable = function
-  | Token.Newline | Token.Comment _ | Token.LineComment _ -> true
+  | Token.Newline | Token.LineComment _ -> true
   | _ -> false
 
 let skip s =
@@ -49,10 +49,9 @@ let skip s =
     s.pos <- s.pos + 1
   done
 
-(* A comment counts as a line break if it's a `Newline` token, or if it's a
-   (possibly multi-line) `Comment` whose text itself contains a newline --
-   there's no separate `Newline` token adjacent to a comment that already
-   spans multiple lines. *)
+(* Only a `Newline` token is a line break. A comment never carries one: it
+   runs to the end of its line, and the `Newline` that follows supplies the
+   break. *)
 let has_newline_before_next s =
   let i = ref s.pos in
   let seen_break = ref false in
@@ -60,11 +59,6 @@ let has_newline_before_next s =
   while !continue_ && !i < Array.length s.tokens do
     (match fst s.tokens.(!i) with
      | Token.Newline -> seen_break := true; incr i
-     | Token.Comment text ->
-       if String.contains text '\n' then seen_break := true;
-       incr i
-     (* A line comment never contains its own newline -- the `Newline` token
-        that follows it supplies the break. *)
      | Token.LineComment _ -> incr i
      | _ -> continue_ := false)
   done;
@@ -1616,8 +1610,7 @@ let parse_program_generic ~on_item tokens =
                on correct code, which teaches a reader to stop reading
                errors. *)
             && (match peek s with
-                | Token.Let | Token.LetStar | Token.Type | Token.Import
-                | Token.DocComment _ -> false
+                | Token.Let | Token.LetStar | Token.Type | Token.Import -> false
                 | _ -> true) ->
        fail_at start_loc
          "this line is indented as though it continued the definition \
@@ -1634,9 +1627,6 @@ let parse_program_generic ~on_item tokens =
         "the manifest must be the first thing in the file, before \
          everything but a shebang and comments%s"
         (if !manifest = None then "" else " (this file already has one)"))
-    | Token.DocComment doc ->
-      ignore (advance s);
-      pending_doc := Some doc
     | Token.Newline | Token.Semicolon ->
       ignore (advance s)
     | Token.Let ->

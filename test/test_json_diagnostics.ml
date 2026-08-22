@@ -82,7 +82,7 @@ let query_sess src =
 
 let test_doc_json () =
   let sess =
-    query_sess "(** Doubles a number. *)\nlet double x = x * 2"
+    query_sess "-- Doubles a number.\nlet double x = x * 2"
   in
   regression "doc as one object"
     "{\"name\":\"double\",\"type\":\"Int -> Int\",\
@@ -173,13 +173,11 @@ let test_error_without_position () =
   regression "an error with no position reports 1:1, drift fix carried"
     "[{\"severity\":\"error\",\"code\":\"E-LEX\",\"file\":\"x.wand\",\
       \"line\":1,\"col\":1,\
-      \"message\":\"comments are '-- ...' to the end of the line, or \
-      '(* ... *)' -- not '//'\",\
+      \"message\":\"a comment is '-- ...' to the end of the line, not '//'\",\
       \"fix\":{\"replace\":{\"from\":\"//\",\"to\":\"--\"}}}]"
     (Diag.to_json_array ~file:"x.wand"
        [Diag.error ~code:"E-LEX"
-          "comments are '-- ...' to the end of the line, or \
-           '(* ... *)' -- not '//'"])
+          "a comment is '-- ...' to the end of the line, not '//'"])
 
 (* End to end: the checker's answer carries the real position. *)
 

@@ -275,10 +275,6 @@ let read_run_cmd s =
 
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
-(* Always accumulates the comment's raw text; `is_doc` says whether it was
-   a doc-comment (extra leading star), so the caller can decide whether to
-   run doc-comment formatting (strip `*` prefixes/blank lines) or keep the
-   text verbatim. *)
 (* `--` runs to the end of the line. The newline itself is left unconsumed so
    the following `Newline` token is still produced -- statement termination
    must not depend on whether a line ends in a comment. *)
@@ -289,41 +285,6 @@ let read_line_comment s =
     Buffer.add_char buf (advance s)
   done;
   Buffer.contents buf
-
-let read_comment s =
-  ignore (advance s);  (* consume '*' after '(' *)
-  let is_doc = peek s = '*' && peek2 s <> ')' in
-  if is_doc then ignore (advance s);  (* consume second '*' *)
-  let buf = Buffer.create 64 in
-  let depth = ref 1 in
-  while !depth > 0 do
-    if is_at_end s then raise (Fail "unterminated comment");
-    let c = advance s in
-    if c = '(' && peek s = '*' then begin
-      ignore (advance s); incr depth;
-      Buffer.add_char buf '('; Buffer.add_char buf '*'
-    end
-    else if c = '*' && peek s = ')' then begin
-      ignore (advance s); decr depth;
-      if !depth > 0 then (Buffer.add_char buf '*'; Buffer.add_char buf ')')
-    end else
-      Buffer.add_char buf c
-  done;
-  let raw = Buffer.contents buf in
-  if not is_doc then (raw, false)
-  else
-    (* Strip leading/trailing whitespace; strip leading * from each line *)
-    let lines = String.split_on_char '\n' raw in
-    let strip line =
-      let s = String.trim line in
-      if String.length s > 0 && s.[0] = '*' then String.trim (String.sub s 1 (String.length s - 1))
-      else s
-    in
-    let lines = List.map strip lines in
-    (* Drop leading and trailing blank lines *)
-    let rec drop_leading = function [] -> [] | "" :: t -> drop_leading t | l -> l in
-    let lines = drop_leading lines |> List.rev |> drop_leading |> List.rev in
-    (String.concat "\n" lines, true)
 
 (* ── Paths ──────────────────────────────────────────────────────────────── *)
 
@@ -645,8 +606,8 @@ let next_token s =
     | '"'  -> ret (read_string s)
     | '`'  -> ret (read_raw_string s)
     | '('  when peek s = '*' ->
-      let (text, is_doc) = read_comment s in
-      ret (if is_doc then DocComment text else Comment text)
+      raise (Fail "a comment is '-- ...' to the end of the line; write \
+                       each line of this one with '--'")
     | '('  -> ret LParen
     | ')'  -> ret RParen
     | '['  -> ret LBracket
@@ -712,8 +673,7 @@ let next_token s =
                        let binds a new name instead")
     | ':'  -> ret (if is_digit (peek s) then read_port s else Colon)
     | '/' when peek s = '/' ->
-      raise (Fail "comments are '-- ...' to the end of the line, or \
-                       '(* ... *)' -- not '//'")
+      raise (Fail "a comment is '-- ...' to the end of the line, not '//'")
     | '/'  ->
       if not (is_at_end s) && (is_alpha (peek s) || is_digit (peek s)
                                || peek s = '_' || peek s = '.') then
@@ -771,8 +731,7 @@ let next_token s =
     (* The shebang on line one is handled in `tokenize`; any other `#` is a
        comment reflex from bash or Python. *)
     | '#' ->
-      raise (Fail "comments are '-- ...' to the end of the line, or \
-                       '(* ... *)' -- not '# ...'")
+      raise (Fail "a comment is '-- ...' to the end of the line, not '# ...'")
     | c -> raise (Fail (Printf.sprintf "unexpected character '%c'" c))
   in
   scan ()

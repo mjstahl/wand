@@ -117,8 +117,6 @@ type t =
   (* Structure *)
   | Newline
   | EOF
-  | DocComment of string
-  | Comment of string
   | LineComment of string   (* -- to end of line *)
 
 (* A source extent, not just a point: where it starts and where it stops.
@@ -201,8 +199,6 @@ let pp ppf tok =
     | LBrace     -> "{"      | RBrace     -> "}"
     | Semicolon  -> ";"      | Newline    -> "\\n"
     | EOF        -> "EOF"
-    | DocComment s -> Printf.sprintf "DocComment(%S)" s
-    | Comment s    -> Printf.sprintf "Comment(%S)" s
     | LineComment s -> Printf.sprintf "LineComment(%S)" s
   in
   Format.pp_print_string ppf s

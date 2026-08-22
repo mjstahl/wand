@@ -118,11 +118,23 @@ let test_delimiters () =
 
 (* ── Comments ───────────────────────────────────────────────────────────── *)
 
+(* A comment is `--` to the end of the line, and nothing else is one. The
+   block form counted its closers, so pasted shell ended it early at the
+   default arm of a `case`. Each refusal names the form to write. *)
+let refuses label input needle =
+  match Lexer.tokenize input with
+  | exception Lexer.LexError (_, msg) ->
+    Alcotest.(check bool) (label ^ ": the message names the fix") true
+      (let n = String.length needle and m = String.length msg in
+       let rec at i = i + n <= m && (String.sub msg i n = needle || at (i + 1)) in
+       at 0)
+  | _ -> Alcotest.failf "%s: lexed without an error" label
+
 let test_comments () =
-  check_tokens "line comment"   "(* ignored *) 1"        [Comment " ignored "; Int 1];
-  check_tokens "single-star comment before token" "(* doc *)\nlet" [Comment " doc "; Token.Let];
-  check_tokens "nested comment" "(* a (* b *) c *) true" [Comment " a (* b *) c "; Bool true];
-  check_tokens "doc comment (double-star)" "(** actual doc *) true" [DocComment "actual doc"; Bool true]
+  refuses "block comment" "(* ignored *) 1" "'-- ...'";
+  refuses "doc comment" "(** actual doc *) true" "'-- ...'";
+  refuses "slash comment" "// nope\n1" "'-- ...'";
+  refuses "hash comment" "# nope\n1" "'-- ...'"
 
 let test_line_comments () =
   check_tokens "line comment to end of line" "-- ignored\n1"
