@@ -1,8 +1,8 @@
 open Wand
 
-let stdlib_prelude =
-  "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-   import Duration\nimport Env\nimport Map\nimport Regex"
+(* The REPL's own, so a session under test opens with what a session opens
+   with. A second copy of this list is a copy that goes stale. *)
+let stdlib_prelude = Repl.stdlib_prelude
 
 let make_sess () =
   let sess = Runner.make_session () in
@@ -389,6 +389,16 @@ let test_a_dangling_symlink_is_stepped_over () =
     let found = Runner.find_test_files root |> List.map Filename.basename in
     Alcotest.(check (list string)) "still finds the test" ["test_real.wand"] found)
 
+(* `:reset` built its own list and had been missing eighteen modules since
+   they were added, so a session that had been reset could not reach `Map`
+   while a fresh one could. One list now, and this is what keeps it one. *)
+let test_prelude_names_every_module () =
+  List.iter (fun m ->
+    let needle = "import " ^ m in
+    if not (Lint.contains Repl.stdlib_prelude needle) then
+      Alcotest.failf "the REPL prelude does not load %s" m)
+    Typechecker.stdlib_module_names
+
 let () =
   Alcotest.run "CLI" [
     "typecheck a file", [
@@ -425,5 +435,7 @@ let () =
       Alcotest.test_case "list all"      `Quick test_env_all;
       Alcotest.test_case "module lookup" `Quick test_env_module;
       Alcotest.test_case "Map module"    `Quick test_env_map_module;
+      Alcotest.test_case "the prelude is every module" `Quick
+        test_prelude_names_every_module;
     ];
   ]

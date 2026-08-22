@@ -235,6 +235,15 @@ let load_file (sess : Runner.session) path =
       Printf.printf "loaded %s\n%!" (Filename.basename full);
       new_sess
 
+(* Every stdlib module, which is what the REPL opens with: a session is for
+   trying things, and reaching for a module there should not mean declaring
+   it first. Built from the list rather than written out, because a second
+   copy is a copy that goes stale -- `:reset` held one, and had been missing
+   eighteen modules since they were added. *)
+let stdlib_prelude =
+  String.concat "\n"
+    (List.map (fun n -> "import " ^ n) Typechecker.stdlib_module_names)
+
 let rec handle_command (sess : Runner.session) (line : string) : Runner.session =
   let parts = String.split_on_char ' ' (String.trim line) in
   let cmd   = List.nth parts 0 in
@@ -309,10 +318,8 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":s" | ":reset" ->
     LNoise.clear_screen ();
     print_endline "Session reset.";
-    let prelude = "import List\nimport String\nimport Path\nimport FS\nimport IO\n\
-                   import Duration\nimport Env\nimport Regex" in
     let fresh = Runner.make_session ~base_dir:sess.s_base_dir () in
-    (match Runner.run_session fresh prelude with
+    (match Runner.run_session fresh stdlib_prelude with
      | Ok (s, _) -> s
      | Error _   -> fresh)
   | ":c" | ":clear" ->
@@ -385,10 +392,6 @@ and loop (sess : Runner.session) =
           loop sess
       end
     end
-
-let stdlib_prelude =
-  String.concat "\n"
-    (List.map (fun n -> "import " ^ n) Typechecker.stdlib_module_names)
 
 let run ?(base_dir = Sys.getcwd ()) ?(loads = []) () =
   (* Flushed, because linenoise writes the prompt with its own `write` rather
