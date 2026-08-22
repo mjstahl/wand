@@ -1,0 +1,81 @@
+uses {Clock, FS.Read, FS.Write, IO}
+
+import Clock
+import FS
+import IO
+import List
+import Path
+
+-- Take a backup named after the instant, and delete the ones past the
+-- retention window.
+--
+-- bash:  tar czf "$DIR/backup-$(date +%F).tgz" /srv
+--        find "$DIR" -name 'backup-*.tgz' -mtime +30 -delete
+--
+-- Three things go wrong there, and none of them says so.
+--
+-- `date +%F` is a day. Two backups on one day are one file: the second
+-- overwrites the first, and the copy that is gone is the one anybody would
+-- have wanted. A name is a timestamp only if it carries the time.
+--
+-- `-mtime +30` counts whole 24-hour periods and throws away the
+-- remainder, so it means "at least 31 days", not thirty. The off-by-one
+-- is in the tool, not the script, and it is invisible until the day it
+-- matters.
+--
+-- `-delete` acts on whatever `-name` matched. A typo in that glob is a
+-- typo in what gets removed, with no step between deciding and doing.
+--
+-- Here the window is a `Duration` and the age is one instant minus
+-- another, so "older than thirty days" is that sentence. What to delete is
+-- a function of the listing, which is why the two tests below need no
+-- files and no clock.
+
+-- How long a backup is kept. A `Duration` literal, so the unit is not a
+-- comment that can disagree with the number.
+let window = 30d
+
+-- Only what this script writes is its to remove. `find` was told the same
+-- thing by a glob it could not check.
+let ours? path = Path.extension path == ".tgz"
+
+-- Age is one instant minus another. `Clock.now () - mtime` is sound in a
+-- way that two readings of the clock are not: the file's instant does not
+-- move under a correction.
+--
+-- The instants are annotated because `-` also subtracts two `Duration`s,
+-- and nothing else here says which pair of operands this is.
+let age (now: DateTime) (taken: DateTime) = now - taken
+
+let expired? now taken = age now taken > window
+
+-- What to delete, from a listing already paired with its times. Taking the
+-- listing as an argument is what makes the decision testable without a
+-- disk: `main!` reads the times, this decides.
+let expired (now: DateTime) entries =
+  entries |> List.filter (fn (_, taken) -> expired? now taken)
+
+-- The instant, not the day, so two backups an hour apart are two files.
+let backup_name now = Path.of_string "backup-%{now}.tgz"
+
+let listing! dir =
+  FS.list_dir! dir |> List.filter ours? |> List.map (fn p -> (p, FS.mtime! p))
+
+let main! () = (
+  let dir = ./backups;
+  let now = Clock.now ();
+  FS.write_file! (Path.join dir (backup_name now)) "";
+  match expired now (listing! dir) with
+  | [] -> IO.println "nothing to rotate"
+  | old -> (
+    old
+      |> List.each (fn (p, taken) -> IO.println "%{Path.to_string p} is %{age now taken} old");
+    old |> List.each (fn (p, _) -> FS.delete! p);
+    -- What the listing held, not what was done to it: `--dry-run` runs this
+    -- line having deleted nothing, so a sentence in the past tense would be
+    -- false exactly when the rehearsal is what someone is reading.
+    IO.println "%{List.length old} past %{window}, the rest kept"
+  )
+)
+
+main! ()

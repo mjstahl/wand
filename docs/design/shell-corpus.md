@@ -1,9 +1,10 @@
 # Design: porting a shell corpus
 
-**Status: proposal — not implemented.** A plan for what to port, where
-the port will hit a wall, and what each wall costs to remove. The doc
-retires when the corpus lands in `examples/` and the gaps it names are
-either closed or deliberately declined.
+**Status: in progress.** A plan for what to port, where the port will hit
+a wall, and what each wall costs to remove. Seventeen ports are in
+`examples/ports/`, covering every row but 12. The doc retires when the
+corpus lands in `examples/` and the gaps it names are either closed or
+deliberately declined; G4 is the one still open.
 
 ## The problem
 
@@ -90,8 +91,8 @@ Ranked by how much of the modern working day each accounts for, with the
 wand surface it lands on. The third column is the reason a port is worth
 reading: a bash script's failure mode is not incidental, it is the thing
 wand is claiming to fix. The last column is where the corpus stands —
-fifteen ports in [`examples/ports/`](../../examples/ports), covering every
-row that is not blocked.
+seventeen ports in [`examples/ports/`](../../examples/ports), covering
+every row but 12.
 
 | # | The job | How bash gets it wrong | Where it lands in wand | Ported |
 |---|---|---|---|---|
@@ -103,7 +104,7 @@ row that is not blocked.
 | 6 | Wrap a cloud CLI: `aws`/`gcloud`/`kubectl … -o json \| jq` | untyped JSON, unpinned binaries, no record of what the script may invoke | `Shell(kubectl, aws)` in the manifest plus a derived decoder — wand's strongest showing | `pod-restarts` |
 | 7 | Clean up on exit | `trap … EXIT` fires on some paths and not others; nested traps clobber | `with r as x -> body`, released however the body ends | `stage-release` |
 | 8 | Parallel fan-out | `xargs -P` and `&`/`wait`, with interleaved output and lost exit codes | `Par.map limit f xs` | `verify-archives` |
-| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | `FS.mtime`, `DateTime` and `Duration` — see **G2** | **blocked** — nothing reads the clock |
+| 9 | Backups, rotation, cron | timestamped names built by `date +%F`; `find -mtime -delete` | `FS.mtime`, `DateTime` and `Duration` | `rotate-backups` |
 | 10 | Threshold alerting on disk or memory | `df \| awk '{print $5}' \| tr -d %` | `Size` literals and comparison | `disk-threshold`, `dir-budget` |
 | 11 | Argument parsing and usage | `getopts` handles short flags and nothing else; usage text drifts from the parser | `Args.parse` over a derived decoder | `probe-args` |
 | 12 | Provisioning: users, packages, keys, firewall | idempotence by hand; every step re-run unsafely | mostly shelling out — see **G4** | **blocked** — no permissions or symlinks |
@@ -249,7 +250,7 @@ types compare by value, so a backoff loop can stop at a ceiling.
 [`../gaps.md`](../gaps.md): a virtual clock does not shorten a real
 deadline, and a killed command may leave children.
 
-### G2 — there is no clock to read, either
+### G2 — there is no clock to read, either — closed
 
 `Date`, `Time` and `DateTime` are types with literal syntax, and
 `FS.mtime` returns a `DateTime` — but there is no `Date` module, no
@@ -268,6 +269,12 @@ it now exists. So what is left is a member on `Clock` and the `DateTime`
 arithmetic behind it. That arithmetic is why this did not ship with the
 rest: `now - mtime` is sound and `now - an_earlier_now` is not, and they
 are the same operator.
+
+Closed in 0.36.0. `Clock.now` answers the instant, a `Duration` moves one,
+and two subtract to the length between them; `Clock.timed` measures how
+long work took, which is the reading two clocks could not do soundly.
+`Test.at` pins the instant, so an age is testable without a file or a
+wait. Row 9 is ported: [`rotate-backups`](../../examples/ports/rotate-backups.wand).
 
 ### G3 — `FS` stopped at a single file — closed
 
@@ -542,14 +549,14 @@ covered end to end.
    times) and 10 (twice). What they found is in the two sections below and
    in [`../gaps.md`](../gaps.md).
 4. ~~**Decide `Clock` (G1)**~~ Shipped in 0.25.0, ahead of this order,
-   because the ports kept meeting it. **Reading the clock (G2)** is still
-   open, and unblocks row 9 on its own.
+   because the ports kept meeting it. ~~**Reading the clock (G2)**~~
+   shipped in 0.36.0 and row 9 is ported.
 5. ~~**Close the cheap ones.**~~ Shipped: `FS.delete_tree` and
    `FS.copy_tree` close G3, and `Shell.ok?` answers the question every
    ported script asks first.
-6. **Port the rest**, in row order. Row 6 is done (`pod-restarts.wand`);
-   rows 3, 5, 7, 8 and 11 need no language work, and 9 and 12 are blocked
-   on G2 and G4.
+6. **Port the rest**, in row order. Rows 1 to 11 are done. Row 12 is the
+   one left, blocked on G4 — no permissions, symlinks or ownership — and
+   it is the only thing between this doc and its retirement.
 
 The original plan had step 3 first and no steps 1 or 2 at all, which is
 the argument for doing a handful of ports before designing anything: four

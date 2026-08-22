@@ -15,6 +15,8 @@ let {answering?, wait_for} = import ../../examples/ports/wait-for-port
 let {lock_at, missing} = import ../../examples/ports/stage-release
 let {failures, stated} = import ../../examples/ports/verify-archives
 let {opts, render} = import ../../examples/ports/probe-args
+let {age, backup_name, expired, expired?, ours?, window} =
+  import ../../examples/ports/rotate-backups
 import Args
 import Env
 import FS
@@ -322,4 +324,44 @@ group "probe-args" (fn () -> [
     match read ["--verbose", "web-01"] with
     | Ok o -> t.eq "web-01:8080 timeout 30s (verbose)" (render o)
     | Error why -> t.fail why)
+])
+
+group "rotate-backups" (fn () -> [
+  -- `find -mtime +30` counts whole days and drops the remainder, so it
+  -- keeps a file for thirty-one. The window here is the duration it says.
+  test "a backup inside the window is kept" (fn t ->
+    t.eq false (expired? 2026-08-22T00:00:00Z 2026-08-01T00:00:00Z)),
+  test "and one past it is not" (fn t ->
+    t.ok (expired? 2026-08-22T00:00:00Z 2026-06-01T00:00:00Z)),
+  test "the boundary is not past the window" (fn t ->
+    t.eq false (expired? 2026-08-22T00:00:00Z 2026-07-23T00:00:00Z)),
+  test "an hour the wrong side of it is" (fn t ->
+    t.ok (expired? 2026-08-22T00:00:00Z 2026-07-22T23:00:00Z)),
+  test "age is the length between two instants" (fn t ->
+    t.eq 1d (age 2026-08-22T00:00:00Z 2026-08-21T00:00:00Z)),
+  test "the window is what the name says" (fn t -> t.eq 30d window),
+  -- The listing decides; nothing is read and nothing is removed.
+  test "only what is past the window is returned" (fn t ->
+    t.eq
+      [(./backups/backup-old.tgz, 2026-06-01T00:00:00Z)]
+      (expired 2026-08-22T00:00:00Z [
+        (./backups/backup-new.tgz, 2026-08-20T00:00:00Z),
+        (./backups/backup-old.tgz, 2026-06-01T00:00:00Z)
+      ])),
+  test "an empty listing rotates nothing" (fn t ->
+    t.eq [] (expired 2026-08-22T00:00:00Z [])),
+  test "every backup past the window, not the first" (fn t ->
+    t.eq 2 (List.length (expired 2026-08-22T00:00:00Z [
+      (./a.tgz, 2026-01-01T00:00:00Z),
+      (./b.tgz, 2026-08-21T00:00:00Z),
+      (./c.tgz, 2026-02-01T00:00:00Z)
+    ]))),
+  -- `-name 'backup-*.tgz'` was the only thing standing between `-delete`
+  -- and the rest of the directory.
+  test "a file this script did not write is not ours" (fn t ->
+    t.eq false (ours? ./backups/notes.md)),
+  test "and one it did, is" (fn t -> t.ok (ours? ./backups/backup-1.tgz)),
+  -- `date +%F` is a day, so two backups on one day are one file.
+  test "the name carries the time, not just the day" (fn t ->
+    t.ok (backup_name 2026-08-22T01:00:00Z != backup_name 2026-08-22T02:00:00Z))
 ])
