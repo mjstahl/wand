@@ -1,42 +1,52 @@
-## 0.38.0 - 2026-08-22
+## 0.39.0 - 2026-08-22
 
-`wand f` now formats the inside of a definition that has a comment in it.
+There is one type for a point in time, and a module that opens it.
 
-One comment anywhere inside a top-level definition used to make the whole
-definition a verbatim copy of the source. None of its code was formatted,
-and `tools/check_fmt.wand` could not see in either — so a definition was
-exempt in proportion to how well it was commented. Ten files in this
-repository held definitions the formatter had never once formatted; none
-do now.
+    DateTime.day_start (Clock.now ())              -- today at midnight
+    DateTime.on! 2026 8 22 + 14h + 30min           -- 2026-08-22T14:30:00Z
+    "backup-%{DateTime.date_string (Clock.now ())}.tar.gz"
 
-    let f xs =
-      match xs with
-      | [] -> 0
-      -- why the next arm is what it is
-      | [h :: t] ->    h+1        -- this line was never formatted
+`Date` and `DateTime` both meant a point in time. Both compared, both
+subtracted to a `Duration`, and a `Date` was already read as midnight UTC —
+the language stated the equivalence and kept two types anyway. Now
+`2026-08-22` is a spelling of `2026-08-22T00:00:00Z`.
 
-A comment on its own line is written above whatever it introduces — a
-match arm, a statement in a block, an element of a list, a `let ... in`
-binding, or the body of the definition itself — and the rest is printed as
-usual.
+### Taking one apart
 
-### What is left alone
+`DateTime` answers `year`, `month`, `day`, `hour`, `minute`, `second`,
+`weekday` and `day_start`. Nothing in it reads a clock; `Clock.now` does
+that, and this module takes what it answers apart. `weekday` is ISO 8601,
+Monday 1 through Sunday 7.
 
-A comment that follows code on its line is about that code. Lifting it onto
-a line of its own would point it at the line below, so its definition is
-left exactly as written.
+`on` is the only builder, and answers a `Result` because `2026 2 30` is not
+a day. A time of day goes on top as a `Duration`, which means there is no
+rule about what an hour of 25 would mean: adding 25 hours to a midnight is
+the next day at one.
 
-Every comment is counted in the formatted definition, and anything but
-exactly once puts the definition back to a verbatim copy. A comment cannot
-be dropped, duplicated or moved.
+### What changes in a script
 
-### Also fixed
+`2026-08-22 + 5h` now moves five hours instead of standing still. The rule
+that kept two resolutions apart existed for that pair of types alone.
 
-A `let ... in` arm body too wide for the arrow's line put its continuation
-at the arm's own indent, level with the `|` above it, where it read as the
-next arm rather than the rest of this one. It now takes the block shape a
-nested match takes. This was a separate fault that the old behaviour had
-been hiding.
+An instant prints in full and in UTC, whichever spelling was written, so
+`"%{2026-08-22}"` is `2026-08-22T00:00:00Z`. `DateTime.date_string` is the
+short form. Source keeps what you wrote: `wand f` leaves `2026-08-22` alone,
+as it already left an offset form alone.
+
+`14:30:00` is no longer a value. `Time` had no module, no arithmetic and no
+use anywhere; a time of day belongs to a day. The lexer still reads the
+shape and names the instant form.
+
+`Decode.date`, `Decode.time`, `String.to_date` and `String.to_time` are
+gone. `Decode.datetime` and `String.to_datetime` read both spellings.
+
+### The shell corpus is finished
+
+`rotate-backups` and `provision-host` are the last two ports, so all twelve
+of the jobs the corpus set out to cover are in `examples/ports/` — eighteen
+files, each naming the bash it replaces. Permissions, symlinks, ownership
+and a process surface stay out of the standard library on purpose, recorded
+in `docs/gaps.md` as decisions rather than omissions.
 
 ---
 
