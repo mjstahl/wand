@@ -1901,6 +1901,44 @@ let describe d = match d with
 | West  -> "left"
 ```
 
+### Another name for a type
+
+`type X = <a type>` is an alias: another name for a type that already
+exists, rather than a new one.
+
+```ocaml
+type Point = (Int, Int)
+type Ids   = List Int
+type Name  = String
+type F     = Int -> Int
+type This  = That            -- That declared elsewhere
+```
+
+An alias is transparent — the two are one type, interchangeable in both
+directions — so it buys a name to read and write, not a distinct type.
+Nothing stops a `(width, height)` where a `Point` is meant. For a type the
+checker keeps apart, declare a record: `type Point (x : Int, y : Int)`.
+
+A type shows with the alias it was written as, so the name in the source is
+the name in the message:
+
+```ocaml
+let p : Point = (1, 2)       -- p : Point (= (Int, Int))
+```
+
+It declares no constructor and nothing at run time, so an alias is not a
+value:
+
+```ocaml
+This
+-- 'This' is a type, not a value; it is an alias, so build the type it names
+```
+
+Whether a lone name after `=` is a constructor or a type is settled after
+every declaration has been read. `type Colour = Red` is a variant when no
+`Red` type exists and an alias when one does, and a constructor saying its
+own type's name — `type Wrap 'a = Wrap 'a` — is always the wrapper form.
+
 ### Variants with payloads
 
 ```ocaml

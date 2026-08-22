@@ -25,6 +25,14 @@ type typ =
   | TResult of typ * typ  (* error type, value type *)
   | TMap    of typ
   | TApp    of typ * typ  (* user-defined generic type application *)
+  (* The name an alias was written with, over the type it names. An alias is
+     transparent -- `unify` strips this and reads what is underneath -- so
+     the two are one type and never disagree. It is carried only so a
+     message can show the name the reader wrote: `Point (= (Int, Int))`.
+
+     It sits where the annotation was, and is never merged with another, so
+     two aliases of one type cannot argue over which name to print. *)
+  | TAlias  of string * typ
   | TRegex
   (* A resource: how to acquire an 'a and give it back, and what doing
      either performs. The effects are carried rather than hidden -- a bracket
@@ -390,6 +398,11 @@ let operation_types op : (typ * typ) option =
 
 (* ── Repr (follow unification links) ─────────────────────────────────────── *)
 
+(* An alias name over what it names, with the name taken off. Everything
+   that asks what a type *is* goes through here, so an alias needs no case
+   of its own anywhere; only printing looks under the name. *)
+let rec strip_alias t = match t with TAlias (_, u) -> strip_alias u | _ -> t
+
 let rec repr t =
   match t with
   | TVar tv -> (match tv.def with
@@ -398,6 +411,7 @@ let rec repr t =
       let t'' = repr t' in
       tv.def <- Some t'';
       t'')
+  | TAlias (_, u) -> repr u
   | _ -> t
 
 (* ── string_of_typ ────────────────────────────────────────────────────────── *)
@@ -442,7 +456,14 @@ let string_of_typ t =
       incr var_counter; Hashtbl.add var_names rid n; n
   in
   let rec go t =
+    (* The one place an alias is looked at rather than through. It shows
+       with what it names, so the name the reader wrote is in the message
+       and no message can claim two identical types differ. *)
+    match t with
+    | TAlias (n, u) -> Printf.sprintf "%s (= %s)" n (go u)
+    | _ ->
     match repr t with
+    | TAlias (_, u) -> go u   (* `repr` strips it; here for the compiler *)
     | TInt      -> "Int"      | TFloat    -> "Float"    | TString   -> "String"
     | TBool     -> "Bool"     | TUnit     -> "Unit"
     | TPath     -> "Path"     | TGlob     -> "Glob"
@@ -965,6 +986,11 @@ type typedef_env = (string * type_def) list
    file to draw a set from, and refusing every name there would be wrong. *)
 let known_type_names : string list option ref = ref None
 
+(* The aliases in scope, by name. Set alongside `known_type_names` and for
+   the same reason: `type_of_te` runs where there is no file to draw them
+   from, and an empty table there simply resolves nothing. *)
+let known_aliases : (string * Ast.type_expr) list ref = ref []
+
 (* The names `type_of_te_bound` resolves without consulting a file: the
    primitives, and the four that only ever appear applied to an argument. *)
 let builtin_type_names =
@@ -1021,7 +1047,23 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
       List.fold_left (fun acc name -> Effect_set.add (eff_of_written name) acc)
         base te_labels
   in
+  (* An alias being resolved, so `type A = A` and a ring of them stop rather
+     than run forever. *)
+  let resolving = ref [] in
   let rec go = function
+    | TEName name when List.mem_assoc name !known_aliases
+                    && not (List.mem name !resolving) ->
+      (* The name is kept over what it names, for the message. Everything
+         that reads the type goes through `repr`, which takes it off. *)
+      let target = List.assoc name !known_aliases in
+      resolving := name :: !resolving;
+      let t = go target in
+      resolving := List.tl !resolving;
+      TAlias (name, t)
+    | TEName name when List.mem name !resolving ->
+      raise (TypeError (Printf.sprintf
+        "'%s' is an alias for itself; an alias names a type that already \
+         exists" name))
     | TEName name ->
       (match name with
        (* Each written `Num` is a fresh numeric variable; use-sites link
@@ -1115,6 +1157,9 @@ let check_written_vars (written : (string * typ) list) =
 
 let ctor_schemes (tdef : type_def) : (string * scheme) list =
   match tdef with
+  (* An alias is another name for a type, not a new one, so it brings no
+     constructor with it. *)
+  | Alias _ -> []
   | Variants (tname, params, ctors) ->
     let var_table = List.map (fun p -> (p, fresh ())) params in
     let result =
@@ -1267,6 +1312,9 @@ let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) 
 
 and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
   match tdef with
+  (* Deriving reads a type's own shape. An alias has none of its own; the
+     decoder belongs to whatever it names. *)
+  | Alias _ -> Error "it is an alias, so its decoder is the one it names"
   | Variants (_, _, []) -> Error "it has no constructor"
   | Variants (_, _, _ :: _ :: _) -> Error "it has more than one constructor"
   | Variants (_, params, [ctor]) ->
@@ -1291,6 +1339,7 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
 let find_ctor_in_tenv tenv name =
   List.find_map (fun (tname, tdef) ->
     match tdef with
+    | Alias _ -> None
     | Variants (_, _, ctors) ->
       (match List.find_opt (fun c -> c.name = name) ctors with
        | Some c -> Some (tname, c)
@@ -1314,6 +1363,7 @@ let find_ctor_in_tenv tenv name =
 let ctor_is_alone tenv name =
   List.exists (fun (_, tdef) ->
     match tdef with
+    | Alias _ -> false
     | Variants (_, _, ctors) ->
       (match ctors with [c] -> c.name = name | _ -> false)) tenv
 
@@ -1547,7 +1597,7 @@ let rec app_head_name t =
    match t specifically (so `Option Int`'s `Some` reports arg type Int,
    not a generic fresh var) -- reuses the same instantiate/unify machinery
    `infer_pat`'s PConstr case already uses for the same reason. *)
-let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
+let rec ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
   let via_scheme name scheme =
     let ctor_t = instantiate scheme in
     let (arg_ts, result_t) = unwrap_ctor_type ctor_t in
@@ -1555,6 +1605,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
     (name, arg_ts)
   in
   match repr t with
+  | TAlias (_, u) -> ctors_of_type tenv ctor_env u   (* `repr` strips it *)
   | TBool -> [("true", []); ("false", [])]
   | TUnit -> [("()", [])]
   | TTuple ts -> [("(tuple)", ts)]
@@ -1576,7 +1627,7 @@ let ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list =
             | Some s -> via_scheme c.name s
             | None -> (c.name, [])
           ) ctors
-        | None -> [])
+        | Some (Alias _) | None -> [])
      | None -> [])
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
@@ -1758,6 +1809,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
         | _ when List.mem name stdlib_module_names ->
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
+        (* A name that is a type rather than a constructor is not unknown,
+           and calling it so sends the reader looking for a declaration that
+           is right there. An alias in particular has no constructor. *)
+        | _ when List.mem_assoc name tenv ->
+          raise (TypeError (Printf.sprintf
+            "'%s' is a type, not a value%s" name
+            (match List.assoc name tenv with
+             | Alias _ -> "; it is an alias, so build the type it names"
+             | Variants (_, _, [c]) -> Printf.sprintf "; its constructor is '%s'" c.name
+             | Variants _ -> "")))
         | _ ->
           raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
             name (Util.hint name (List.map fst ctor_env))))))
@@ -2001,6 +2062,19 @@ let rec infer tenv (env : env) (e : expr) : typ =
     TList t
   | ConstrApp (name, fields) ->
     (match find_ctor_in_tenv tenv name with
+     (* A name that is a type rather than a constructor is not unknown, and
+        saying so sends the reader looking for a declaration that is right
+        there. An alias in particular has no constructor of its own. *)
+     | None when List.mem_assoc name tenv ->
+       raise (TypeError (Printf.sprintf
+         "'%s' is a type, not a value%s" name
+         (match List.assoc name tenv with
+          | Alias (_, _, _) ->
+            Printf.sprintf "; it is an alias, so build the type it names"
+          | Variants (_, _, ctors) ->
+            (match ctors with
+             | [c] -> Printf.sprintf "; its constructor is '%s'" c.name
+             | _ -> ""))))
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
      | Some (tname, ctor) ->
@@ -2134,7 +2208,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
                  it declares them: `Box.decoder : Decoder 'a -> Decoder
                  (Box 'a)`. With no parameters there is nothing to take, and
                  it is a decoder outright. *)
-              let params = match tdef with Variants (_, ps, _) -> ps in
+              let params =
+                match tdef with Variants (_, ps, _) | Alias (_, ps, _) -> ps in
               let vars = List.map (fun _ -> fresh ()) params in
               let applied =
                 List.fold_left (fun acc v -> TApp (acc, v)) (TName tname) vars
@@ -3166,6 +3241,40 @@ let check_manifest (prog : program) (own_env : env) =
    lint that catches a discarded `Result` needs it. *)
 let expr_item_types : (int * typ) list ref = ref []
 
+(* `type Point = Pair` parses as a variant with one nullary constructor,
+   because whether `Pair` names a type is not known until every declaration
+   has been read. Here it is, so a lone constructor whose name is some other
+   type becomes the alias it was written as.
+
+   This runs before the typechecker and before the evaluator, over the same
+   program, because the two disagreeing about what a declaration means is
+   the bug this whole area already had once. *)
+let settle_aliases ?(init_tenv=[]) (prog : program) : program =
+  let declared =
+    List.filter_map (function
+      | TLType (Variants (n, _, _)) | TLType (Alias (n, _, _)) -> Some n
+      | _ -> None) prog.items
+    @ List.map fst init_tenv @ builtin_type_names
+  in
+  let settle = function
+    | TLType (Variants (n, params, [{ name = c; fields }]))
+      (* Not its own name: `type Wrap 'a = Wrap 'a` is the wrapper form,
+         where the constructor says the type's name again. Only a name that
+         is some *other* type makes this an alias. *)
+      when c <> n
+        && List.mem c declared
+        && List.for_all (fun (f, _) -> f = None) fields ->
+      (* Positional fields on a name that is a type are its arguments, not a
+         payload: `type Ids = List Int` is the applied type, where
+         `type Shape = Circle Int` -- `Circle` naming no type -- is a
+         constructor carrying one. *)
+      let te =
+        List.fold_left (fun acc (_, ft) -> TEApp (acc, ft)) (TEName c) fields in
+      TLType (Alias (n, params, te))
+    | item -> item
+  in
+  { prog with items = List.map settle prog.items }
+
 let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
     : typedef_env * env * env * typ =
   next_id := 0;
@@ -3180,8 +3289,9 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   current_eff := Effect_set.unknown ();
   Hashtbl.reset ctor_scheme_cache;
   holes := [];
+  let prog = settle_aliases ~init_tenv prog in
   let local_tenv = List.filter_map (function
-    | TLType (Variants (n, _, _) as tdef) -> Some (n, tdef)
+    | TLType ((Variants (n, _, _) | Alias (n, _, _)) as tdef) -> Some (n, tdef)
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in
@@ -3266,6 +3376,10 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
               so rename one of them" c.name where))
          | None -> Hashtbl.add seen_ctors c.name tname)) ctors
     | _ -> ()) prog.items;
+  known_aliases :=
+    List.filter_map (function
+      | (n, Alias (_, _, te)) -> Some (n, te)
+      | _ -> None) tenv;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   let item_index = ref (-1) in

@@ -131,7 +131,8 @@ let import_kind_of e = match strip_located e with
 
 let local_tenv_of prog =
   List.filter_map (function
-    | Ast.TLType (Ast.Variants (n, _, _) as tdef) -> Some (n, tdef)
+    | Ast.TLType ((Ast.Variants (n, _, _) | Ast.Alias (n, _, _)) as tdef) ->
+      Some (n, tdef)
     | _ -> None) prog.Ast.items
 
 let is_private name = String.length name > 0 && name.[0] = '_'

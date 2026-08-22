@@ -299,6 +299,16 @@ type ctor_def = {
 type type_def =
   | Variants of string * string list * ctor_def list
       (* name, type parameters (e.g. ["a"] for Option 'a), constructors *)
+  (* `type Point = (Int, Int)`: another name for a type that already exists,
+     rather than a new one. Transparent -- the two are interchangeable --
+     so this introduces no constructor and nothing at run time.
+
+     A single name after `=` is ambiguous while parsing, because whether it
+     is a type is not known until every declaration has been read:
+     `type Colour = Red` is a variant, and `type Point = Pair` an alias.
+     The parser leaves those as `Variants` and the typechecker turns the
+     ones whose constructor names a type into this. *)
+  | Alias of string * string list * type_expr
 
 type top_item =
   | TLLet    of string * pat list * expr

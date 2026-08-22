@@ -639,6 +639,51 @@ let test_a_name_is_declared_once () =
   ok "and two records may sit beside each other"
     "type P(i: Int)\ntype Q(i: Int)\nP(i = 1).i + Q(i = 2).i" "3"
 
+(* `type X = <a type>` is another name for that type, not a new one. It is
+   transparent, so the two are interchangeable in both directions, and it
+   introduces no constructor and nothing at run time. *)
+let test_type_aliases () =
+  (* The alias shows with what it names, so the name the reader wrote is in
+     the message and no message can claim two identical types differ. *)
+  prog_is "a tuple" "type Point = (Int, Int)\nlet p : Point = (1, 2)\np"
+    "Point (= (Int, Int))";
+  prog_is "a builtin" "type Name = String\nlet n : Name = \"hi\"\nn"
+    "Name (= String)";
+  prog_is "an applied type" "type Ids = List Int\nlet x : Ids = [1]\nx"
+    "Ids (= List Int)";
+  ok "a function type" "type F = Int -> Int\nlet g : F = fn x -> x + 1\ng 1" "2";
+  (* Transparent: each is accepted where the other is expected. *)
+  ok "an alias passes for its target"
+    "type Point = (Int, Int)\nlet f (a: (Int, Int)) = 1\nlet p : Point = (1, 2)\nf p" "1";
+  ok "and its target for the alias"
+    "type Point = (Int, Int)\nlet f (p: Point) = 1\nf (3, 4)" "1";
+  (* A record reached through an alias keeps its fields. *)
+  ok "a record alias"
+    "type That(i: Int)\ntype This = That\nlet f (x: This) = x.i\nf That(i = 7)" "7";
+  (* Whether a lone name is a constructor or a type is not known until every
+     declaration has been read, so the two forms are told apart afterwards. *)
+  prog_is "a name that is no type is still a constructor"
+    "type Colour = Red | Green\nRed" "Colour";
+  prog_is "and a lone one" "type Colour = Red\nRed" "Colour";
+  prog_is "the wrapper form is not an alias to itself"
+    "type Wrap 'a = Wrap 'a\nWrap 3" "Wrap Int";
+  prog_is "nor is a payload whose name is no type"
+    "type Shape = Circle Int\nCircle 3" "Shape";
+  (* An alias for itself, directly or round a ring, would resolve forever. *)
+  (* `type A = A` says the type's own name, which is the nullary form, not
+     an alias to itself. *)
+  prog_is "a type naming itself is a constructor" "type A = A\nA" "A";
+  (* A ring of them would resolve forever. *)
+  err_contains "a ring of aliases" "type A = B\ntype B = A\nlet x : A = 1\nx"
+    "is an alias for itself";
+  (* A type is not a value, and an alias has no constructor to reach for. *)
+  err_contains "an alias used as a value"
+    "type That(i: Int)\ntype This = That\nThis" "'This' is a type, not a value";
+  err_contains "and it says why" "type That(i: Int)\ntype This = That\nThis"
+    "it is an alias";
+  err_contains "a variant's own name" "type Shape = Circle Int | Rect Int\nShape"
+    "'Shape' is a type, not a value"
+
 let test_unbound_names () =
   rejects "unbound variable" "x";
   rejects_program "unbound in a let" "let x = y; x";
@@ -1423,6 +1468,7 @@ let () =
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;
       Alcotest.test_case "a name is declared once" `Quick test_a_name_is_declared_once;
+      Alcotest.test_case "type aliases"        `Quick test_type_aliases;
       Alcotest.test_case "unbound names"       `Quick test_unbound_names;
       Alcotest.test_case "bare-word glob"      `Quick test_bare_word_glob;
       Alcotest.test_case "generics"            `Quick test_generic_type_errors;

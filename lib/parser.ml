@@ -1406,6 +1406,37 @@ let parse_type_def s =
     Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields }])
   end else begin
     expect s Token.Eq;
+    (* After `=`, a shape that cannot be a constructor is a type expression,
+       and the declaration is an alias: a tuple opens with `(`, a variable
+       with `'a`, and a function type has an arrow in it. A leading
+       constructor name is ambiguous -- `type Colour = Red` is a variant and
+       `type Point = Pair` an alias -- and stays a `Variants` here, because
+       whether `Red` names a type is not known until every declaration has
+       been read. The typechecker settles those. *)
+    let alias_ahead () =
+      match peek s with
+      | Token.LParen | Token.TypeVar _ -> true
+      | Token.Upper _ ->
+        (* `List Int -> Int` is an alias; `Circle Int` is a constructor. Only
+           an arrow at this depth tells them apart, and the scan stops at the
+           newline that ends the declaration. *)
+        let i = ref s.pos and depth = ref 0 and found = ref false
+        and go = ref true in
+        while !go && !i < Array.length s.tokens do
+          (match fst s.tokens.(!i) with
+           | Token.LParen | Token.LBracket -> incr depth
+           | Token.RParen | Token.RBracket -> decr depth
+           | Token.Arrow when !depth = 0 -> found := true; go := false
+           | Token.Newline | Token.EOF -> go := false
+           | _ -> ());
+          incr i
+        done;
+        !found
+      | _ -> false
+    in
+    if alias_ahead () then
+      Ast.Alias (type_name, !params, parse_type_expr s)
+    else begin
     let parse_ctor () =
       let name =
         let loc = peek_loc s in
@@ -1422,6 +1453,7 @@ let parse_type_def s =
       ctors := !ctors @ [parse_ctor ()]
     done;
     Ast.Variants (type_name, !params, !ctors)
+    end
   end
 
 (* Shared by `parse_program` and `parse_program_with_locs`: every loop
@@ -1762,7 +1794,8 @@ let parse_program_generic ~on_item tokens =
     | Token.Type ->
       ignore (advance s);
       let tdef = parse_type_def s in
-      (match tdef with Ast.Variants (name, _, _) -> attach_doc name);
+      (match tdef with
+       | Ast.Variants (name, _, _) | Ast.Alias (name, _, _) -> attach_doc name);
       items := !items @ [Ast.TLType tdef]
     | _ ->
       let e = locate s (fun () -> expr_ 0 s) in

@@ -943,6 +943,8 @@ let run_item env item =
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat ~prefix:true pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
+  (* An alias declares no constructor, so there is nothing to bind. *)
+  | Ast.TLType (Ast.Alias _) -> env
   | Ast.TLType (Ast.Variants (tname, params, ctors)) ->
     (* A single-constructor type with named fields can have its decoder
        derived, so the definition is kept where the derivation can find it.
@@ -1223,6 +1225,7 @@ let defs_of_program (prog : Ast.program)
          | Ast.TLLet (name, _, _) -> [name]
          | Ast.TLLetRec bs -> List.map (fun (n, _, _) -> n) bs
          | Ast.TLLetPat (pat, _) -> Lint.pat_names pat
+         | Ast.TLType (Ast.Alias (tname, _, _)) -> [tname]
          | Ast.TLType (Ast.Variants (tname, _, ctors)) ->
            tname :: List.map (fun (c : Ast.ctor_def) -> c.Ast.name) ctors
          | Ast.TLImport _ | Ast.TLExpr _ -> []
@@ -1332,6 +1335,10 @@ let run_program ?(mode = Normal) ~base_dir prog =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
   let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+  (* Settled once, here, so the typechecker and the evaluator are handed the
+     same program: `type This = That` is an alias to both of them or a
+     variant to both, never one to each. *)
+  let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
   (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
@@ -1731,6 +1738,10 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
     let (imp, imp_docs) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    (* A session declares its types a line at a time, so the ones to settle
+       against are the ones it already has. *)
+    let prog =
+      Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
@@ -1783,6 +1794,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat ~prefix:true pat (eval !env_ref e) !env_ref
+            | Ast.TLType (Ast.Alias _) -> ()
             | Ast.TLType (Ast.Variants (_, _, ctors)) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
@@ -1854,7 +1866,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
               in
               (name, ty)) bindings)
           | Some (Ast.TLLetPat _) -> RSilent
-          | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _)))
+          | Some (Ast.TLType (Ast.Alias (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) ->
             (match last_v with
              | VUnit -> RSilent
@@ -2027,7 +2040,8 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
             (match List.assoc_opt name full_type_env with
              | Some s -> RBind (name, Typechecker.string_of_scheme s)
              | None   -> RBind (name, "?"))
-          | Some (Ast.TLType (Ast.Variants (name, _, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _)))
+          | Some (Ast.TLType (Ast.Alias (name, _, _))) -> RType name
           | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
           | Some _ -> RSilent
         in

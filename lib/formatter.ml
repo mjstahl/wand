@@ -1372,7 +1372,15 @@ let emit_ctor_fields_wrapped name fields =
     ^ "\n)"
   | _ -> name ^ emit_ctor_fields fields
 
-let emit_type_def (Variants (name, params, ctors)) =
+let emit_type_def = function
+  | Alias (name, params, te) ->
+    let name_and_params =
+      name
+      ^ (if params = [] then ""
+         else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) params))
+    in
+    "type " ^ name_and_params ^ " = " ^ emit_type_expr te
+  | Variants (name, params, ctors) ->
   let name_and_params =
     name
     ^ (if params = [] then "" else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) params))
