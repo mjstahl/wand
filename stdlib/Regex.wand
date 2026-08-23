@@ -1,20 +1,55 @@
 -- Compile a pattern string into a Regex, returning Ok or Error.
+--
+-- For a pattern decided at run time. One written in the source is a
+-- literal -- `r/\d+/` -- and is compiled before the program runs, so it
+-- cannot fail here.
+--
+-- >> Regex.compile "("
+-- Error("invalid regex: (") : Result String Regex
 let compile pattern = regex_compile pattern
 
 -- Return true if the string contains a match for the regex.
+--
+-- >> Regex.match? r/\d+/ "a1b"
+-- true : Bool
+--
+-- A flag goes after the closing slash:
+--
+-- >> Regex.match? r/WAND/i "wand"
+-- true : Bool
 let match? re s = regex_match re s
 
 -- Return the full match and capture groups, or [] if no match.
+--
+-- The whole match first, then one element per group.
+--
+-- >> Regex.capture r/(\w+)@(\w+)/ "a@b"
+-- ["a@b", "a", "b"] : List String
+--
+-- >> Regex.capture r/(\w+)@(\w+)/ "nope"
+-- [] : List String
 let capture re s = regex_capture re s
 
 -- Replace the first match with a plain string.
+--
+-- >> Regex.replace r/a/ "o" "banana"
+-- "bonana" : String
 let replace re repl s = regex_replace re repl s
 
 -- Replace all matches with a plain string.
+--
+-- >> Regex.replace_all r/a/ "o" "banana"
+-- "bonono" : String
 let replace_all re repl s = regex_replace_all re repl s
 
 -- Split the string on matches of the regex.
+--
+-- >> Regex.split r/\s+/ "a  b   c"
+-- ["a", "b", "c"] : List String
 let split re s = regex_split re s
 
 -- Return every non-overlapping match of the regex, in order.
+--
+-- >> Regex.match_all r/\d+/ "a1b22c333"
+-- ["1", "22", "333"] : List String
 let match_all re s = regex_find_all re s
