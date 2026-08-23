@@ -1702,6 +1702,12 @@ let lookup_type (sess : session) (name : string) : string option =
    prompt. A prompt with nothing under it expects nothing and is a step
    rather than a claim -- which is how one example sets up the next.
 
+   An expression too long for one line carries on under the session's
+   continuation prompt, as it would in a session. Without that, an example
+   that opens a `with` and writes a file inside it is one line of 140
+   characters, and the doc it is meant to explain is the thing it makes
+   unreadable.
+
    Kept as blocks rather than as a list of examples, because `wand d -x`
    shows the doc with its examples run in place, and that needs the prose
    back in the order it was written. What counts as an example is decided
@@ -1714,10 +1720,18 @@ type doc_block =
 let doc_blocks (doc : string) : doc_block list =
   let lines = String.split_on_char '\n' doc in
   let is_prompt l = String.length l >= 3 && String.sub l 0 3 = ">> " in
+  let is_more l = String.length l >= 3 && String.sub l 0 3 = ".. " in
+  let body l = String.sub l 3 (String.length l - 3) in
   let rec go acc = function
     | [] -> List.rev acc
     | l :: rest when is_prompt l ->
-      let expr = String.sub l 3 (String.length l - 3) in
+      (* Lines under the continuation prompt are the rest of the expression,
+         not what it produces. *)
+      let rec more expr = function
+        | l :: rest when is_more l -> more (expr ^ "\n" ^ body l) rest
+        | rest -> (expr, rest)
+      in
+      let (expr, rest) = more (body l) rest in
       let rec take out = function
         | [] -> (List.rev out, [])
         | l :: _ as here when is_prompt l || String.trim l = "" ->

@@ -263,7 +263,11 @@ let show_doc_executed sess name doc =
   List.iter (function
     | Wand.Runner.Prose l -> print_endline l
     | Wand.Runner.Example (expr, _) ->
-      Printf.printf ">> %s\n" expr;
+      (* Echoed as it was written: the first line under the prompt, the rest
+         under the continuation prompt. *)
+      List.iteri (fun i l ->
+        Printf.printf "%s %s\n" (if i = 0 then ">>" else "..") l)
+        (String.split_on_char '\n' expr);
       let (s, actual) = run_example !sess expr in
       sess := s;
       List.iter print_endline actual)

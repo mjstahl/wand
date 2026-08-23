@@ -35,6 +35,13 @@ let test_several_output_lines () =
     ">> List.each (fn x -> IO.println \"%{x}\") [1, 2]\n1\n2"
     [("List.each (fn x -> IO.println \"%{x}\") [1, 2]", ["1"; "2"])]
 
+let test_a_continued_expression () =
+  (* One expression, carried on under the continuation prompt. What is
+     under `..` is the rest of the expression, not what it produces. *)
+  extracts "a continuation is part of the expression"
+    ">> with r as x ->\n..   body x\n42 : Int"
+    [("with r as x ->\n  body x", ["42 : Int"])]
+
 let test_a_prompt_with_nothing_under_it () =
   (* A step, not a claim: it is run so the next one can use what it bound,
      and nothing is compared against it. *)
@@ -163,6 +170,7 @@ let () =
       Alcotest.test_case "prose alone"            `Quick test_prose_alone_has_none;
       Alcotest.test_case "a blank line ends it"   `Quick test_blank_line_ends_it;
       Alcotest.test_case "several output lines"   `Quick test_several_output_lines;
+      Alcotest.test_case "a continued expression" `Quick test_a_continued_expression;
       Alcotest.test_case "a prompt claiming nothing" `Quick
         test_a_prompt_with_nothing_under_it;
     ];

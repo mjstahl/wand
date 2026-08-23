@@ -3725,6 +3725,15 @@ The standard library's own are a CI gate — `tools/check_docs.wand`, which is
 to call a function, and a wrong one is read with the same trust as a right
 one.
 
+An expression too long for one line carries on under the continuation
+prompt, as it would in a session:
+
+```ocaml
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.read_file! f)
+-- "hi" : String
+```
+
 The examples of one doc string run in order, in one session, so a name bound
 by one is there for the next. A prompt with nothing under it claims nothing
 and is not checked — which is how one example sets up another:
