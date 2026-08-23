@@ -199,21 +199,28 @@ let all_stdlib_imports =
     (List.map (fun n -> "import " ^ n) Wand.Typechecker.stdlib_module_names)
 
 (* What a doc example prints is part of what it claims, so everything the
-   run writes to stdout is caught, in the order it was written. The value
-   line goes through the REPL's own printer, so what is compared is what a
-   reader would have seen. *)
+   run writes is caught, in the order it was written. Both streams: a
+   session shows them together, and `IO.println_err` writing nothing a
+   reader could see would make its example a claim about nothing.
+
+   The value line goes through the REPL's own printer, so what is compared
+   is what a reader would have seen. *)
 let capturing f =
   let tmp = Filename.temp_file "wand_doc_" ".out" in
-  let saved = Unix.dup Unix.stdout in
+  let saved_out = Unix.dup Unix.stdout in
+  let saved_err = Unix.dup Unix.stderr in
   let fd = Unix.openfile tmp [Unix.O_WRONLY; Unix.O_TRUNC] 0o600 in
-  flush stdout;
+  flush stdout; flush stderr;
   Unix.dup2 fd Unix.stdout;
+  Unix.dup2 fd Unix.stderr;
   let result =
     Fun.protect
       ~finally:(fun () ->
-        flush stdout;
-        Unix.dup2 saved Unix.stdout;
-        Unix.close saved;
+        flush stdout; flush stderr;
+        Unix.dup2 saved_out Unix.stdout;
+        Unix.dup2 saved_err Unix.stderr;
+        Unix.close saved_out;
+        Unix.close saved_err;
         Unix.close fd)
       f
   in

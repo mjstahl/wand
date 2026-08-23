@@ -1,15 +1,30 @@
 uses {IO}
 
 -- Print a value without a trailing newline.
+--
+-- A string is written as its characters, with no quotes around it. That
+-- is what makes it output rather than a value being shown.
+--
+-- >> IO.print "hi"
+-- hi
 let print v = io_print v
 
 -- Print a value followed by a newline.
+--
+-- >> IO.println "hi"
+-- hi
 let println v = io_println v
 
 -- Print a value to stderr without a trailing newline.
+--
+-- >> IO.print_err "careful"
+-- careful
 let print_err s = io_print_err s
 
 -- Print a value to stderr followed by a newline.
+--
+-- >> IO.println_err "careful"
+-- careful
 let println_err s = io_println_err s
 
 -- Read a line from stdin, returning the string without the newline.
