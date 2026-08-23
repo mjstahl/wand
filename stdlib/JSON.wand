@@ -1,15 +1,27 @@
 uses {FS.Read}
 
 -- Parse a JSON string.  Returns Ok JSON or Error message.
+--
+-- >> JSON.parse "{\"a\": 1}"
+-- Ok({"a":1}) : Result String JSON
 let parse src = json_parse src
 
 -- Parse a JSON string, raising on error.
+--
+-- >> JSON.parse! "[1, 2]"
+-- [1,2] : JSON
 let parse! src = json_parse_exn src
 
 -- Serialise a JSON value to a compact string.
+--
+-- >> JSON.stringify (JSON.of! [1, 2])
+-- "[1,2]" : String
 let stringify j = json_stringify j
 
 -- Serialise a JSON value to a pretty-printed string.
+--
+-- >> JSON.stringify_pretty (JSON.of! {a = 1})
+-- "{ \"a\": 1 }" : String
 let stringify_pretty j = json_stringify_pretty j
 
 -- Read and parse a JSON file, raising on error. Reading is the same
@@ -22,45 +34,112 @@ let read_file! path = parse! (read_file path)
 let read_file path = try read_file! path
 
 -- The JSON null value.
+--
+-- >> JSON.null
+-- null : JSON
 let null = json_null
 
 -- Construct JSON values from wand primitives.
 -- Any value as JSON, in one call: a list, a map, a record, a domain value,
 -- or a structure of them. What cannot be written is a function, a resource
 -- or a stream, and that is the `Error`.
+--
+-- >> JSON.of [1, 2, 3]
+-- Ok([1,2,3]) : Result String JSON
+--
+-- What holds code cannot be written, and that is the Error:
+--
+-- >> JSON.of (fn x -> x)
+-- Error("cannot encode this value as JSON") : Result String JSON
 let of v = json_of v
 
 -- Any value as JSON. Raises on what cannot be written.
+--
+-- >> JSON.of! {a = 1, b = 2}
+-- {"a":1,"b":2} : JSON
 let of! v = json_of_exn v
 
+--
+-- >> JSON.of_bool true
+-- true : JSON
 let of_bool b = json_of_bool b
+--
+-- >> JSON.of_int 3
+-- 3 : JSON
 let of_int n = json_of_int n
+--
+-- >> JSON.of_float 1.5
+-- 1.5 : JSON
 let of_float f = json_of_float f
+--
+-- >> JSON.of_string "hi"
+-- "hi" : JSON
 let of_string s = json_of_string s
+--
+-- >> JSON.of_list [JSON.of_int 1, JSON.of_string "a"]
+-- [1,"a"] : JSON
 let of_list xs = json_of_list xs
 -- Build an object from a Map, written in the order the Map holds -- the
 -- inverse of `get_object`. Keys need not be identifiers: a map literal
--- takes them quoted, as in `["content-type" = JSON.of_string "json"]`.
+-- takes them quoted.
 --
 -- A key the Map holds twice is written once, at its first position, which
 -- is the one `Map.get` would find.
+--
+-- >> JSON.of_map {"content-type" = JSON.of_string "json"}
+-- {"content-type":"json"} : JSON
 let of_map m = json_of_map m
 
 -- Test whether a JSON value is null.
+--
+-- >> JSON.null? JSON.null
+-- true : Bool
+--
+-- >> JSON.null? (JSON.of_int 1)
+-- false : Bool
 let null? j = json_is_null j
 
 -- Extract typed values.  Each returns Ok v or Error message.
+--
+-- >> JSON.get_bool (JSON.of_bool true)
+-- Ok(true) : Result String Bool
 let get_bool j = json_get_bool j
+--
+-- >> JSON.get_int (JSON.of! 3)
+-- Ok(3) : Result String Int
 let get_int j = json_get_int j
+--
+-- >> JSON.get_float (JSON.of_float 1.5)
+-- Ok(1.5) : Result String Float
 let get_float j = json_get_float j
+--
+-- A value of the wrong shape is the Error, and it says what it found:
+--
+-- >> JSON.get_string (JSON.of! 3)
+-- Error("expected string, got 3") : Result String String
 let get_string j = json_get_string j
+--
+-- >> JSON.get_array (JSON.parse! "[1, 2]")
+-- Ok([1, 2]) : Result String (List JSON)
 let get_array j = json_get_array j
+--
+-- >> JSON.get_object (JSON.parse! "{\"a\": 1}")
+-- Ok({a = 1}) : Result String (Map JSON)
 let get_object j = json_get_object j
 
 -- Look up a field in a JSON object.  Returns Ok JSON or Error message.
+--
+-- >> JSON.field "a" (JSON.parse! "{\"a\": 1}")
+-- Ok(1) : Result String JSON
+--
+-- >> JSON.field "z" (JSON.parse! "{\"a\": 1}")
+-- Error("no field: z") : Result String JSON
 let field key j = json_field key j
 
 -- Look up a field, raising if absent or not an object.
+--
+-- >> JSON.field! "a" (JSON.parse! "{\"a\": 1}")
+-- 1 : JSON
 let field! key j = json_field_exn key j
 
 -- Read a typed value out of a JSON document. Failure names the field that
