@@ -2,16 +2,36 @@ uses {FS.Read}
 
 -- Parse a CSV string with the default comma separator.
 -- Returns a list of rows, each row a list of field strings.
+--
+-- A cell is text, whatever it looks like: reading `1` as a number is the
+-- caller's to do, or `rows` and a decoder.
+--
+-- >> CSV.parse "a,b\n1,2"
+-- [["a", "b"], ["1", "2"]] : List (List String)
 let parse src = csv_parse "," src
 
 -- Parse a CSV string with a custom separator character.
+--
+-- >> CSV.parse_with ";" "a;b"
+-- [["a", "b"]] : List (List String)
 let parse_with sep src = csv_parse sep src
 
 -- Write rows as CSV. A cell is text, and every value has a text form, so
 -- a row of numbers or domain values needs no conversion first.
+--
+-- >> CSV.stringify [["a", "b"], ["1", "2"]]
+-- "a,b\n1,2" : String
+--
+-- A row of numbers needs no conversion first:
+--
+-- >> CSV.stringify [[1, 2], [3, 4]]
+-- "1,2\n3,4" : String
 let stringify rows = csv_stringify "," rows
 
 -- Serialise a list of rows with a custom separator.
+--
+-- >> CSV.stringify_with ";" [["a", "b"]]
+-- "a;b" : String
 let stringify_with sep rows = csv_stringify sep rows
 
 -- Read and parse a CSV file, raising on error. Reading is the same
