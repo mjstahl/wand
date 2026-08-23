@@ -4,25 +4,57 @@
 -- so the crossing is always written out, and this is where it is
 -- written.
 
--- The Float with the same value: Float.of_int 3 is 3.0.
+-- The Float with the same value.
+--
+-- A Float whose value is whole shows without a point, so the type is what
+-- tells the two apart.
+--
+-- >> Float.of_int 3
+-- 3 : Float
 let of_int n = float_of_int n
 
--- The nearest Int, halves rounding away from zero: 2.5 rounds to 3,
--- -2.5 to -3.
+-- The nearest Int, halves rounding away from zero.
+--
+-- A negative argument needs its brackets: `Float.round -2.5` is the
+-- subtraction it looks like, not a call.
+--
+-- >> Float.round 2.5
+-- 3 : Int
+--
+-- >> Float.round (-2.5)
+-- -3 : Int
 let round f = float_round f
 
--- The largest Int at or below: Float.floor 2.9 is 2, Float.floor -2.1
--- is -3.
+-- The largest Int at or below.
+--
+-- >> Float.floor 2.9
+-- 2 : Int
+--
+-- >> Float.floor (-2.1)
+-- -3 : Int
 let floor f = float_floor f
 
--- The smallest Int at or above: Float.ceil 2.1 is 3, Float.ceil -2.9
--- is -2.
+-- The smallest Int at or above.
+--
+-- >> Float.ceil 2.1
+-- 3 : Int
+--
+-- >> Float.ceil (-2.9)
+-- -2 : Int
 let ceil f = float_ceil f
 
--- The distance from zero: Float.abs -2.5 is 2.5.
+-- The distance from zero.
+--
+-- >> Float.abs (-2.5)
+-- 2.5 : Float
 let abs f = float_abs f
 
--- The number written to a fixed number of digits after the point:
--- Float.format 1 0.3333 is "0.3". Halves round away from zero, and the
--- digits are filled in: Float.format 2 1.5 is "1.50".
+-- The number written to a fixed number of digits after the point. Halves
+-- round away from zero, and the digits are filled in.
+--
+-- >> Float.format 1 0.3333
+-- "0.3" : String
+--
+-- >> Float.format 2 1.5
+-- "1.50" : String
 let format digits f = float_format digits f
