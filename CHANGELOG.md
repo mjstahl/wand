@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.43.0] - 2026-08-23
+
+### Added
+
+- Every function in the standard library has an example in its doc string,
+  run by CI — 308 across 26 modules. `wand d -x <name>` prints a doc with
+  its examples run in place; `wand d -t` reports only what does not hold,
+  is silent when everything does, and exits non-zero if anything does not.
+  Either takes a module name. `tools/check_docs.wand` is the gate
+- `Shell.failed?`, the opposite of `Shell.ok?`. `List.filter Shell.failed?`
+  needs no brackets where `!(Shell.ok? r)` does
+
+### Changed
+
+- A string is shown with the quotes it was written with, at any depth, so a
+  display says what the value was: `["a, b"]` is one element where `[a, b]`
+  could be one or two. What a program *writes* is unchanged — `IO.println`
+  and `%{...}` write a string as its characters, and a script that ends in
+  a string writes that string
+- A TOML value shows as a value rather than as a document: a table like a
+  map, an array showing its elements rather than `<toml-array>`. A table
+  printed as a whole TOML file before, so a list of two ran over four lines.
+  `TOML.stringify` and `IO.println` still give the document
+
+### Fixed
+
+- `List.range` was documented as excluding its upper bound; it includes it
+- `Map.empty` and `JSON.of_map` recommended the `[]` map literal, removed
+  in 0.18.0
+- `Float.round`, `floor` and `ceil` carried prose examples that do not
+  parse: a negative literal after a function name is a subtraction
+
+[0.43.0]: https://github.com/mjstahl/wand/releases/tag/v0.43.0
+
 ## [0.42.0] - 2026-08-22
 
 ### Changed

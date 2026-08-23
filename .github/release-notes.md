@@ -1,47 +1,48 @@
-## 0.42.0 - 2026-08-22
+## 0.43.0 - 2026-08-23
 
-A tail call does not grow the stack, so a loop written as one runs to any
-depth.
+Every function in the standard library carries an example, and CI runs them.
 
-    let sum 0 acc = acc
-    let sum n acc = sum (n - 1) (acc + n)
+    -- Keep only elements satisfying a predicate.
+    --
+    -- >> List.filter (fn x -> x >= 2) [1, 2, 3]
+    -- [2, 3] : List Int
 
-    sum 10000000 0
+308 of them, across 26 modules. `wand d -x <name>` prints a doc with its
+examples run where they stand; `wand d -t` reports only what does not hold
+and says nothing when everything does. `tools/check_docs.wand` is `-t` over
+the whole library, and a wrong example now fails a build.
 
-That is new. On 0.41.0 the same script ran out of stack. Nothing about how a
-script is written changes, and evaluation is faster across the board:
+An example is read by someone deciding how to call a function, and a wrong
+one is read with exactly the trust a right one is. Writing these found four
+docs that were already wrong:
 
-    tail-recursive loop, 200k         245 ms ->  45 ms
-    tail-recursive loop, 1.6M      11,642 ms -> 323 ms
-    List.fold_left over 200k          449 ms -> 100 ms
-    map and filter over small lists   829 ms -> 451 ms
-    non-tail recursion, 400k          731 ms -> 401 ms
-    a loop that stays shallow         209 ms -> 151 ms
-    startup                           7.8 ms -> 7.5 ms
+- `List.range` documented as excluding its upper bound, which it has never
+  done
+- `Map.empty` and `JSON.of_map` recommending the `[]` map literal, which
+  stopped being map syntax in 0.18.0
+- `Float.round -2.5`, `floor -2.1` and `ceil -2.9` — three examples written
+  in prose that do not parse, because a negative literal after a function
+  name is the subtraction it looks like
 
-### Where the time was going
+### A value shows as a value
 
-Every `Located` node wrapped evaluation in an exception handler, to stamp a
-line and column onto an error passing through it. A handler is a stack
-frame, and a `Located` sits on every function body and every match arm, so a
-frame stayed behind on each one. Frames on the tail path never come back, so
-the stack grew with the call chain — and every minor collection rescans the
-whole stack, which made a long recursion cost time quadratic in its own
-depth. The position now travels in a cell, which leaves the tail call a tail
-call.
+A string is shown with the quotes it was written with, at any depth:
 
-Every step of evaluation also asked whether it should stop, and reaching
-that answer read two pieces of domain-local state — more, on the shapes a
-script actually runs, than resolving all of its names. Both reasons to stop
-are announced globally before any domain can see them, so two atomic loads
-now rule them out.
+    ["a, b"]          was [a, b], which is also how ["a", "b"] printed
+    zip ["x, y"] [1]  was [(x, y, 1)] — a pair printed as a triple
 
-An error still reports the line and column it was raised at. Ctrl-C still
-stops a running script in about a millisecond, and a losing racer still
-stops where it stands.
+A TOML value shows as a value rather than as a document. A table used to
+print as a whole TOML file, newlines and all, so a list of two tables ran
+over four lines. It shows like a map now, and an array shows its elements
+instead of `<toml-array>`.
 
-### Written down
+Neither changes what a program writes. `IO.println` and `%{...}` write a
+string as its characters and a TOML table as its document, as before, and a
+script that ends in a string still writes that string. What changed is what
+the REPL echoes and what an error message names.
 
-`docs/reference.md` now says which positions are tail positions: the last
-statement of a block, either branch of an `if`, the body of a match arm, and
-the body of a `let ... in`.
+### Also
+
+`Shell.failed?`, which is `Shell.ok?` asked the other way. The library
+already pairs `Option.some?`/`none?` and `Path.absolute?`/`relative?`, and
+`List.filter Shell.failed?` needs no brackets where `!(Shell.ok? r)` does.
