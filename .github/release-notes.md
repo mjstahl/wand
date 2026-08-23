@@ -1,38 +1,31 @@
-## 0.43.1 - 2026-08-23
+## 0.44.0 - 2026-08-23
 
-0.43.0 said every function in the standard library carried an example. 53 of
-them did not.
+A `Result` module, with three functions.
 
-The count that made it look complete was per module: every module reported a
-number, no function was ever asked whether it had one, and a module with one
-example and fifteen functions passed the gate exactly like a finished one.
+    to_option : Result 'b 'a -> Option 'a
+    ok?       : Result 'b 'a -> Bool
+    error?    : Result 'b 'a -> Bool
 
-They have examples now — 296 of 303 functions, 357 examples. Most of the gap
-was systematic rather than random: each `Result` and `!` pair had the raising
-half documented and the `Result` half skipped, which is backwards. The
-`Result` is the half whose shape a caller has to handle:
+`Option` had eight combinators and `Result` none, though `Result` is the
+commoner of the two: every fallible operation answers with one, and `try`
+makes one. The asymmetry showed up as work. `Env.get`, `Map.get` and
+`List.get` each wrote this out by hand:
 
-    -- >> with FS.temp_dir "ex_" as d ->
-    -- ..   (match FS.delete (Path.join d ./missing) with
-    -- ..    | Ok _ -> "gone" | Error _ -> "was not there")
-    -- "was not there" : String
+    match ... with
+    | Ok v -> Some v
+    | Error _ -> None
 
-The seven that cannot have one are listed in `tools/check_docs.wand` with the
-reason: `Proc.exit` ends the process, five `IO` readers wait on stdin, and
-`IO.flush` neither answers nor writes.
+which is one function spelled three times. All three are written with
+`to_option` now.
 
-### The gate counts functions now
+`Option.to_result` already existed, so the crossing between the two types was
+named going one way and hand-written coming back. `to_option` is the way
+back, and drops the reason on purpose: it is for a caller with somewhere to
+put "no value" and nowhere to put "because".
 
-It ran every example and checked that each produced what it said. It never
-asked which functions had none, so it could not have caught this. It counts
-per function now and fails on any non-exempt function without an example —
-checked against a real gap rather than assumed.
+`ok?` and `error?` are the same question either way, so the failing branch can
+be the one a script is written around, and either can be handed to
+`List.filter` without brackets.
 
-### A lint that suggested an impossible name
-
-`V-BANG1` tells a function that can raise to end its name in `!`. For a
-predicate it said `found?` should be `found?!` — and a name takes one
-ending, so `ok?!` and `ok!?` are both parse errors. The advice could not be
-followed by anyone who received it.
-
-It raises, so it ends in `!`: `found?` is `found!`.
+Matching a `Result` stays the usual way to deal with one. These are for the
+three questions a match cannot ask more briefly.

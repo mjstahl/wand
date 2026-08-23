@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.44.0] - 2026-08-23
+
+### Added
+
+- A `Result` module: `to_option`, `ok?` and `error?`. `Option` had eight
+  combinators and `Result` none, and the gap showed up as `Env.get`,
+  `Map.get` and `List.get` each writing `match ... | Ok v -> Some v |
+  Error _ -> None` by hand — one function spelled three times. All three
+  are written with `Result.to_option` now
+- `Option.to_result` named the crossing one way only; `Result.to_option` is
+  the way back, and drops the reason rather than inventing somewhere to put
+  it. `ok?` and `error?` are the same question either way, so either can go
+  straight to `List.filter`. Matching a `Result` stays the usual way to deal
+  with one
+
+[0.44.0]: https://github.com/mjstahl/wand/releases/tag/v0.44.0
+
 ## [0.43.1] - 2026-08-23
 
 ### Fixed
