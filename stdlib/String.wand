@@ -1,95 +1,198 @@
 import List
 
 -- Return the number of characters in a string.
+--
+-- >> String.length "wand"
+-- 4 : Int
 let length s = str_length s
 
 -- Return true if the string is empty.
+--
+-- >> String.empty? ""
+-- true : Bool
 let empty? s = str_length s == 0
 
 -- Convert a string to uppercase.
+--
+-- >> String.upper "wand"
+-- "WAND" : String
 let upper s = str_upper s
 
 -- Convert a string to lowercase.
+--
+-- >> String.lower "WAND"
+-- "wand" : String
 let lower s = str_lower s
 
 -- Strip leading and trailing whitespace.
+--
+-- >> String.trim "  wand  "
+-- "wand" : String
 let trim s = str_trim s
 
 -- Strip leading whitespace.
+--
+-- >> String.trim_left "  wand  "
+-- "wand  " : String
 let trim_left s = str_trim_left s
 
 -- Strip trailing whitespace.
+--
+-- >> String.trim_right "  wand  "
+-- "  wand" : String
 let trim_right s = str_trim_right s
 
 -- Return the substring from index `from` up to (not including) `to_end`.
+--
+-- >> String.slice 0 4 "wandering"
+-- "wand" : String
 let slice from to_end s = str_slice from to_end s
 
 -- Split a string on a delimiter, returning a list of substrings.
+--
+-- >> String.split "," "a,b,c"
+-- ["a", "b", "c"] : List String
 let split delim s = str_split delim s
 
 -- Return true if the string contains the given substring.
+--
+-- The part looked for comes first, and the string looked in comes last, as
+-- it does in every predicate here. That order is what lets one be pipelined:
+-- `name |> String.contains? "x"` reads the way it runs.
+--
+-- >> String.contains? "and" "wand"
+-- true : Bool
+--
+-- >> "wand" |> String.contains? "and"
+-- true : Bool
 let contains? needle s = str_contains needle s
 
 -- Return true if the string starts with the given prefix.
+--
+-- >> String.starts_with? "wa" "wand"
+-- true : Bool
 let starts_with? prefix s = str_starts_with prefix s
 
 -- Return true if the string ends with the given suffix.
+--
+-- >> String.ends_with? "nd" "wand"
+-- true : Bool
 let ends_with? suffix s = str_ends_with suffix s
 
 -- Replace all occurrences of `old` with `new` in the string.
+--
+-- >> String.replace "a" "o" "banana"
+-- "bonono" : String
 let replace old new s = str_replace old new s
 
 -- Repeat a string n times.
+--
+-- >> String.repeat 3 "ab"
+-- "ababab" : String
 let repeat n s = str_repeat n s
 
 -- Reverse a string.
+--
+-- >> String.reverse "wand"
+-- "dnaw" : String
 let reverse s = str_reverse s
 
 -- Return a list of single-character strings.
+--
+-- >> String.chars "wand"
+-- ["w", "a", "n", "d"] : List String
 let chars s = str_chars s
 
 -- Convert an integer to its string representation.
+--
+-- >> String.of_int 42
+-- "42" : String
 let of_int n = int_to_str n
 
 -- Parse a string as an integer. Returns Ok n or Error msg.
+--
+-- >> String.to_int "42"
+-- Ok(42) : Result String Int
+--
+-- >> String.to_int "x"
+-- Error("cannot parse \"x\" as Int") : Result String Int
 let to_int s = str_to_int s
 
 -- Parse a string as a float. Returns Ok f or Error msg.
+--
+-- >> String.to_float "1.5"
+-- Ok(1.5) : Result String Float
 let to_float s = str_to_float s
 
 -- Parse "true" or "false" (case-insensitive). Returns Ok b or Error msg.
+--
+-- >> String.to_bool "TRUE"
+-- Ok(true) : Result String Bool
 let to_bool s = str_to_bool s
 
 -- Convert a string to a Path value. Always succeeds.
+--
+-- >> String.to_path "/etc/hosts"
+-- /etc/hosts : Path
 let to_path s = str_to_path s
 
 -- Parse a URL string. Returns Ok url or Error msg.
+--
+-- >> String.to_url "https://example.com"
+-- Ok(https://example.com) : Result String URL
 let to_url s = str_to_url s
 
 -- Parse an IPv4 address string. Returns Ok ipv4 or Error msg.
+--
+-- >> String.to_ipv4 "192.168.1.1"
+-- Ok(192.168.1.1) : Result String IPv4
 let to_ipv4 s = str_to_ipv4 s
 
 -- Parse a CIDR string (e.g. "192.168.0.0/24"). Returns Ok cidr or Error msg.
+--
+-- >> String.to_cidr "10.0.0.0/8"
+-- Ok(10.0.0.0/8) : Result String CIDR
 let to_cidr s = str_to_cidr s
 
 -- Parse a port string (e.g. ":8080"). Returns Ok port or Error msg.
+--
+-- >> String.to_port ":8080"
+-- Ok(:8080) : Result String Port
 let to_port s = str_to_port s
 
 -- Parse a version string (e.g. "1.2.3"). Returns Ok version or Error msg.
+--
+-- >> String.to_version "1.2.3"
+-- Ok(1.2.3) : Result String Version
 let to_version s = str_to_version s
 
 -- Parse a size string (e.g. "10MB"). Returns Ok size or Error msg.
+--
+-- >> String.to_size "10MB"
+-- Ok(10MB) : Result String Size
 let to_size s = str_to_size s
 
 -- Parse an instant, written either way: "2024-01-15T14:30:00Z" or the bare
 -- day "2024-01-15", which is midnight UTC. Returns Ok datetime or Error
 -- msg.
+--
+-- >> String.to_datetime "2026-08-22"
+-- Ok(2026-08-22T00:00:00Z) : Result String DateTime
 let to_datetime s = str_to_datetime s
 
 -- Parse a duration string (e.g. "5min", "1h30m"). Returns Ok duration or Error msg.
+--
+-- >> String.to_duration "1h30m"
+-- Ok(1h30m) : Result String Duration
 let to_duration s = str_to_duration s
 
 -- Join a list of strings with a separator.
+--
+-- >> String.join ", " ["a", "b", "c"]
+-- "a, b, c" : String
+--
+-- >> String.join "," ["", "b"]
+-- ",b" : String
 let join sep xs =
   match xs with
   | [] -> ""
@@ -100,10 +203,16 @@ let join sep xs =
   | [h :: t] -> List.fold_left (fn acc x -> acc ++ sep ++ x) h t
 
 -- Split a string on newlines.
+--
+-- >> String.lines "one\ntwo"
+-- ["one", "two"] : List String
 let lines s = str_split "\n" s
 
 -- Split a string into words: any run of whitespace separates them, and
 -- leading or trailing whitespace adds none.
+--
+-- >> String.words "  one   two  "
+-- ["one", "two"] : List String
 let words s =
   -- Splitting on a single space made every extra space its own empty word --
   -- `words "  a  b  "` came back with seven elements, five of them "" -- and
