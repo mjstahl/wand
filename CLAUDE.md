@@ -83,14 +83,11 @@ release if it is missing, so they can finish in either order, and it stays a
 draft until someone publishes it. `make release` refuses a tag that `VERSION`
 disagrees with.
 
-The dependencies for the Linux builds are their own image,
-`.github/docker/musl-deps.Dockerfile`, cached as a layer between runs. The
-opam image ships no dune, so without it every release compiled dune from
-source -- most of the job, and the only part of it that has ever flaked
-(`Failed to allocate signal stack for domain 0`, the OCaml runtime failing
-to start). A cache miss falls back to building it, which is what every run
-used to do. Both that build and the wand build retry three times; three
-failures in a row are not the flake, so read the log.
+The musl build is retried up to three times. It compiles dune from source,
+and that has twice died with `Failed to allocate signal stack for domain 0` --
+the OCaml runtime failing to start, before any of wand is reached. It does
+not reproduce off the runners, so the retry is the fix. Three failures in a
+row are not the flake; read the log.
 
 ---
 
