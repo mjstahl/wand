@@ -2,14 +2,17 @@ uses {FS.Read}
 
 -- Parse a TOML string.  Returns Ok TOML or Error message.
 --
+-- >> TOML.parse "port = 8080"
+-- Ok({port = 8080}) : Result String TOML
+--
 -- >> TOML.parse "= bad"
 -- Error("Error in <string> at line 1 at column 1 (position 1)") : Result String TOML
 let parse src = toml_parse src
 
 -- Parse a TOML string, raising on error.
 --
--- >> TOML.table? (TOML.parse! "port = 8080")
--- true : Bool
+-- >> TOML.parse! "port = 8080"
+-- {port = 8080} : TOML
 let parse! src = toml_parse_exn src
 
 -- Serialise a TOML table back to a TOML string.
@@ -22,8 +25,8 @@ let stringify t = toml_stringify t
 -- document is a table, so a bare value is the `Error` -- as is a function,
 -- a resource or a stream.
 --
--- >> TOML.stringify (TOML.of! {port = 8080})
--- "port = 8080\n" : String
+-- >> TOML.of {port = 8080}
+-- Ok({port = 8080}) : Result String TOML
 --
 -- A document is a table, so a bare value says so:
 --
@@ -33,8 +36,8 @@ let of v = toml_of v
 
 -- Any value as TOML. Raises on what cannot be written.
 --
--- >> TOML.stringify (TOML.of! {port = 8080})
--- "port = 8080\n" : String
+-- >> TOML.of! {port = 8080}
+-- {port = 8080} : TOML
 let of! v = toml_of_exn v
 
 -- Read and parse a TOML file, raising on error. Reading is the same
@@ -54,8 +57,8 @@ let table? t = toml_is_table t
 
 -- True if the value is a TOML array.
 --
--- >> TOML.array? (TOML.parse! "port = 8080")
--- false : Bool
+-- >> TOML.array? (TOML.field! "xs" (TOML.parse! "xs = [1, 2]"))
+-- true : Bool
 let array? t = toml_is_array t
 
 -- Extract typed values.  Each returns Ok v or Error message.
@@ -76,14 +79,14 @@ let get_table t = toml_get_table t
 
 -- Look up a key in a TOML table.  Returns Ok TOML or Error message.
 --
--- >> TOML.get_int (TOML.field! "port" (TOML.parse! "port = 8080"))
--- Ok(8080) : Result String Int
+-- >> TOML.field "port" (TOML.parse! "port = 8080")
+-- Ok(8080) : Result String TOML
 let field key t = toml_field key t
 
 -- Look up a key in a TOML table, raising if absent.
 --
--- >> TOML.get_int (TOML.field! "port" (TOML.parse! "port = 8080"))
--- Ok(8080) : Result String Int
+-- >> TOML.field! "port" (TOML.parse! "port = 8080")
+-- 8080 : TOML
 let field! key t = toml_field_exn key t
 
 -- Read a typed value out of a TOML document. Failure names the field that

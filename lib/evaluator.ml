@@ -267,6 +267,19 @@ let datetime_of_epoch secs =
    as `[a, b]`. Quoted, what is shown is wand source again, and the escapes
    are the ones the lexer reads back. *)
 
+(* A TOML array holds one type, so the library keeps it as a list of that
+   type rather than a list of values. This puts the values back. *)
+let toml_array_values (arr : Toml.Types.array) : Toml.Types.value list =
+  match arr with
+  | Toml.Types.NodeBool bs   -> List.map (fun b -> Toml.Types.TBool b) bs
+  | Toml.Types.NodeInt ns    -> List.map (fun n -> Toml.Types.TInt n) ns
+  | Toml.Types.NodeFloat fs  -> List.map (fun f -> Toml.Types.TFloat f) fs
+  | Toml.Types.NodeString ss -> List.map (fun s -> Toml.Types.TString s) ss
+  | Toml.Types.NodeDate ds   -> List.map (fun d -> Toml.Types.TDate d) ds
+  | Toml.Types.NodeTable ts  -> List.map (fun t -> Toml.Types.TTable t) ts
+  | Toml.Types.NodeArray ars -> List.map (fun a -> Toml.Types.TArray a) ars
+  | Toml.Types.NodeEmpty     -> []
+
 let quoted s =
   let buf = Buffer.create (String.length s + 2) in
   Buffer.add_char buf '"';
@@ -305,15 +318,15 @@ let rec render ~quote v =
   | VSize s     -> s
   | VRegex _    -> "<regex>"
   | VJson j     -> Yojson.Basic.to_string j
-  | VToml v     ->
-    (match v with
-     | Toml.Types.TBool b   -> string_of_bool b
-     | Toml.Types.TInt n    -> string_of_int n
-     | Toml.Types.TFloat f  -> Printf.sprintf "%g" f
-     | Toml.Types.TString s -> if quote then quoted s else s
-     | Toml.Types.TTable tbl -> Toml.Printer.string_of_table tbl
-     | Toml.Types.TArray _  -> "<toml-array>"
-     | Toml.Types.TDate _   -> "<toml-date>")
+  (* A TOML value shows the way the rest of the language shows the same
+     shapes: a table like a map, an array like a list. What it does not show
+     as is a TOML document -- that is the text of the value rather than a
+     look at it, so it belongs to `to_text` and to `TOML.stringify`. A
+     document has newlines in it, and a display with newlines in it stops
+     being one as soon as it is inside anything: a list of two tables came
+     out over four lines, and the `: TOML` that says what it is landed
+     after a blank. *)
+  | VToml v -> render_toml ~quote v
   | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> "<fn>"
   | VResource _ -> "<resource>"
   | VStream _ -> "<stream>"
@@ -334,6 +347,25 @@ let rec render ~quote v =
     "{ " ^ String.concat ", " (List.map (fun (k, v) ->
       k ^ " = " ^ sub v) kvs) ^ " }"
 
+and render_toml ~quote (v : Toml.Types.value) =
+  let sub = render_toml ~quote in
+  match v with
+  | Toml.Types.TBool b   -> string_of_bool b
+  | Toml.Types.TInt n    -> string_of_int n
+  | Toml.Types.TFloat f  -> Printf.sprintf "%g" f
+  | Toml.Types.TString s -> if quote then quoted s else s
+  | Toml.Types.TTable tbl ->
+    "{" ^ String.concat ", "
+      (List.map (fun (k, v) ->
+         Toml.Types.Table.Key.to_string k ^ " = " ^ sub v)
+         (Toml.Types.Table.to_list tbl)) ^ "}"
+  | Toml.Types.TArray arr ->
+    (* An array showed as `<toml-array>`, which is a display that says
+       nothing about the value: the one thing a reader wants from an array
+       is what is in it. *)
+    "[" ^ String.concat ", " (List.map sub (toml_array_values arr)) ^ "]"
+  | Toml.Types.TDate _   -> "<toml-date>"
+
 let show_value v = render ~quote:true v
 
 (* Writing a value out is only unquoted where the value is the text: a
@@ -342,9 +374,12 @@ let show_value v = render ~quote:true v
    element ends is no more use inside `%{...}` than it is in the REPL. *)
 let to_text v =
   match v with
-  | VString s                  -> s
+  | VString s                    -> s
   | VToml (Toml.Types.TString s) -> s
-  | v                          -> show_value v
+  (* The text of a TOML table is the document it stands for, newlines and
+     all. `IO.println` of one writes real TOML; showing one does not. *)
+  | VToml (Toml.Types.TTable tbl) -> Toml.Printer.string_of_table tbl
+  | v                            -> show_value v
 
 (* ── Runtime error ────────────────────────────────────────────────────────── *)
 
@@ -1908,17 +1943,7 @@ let rec json_of_toml (v : Toml.Types.value) : Yojson.Basic.t =
       (Toml.Types.Table.Key.to_string k, json_of_toml v))
       (Toml.Types.Table.to_list tbl))
   | Toml.Types.TArray arr ->
-    let items = match arr with
-      | Toml.Types.NodeBool bs   -> List.map (fun b -> Toml.Types.TBool b) bs
-      | Toml.Types.NodeInt ns    -> List.map (fun n -> Toml.Types.TInt n) ns
-      | Toml.Types.NodeFloat fs  -> List.map (fun f -> Toml.Types.TFloat f) fs
-      | Toml.Types.NodeString ss -> List.map (fun s -> Toml.Types.TString s) ss
-      | Toml.Types.NodeDate ds   -> List.map (fun d -> Toml.Types.TDate d) ds
-      | Toml.Types.NodeTable ts  -> List.map (fun t -> Toml.Types.TTable t) ts
-      | Toml.Types.NodeArray ars -> List.map (fun a -> Toml.Types.TArray a) ars
-      | Toml.Types.NodeEmpty     -> []
-    in
-    `List (List.map json_of_toml items)
+    `List (List.map json_of_toml (toml_array_values arr))
 
 (* A domain literal decodes as itself: the string is lexed exactly as it
    would be if it had been written in the source, so `"30s"` in a document
