@@ -38,16 +38,66 @@ let modules =
 -- since a failure has to say which example and how.
 let check name = $?(%{wand} d --test %{name})
 
+-- ── Every function has one ──────────────────────────────────────────────
+
+-- Running the examples says nothing about the functions that have none. A
+-- module whose examples all hold and whose functions mostly lack them
+-- passes the check above, and did: a count per module looked like coverage
+-- and 53 functions had nothing.
+--
+-- These are the ones that cannot have an example, each for a reason that
+-- is not "nobody wrote it yet":
+--
+--   Proc.exit           ends the process, and the checker with it
+--   IO.read_line        waits on stdin, which a check has none of
+--   IO.read_line!       the same
+--   IO.read_all         the same
+--   IO.read_all!        the same
+--   IO.stdin_lines      the same
+--   IO.flush            answers with nothing and writes nothing
+let exempt = [
+  "Proc.exit",
+  "IO.read_line",
+  "IO.read_line!",
+  "IO.read_all",
+  "IO.read_all!",
+  "IO.stdin_lines",
+  "IO.flush"
+]
+
+-- `wand v` lists a module's members, one per line, as `Module.name : type`.
+let members_of! name =
+  $(%{wand} v %{name})
+    |> String.lines
+    |> List.filter (fn l -> String.starts_with? "%{name}." l)
+    |> List.map (fn l -> List.head! (String.split " : " l))
+
+-- A name has an example when its doc carries the session's prompt.
+let has_example! name = String.contains? ">>" $(%{wand} d --json %{name})
+
+let undocumented_in! module =
+  members_of! module
+    |> List.filter (fn n -> !(List.any (fn e -> e == n) exempt))
+    |> List.filter (fn n -> !(has_example! n))
+
 let report (r: ShellResult) = (IO.println_err r.stdout; IO.println_err r.stderr)
 
-let main () =
+let report_undocumented names = (
+  IO.println_err "these functions have no example, and are not exempt:";
+  names |> List.each (fn n -> IO.println_err "  %{n}");
+  Proc.exit 1
+)
+
+let main! () =
+  let missing = modules |> List.map undocumented_in! |> List.flatten in
+  let () = if List.empty? missing then () else report_undocumented missing in
   let results = modules |> List.map check in
   match List.filter Shell.failed? results with
-  | [] -> IO.println "every example holds (%{List.length modules} modules checked)"
+  | [] -> IO.println "every function has an example, and every example holds"
   | bad -> (
     IO.println_err "these examples do not produce what they say:";
     bad |> List.each report;
     Proc.exit 1
   )
 
-main ()
+main! ()

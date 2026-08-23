@@ -27,7 +27,7 @@ examples. Most tasks need only one part.
 - `stdlib/*.wand` — the standard library, written in wand, embedded into the binary at build time by `tools/gen_stdlib_embed.ml`.
 - `test/` — Alcotest suites (`test_*.ml`, one per area) plus `test/wand/*.wand`, which are wand-language tests run by `wand s`.
 - `tools/check_fmt.wand` — CI gate that `stdlib/`, `test/wand/` and `examples/` are formatter fixed points. Run it locally as shown below.
-- `tools/check_docs.wand` — CI gate that every `>>` example in a stdlib doc string produces what it says. `wand d -x <name>` runs one name's or one module's examples the same way.
+- `tools/check_docs.wand` — CI gate that every stdlib function has a `>>` example and that every example produces what it says. The handful that cannot have one are listed in the script with the reason. `wand d -x <name>` prints a doc with its examples run; `wand d -t` checks them and says nothing when they hold.
 - `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands.
 - `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
 
