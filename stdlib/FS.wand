@@ -23,6 +23,11 @@ let read_file! path = read_file path
 -- >> with FS.temp_dir "ex_" as d ->
 -- ..   FS.exists? (Path.join d ./missing)
 -- false : Bool
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match FS.read_file (Path.join d ./missing) with
+-- ..    | Ok _ -> "read" | Error _ -> "not there")
+-- "not there" : String
 let read_file path = try read_file! path
 
 -- Write a string to a file, replacing existing contents. Raises on failure.
@@ -36,6 +41,12 @@ let read_file path = try read_file! path
 let write_file! path s = write_file path s
 
 -- Write a string to a file, replacing existing contents.
+--
+-- The Result carries the reason the OS gave; the `!` sibling raises it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.write_file (Path.join d ./x) "hi"
+-- Ok(()) : Result String Unit
 let write_file path s = try write_file! path s
 
 -- Append a string to a file, creating it if it does not exist. Raises on failure.
@@ -47,6 +58,10 @@ let write_file path s = try write_file! path s
 let append! path s = fs_append path s
 
 -- Append a string to a file, creating it if it does not exist.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.append (Path.join d ./x) "hi"
+-- Ok(()) : Result String Unit
 let append path s = try append! path s
 
 -- Create an empty file at the given path. Raises on failure.
@@ -57,6 +72,10 @@ let append path s = try append! path s
 let create_file! path = fs_create path
 
 -- Create an empty file at the given path.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.create_file (Path.join d ./x)
+-- Ok(()) : Result String Unit
 let create_file path = try create_file! path
 
 -- Return true if the path exists.
@@ -90,6 +109,10 @@ let dir? path = fs_is_dir path
 let mkdir! path = fs_mkdir path
 
 -- Create a directory and all missing parents.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.mkdir (Path.join d ./a)
+-- Ok(()) : Result String Unit
 let mkdir path = try mkdir! path
 
 -- Delete a file or empty directory. Raises on failure.
@@ -100,6 +123,13 @@ let mkdir path = try mkdir! path
 let delete! path = fs_remove path
 
 -- Delete a file or empty directory.
+--
+-- Deleting what is not there is the Error, not a quiet success:
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match FS.delete (Path.join d ./missing) with
+-- ..    | Ok _ -> "gone" | Error _ -> "was not there")
+-- "was not there" : String
 let delete path = try delete! path
 
 -- A new, uniquely-named empty file in the OS temp directory, removed when
@@ -156,6 +186,10 @@ let temp_dir prefix =
 let delete_tree! path = fs_delete_tree path
 
 -- Delete a directory and everything under it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.mkdir! (Path.join d ./a); FS.delete_tree (Path.join d ./a))
+-- Ok(()) : Result String Unit
 let delete_tree path = try delete_tree! path
 
 -- Copy a directory and everything under it. Raises on failure.
@@ -171,6 +205,11 @@ let delete_tree path = try delete_tree! path
 let copy_tree! src dst = fs_copy_tree src dst
 
 -- Copy a directory and everything under it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.mkdir! (Path.join d ./a);
+-- ..    FS.copy_tree (Path.join d ./a) (Path.join d ./b))
+-- Ok(()) : Result String Unit
 let copy_tree src dst = try copy_tree! src dst
 
 -- Rename or move a file or directory. Raises on failure.
@@ -182,6 +221,11 @@ let copy_tree src dst = try copy_tree! src dst
 let rename! src dst = fs_rename src dst
 
 -- Rename or move a file or directory.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi";
+-- ..    FS.rename f (Path.join d ./y))
+-- Ok(()) : Result String Unit
 let rename src dst = try rename! src dst
 
 -- Copy a file to a new path. Raises on failure.
@@ -193,6 +237,11 @@ let rename src dst = try rename! src dst
 let copy! src dst = fs_copy src dst
 
 -- Copy a file to a new path.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi";
+-- ..    FS.copy f (Path.join d ./y))
+-- Ok(()) : Result String Unit
 let copy src dst = try copy! src dst
 
 -- Return a list of paths for the immediate children of a directory. Raises on failure.
@@ -206,6 +255,10 @@ let copy src dst = try copy! src dst
 let list_dir! path = fs_ls path
 
 -- Return a list of paths for the immediate children of a directory.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.list_dir d
+-- Ok([]) : Result String (List Path)
 let list_dir path = try list_dir! path
 
 -- Return the last-modified time of a file as a DateTime. Raises on failure.
@@ -217,6 +270,11 @@ let list_dir path = try list_dir! path
 let mtime! path = fs_mtime path
 
 -- Return the last-modified time of a file as a DateTime.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match FS.mtime (Path.join d ./missing) with
+-- ..    | Ok _ -> "read" | Error _ -> "not there")
+-- "not there" : String
 let mtime path = try mtime! path
 
 -- Return the size of a file. Raises on failure.
@@ -227,6 +285,10 @@ let mtime path = try mtime! path
 let size! path = fs_size path
 
 -- Return the size of a file.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.size f)
+-- Ok(2B) : Result String Size
 let size path = try size! path
 
 -- Return the current working directory.
