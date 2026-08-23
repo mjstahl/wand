@@ -2,48 +2,96 @@
 type Option 'a = None | Some 'a
 
 -- Return true if the option holds a value.
+--
+-- >> Option.some? (Some 3)
+-- true : Bool
 let some? o =
   match o with
   | Some _ -> true
   | None -> false
 
 -- Return true if the option is empty.
+--
+-- >> Option.none? None
+-- true : Bool
 let none? o =
   match o with
   | Some _ -> false
   | None -> true
 
 -- Apply a function to the contained value, if any.
+--
+-- >> Option.map (fn x -> x * 2) (Some 3)
+-- Some(6) : Option Int
+--
+-- >> Option.map (fn x -> x * 2) None
+-- None : Option Int
 let map f o =
   match o with
   | Some v -> Some (f v)
   | None -> None
 
 -- Chain an option-returning function onto the contained value, if any.
+--
+-- Where `map` wraps what the function returns, this one does not: the
+-- function answers with an Option of its own, so a chain of steps that may
+-- each come up empty stays one Option deep.
+--
+-- >> Option.and_then (fn x -> if x > 1 then Some (x * 10) else None) (Some 3)
+-- Some(30) : Option Int
+--
+-- >> Option.and_then (fn x -> if x > 1 then Some (x * 10) else None) (Some 0)
+-- None : Option Int
 let and_then f o =
   match o with
   | Some v -> f v
   | None -> None
 
 -- Substitute a fallback (computed lazily) if empty.
+--
+-- The fallback is a thunk, so it is not run unless it is needed.
+--
+-- >> Option.or_else (fn () -> Some 0) None
+-- Some(0) : Option Int
+--
+-- >> Option.or_else (fn () -> Some 0) (Some 3)
+-- Some(3) : Option Int
 let or_else f o =
   match o with
   | Some _ -> o
   | None -> f ()
 
 -- Return the contained value, or a default if empty.
+--
+-- >> Option.default 0 (Some 3)
+-- 3 : Int
+--
+-- >> Option.default 0 None
+-- 0 : Int
 let default d o =
   match o with
   | Some v -> v
   | None -> d
 
 -- Return the contained value. Raises if empty.
+--
+-- >> Option.get! (Some 3)
+-- 3 : Int
 let get! o =
   match o with
   | Some v -> v
   | None -> option_get_exn ()
 
 -- Convert to a Result, using the given error value if empty.
+--
+-- An Option says whether there is a value; a Result says why there is not.
+-- This is where the reason is supplied.
+--
+-- >> Option.to_result "empty" (Some 3)
+-- Ok(3) : Result String Int
+--
+-- >> Option.to_result "empty" None
+-- Error("empty") : Result String 'a
 let to_result e o =
   match o with
   | Some v -> Ok v
