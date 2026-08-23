@@ -1,4 +1,5 @@
 import Option
+import Result
 
 -- An empty map. `{}` is the same value written as a literal.
 --
@@ -13,10 +14,7 @@ let empty = map_empty
 --
 -- >> Map.get "z" {a = 1, b = 2}
 -- None : Option Int
-let get key m =
-  match map_get key m with
-  | Ok v -> Some v
-  | Error _ -> None
+let get key m = Result.to_option (map_get key m)
 
 -- Look up a key, raising a runtime error if not found.
 --

@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -3492,6 +3492,30 @@ absence now counts as a failure:
 ```ocaml
 Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
 ```
+
+`Result.to_option` crosses back, where the reason has nowhere to go.
+
+---
+
+### `Result`
+
+```ocaml
+to_option : Result 'b 'a -> Option 'a
+ok?       : Result 'b 'a -> Bool
+error?    : Result 'b 'a -> Bool
+```
+
+`Result 'b 'a` is built in: `Ok v` and `Error e`, with the error type first.
+Matching one is the usual way to deal with it and stays the usual way — these
+are for what a match cannot say more briefly.
+
+`to_option` drops the reason, which is the point: it is for a caller with
+somewhere to put "no value" and nowhere to put "because". `Map.get`,
+`List.get` and `Env.get` are each written with it.
+
+`ok?` and `error?` are the same question either way, so the failing branch can
+be the one a script is written around, and so either can be handed to
+`List.filter` without brackets.
 
 ---
 

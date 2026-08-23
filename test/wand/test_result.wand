@@ -1,0 +1,38 @@
+import List
+import Map
+import Option
+import Result
+
+let {test, group} = import Test
+
+-- A Result is what a fallible operation answered. Matching one stays the
+-- usual way to deal with it; these are the three questions a match cannot
+-- ask more briefly.
+
+group "to_option" (fn () -> [
+  test "a value crosses over" (fn t -> t.eq (Some 1) (Result.to_option (Ok 1))),
+  -- The reason is dropped on purpose: an Option has nowhere to put it.
+  test "a reason does not" (fn t -> t.eq (None) (Result.to_option (Error "no such key"))),
+  -- The inverse of Option.to_result, which supplies a reason where there was none.
+  test "and back again" (fn t ->
+    t.eq (Ok 1) (Option.to_result "gone" (Result.to_option (Ok 1))))
+])
+
+group "which side" (fn () -> [
+  test "ok? on a value" (fn t -> t.eq true (Result.ok? (Ok 1))),
+  test "ok? on a reason" (fn t -> t.eq false (Result.ok? (Error "nope"))),
+  test "error? is the other way" (fn t -> t.eq true (Result.error? (Error "nope"))),
+  test "error? on a value" (fn t -> t.eq false (Result.error? (Ok 1))),
+  -- The reason both exist: either can be handed to filter as it is.
+  test "either can be filtered with" (fn t ->
+    t.eq [Ok 1] (List.filter Result.ok? [Ok 1, Error "nope"]))
+])
+
+-- The three stdlib lookups are written with to_option, so they are its
+-- first callers and its regression test.
+group "the lookups it is used by" (fn () -> [
+  test "Map.get finds one" (fn t -> t.eq (Some 1) (Map.get "a" {a = 1})),
+  test "Map.get misses" (fn t -> t.eq (None) (Map.get "z" {a = 1})),
+  test "List.get finds one" (fn t -> t.eq (Some 2) (List.get 1 [1, 2])),
+  test "List.get is out of bounds" (fn t -> t.eq (None) (List.get 9 [1, 2]))
+])

@@ -1,4 +1,5 @@
 import Option
+import Result
 
 -- Apply a function to every element of a list, returning a new list.
 --
@@ -177,10 +178,7 @@ let indexed xs =
 --
 -- >> List.get 1 [1, 2, 3]
 -- Some(2) : Option Int
-let get n xs =
-  match list_get n xs with
-  | Ok v -> Some v
-  | Error _ -> None
+let get n xs = Result.to_option (list_get n xs)
 
 -- Return the element at index n.  Raises if out of bounds.
 --

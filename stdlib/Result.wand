@@ -1,0 +1,52 @@
+import Option
+
+-- What a fallible operation answered.
+--
+-- Every operation that can fail comes as a pair: the plain name answers
+-- with a `Result` carrying the reason, and the `!` sibling raises instead.
+-- `try` turns a raise back into one. So a Result is the shape a failure
+-- takes when it is a value rather than a control flow.
+--
+-- Matching one is the usual way to deal with it, and stays the usual way.
+-- These are for the three places a match says nothing a name could not:
+-- asking which side it is, and crossing to an `Option` when the reason is
+-- not wanted.
+
+-- The value, or None if it failed. The reason is dropped, which is the
+-- point: this is for a caller that has somewhere to put "no value" and
+-- nowhere to put "because".
+--
+-- The inverse of `Option.to_result`, which supplies a reason where there
+-- was none.
+--
+-- >> Result.to_option (Ok 1)
+-- Some(1) : Option Int
+--
+-- >> Result.to_option (Error "no such key")
+-- None : Option 'a
+let to_option r =
+  match r with
+  | Ok v -> Some v
+  | Error _ -> None
+
+-- Whether it succeeded.
+--
+-- >> Result.ok? (Ok 1)
+-- true : Bool
+let ok? r =
+  match r with
+  | Ok _ -> true
+  | Error _ -> false
+
+-- Whether it failed. The same question the other way, for the branch a
+-- script is written around and for handing to `List.filter`.
+--
+-- >> Result.error? (Error "nope")
+-- true : Bool
+--
+-- >> List.filter Result.error? [Ok 1, Error "nope"]
+-- [Error("nope")] : List (Result String Int)
+let error? r =
+  match r with
+  | Ok _ -> false
+  | Error _ -> true
