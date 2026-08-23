@@ -22,4 +22,15 @@
 -- Pair an acquire with a release. `acquire` is called when the `with`
 -- is entered, and its result is bound by the pattern; `release` is called
 -- with that same value on the way out.
+--
+-- A resource on its own is a description and shows as one. `with` is what
+-- runs it, and the release runs before the body's value comes back:
+--
+-- >> let r = Resource.make (fn () -> 1) (fn _ -> IO.println "released")
+-- >> r
+-- <resource> : Resource {IO | ..} Int
+--
+-- >> with r as n -> n + 1
+-- released
+-- 2 : Int
 let make acquire release = resource_make acquire release
