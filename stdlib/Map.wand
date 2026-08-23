@@ -1,47 +1,97 @@
 import Option
 
--- An empty map. Use Map.empty or the literal [] syntax — but note [] is an
--- empty list; prefer Map.empty for clarity.
+-- An empty map. `{}` is the same value written as a literal.
+--
+-- >> Map.empty
+-- {} : Map 'a
 let empty = map_empty
 
 -- Look up a key, returning None if it is absent.
+--
+-- >> Map.get "a" {a = 1, b = 2}
+-- Some(1) : Option Int
+--
+-- >> Map.get "z" {a = 1, b = 2}
+-- None : Option Int
 let get key m =
   match map_get key m with
   | Ok v -> Some v
   | Error _ -> None
 
 -- Look up a key, raising a runtime error if not found.
+--
+-- >> Map.get! "a" {a = 1}
+-- 1 : Int
 let get! key m = map_get_exn key m
 
 -- Set a key to a value, returning the updated map.
+--
+-- A map is a value, so this answers with a new one and leaves the old
+-- alone.
+--
+-- >> Map.set "c" 3 {a = 1}
+-- {a = 1, c = 3} : Map Int
 let set key value m = map_set key value m
 
 -- Remove a key, returning the updated map.
+--
+-- >> Map.delete "a" {a = 1, b = 2}
+-- {b = 2} : Map Int
 let delete key m = map_delete key m
 
 -- Return true if the map contains the given key.
+--
+-- >> Map.has? "a" {a = 1}
+-- true : Bool
 let has? key m = map_has key m
 
 -- Return a list of all keys.
+--
+-- >> Map.keys {a = 1, b = 2}
+-- ["a", "b"] : List String
 let keys m = map_keys m
 
 -- Return a list of all values.
+--
+-- >> Map.values {a = 1, b = 2}
+-- [1, 2] : List Int
 let values m = map_values m
 
 -- Return the number of entries.
+--
+-- >> Map.size {a = 1, b = 2}
+-- 2 : Int
 let size m = map_size m
 
 -- Return the map as a list of (key, value) tuples.
+--
+-- >> Map.to_list {a = 1, b = 2}
+-- [("a", 1), ("b", 2)] : List (String, Int)
 let to_list m = map_to_list m
 
 -- Build a map from a list of (key, value) tuples.
+--
+-- >> Map.from_list [("a", 1), ("b", 2)]
+-- {a = 1, b = 2} : Map Int
 let from_list xs = map_from_list xs
 
 -- Merge two maps. Keys in the second map take precedence.
+--
+-- >> Map.merge {a = 1, b = 2} {b = 9, c = 3}
+-- {a = 1, b = 9, c = 3} : Map Int
 let merge a b = map_merge a b
 
 -- Apply a function to every value, returning a new map.
+--
+-- The function is given each value, not each pair: a map's keys are its
+-- own and this does not change them.
+--
+-- >> Map.map (fn v -> v * 10) {a = 1, b = 2}
+-- {a = 10, b = 20} : Map Int
 let map f m = map_map f m
 
 -- Keep only entries where the predicate returns true.
+--
+-- >> Map.filter (fn v -> v > 1) {a = 1, b = 2}
+-- {b = 2} : Map Int
 let filter f m = map_filter f m
