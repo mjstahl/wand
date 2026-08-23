@@ -31,6 +31,12 @@ let sleep d = clock_sleep d
 -- Reading it twice to measure how long work took is the one thing not to
 -- do: a civil clock steps, so the second reading can be earlier than the
 -- first. `Clock.timed` measures.
+--
+-- What it answers moves, so an example can only show its shape. Today at
+-- midnight is a fixed hour whatever day it is read on:
+--
+-- >> Clock.now () |> DateTime.day_start |> DateTime.hour
+-- 0 : Int
 let now () = clock_now ()
 
 -- Run `thunk` and answer with how long it took, beside what it returned:
@@ -43,6 +49,13 @@ let now () = clock_now ()
 --
 -- This is the only way wand measures a length of time. Two readings of
 -- `Clock.now` would subtract to something a clock step can spoil.
+--
+-- The length comes first and what the thunk returned comes second, which
+-- is the part a signature of `(Duration, 'a)` leaves to be guessed:
+--
+-- >> let (took, answer) = Clock.timed (fn () -> 1 + 1)
+-- >> answer
+-- 2 : Int
 let timed thunk = (
   let before = clock_elapsed ();
   let answer = thunk ();
