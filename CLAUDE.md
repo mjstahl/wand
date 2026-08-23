@@ -83,6 +83,12 @@ release if it is missing, so they can finish in either order, and it stays a
 draft until someone publishes it. `make release` refuses a tag that `VERSION`
 disagrees with.
 
+The musl build is retried up to three times. It compiles dune from source,
+and that has twice died with `Failed to allocate signal stack for domain 0` --
+the OCaml runtime failing to start, before any of wand is reached. It does
+not reproduce off the runners, so the retry is the fix. Three failures in a
+row are not the flake; read the log.
+
 ---
 
 ## Part B — writing wand code

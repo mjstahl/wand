@@ -47,11 +47,25 @@ jobs:
       # multi-arch, so the same reference builds natively on both runners.
       # Docker is driven directly rather than through `container:`, which
       # would put the checkout and the image's `opam` user at odds.
+      # Retried, because one thing this does is build dune from source and
+      # that has twice died with
+      #
+      #   Fatal error: Failed to allocate signal stack for domain 0
+      #
+      # -- the OCaml runtime failing to start, while opam compiled
+      # dune.3.24.2, before any of wand was reached. Twice in the last
+      # twenty-five releases, both on x86_64, never on aarch64. It does not
+      # reproduce off the runners: 320 concurrent starts of the same binary
+      # in the same image, under memory limits down to 16 MB, produced none
+      # of it. So it is not something this repository can fix, only
+      # something it can stop paying for. The step is a container build and
+      # rebuilding it costs nothing but time.
       - name: Build (Linux, static musl)
         if: matrix.static
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/src" -w /src \
+          attempt=1
+          until docker run --rm -v "$PWD:/src" -w /src \
             -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             ocaml/opam:alpine-ocaml-5.4 sh -c '
               set -eu
@@ -66,6 +80,14 @@ jobs:
               # checkout action cleaning up after itself -- still own it.
               sudo chown -R "$HOST_UID:$HOST_GID" /src
             '
+          do
+            if [ "$attempt" -ge 3 ]; then
+              echo "the musl build failed $attempt times; that is not the flake" >&2
+              exit 1
+            fi
+            echo "musl build failed (attempt $attempt), trying again" >&2
+            attempt=$((attempt + 1))
+          done
 
       - name: Set up OCaml (macOS)
         if: ${{ !matrix.static }}
