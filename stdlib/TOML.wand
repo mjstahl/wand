@@ -44,9 +44,21 @@ let of! v = toml_of_exn v
 -- `FS!read_file` every other reader performs, so this is `FS.Read` like
 -- any other read: a handler mocking the filesystem stands in for it, and
 -- `--dry-run` sees it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./c.toml; FS.write_file! f "port = 8080";
+-- ..    TOML.read_file! f)
+-- {port = 8080} : TOML
 let read_file! path = parse! (read_file path)
 
 -- Read and parse a TOML file.  Returns Ok TOML or Error message.
+--
+-- A file that is not there is the Error, and it names the path:
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match TOML.read_file (Path.join d ./missing.toml) with
+-- ..    | Ok _ -> "read" | Error _ -> "not there")
+-- "not there" : String
 let read_file path = try read_file! path
 
 -- True if the value is a TOML table.
@@ -62,6 +74,9 @@ let table? t = toml_is_table t
 let array? t = toml_is_array t
 
 -- Extract typed values.  Each returns Ok v or Error message.
+--
+-- >> TOML.get_bool (TOML.field! "on" (TOML.parse! "on = true"))
+-- Ok(true) : Result String Bool
 let get_bool t = toml_get_bool t
 
 -- >> TOML.get_int (TOML.field! "port" (TOML.parse! "port = 8080"))
@@ -72,9 +87,24 @@ let get_bool t = toml_get_bool t
 -- >> TOML.get_string (TOML.field! "port" (TOML.parse! "port = 8080"))
 -- Error("expected string") : Result String String
 let get_int t = toml_get_int t
+--
+-- >> TOML.get_float (TOML.field! "x" (TOML.parse! "x = 1.5"))
+-- Ok(1.5) : Result String Float
 let get_float t = toml_get_float t
+--
+-- >> TOML.get_string (TOML.field! "s" (TOML.parse! "s = \"hi\""))
+-- Ok("hi") : Result String String
 let get_string t = toml_get_string t
+--
+-- >> TOML.get_array (TOML.field! "xs" (TOML.parse! "xs = [1, 2]"))
+-- Ok([1, 2]) : Result String (List TOML)
 let get_array t = toml_get_array t
+--
+-- The table as a Map, which is how a document is walked when the keys
+-- are data rather than names known in advance.
+--
+-- >> TOML.get_table (TOML.parse! "port = 8080")
+-- Ok({port = 8080}) : Result String (Map TOML)
 let get_table t = toml_get_table t
 
 -- Look up a key in a TOML table.  Returns Ok TOML or Error message.
@@ -91,4 +121,7 @@ let field! key t = toml_field_exn key t
 
 -- Read a typed value out of a TOML document. Failure names the field that
 -- failed and the path to it. See `Decode`.
+--
+-- >> TOML.decode (Decode.field "port" Decode.port) (TOML.parse! "port = 8080")
+-- Ok(:8080) : Result String Port
 let decode d t = toml_decode d t

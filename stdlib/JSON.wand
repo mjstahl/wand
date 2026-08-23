@@ -28,6 +28,11 @@ let stringify_pretty j = json_stringify_pretty j
 -- `FS!read_file` every other reader performs, so this is `FS.Read` like
 -- any other read: a handler mocking the filesystem stands in for it, and
 -- `--dry-run` sees it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./c.json; FS.write_file! f "[1, 2]";
+-- ..    JSON.read_file! f)
+-- [1,2] : JSON
 let read_file! path = parse! (read_file path)
 
 -- Read and parse a JSON file.  Returns Ok JSON or Error message.
@@ -144,4 +149,7 @@ let field! key j = json_field_exn key j
 
 -- Read a typed value out of a JSON document. Failure names the field that
 -- failed and the path to it. See `Decode`.
+--
+-- >> JSON.decode (Decode.field "a" Decode.int) (JSON.parse! "{\"a\": 1}")
+-- Ok(1) : Result String Int
 let decode d j = json_decode d j

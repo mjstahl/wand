@@ -38,6 +38,10 @@ let stringify_with sep rows = csv_stringify sep rows
 -- `FS!read_file` every other reader performs, so this is `FS.Read` like
 -- any other read: a handler mocking the filesystem stands in for it, and
 -- `--dry-run` sees it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./c.csv; FS.write_file! f "a,b"; CSV.read_file! f)
+-- [["a", "b"]] : List (List String)
 let read_file! path = parse (read_file path)
 
 -- Read and parse a CSV file.  Returns Ok rows or Error message.
@@ -46,4 +50,9 @@ let read_file path = try read_file! path
 -- Read one value per row, by column name: the first row names the columns,
 -- so a row is read by field like any other record. A file without a header
 -- row is what `parse` is for. See `Decode`.
+--
+-- The first row names the columns, so each row after it is read by field.
+--
+-- >> CSV.rows (Decode.field "name" Decode.string) "name\nalice"
+-- Ok(["alice"]) : Result String (List String)
 let rows d src = csv_rows d src
