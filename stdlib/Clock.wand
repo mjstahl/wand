@@ -16,6 +16,12 @@ uses {Clock}
 -- to make uninterruptible.
 
 -- Wait for at least this long.
+--
+-- Under a test clock a sleep answers at once and its length is reported,
+-- which is how work with a wait in it is tested without the wait:
+--
+-- >> Test.with_clock (fn () -> Clock.sleep 5s)
+-- (5s, ()) : (Duration, Unit)
 let sleep d = clock_sleep d
 
 -- The current instant, in UTC. A local reading would make one script

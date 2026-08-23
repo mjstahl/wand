@@ -45,6 +45,11 @@ let stringify_with sep rows = csv_stringify sep rows
 let read_file! path = parse (read_file path)
 
 -- Read and parse a CSV file.  Returns Ok rows or Error message.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match CSV.read_file (Path.join d ./missing.csv) with
+-- ..    | Ok _ -> "read" | Error _ -> "not there")
+-- "not there" : String
 let read_file path = try read_file! path
 
 -- Read one value per row, by column name: the first row names the columns,

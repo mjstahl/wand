@@ -36,6 +36,11 @@ let stringify_pretty j = json_stringify_pretty j
 let read_file! path = parse! (read_file path)
 
 -- Read and parse a JSON file.  Returns Ok JSON or Error message.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match JSON.read_file (Path.join d ./missing.json) with
+-- ..    | Ok _ -> "read" | Error _ -> "not there")
+-- "not there" : String
 let read_file path = try read_file! path
 
 -- The JSON null value.
