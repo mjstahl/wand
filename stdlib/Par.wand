@@ -38,6 +38,17 @@ let map limit f xs = par_map limit f xs
 
 -- Apply `f` to every element for its effects, at most `limit` at a time.
 -- A failure raises once the work is done.
+--
+-- For what f does rather than what it returns.
+--
+-- One worker here, so the two lines come out in the list's order. With
+-- more, what each branch writes can interleave with what the others write:
+-- `Par.map` keeps the *results* in the list's order, and nothing keeps the
+-- output in any.
+--
+-- >> Par.each 1 (fn x -> IO.println "%{x}") [1, 2]
+-- 1
+-- 2
 let each limit f xs = par_each limit f xs
 
 -- Run every thunk at once and answer with the first to finish. The rest

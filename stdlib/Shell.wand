@@ -34,10 +34,16 @@ let ok? (r: ShellResult) = r.code == 0
 let failed? (r: ShellResult) = r.code != 0
 
 -- Read the whole capture as one value, ignoring surrounding whitespace.
+--
+-- >> Shell.decode Decode.int $?(echo 42).stdout
+-- Ok(42) : Result String Int
 let decode d out = shell_decode d out
 
 -- Read one value per line. `$()` strips the trailing newline, so a capture
 -- with nothing in it is no lines rather than one empty line.
+--
+-- >> Shell.lines Decode.int "1\n2"
+-- Ok([1, 2]) : Result String (List Int)
 let lines d out = shell_lines d out
 
 -- Run `thunk` with a deadline on each command it runs. A command that has
@@ -49,4 +55,7 @@ let lines d out = shell_lines d out
 --
 -- The deadline is per command, not for the whole thunk: a thunk that runs
 -- three commands may take three deadlines.
+--
+-- >> Shell.timeout 5s (fn () -> 1 + 1)
+-- Ok(2) : Result String Int
 let timeout d thunk = shell_timeout d thunk

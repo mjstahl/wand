@@ -126,6 +126,9 @@ let and_then f d = decode_and_then f d
 -- Ok(7) : Result String Int
 let succeed v = decode_succeed v
 
+--
+-- >> JSON.decode (Decode.fail "nope") (JSON.parse! "1")
+-- Error("nope") : Result String 'a
 let fail msg = decode_fail msg
 
 -- Change what a decoder produced.
@@ -138,6 +141,10 @@ let map f d = and_then (fn x -> succeed (f x)) d
 --
 -- Three is where this stops. A wider record is `and_then` and `succeed`,
 -- or a derived `T.decoder` if the field names match the type's.
+--
+-- >> let three = Decode.map3 (fn a b c -> (a, b, c)) Decode.int Decode.int Decode.int
+-- >> JSON.decode three (JSON.parse! "1")
+-- Ok((1, 1, 1)) : Result String (Int, Int, Int)
 let map3 f a b c = and_then (fn g -> map g c) (map2 f a b)
 
 -- Try each decoder in turn and take the first that succeeds. If none does,
@@ -163,10 +170,19 @@ let path = decode_path
 -- Ok(30s) : Result String Duration
 let duration = decode_duration
 
+--
+-- >> JSON.decode Decode.url (JSON.parse! "\"https://example.com\"")
+-- Ok(https://example.com) : Result String URL
 let url = decode_url
 
+--
+-- >> JSON.decode Decode.size (JSON.parse! "\"10MB\"")
+-- Ok(10MB) : Result String Size
 let size = decode_size
 
+--
+-- >> JSON.decode Decode.version (JSON.parse! "\"1.2.3\"")
+-- Ok(1.2.3) : Result String Version
 let version = decode_version
 
 -- An instant, written either way: "2024-01-15T14:30:00Z" or the bare day
@@ -176,8 +192,14 @@ let version = decode_version
 -- Ok(2024-01-15T00:00:00Z) : Result String DateTime
 let datetime = decode_datetime
 
+--
+-- >> JSON.decode Decode.ipv4 (JSON.parse! "\"192.168.1.1\"")
+-- Ok(192.168.1.1) : Result String IPv4
 let ipv4 = decode_ipv4
 
+--
+-- >> JSON.decode Decode.cidr (JSON.parse! "\"10.0.0.0/8\"")
+-- Ok(10.0.0.0/8) : Result String CIDR
 let cidr = decode_cidr
 
 -- A port is `:8080` in a script; in a document it is the bare number, which
