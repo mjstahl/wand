@@ -39,6 +39,14 @@ type Testing 'a 'b(
 -- performs whatever the thunk performs: a test whose thunk shells out
 -- declares `Shell` like any other code. Without that the two sides would
 -- be unrelated and the thunk's effects would stop at the field.
+--
+-- >> Test.test "it adds" (fn t -> t.eq 4 (2 + 2))
+-- Pass("it adds") : TestOutcome
+--
+-- A failure carries the label and both sides:
+--
+-- >> Test.test "it adds" (fn t -> t.eq 5 (2 + 2))
+-- Fail("it adds: expected 5, got 4") : TestOutcome
 let test label f =
   let t =
     Testing(
@@ -71,6 +79,9 @@ let test label f =
 -- more child -- and `wand s` prints each test under the path of
 -- labels that led to it. A raise in the body itself is the group's one
 -- failure; the children it prevented are not invented.
+--
+-- >> Test.group "sums" (fn () -> [Test.test "two" (fn t -> t.eq 4 (2 + 2))])
+-- Suite("sums", [Pass("two")]) : TestOutcome
 let group label thunk =
   match try thunk () with
   | Ok children -> Suite label children
@@ -96,6 +107,9 @@ let group label thunk =
 -- Both ways of running one are answered: `$(cmd)` gives the output, and
 -- `$?(cmd)` gives it as the `stdout` of a `ShellResult` that exited zero.
 -- For a command that has to fail, see `with_shell_results`.
+--
+-- >> Test.with_shell [("git describe", "v1")] (fn () -> $(git describe))
+-- "v1" : String
 let with_shell mocks thunk =
   handle thunk () with
   | Shell!run cmd k -> (
@@ -120,6 +134,10 @@ let with_shell mocks thunk =
 -- This is what tests a script's failure path. `$(cmd)` is not intercepted,
 -- because a failure there is a raise and not a value; nest `with_shell`
 -- around this one for a body that uses both.
+--
+-- >> let r = $?(true)
+-- >> Test.with_shell_results [("git push", r)] (fn () -> Shell.ok? $?(git push))
+-- true : Bool
 let with_shell_results mocks thunk =
   handle thunk () with
   | Shell!capture cmd k -> (
@@ -131,6 +149,13 @@ let with_shell_results mocks thunk =
 -- Return the commands `thunk` would run, in order, without running any of
 -- them. `$(cmd)` answers with "" and `$?(cmd)` with a zero exit and no
 -- output.
+--
+-- What ran, rather than what it answered. The mock goes outside, since
+-- the commands still have to be answered:
+--
+-- >> let mocked = fn f -> Test.with_shell [("git describe", "v1")] f
+-- >> mocked (fn () -> Test.shell_calls (fn () -> $(git describe)))
+-- ["git describe"] : List 'a
 let shell_calls thunk =
   handle thunk () with
   | Shell!run cmd k -> let rest = k "" in cmd :: rest
@@ -141,6 +166,10 @@ let shell_calls thunk =
 -- Handlers compose, so this nests inside `with_shell` to hold back both.
 -- Other FS.Write operations -- append, delete, mkdir -- still reach the
 -- disk.
+--
+-- >> Test.without_writes (fn () -> FS.write_file! ./out.txt "x")
+-- >> FS.exists? ./out.txt
+-- false : Bool
 let without_writes thunk =
   handle thunk () with
   | FS!write_file _ k -> k ()
@@ -148,6 +177,11 @@ let without_writes thunk =
 -- Return the paths `thunk` would pass to `FS!write_file`, in order,
 -- without writing them. They come back as `Path`s, which is what the write
 -- carried. Other FS.Write operations still reach the disk.
+--
+-- The paths a body would have written, without writing any of them.
+--
+-- >> Test.writes (fn () -> FS.write_file! ./out.txt "x")
+-- [./out.txt] : List Path
 let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path :: rest
@@ -156,6 +190,10 @@ let writes thunk =
 -- Run `thunk` with streamed files answered from `lines` instead of the
 -- disk: every `FS.stream_lines` whose path matches is fed them, and any
 -- other path streams as empty.
+--
+-- >> Test.with_lines ./log.txt ["a", "b"] (fn () ->
+-- ..   FS.stream_lines ./log.txt |> Stream.to_list)
+-- ["a", "b"] : List String
 let with_lines path lines thunk =
   handle thunk () with
   | FS!stream_lines p k -> if p == path then k lines else k []
@@ -168,6 +206,9 @@ let with_lines path lines thunk =
 -- Every reading inside answers the same instant. Nothing here advances a
 -- clock, and `with_clock` does not move it either: each stands in for one
 -- operation.
+--
+-- >> Test.at 2026-08-22 (fn () -> Clock.now ())
+-- 2026-08-22T00:00:00Z : DateTime
 let at instant thunk =
   handle thunk () with
   | Clock!now _ k -> k instant
@@ -182,6 +223,12 @@ let at instant thunk =
 --
 -- Reading a clock is not in the language yet, so the elapsed total is
 -- reported here rather than observed by the code under test.
+--
+-- A sleep answers at once and its length is reported, so a test of work
+-- with a wait in it takes no time.
+--
+-- >> Test.with_clock (fn () -> Clock.sleep 5s)
+-- (5s, ()) : (Duration, Unit)
 let with_clock thunk =
   handle (fn () -> (0ms, thunk ())) () with
   | Clock!sleep d k -> let (so_far, v) = k () in (Duration.add so_far d, v)
