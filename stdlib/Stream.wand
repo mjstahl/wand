@@ -17,23 +17,51 @@
 -- around the terminal call is the one capture.
 
 -- A stream of a list's elements. The one source that performs nothing.
+--
+-- A stream on its own is a description and shows as one -- the work
+-- happens when a terminal operation runs it:
+--
+-- >> Stream.of_list [1, 2, 3]
+-- <stream> : Stream {..} Int
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.to_list
+-- [1, 2, 3] : List Int
 let of_list xs = stream_of_list xs
 
 -- Transform each element as it flows.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.map (fn x -> x * 2) |> Stream.to_list
+-- [2, 4, 6] : List Int
 let map f s = stream_map f s
 
 -- Keep the elements the predicate approves.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.filter (fn x -> x > 1) |> Stream.to_list
+-- [2, 3] : List Int
 let filter f s = stream_filter f s
 
 -- At most n elements pass; the source stops being read once they have.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.take 2 |> Stream.to_list
+-- [1, 2] : List Int
 let take n s = stream_take n s
 
 -- Read the source, folding every element into acc.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.fold_left (fn a x -> a + x) 0
+-- 6 : Int
 let fold_left f acc s = stream_fold f acc s
 
 -- Read the source for f's effects, dropping what f returns.
+--
+-- >> Stream.of_list ["a", "b"] |> Stream.each (fn x -> IO.println x)
+-- a
+-- b
 let each f s = stream_each f s
 
 -- Read the source and keep everything -- the memory cost is the point of
 -- saying it explicitly.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.to_list
+-- [1, 2, 3] : List Int
 let to_list s = stream_to_list s
