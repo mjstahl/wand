@@ -167,9 +167,18 @@ let pred2 ~name =
      '%s'" name bare
 
 let bang1 ~name =
-  Printf.sprintf
-    "'%s' can raise, but its name does not say so; call it '%s!' and give the \
-     plain name to a version that returns a Result" name name
+  (* A name takes one ending. `ok?!` and `ok!?` are both parse errors, so a
+     predicate that raises cannot be told to add the `!`, which is what this
+     used to say. It ends in `!`. *)
+  if String.length name > 0 && name.[String.length name - 1] = '?' then
+    let bare = String.sub name 0 (String.length name - 1) in
+    Printf.sprintf
+      "'%s' can raise, so `?` is not the ending it takes; it is '%s!'"
+      name bare
+  else
+    Printf.sprintf
+      "'%s' can raise, but its name does not say so; call it '%s!' and give \
+       the plain name to a version that returns a Result" name name
 
 let bang2 ~name =
   let bare = String.sub name 0 (String.length name - 1) in

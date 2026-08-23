@@ -72,6 +72,30 @@ let test_pred1 () =
   (* The rule is one-directional: a Bool-returning function need not be `?`. *)
   silent "Bool without ?" "let positive n = n > 0\npositive 1"
 
+(* A name takes one ending. `ok?!` and `ok!?` are both parse errors, so the
+   advice for a predicate that raises cannot be to add the `!`, which is
+   what it used to be -- a name the reader could not have written. *)
+let test_bang1_on_a_predicate () =
+  let msg src =
+    match findings src with
+    | [] -> Alcotest.fail "expected a finding"
+    | fs ->
+      (match List.find_opt
+               (fun (f : Lint.finding) ->
+                  Lint_rules.code f.Lint.rule = "V-BANG1") fs with
+       | Some f -> f.Lint.text
+       | None   -> Alcotest.fail "expected V-BANG1")
+  in
+  let m = msg "import List\nlet found? xs = List.head! xs\nfound? [1]" in
+  if Lint.contains m "found?!" then
+    Alcotest.failf "suggested a name that does not parse:\n%s" m;
+  if not (Lint.contains m "found!") then
+    Alcotest.failf "expected it to name the alternative:\n%s" m;
+  (* The ordinary case keeps the ordinary advice. *)
+  let plain = msg "import List\nlet first xs = List.head! xs\nfirst [1]" in
+  if not (Lint.contains plain "first!") then
+    Alcotest.failf "expected the plain suggestion:\n%s" plain
+
 let test_pred2 () =
   fires "is_ prefix on a ?-named function" "let is_ready? x = x > 1\nis_ready? 2"
     "V-PRED2";
@@ -445,6 +469,8 @@ let () =
     "rules", [
       Alcotest.test_case "V-PRED1"  `Quick test_pred1;
       Alcotest.test_case "V-PRED2"  `Quick test_pred2;
+      Alcotest.test_case "V-BANG1 on a predicate" `Quick
+        test_bang1_on_a_predicate;
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
