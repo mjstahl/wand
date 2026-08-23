@@ -65,11 +65,16 @@ let usage_for sub =
     print_endline "--strict promotes them to errors; A- rules are advisory and";
     print_endline "always stay warnings."
   | "d" | "doc" ->
-    print_endline "Usage: wand d [--load <file>]... <name>";
+    print_endline "Usage: wand d [-x|-t] [--load <file>]... <name>";
     print_endline "";
-    print_endline "Print the doc string for a name.";
+    print_endline "Print the doc string for a name. A module name takes every name in it.";
     print_endline "";
     print_endline "Options:";
+    print_endline "  -x, --execute   Print the doc with its examples run where they stand,";
+    print_endline "                  showing what each one produces now";
+    print_endline "  -t, --test      Run the examples and report only what does not produce";
+    print_endline "                  what it says. Silent and 0 when they all hold, 1 if any";
+    print_endline "                  does not, so it can gate a build";
     print_endline "  --json          Emit the name, type, and doc as JSON";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
   | "v" | "env" ->
@@ -117,6 +122,14 @@ let usage_for sub =
    alone; `t` has its own richer flag set in parse_lint_flags below. *)
 let parse_json_flag args =
   (List.mem "--json" args, List.filter (fun a -> a <> "--json") args)
+
+let parse_execute_flag args =
+  (List.mem "--execute" args || List.mem "-x" args,
+   List.filter (fun a -> a <> "--execute" && a <> "-x") args)
+
+let parse_test_flag args =
+  (List.mem "--test" args || List.mem "-t" args,
+   List.filter (fun a -> a <> "--test" && a <> "-t") args)
 
 let parse_loads args =
   let rec go loads rest = function
@@ -184,6 +197,96 @@ let stdlib_prelude_for sources =
 let all_stdlib_imports =
   String.concat "\n"
     (List.map (fun n -> "import " ^ n) Wand.Typechecker.stdlib_module_names)
+
+(* What a doc example prints is part of what it claims, so everything the
+   run writes to stdout is caught, in the order it was written. The value
+   line goes through the REPL's own printer, so what is compared is what a
+   reader would have seen. *)
+let capturing f =
+  let tmp = Filename.temp_file "wand_doc_" ".out" in
+  let saved = Unix.dup Unix.stdout in
+  let fd = Unix.openfile tmp [Unix.O_WRONLY; Unix.O_TRUNC] 0o600 in
+  flush stdout;
+  Unix.dup2 fd Unix.stdout;
+  let result =
+    Fun.protect
+      ~finally:(fun () ->
+        flush stdout;
+        Unix.dup2 saved Unix.stdout;
+        Unix.close saved;
+        Unix.close fd)
+      f
+  in
+  let out = In_channel.with_open_text tmp In_channel.input_all in
+  (try Sys.remove tmp with Sys_error _ -> ());
+  (result, out)
+
+let lines_of s =
+  String.split_on_char '\n' s
+  |> List.filter (fun l -> String.trim l <> "")
+
+(* Running the examples in a doc string.
+
+   The examples of one doc string are one session, read in order, because
+   that is what the prompt in front of them says: a name bound by one is
+   there for the next. A prompt with nothing under it claims nothing -- it
+   is a step, not an example -- so it is run and not compared.
+
+   Between doc strings nothing is shared, so an example cannot come to
+   depend on a name that a neighbour happened to bind. *)
+let run_example sess expr =
+  let (result, out) =
+    capturing (fun () ->
+      match Wand.Runner.run_session sess expr with
+      | Ok (s, r) -> Wand.Repl.print_result r; Ok s
+      | Error msg -> Error msg)
+  in
+  match result with
+  | Ok s    -> (s, lines_of out)
+  | Error m -> (sess, ["Error: " ^ m])
+
+(* `-x`: the doc as written, with its examples run where they stand. What
+   the example produced this time takes the place of what it says it
+   produces, so the two can be compared by eye and a stale one is visible. *)
+let show_doc_executed sess name doc =
+  (match Wand.Runner.lookup_type sess name with
+   | Some t -> Printf.printf "%s : %s\n" name t
+   | None   -> ());
+  let sess = ref sess in
+  List.iter (function
+    | Wand.Runner.Prose l -> print_endline l
+    | Wand.Runner.Example (expr, _) ->
+      Printf.printf ">> %s\n" expr;
+      let (s, actual) = run_example !sess expr in
+      sess := s;
+      List.iter print_endline actual)
+    (Wand.Runner.doc_blocks doc)
+
+(* `-t`: nothing to say unless an example does not hold. Every example runs
+   even after one has failed -- reporting the first and stopping turns a
+   morning's fixing into a morning of runs. *)
+let test_doc_examples sess name doc =
+  let examples = Wand.Runner.doc_examples doc in
+  let failures = ref 0 in
+  let sess = ref sess in
+  (* The name is printed above its first wrong example and not otherwise. *)
+  let said_name = ref false in
+  let name_once () =
+    if not !said_name then begin said_name := true; Printf.printf "%s\n" name end
+  in
+  List.iter (fun (expr, expected) ->
+    let (s, actual) = run_example !sess expr in
+    sess := s;
+    if expected = [] || actual = expected then ()
+    else begin
+      incr failures;
+      name_once ();
+      Printf.printf "  >> %s\n" expr;
+      List.iter (Printf.printf "     says:  %s\n") expected;
+      List.iter (Printf.printf "     does:  %s\n") actual
+    end
+  ) examples;
+  (List.length (List.filter (fun (_, e) -> e <> []) examples), !failures)
 
 let load_files ?(sources = []) loads =
   let sess = Wand.Runner.make_session () in
@@ -353,10 +456,58 @@ let main () =
          Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1))
     | "d" | "doc" ->
       let (json, rest) = parse_json_flag rest in
+      let (execute, rest) = parse_execute_flag rest in
+      let (test, rest) = parse_test_flag rest in
+      if execute && test then begin
+        Printf.eprintf
+          "Error: -x runs the examples and shows what they do; -t runs them \
+           and reports\n       only what does not hold. Pick one.\n";
+        exit 1
+      end;
       let (loads, rest') = parse_loads rest in
       (match rest' with
        | [] ->
          Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
+       | [name] when execute || test ->
+         (* A module runs every example it documents; a single name runs its
+            own. Under `-t` the exit code is the answer, so this can gate a
+            build. *)
+         let sess = load_files ~sources:[name; all_stdlib_imports] loads in
+         let is_module = Wand.Runner.module_members sess name <> None in
+         let names = match Wand.Runner.module_members sess name with
+           | Some members -> List.map (fun m -> name ^ "." ^ m) members
+           | None         -> [name]
+         in
+         let documented =
+           List.filter_map (fun n ->
+             match List.assoc_opt n sess.Wand.Runner.s_docs with
+             | Some doc when Wand.Runner.doc_examples doc <> [] -> Some (n, doc)
+             | _ -> None) names
+         in
+         (* A module with nothing to run is a module nobody has written
+            examples for yet, which is a state a gate has to pass through.
+            A name asked for by itself is a question, and the answer is that
+            it has none. *)
+         if documented = [] then begin
+           if is_module then begin
+             if execute then Printf.printf "%s: no examples\n" name;
+             exit 0
+           end else begin
+             Printf.eprintf "Error: no examples to run for '%s'\n" name; exit 1
+           end
+         end;
+         if execute then begin
+           List.iteri (fun i (n, doc) ->
+             if i > 0 then print_newline ();
+             show_doc_executed sess n doc) documented
+         end else begin
+           let failed =
+             List.fold_left (fun failed (n, doc) ->
+               let (_, f) = test_doc_examples sess n doc in
+               failed + f) 0 documented
+           in
+           if failed > 0 then exit 1
+         end
        | [name] ->
          let sess = load_files ~sources:[name] loads in
          if json then

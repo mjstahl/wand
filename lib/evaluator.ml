@@ -253,10 +253,40 @@ let datetime_of_epoch secs =
 
 (* ── Display ──────────────────────────────────────────────────────────────── *)
 
-let rec show_value = function
+(* Two ways to write a value down.
+
+   `to_text` is the value as text -- what `IO.println` writes, what `%{...}`
+   splices, what goes down a command's stdin, what a CSV cell holds. A
+   string is its own characters there, because that is the whole point of
+   writing it out.
+
+   `show_value` is the value as someone reads it back: the answer the REPL
+   echoes, the value an error message names. A string is quoted there, at
+   any depth, because without quotes the display does not say what the value
+   was -- `["a, b"]` is one element and `["a", "b"]` is two, and both print
+   as `[a, b]`. Quoted, what is shown is wand source again, and the escapes
+   are the ones the lexer reads back. *)
+
+let quoted s =
+  let buf = Buffer.create (String.length s + 2) in
+  Buffer.add_char buf '"';
+  String.iter (fun c ->
+    match c with
+    | '"'  -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '\n' -> Buffer.add_string buf "\\n"
+    | '\t' -> Buffer.add_string buf "\\t"
+    | '\r' -> Buffer.add_string buf "\\r"
+    | c    -> Buffer.add_char buf c) s;
+  Buffer.add_char buf '"';
+  Buffer.contents buf
+
+let rec render ~quote v =
+  let sub = render ~quote in
+  match v with
   | VInt n      -> string_of_int n
   | VFloat f    -> Printf.sprintf "%g" f
-  | VString s   -> s
+  | VString s   -> if quote then quoted s else s
   | VBool b     -> string_of_bool b
   | VUnit       -> "()"
   | VPath s     -> s
@@ -280,7 +310,7 @@ let rec show_value = function
      | Toml.Types.TBool b   -> string_of_bool b
      | Toml.Types.TInt n    -> string_of_int n
      | Toml.Types.TFloat f  -> Printf.sprintf "%g" f
-     | Toml.Types.TString s -> s
+     | Toml.Types.TString s -> if quote then quoted s else s
      | Toml.Types.TTable tbl -> Toml.Printer.string_of_table tbl
      | Toml.Types.TArray _  -> "<toml-array>"
      | Toml.Types.TDate _   -> "<toml-date>")
@@ -293,16 +323,28 @@ let rec show_value = function
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
   | VConstr (name, []) -> name
   | VConstr (name, vs) ->
-    name ^ "(" ^ String.concat ", " (List.map show_value vs) ^ ")"
+    name ^ "(" ^ String.concat ", " (List.map sub vs) ^ ")"
   | VTuple vs   ->
-    "(" ^ String.concat ", " (List.map show_value vs) ^ ")"
+    "(" ^ String.concat ", " (List.map sub vs) ^ ")"
   | VList vs    ->
-    "[" ^ String.concat ", " (List.map show_value vs) ^ "]"
+    "[" ^ String.concat ", " (List.map sub vs) ^ "]"
   | VMap kvs    ->
-    "{" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ show_value v) kvs) ^ "}"
+    "{" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ sub v) kvs) ^ "}"
   | VRecord kvs ->
     "{ " ^ String.concat ", " (List.map (fun (k, v) ->
-      k ^ " = " ^ show_value v) kvs) ^ " }"
+      k ^ " = " ^ sub v) kvs) ^ " }"
+
+let show_value v = render ~quote:true v
+
+(* Writing a value out is only unquoted where the value is the text: a
+   string is its characters. A list of strings is not text -- the brackets
+   and commas are already a display, and one that does not say where an
+   element ends is no more use inside `%{...}` than it is in the REPL. *)
+let to_text v =
+  match v with
+  | VString s                  -> s
+  | VToml (Toml.Types.TString s) -> s
+  | v                          -> show_value v
 
 (* ── Runtime error ────────────────────────────────────────────────────────── *)
 
@@ -1224,7 +1266,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e) ->
       Buffer.add_string buf lit;
-      Buffer.add_string buf (show_value (eval env e))
+      Buffer.add_string buf (to_text (eval env e))
     ) parts;
     Buffer.add_string buf tail;
     VString (Buffer.contents buf)
@@ -1232,7 +1274,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     let buf = Buffer.create 32 in
     List.iter (fun (lit, e, h) ->
       Buffer.add_string buf lit;
-      let v = show_value (eval env e) in
+      let v = to_text (eval env e) in
       Buffer.add_string buf
         (match (h : Token.hole) with
          | Token.Source    -> v
@@ -1472,14 +1514,14 @@ and eval_binop (env : env) op a b : value =
          | VString s -> s
          | _ -> raise (EvalError "$(…) requires a string")
        in
-       let stdin = show_value va in
+       let stdin = to_text va in
        perform_shell "Shell!run" allow (VTuple [VString cmd; VString stdin])
      | RunQuery (e, allow) ->
        let cmd = match eval env e with
          | VString s -> s
          | _ -> raise (EvalError "$?(…) requires a string")
        in
-       let stdin = show_value va in
+       let stdin = to_text va in
        perform_shell "Shell!capture" allow (VTuple [VString cmd; VString stdin])
      | _ ->
        let vf = eval env b in
@@ -2915,7 +2957,7 @@ let stdlib_eval_env : env = [
         let str_rows = List.map (function
           | VList fields -> List.map (function
             | VString s -> s
-            | v -> show_value v) fields
+            | v -> to_text v) fields
           | _ -> raise (EvalError "csv_stringify: rows must be List (List String)")) rows
         in
         VString (csv_stringify_rows sep str_rows)

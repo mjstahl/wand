@@ -40,7 +40,7 @@ let eval_wand src =
     | _ -> None) None prog.Ast.items
   in
   match last with
-  | Some v -> Evaluator.show_value v
+  | Some v -> Evaluator.to_text v
   | None -> "()"
 
 let check_released label expected =

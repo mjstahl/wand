@@ -409,7 +409,7 @@ let describe_operation name (v : value) =
      size where the content matters but its text does not. *)
   let text = function
     | VString s | VPath s -> s
-    | other -> show_value other
+    | other -> to_text other
   in
   let first = function
     | VTuple (a :: _) -> text a
@@ -566,13 +566,13 @@ let run_with_default_handler (thunk : unit -> value) : value =
           match eff with
           | WandEffect ("IO!print", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match print_string (show_value v) with
+              match print_string (to_text v) with
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
           | WandEffect ("IO!println", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match print_endline (show_value v) with
+              match print_endline (to_text v) with
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
@@ -581,13 +581,13 @@ let run_with_default_handler (thunk : unit -> value) : value =
              would discard. *)
           | WandEffect ("IO!print_err", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match output_string stderr (show_value v); flush stderr with
+              match output_string stderr (to_text v); flush stderr with
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
           | WandEffect ("IO!println_err", v) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              match output_string stderr (show_value v ^ "\n"); flush stderr with
+              match output_string stderr (to_text v ^ "\n"); flush stderr with
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
@@ -1365,7 +1365,10 @@ let run_program ?(mode = Normal) ~base_dir prog =
         stop. Whatever it was holding has already been released by the
         unwinding above -- this is only about saying so. *)
      Evaluator.check_interrupt ();
-     Ok (show_value result))
+     (* What a script leaves behind is its output, not a value being
+        inspected: a script that ends in a string wrote that string. The
+        REPL and `wand e` show the value instead, and quote it. *)
+     Ok (to_text result))
 
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
@@ -1692,6 +1695,46 @@ let lookup_type (sess : session) (name : string) : string option =
    null rather than omitted, so a consumer reads "no doc" as an answer and
    not as a schema difference. *)
 
+(* A doc string, split into what it says and what it claims.
+
+   An example is a line that opens with the session's prompt, and what it is
+   expected to produce is the lines under it, up to a blank line or the next
+   prompt. A prompt with nothing under it expects nothing and is a step
+   rather than a claim -- which is how one example sets up the next.
+
+   Kept as blocks rather than as a list of examples, because `wand d -x`
+   shows the doc with its examples run in place, and that needs the prose
+   back in the order it was written. What counts as an example is decided
+   here, once: two copies of that rule would drift, and the drift would
+   show up as an example that one command checks and the other does not. *)
+type doc_block =
+  | Prose   of string
+  | Example of string * string list
+
+let doc_blocks (doc : string) : doc_block list =
+  let lines = String.split_on_char '\n' doc in
+  let is_prompt l = String.length l >= 3 && String.sub l 0 3 = ">> " in
+  let rec go acc = function
+    | [] -> List.rev acc
+    | l :: rest when is_prompt l ->
+      let expr = String.sub l 3 (String.length l - 3) in
+      let rec take out = function
+        | [] -> (List.rev out, [])
+        | l :: _ as here when is_prompt l || String.trim l = "" ->
+          (List.rev out, here)
+        | l :: rest -> take (l :: out) rest
+      in
+      let (expected, rest') = take [] rest in
+      go (Example (expr, expected) :: acc) rest'
+    | l :: rest -> go (Prose l :: acc) rest
+  in
+  go [] lines
+
+let doc_examples (doc : string) : (string * string list) list =
+  List.filter_map (function
+    | Example (expr, expected) -> Some (expr, expected)
+    | Prose _ -> None) (doc_blocks doc)
+
 let doc_json (sess : session) (name : string) : string =
   let field key = function
     | Some v -> Printf.sprintf "\"%s\":\"%s\"" key (Diag.escape_json v)
@@ -1718,6 +1761,13 @@ let scope_json (sess : session) : string =
     | _ -> binding_json name s
   in
   "[" ^ String.concat "," (List.map entry entries) ^ "]"
+
+(* The names a module exports, or None when the name is not a module. *)
+let module_members (sess : session) (modname : string) : string list option =
+  match List.assoc_opt modname sess.s_type_env with
+  | Some (Typechecker.Namespace members) ->
+    Some (List.sort String.compare (List.map fst members))
+  | _ -> None
 
 let module_json (sess : session) (modname : string) : (string, string) result =
   match List.assoc_opt modname sess.s_type_env with

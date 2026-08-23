@@ -3308,12 +3308,18 @@ nothing rehearses for speed.
 
 ```ocaml
 ok?     : ShellResult -> Bool
+failed? : ShellResult -> Bool
 decode  : Decoder 'a -> String -> Result String 'a
 lines   : Decoder 'a -> String -> Result String (List 'a)
 timeout : Duration -> (Unit -> 'a ! 'e) -> Result String 'a ! {Clock | 'e}
 ```
 
 Reading what a command wrote. See [Decoders](#decoders).
+
+`ok?` and `failed?` are the same question asked either way, because half the
+time the failing branch is the one a script is written around. `!` negates a
+Bool but not a predicate waiting for its argument, so `!(Shell.ok? r)` needs
+the brackets and `List.filter Shell.failed?` needs nothing.
 
 `timeout` puts a deadline on the commands a thunk runs:
 
@@ -3694,6 +3700,41 @@ the line above the definition. So a comment after code documents nothing,
 and a blank line ends the run — which is how a file header stays a file
 header.
 
+### Examples in a doc string
+
+A line that opens with the session's prompt is an example, and the lines
+under it are what it produces:
+
+```ocaml
+-- Keep only elements satisfying a predicate.
+--
+-- >> List.filter (fn x -> x >= 2) [1, 2, 3]
+-- [2, 3] : List Int
+let filter _ [] = []
+let filter p [h :: t] = if p h then h :: filter p t else filter p t
+```
+
+`wand d -x <name>` prints the doc with its examples run where they stand, so
+what each one produces now sits where the file says it should. `wand d -t`
+asks the other question: it reports only what does not hold, says nothing
+when everything does, and exits non-zero if anything does not. Either takes
+a module name and covers every name in it.
+
+The standard library's own are a CI gate — `tools/check_docs.wand`, which is
+`-t` over every module — because an example is read by someone deciding how
+to call a function, and a wrong one is read with the same trust as a right
+one.
+
+The examples of one doc string run in order, in one session, so a name bound
+by one is there for the next. A prompt with nothing under it claims nothing
+and is not checked — which is how one example sets up another:
+
+```ocaml
+-- >> let counts = {a = 1, b = 2}
+-- >> Map.get "a" counts
+-- Some(1) : Option Int
+```
+
 ---
 
 ## Style for scripts
@@ -3872,6 +3913,8 @@ History is saved to `~/.wand_history` between sessions.
 
 ```sh
 wand d "List.map"                     # show doc string
+wand d -x "List.map"                  # print the doc with its examples run
+wand d -t List                        # check a module's examples; silent if right
 wand d --json "List.map"              # the same, as JSON for tools
 wand e "1 + 2"                        # evaluate and print result
 wand e --load config.wand "host"      # evaluate in context of a file

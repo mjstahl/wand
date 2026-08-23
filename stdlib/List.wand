@@ -1,14 +1,23 @@
 import Option
 
 -- Apply a function to every element of a list, returning a new list.
+--
+-- >> List.map (fn x -> x * 2) [1, 2, 3]
+-- [2, 4, 6] : List Int
 let map _ [] = []
 let map f [h :: t] = f h :: map f t
 
 -- Keep only elements satisfying a predicate.
+--
+-- >> List.filter (fn x -> x >= 2) [1, 2, 3]
+-- [2, 3] : List Int
 let filter _ [] = []
 let filter p [h :: t] = if p h then h :: filter p t else filter p t
 
 -- Apply a function to every element, keeping each Some value and dropping each None.
+--
+-- >> List.filter_map (fn x -> if x > 1 then Some (x * 10) else None) [1, 2, 3]
+-- [20, 30] : List Int
 let filter_map _ [] = []
 let filter_map f [h :: t] =
   match f h with
@@ -16,74 +25,128 @@ let filter_map f [h :: t] =
   | None -> filter_map f t
 
 -- Reduce a list left to right with an accumulator.
+--
+-- >> List.fold_left (fn x y -> x + y) 0 [1, 2, 3]
+-- 6 : Int
 let fold_left f acc [] = acc
 let fold_left f acc [h :: t] = fold_left f (f acc h) t
 
 -- Reduce a list right to left with an accumulator.
+--
+-- >> List.fold_right (fn x acc -> x - acc) [1, 2, 3] 0
+-- 2 : Int
 let fold_right f [] acc = acc
 let fold_right f [h :: t] acc = f h (fold_right f t acc)
 
 -- Return the number of elements in a list.
+--
+-- >> List.length [1, 2, 3]
+-- 3 : Int
 let length [] = 0
 let length [_ :: t] = 1 + length t
 
 -- Concatenate two lists.
+--
+-- >> List.append [1, 2] [3]
+-- [1, 2, 3] : List Int
 let append [] ys = ys
 let append [h :: t] ys = h :: append t ys
 
 -- Reverse a list.
+--
+-- >> List.reverse [1, 2, 3]
+-- [3, 2, 1] : List Int
 let reverse xs = fold_left (fn acc x -> x :: acc) [] xs
 
 -- Return the first element of a list, or None if it is empty.
+--
+-- >> List.head [1, 2, 3]
+-- Some(1) : Option Int
 let head [] = None
 let head [h :: _] = Some h
 
 -- Return the first element of a list. Raises on empty list.
+--
+-- >> List.head! [1, 2, 3]
+-- 1 : Int
 let head! [h :: _] = h
 
 -- Return all elements after the first, or None if the list is empty.
+--
+-- >> List.tail [1, 2, 3]
+-- Some([2, 3]) : Option (List Int)
 let tail [] = None
 let tail [_ :: t] = Some t
 
 -- Return all elements after the first. Raises on empty list.
+--
+-- >> List.tail! [1, 2, 3]
+-- [2, 3] : List Int
 let tail! [_ :: t] = t
 
 -- Return true if the list is empty.
+--
+-- >> List.empty? []
+-- true : Bool
 let empty? [] = true
 let empty? _ = false
 
 -- Return true if any element satisfies the predicate.
+--
+-- >> List.any (fn x -> x > 2) [1, 2, 3]
+-- true : Bool
 let any _ [] = false
 let any p [h :: t] = if p h then true else any p t
 
 -- Return true if all elements satisfy the predicate.
+--
+-- >> List.all (fn x -> x > 0) [1, 2, 3]
+-- true : Bool
 let all _ [] = true
 let all p [h :: t] = if p h then all p t else false
 
 -- Return the first element satisfying the predicate, or None.
+--
+-- >> List.find (fn x -> x > 1) [1, 2, 3]
+-- Some(2) : Option Int
 let find _ [] = None
 let find p [h :: t] = if p h then Some h else find p t
 
 -- Pair up elements from two lists. Stops at the shorter list.
+--
+-- >> List.zip [1, 2] ["a", "b"]
+-- [(1, "a"), (2, "b")] : List (Int, String)
 let zip [] _ = []
 let zip _ [] = []
 let zip [a :: t] [b :: u] = (a, b) :: zip t u
 
 -- Take the first n elements.
+--
+-- >> List.take 2 [1, 2, 3]
+-- [1, 2] : List Int
 let take 0 _ = []
 let take _ [] = []
 let take n [h :: t] = h :: take (n - 1) t
 
 -- Drop the first n elements.
+--
+-- >> List.drop 2 [1, 2, 3]
+-- [3] : List Int
 let drop 0 xs = xs
 let drop _ [] = []
 let drop n [_ :: t] = drop (n - 1) t
 
 -- Take elements while the predicate holds, stopping at the first miss.
+--
+-- >> List.take_while (fn x -> x < 3) [1, 2, 3, 1]
+-- [1, 2] : List Int
 let take_while _ [] = []
 let take_while p [h :: t] = if p h then h :: take_while p t else []
 
 -- Drop elements while the predicate holds, returning the remainder.
+--
+-- >> List.drop_while (fn x -> x < 3) [1, 2, 3, 1]
+-- [3, 1] : List Int
 let drop_while _ [] = []
 let drop_while p [h :: t] = if p h then drop_while p t else h :: t
 
@@ -94,38 +157,69 @@ let drop_while p [h :: t] = if p h then drop_while p t else h :: t
 -- produce something anyway -- `$()` hands back stdout whether or not the
 -- command wrote any -- and requiring Unit taxed every one of those call
 -- sites with a `let _ = ... in ()` that said nothing.
+--
+-- >> List.each (fn x -> IO.println "%{x}") [1, 2]
+-- 1
+-- 2
 let each _ [] = ()
 let each f [h :: t] = let _ = f h in each f t
 
 -- Pair each element with its position, counting from zero.
+--
+-- >> List.indexed ["a", "b"]
+-- [(0, "a"), (1, "b")] : List (Int, String)
 let indexed xs =
   let go _ [] = []
       go i [h :: t] = (i, h) :: go (i + 1) t
   in go 0 xs
 
 -- Return the element at index n, or None if out of bounds.
+--
+-- >> List.get 1 [1, 2, 3]
+-- Some(2) : Option Int
 let get n xs =
   match list_get n xs with
   | Ok v -> Some v
   | Error _ -> None
 
 -- Return the element at index n.  Raises if out of bounds.
+--
+-- >> List.get! 1 [1, 2, 3]
+-- 2 : Int
 let get! n xs = list_get_exn n xs
 
 -- Sort a list using the default ordering.
+--
+-- >> List.sort [3, 1, 2]
+-- [1, 2, 3] : List Int
 let sort xs = list_sort xs
 
 -- Sort a list by a key function.
+--
+-- >> List.sort_by String.length ["ccc", "a", "bb"]
+-- ["a", "bb", "ccc"] : List String
 let sort_by f xs = list_sort_by f xs
 
 -- Remove duplicate elements.
+--
+-- >> List.unique [1, 2, 1, 3]
+-- [1, 2, 3] : List Int
 let unique xs = list_unique xs
 
--- Generate a list of integers from lo to hi (exclusive).
+-- Generate a list of integers from lo to hi, both included.
+--
+-- >> List.range 1 4
+-- [1, 2, 3, 4] : List Int
 let range lo hi = list_range lo hi
 
 -- Flatten a list of lists into a single list.
+--
+-- >> List.flatten [[1, 2], [3]]
+-- [1, 2, 3] : List Int
 let flatten xs = list_flatten xs
 
 -- Concatenate two lists. Alias for append.
+--
+-- >> List.concat [1, 2] [3]
+-- [1, 2, 3] : List Int
 let concat xs ys = list_concat xs ys

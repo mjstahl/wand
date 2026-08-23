@@ -48,26 +48,26 @@ let check label expected args =
 let test_the_mode_flags_are_wands_wherever_they_appear () =
   write_probe ();
   Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
-    check "--dry-run is taken, not passed on" "[yes]"
+    check "--dry-run is taken, not passed on" "[\"yes\"]"
       [argv_script; "--dry-run"; "yes"];
-    check "--trace likewise" "[a, b]" [argv_script; "--trace"; "a"; "b"];
-    check "and from the middle of an argument list" "[a, b]"
+    check "--trace likewise" "[\"a\", \"b\"]" [argv_script; "--trace"; "a"; "b"];
+    check "and from the middle of an argument list" "[\"a\", \"b\"]"
       [argv_script; "a"; "--dry-run"; "b"])
 
 let test_every_other_flag_reaches_the_script () =
   write_probe ();
   Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
-    check "an ordinary flag" "[--out, /tmp/x]" [argv_script; "--out"; "/tmp/x"];
+    check "an ordinary flag" "[\"--out\", \"/tmp/x\"]" [argv_script; "--out"; "/tmp/x"];
     (* Flags of the subcommands. None of them is read on this path. *)
-    check "--json" "[--json, x]" [argv_script; "--json"; "x"];
-    check "--file" "[--file, x]" [argv_script; "--file"; "x"];
-    check "--load" "[--load, x]" [argv_script; "--load"; "x"];
-    check "--strict and --fix" "[--strict, --fix]"
+    check "--json" "[\"--json\", \"x\"]" [argv_script; "--json"; "x"];
+    check "--file" "[\"--file\", \"x\"]" [argv_script; "--file"; "x"];
+    check "--load" "[\"--load\", \"x\"]" [argv_script; "--load"; "x"];
+    check "--strict and --fix" "[\"--strict\", \"--fix\"]"
       [argv_script; "--strict"; "--fix"];
-    check "a command name is just a word here" "[s, version]"
+    check "a command name is just a word here" "[\"s\", \"version\"]"
       [argv_script; "s"; "version"];
     (* A single dash is not a flag to wand any more than it is to Args. *)
-    check "a lone dash and a negative number" "[-, -5]"
+    check "a lone dash and a negative number" "[\"-\", \"-5\"]"
       [argv_script; "-"; "-5"])
 
 (* Both positions choose the mode, and both have to keep working: the first
@@ -103,12 +103,12 @@ let test_both_positions_rehearse () =
 let test_the_terminator_hands_everything_over () =
   write_probe ();
   Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
-    check "a mode flag past -- is the script's" "[--dry-run, x]"
+    check "a mode flag past -- is the script's" "[\"--dry-run\", \"x\"]"
       [argv_script; "--"; "--dry-run"; "x"];
-    check "-- itself is not passed on" "[a]" [argv_script; "--"; "a"];
-    check "only what precedes it is wand's" "[--trace]"
+    check "-- itself is not passed on" "[\"a\"]" [argv_script; "--"; "a"];
+    check "only what precedes it is wand's" "[\"--trace\"]"
       [argv_script; "--dry-run"; "--"; "--trace"];
-    check "and with the mode written first" "[--dry-run, y]"
+    check "and with the mode written first" "[\"--dry-run\", \"y\"]"
       ["--trace"; argv_script; "--"; "--dry-run"; "y"];
     check "a bare -- leaves nothing behind" "[]" [argv_script; "--"])
 

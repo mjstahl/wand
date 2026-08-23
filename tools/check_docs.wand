@@ -1,0 +1,53 @@
+uses {Env, FS.Read, IO, Proc, Shell}
+
+import Env
+import FS
+import IO
+import List
+import Option
+import Path
+import Proc
+import Shell
+import String
+
+-- Every example in a doc string is run, and has to produce what it says it
+-- produces. An example is written to be read by someone deciding how to
+-- call a function, and one that is wrong is worse than none at all: it is
+-- read with the same trust and it cannot be told apart.
+--
+-- This is wand's own CI step, written in wand. It runs after the suites,
+-- so the binary it uses has already been exercised by tests that do not
+-- depend on it.
+
+-- The binary to check with -- the one this build just produced, not
+-- whatever is on PATH. CI sets it; a bare `wand` is the fallback for
+-- running this by hand.
+let wand = Env.get "WAND" |> Option.default "wand"
+
+-- The modules are the files, so a new one is covered the day it is added.
+-- A list written here instead would be a list that goes stale, and the way
+-- it goes stale is silently.
+let modules =
+  FS.glob_in *.wand (Path.of_string "stdlib")
+    |> List.map (fn p -> Path.to_string (Path.with_extension "" (Path.basename p)))
+    |> List.sort
+
+-- `wand d --test` answers with its exit code and says nothing when every
+-- example holds, so a module that has no examples yet passes quietly and a
+-- module whose examples are wrong does not. The output is kept to report,
+-- since a failure has to say which example and how.
+let check name = $?(%{wand} d --test %{name})
+
+let report (r: ShellResult) = (IO.println_err r.stdout; IO.println_err r.stderr)
+
+let main () =
+  let results = modules |> List.map check in
+  match List.filter Shell.failed? results with
+  | [] -> IO.println "every example holds (%{List.length modules} modules checked)"
+  | bad -> (
+    IO.println_err "these examples do not produce what they say:";
+    bad |> List.each report;
+    Proc.exit 1
+  )
+
+main ()
