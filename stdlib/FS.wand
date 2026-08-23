@@ -9,45 +9,94 @@ import Resource
 -- them, so there is one implementation of each operation.
 
 -- Read the entire contents of a file as a string. Raises if unreadable.
+--
+-- Every example here works inside a temp directory, because a read needs
+-- something to read and a `with` is what takes it away again.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.read_file! f)
+-- "hi" : String
 let read_file! path = read_file path
 
 -- Read the entire contents of a file as a string.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.exists? (Path.join d ./missing)
+-- false : Bool
 let read_file path = try read_file! path
 
 -- Write a string to a file, replacing existing contents. Raises on failure.
+--
+-- Replaces what is there, and makes the file if it is not.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "one"; FS.write_file! f "two";
+-- ..    FS.read_file! f)
+-- "two" : String
 let write_file! path s = write_file path s
 
 -- Write a string to a file, replacing existing contents.
 let write_file path s = try write_file! path s
 
 -- Append a string to a file, creating it if it does not exist. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.append! f "!";
+-- ..    FS.read_file! f)
+-- "hi!" : String
 let append! path s = fs_append path s
 
 -- Append a string to a file, creating it if it does not exist.
 let append path s = try append! path s
 
 -- Create an empty file at the given path. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.create_file! f; FS.size! f)
+-- 0B : Size
 let create_file! path = fs_create path
 
 -- Create an empty file at the given path.
 let create_file path = try create_file! path
 
 -- Return true if the path exists.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.exists? d
+-- true : Bool
 let exists? path = fs_exists path
 
 -- Return true if the path is a regular file.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.file? d
+-- false : Bool
 let file? path = fs_is_file path
 
 -- Return true if the path is a directory.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.dir? d
+-- true : Bool
 let dir? path = fs_is_dir path
 
 -- Create a directory and all missing parents. Raises on failure.
+--
+-- Missing parents are made too, so one call is enough.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.mkdir! (Path.join d ./a/b); FS.dir? (Path.join d ./a/b))
+-- true : Bool
 let mkdir! path = fs_mkdir path
 
 -- Create a directory and all missing parents.
 let mkdir path = try mkdir! path
 
 -- Delete a file or empty directory. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.delete! f; FS.exists? f)
+-- false : Bool
 let delete! path = fs_remove path
 
 -- Delete a file or empty directory.
@@ -63,6 +112,10 @@ let delete path = try delete! path
 -- Release tolerates the file already being gone, so a body may rename it
 -- into place -- the way an atomic write publishes its result -- without
 -- the cleanup failing on the way out.
+--
+-- >> with FS.temp_file "ex_" ".txt" as p ->
+-- ..   (FS.write_file! p "hi"; FS.read_file! p)
+-- "hi" : String
 let temp_file prefix suffix =
   let acquire = fn () -> fs_temp_file prefix suffix in
   let release = fn p -> if exists? p then delete! p in Resource.make acquire release
@@ -76,6 +129,10 @@ let temp_file prefix suffix =
 -- The body may leave files behind -- that is what a scratch directory is
 -- for -- and release takes the tree with it. As with `temp_file`, release
 -- tolerates the directory already being gone.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.dir? d
+-- true : Bool
 let temp_dir prefix =
   let acquire = fn () -> fs_temp_dir prefix in
   let release = fn p -> if exists? p then fs_delete_tree p in Resource.make acquire release
@@ -91,6 +148,11 @@ let temp_dir prefix =
 --
 -- Depth first. A symlink inside the tree is unlinked, never descended
 -- into, so the tree is the only thing that goes.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.mkdir! (Path.join d ./a/b); FS.delete_tree! (Path.join d ./a);
+-- ..    FS.exists? (Path.join d ./a))
+-- false : Bool
 let delete_tree! path = fs_delete_tree path
 
 -- Delete a directory and everything under it.
@@ -100,51 +162,104 @@ let delete_tree path = try delete_tree! path
 --
 -- A file keeps the mode it had, and a symlink is recreated as a symlink
 -- rather than followed.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.mkdir! (Path.join d ./a); FS.write_file! (Path.join d ./a/x) "hi";
+-- ..    FS.copy_tree! (Path.join d ./a) (Path.join d ./b);
+-- ..    FS.read_file! (Path.join d ./b/x))
+-- "hi" : String
 let copy_tree! src dst = fs_copy_tree src dst
 
 -- Copy a directory and everything under it.
 let copy_tree src dst = try copy_tree! src dst
 
 -- Rename or move a file or directory. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi";
+-- ..    FS.rename! f (Path.join d ./y); FS.exists? f)
+-- false : Bool
 let rename! src dst = fs_rename src dst
 
 -- Rename or move a file or directory.
 let rename src dst = try rename! src dst
 
 -- Copy a file to a new path. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi";
+-- ..    FS.copy! f (Path.join d ./y); FS.read_file! (Path.join d ./y))
+-- "hi" : String
 let copy! src dst = fs_copy src dst
 
 -- Copy a file to a new path.
 let copy src dst = try copy! src dst
 
 -- Return a list of paths for the immediate children of a directory. Raises on failure.
+--
+-- The paths come back whole, not as bare names.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.write_file! (Path.join d ./a) "x";
+-- ..    List.map Path.basename (FS.list_dir! d))
+-- [a] : List Path
 let list_dir! path = fs_ls path
 
 -- Return a list of paths for the immediate children of a directory.
 let list_dir path = try list_dir! path
 
 -- Return the last-modified time of a file as a DateTime. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi";
+-- ..    Clock.now () - FS.mtime! f < 1min)
+-- true : Bool
 let mtime! path = fs_mtime path
 
 -- Return the last-modified time of a file as a DateTime.
 let mtime path = try mtime! path
 
 -- Return the size of a file. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "hi"; FS.size! f)
+-- 2B : Size
 let size! path = fs_size path
 
 -- Return the size of a file.
 let size path = try size! path
 
 -- Return the current working directory.
+--
+-- >> Path.absolute? (FS.cwd ())
+-- true : Bool
 let cwd () = fs_cwd ()
 
 -- Return all paths matching a glob pattern, relative to the current directory.
+--
+-- Relative to the working directory. `glob_in` takes the directory to
+-- look in.
+--
+-- >> List.length (FS.glob *.wand) >= 0
+-- true : Bool
 let glob pattern = fs_glob pattern (fs_cwd ())
 
 -- Return all paths matching a glob pattern relative to the given directory.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (FS.write_file! (Path.join d ./a.txt) "x";
+-- ..    List.map Path.basename (FS.glob_in *.txt d))
+-- [a.txt] : List Path
 let glob_in pattern dir = fs_glob pattern dir
 
 -- A stream of the file's lines -- nothing is read until a terminal
 -- operation runs it, which is also where a missing file raises. See
 -- Stream.
+--
+-- Nothing is read until a terminal operation runs the stream.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "a\nb";
+-- ..    FS.stream_lines f |> Stream.fold_left (fn n _ -> n + 1) 0)
+-- 2 : Int
 let stream_lines p = fs_stream_lines p
