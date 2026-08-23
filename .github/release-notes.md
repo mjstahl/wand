@@ -1,48 +1,38 @@
-## 0.43.0 - 2026-08-23
+## 0.43.1 - 2026-08-23
 
-Every function in the standard library carries an example, and CI runs them.
+0.43.0 said every function in the standard library carried an example. 53 of
+them did not.
 
-    -- Keep only elements satisfying a predicate.
-    --
-    -- >> List.filter (fn x -> x >= 2) [1, 2, 3]
-    -- [2, 3] : List Int
+The count that made it look complete was per module: every module reported a
+number, no function was ever asked whether it had one, and a module with one
+example and fifteen functions passed the gate exactly like a finished one.
 
-308 of them, across 26 modules. `wand d -x <name>` prints a doc with its
-examples run where they stand; `wand d -t` reports only what does not hold
-and says nothing when everything does. `tools/check_docs.wand` is `-t` over
-the whole library, and a wrong example now fails a build.
+They have examples now — 296 of 303 functions, 357 examples. Most of the gap
+was systematic rather than random: each `Result` and `!` pair had the raising
+half documented and the `Result` half skipped, which is backwards. The
+`Result` is the half whose shape a caller has to handle:
 
-An example is read by someone deciding how to call a function, and a wrong
-one is read with exactly the trust a right one is. Writing these found four
-docs that were already wrong:
+    -- >> with FS.temp_dir "ex_" as d ->
+    -- ..   (match FS.delete (Path.join d ./missing) with
+    -- ..    | Ok _ -> "gone" | Error _ -> "was not there")
+    -- "was not there" : String
 
-- `List.range` documented as excluding its upper bound, which it has never
-  done
-- `Map.empty` and `JSON.of_map` recommending the `[]` map literal, which
-  stopped being map syntax in 0.18.0
-- `Float.round -2.5`, `floor -2.1` and `ceil -2.9` — three examples written
-  in prose that do not parse, because a negative literal after a function
-  name is the subtraction it looks like
+The seven that cannot have one are listed in `tools/check_docs.wand` with the
+reason: `Proc.exit` ends the process, five `IO` readers wait on stdin, and
+`IO.flush` neither answers nor writes.
 
-### A value shows as a value
+### The gate counts functions now
 
-A string is shown with the quotes it was written with, at any depth:
+It ran every example and checked that each produced what it said. It never
+asked which functions had none, so it could not have caught this. It counts
+per function now and fails on any non-exempt function without an example —
+checked against a real gap rather than assumed.
 
-    ["a, b"]          was [a, b], which is also how ["a", "b"] printed
-    zip ["x, y"] [1]  was [(x, y, 1)] — a pair printed as a triple
+### A lint that suggested an impossible name
 
-A TOML value shows as a value rather than as a document. A table used to
-print as a whole TOML file, newlines and all, so a list of two tables ran
-over four lines. It shows like a map now, and an array shows its elements
-instead of `<toml-array>`.
+`V-BANG1` tells a function that can raise to end its name in `!`. For a
+predicate it said `found?` should be `found?!` — and a name takes one
+ending, so `ok?!` and `ok!?` are both parse errors. The advice could not be
+followed by anyone who received it.
 
-Neither changes what a program writes. `IO.println` and `%{...}` write a
-string as its characters and a TOML table as its document, as before, and a
-script that ends in a string still writes that string. What changed is what
-the REPL echoes and what an error message names.
-
-### Also
-
-`Shell.failed?`, which is `Shell.ok?` asked the other way. The library
-already pairs `Option.some?`/`none?` and `Path.absolute?`/`relative?`, and
-`List.filter Shell.failed?` needs no brackets where `!(Shell.ok? r)` does.
+It raises, so it ends in `!`: `found?` is `found!`.

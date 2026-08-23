@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.43.1] - 2026-08-23
+
+### Fixed
+
+- 53 standard library functions had no example, which 0.43.0 reported as
+  complete: the count was per module, so a module with one example passed
+  like a finished one. 296 of 303 functions now have one, 357 examples in
+  all. Most of the gap was one mistake repeated — of each `Result`/`!` pair
+  the raising half was documented and the `Result` half was not
+- `tools/check_docs.wand` counts per function. It ran the examples and
+  checked they held, but never asked which functions had none, so it could
+  not have caught the above. The seven that cannot have an example are
+  listed there with the reason
+- `V-BANG1` suggested a name that does not parse. A predicate that can raise
+  was told to call itself `found?!`; a name takes one ending, so `?!` and
+  `!?` are both parse errors. It is `found!`
+- `Par.each`'s example ran two workers, both printing, so its output order
+  was not guaranteed — it agreed twelve times running, which is not the same
+  as being deterministic. One worker, and the doc says what order is and is
+  not promised
+
+[0.43.1]: https://github.com/mjstahl/wand/releases/tag/v0.43.1
+
 ## [0.43.0] - 2026-08-23
 
 ### Added
