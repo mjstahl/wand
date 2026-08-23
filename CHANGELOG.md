@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.42.0] - 2026-08-22
+
+### Changed
+
+- A wand tail call is an OCaml tail call. A function whose body ends in a
+  call runs in a stack that does not grow, however deep it goes. `Located`
+  nodes wrapped evaluation in an exception handler to stamp a position onto
+  an error, and a handler is a frame that stays; the position now travels in
+  a cell. A tail-recursive loop over 1.6M items goes from 11,642 ms to
+  323 ms, `List.fold_left` over 200k from 449 ms to 100 ms
+- Deciding not to stop costs two atomic loads. Every step of evaluation asks
+  whether it should stop, and the answer used to read two pieces of
+  domain-local state — more, on the shapes a script runs, than resolving all
+  of its names. Ctrl-C still stops a script in about a millisecond, and a
+  losing racer still stops where it stands
+- A recursive call binds the closure it already has, rather than building a
+  second copy of it and a wrapper to carry it in, on every call
+
+### Fixed
+
+- The throughput benchmark measures what it says it does. Its cons-pattern
+  workload still used the `:` that stopped being cons in 0.31.0, so what it
+  timed was a parse error — which reads as the healthiest line in the table,
+  since a workload that does not run is a fast one
+
+[0.42.0]: https://github.com/mjstahl/wand/releases/tag/v0.42.0
+
 ## [0.41.0] - 2026-08-22
 
 ### Added

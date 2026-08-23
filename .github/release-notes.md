@@ -1,69 +1,47 @@
-## 0.41.0 - 2026-08-22
+## 0.42.0 - 2026-08-22
 
-A value can be written out without being converted first.
+A tail call does not grow the stack, so a loop written as one runs to any
+depth.
 
-    JSON.of! [1, 2, 3]                        -- [1,2,3]
-    JSON.of! Pod(name = "web", port = 8080)   -- {"name":"web","port":8080}
-    TOML.of! {port = 8080}                    -- port = 8080
-    CSV.stringify [[1, 2], [3, 4]]            -- the two rows, 1,2 and 3,4
+    let sum 0 acc = acc
+    let sum n acc = sum (n - 1) (acc + n)
 
-`JSON.of_list` and `JSON.of_map` take values already converted, so writing a
-structure meant converting it a piece at a time —
-`JSON.of_list (List.map JSON.of_int xs)`. `JSON.of` writes the whole thing:
-numbers, text, every domain type, lists, maps, options and records, and any
-nesting of them. What it cannot write is a value holding code — a function,
-a resource, a stream — and that is the `Error`. `JSON.of!` raises instead.
-The `of_*` builders stay, precise and total.
+    sum 10000000 0
 
-### TOML can be written
+That is new. On 0.41.0 the same script ran out of stack. Nothing about how a
+script is written changes, and evaluation is faster across the board:
 
-`TOML` had no constructors at all. A document could be parsed and
-re-printed, and never built from a script's own data. `TOML.of` and `of!`
-build one.
+    tail-recursive loop, 200k         245 ms ->  45 ms
+    tail-recursive loop, 1.6M      11,642 ms -> 323 ms
+    List.fold_left over 200k          449 ms -> 100 ms
+    map and filter over small lists   829 ms -> 451 ms
+    non-tail recursion, 400k          731 ms -> 401 ms
+    a loop that stays shallow         209 ms -> 151 ms
+    startup                           7.8 ms -> 7.5 ms
 
-A TOML document is a table, so the value is a map or a record; a bare number
-says so rather than producing something no parser reads back. A field that
-is `None` is left out, because TOML has no null and writing one would not
-read back the same.
+### Where the time was going
 
-### CSV takes any cell
+Every `Located` node wrapped evaluation in an exception handler, to stamp a
+line and column onto an error passing through it. A handler is a stack
+frame, and a `Located` sits on every function body and every match arm, so a
+frame stayed behind on each one. Frames on the tail path never come back, so
+the stack grew with the call chain — and every minor collection rescans the
+whole stack, which made a long recursion cost time quadratic in its own
+depth. The position now travels in a cell, which leaves the tail call a tail
+call.
 
-`CSV.stringify` already wrote a non-text cell, and only its signature
-refused one. It takes `List (List 'a)` now and stays total — a cell is text,
-and every value has a text form.
+Every step of evaluation also asked whether it should stop, and reaching
+that answer read two pieces of domain-local state — more, on the shapes a
+script actually runs, than resolving all of its names. Both reasons to stop
+are announced globally before any domain can see them, so two atomic loads
+now rule them out.
 
-A list and a map each hold one type, so a structure whose parts differ is a
-record. That is what `of` walks best.
+An error still reports the line and column it was raised at. Ctrl-C still
+stops a running script in about a millisecond, and a losing racer still
+stops where it stands.
 
-### Also
+### Written down
 
-`of` is an ordinary word now. It was reserved so `Circle of Int` could be
-corrected, and that correction fires where the mistake is written instead.
-
-`:reset` in the REPL opens what a session opens with. It built its own list
-of modules and had been missing eighteen of them since they were added, so a
-reset session could not reach `Map`, `JSON` or `Test` while a fresh one
-could.
-
----
-
-One line installs it — platform detection, checksum verification, and a
-smoke test included:
-
-    curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
-
-Or download the archive for your platform, unpack it, and put `wand` on
-your `PATH`. The binary carries its own standard library, so it runs from
-any directory with nothing else installed.
-
-| | |
-|---|---|
-| `linux-x86_64`, `linux-aarch64` | static musl builds; no libc on the machine is needed |
-| `macos-aarch64`, `macos-x86_64` | not notarised, so a download is quarantined until you clear it |
-
-On macOS:
-
-    xattr -d com.apple.quarantine wand
-
-Checksums are the `.sha256` files beside each archive. Verify one next to
-the download with `shasum -c wand-<version>-<platform>.tar.gz.sha256`.
+`docs/reference.md` now says which positions are tail positions: the last
+statement of a block, either branch of an `if`, the body of a match arm, and
+the body of a `let ... in`.
