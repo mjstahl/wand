@@ -1,32 +1,80 @@
 -- The zero duration.
+--
+-- >> Duration.zero
+-- 0s : Duration
 let zero = dur_zero
 
 -- Create a duration of n seconds.
+--
+-- A duration shows in the largest units that divide it, whichever units
+-- it was built from.
+--
+-- >> Duration.seconds 90
+-- 1m30s : Duration
 let seconds n = dur_seconds n
 
 -- Create a duration of n minutes.
+--
+-- >> Duration.minutes 90
+-- 1h30m : Duration
 let minutes n = dur_minutes n
 
 -- Create a duration of n hours.
+--
+-- >> Duration.hours 2
+-- 2h : Duration
 let hours n = dur_hours n
 
 -- Create a duration of n days.
+--
+-- >> Duration.days 3
+-- 3d : Duration
 let days n = dur_days n
 
 -- Create a duration of n weeks.
+--
+-- >> Duration.weeks 2
+-- 2w : Duration
 let weeks n = dur_weeks n
 
 -- Add two durations.
+--
+-- `+` adds two durations as well, and means this.
+--
+-- >> Duration.add 30s 1min
+-- 1m30s : Duration
 let add a b = dur_add a b
 
 -- Subtract one duration from another.
+--
+-- No duration is below zero, so a subtraction that would go under floors
+-- there.
+--
+-- >> Duration.sub 2min 30s
+-- 1m30s : Duration
+--
+-- >> Duration.sub 30s 2min
+-- 0s : Duration
 let sub a b = dur_sub a b
 
 -- Multiply a duration by a scalar.
+--
+-- >> Duration.scale 3 30s
+-- 1m30s : Duration
 let scale n d = dur_scale n d
 
 -- Format a duration as a human-readable string.
+--
+-- The same text the value shows as, as a String.
+--
+-- >> Duration.format 90s
+-- "1m30s" : String
 let format d = dur_format d
 
 -- Return the duration in milliseconds as an integer.
+--
+-- There is one resolution below a second, and this is where it is read.
+--
+-- >> Duration.to_ms 2min
+-- 120000 : Int
 let to_ms d = dur_to_ms d
