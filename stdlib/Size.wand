@@ -1,8 +1,18 @@
 -- The size in bytes as an integer.
+--
+-- >> Size.to_bytes 10MB
+-- 10000000 : Int
 let to_bytes s = size_to_bytes s
 
--- A size of n bytes, written in bytes: 6466 is `6466B`.
+-- A size of n bytes, written in bytes.
+--
+-- >> Size.of_bytes 6466
+-- 6466B : Size
 let of_bytes n = size_of_bytes n
 
--- Format a size as a human-readable string: `6466B` is "6.5KB".
+-- Format a size as a human-readable string. A size keeps the unit it was
+-- written in; this is where it is rounded to a readable one.
+--
+-- >> Size.format 6466B
+-- "6.5KB" : String
 let format s = size_format s
