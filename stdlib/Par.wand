@@ -24,6 +24,16 @@ import Clock
 -- Apply `f` to every element, at most `limit` at a time, and collect the
 -- results in the list's own order. An element whose work raises comes back
 -- as an `Error` in its place rather than failing the others.
+--
+-- Every element comes back as a Result, in the order it went in: one
+-- branch failing does not take the others with it, and the order is the
+-- list's rather than whichever finished first.
+--
+-- >> Par.map 4 (fn x -> x * 2) [1, 2, 3]
+-- [Ok(2), Ok(4), Ok(6)] : List (Result String Int)
+--
+-- >> Par.map 2 (fn x -> List.head! []) [1]
+-- [Error("pattern match failure")] : List (Result String 'a)
 let map limit f xs = par_map limit f xs
 
 -- Apply `f` to every element for its effects, at most `limit` at a time.
@@ -53,6 +63,11 @@ let each limit f xs = par_each limit f xs
 --
 -- A rehearsal and a trace still run it, left-biased: each reports what the
 -- work would do, and the collapse costs the report nothing.
+--
+-- The first to finish wins, whether it succeeded or not.
+--
+-- >> Par.race [fn () -> 1]
+-- Ok(1) : Result String Int
 let race thunks = par_race thunks
 
 -- Run `thunk` with a deadline. The result is `Error` if the deadline
@@ -78,6 +93,9 @@ let race thunks = par_race thunks
 --
 -- The mock still stands and the deadline still fires. The wait is real,
 -- so give it a length you are willing to wait for.
+--
+-- >> Par.timeout 5s (fn () -> 1 + 1)
+-- Ok(2) : Result String Int
 let timeout d thunk =
   let () = par_deadline_guard () in
   let work = fn () -> Ok (thunk ()) in
