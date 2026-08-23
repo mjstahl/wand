@@ -47,19 +47,34 @@ jobs:
       # multi-arch, so the same reference builds natively on both runners.
       # Docker is driven directly rather than through `container:`, which
       # would put the checkout and the image's `opam` user at odds.
-      # Retried, because one thing this does is build dune from source and
-      # that has twice died with
+      # The dependencies are their own image so the layer can be cached
+      # between runs. On a hit nothing is compiled here: the opam image
+      # ships no dune, and building it was most of this job and the only
+      # part of it that has ever flaked. A miss falls back to building it,
+      # which is what every run used to do.
+      - uses: docker/setup-buildx-action@v3
+        if: matrix.static
+
+      - name: Dependencies
+        if: matrix.static
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/musl-deps.Dockerfile
+          tags: wand-musl-deps:local
+          load: true
+          cache-from: type=gha,scope=musl-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=musl-${{ matrix.target }}
+
+      # Retried, because the runtime failure that used to take the
+      # dependency build can in principle take any OCaml process:
       #
       #   Fatal error: Failed to allocate signal stack for domain 0
       #
-      # -- the OCaml runtime failing to start, while opam compiled
-      # dune.3.24.2, before any of wand was reached. Twice in the last
-      # twenty-five releases, both on x86_64, never on aarch64. It does not
-      # reproduce off the runners: 320 concurrent starts of the same binary
-      # in the same image, under memory limits down to 16 MB, produced none
-      # of it. So it is not something this repository can fix, only
-      # something it can stop paying for. The step is a container build and
-      # rebuilding it costs nothing but time.
+      # It does not reproduce off the runners -- 320 concurrent starts of
+      # the same binary in the same image, under memory limits down to
+      # 16 MB, produced none of it -- so this cannot be fixed here, only
+      # survived. Rebuilding costs nothing but time.
       - name: Build (Linux, static musl)
         if: matrix.static
         run: |
@@ -67,11 +82,9 @@ jobs:
           attempt=1
           until docker run --rm -v "$PWD:/src" -w /src \
             -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-            ocaml/opam:alpine-ocaml-5.4 sh -c '
+            wand-musl-deps:local sh -c '
               set -eu
               sudo chown -R opam:opam /src
-              sudo apk add --no-cache musl-dev
-              opam install . --deps-only
               opam exec -- dune build --profile static bin/wand.exe
               # A downloaded binary is read by nothing that wants symbols,
               # and stripping takes it from 7.3 MB to 3.0 MB.

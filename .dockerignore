@@ -1,0 +1,7 @@
+# The only image built here is the dependency layer, and it copies two
+# files. Sending the rest of the repository as build context would make the
+# context a function of the source, which is the one thing the cache key
+# must not be.
+*
+!wand.opam
+!dune-project
