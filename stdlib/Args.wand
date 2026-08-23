@@ -45,6 +45,9 @@ let _inline_pair arg =
 -- word for "the part with no name".
 --
 --     Args.parse (Decode.field "_" (Decode.list Decode.string)) args
+--
+-- >> Args.parse (Decode.field "_" (Decode.list Decode.string)) ["a", "b"]
+-- Ok(["a", "b"]) : Result String (List String)
 let _positional_key = "_"
 
 let _object_of flags args =
@@ -83,6 +86,14 @@ let _object_of flags args =
 -- Which flags are boolean is the only fact a list of strings cannot
 -- reveal: without it, `--message -5` and a flag followed by a positional
 -- are the same shape. Everything else the type already says.
+--
+-- >> Args.parse_with ["v"] (Decode.field "v" Decode.bool) ["--v"]
+-- Ok(true) : Result String Bool
+--
+-- Without the declaration the same flag is read as one that wants a value:
+--
+-- >> Args.parse (Decode.field "v" Decode.bool) ["--v"]
+-- Error("--v expects a value") : Result String Bool
 let parse_with flags decoder args =
   match _object_of flags args with
   | Error e -> Error e
@@ -91,4 +102,18 @@ let parse_with flags decoder args =
 -- Read arguments with a decoder. Every flag is assumed to take a value:
 -- `--port 8080` and `--port=8080` are the same thing. Use `parse_with`
 -- when some flags are on/off.
+--
+-- `--port 8080` and `--port=8080` are the same argument written twice:
+--
+-- >> Args.parse (Decode.field "port" Decode.port) ["--port", "8080"]
+-- Ok(:8080) : Result String Port
+--
+-- >> Args.parse (Decode.field "port" Decode.port) ["--port=8080"]
+-- Ok(:8080) : Result String Port
+--
+-- A flag that is not there is `None` rather than a failure, if the
+-- decoder allows it:
+--
+-- >> Args.parse (Decode.optional "port" Decode.port) []
+-- Ok(None) : Result String (Option Port)
 let parse decoder args = parse_with [] decoder args
