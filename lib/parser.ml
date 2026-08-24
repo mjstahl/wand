@@ -134,8 +134,26 @@ let advance_loc s =
   then (Token.EOF, Token.point 0 0 0)
   else begin
     let pair = s.tokens.(s.pos) in
-    s.pos <- s.pos + 1; pair
+    s.pos <- s.pos + 1;
+    (match fst pair with
+     | Token.LParen | Token.LBracket | Token.LBrace -> s.paren_depth <- s.paren_depth + 1
+     | Token.RParen | Token.RBracket | Token.RBrace -> s.paren_depth <- max 0 (s.paren_depth - 1)
+     | _ -> ());
+    pair
   end
+
+(* A trial parse rewinds with these, which carry the bracket depth back as
+   well as the position. The depth is what decides whether a newline ends a
+   statement, so a rewind that leaves it raised makes every later newline at
+   the top level look like it is inside brackets: after `type X (T, U)`,
+   whose fields are read by trying the named form first, the definition two
+   lines down was read as a continuation of the one above it, and `wand f`
+   wrote that reading back. *)
+let mark s = (s.pos, s.paren_depth)
+
+let rewind s (pos, depth) = s.pos <- pos; s.paren_depth <- depth
+
+(* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
 
 (* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
 let peek_named_args s =
@@ -573,10 +591,10 @@ and list_pat_ s =
     let is_map =
       match peek s with
       | Token.Ident _ | Token.String _ ->
-        let saved = s.pos in
+        let saved = mark s in
         ignore (advance s);
         let result = peek s = Token.Eq in
-        s.pos <- saved;
+        rewind s saved;
         result
       | _ -> false
     in
@@ -887,10 +905,10 @@ and list_ s =
     let is_map =
       match peek s with
       | Token.Ident _ | Token.String _ ->
-        let saved = s.pos in
+        let saved = mark s in
         ignore (advance s);
         let result = peek s = Token.Eq in
-        s.pos <- saved;
+        rewind s saved;
         result
       | _ -> false
     in
@@ -1005,7 +1023,7 @@ and parse_fn_binding s name =
   let eqs = ref [(!params, body)] in
   let more = ref true in
   while !more do
-    let saved = s.pos in
+    let saved = mark s in
     (try
       (* A continuation clause may optionally repeat `let` (matching the
          top-level `let f 0 = .. / let f n = ..` syntax) or omit it (the
@@ -1020,7 +1038,7 @@ and parse_fn_binding s name =
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
       let b = locate s (fun () -> parse_contract_body s) in
       eqs := !eqs @ [(!ps, b)]
-    with Exit -> s.pos <- saved; more := false)
+    with Exit -> rewind s saved; more := false)
   done;
   collapse_multi_equation arity !eqs
 
@@ -1319,7 +1337,7 @@ let parse_top_fn_binding s name =
   let eqs = ref [(!params, body)] in
   let more = ref true in
   while !more do
-    let saved = s.pos in
+    let saved = mark s in
     (try
       (match peek s with Token.Let -> ignore (advance s) | _ -> raise Exit);
       (match peek s with
@@ -1331,7 +1349,7 @@ let parse_top_fn_binding s name =
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
       let b = locate s (fun () -> parse_contract_body s) in
       eqs := !eqs @ [(!ps, b)]
-    with Exit -> s.pos <- saved; more := false)
+    with Exit -> rewind s saved; more := false)
   done;
   collapse_multi_equation arity !eqs
 
@@ -1372,7 +1390,7 @@ let parse_type_def s =
       done;
       !fields
     | Token.LParen ->
-      let saved = s.pos in
+      let saved = mark s in
       ignore (advance s);
       (match peek s with
        | Token.Ident _ ->
@@ -1396,7 +1414,7 @@ let parse_type_def s =
          expect s Token.RParen;
          first :: !rest
        | _ ->
-         s.pos <- saved;
+         rewind s saved;
          [(None, parse_type_atom s)])
     | _ -> []
   in
@@ -1562,10 +1580,10 @@ let looks_like_manifest s =
   | Token.Ident "uses" ->
     (* `uses` is an ordinary word elsewhere; only `uses {` starts a manifest,
        and `{` begins nothing else in the language. *)
-    let saved = s.pos in
+    let saved = mark s in
     ignore (advance s);
     let is_manifest = peek s = Token.LBrace in
-    s.pos <- saved;
+    rewind s saved;
     is_manifest
   | _ -> false
 
@@ -1672,7 +1690,7 @@ let parse_program_generic ~on_item tokens =
     | Token.Newline | Token.Semicolon ->
       ignore (advance s)
     | Token.Let ->
-      let saved = s.pos in
+      let saved = mark s in
       ignore (advance s);
       (match peek s with
        | Token.LBracket | Token.LParen | Token.LBrace ->
@@ -1682,7 +1700,7 @@ let parse_program_generic ~on_item tokens =
          let body = locate s (fun () -> parse_contract_body s) in
          if peek s = Token.In then begin
            (* Actually a let-in expression — backtrack and parse as TLExpr *)
-           s.pos <- saved;
+           rewind s saved;
            let e = locate s (fun () -> expr_ 0 s) in
            items := !items @ [Ast.TLExpr e]
          end else
@@ -1711,7 +1729,7 @@ let parse_program_generic ~on_item tokens =
          let arity = List.length !params in
          if peek s = Token.In then begin
            (* let x = e in e2 — expression, not top-level binding *)
-           s.pos <- saved;
+           rewind s saved;
            let e = locate s (fun () -> expr_ 0 s) in
            items := !items @ [Ast.TLExpr e]
          end else begin
@@ -1730,7 +1748,7 @@ let parse_program_generic ~on_item tokens =
            let eqs = ref [(!params, body)] in
            let more = ref true in
            while !more do
-             let saved2 = s.pos in
+             let saved2 = mark s in
              (try
                (match peek s with Token.Let -> ignore (advance s) | _ -> raise Exit);
                (match peek s with
@@ -1754,7 +1772,7 @@ let parse_program_generic ~on_item tokens =
                (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
                let b = locate s (fun () -> parse_contract_body s) in
                eqs := !eqs @ [(!ps, b)]
-             with Exit -> s.pos <- saved2; more := false)
+             with Exit -> rewind s saved2; more := false)
            done;
            if peek s = Token.And then begin
              let (first_params, first_body) = collapse_multi_equation arity !eqs in
@@ -1772,7 +1790,7 @@ let parse_program_generic ~on_item tokens =
              done;
              if peek s = Token.In then begin
                (* let f = ... and g = ... in e2 — expression, not top-level *)
-               s.pos <- saved;
+               rewind s saved;
                let e = locate s (fun () -> expr_ 0 s) in
                items := !items @ [Ast.TLExpr e]
              end else begin
@@ -1787,7 +1805,7 @@ let parse_program_generic ~on_item tokens =
          end
          end  (* close the outer begin from peek s = Token.In check *)
        | _ ->
-         s.pos <- saved;
+         rewind s saved;
          let e = locate s (fun () -> expr_ 0 s) in
          items := !items @ [Ast.TLExpr e])
     | Token.Import ->

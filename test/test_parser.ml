@@ -274,6 +274,21 @@ let test_program_newlines () =
        (App (Var "f", Tuple [Int 1; Int 2; Int 3; Int 4])) e
    | _ -> Alcotest.fail "expected a single TLExpr top-level item")
 
+(* The other half of the same rule: a newline ends a statement only at the
+   top level, so anything that raises the bracket depth and does not put it
+   back stops every later line from ending. `type X (T, U)` tries the named
+   field list first and rewinds when there is no `:`, and the rewind used to
+   leave the `(` counted -- after which `let n = 5` swallowed the definition
+   below it, and `wand f` wrote the joined reading back to the file. *)
+let test_rewind_keeps_bracket_depth () =
+  let prog = parse_program "type Span (Int, Int)\nlet n = 5\nf n\n" in
+  Alcotest.(check int) "three top-level items" 3 (List.length prog.items);
+  match prog.items with
+  | [_; TLLet (_, [], body); TLExpr _] ->
+    Alcotest.(check expr) "the binding stops at its own line" (Int 5)
+      (Ast.strip_located body)
+  | _ -> Alcotest.fail "expected a type, a binding and an expression"
+
 (* ── Tuples ──────────────────────────────────────────────────────────────── *)
 
 let test_tuple () =
@@ -777,6 +792,8 @@ let () =
       Alcotest.test_case "parens"       `Quick test_parens;
       Alcotest.test_case "application"  `Quick test_app;
       Alcotest.test_case "program newlines" `Quick test_program_newlines;
+      Alcotest.test_case "rewind keeps bracket depth" `Quick
+        test_rewind_keeps_bracket_depth;
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
       Alcotest.test_case "brace map literal" `Quick test_brace_map_literal;
