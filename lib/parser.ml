@@ -560,7 +560,10 @@ and pat_base_ s =
       PConstrBare (name, !ids)
     end else if peek s = Token.LParen then begin
       ignore (advance s); (* consume LParen *)
-      if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
+      (* Empty parentheses read the way they do in a construction: a pattern
+         naming no fields where the constructor has them, the constructor
+         that carries nothing where it does not. *)
+      if peek s = Token.RParen then (ignore (advance s); PConstrBare (name, []))
       else begin
         (* A payload carries a type the same way anything else does:
            `Ok (v: Pod)`. This branch used to read `(` as the start of an

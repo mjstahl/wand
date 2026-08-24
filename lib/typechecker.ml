@@ -3478,6 +3478,21 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
            declaration is the one to rename or remove" tname));
       Hashtbl.add seen_types tname ();
       List.iter (fun c ->
+        (* A name declares one thing here too. Two fields of one name used to
+           be taken silently, and the first won: the second's type was never
+           checked against anything and its default never applied, so a
+           declaration could carry a value that nothing could ever read. *)
+        let seen_fields = Hashtbl.create 8 in
+        List.iter (fun (fname, _) ->
+          match fname with
+          | None -> ()
+          | Some f ->
+            if Hashtbl.mem seen_fields f then
+              raise (TypeError (Printf.sprintf
+                "constructor '%s' declares field '%s' twice; a field names \
+                 one thing, so the second is the one to rename or remove"
+                c.name f));
+            Hashtbl.add seen_fields f ()) c.fields;
         (match Hashtbl.find_opt seen_ctors c.name with
          | Some owner ->
            let where =

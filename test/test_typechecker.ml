@@ -247,10 +247,10 @@ M.usage|}
     {|type M = M(verbose: Bool = false)
 M.usage|}
     "[--verbose]";
-  ok "a Bool with no default is still a switch"
+  ok "a Bool without one is a switch too, since absent reads as false"
     {|type M = M(verbose: Bool)
 M.usage|}
-    "--verbose";
+    "[--verbose]";
   ok "an Option shows what the flag takes"
     {|import Option
 type M = M(tag: Option String)
@@ -264,6 +264,41 @@ M.usage|}
     {|type T = A(x: Int) | B(x: Int)
 T.usage|}
     "has no derived usage"
+
+(* A flag is present or absent, so the two types that have a word for absent
+   read a document that does not carry the key rather than failing on it. *)
+
+let test_absent_fields () =
+  ok "an absent Bool reads as false"
+    {|import JSON
+type F = F(verbose: Bool)
+match JSON.decode F.decoder (JSON.parse! `{}`) with
+| Ok f -> f.verbose
+| Error _ -> true|}
+    "false";
+  ok "its own default still wins"
+    {|import JSON
+type F = F(quiet: Bool = true)
+match JSON.decode F.decoder (JSON.parse! `{}`) with
+| Ok f -> f.quiet
+| Error _ -> false|}
+    "true";
+  ok "an absent Option reads as None"
+    {|import JSON
+import Option
+type F = F(tag: Option String)
+match JSON.decode F.decoder (JSON.parse! `{}`) with
+| Ok f -> Option.none? f.tag
+| Error _ -> false|}
+    "true";
+  ok "a field of any other type is still required"
+    {|import JSON
+type F = F(host: String)
+match JSON.decode F.decoder (JSON.parse! `{}`) with
+| Ok f -> f.host
+| Error why -> why|}
+    ".host: no such field"
+
 
 let test_map_patterns_still_work () =
   ok "map pattern binds a key"
@@ -1624,6 +1659,7 @@ let () =
       Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;
       Alcotest.test_case "field defaults"          `Quick test_field_defaults;
       Alcotest.test_case "derived usage"           `Quick test_derived_usage;
+      Alcotest.test_case "absent fields"           `Quick test_absent_fields;
       Alcotest.test_case "map patterns unaffected" `Quick test_map_patterns_still_work;
     ];
     "multi-equation", [

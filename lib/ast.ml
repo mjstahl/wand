@@ -153,7 +153,11 @@ and handle_case =
    does not. *)
 let constr_bare_reading ~named_fields name ids : pat =
   if named_fields then PConstrNamed (name, List.map (fun i -> (i, PVar i)) ids)
-  else PConstr (name, [PTuple (List.map (fun i -> PVar i) ids)])
+  else match ids with
+    (* `Red()` is the constructor that carries nothing, which is what empty
+       parentheses mean where there are no fields to name. *)
+    | [] -> PConstr (name, [])
+    | ids -> PConstr (name, [PTuple (List.map (fun i -> PVar i) ids)])
 
 
 (* The same question on the expression side, and the same answer: a

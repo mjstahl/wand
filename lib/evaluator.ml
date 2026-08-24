@@ -3530,6 +3530,16 @@ and read_field venv ?(defaults = []) key te j path =
     | None -> None
   in
   match te with
+  (* A flag is present or absent, and `Bool` is the type with a word for
+     absent, so a document without the key reads as `false` -- the same
+     reading `Option` has always had, in the type that a command line
+     actually uses for it. Without this a `Bool` field had to carry a
+     default to be usable at all, and `Args.parse_with ["verbose"]` failed
+     on every line that left `--verbose` off. *)
+  | TEName "Bool" when assoc_last key kvs = None ->
+    (match absent () with
+     | Some v -> Ok v
+     | None -> Ok (VBool false))
   | TEApp (TEName "Option", inner) ->
     let d = decoder_of_type_expr venv inner in
     (match assoc_last key kvs with
@@ -3986,8 +3996,7 @@ let usage_value tname =
         (match te with
          (* A flag with nothing after it: `Args.parse_with` reads it as
             present-or-absent, so there is no value to show. *)
-         | Ast.TEName "Bool" ->
-           if default = None then "--" ^ name else "[--" ^ name ^ "]"
+         | Ast.TEName "Bool" -> "[--" ^ name ^ "]"
          (* The type already says this one may be left out. Its default, if
             it has one, is `Some` something, which is a spelling of the
             language rather than of a command line. *)

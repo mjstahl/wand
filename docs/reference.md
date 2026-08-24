@@ -1811,8 +1811,9 @@ Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
 
 A field with a default prints bracketed, showing the default. An `Option`
 field prints bracketed, showing what the flag takes. A `Bool` field prints as
-a switch with nothing after it, since `Args.parse_with` reads one as present
-or absent. Anything else is required, and shows its type as the placeholder.
+a switch with nothing after it, and bracketed whether or not it has a
+default, since an absent one reads as `false`. Anything else is required, and
+shows its type as the placeholder.
 
 A type with more than one constructor has neither. Name one, and the error
 says which:
@@ -2097,7 +2098,13 @@ JSON.decode Conf.decoder (JSON.parse! `{"host": "a"}`)
 ```
 
 A document writes null where the language has nothing, and `Decode.optional`
-already reads absent and null alike, so a default answers for both. A field
+already reads absent and null alike, so a default answers for both.
+
+Two types answer for themselves when a document does not carry the key, with
+or without a default. An `Option` field reads as `None`, and a `Bool` field
+as `false` -- a flag is present or absent, and those are the two types with
+a word for absent. Every other field is required, and a document without it
+is an error naming the field. A field
 with no default that the document does not carry is still an error naming
 the field.
 
@@ -3535,9 +3542,9 @@ shape. Name the flags that take no value:
 Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
-Each of those is `true` when it is there, and absent when it is not. So a
-`Bool` field needs `Decode.optional` or a default. A flag with nothing after it
-is an error: `--config expects a value`.
+Each of those is `true` when it is there, and absent when it is not, so a
+`Bool` field left out of the document reads as `false`. A flag with nothing
+after it is an error: `--config expects a value`.
 
 The usage line comes from the same type, so a flag cannot be in one and
 missing from the other:
