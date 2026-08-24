@@ -972,6 +972,15 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
         | None     -> None
         | Some env -> try_match ~prefix p v env)
       (Some env) pats vals
+  (* The declaration decides which of the two readings this is, exactly as
+     it does when the pattern is checked. *)
+  | PConstrBare (name, ids), _ ->
+    let named_fields =
+      match Hashtbl.find_opt constr_fields name with
+      | Some fields -> List.exists (fun dn -> dn <> None) fields
+      | None -> false
+    in
+    try_match ~prefix (Ast.constr_bare_reading ~named_fields name ids) v env
   | PConstrNamed (name, bindings), VConstr (vname, vals) when name = vname ->
     (match Hashtbl.find_opt constr_fields name with
      | None -> None
@@ -1131,6 +1140,13 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     eval_match tail env sv cases
   | Tuple es  -> VTuple (List.map (eval env) es)
   | List es   -> VList  (List.map (eval env) es)
+  | ConstrBare (name, ids) ->
+    let named_fields =
+      match Hashtbl.find_opt constr_fields name with
+      | Some fields -> List.exists (fun dn -> dn <> None) fields
+      | None -> false
+    in
+    eval env (Ast.constr_bare_construction ~named_fields name ids)
   | ConstrApp (name, fields) ->
     let provided = List.filter_map (fun (fname_opt, e) ->
       match fname_opt with

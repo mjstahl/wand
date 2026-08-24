@@ -154,8 +154,6 @@ let mark s = (s.pos, s.paren_depth)
 let rewind s (pos, depth) = s.pos <- pos; s.paren_depth <- depth
 
 (* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
-
-(* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
 let peek_named_args s =
   let arr = s.tokens in
   let n = Array.length arr in
@@ -171,6 +169,66 @@ let peek_named_args s =
       incr i; skip ();
       !i < n && fst arr.(!i) = Token.Eq
     | _ -> false
+  end
+
+(* Whether the upcoming LParen (not yet consumed) holds a field list rather
+   than a payload, deciding on any `ident =` in the group and not only the
+   first entry. A pattern may pun -- `Pod(name, restarts = r)` names one
+   field and takes the other under its own name -- so the entry that says
+   which list this is need not be the first one. Patterns only: an `=`
+   inside a pattern has no other meaning, where an expression's `T(r, b = 3)`
+   is an update and is read by `peek_field_after_comma`. *)
+let peek_named_pat_args s =
+  let arr = s.tokens in
+  let n = Array.length arr in
+  let i = ref s.pos in
+  let skip () = while !i < n && is_skippable (fst arr.(!i)) do incr i done in
+  skip ();
+  if !i >= n || fst arr.(!i) <> Token.LParen then false
+  else begin
+    incr i;
+    let depth = ref 1 and found = ref false in
+    while !depth > 0 && !i < n do
+      (match fst arr.(!i) with
+       | Token.LParen | Token.LBracket | Token.LBrace -> incr depth
+       | Token.RParen | Token.RBracket | Token.RBrace -> decr depth
+       | Token.Ident _ when !depth = 1 ->
+         let j = ref (!i + 1) in
+         while !j < n && is_skippable (fst arr.(!j)) do incr j done;
+         if !j < n && fst arr.(!j) = Token.Eq then found := true
+       | _ -> ());
+      incr i
+    done;
+    !found
+  end
+
+(* Whether the upcoming LParen holds nothing but bare identifiers, two or
+   more of them: `Pod(name, restarts)`, the form whose reading the
+   declaration decides. One identifier is left alone -- `Wrap(v)` is the
+   payload under that name whichever way it is read, so there is nothing for
+   a declaration to settle. *)
+let peek_bare_args s =
+  let arr = s.tokens in
+  let n = Array.length arr in
+  let i = ref s.pos in
+  let skip () = while !i < n && is_skippable (fst arr.(!i)) do incr i done in
+  skip ();
+  if !i >= n || fst arr.(!i) <> Token.LParen then false
+  else begin
+    incr i;
+    let count = ref 0 and ok = ref true and stop = ref false in
+    while not !stop && !i < n do
+      skip ();
+      (match fst arr.(!i) with
+       | Token.Ident _ ->
+         incr count; incr i; skip ();
+         (match fst arr.(!i) with
+          | Token.Comma -> incr i
+          | Token.RParen -> stop := true
+          | _ -> ok := false; stop := true)
+       | _ -> ok := false; stop := true)
+    done;
+    !ok && !count >= 2
   end
 
 (* From a `,`, whether what follows is a named field rather than another
@@ -474,20 +532,32 @@ and pat_base_ s =
     ignore (advance s); brace_map_pat_ s
   | Token.Upper name ->
     ignore (advance s);
-    if peek_named_args s then begin
+    if peek_named_pat_args s then begin
       ignore (advance s); (* consume LParen *)
       let fields = ref [] in
       if peek s <> Token.RParen then begin
+        (* A bare identifier puns, the way it does in a map pattern: the
+           field binds a variable of its own name. *)
         let parse_field () =
           let fname = expect_ident s in
-          expect s Token.Eq;
-          fields := !fields @ [(fname, pat_ s)]
+          if peek s = Token.Eq then begin
+            ignore (advance s);
+            fields := !fields @ [(fname, pat_ s)]
+          end else fields := !fields @ [(fname, (PVar fname : pat))]
         in
         parse_field ();
         while peek s = Token.Comma do ignore (advance s); parse_field () done
       end;
       expect s Token.RParen;
       PConstrNamed (name, !fields)
+    end else if peek_bare_args s then begin
+      ignore (advance s); (* consume LParen *)
+      let ids = ref [expect_ident s] in
+      while peek s = Token.Comma do
+        ignore (advance s); ids := !ids @ [expect_ident s]
+      done;
+      expect s Token.RParen;
+      PConstrBare (name, !ids)
     end else if peek s = Token.LParen then begin
       ignore (advance s); (* consume LParen *)
       if peek s = Token.RParen then (ignore (advance s); PConstr (name, []))
@@ -729,16 +799,29 @@ and atom_base_ s =
       ignore (advance s); (* consume LParen *)
       let fields = ref [] in
       if peek s <> Token.RParen then begin
+        (* A bare identifier puns: the field takes the value of the name it
+           already has. Safe here because the first field carried an `=`, so
+           this cannot be the base of an update. *)
         let parse_field () =
           let fname = expect_ident s in
-          expect s Token.Eq;
-          fields := !fields @ [(Some fname, expr_ 0 s)]
+          if peek s = Token.Eq then begin
+            ignore (advance s);
+            fields := !fields @ [(Some fname, expr_ 0 s)]
+          end else fields := !fields @ [(Some fname, (Var fname : expr))]
         in
         parse_field ();
         while peek s = Token.Comma do ignore (advance s); parse_field () done
       end;
       expect s Token.RParen;
       ConstrApp (name, !fields)
+    end else if peek_bare_args s then begin
+      ignore (advance s); (* consume LParen *)
+      let ids = ref [expect_ident s] in
+      while peek s = Token.Comma do
+        ignore (advance s); ids := !ids @ [expect_ident s]
+      done;
+      expect s Token.RParen;
+      ConstrBare (name, !ids)
     end else if peek s = Token.LParen then begin
       ignore (advance s); (* consume LParen *)
       if peek s = Token.RParen then (ignore (advance s); App (Constr name, Unit))

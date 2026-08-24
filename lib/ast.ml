@@ -47,6 +47,14 @@ type pat =
   | PCons    of pat * pat
   | PConstr       of string * pat list
   | PConstrNamed  of string * (string * pat) list
+  (* `Pod(name, restarts)` -- bare identifiers inside a constructor's
+     parentheses, which two declarations read two ways. A constructor with
+     named fields reads each identifier as its own field, the way `{a, b}`
+     puns for a map; one whose payload is a tuple reads them as the tuple.
+     The parser cannot tell the two apart, because the declaration may be in
+     another file, so it keeps what was written and `constr_bare_reading`
+     picks once the declaration is in hand. *)
+  | PConstrBare   of string * string list
   (* `(p : Pod)`: the type a parameter is given. The annotation is a
      constraint on the pattern under it, not a pattern of its own. *)
   | PAnnot        of pat * type_expr
@@ -95,6 +103,12 @@ type expr =
      construction has to name every field, and an update names only what
      changes. *)
   | ConstrUpdate of string * expr * (string * expr) list
+  (* `Pod(name, restarts)`: bare identifiers where a constructor's arguments
+     go, read the way `PConstrBare` is read on the other side -- fields of
+     their own name where the constructor names its fields, a tuple where it
+     does not. A bare name *before* a named field is not this: `T(r, b = 3)`
+     is an update, and that spelling was taken first. *)
+  | ConstrBare of string * string list
   | Field      of expr * string
   | Seq      of expr * expr
   | Located  of Token.loc * expr
@@ -132,6 +146,24 @@ and handle_case =
   | EffectCase of string * pat * string * expr  (* op, arg_pat, cont_name, body *)
   | ReturnCase of pat * expr
 
+(* Which reading `PConstrBare` carries, once the declaration says whether the
+   constructor names its fields. Both stages that match values ask here, so
+   the two cannot drift apart: `Pod(name, restarts)` binds each field to its
+   own name where `Pod` has fields, and matches the tuple payload where it
+   does not. *)
+let constr_bare_reading ~named_fields name ids : pat =
+  if named_fields then PConstrNamed (name, List.map (fun i -> (i, PVar i)) ids)
+  else PConstr (name, [PTuple (List.map (fun i -> PVar i) ids)])
+
+
+(* The same question on the expression side, and the same answer: a
+   constructor that names its fields takes each identifier as the field of
+   that name, and one that does not takes them as the tuple it is applied
+   to. *)
+let constr_bare_construction ~named_fields name ids : expr =
+  if named_fields then ConstrApp (name, List.map (fun i -> (Some i, Var i)) ids)
+  else App (Constr name, Tuple (List.map (fun i -> Var i) ids))
+
 (* ── Pretty-print ─────────────────────────────────────────────────────────── *)
 
 (* The expression under any `Located` wrappers. Shared here because nearly
@@ -165,6 +197,8 @@ let rec show_pat : pat -> string = function
   | PConstrNamed (c, kvs) ->
     Printf.sprintf "(%s %s)" c (String.concat ", "
       (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
+  | PConstrBare (c, ids) ->
+    Printf.sprintf "%s(%s)" c (String.concat ", " ids)
   | PMap kvs ->
     "{" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "}"
   | PAnnot (p, _)  -> show_pat p
@@ -214,6 +248,7 @@ let rec show : expr -> string = function
   | ConstrUpdate (c, base, kvs) ->
     Printf.sprintf "(%s %s with %s)" c (show base) (String.concat ", "
       (List.map (fun (k, v) -> k ^ "=" ^ show v) kvs))
+  | ConstrBare (c, ids) -> Printf.sprintf "%s(%s)" c (String.concat ", " ids)
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e

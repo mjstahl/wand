@@ -90,11 +90,6 @@ type the way a `getopts` usage message drifts from its case arms — which
 is half of what makes the shell version bad. Found porting
 `probe-args.wand`, which carries the string and says so.
 
-**A record pattern has no pun form.** `Repo(name = n, url = u)` matches by
-name and is the form to use. There is no `Repo(name, url)` binding each
-field to its own name, the way `{a, b}` already puns for maps. Found
-porting the shell corpus.
-
 ## The standard library
 
 Found by porting shell scripts, in `examples/ports/`. Each is a decision

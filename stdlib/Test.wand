@@ -114,12 +114,12 @@ let with_shell mocks thunk =
   handle thunk () with
   | Shell!run cmd k -> (
     match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
-    | Some (_, out) -> k out
+    | Some(_, out) -> k out
     | None -> k ""
   )
   | Shell!capture cmd k -> (
     match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
-    | Some (_, out) -> k ShellResult(stdout = out, stderr = "", code = 0)
+    | Some(_, out) -> k ShellResult(stdout = out, stderr = "", code = 0)
     | None -> k ShellResult(stdout = "", stderr = "", code = 0)
   )
 
@@ -142,7 +142,7 @@ let with_shell_results mocks thunk =
   handle thunk () with
   | Shell!capture cmd k -> (
     match List.find (fn (pat, _) -> String.contains? pat cmd) mocks with
-    | Some (_, r) -> k r
+    | Some(_, r) -> k r
     | None -> k ShellResult(stdout = "", stderr = "", code = 0)
   )
 

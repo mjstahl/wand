@@ -50,7 +50,7 @@ let taken! archive =
 let check! file =
   match stated file with
   | Error why -> Error why
-  | Ok (digest, archive) -> (
+  | Ok(digest, archive) -> (
     match taken! archive with
     | Error why -> Error why
     | Ok got -> Ok (got == digest)
@@ -66,8 +66,8 @@ let failures checked =
       match outcome with
       | Ok (Ok true) -> None
       | Ok (Ok false) -> Some (file, "digest does not match")
-      | Ok (Error why) -> Some (file, why)
-      | Error why -> Some (file, why))
+      | Ok (Error why) -> Some(file, why)
+      | Error why -> Some(file, why))
 
 let report! limit dir = (
   let files = FS.glob_in *.sha256 dir;

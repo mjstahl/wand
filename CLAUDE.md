@@ -145,6 +145,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `let f n = ...` (already recursive) | `let rec` |
 | `{a = 1}` map; `{a, b = x}` pattern (puns) | `{a: 1}`, `[a = 1]` |
 | `T(r, b = 3)` record update | `{r with b = 3}` |
+| `Pod(name, restarts)` fields, in a pattern or a construction (puns) | `Pod{name}`, positional fields |
 | `type Shape = Circle Int \| Rect Int Int` | `Circle of Int` |
 | `try e` yields a `Result` | `try ... with`, `raise` |
 | no mutation — bind a new name | `ref`, `mutable`, `:=` |

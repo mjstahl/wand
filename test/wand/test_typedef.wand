@@ -142,7 +142,113 @@ test "a payload carries its type" (fn t -> (
 test "and so does one inside a tuple payload" (fn t -> (
   let read =
     fn r -> match r with
-      | Ok ((b: Boxed), extra) -> b.n + extra
+      | Ok((b: Boxed), extra) -> b.n + extra
       | Error _ -> 0;
   t.eq 9 (read (Ok (Boxed(n = 7), 2)))
+))
+
+-- ── Field puns ─────────────────────────────────────────────────────────
+
+-- A bare name inside a constructor's parentheses reads as its own field,
+-- the way `{a, b}` already puns for a map. Which reading it carries is the
+-- declaration's to decide: `Pod` names its fields, so these are fields.
+type Pod(name: String, restarts: Int)
+
+let pod = Pod(name = "api", restarts = 3)
+
+test "a pun binds each field to its own name" (fn t ->
+  t.eq
+    "api/3"
+    (match pod with
+    | Pod(name, restarts) -> "%{name}/%{restarts}"
+    ))
+
+test "a pun beside a field that is ignored" (fn t ->
+  t.eq
+    "api"
+    (match pod with
+    | Pod(name, restarts = _) -> name
+    ))
+
+test "a pun sits beside a named field" (fn t ->
+  t.eq
+    "api/9"
+    (match pod with
+    | Pod(name, restarts = r) -> "%{name}/%{r + 6}"
+    ))
+
+test "a pun sits after a named field" (fn t ->
+  t.eq
+    "db/3"
+    (match pod with
+    | Pod(name = _, restarts) -> "db/%{restarts}"
+    ))
+
+test "the order of the fields is the pattern's own" (fn t ->
+  t.eq
+    "3/api"
+    (match pod with
+    | Pod(restarts, name) -> "%{restarts}/%{name}"
+    ))
+
+test "a pun works as a parameter" (fn t -> (
+  let describe = fn (Pod(name, restarts)) -> "%{name} %{restarts}";
+  t.eq "api 3" (describe pod)
+))
+
+test "a pun nests under another constructor" (fn t ->
+  t.eq
+    "api"
+    (match Ok pod with
+    | Ok (Pod(name, restarts = _)) -> name
+    | Error _ -> ""
+    ))
+
+-- The same spelling on a constructor that does not name its fields is the
+-- tuple payload it has always been.
+type Span = Span (Int, Int)
+
+test "bare names still read a tuple payload" (fn t ->
+  t.eq
+    3
+    (match Span (1, 2) with
+    | Span(a, b) -> a + b
+    ))
+
+-- A construction puns the same way, from names the value already has.
+
+let name = "web"
+
+let restarts = 5
+
+test "a construction puns from names in scope" (fn t -> (
+  let p = Pod(name, restarts);
+  t.eq "web/5" "%{p.name}/%{p.restarts}"
+))
+
+test "a pun follows a named field" (fn t -> (
+  let p = Pod(name = "api", restarts);
+  t.eq "api/5" "%{p.name}/%{p.restarts}"
+))
+
+-- A bare name before a named field is the base of an update, which is what
+-- that spelling has always meant.
+let base = Pod(name = "db", restarts = 1)
+
+test "a name before a named field is still the base of an update" (fn t -> (
+  let p = Pod(base, restarts = 7);
+  t.eq "db/7" "%{p.name}/%{p.restarts}"
+))
+
+let one = 1
+
+let two = 2
+
+test "a construction of a tuple payload is unchanged" (fn t -> (
+  let s = Span(one, two);
+  t.eq
+    3
+    (match s with
+    | Span(a, b) -> a + b
+    )
 ))

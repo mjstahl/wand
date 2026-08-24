@@ -337,13 +337,26 @@ let test_constr_positional () =
     (App (Constr "Some", Int 1));
   e "no arguments"
     "Some ()"
-    (App (Constr "Some", Unit))
+    (App (Constr "Some", Unit));
+  (* As in a pattern, bare names are left for the declaration to read. *)
+  e "bare identifiers stay undecided"
+    "Point(x, y)"
+    (ConstrBare ("Point", ["x"; "y"]));
+  e "a pun after a named field"
+    "Point(x = 1, y)"
+    (ConstrApp ("Point", [(Some "x", Int 1); (Some "y", Var "y")]));
+  (* `T(r, b = 3)` was the update long before puns, and stays it. *)
+  e "a name before a named field is the base of an update"
+    "Point(x, y = 1)"
+    (ConstrUpdate ("Point", Var "x", [("y", Int 1)]))
 
 let test_constr_positional_patterns () =
+  (* Bare names are the one list the parser leaves undecided, so the tuple
+     under a constructor is written with something that is not one. *)
   e "a tuple pattern under a constructor"
-    "match v with\n| Some (a, b) -> a"
+    "match v with\n| Some (a, [b]) -> a"
     (Match (Var "v", [
-      (PConstr ("Some", [PTuple [PVar "a"; PVar "b"]]), None, Var "a");
+      (PConstr ("Some", [PTuple [PVar "a"; PList [PVar "b"]]]), None, Var "a");
     ]));
   e "juxtaposed sub-patterns"
     "match v with\n| R a b -> a"
@@ -422,9 +435,11 @@ let test_record_update () =
   e "the base is any expression"
     "T(f x, b = 3)"
     (ConstrUpdate ("T", App (Var "f", Var "x"), [("b", Int 3)]));
+  (* Bare names are the one list the parser leaves undecided, so the pair
+     payload is written with something that is not one. *)
   e "a pair payload is untouched"
-    "T(a, b)"
-    (App (Constr "T", Tuple [Var "a"; Var "b"]))
+    "T(a, [b])"
+    (App (Constr "T", Tuple [Var "a"; List [Var "b"]]))
 
 (* A pattern carries a type wherever a pattern is written, including inside
    a constructor's payload -- which is where a decoder's result lands. *)
@@ -502,6 +517,39 @@ let test_constr_named_pats () =
     "match c with\n| Circle (radius = r) -> r"
     (Match (Var "c", [
       (PConstrNamed ("Circle", [("radius", PVar "r")]), None, Var "r")
+    ]));
+  (* Bare identifiers are kept as written: which reading they carry is the
+     declaration's to decide, and the declaration may be in another file. *)
+  e "bare identifiers stay undecided"
+    "match p with\n| Point(x, y) -> x"
+    (Match (Var "p", [
+      (PConstrBare ("Point", ["x"; "y"]), None, Var "x")
+    ]));
+  e "a space does not decide it"
+    "match p with\n| Point (x, y) -> x"
+    (Match (Var "p", [
+      (PConstrBare ("Point", ["x"; "y"]), None, Var "x")
+    ]));
+  e "one identifier binds the payload either way"
+    "match c with\n| Circle (r) -> r"
+    (Match (Var "c", [
+      (PConstr ("Circle", [PVar "r"]), None, Var "r")
+    ]));
+  e "a pun beside a named field"
+    "match p with\n| Point(x, y = b) -> x"
+    (Match (Var "p", [
+      (PConstrNamed ("Point", [("x", PVar "x"); ("y", PVar "b")]), None, Var "x")
+    ]));
+  e "a pun after a named field"
+    "match p with\n| Point(x = a, y) -> a"
+    (Match (Var "p", [
+      (PConstrNamed ("Point", [("x", PVar "a"); ("y", PVar "y")]), None, Var "a")
+    ]));
+  (* Anything that is not a bare name is a payload, and stays one. *)
+  e "a wildcard is not a field name"
+    "match p with\n| Point(_, y) -> y"
+    (Match (Var "p", [
+      (PConstr ("Point", [PTuple [Wild; PVar "y"]]), None, Var "y")
     ]))
 
 (* ── Fn (lambda) ─────────────────────────────────────────────────────────── *)

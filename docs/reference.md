@@ -2052,6 +2052,29 @@ Point (x = 1)
 -- type error: constructor 'Point' is missing field 'y'
 ```
 
+A field whose value is already held by a name of the same spelling puns, as
+it does in a pattern:
+
+```ocaml
+let x = 1
+let y = 2
+
+Point(x, y)             -- Point(x = 1, y = 2)
+Point(x = 8, y)         -- Point(x = 8, y = 2)
+```
+
+One place a pun does not reach: a bare name written *before* a named field
+is the base of an update, which is what that spelling meant first. Write
+`Point(y = 9, x)` where you want both a change and a pun. A name that is not
+the record gets told so:
+
+```ocaml
+let x = 1
+Point(x, y = 9)
+-- type error: expected Point, got Int -- 'x' here is the record being
+--   updated, not a field. Write 'Point(y = ..., x)' to pun it
+```
+
 #### Update
 
 A record with the same values but for the fields you name. Put the record
@@ -2086,6 +2109,35 @@ let area c =
 
 let just_x p = match p with | Point (x = a) -> a
 ```
+
+A field whose name is the name you want for it puns, the way a map pattern
+already does. `Pod(name, restarts)` binds `name` and `restarts` to those two
+fields:
+
+```ocaml
+type Pod(name : String, restarts : Int)
+
+let summary p = match p with | Pod(name, restarts) -> "%{name}: %{restarts}"
+```
+
+A pun mixes with a field that carries a pattern, in any order:
+`Pod(name, restarts = 0)` matches a pod that has never restarted and binds
+its name. A name that is not one of the constructor's fields is a type error
+naming both.
+
+The same spelling on a constructor whose payload is a tuple is that tuple,
+which is what it has always been:
+
+```ocaml
+type Span (Int, Int)
+
+let width s = match s with | Span(a, b) -> b - a
+```
+
+A construction reads its bare names the same way. Which of the two a pattern
+is comes from the declaration, not from the spelling, so the space in `Pod (name, restarts)` decides nothing. A single
+name is a payload either way -- `Wrap(v)` binds what `Wrap` holds -- so
+there is nothing for a declaration to settle there.
 
 #### Named fields in a type with several constructors
 

@@ -55,7 +55,7 @@ let _object_of flags args =
   in let boolean? k = List.any (fn f -> f == k) flags
   in let go acc positional args =
     match args with
-    | [] -> Ok (acc, positional)
+    | [] -> Ok(acc, positional)
     | [arg :: rest] when !(_flag? arg) -> go acc (List.append positional [arg]) rest
     -- Only flags get past the guard above, so `=` here means `--key=value`.
     | [arg :: rest] when _inline? arg -> (
@@ -70,7 +70,7 @@ let _object_of flags args =
     )
   in match go Map.empty [] args with
   | Error e -> Error e
-  | Ok (fields, positional) -> (Ok
+  | Ok(fields, positional) -> (Ok
     (JSON.of_map
       (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) fields)
     ))

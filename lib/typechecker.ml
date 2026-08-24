@@ -1412,6 +1412,7 @@ let rec pat_is_refutable tenv (p : pat) =
   | PConstrNamed (name, fields) ->
     not (ctor_is_alone tenv name)
     || List.exists (fun (_, p) -> pat_is_refutable tenv p) fields
+  | PConstrBare (name, _) -> not (ctor_is_alone tenv name)
   (* An annotation constrains the type, and a type cannot fail to match. *)
   | PAnnot (p, _)  -> pat_is_refutable tenv p
   | _              -> true
@@ -1533,6 +1534,17 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
            name (List.length arg_ts) (List.length pats)));
        unify_expected ~expected:t ~got:result_t;
        List.fold_left2 (fun env p at -> infer_pat tenv p at env) env pats arg_ts)
+  (* `Pod(name, restarts)`: the declaration decides whether these are fields
+     or a tuple payload, and the declaration is in hand here. Both readings
+     are patterns this function already knows, so it settles on one and
+     carries on. *)
+  | PConstrBare (name, ids) ->
+    let named_fields =
+      match find_ctor_in_tenv tenv name with
+      | Some (_, ctor) -> List.exists (fun (dn, _) -> dn <> None) ctor.fields
+      | None -> false
+    in
+    infer_pat tenv (Ast.constr_bare_reading ~named_fields name ids) t env
   | PConstrNamed (name, bindings) ->
     (match find_ctor_in_tenv tenv name with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
@@ -1699,6 +1711,8 @@ let rec match_against_ctor name arity (p : pat) =
   | PCons (hp, tp) -> if name = "::" then `Match [hp; tp] else `NoMatch
   | PConstr (n, ps) -> if n = name then `Match ps else `NoMatch
   | PConstrNamed (n, _) ->
+    if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
+  | PConstrBare (n, _) ->
     if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
   | _ -> `NoMatch  (* literal patterns never arise for finite-ctor types *)
 
@@ -2095,6 +2109,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
     List.iter (fun e' ->
       unify_expected ~expected:t ~got:(infer tenv env e')) rest;
     TList t
+  (* Settled here, where the declaration is, exactly as the pattern side
+     settles `PConstrBare`. *)
+  | ConstrBare (name, ids) ->
+    let named_fields =
+      match find_ctor_in_tenv tenv name with
+      | Some (_, ctor) -> List.exists (fun (dn, _) -> dn <> None) ctor.fields
+      | None -> false
+    in
+    infer tenv env (Ast.constr_bare_construction ~named_fields name ids)
   | ConstrApp (name, fields) ->
     (match find_ctor_in_tenv tenv name with
      (* A name that is a type rather than a constructor is not unknown, and
@@ -2189,7 +2212,27 @@ let rec infer tenv (env : env) (e : expr) : typ =
        in
        (* The base decides the type arguments, so it is unified before the
           fields are: `Box(b, v = 3)` takes its element type from `b`. *)
-       unify_expected ~expected:result_t ~got:(infer tenv env base);
+       (* A name before a named field is the base of an update, and that
+          spelling was taken before puns existed. Somebody who meant the pun
+          gets told which reading they wrote and how to get the other. *)
+       let base_is_field =
+         match strip_located base with
+         | Var x -> List.exists (fun (dn, _) -> dn = Some x) ctor.fields
+         | _ -> false
+       in
+       (try unify_expected ~expected:result_t ~got:(infer tenv env base)
+        with TypeError why when base_is_field ->
+          let x = match strip_located base with Var x -> x | _ -> "" in
+          let other =
+            match List.filter_map (fun (fname, _) ->
+              if fname = x then None else Some fname) fields with
+            | f :: _ -> f
+            | [] -> "field"
+          in
+          raise (TypeError (Printf.sprintf
+            "%s -- '%s' here is the record being updated, not a field. \
+             Write '%s(%s = ..., %s)' to pun it"
+            why x name other x)));
        let seen = ref [] in
        List.iter (fun (fname, e) ->
          if List.mem fname !seen then
@@ -3115,6 +3158,7 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
     | Tuple es | List es -> List.iter (go loc) es
     | MapLit kvs -> List.iter (fun (_, v) -> go loc v) kvs
     | ConstrApp (_, fs) -> List.iter (fun (_, v) -> go loc v) fs
+    | ConstrBare (_, _) -> ()
     | ConstrUpdate (_, b, fs) -> go loc b; List.iter (fun (_, v) -> go loc v) fs
     | Interp (parts, _) | RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go loc e) parts

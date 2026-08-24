@@ -261,9 +261,22 @@ let rec emit_pat (p : pat) : string = match p with
   | PList ps   -> "[" ^ String.concat ", " (List.map emit_pat ps) ^ "]"
   | PCons (h, t) -> emit_cons_chain h t
   | PConstr (c, []) -> c
+  (* A parenthesised list of arguments hugs the constructor, the way a field
+     list does. The two are told apart by the declaration and not by their
+     spelling -- `Pod(name, restarts)` is a field list where `Pod` names its
+     fields and a tuple payload where it does not -- so printing them alike
+     is what stops the space from looking like the thing that decides. *)
+  | PConstr (c, [PTuple (_ :: _ :: _ as ps)]) ->
+    c ^ "(" ^ String.concat ", " (List.map emit_pat ps) ^ ")"
   | PConstr (c, ps) -> c ^ " " ^ String.concat " " (List.map emit_pat_atom ps)
   | PConstrNamed (c, kvs) ->
-    c ^ "(" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ emit_pat p) kvs) ^ ")"
+    (* Punned whenever the field already names its variable, the same rule a
+       map pattern is printed under. *)
+    let entry (k, p) =
+      match p with PVar v when v = k -> k | _ -> k ^ " = " ^ emit_pat p
+    in
+    c ^ "(" ^ String.concat ", " (List.map entry kvs) ^ ")"
+  | PConstrBare (c, ids) -> c ^ "(" ^ String.concat ", " ids ^ ")"
   | PMap kvs ->
     (* Punned whenever the key already names its variable; a quoted key has
        no identifier to pun into, so it always carries its pattern. *)
@@ -278,7 +291,7 @@ let rec emit_pat (p : pat) : string = match p with
   | PAnnot (p, te) -> "(" ^ emit_pat p ^ ": " ^ emit_type_expr te ^ ")"
 
 and emit_pat_atom (p : pat) : string = match p with
-  | PConstr (_, _ :: _) | PConstrNamed _ -> "(" ^ emit_pat p ^ ")"
+  | PConstr (_, _ :: _) | PConstrNamed _ | PConstrBare _ -> "(" ^ emit_pat p ^ ")"
   | _ -> emit_pat p
 
 and emit_cons_chain (h : pat) (t : pat) : string =
@@ -547,9 +560,15 @@ and emit_expr_inner ?col indent e =
      lines to the left of the item itself. *)
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
   | List es  -> emit_list ~col indent es
+  | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
   | ConstrApp (name, kvs) ->
+    (* Punned whenever the field already names the value it takes, the rule
+       a map literal and a field pattern are printed under. *)
     let field (k, v) =
-      (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
+      match k, strip_located v with
+      | Some n, Var x when x = n -> n
+      | _ ->
+        (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
     let oneline = name ^ "(" ^ String.concat ", " (List.map field kvs) ^ ")" in
     if fits col oneline then oneline
     else
@@ -559,10 +578,13 @@ and emit_expr_inner ?col indent e =
       name ^ "(\n" ^ inner
       ^ String.concat (",\n" ^ inner)
           (List.map (fun (k, v) ->
-             let label = match k with Some n -> n ^ " = " | None -> "" in
-             (* The value is written after its field name, so that is where
-                it starts. *)
-             label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
+             match k, strip_located v with
+             | Some n, Var x when x = n -> n
+             | _ ->
+               let label = match k with Some n -> n ^ " = " | None -> "" in
+               (* The value is written after its field name, so that is where
+                  it starts. *)
+               label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
       ^ "\n" ^ ind ^ ")"
   (* `T(r, a = 1)`: the base reads as the first item, and the fields that
      change follow it, so the one-per-line form puts the base on its own
