@@ -1843,7 +1843,14 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (match find_ctor_in_tenv tenv name with
      | Some (_, ctor)
        when List.exists (fun (fname, _) -> Option.is_some fname) ctor.fields ->
-       let names = List.filter_map (fun (fname, _) -> fname) ctor.fields in
+       (* Only the fields that have to be given: one with a default is not
+          part of what the construction has to say. *)
+       let names =
+         List.filter_map (fun (fname, _) ->
+           match fname with
+           | Some n when not (List.mem_assoc n ctor.defaults) -> Some n
+           | _ -> None) ctor.fields
+       in
        raise (TypeError (Printf.sprintf
          "constructor '%s' has named fields; construct it as %s(%s)"
          name name
@@ -2175,10 +2182,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
           a positional constructor's arity has always been static, and a
           named one's is no less known. *)
        let given = List.filter_map fst fields in
+       (* A field with a default is not missing: leaving it out is what the
+          default is for. *)
        let missing =
          List.filter_map (fun (dn, _) ->
            match dn with
-           | Some n when not (List.mem n given) -> Some n
+           | Some n when not (List.mem n given)
+                      && not (List.mem_assoc n ctor.defaults) -> Some n
            | _ -> None) ctor.fields
        in
        if missing <> [] then
@@ -3044,6 +3054,7 @@ let shell_result_tdef : type_def =
     fields = [ (Some "stdout", TEName "String");
                (Some "stderr", TEName "String");
                (Some "code",   TEName "Int") ];
+    defaults = [];
   }])
 
 let builtin_tenv : typedef_env = [
@@ -3472,6 +3483,34 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       | _ -> None) tenv;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
+  (* A field default is checked once, here, rather than at each construction
+     that leaves the field out: the default belongs to the declaration, and a
+     construction that omits the field has nothing at its own site to blame.
+     It has to be a value written out, so there is no environment to read it
+     in and no effect for a construction to declare. *)
+  List.iter (function
+    | TLType (Variants (_, _, ctors)) ->
+      List.iter (fun c ->
+        List.iter (fun (fname, e) ->
+          if not (Ast.is_written_value e) then
+            raise (TypeError (Printf.sprintf
+              "the default for field '%s' of '%s' has to be a value written \
+               out: a literal, or a constructor applied to literals. It is \
+               read with nothing in scope, so it says the same thing at \
+               every construction that leaves the field out" fname c.name));
+          let declared =
+            match List.find_opt (fun (dn, _) -> dn = Some fname) c.fields with
+            | Some (_, te) -> type_of_te te
+            | None -> fresh ()
+          in
+          let got = infer tenv (tenv_to_ctor_env tenv) e in
+          (try unify_expected ~expected:declared ~got
+           with TypeError why ->
+             raise (TypeError (Printf.sprintf
+               "the default for field '%s' of '%s' does not have the field's \
+                type: %s" fname c.name why)))
+        ) c.defaults) ctors
+    | _ -> ()) prog.items;
   let item_index = ref (-1) in
   let (env, last_t) =
   List.fold_left (fun (env, last_t) item ->

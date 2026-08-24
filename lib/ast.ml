@@ -162,7 +162,11 @@ let constr_bare_reading ~named_fields name ids : pat =
    to. *)
 let constr_bare_construction ~named_fields name ids : expr =
   if named_fields then ConstrApp (name, List.map (fun i -> (Some i, Var i)) ids)
-  else App (Constr name, Tuple (List.map (fun i -> Var i) ids))
+  else match ids with
+    (* `Some ()` is the constructor applied to unit, which is what an empty
+       pair of parentheses means everywhere else. *)
+    | [] -> App (Constr name, Unit)
+    | ids -> App (Constr name, Tuple (List.map (fun i -> Var i) ids))
 
 (* ── Pretty-print ─────────────────────────────────────────────────────────── *)
 
@@ -324,11 +328,44 @@ and show_case (p, g, e) =
 let pp ppf (e : expr) = Format.pp_print_string ppf (show e)
 let equal a b = show a = show b
 
+(* What may stand as a field default: a value written out. No variable, no
+   call, nothing that reads the world -- so the default needs no environment
+   to evaluate in and no effect to declare, and `wand d` can print it back.
+   A constructor application counts, which is what makes `None`, `Some 3` and
+   a nested record available. *)
+let rec is_written_value (e : expr) : bool =
+  match e with
+  | Int _ | Float _ | String _ | Bool _ | Unit
+  | Path _ | Glob _ | DateTime _ | Duration _ | URL _ | IPv4 _ | CIDR _
+  | Port _ | Version _ | Size _ | RegexLit (_, _) -> true
+  | Constr _ -> true
+  | Located (_, e) -> is_written_value e
+  | UnOp ("-", e) -> is_written_value e
+  | Tuple es | List es -> List.for_all is_written_value es
+  | MapLit kvs -> List.for_all (fun (_, v) -> is_written_value v) kvs
+  | ConstrApp (_, kvs) -> List.for_all (fun (_, v) -> is_written_value v) kvs
+  | ConstrBare (_, _) -> true
+  | App (f, a) -> is_constr_head f && is_written_value a
+  | _ -> false
+
+and is_constr_head (e : expr) : bool =
+  match e with
+  | Constr _ -> true
+  | Located (_, e) -> is_constr_head e
+  | App (f, a) -> is_constr_head f && is_written_value a
+  | _ -> false
+
 (* ── Top-level program ────────────────────────────────────────────────────── *)
 
 type ctor_def = {
   name   : string;
   fields : (string option * type_expr) list;
+  (* `port : Port = :8080`. A field with one of these may be left out of a
+     construction, and a derived decoder reads it from the default when the
+     document has nothing under that name. Keyed by field name, so only a
+     named field can carry one -- a positional payload has no name to leave
+     out. *)
+  defaults : (string * expr) list;
 }
 
 type type_def =

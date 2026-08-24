@@ -1,3 +1,6 @@
+import JSON
+import Result
+
 let {test} = import Test
 
 -- ── Enum-style variants (no payload) ───────────────────────────────────
@@ -251,4 +254,43 @@ test "a construction of a tuple payload is unchanged" (fn t -> (
     (match s with
     | Span(a, b) -> a + b
     )
+))
+
+-- ── Field defaults ─────────────────────────────────────────────────────
+
+-- `= value` after a field's type is what lets a construction leave it out.
+-- The value is written out, so it reads the same at every site that omits
+-- the field.
+type Conf(host: String, port: Port = :8080, retries: Int = 3)
+
+test "a field with a default may be left out" (fn t -> (
+  let c = Conf(host = "a");
+  t.eq "a:8080/3" "%{c.host}%{c.port}/%{c.retries}"
+))
+
+test "and may still be given" (fn t -> (
+  let c = Conf(host = "a", port = :90);
+  t.eq "a:90/3" "%{c.host}%{c.port}/%{c.retries}"
+))
+
+type Defaulted(n: Int = 3, label: String = "on")
+
+test "every field defaulted needs no fields at all" (fn t -> (
+  let c = Defaulted();
+  t.eq "3/on" "%{c.n}/%{c.label}"
+))
+
+test "a default reaches a derived decoder" (fn t -> (
+  let doc = JSON.parse! `{"host": "a", "port": 90}`;
+  t.eq (Ok Conf(host = "a", port = :90, retries = 3)) (JSON.decode Conf.decoder doc)
+))
+
+test "a document that gives the field wins over the default" (fn t -> (
+  let doc = JSON.parse! `{"host": "a", "retries": 9}`;
+  t.eq (Ok Conf(host = "a", port = :8080, retries = 9)) (JSON.decode Conf.decoder doc)
+))
+
+test "a field with no default is still required of a document" (fn t -> (
+  let doc = JSON.parse! `{"port": 90}`;
+  t.eq true (Result.error? (JSON.decode Conf.decoder doc))
 ))

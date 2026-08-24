@@ -4,9 +4,20 @@ open Ast
 
 let constr_fields : (string, string option list) Hashtbl.t = Hashtbl.create 16
 
+(* The defaults a constructor declares, by field name. A construction that
+   leaves a field out takes its value from here, and so does a derived
+   decoder reading a document with nothing under that name. *)
+let constr_defaults : (string, (string * Ast.expr) list) Hashtbl.t =
+  Hashtbl.create 16
+
 let () =
   Hashtbl.add constr_fields "ShellResult"
     [Some "stdout"; Some "stderr"; Some "code"]
+
+let defaults_of name =
+  match Hashtbl.find_opt constr_defaults name with
+  | Some ds -> ds
+  | None -> []
 
 (* Type definitions, kept for derivation.
    A decoder derived from a type has to find the decoders of the types its
@@ -141,6 +152,28 @@ and stream_stage =
 
 (* The key an index entry is filed under. Not a legal identifier, so no
    program can name it and no lookup can collide with it. *)
+(* A default is a value written out, so the only names it can hold are
+   constructors. This is those, as an environment to read one in: rebuilt
+   when a declaration is registered rather than at each use, since a default
+   is read every time a construction leaves its field out. *)
+let ctor_env_cache : (string * value) list option ref = ref None
+
+let forget_ctor_env () = ctor_env_cache := None
+
+let ctor_env () =
+  match !ctor_env_cache with
+  | Some e -> e
+  | None ->
+    let e =
+      Hashtbl.fold (fun name fields acc ->
+        let v = match fields with
+          | [] -> VConstr (name, [])
+          | fs -> VPartialConstr (name, List.length fs, [])
+        in
+        (name, v) :: acc) constr_fields []
+    in
+    ctor_env_cache := Some e; e
+
 let env_index_key = "\000index"
 
 let index_env (base : env) : env =
@@ -1164,8 +1197,14 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
          | Some fn ->
            (match List.assoc_opt fn provided with
             | Some v -> v
-            | None -> raise (EvalError (Printf.sprintf
-                "constructor '%s' missing field '%s'" name fn)))
+            | None ->
+              (* Left out, so the declaration says what it holds. A default
+                 is a value written out, so it reads in an empty environment
+                 and the same way at every site that omits the field. *)
+              (match List.assoc_opt fn (defaults_of name) with
+               | Some d -> eval (ctor_env ()) d
+               | None -> raise (EvalError (Printf.sprintf
+                   "constructor '%s' missing field '%s'" name fn))))
        ) field_names in
        VConstr (name, ordered))
   | ConstrUpdate (name, base, fields) ->
@@ -3458,11 +3497,12 @@ and derived_decoder tname arg_decoders j path =
         raise (EvalError (Printf.sprintf
           "'%s' takes %d type argument(s)" tname (List.length params)))
     in
+    let defaults = defaults_of ctor in
     let rec go acc = function
       | [] -> Ok (VConstr (ctor, List.rev acc))
       | (fname, te) :: rest ->
         let key = match fname with Some n -> n | None -> "" in
-        (match read_field venv key te j path with
+        (match read_field venv ~defaults key te j path with
          | Ok v      -> go (v :: acc) rest
          | Error msg -> Error msg)
     in
@@ -3471,14 +3511,27 @@ and derived_decoder tname arg_decoders j path =
      | _ -> expected "an object" path j)
 
 (* One field of a derived decoder. A field whose type is an `Option` may be
-   absent -- that is what the type says -- and every other field may not. *)
-and read_field venv key te j path =
+   absent -- that is what the type says -- and every other field may not,
+   unless it declares a default: a field left out of the document is the
+   same case as a field left out of a construction, and takes the same
+   value. A document has null where the language has nothing, and
+   `Decode.optional` already reads absent and null alike, so a default
+   answers for both. *)
+and read_field venv ?(defaults = []) key te j path =
   let kvs = match j with `Assoc kvs -> kvs | _ -> [] in
+  let absent () =
+    match List.assoc_opt key defaults with
+    | Some d -> Some (eval (ctor_env ()) d)
+    | None -> None
+  in
   match te with
   | TEApp (TEName "Option", inner) ->
     let d = decoder_of_type_expr venv inner in
     (match assoc_last key kvs with
-     | None | Some `Null -> Ok (VConstr ("None", []))
+     | None | Some `Null ->
+       (match absent () with
+        | Some v -> Ok v
+        | None -> Ok (VConstr ("None", [])))
      | Some v ->
        (match d v (("." ^ key) :: path) with
         | Ok x      -> Ok (VConstr ("Some", [x]))
@@ -3487,8 +3540,14 @@ and read_field venv key te j path =
     let d = decoder_of_type_expr venv te in
     let here = ("." ^ key) :: path in
     (match assoc_last key kvs with
-     | Some v -> d v here
-     | None   -> decode_error here "no such field")
+     | Some `Null | None ->
+       (match absent () with
+        | Some v -> Ok v
+        | None ->
+          (match assoc_last key kvs with
+           | Some v -> d v here
+           | None -> decode_error here "no such field"))
+     | Some v -> d v here)
 
 (* ── Derived encoders ─────────────────────────────────────────────────────
    The other direction, and a much smaller thing: encoding cannot fail, so

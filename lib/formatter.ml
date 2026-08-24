@@ -1371,12 +1371,21 @@ let emit_one_equation head_kw pats body =
    either way, and `emit_type_app_expr` still adds them. *)
 let emit_named_field_type t = emit_type_app_expr t
 
-let emit_ctor_fields fields =
+(* `= value` where the field declares a default. Only a named field can carry
+   one, so this never reaches the positional form. *)
+let emit_field_default defaults n =
+  match List.assoc_opt n defaults with
+  | Some d -> " = " ^ emit_expr 0 d
+  | None -> ""
+
+let emit_ctor_fields ?(defaults = []) fields =
   if fields = [] then ""
   else match fields with
     | (Some _, _) :: _ ->
       "(" ^ String.concat ", " (List.map (fun (n, t) ->
-        Option.get n ^ ": " ^ emit_named_field_type t) fields) ^ ")"
+        let n = Option.get n in
+        n ^ ": " ^ emit_named_field_type t ^ emit_field_default defaults n)
+        fields) ^ ")"
     | _ ->
       " " ^ String.concat " " (List.map (fun (_, t) -> emit_type_atom t) fields)
 
@@ -1384,13 +1393,15 @@ let emit_ctor_fields fields =
    fields are left alone: they are type atoms, so a long positional
    constructor is long because its types are, and breaking it up does not
    help. *)
-let emit_ctor_fields_wrapped name fields =
+let emit_ctor_fields_wrapped ?(defaults = []) name fields =
   match fields with
   | (Some _, _) :: _ ->
     name ^ "(\n"
     ^ String.concat ",\n"
         (List.map (fun (n, t) ->
-           "  " ^ Option.get n ^ ": " ^ emit_named_field_type t) fields)
+           let n = Option.get n in
+           "  " ^ n ^ ": " ^ emit_named_field_type t
+           ^ emit_field_default defaults n) fields)
     ^ "\n)"
   | _ -> name ^ emit_ctor_fields fields
 
@@ -1415,24 +1426,30 @@ let emit_type_def = function
      re-parse. *)
   | [c] when c.name = name
           && (match c.fields with (Some _, _) :: _ -> true | _ -> false) ->
-    let oneline = "type " ^ name_and_params ^ emit_ctor_fields c.fields in
+    let oneline =
+      "type " ^ name_and_params
+      ^ emit_ctor_fields ~defaults:c.defaults c.fields in
     if fits 0 oneline then oneline
-    else "type " ^ emit_ctor_fields_wrapped name_and_params c.fields
+    else "type "
+         ^ emit_ctor_fields_wrapped ~defaults:c.defaults name_and_params c.fields
   | _ ->
   let head = "type " ^ name_and_params ^ " = " in
   let oneline =
-    head ^ String.concat " | " (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
+    head ^ String.concat " | "
+      (List.map (fun c ->
+         c.name ^ emit_ctor_fields ~defaults:c.defaults c.fields) ctors)
   in
   if fits 0 oneline then oneline
   else match ctors with
     (* A single constructor with named fields is a record: widen it down the
        page rather than past the margin. Several constructors wrap at the
        alternatives instead, which is where a reader looks first. *)
-    | [c] -> head ^ emit_ctor_fields_wrapped c.name c.fields
+    | [c] -> head ^ emit_ctor_fields_wrapped ~defaults:c.defaults c.name c.fields
     | _ ->
       head ^ "\n  "
       ^ String.concat "\n  | "
-          (List.map (fun c -> c.name ^ emit_ctor_fields c.fields) ctors)
+          (List.map (fun c ->
+             c.name ^ emit_ctor_fields ~defaults:c.defaults c.fields) ctors)
 
 (* ── Top-level items ──────────────────────────────────────────────────────── *)
 

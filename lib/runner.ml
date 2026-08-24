@@ -959,6 +959,8 @@ let run_item env item =
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
       Hashtbl.replace Evaluator.constr_fields ctor.Ast.name field_names;
+      Hashtbl.replace Evaluator.constr_defaults ctor.Ast.name ctor.Ast.defaults;
+      Evaluator.forget_ctor_env ();
       let v = match ctor.Ast.fields with
         | [] -> VConstr (ctor.Ast.name, [])
         | fs -> VPartialConstr (ctor.Ast.name, List.length fs, [])
@@ -1867,6 +1869,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLType (Ast.Variants (_, _, ctors)) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
+                Hashtbl.replace constr_defaults ctor.Ast.name ctor.Ast.defaults;
+                forget_ctor_env ();
                 env_ref := (ctor.Ast.name,
                   match ctor.Ast.fields with
                   | [] -> VConstr (ctor.Ast.name, [])

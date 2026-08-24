@@ -2052,6 +2052,47 @@ Point (x = 1)
 -- type error: constructor 'Point' is missing field 'y'
 ```
 
+#### Defaults
+
+A field may declare what it holds when a construction leaves it out:
+
+```ocaml
+type Conf(host : String, port : Port = :8080, retries : Int = 3)
+
+Conf(host = "example.com")     -- port :8080, retries 3
+Conf(host = "x", port = :9000) -- retries 3
+```
+
+A field with no default is still required, and leaving one out is the same
+type error it always was. Where every field has a default, `Conf()` builds
+one from them.
+
+A default is a value written out -- a literal, or a constructor applied to
+literals. It reads with nothing in scope, so it says the same thing at every
+construction that omits the field, performs no effect for a construction to
+declare, and can be printed back as written. `port : Port = pick ()` is a
+type error naming this.
+
+A derived decoder reads defaults too. A field the document does not carry
+takes its default rather than failing, and a field it does carry wins:
+
+```ocaml
+JSON.decode Conf.decoder (JSON.parse! `{"host": "a"}`)
+-- Ok(Conf("a", :8080, 3))
+```
+
+A document writes null where the language has nothing, and `Decode.optional`
+already reads absent and null alike, so a default answers for both. A field
+with no default that the document does not carry is still an error naming
+the field.
+
+A default and an `Option` say different things and compose. `Option` is about
+the value -- it may be nothing. A default is about the writing -- it may be
+left out. `tag : Option String = Some("none")` is a field you can omit, and
+omitting it gives `Some("none")`, not `None`.
+
+#### Puns
+
 A field whose value is already held by a name of the same spelling puns, as
 it does in a pattern:
 

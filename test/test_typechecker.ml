@@ -183,6 +183,54 @@ match M(a = 1, b = 2) with
 | M(a = n) -> n|}
     "1"
 
+(* A default is what lets a field be left out. Without one the field is still
+   required, so the two have to be told apart at the same construction. *)
+
+let test_field_defaults () =
+  ok "a field with a default may be left out"
+    {|type M = M(a: Int, b: Int = 2)
+let m = M(a = 1) in m.b|}
+    "2";
+  ok "and may still be given"
+    {|type M = M(a: Int, b: Int = 2)
+let m = M(a = 1, b = 9) in m.b|}
+    "9";
+  err_contains "a field without one is still required"
+    {|type M = M(a: Int, b: Int = 2)
+M(b = 9)|}
+    "is missing field 'a'";
+  err_contains "a default for one field does not cover another"
+    {|type M = M(a: Int, b: Int, c: Int = 3)
+M(b = 1)|}
+    "is missing field 'a'";
+  err_contains "the error names only the fields that have no default"
+    {|type M = M(a: Int, b: Int, c: Int = 3)
+M()|}
+    "is missing fields 'a', 'b'";
+  err_contains "a type with no defaults still needs every field"
+    {|type M = M(a: Int, b: Int)
+M(a = 1)|}
+    "is missing field 'b'";
+  err_contains "a default has to have the field's type"
+    {|type M = M(a: Int = "no")
+M()|}
+    "does not have the field's type";
+  err_contains "a default is a value written out"
+    {|let n = 3
+type M = M(a: Int = n)
+M()|}
+    "value written out";
+  err_contains "and reads nothing from the world"
+    {|uses {Shell(hostname)}
+type M = M(a: String = $(hostname))
+M()|}
+    "value written out";
+  ok "a constructor applied to literals is one"
+    {|import Option
+type M = M(a: Option Int = Some 3)
+let m = M() in match m.a with | Some n -> n | None -> 0|}
+    "3"
+
 let test_map_patterns_still_work () =
   ok "map pattern binds a key"
     {|let m = {x = 1, y = 2} in
@@ -1540,6 +1588,7 @@ let () =
       Alcotest.test_case "unknown type names"      `Quick test_unknown_type_names_rejected;
       Alcotest.test_case "field on every ctor"     `Quick test_field_must_be_on_every_constructor;
       Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;
+      Alcotest.test_case "field defaults"          `Quick test_field_defaults;
       Alcotest.test_case "map patterns unaffected" `Quick test_map_patterns_still_work;
     ];
     "multi-equation", [

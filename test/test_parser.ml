@@ -335,9 +335,12 @@ let test_constr_positional () =
   e "a single parenthesised argument is just that argument"
     "Some (1)"
     (App (Constr "Some", Int 1));
+  (* Empty parentheses are undecided like a list of bare names: a
+     construction naming no fields where the constructor has them, and the
+     constructor applied to unit where it does not. *)
   e "no arguments"
     "Some ()"
-    (App (Constr "Some", Unit));
+    (ConstrBare ("Some", []));
   (* As in a pattern, bare names are left for the declaration to read. *)
   e "bare identifiers stay undecided"
     "Point(x, y)"

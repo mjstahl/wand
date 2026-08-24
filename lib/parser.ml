@@ -824,7 +824,11 @@ and atom_base_ s =
       ConstrBare (name, !ids)
     end else if peek s = Token.LParen then begin
       ignore (advance s); (* consume LParen *)
-      if peek s = Token.RParen then (ignore (advance s); App (Constr name, Unit))
+      (* `M()` is a construction naming no fields where `M` has fields, all of
+         which must then have defaults, and a constructor applied to unit
+         where it does not. The declaration decides, as it does for a list of
+         bare names. *)
+      if peek s = Token.RParen then (ignore (advance s); ConstrBare (name, []))
       else begin
         let first = expr_ 0 s in
         if peek_field_after_comma s then begin
@@ -1471,7 +1475,13 @@ let parse_type_def s =
       while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
         fields := !fields @ [(None, parse_type_atom s)]
       done;
-      !fields
+      (* A default belongs to a field a construction can leave out, and a
+         positional payload has no name to leave out. *)
+      if peek s = Token.Eq then
+        fail_at (peek_loc s)
+          "only a named field takes a default: give the field a name, as in \
+           'A(n: Int = 3)'";
+      (!fields, [])
     | Token.LParen ->
       let saved = mark s in
       ignore (advance s);
@@ -1486,7 +1496,15 @@ let parse_type_def s =
               stay atoms: `Pair Int Int` is two of them, not one applied to
               the other. *)
            let ftype = parse_type_app s in
-           (Some fname, ftype)
+           (* `= value` gives the field a default, which is what lets a
+              construction leave it out. *)
+           let dflt =
+             if peek s = Token.Eq then begin
+               ignore (advance s);
+               Some (locate s (fun () -> expr_ 0 s))
+             end else None
+           in
+           ((Some fname, ftype), Option.map (fun d -> (fname, d)) dflt)
          in
          let first = parse_named () in
          let rest = ref [] in
@@ -1495,16 +1513,17 @@ let parse_type_def s =
            rest := !rest @ [parse_named ()]
          done;
          expect s Token.RParen;
-         first :: !rest
+         let named = first :: !rest in
+         (List.map fst named, List.filter_map snd named)
        | _ ->
          rewind s saved;
-         [(None, parse_type_atom s)])
-    | _ -> []
+         ([(None, parse_type_atom s)], []))
+    | _ -> ([], [])
   in
   (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
   if peek s = Token.LParen then begin
-    let fields = parse_ctor_fields () in
-    Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields }])
+    let (fields, defaults) = parse_ctor_fields () in
+    Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields; defaults }])
   end else begin
     expect s Token.Eq;
     (* After `=`, a shape that cannot be a constructor is a type expression,
@@ -1551,8 +1570,8 @@ let parse_type_def s =
          fail_at (peek_loc s)
            "a constructor takes its payload directly: 'Circle Int', not \
             'Circle of Int'");
-      let fields = parse_ctor_fields () in
-      { Ast.name; fields }
+      let (fields, defaults) = parse_ctor_fields () in
+      { Ast.name; fields; defaults }
     in
     let ctors = ref [parse_ctor ()] in
     while peek s = Token.Pipe do
