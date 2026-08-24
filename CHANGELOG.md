@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.45.0] - 2026-08-24
+
+### Added
+
+- A field puns. `Pod(name, restarts)` binds each field to a variable of its
+  own name in a pattern, and builds from the names already holding those
+  values in a construction. `{a, b}` has punned for a map since maps got
+  braces, and a record had no equivalent, so `Pod(name = name, url = url)`
+  wrote every name twice
+- Which reading a list of bare names carries comes from the declaration, not
+  from the spelling. A constructor that names its fields reads them as
+  fields; one whose payload is a tuple reads them as the tuple, so
+  `Some(a, b)` is unchanged. The space in `Pod (name, restarts)` decides
+  nothing
+- A pun mixes with a field that carries a value: `Pod(name, restarts = 0)` in
+  a pattern, `Pod(restarts = 0, name)` in a construction. In a construction a
+  bare name written first is the base of an update, which is what that
+  spelling meant before puns existed, and the type error there names the
+  reordering that gets the pun
+
+### Fixed
+
+- `type X (T, U)` left the parser's bracket count raised. The fields are read
+  by trying the named form first and rewinding, and the rewind put the
+  position back but not the count, after which no newline ended a top-level
+  statement. A definition two lines down was read as a continuation of the
+  one above it, and `wand f` wrote that reading back to the file. Every
+  rewind now restores both
+
+### Changed
+
+- `wand f` hugs a constructor's parenthesised arguments: `Some(a, b)`, not
+  `Some (a, b)`. The two forms are told apart by the declaration, so printing
+  them alike is what stops the space from looking like the thing that decides
+- `wand f` collapses a field that names its own value, as it already does for
+  a map: `ShellResult(stdout = "", code = code)` prints as `code`
+
+[0.45.0]: https://github.com/mjstahl/wand/releases/tag/v0.45.0
+
 ## [0.44.0] - 2026-08-23
 
 ### Added

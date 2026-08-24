@@ -1,31 +1,32 @@
-## 0.44.0 - 2026-08-23
+## 0.45.0 - 2026-08-24
 
-A `Result` module, with three functions.
+A field puns, in a pattern and in a construction.
 
-    to_option : Result 'b 'a -> Option 'a
-    ok?       : Result 'b 'a -> Bool
-    error?    : Result 'b 'a -> Bool
+    match p with | Pod(name, restarts) -> "%{name}: %{restarts}"
+    let p = Pod(name, restarts)
 
-`Option` had eight combinators and `Result` none, though `Result` is the
-commoner of the two: every fallible operation answers with one, and `try`
-makes one. The asymmetry showed up as work. `Env.get`, `Map.get` and
-`List.get` each wrote this out by hand:
+Both are what you would have written as `Pod(name = name, restarts =
+restarts)`. A map has punned since it got braces, and a record had no
+equivalent, so field names in a record pattern were spelled twice -- and the
+repetition grew with the record.
 
-    match ... with
-    | Ok v -> Some v
-    | Error _ -> None
+Which reading a list of bare names carries comes from the declaration, not
+from the spelling. `Pod` names its fields, so those are fields. A constructor
+whose payload is a tuple reads the same list as the tuple, so `Some(a, b)` is
+what it always was. The space in `Pod (name, restarts)` decides nothing, and
+a single name is the payload either way.
 
-which is one function spelled three times. All three are written with
-`to_option` now.
+A pun mixes with a field that carries a value: `Pod(name, restarts = 0)` in a
+pattern, `Pod(restarts = 0, name)` in a construction. The construction is the
+narrower of the two, because a bare name written first is the base of an
+update:
 
-`Option.to_result` already existed, so the crossing between the two types was
-named going one way and hand-written coming back. `to_option` is the way
-back, and drops the reason on purpose: it is for a caller with somewhere to
-put "no value" and nowhere to put "because".
+    Pod(base, restarts = 7)   -- the update, as before
 
-`ok?` and `error?` are the same question either way, so the failing branch can
-be the one a script is written around, and either can be handed to
-`List.filter` without brackets.
+Writing a pun there gets a type error that names the reordering.
 
-Matching a `Result` stays the usual way to deal with one. These are for the
-three questions a match cannot ask more briefly.
+Also fixed: `type X (T, U)` left the parser's bracket count raised, so no
+newline after it ended a top-level statement. A definition two lines down was
+read as a continuation of the one above it, and `wand f` wrote that reading
+back to the file -- the formatter changing what the source meant. Every
+rewind in the parser now restores the count with the position.
