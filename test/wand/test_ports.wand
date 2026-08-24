@@ -305,12 +305,10 @@ let read argv = Args.parse_with ["verbose"] opts argv
 
 group "probe-args" (fn () -> [
   test "a host and nothing else takes the defaults" (fn t ->
-    t.eq
-      (Ok Opts(host = "web-01", port = :8080, timeout = 30s, verbose = false))
-      (read ["web-01"])),
+    t.eq (Ok Opts(host = "web-01", flags = Flags())) (read ["web-01"])),
   test "every flag, read as its type" (fn t ->
     t.eq
-      (Ok Opts(host = "web-01", port = :9000, timeout = 5s, verbose = true))
+      (Ok Opts(host = "web-01", flags = Flags(port = :9000, timeout = 5s, verbose = true)))
       (read ["--port", ":9000", "--timeout", "5s", "--verbose", "web-01"])),
   test "the flag order does not matter" (fn t ->
     t.eq (read ["--port", ":9000", "web-01"]) (read ["web-01", "--port", ":9000"])),
@@ -324,6 +322,10 @@ group "probe-args" (fn () -> [
     match read ["web-01", "web-02"] with
     | Ok o -> t.fail "expected a refusal, got %{render o}"
     | Error why -> t.ok (String.contains? "one host" why)),
+  -- The usage line comes from the same declaration the decoder reads, so a
+  -- flag cannot be in one and missing from the other.
+  test "the usage line is the type's" (fn t ->
+    t.eq "[--port :8080] [--timeout 30s] [--verbose]" Flags.usage),
   test "the line it reports" (fn t ->
     match read ["--verbose", "web-01"] with
     | Ok o -> t.eq "web-01:8080 timeout 30s (verbose)" (render o)

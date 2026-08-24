@@ -231,6 +231,40 @@ type M = M(a: Option Int = Some 3)
 let m = M() in match m.a with | Some n -> n | None -> 0|}
     "3"
 
+(* The command line a type reads, from the same declaration the decoder
+   reads. A flag cannot be in one and missing from the other. *)
+
+let test_derived_usage () =
+  ok "a required field shows its type"
+    {|type M = M(host: String)
+M.usage|}
+    "--host <String>";
+  ok "a default shows what it holds"
+    {|type M = M(port: Port = :8080)
+M.usage|}
+    "[--port :8080]";
+  ok "a Bool is a switch with nothing after it"
+    {|type M = M(verbose: Bool = false)
+M.usage|}
+    "[--verbose]";
+  ok "a Bool with no default is still a switch"
+    {|type M = M(verbose: Bool)
+M.usage|}
+    "--verbose";
+  ok "an Option shows what the flag takes"
+    {|import Option
+type M = M(tag: Option String)
+M.usage|}
+    "[--tag <String>]";
+  ok "the fields keep their declared order"
+    {|type M = M(host: String, port: Port = :8080, verbose: Bool = false)
+M.usage|}
+    "--host <String> [--port :8080] [--verbose]";
+  err_contains "a type with several constructors has none"
+    {|type T = A(x: Int) | B(x: Int)
+T.usage|}
+    "has no derived usage"
+
 let test_map_patterns_still_work () =
   ok "map pattern binds a key"
     {|let m = {x = 1, y = 2} in
@@ -1589,6 +1623,7 @@ let () =
       Alcotest.test_case "field on every ctor"     `Quick test_field_must_be_on_every_constructor;
       Alcotest.test_case "construction complete"   `Quick test_construction_needs_every_field;
       Alcotest.test_case "field defaults"          `Quick test_field_defaults;
+      Alcotest.test_case "derived usage"           `Quick test_derived_usage;
       Alcotest.test_case "map patterns unaffected" `Quick test_map_patterns_still_work;
     ];
     "multi-equation", [

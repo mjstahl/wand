@@ -83,12 +83,15 @@ error caught each, and would not have if the types had matched, so the
 rule was widened to cover every import in the file rather than the leading
 run.
 
-**Nothing derives usage text from a decoder.** `Args.parse` reads a
-command line against a type, and refusing `--port http` names the field.
-The usage line is still a string written by hand, so it can drift from the
-type the way a `getopts` usage message drifts from its case arms — which
-is half of what makes the shell version bad. Found porting
-`probe-args.wand`, which carries the string and says so.
+**A positional argument is not in the usage text a type derives.**
+`T.usage` names every flag, brackets the ones that may be left out, and
+shows what each default holds, so a flag cannot be in the type and missing
+from the line. What is left is the shape around them: `Args` puts
+positional arguments under `_`, and nothing in the type marks a field as
+the one that comes from there, so `probe-args.wand` writes
+`"usage: probe-args %{Flags.usage} host"` and the trailing `host` is its
+own to keep right. There is no program name either — `Env.args ()` gives
+the arguments only.
 
 ## The standard library
 

@@ -5,8 +5,6 @@ import Decode
 import Env
 import IO
 import List
-import Option
-import Port
 import Proc
 
 -- Read a command line, and refuse one that does not say what it means.
@@ -35,7 +33,12 @@ import Proc
 -- A type says the shape once. `--port http` is refused at the boundary,
 -- naming the field, and `:8080` is a `Port` from there on.
 
-type Opts(host: String, port: Port, timeout: Duration, verbose: Bool)
+-- The flags, with what each holds when it is left out. This is the only
+-- place any of that is written: the decoder reads it, and so does the
+-- usage line.
+type Flags(port: Port = :8080, timeout: Duration = 30s, verbose: Bool = false)
+
+type Opts(host: String, flags: Flags)
 
 -- Exactly one positional argument. `Args` puts them under `_`, which no
 -- flag can collide with.
@@ -48,36 +51,18 @@ let host_of =
     )
     (Decode.field "_" (Decode.list Decode.string)))
 
--- A flag that may be left out is `optional` and a default, which is the
--- same two facts the bash spreads over the getopts string and the
--- assignment above the loop.
-let with_default d dec = Decode.map (fn v -> Option.default d v) dec
-
-let opts =
-  (Decode.map2
-    (fn (h, p) (t, v) -> Opts(host = h, port = p, timeout = t, verbose = v))
-    (Decode.map2
-      (fn h p -> (h, p))
-      host_of
-      (with_default :8080 (Decode.optional "port" Decode.port))
-    )
-    (Decode.map2
-      (fn t v -> (t, v))
-      (with_default 30s (Decode.optional "timeout" Decode.duration))
-      (with_default false (Decode.optional "verbose" Decode.bool))
-    ))
-
--- Written by hand, because nothing derives it from the type. That is the
--- half of this row wand does not answer: the type and this string can
--- still drift, and only the type is checked.
-let usage = "usage: probe-args [--port :8080] [--timeout 30s] [--verbose] host"
+let opts = Decode.map2 (fn h f -> Opts(host = h, flags = f)) host_of Flags.decoder
 
 let render (o: Opts) =
-  "%{o.host}%{o.port} timeout %{o.timeout}%{if o.verbose then " (verbose)" else ""}"
+  "%{o.host}%{o.flags.port} timeout %{o.flags.timeout}%{if o.flags.verbose then " (verbose)" else ""}"
 
 let main () =
   match Args.parse_with ["verbose"] opts (Env.args ()) with
   | Ok o -> IO.println (render o)
-  | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
+  | Error why -> (
+    IO.println_err "%{why}";
+    IO.println_err "usage: probe-args %{Flags.usage} host";
+    Proc.exit 1
+  )
 
 main ()

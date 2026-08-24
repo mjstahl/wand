@@ -1091,6 +1091,9 @@ let derive_decoder : (string -> value) ref =
 let derive_encoder : (string -> value) ref =
   ref (fun _ -> raise (EvalError "encoder derivation is not wired up"))
 
+let derive_usage : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "usage derivation is not wired up"))
+
 let rec eval (env : env) (e : expr) : value = eval_at false env e
 
 (* Evaluate in tail position: the value of `e` is the value of whatever
@@ -1230,6 +1233,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
        !derive_decoder tname
      | Constr tname, "encoder" when Hashtbl.mem derivable tname ->
        !derive_encoder tname
+     | Constr tname, "usage" when Hashtbl.mem derivable tname ->
+       !derive_usage tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -3948,6 +3953,56 @@ let decode_builtins : env = [
 let () = decode_registry := decode_builtins
 let () = derive_decoder := decoder_value
 let () = derive_encoder := encoder_value
+
+(* ── Derived usage ────────────────────────────────────────────────────────
+   What a command line reading this type looks like. `Args` turns argv into a
+   document and a decoder reads it, so the flags are the fields, and the same
+   declaration that decides how one is read decides how it is written down.
+   The line that used to be a string beside the type could disagree with it;
+   this cannot. *)
+
+(* The type as a placeholder for what the flag takes. A flag's value arrives
+   as a word, so what a reader needs is the name of the thing that word has
+   to be. *)
+let rec usage_type_name (te : Ast.type_expr) =
+  match te with
+  | Ast.TEName n -> n
+  | Ast.TEVar v -> "'" ^ v
+  | Ast.TEApp (f, a) -> usage_type_name f ^ " " ^ usage_type_name a
+  | Ast.TETuple ts ->
+    "(" ^ String.concat ", " (List.map usage_type_name ts) ^ ")"
+  | Ast.TEFun _ -> "function"
+
+let usage_value tname =
+  match Hashtbl.find_opt derivable tname with
+  | None -> raise (EvalError (Printf.sprintf "no usage for type '%s'" tname))
+  | Some (ctor, _, fields) ->
+    let defaults = defaults_of ctor in
+    let part (fname, te) =
+      match fname with
+      | None -> ""
+      | Some name ->
+        let default = List.assoc_opt name defaults in
+        (match te with
+         (* A flag with nothing after it: `Args.parse_with` reads it as
+            present-or-absent, so there is no value to show. *)
+         | Ast.TEName "Bool" ->
+           if default = None then "--" ^ name else "[--" ^ name ^ "]"
+         (* The type already says this one may be left out. Its default, if
+            it has one, is `Some` something, which is a spelling of the
+            language rather than of a command line. *)
+         | Ast.TEApp (Ast.TEName "Option", inner) ->
+           Printf.sprintf "[--%s <%s>]" name (usage_type_name inner)
+         | _ ->
+           (match default with
+            | Some d ->
+              Printf.sprintf "[--%s %s]" name (to_text (eval (ctor_env ()) d))
+            | None -> Printf.sprintf "--%s <%s>" name (usage_type_name te)))
+    in
+    VString (String.concat " " (List.filter (fun p -> p <> "")
+      (List.map part fields)))
+
+let () = derive_usage := usage_value
 
 (* Any wand value as TOML. TOML has no way to write a bare scalar, so the
    top level must be a table -- a map or a record -- and anything else says

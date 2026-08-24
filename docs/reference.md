@@ -1799,6 +1799,21 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
+`T.usage` comes from them too, as the command line that reads them. It is a
+`String`, and it takes no argument for a type parameter -- a usage line is
+text about the declaration rather than a reader built from it:
+
+```ocaml
+type Opts(host : String, port : Port = :8080, verbose : Bool = false)
+
+Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
+```
+
+A field with a default prints bracketed, showing the default. An `Option`
+field prints bracketed, showing what the flag takes. A `Bool` field prints as
+a switch with nothing after it, since `Args.parse_with` reads one as present
+or absent. Anything else is required, and shows its type as the placeholder.
+
 A type with more than one constructor has neither. Name one, and the error
 says which:
 
@@ -3523,6 +3538,22 @@ Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 Each of those is `true` when it is there, and absent when it is not. So a
 `Bool` field needs `Decode.optional` or a default. A flag with nothing after it
 is an error: `--config expects a value`.
+
+The usage line comes from the same type, so a flag cannot be in one and
+missing from the other:
+
+```ocaml
+type Flags(port : Port = :8080, timeout : Duration = 30s, verbose : Bool = false)
+
+IO.println_err "usage: probe-args %{Flags.usage} host"
+-- usage: probe-args [--port :8080] [--timeout 30s] [--verbose] host
+```
+
+What the type does not say is the shape around the flags. Positional
+arguments arrive under `_`, and nothing marks the field that reads them, so
+the trailing `host` above is written by hand.
+[`examples/ports/probe-args.wand`](../examples/ports/probe-args.wand) is the
+whole of it.
 
 Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
 There are no short flags. A positional argument arrives under `_`:
