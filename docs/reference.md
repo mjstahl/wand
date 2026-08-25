@@ -2459,18 +2459,32 @@ A parameter can carry its type, in parentheses:
 let describe (p: Pod) = p.name
 
 let f = fn (p: Pod) -> p.status.restarts
-
-List.filter (fn (p: Pod) -> p.status.restarts > 5) pods
 ```
 
-This is what lets a function read a field off a parameter. Dot access needs
-a named type. wand generalizes a definition before it sees any call, so the
-type has to come from the definition, and there was nowhere to write it:
+This is what lets a definition read a field off a parameter. Dot access
+needs a named type. wand generalizes a definition before it sees any call,
+so the type has to come from the definition, and there was nowhere to write
+it:
 
 ```ocaml
 let describe p = p.name
 -- type error: field access requires a named type, got 'a
 ```
+
+A lambda written as an argument is the other case, and it needs no
+annotation: the call itself says what the parameter is.
+
+```ocaml
+List.filter (fn p -> p.status.restarts > 5) pods
+
+pods |> List.map (fn p -> p.name)
+```
+
+A call reads its arguments in written order, and a lambda's body waits
+until the rest of them have been read. So `pods` has already said what `p`
+is by the time `p.status.restarts` is looked up, whether it stands after
+the lambda or arrives from a pipe. A parameter that nothing in the call
+pins is still refused, and still takes an annotation.
 
 The annotation works in each place a pattern does: a `let`, a `fn`, an arm
 of a `match`, a `with ... as`, and inside a constructor's payload — which

@@ -1960,6 +1960,35 @@ and render_witness_arg (Witness (name, args) as w : witness) : string =
    that an earlier line already answered for it. *)
 let strip_located = Ast.strip_located
 
+(* An application taken apart into the function at its head and its
+   arguments in written order. `f a b` parses as two nested applications, so
+   the arguments are only reachable one at a time on the way down; a checker
+   that wants to look at all of them together has to put the spine back
+   together first.
+
+   Each argument carries the position of the application node that supplies
+   it -- the position `infer` would have promoted an error to, had it walked
+   down through that node instead. *)
+let rec flatten_app e acc =
+  match e with
+  | Located (l, App (g, a)) -> flatten_app g ((Some l, a) :: acc)
+  | App (g, a)              -> flatten_app g ((None, a) :: acc)
+  | _                       -> (e, acc)
+
+let rec any_lambda = function
+  | [] -> false
+  | (_, a) :: rest ->
+    (match strip_located a with Fn _ -> true | _ -> any_lambda rest)
+
+(* Whether a lambda is written before the last argument. That is the only
+   arrangement the two-pass path exists for: a lambda in last place already
+   has every other argument behind it -- unless a pipe is about to put one
+   after it, which is why `|>` asks `any_lambda` instead. *)
+let rec lambda_before_last = function
+  | [] | [_] -> false
+  | (_, a) :: rest ->
+    (match strip_located a with Fn _ -> true | _ -> lambda_before_last rest)
+
 let is_equation_group (scrutinee : expr) (arity : int) =
   let synthetic i = Printf.sprintf "_p%d" i in
   match strip_located scrutinee with
@@ -2149,56 +2178,23 @@ let rec infer tenv (env : env) (e : expr) : typ =
     in
     build param_ts
   | App (f, x) ->
-    (* `Rect (3, 4)` reads naturally but means "apply Rect to a tuple", and
-       Rect takes two arguments. The constructor's arity is known here even
-       when it was declared in another file, so say what to write. *)
-    (match strip_located f, strip_located x with
-     (* Parentheses after a constructor are its payload, so a nullary one
-        has swallowed an argument meant for the call: `t.eq None (usage row)`
-        is `t.eq (None (usage row))`, and the type error that follows is
-        about an application nobody wrote. The parser cannot tell -- it
-        stopped reading arity on purpose, so that `Ctor (a, b)` means the
-        same thing in every file -- but the arity is known here, so say what
-        to write. `wand f` already brackets a bare constructor that is not
-        the last argument. *)
-     | Constr name, arg when
-         (match find_ctor_in_tenv tenv name with
-          | Some (_, ctor) -> ctor.fields = []
-          | None -> false) ->
-       (* `Red ()` is the same parse, from someone calling a constructor
-          the way a function is called. The answer there is shorter. *)
-       if arg = Unit then
-         raise (TypeError (Printf.sprintf
-           "'%s' takes no arguments -- write `%s`, with nothing after it"
-           name name))
-       else
-         raise (TypeError (Printf.sprintf
-           "'%s' takes no arguments. Parentheses after a constructor are its \
-            payload, so `%s (x)` applies it -- write `(%s)` to pass the \
-            constructor on its own" name name name))
-     | Constr name, Tuple es when List.length es > 1 ->
-       (match find_ctor_in_tenv tenv name with
-        | Some (_, ctor)
-          when List.length ctor.fields = List.length es
-            && List.for_all (fun (n, _) -> n = None) ctor.fields ->
-          raise (TypeError (Printf.sprintf
-            "'%s' takes %d arguments, so write `%s %s` rather than `%s (%s)`"
-            name (List.length ctor.fields) name
-            (String.concat " " (List.init (List.length es)
-               (fun i -> Printf.sprintf "a%d" (i + 1))))
-            name
-            (String.concat ", " (List.init (List.length es)
-               (fun i -> Printf.sprintf "a%d" (i + 1))))))
-        | _ -> ())
-     (* `file*.txt` is not multiplication and never was: `*.txt` lexes as a
-        glob literal, so this reads as applying `file` to it. Says what to
-        write and stops; the rule it follows from is in the reference. Only
-        fires when the name is unbound, so `FS.glob *.wand` and any other
-        application of a real function to a glob are untouched. *)
-     | Var name, Glob g when not (List.mem_assoc name env) ->
-       raise (TypeError (Printf.sprintf
-         "'%s%s' should be written as './%s%s'" name g name g))
-     | _ -> ());
+    check_app_shape tenv env f x;
+    (* `f (fn p -> p.host) xs` reads the lambda before `xs` has said what
+       `p` is. Put the spine back together and check it in two passes.
+
+       Only an application of an application can have an argument standing
+       after a lambda, so a one-argument call -- which most are -- answers
+       here without taking anything apart. *)
+    let two_pass =
+      match strip_located f with
+      | App _ ->
+        let (head, spine) = flatten_app f [(None, x)] in
+        if lambda_before_last spine then Some (head, spine) else None
+      | _ -> None
+    in
+    (match two_pass with
+     | Some (head, spine) -> infer_app_spine tenv env head spine
+     | None ->
     let tf = infer tenv env f in
     (match strip_located x with
      | Fn (params, body) ->
@@ -2246,7 +2242,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
        let latent = Effect_set.unknown () in
        unify_expected ~expected:tf ~got:(TFun (tx, tr, latent));
        performs latent;
-       tr)
+       tr))
   | Let (p, e1, e2, _) ->
     (match p, e1 with
      | PVar name, Fn _ ->
@@ -2895,6 +2891,157 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (try infer tenv env e
      with TypeError msg -> raise (TypeErrorAt (loc, msg)))
 
+(* The shapes that are a parse away from what was meant, checked before the
+   application itself. Each fires only when the head of the spine is a bare
+   name or constructor, so one call at the head covers a spine of any
+   length. *)
+and check_app_shape tenv (env : env) f x =
+    (* `Rect (3, 4)` reads naturally but means "apply Rect to a tuple", and
+       Rect takes two arguments. The constructor's arity is known here even
+       when it was declared in another file, so say what to write. *)
+    (match strip_located f, strip_located x with
+     (* Parentheses after a constructor are its payload, so a nullary one
+        has swallowed an argument meant for the call: `t.eq None (usage row)`
+        is `t.eq (None (usage row))`, and the type error that follows is
+        about an application nobody wrote. The parser cannot tell -- it
+        stopped reading arity on purpose, so that `Ctor (a, b)` means the
+        same thing in every file -- but the arity is known here, so say what
+        to write. `wand f` already brackets a bare constructor that is not
+        the last argument. *)
+     | Constr name, arg when
+         (match find_ctor_in_tenv tenv name with
+          | Some (_, ctor) -> ctor.fields = []
+          | None -> false) ->
+       (* `Red ()` is the same parse, from someone calling a constructor
+          the way a function is called. The answer there is shorter. *)
+       if arg = Unit then
+         raise (TypeError (Printf.sprintf
+           "'%s' takes no arguments -- write `%s`, with nothing after it"
+           name name))
+       else
+         raise (TypeError (Printf.sprintf
+           "'%s' takes no arguments. Parentheses after a constructor are its \
+            payload, so `%s (x)` applies it -- write `(%s)` to pass the \
+            constructor on its own" name name name))
+     | Constr name, Tuple es when List.length es > 1 ->
+       (match find_ctor_in_tenv tenv name with
+        | Some (_, ctor)
+          when List.length ctor.fields = List.length es
+            && List.for_all (fun (n, _) -> n = None) ctor.fields ->
+          raise (TypeError (Printf.sprintf
+            "'%s' takes %d arguments, so write `%s %s` rather than `%s (%s)`"
+            name (List.length ctor.fields) name
+            (String.concat " " (List.init (List.length es)
+               (fun i -> Printf.sprintf "a%d" (i + 1))))
+            name
+            (String.concat ", " (List.init (List.length es)
+               (fun i -> Printf.sprintf "a%d" (i + 1))))))
+        | _ -> ())
+     (* `file*.txt` is not multiplication and never was: `*.txt` lexes as a
+        glob literal, so this reads as applying `file` to it. Says what to
+        write and stops; the rule it follows from is in the reference. Only
+        fires when the name is unbound, so `FS.glob *.wand` and any other
+        application of a real function to a glob are untouched. *)
+     | Var name, Glob g when not (List.mem_assoc name env) ->
+       raise (TypeError (Printf.sprintf
+         "'%s%s' should be written as './%s%s'" name g name g))
+     | _ -> ())
+
+(* An application with a lambda written before another argument.
+
+   Arguments are checked left to right, which leaves such a lambda with
+   nothing to go on: in `List.map (fn p -> p.host) pods` the parameter is
+   still a variable when the body is read, so `p.host` has no type to look
+   the field up in. The signature says no more than the call does --
+   `List.map` is `('a -> 'b) -> List 'a -> List 'b`, and `'a` arrives with
+   `pods`.
+
+   So the arrows come apart in written order, exactly as the one-argument
+   path takes them apart, and every argument that is not a lambda is
+   inferred as it is reached. Only the lambda bodies wait. They run
+   afterwards, in the order they were written, by which time the arguments
+   standing after them have pinned whatever they are going to pin. A lambda
+   whose parameter is still open then is one nothing in the call determines,
+   which is what it was before. *)
+and infer_app_spine ?extra tenv (env : env) head args =
+  (* Errors inside the spine are promoted to the application node that
+     supplies the argument, which is where walking down would have left
+     them. *)
+  let at loc f =
+    match loc with
+    | None   -> f ()
+    | Some l -> (try f () with TypeError msg -> raise (TypeErrorAt (l, msg)))
+  in
+  (match args with
+   | (_, first) :: _ -> check_app_shape tenv env head first
+   | [] -> ());
+  let cur = ref (infer tenv env head) in
+  let waiting = ref [] in
+  List.iter (fun (loc, x) ->
+    match strip_located x with
+    | Fn (params, body) ->
+      let param_ts = List.map (fun _ -> fresh ()) params in
+      let body_result_t = fresh () in
+      let arg_effects = Effect_set.unknown () in
+      let fn_arg_t =
+        let rec build = function
+          | []      -> body_result_t
+          | [t]     -> TFun (t, body_result_t, arg_effects)
+          | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
+        in
+        build param_ts
+      in
+      let tr = fresh () in
+      let latent = Effect_set.unknown () in
+      at loc (fun () ->
+        unify_expected ~expected:!cur ~got:(TFun (fn_arg_t, tr, latent)));
+      cur := tr;
+      waiting := (loc, params, body, param_ts, body_result_t, arg_effects,
+                  latent) :: !waiting
+    | _ ->
+      let tx = infer tenv env x in
+      let tr = fresh () in
+      let latent = Effect_set.unknown () in
+      at loc (fun () ->
+        unify_expected ~expected:!cur ~got:(TFun (tx, tr, latent)));
+      performs latent;
+      cur := tr) args;
+  (* A piped value is an argument written to the left of the call, so it
+     lands after every argument written inside it. *)
+  (match extra with
+   | None -> ()
+   | Some tx ->
+     let tr = fresh () in
+     let latent = Effect_set.unknown () in
+     unify_expected ~expected:!cur ~got:(TFun (tx, tr, latent));
+     performs latent;
+     cur := tr);
+  List.iter (fun (loc, params, body, param_ts, body_result_t, arg_effects,
+                  latent) ->
+    at loc (fun () ->
+      let env' =
+        List.fold_left2 (fun env p t -> infer_pat tenv p t env)
+          env params param_ts
+      in
+      let (body_t, body_effects) = scoped_eff (fun () -> infer tenv env' body) in
+      let body_effects =
+        if List.exists (pat_is_refutable tenv) params
+        then Effect_set.add Effect_set.Raise body_effects
+        else body_effects
+      in
+      unify body_t body_result_t;
+      (* The function being applied says what its argument may perform; the
+         lambda written at the call site is what performs it. *)
+      (try Effect_set.unify arg_effects body_effects
+       with
+       | Effect_set.Mismatch msg -> raise (TypeError msg)
+       | Effect_set.Conflict (a, b) ->
+         raise (TypeError (effects_conflict_message
+                             ~expected:"the parameter" ~got:"the function given"
+                             a b)));
+      performs latent)) (List.rev !waiting);
+  !cur
+
 and infer_binop tenv (env : env) op a b : typ =
   match op with
   | "+" | "-" ->
@@ -2975,6 +3122,20 @@ and infer_binop tenv (env : env) op a b : typ =
        unify_expected ~expected:TString ~got:ta;
        TName "ShellResult"
      | _ ->
+       (* `xs |> List.map (fn p -> p.host)` has the same problem the spine
+          path solves, one step further along: the lambda is the last
+          argument written, and the value that says what `p` is arrives from
+          the left. *)
+       let piped =
+         match strip_located b with
+         | App _ ->
+           let (head, spine) = flatten_app b [] in
+           if any_lambda spine then Some (head, spine) else None
+         | _ -> None
+       in
+       match piped with
+       | Some (head, spine) -> infer_app_spine ~extra:ta tenv env head spine
+       | None ->
        let tb = infer tenv env b in
        let tr = fresh () in
        let latent = Effect_set.unknown () in

@@ -1,0 +1,59 @@
+import List
+import Test
+
+let {test, group} = import Test
+
+-- ── A lambda parameter is pinned by the arguments written after it ──────
+--
+-- Arguments are checked in written order, so a lambda written before the
+-- argument that says what its parameter is used to be read with nothing to
+-- go on. Field access is where that showed: `p.host` needs a type to look
+-- the field up in.
+
+type Pod(host: String, port: Int)
+
+let port_of : Pod -> Int = fn p -> p.port
+
+let pods = [Pod(host = "b", port = 2), Pod(host = "a", port = 1)]
+
+test "map reads a field" (fn t -> t.eq ["b", "a"] (List.map (fn p -> p.host) pods))
+
+test "filter reads a field" (fn t ->
+  t.eq [Pod(host = "b", port = 2)] (List.filter (fn p -> p.port > 1) pods))
+
+test "sort_by reads a field" (fn t ->
+  t.eq ["a", "b"] (List.map (fn p -> p.host) (List.sort_by (fn p -> p.port) pods)))
+
+-- The lambda is the first of three arguments here, so the one that pins it
+-- is not the one directly after it.
+test "fold_left reads a field" (fn t ->
+  t.eq 3 (List.fold_left (fn acc p -> acc + p.port) 0 pods))
+
+-- ── The piped value counts as the last argument ─────────────────────────
+
+test "piped into map" (fn t -> t.eq ["b", "a"] (pods |> List.map (fn p -> p.host)))
+
+test "piped through a chain" (fn t ->
+  t.eq ["b"] (pods |> List.filter (fn p -> p.port > 1) |> List.map (fn p -> p.host)))
+
+test "piped into fold_left" (fn t ->
+  t.eq 3 (pods |> List.fold_left (fn acc p -> acc + p.port) 0))
+
+-- ── What already worked, and still does ─────────────────────────────────
+
+group "unchanged" (fn () -> [
+  test "a tuple parameter destructures" (fn t ->
+    t.eq [1, 2] (List.map (fn (_, n) -> n) [("a", 1), ("b", 2)])),
+  test "a named function as the argument" (fn t -> t.eq [2, 1] (List.map port_of pods)),
+  test "the pinning argument written inline" (fn t ->
+    t.eq
+      [1, 2]
+      (List.map (fn p -> p.port) [Pod(host = "a", port = 1), Pod(host = "b", port = 2)])),
+  test "a lambda that needs no pinning" (fn t ->
+    t.eq [2, 3] (List.map (fn x -> x + 1) [1, 2])),
+  test "nested lambdas" (fn t ->
+    t.eq [["b"], ["a"]] (List.map (fn p -> List.map (fn s -> s) [p.host]) pods)),
+  test "a raise inside the lambda still travels" (fn t ->
+    t.raises (fn () ->
+      List.map (fn p -> List.head! (List.filter (fn q -> q.port > 99) pods)) pods))
+])
