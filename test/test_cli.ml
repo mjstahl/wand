@@ -259,6 +259,33 @@ let test_repl_echoes_mutual_group () =
   | Ok (_, _) -> Alcotest.fail "is_odd 3 should be true"
   | Error m -> Alcotest.failf "is_odd 3 failed: %s" m
 
+(* Whether a Unit answer is worth printing is a question about effects, not
+   about how the expression was written. One that performed something has
+   already been seen -- `IO.println` put its line on the screen -- and a
+   `() : Unit` under it would be noise. One that performed nothing was never
+   shown, so it answers, however it was spelled. *)
+let test_repl_answers_pure_unit () =
+  let sess = make_sess () in
+  let pure name src =
+    match Runner.run_session sess src with
+    | Ok (_, Runner.RVal ("()", "Unit")) -> ()
+    | Ok (_, Runner.RSilent) -> Alcotest.failf "%s: performs nothing, so it should answer () : Unit" name
+    | Ok (_, _) -> Alcotest.failf "%s: expected () : Unit" name
+    | Error m -> Alcotest.failf "%s failed: %s" name m
+  in
+  pure "a written ()"      "()";
+  pure "a let-bound unit"  "let u = () in u";
+  pure "both arms unit"    "if true then () else ()";
+  pure "a pure call"       "let f = fn () -> () in f ()";
+  let performs name src =
+    match Runner.run_session sess src with
+    | Ok (_, Runner.RSilent) -> ()
+    | Ok (_, _) -> Alcotest.failf "%s: performed something, so it should stay silent" name
+    | Error m -> Alcotest.failf "%s failed: %s" name m
+  in
+  performs "IO.println" "IO.println \"hi\"";
+  performs "Env.set"    "Env.set \"WAND_REPL_UNIT_TEST\" \"1\""
+
 (* Checking a file without running it: what an editing loop and CI both want,
    and what a manifest violation will be reported through. The path is stated
    with --file rather than guessed from the argument, since `deploy.wand` is
@@ -418,6 +445,7 @@ let () =
     "repl", [
       Alcotest.test_case "clause merge announced" `Quick test_repl_merges_clauses_and_announces;
       Alcotest.test_case "mutual group echoed"    `Quick test_repl_echoes_mutual_group;
+      Alcotest.test_case "a pure Unit answers"    `Quick test_repl_answers_pure_unit;
     ];
     "eval", [
       Alcotest.test_case "eval expressions" `Quick test_eval;

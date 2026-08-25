@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- An expression that answers Unit without performing anything prints its
+  answer. `()` was silent, and so were `let u = () in u` and `if c then ()
+  else ()`. Every Unit was suppressed, which is right for `IO.println "hi"`
+  -- the line is already on the screen, and `() : Unit` under it is noise --
+  but the suppression keyed off the value, and a unit the user asked to see
+  has the same value as one a call handed back. It now keys off the effects
+  the expression performed, which is the question actually being asked
+
 ## [0.49.0] - 2026-08-25
 
 ### Added

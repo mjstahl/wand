@@ -3956,6 +3956,16 @@ let check_manifest (prog : program) (own_env : env) =
    lint that catches a discarded `Result` needs it. *)
 let expr_item_types : (int * typ) list ref = ref []
 
+(* What each bare top-level expression performed, by item index. The
+   interactive session asks this to decide whether a Unit answer is worth
+   printing: a call that performed IO has already said what it had to say,
+   and `() : Unit` after it would be noise, whereas a pure expression that
+   evaluates to Unit -- `()` itself, or an `if` whose arms are both `()` --
+   is a value the user asked to see. Only the concrete labels are kept: an
+   unresolved tail on a top-level expression means "performs nothing
+   known", which reads the same as pure here. *)
+let expr_item_effects : (int * Effect_set.EffSet.t) list ref = ref []
+
 (* `type Point = Pair` parses as a variant with one nullary constructor,
    because whether `Pair` names a type is not known until every declaration
    has been read. Here it is, so a lone constructor whose name is some other
@@ -3994,6 +4004,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
     (prog : program) : typedef_env * env * env * typ =
   next_id := 0;
   expr_item_types := [];
+  expr_item_effects := [];
   local_binders := [];
   current_item := -1;
   seq_discard_types := [];
@@ -4224,8 +4235,15 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
       let env' = infer_pat tenv pat t env in
       (env', last_t)
     | TLExpr e ->
-      let t = infer tenv env e in
+      (* Measured in its own accumulator, then handed back to the enclosing
+         one: scoping it is what separates this item's effects from the
+         items around it, and re-absorbing is what keeps the file's total --
+         which the manifest check reads -- whole. *)
+      let (t, eff) = scoped_eff (fun () -> infer tenv env e) in
+      performs eff;
       expr_item_types := (!item_index, t) :: !expr_item_types;
+      expr_item_effects :=
+        (!item_index, Effect_set.labels_of eff) :: !expr_item_effects;
       (env, t)
     | TLType _ | TLImport _ -> (env, last_t)
   ) (base_env, TUnit) prog.items

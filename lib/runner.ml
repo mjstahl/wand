@@ -2136,9 +2136,20 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           | Some (Ast.TLType (Ast.Variants (name, _, _), _))
           | Some (Ast.TLType (Ast.Alias (name, _, _), _)) -> RType name
           | Some (Ast.TLExpr _) ->
+            (* A Unit answer from an expression that performed something has
+               already been seen: `IO.println "hi"` put `hi` on the screen,
+               and `() : Unit` under it would be noise. A Unit answer from an
+               expression that performed nothing was never shown at all, so
+               it answers -- `()` itself, and anything else that evaluates to
+               it without reaching outside. *)
+            let performed =
+              match !Typechecker.expr_item_effects with
+              | (_, eff) :: _ -> not (Effect_set.EffSet.is_empty eff)
+              | []            -> false
+            in
             (match last_v with
-             | VUnit -> RSilent
-             | v     -> RVal (show_value v, Typechecker.string_of_typ last_t))
+             | VUnit when performed -> RSilent
+             | v -> RVal (show_value v, Typechecker.string_of_typ last_t))
           | Some _ -> RSilent
         in
         Ok (new_sess, display)
