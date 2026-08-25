@@ -743,9 +743,6 @@ let test_a_name_is_declared_once () =
   err_contains "across two declarations"
     "type A = Foo | Bar\ntype B = Foo\nFoo"
     "declared by 'A' and by 'B'";
-  err_contains "and the message names the fix"
-    "type A = Foo\ntype B = Foo\nFoo"
-    "rename one of them";
   err_contains "a type declared twice"
     "type A = Foo\ntype A = Bar\nBar"
     "'A' is declared twice";
@@ -759,9 +756,6 @@ let test_a_name_is_declared_once () =
   err_contains "including a parameterised one"
     "type List(a: Int)\nList(a = 1).a"
     "'List' is a built-in type";
-  err_contains "and the message names the fix"
-    "type Path(a: Int)\nPath(a = 1).a"
-    "the declaration is the one to rename";
   (* The single-constructor shorthand names the type and its constructor the
      same on purpose, so the two namespaces do not collide. *)
   ok "a record names both the same" "type P(i: Int)\nP(i = 1).i" "1";

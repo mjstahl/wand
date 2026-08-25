@@ -3495,12 +3495,10 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
          constructor came from here. *)
       if builtin_type_name tname then
         raise (TypeError (Printf.sprintf
-          "'%s' is a built-in type, so it cannot be declared; the \
-           declaration is the one to rename" tname));
+          "'%s' is a built-in type, so it cannot be declared" tname));
       if Hashtbl.mem seen_types tname then
         raise (TypeError (Printf.sprintf
-          "'%s' is declared twice; a type is declared once, and the second \
-           declaration is the one to rename or remove" tname));
+          "'%s' is declared twice" tname));
       Hashtbl.add seen_types tname ();
       List.iter (fun c ->
         (* A name declares one thing here too. Two fields of one name used to
@@ -3523,8 +3521,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
              else Printf.sprintf "by '%s' and by '%s'" owner tname
            in
            raise (TypeError (Printf.sprintf
-             "constructor '%s' is declared %s; a constructor names one thing, \
-              so rename one of them" c.name where))
+             "constructor '%s' is declared %s" c.name where))
          | None -> Hashtbl.add seen_ctors c.name tname)) ctors
     | _ -> ()) prog.items;
   known_aliases :=
