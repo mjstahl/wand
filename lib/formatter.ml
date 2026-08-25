@@ -219,6 +219,7 @@ and emit_type_app_expr te = match te with
   | _ -> emit_type_atom te
 and emit_type_atom te = match te with
   | TEName n -> n
+  | TEQual (m, n) -> m ^ "." ^ n
   | TEVar v -> "'" ^ v
   | TETuple ts -> "(" ^ String.concat ", " (List.map emit_type_expr ts) ^ ")"
   | TEApp _ | TEFun _ -> "(" ^ emit_type_expr te ^ ")"
@@ -277,6 +278,7 @@ let rec emit_pat (p : pat) : string = match p with
     in
     c ^ "(" ^ String.concat ", " (List.map entry kvs) ^ ")"
   | PConstrBare (c, ids) -> c ^ "(" ^ String.concat ", " ids ^ ")"
+  | PQualified (m, p) -> m ^ "." ^ emit_pat p
   | PMap kvs ->
     (* Punned whenever the key already names its variable; a quoted key has
        no identifier to pun into, so it always carries its pattern. *)
@@ -561,6 +563,7 @@ and emit_expr_inner ?col indent e =
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
   | List es  -> emit_list ~col indent es
   | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
+  | Qualified (m, e) -> m ^ "." ^ emit_expr indent e
   | ConstrApp (name, kvs) ->
     (* Punned whenever the field already names the value it takes, the rule
        a map literal and a field pattern are printed under. *)

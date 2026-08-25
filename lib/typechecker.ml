@@ -1104,6 +1104,16 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
       | None   -> Hashtbl.remove vars p) saved;
     TAlias (name, arg_ts, t)
   and go = function
+    (* `Foo.Status`: the import records the type under this key as well as
+       under its bare name. The key says the qualifier is right; the type is
+       the one the bare name gives, so the two spellings are one type. Step 4
+       makes them tell two modules' types apart. *)
+    | TEQual (m, n) ->
+      (match !known_type_names with
+       | Some names when not (List.mem (m ^ "." ^ n) names) ->
+         raise (TypeError (Printf.sprintf "unknown type '%s.%s'" m n))
+       | _ -> ());
+      go (TEName n)
     | TEName name when List.mem_assoc name !known_aliases
                     && not (List.mem name !resolving) ->
       (* The name is kept over what it names, for the message. Everything
@@ -1250,6 +1260,7 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
           base te_labels
     in
     let rec conv = function
+      | TEQual (_, n) -> conv (TEName n)
       | TEVar name ->
         (match List.assoc_opt name var_table with
          | Some v -> v
@@ -1331,6 +1342,7 @@ let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) 
   | TEName ("Int" | "Float" | "String" | "Bool" | "Path" | "Glob" | "Duration"
            | "URL" | "Size" | "Version" | "Date" | "Time" | "DateTime"
            | "IPv4" | "CIDR" | "Port") -> Ok ()
+  | TEQual (_, n) -> derivable_field_type tenv seen params (TEName n)
   | TEName tname ->
     if List.mem tname seen then Ok ()   (* recursive: read when it is reached *)
     else
@@ -1397,6 +1409,21 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
                (match fname with Some n -> n | None -> "?") why))
       ) (Ok ()) ctor.fields
 
+(* The types a module declares, under their bare names. An import records
+   them twice: as `Status` and as `Foo.Status`. Putting the second set first,
+   with the prefix taken off, makes every lookup below resolve inside that
+   module without knowing anything about qualification. *)
+let module_first tenv m =
+  let pre = m ^ "." in
+  let n = String.length pre in
+  let own =
+    List.filter_map (fun (k, d) ->
+      if String.length k > n && String.sub k 0 n = pre
+      then Some (String.sub k n (String.length k - n), d)
+      else None) tenv
+  in
+  (own, own @ tenv)
+
 let find_ctor_in_tenv tenv name =
   List.find_map (fun (tname, tdef) ->
     match tdef with
@@ -1439,6 +1466,7 @@ let rec pat_is_refutable tenv (p : pat) =
     not (ctor_is_alone tenv name)
     || List.exists (fun (_, p) -> pat_is_refutable tenv p) fields
   | PConstrBare (name, _) -> not (ctor_is_alone tenv name)
+  | PQualified (_, p) -> pat_is_refutable tenv p
   (* An annotation constrains the type, and a type cannot fail to match. *)
   | PAnnot (p, _)  -> pat_is_refutable tenv p
   | _              -> true
@@ -1608,6 +1636,14 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
      or a tuple payload, and the declaration is in hand here. Both readings
      are patterns this function already knows, so it settles on one and
      carries on. *)
+  (* `Foo.Live`: read inside the module that declares it. *)
+  | PQualified (m, inner) ->
+    let (own, tenv') = module_first tenv m in
+    if own = [] then
+      raise (TypeError (Printf.sprintf
+        "'%s' declares no types, so '%s' names nothing in it"
+        m (Ast.show_pat inner)));
+    infer_pat tenv' inner t env
   | PConstrBare (name, ids) ->
     let named_fields =
       match find_ctor_in_tenv tenv name with
@@ -1672,7 +1708,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
       | TEApp (f, a) -> names_a_var f || names_a_var a
       | TEFun (a, b, _) -> names_a_var a || names_a_var b
       | TETuple ts -> List.exists names_a_var ts
-      | TEName _ -> false
+      | TEName _ | TEQual _ -> false
     in
     if names_a_var te then
       raise (TypeError
@@ -1784,6 +1820,9 @@ let rec match_against_ctor name arity (p : pat) =
     if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
   | PConstrBare (n, _) ->
     if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
+  (* Which module it was reached through does not change which constructor
+     it is. *)
+  | PQualified (_, p) -> match_against_ctor name arity p
   | _ -> `NoMatch  (* literal patterns never arise for finite-ctor types *)
 
 type witness = Witness of string * witness list
@@ -2191,6 +2230,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
     TList t
   (* Settled here, where the declaration is, exactly as the pattern side
      settles `PConstrBare`. *)
+  | Qualified (m, inner) ->
+    let (own, tenv') = module_first tenv m in
+    if own = [] then
+      raise (TypeError (Printf.sprintf
+        "'%s' declares no types, so '%s' names nothing in it"
+        m (Ast.show inner)));
+    infer tenv' env inner
   | ConstrBare (name, ids) ->
     let named_fields =
       match find_ctor_in_tenv tenv name with
@@ -3523,6 +3569,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
      that path, where the expression carries its own location. *)
   let rec te_names = function
     | TEName n     -> [n]
+    | TEQual (m, n) -> [m ^ "." ^ n]
     | TEVar _      -> []
     | TEApp (f, a) -> te_names f @ te_names a
     | TETuple ts   -> List.concat_map te_names ts

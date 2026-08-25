@@ -1,5 +1,6 @@
 import JSON
 import Result
+import Test
 
 let {test} = import Test
 
@@ -294,3 +295,33 @@ test "a field with no default is still required of a document" (fn t -> (
   let doc = JSON.parse! `{"port": 90}`;
   t.eq true (Result.error? (JSON.decode Conf.decoder doc))
 ))
+
+-- ── Reaching a type through its module ──────────────────────────────────
+
+-- A module's types and constructors can be named through the module, the
+-- way its values already are. The bare name still works, and names the same
+-- type.
+type Held(o: Test.TestOutcome)
+
+test "a qualified type names the same type as the bare one" (fn t -> (
+  let held = Held(o = Test.Pass "x");
+  t.eq `Pass("x")` "%{held.o}"
+))
+
+test "a qualified constructor matches" (fn t ->
+  t.eq
+    "x"
+    (match Test.Pass "x" with
+    | Test.Pass s -> s
+    | Test.Fail s -> s
+    | Test.Suite s _ -> s
+    ))
+
+test "a bare constructor still matches the same value" (fn t ->
+  t.eq
+    "x"
+    (match Test.Pass "x" with
+    | Pass s -> s
+    | Fail s -> s
+    | Suite s _ -> s
+    ))

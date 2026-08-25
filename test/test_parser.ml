@@ -92,6 +92,7 @@ let test_a_block_cannot_end_with_a_binding () =
 let rec type_text (te : Ast.type_expr) =
   match te with
   | Ast.TEName n      -> n
+  | Ast.TEQual (m, n) -> m ^ "." ^ n
   | Ast.TEVar v       -> "'" ^ v
   | Ast.TEApp (f, a)  -> type_text f ^ " " ^ type_text a
   | Ast.TETuple ts    -> "(" ^ String.concat ", " (List.map type_text ts) ^ ")"
@@ -555,6 +556,38 @@ let test_constr_named_pats () =
       (PConstr ("Point", [PTuple [Wild; PVar "y"]]), None, Var "y")
     ]))
 
+(* A type or a constructor reached through the module that declares it. The
+   module's name is uppercase for a standard library module and lowercase for
+   a file, so both spellings have to parse. *)
+
+let test_qualified_names () =
+  e "a qualified constructor"
+    "Test.Pass"
+    (Qualified ("Test", Constr "Pass"));
+  e "through a lowercase module name"
+    "one.Live"
+    (Qualified ("one", Constr "Live"));
+  e "a qualified construction"
+    "Foo.Conf(port = 1)"
+    (Qualified ("Foo", ConstrApp ("Conf", [(Some "port", Int 1)])));
+  e "a qualified constructor applied"
+    "Foo.Wrap 3"
+    (App (Qualified ("Foo", Constr "Wrap"), Int 3));
+  (* A lowercase member is a value, and stays field access. *)
+  e "a value is not a constructor"
+    "one.thing"
+    (Field (Var "one", "thing"));
+  e "a qualified pattern"
+    "match o with\n| Test.Pass s -> s"
+    (Match (Var "o", [
+      (PQualified ("Test", PConstr ("Pass", [PVar "s"])), None, Var "s")
+    ]));
+  e "a qualified pattern through a lowercase module"
+    "match o with\n| one.Live -> 1"
+    (Match (Var "o", [
+      (PQualified ("one", PConstr ("Live", [])), None, Int 1)
+    ]))
+
 (* ── Fn (lambda) ─────────────────────────────────────────────────────────── *)
 
 let test_fn () =
@@ -876,6 +909,7 @@ let () =
       Alcotest.test_case "match"        `Quick test_match;
       Alcotest.test_case "constr pats"       `Quick test_constr_pats;
       Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
+      Alcotest.test_case "qualified names"  `Quick test_qualified_names;
       Alcotest.test_case "fn"           `Quick test_fn;
       Alcotest.test_case "paren seq"    `Quick test_paren_seq;
     ];

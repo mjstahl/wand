@@ -79,6 +79,23 @@ let peek s =
 
 (* The token after the next one, skipping what `peek` skips. One token of
    lookahead is all that tells `(p : Pod)` from the cons mistake. *)
+(* Three tokens ahead, for `Foo.Live` in a pattern: the module, the dot, and
+   the constructor. *)
+let peek3 s =
+  let skip_from j =
+    let k = ref j in
+    while !k < Array.length s.tokens && is_skippable (fst s.tokens.(!k)) do incr k done;
+    !k
+  in
+  let a = skip_from s.pos in
+  if a >= Array.length s.tokens then Token.EOF
+  else
+    let b = skip_from (a + 1) in
+    if b >= Array.length s.tokens then Token.EOF
+    else
+      let c = skip_from (b + 1) in
+      if c < Array.length s.tokens then fst s.tokens.(c) else Token.EOF
+
 let peek2 s =
   let i = ref s.pos in
   let skip_from j =
@@ -152,6 +169,13 @@ let advance_loc s =
 let mark s = (s.pos, s.paren_depth)
 
 let rewind s (pos, depth) = s.pos <- pos; s.paren_depth <- depth
+
+(* Whether a lowercase module name starts a type after a `:`. A user
+   module's namespace is its file name, and only the dot after it tells
+   `(c : one.Status)` from `(x : xs)`, the cons mistake. *)
+let qualified_type_after_colon s =
+  (match peek2 s with Token.Ident _ -> true | _ -> false)
+  && peek3 s = Token.Dot
 
 (* Returns true if the upcoming LParen (not yet consumed) is followed by "ident =" *)
 let peek_named_args s =
@@ -381,6 +405,26 @@ let is_type_atom_start = function
 let rec parse_type_atom s =
   let loc = peek_loc s in
   match advance s with
+  (* `Foo.Status`: the type reached through the module that declares it. A
+     module name and a type name are both `Upper`, so the dot is what tells
+     this from a bare name. *)
+  | Token.Ident name when peek s = Token.Dot
+                       && (match peek2 s with Token.Upper _ -> true | _ -> false) ->
+    (* A user module's namespace is its file name, which is lowercase. *)
+    ignore (advance s);
+    (match advance s with
+     | Token.Upper b -> Ast.TEQual (name, b)
+     | t -> fail_at loc (Format.asprintf
+         "expected a type name after '%s.', got %a" name Token.pp t))
+  | Token.Upper name when peek s = Token.Dot ->
+    ignore (advance s);
+    let base =
+      match advance s with
+      | Token.Upper b -> b
+      | t -> fail_at (peek_loc s) (Format.asprintf
+          "expected a type name after '%s.', got %a" name Token.pp t)
+    in
+    Ast.TEQual (name, base)
   | Token.Upper name -> Ast.TEName name
   | Token.TypeVar name -> Ast.TEVar name
   | Token.LParen ->
@@ -507,6 +551,13 @@ and pat_base_ s =
      apart, so it needs no separate form. *)
   | Token.RawStr str -> ignore (advance s); String str
   | Token.Bool b     -> ignore (advance s); Bool b
+  | Token.Ident name when peek2 s = Token.Dot
+                       && (match peek3 s with Token.Upper _ -> true | _ -> false) ->
+    ignore (advance s); ignore (advance s);
+    (match advance s with
+     | Token.Upper base -> PQualified (name, pconstr_body_ s base)
+     | t -> fail_at (peek_loc s) (Format.asprintf
+         "expected a constructor after '%s.', got %a" name Token.pp t))
   | Token.Ident name -> ignore (advance s); PVar name
   | Token.Underscore -> ignore (advance s); Wild
   | Token.LParen     ->
@@ -520,7 +571,8 @@ and pat_base_ s =
           ignore (advance s); ps := !ps @ [pat_ s]
         done;
         expect s Token.RParen; PTuple !ps
-      end else if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
+      end else if peek s = Token.Colon
+              && (is_type_atom_start (peek2 s) || qualified_type_after_colon s) then begin
         (* `(p : Pod)` gives the parameter a type. One token decides it: a
            type starts with an `Upper` name, a `'a`, or a `(`, and a cons
            pattern -- which is written `[h : t]`, in brackets -- never
@@ -544,81 +596,93 @@ and pat_base_ s =
     ignore (advance s); list_pat_ s
   | Token.LBrace ->
     ignore (advance s); brace_map_pat_ s
-  | Token.Upper name ->
-    ignore (advance s);
-    if peek_named_pat_args s then begin
-      ignore (advance s); (* consume LParen *)
-      let fields = ref [] in
-      if peek s <> Token.RParen then begin
-        (* A bare identifier puns, the way it does in a map pattern: the
-           field binds a variable of its own name. *)
-        let parse_field () =
-          let fname = expect_ident s in
-          if peek s = Token.Eq then begin
-            ignore (advance s);
-            fields := !fields @ [(fname, pat_ s)]
-          end else fields := !fields @ [(fname, (PVar fname : pat))]
-        in
-        parse_field ();
-        while peek s = Token.Comma do ignore (advance s); parse_field () done
-      end;
-      expect s Token.RParen;
-      PConstrNamed (name, !fields)
-    end else if peek_bare_args s then begin
-      ignore (advance s); (* consume LParen *)
-      let ids = ref [expect_ident s] in
-      while peek s = Token.Comma do
-        ignore (advance s); ids := !ids @ [expect_ident s]
-      done;
-      expect s Token.RParen;
-      PConstrBare (name, !ids)
-    end else if peek s = Token.LParen then begin
-      ignore (advance s); (* consume LParen *)
-      (* Empty parentheses read the way they do in a construction: a pattern
-         naming no fields where the constructor has them, the constructor
-         that carries nothing where it does not. *)
-      if peek s = Token.RParen then (ignore (advance s); PConstrBare (name, []))
-      else begin
-        (* A payload carries a type the same way anything else does:
-           `Ok (v: Pod)`. This branch used to read `(` as the start of an
-           argument list and nothing else, so the one place a pattern could
-           not be annotated was the one where a decoder's result lands.
-
-           The `:` is a type only when a type follows it, which is the same
-           single-token test the grouped pattern uses -- so `Ok (x : xs)`
-           still meets the message written for it. *)
-        let pat_item () =
-          let p = pat_ s in
-          if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
-            ignore (advance s);
-            PAnnot (p, parse_type_expr s)
-          end else if peek s = Token.Colon then
-            fail_at (peek_loc s)
-              "a cons pattern is written in square brackets: \
-               [x :: xs] -- a single ':' gives a name a type"
-          else p
-        in
-        let pats = ref [pat_item ()] in
-        while peek s = Token.Comma do
-          ignore (advance s); pats := !pats @ [pat_item ()]
-        done;
-        expect s Token.RParen;
-        (* Parentheses group a tuple; several arguments are written by
-           juxtaposition. Mirrors the expression side. *)
-        match !pats with
-        | (_ :: _ :: _ as ps) -> PConstr (name, [PTuple ps])
-        | pats -> PConstr (name, pats)
-      end
-    end else begin
-      let args = ref [] in
-      while is_pat_atom_start (peek s) do
-        args := !args @ [pat_atom_ s]
-      done;
-      PConstr (name, !args)
-    end
+  (* `Foo.Live`, `Foo.Conf(host = h)`: the pattern side of a qualified
+     constructor. A lowercase name after the dot is not a constructor, so
+     only an `Upper` takes this branch. *)
+  | Token.Upper name when peek2 s = Token.Dot
+                       && (match peek3 s with Token.Upper _ -> true | _ -> false) ->
+    ignore (advance s); ignore (advance s);
+    (match advance s with
+     | Token.Upper base -> PQualified (name, pconstr_body_ s base)
+     | t -> fail_at (peek_loc s) (Format.asprintf
+         "expected a constructor after '%s.', got %a" name Token.pp t))
+  | Token.Upper name -> ignore (advance s); pconstr_body_ s name
   | t ->
     fail_at (peek_loc s) (Format.asprintf "unexpected token in pattern: %a%s"
       Token.pp t (keyword_hint t))
+
+and pconstr_body_ s name =
+  if peek_named_pat_args s then begin
+    ignore (advance s); (* consume LParen *)
+    let fields = ref [] in
+    if peek s <> Token.RParen then begin
+      (* A bare identifier puns, the way it does in a map pattern: the
+         field binds a variable of its own name. *)
+      let parse_field () =
+        let fname = expect_ident s in
+        if peek s = Token.Eq then begin
+          ignore (advance s);
+          fields := !fields @ [(fname, pat_ s)]
+        end else fields := !fields @ [(fname, (PVar fname : pat))]
+      in
+      parse_field ();
+      while peek s = Token.Comma do ignore (advance s); parse_field () done
+    end;
+    expect s Token.RParen;
+    PConstrNamed (name, !fields)
+  end else if peek_bare_args s then begin
+    ignore (advance s); (* consume LParen *)
+    let ids = ref [expect_ident s] in
+    while peek s = Token.Comma do
+      ignore (advance s); ids := !ids @ [expect_ident s]
+    done;
+    expect s Token.RParen;
+    PConstrBare (name, !ids)
+  end else if peek s = Token.LParen then begin
+    ignore (advance s); (* consume LParen *)
+    (* Empty parentheses read the way they do in a construction: a pattern
+       naming no fields where the constructor has them, the constructor
+       that carries nothing where it does not. *)
+    if peek s = Token.RParen then (ignore (advance s); PConstrBare (name, []))
+    else begin
+      (* A payload carries a type the same way anything else does:
+         `Ok (v: Pod)`. This branch used to read `(` as the start of an
+         argument list and nothing else, so the one place a pattern could
+         not be annotated was the one where a decoder's result lands.
+
+         The `:` is a type only when a type follows it, which is the same
+         single-token test the grouped pattern uses -- so `Ok (x : xs)`
+         still meets the message written for it. *)
+      let pat_item () =
+        let p = pat_ s in
+        if peek s = Token.Colon
+              && (is_type_atom_start (peek2 s) || qualified_type_after_colon s) then begin
+          ignore (advance s);
+          PAnnot (p, parse_type_expr s)
+        end else if peek s = Token.Colon then
+          fail_at (peek_loc s)
+            "a cons pattern is written in square brackets: \
+             [x :: xs] -- a single ':' gives a name a type"
+        else p
+      in
+      let pats = ref [pat_item ()] in
+      while peek s = Token.Comma do
+        ignore (advance s); pats := !pats @ [pat_item ()]
+      done;
+      expect s Token.RParen;
+      (* Parentheses group a tuple; several arguments are written by
+         juxtaposition. Mirrors the expression side. *)
+      match !pats with
+      | (_ :: _ :: _ as ps) -> PConstr (name, [PTuple ps])
+      | pats -> PConstr (name, pats)
+    end
+  end else begin
+    let args = ref [] in
+    while is_pat_atom_start (peek s) do
+      args := !args @ [pat_atom_ s]
+    done;
+    PConstr (name, !args)
+  end
 
 and pat_atom_ s =
   match peek s with
@@ -643,7 +707,8 @@ and pat_atom_ s =
           ignore (advance s); ps := !ps @ [pat_ s]
         done;
         expect s Token.RParen; PTuple !ps
-      end else if peek s = Token.Colon && is_type_atom_start (peek2 s) then begin
+      end else if peek s = Token.Colon
+              && (is_type_atom_start (peek2 s) || qualified_type_after_colon s) then begin
         (* `(p : Pod)` gives the parameter a type. One token decides it: a
            type starts with an `Upper` name, a `'a`, or a `(`, and a cons
            pattern -- which is written `[h : t]`, in brackets -- never
@@ -790,6 +855,17 @@ and infix_ left op s =
   | Token.Star      -> BinOp ("*",   left, expr_ 60 s)
   | Token.Slash     -> BinOp ("/",   left, expr_ 60 s)
   | Token.Percent   -> BinOp ("%",   left, expr_ 60 s)
+  (* `one.Live`: a constructor reached through a module whose name is
+     lowercase, which every user module has. An uppercase member is a
+     constructor; a lowercase one is a value. *)
+  | Token.Dot when (match peek s with Token.Upper _ -> true | _ -> false) ->
+    let m =
+      match strip_located left with
+      | Var m -> m
+      | _ -> fail_at (peek_loc s)
+          "a constructor is reached through a module's name"
+    in
+    Qualified (m, constr_atom_ s)
   | Token.Dot       -> Field (left, expect_ident s)
   | t -> fail (Format.asprintf "unexpected infix: %a" Token.pp t)
 
@@ -811,77 +887,15 @@ and atom_base_ s =
   | Token.Version v  -> Version v
   | Token.Size sz    -> Size sz
   | Token.Ident name  -> Var name
-  | Token.Upper name  ->
-    if peek_named_args s then begin
-      ignore (advance s); (* consume LParen *)
-      let fields = ref [] in
-      if peek s <> Token.RParen then begin
-        (* A bare identifier puns: the field takes the value of the name it
-           already has. Safe here because the first field carried an `=`, so
-           this cannot be the base of an update. *)
-        let parse_field () =
-          let fname = expect_ident s in
-          if peek s = Token.Eq then begin
-            ignore (advance s);
-            fields := !fields @ [(Some fname, expr_ 0 s)]
-          end else fields := !fields @ [(Some fname, (Var fname : expr))]
-        in
-        parse_field ();
-        while peek s = Token.Comma do ignore (advance s); parse_field () done
-      end;
-      expect s Token.RParen;
-      ConstrApp (name, !fields)
-    end else if peek_bare_args s then begin
-      ignore (advance s); (* consume LParen *)
-      let ids = ref [expect_ident s] in
-      while peek s = Token.Comma do
-        ignore (advance s); ids := !ids @ [expect_ident s]
-      done;
-      expect s Token.RParen;
-      ConstrBare (name, !ids)
-    end else if peek s = Token.LParen then begin
-      ignore (advance s); (* consume LParen *)
-      (* `M()` is a construction naming no fields where `M` has fields, all of
-         which must then have defaults, and a constructor applied to unit
-         where it does not. The declaration decides, as it does for a list of
-         bare names. *)
-      if peek s = Token.RParen then (ignore (advance s); ConstrBare (name, []))
-      else begin
-        let first = expr_ 0 s in
-        if peek_field_after_comma s then begin
-          (* `T(r, b = 3)`: everything not named comes from `r`. *)
-          let fields = ref [] in
-          while peek s = Token.Comma do
-            ignore (advance s);
-            let fname = expect_ident s in
-            expect s Token.Eq;
-            fields := !fields @ [(fname, expr_ 0 s)]
-          done;
-          expect s Token.RParen;
-          ConstrUpdate (name, first, !fields)
-        end else begin
-        let args = ref [first] in
-        while peek s = Token.Comma do
-          ignore (advance s); args := !args @ [expr_ 0 s]
-        done;
-        expect s Token.RParen;
-        (* `Ctor (a, b)` is the constructor applied to one tuple. Several
-           arguments are written by juxtaposition, `Ctor a b`, as everywhere
-           else in the language.
-
-           This used to depend on the constructor's declared arity, which the
-           parser only knew for types declared in the same file -- so the
-           same expression meant different things depending on where its type
-           lived, and `Some (a, b)` was read as two arguments in every file
-           but Option's own. *)
-        match !args with
-        | (_ :: _ :: _ as es) -> App (Constr name, Tuple es)
-        | args ->
-          List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
-        end
-      end
-    end else
-      Constr name
+  | Token.Upper name when peek s = Token.Dot && (match peek2 s with
+                                                | Token.Upper _ -> true
+                                                | _ -> false) ->
+    (* `Foo.Live`, `Foo.Conf(host = "a")`: the constructor reached through
+       the module that declares it. A lowercase member after the dot is a
+       namespace value, and is read elsewhere. *)
+    ignore (advance s);
+    Ast.Qualified (name, constr_atom_ s)
+  | Token.Upper name  -> constr_body_ s name
   | Token.EnvVar name -> EnvVar name
   | Token.Hole        -> Hole
   | Token.Minus      -> UnOp ("-", expr_ 65 s)
@@ -990,11 +1004,102 @@ and atom_base_ s =
    (which is what plain infix-operator precedence would give, since by the
    time the Pratt loop in expr_ reaches `.`, `left` already has the whole
    application chain accumulated). *)
+(* The constructor after a module's name: `Foo.Live`, `Foo.Conf(host = "a")`.
+   The same forms as an unqualified one, so this is the branch that reads
+   them, reached from both places. *)
+and constr_atom_ s =
+  match advance s with
+  | Token.Upper name -> constr_body_ s name
+  | t -> fail_at (peek_loc s) (Format.asprintf
+      "expected a constructor after the module name, got %a" Token.pp t)
+and constr_body_ s name =
+  if peek_named_args s then begin
+    ignore (advance s); (* consume LParen *)
+    let fields = ref [] in
+    if peek s <> Token.RParen then begin
+      (* A bare identifier puns: the field takes the value of the name it
+         already has. Safe here because the first field carried an `=`, so
+         this cannot be the base of an update. *)
+      let parse_field () =
+        let fname = expect_ident s in
+        if peek s = Token.Eq then begin
+          ignore (advance s);
+          fields := !fields @ [(Some fname, expr_ 0 s)]
+        end else fields := !fields @ [(Some fname, (Var fname : expr))]
+      in
+      parse_field ();
+      while peek s = Token.Comma do ignore (advance s); parse_field () done
+    end;
+    expect s Token.RParen;
+    ConstrApp (name, !fields)
+  end else if peek_bare_args s then begin
+    ignore (advance s); (* consume LParen *)
+    let ids = ref [expect_ident s] in
+    while peek s = Token.Comma do
+      ignore (advance s); ids := !ids @ [expect_ident s]
+    done;
+    expect s Token.RParen;
+    ConstrBare (name, !ids)
+  end else if peek s = Token.LParen then begin
+    ignore (advance s); (* consume LParen *)
+    (* `M()` is a construction naming no fields where `M` has fields, all of
+       which must then have defaults, and a constructor applied to unit
+       where it does not. The declaration decides, as it does for a list of
+       bare names. *)
+    if peek s = Token.RParen then (ignore (advance s); ConstrBare (name, []))
+    else begin
+      let first = expr_ 0 s in
+      if peek_field_after_comma s then begin
+        (* `T(r, b = 3)`: everything not named comes from `r`. *)
+        let fields = ref [] in
+        while peek s = Token.Comma do
+          ignore (advance s);
+          let fname = expect_ident s in
+          expect s Token.Eq;
+          fields := !fields @ [(fname, expr_ 0 s)]
+        done;
+        expect s Token.RParen;
+        ConstrUpdate (name, first, !fields)
+      end else begin
+      let args = ref [first] in
+      while peek s = Token.Comma do
+        ignore (advance s); args := !args @ [expr_ 0 s]
+      done;
+      expect s Token.RParen;
+      (* `Ctor (a, b)` is the constructor applied to one tuple. Several
+         arguments are written by juxtaposition, `Ctor a b`, as everywhere
+         else in the language.
+
+         This used to depend on the constructor's declared arity, which the
+         parser only knew for types declared in the same file -- so the
+         same expression meant different things depending on where its type
+         lived, and `Some (a, b)` was read as two arguments in every file
+         but Option's own. *)
+      match !args with
+      | (_ :: _ :: _ as es) -> App (Constr name, Tuple es)
+      | args ->
+        List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
+      end
+    end
+  end else
+    Constr name
+
 and postfix_field_ s e =
   let e = ref e in
   while peek s = Token.Dot do
     ignore (advance s);
-    e := Field (!e, expect_ident s)
+    (* An uppercase member is a constructor reached through the module's
+       name, not a field of a value. *)
+    (match peek s with
+     | Token.Upper _ ->
+       let m =
+         match strip_located !e with
+         | Var m -> m
+         | _ -> fail_at (peek_loc s)
+             "a constructor is reached through a module's name"
+       in
+       e := Qualified (m, constr_atom_ s)
+     | _ -> e := Field (!e, expect_ident s))
   done;
   !e
 

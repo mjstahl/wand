@@ -182,6 +182,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.MapLit kvs -> List.iter (fun (_, v) -> go v) kvs
     | Ast.ConstrApp (_, fields) -> List.iter (fun (_, v) -> go v) fields
     | Ast.ConstrBare (_, _) -> ()
+    | Ast.Qualified (_, e) -> go e
     | Ast.ConstrUpdate (_, base, fields) -> go base; List.iter (fun (_, v) -> go v) fields
     | Ast.Handle (b, cases) ->
       go b;
@@ -236,6 +237,8 @@ let rec names_of_expr (e : Ast.expr) : string list =
   | Ast.ConstrUpdate (c, base, kvs) ->
     c :: names_of_expr base @ of_list (List.map snd kvs)
   | Ast.ConstrBare (c, ids) -> c :: ids
+  (* The module is a use of the import that brought it in. *)
+  | Ast.Qualified (m, e) -> m :: names_of_expr e
   | Ast.Contract (reqs, ens, body) -> of_list (reqs @ ens @ [body])
   | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
     of_list (List.map snd parts)
@@ -253,6 +256,7 @@ and names_of_pat (p : Ast.pat) : string list =
   | Ast.PConstr (c, ps) -> c :: List.concat_map names_of_pat ps
   | Ast.PConstrNamed (c, kvs) -> c :: List.concat_map (fun (_, p) -> names_of_pat p) kvs
   | Ast.PConstrBare (c, _) -> [c]
+  | Ast.PQualified (m, p) -> m :: names_of_pat p
   | Ast.PTuple ps | Ast.PList ps -> List.concat_map names_of_pat ps
   | Ast.PCons (h, t) -> names_of_pat h @ names_of_pat t
   | Ast.PMap kvs -> List.concat_map (fun (_, p) -> names_of_pat p) kvs
@@ -264,6 +268,8 @@ and names_of_pat (p : Ast.pat) : string list =
 and names_of_type_expr (te : Ast.type_expr) : string list =
   match te with
   | Ast.TEName n -> [n]
+  (* The module is the name a dead import would be reported for. *)
+  | Ast.TEQual (m, n) -> [m; n]
   | Ast.TEVar _ -> []
   | Ast.TEApp (a, b) -> names_of_type_expr a @ names_of_type_expr b
   | Ast.TETuple ts -> List.concat_map names_of_type_expr ts

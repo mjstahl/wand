@@ -981,6 +981,12 @@ let with_default_handler : ((unit -> value) -> value) ref = ref (fun f -> f ())
    arm -- it only binds -- so there `[a, b]` names the leading elements and
    whatever follows is ignored, the way a map pattern binds the keys it
    names and ignores the rest. [prefix] selects the binding reading. *)
+(* The constructor a pattern names, whatever form it takes. *)
+let pat_ctor_name (p : pat) =
+  match p with
+  | PConstr (n, _) | PConstrNamed (n, _) | PConstrBare (n, _) -> n
+  | _ -> ""
+
 let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
   match p, v with
   | PVar name, v          -> Some ((name, v) :: env)
@@ -1029,6 +1035,22 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
       (Some env) pats vals
   (* The declaration decides which of the two readings this is, exactly as
      it does when the pattern is checked. *)
+  (* `one.Live`: the module's namespace holds the constructor, so its
+     identity comes from there. The pattern under the qualifier then matches
+     the value as any other would. *)
+  | PQualified (m, inner), VConstr (vc, _) ->
+    let owner =
+      match lookup_var m env with
+      | Some (VRecord kvs) ->
+        (match List.assoc_opt (pat_ctor_name inner) kvs with
+         | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> Some c
+         | _ -> None)
+      | _ -> None
+    in
+    (match owner with
+     | Some c when Ctor.equal c vc -> try_match ~prefix inner v env
+     | _ -> None)
+  | PQualified (_, _), _ -> None
   | PConstrBare (name, ids), _ ->
     let named_fields =
       match Hashtbl.find_opt constr_fields (ctor_named name) with
@@ -1205,6 +1227,45 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     eval_match tail env sv cases
   | Tuple es  -> VTuple (List.map (eval env) es)
   | List es   -> VList  (List.map (eval env) es)
+  (* `Foo.Live`: the module's namespace holds its constructors, so the
+     identity comes from there rather than from the bare-name index. *)
+  | Qualified (m, inner) ->
+    let from_module name =
+      match lookup_var m env with
+      | Some (VRecord kvs) ->
+        (match List.assoc_opt name kvs with
+         | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> Some c
+         | _ -> None)
+      | _ -> None
+    in
+    let with_ident name k =
+      match from_module name with
+      | Some c -> k c
+      | None ->
+        raise (EvalError (Printf.sprintf
+          "'%s' has no constructor '%s'" m name))
+    in
+    (match inner with
+     | Constr name -> with_ident name (fun c ->
+         match Hashtbl.find_opt constr_fields c with
+         | Some (_ :: _ as fs) -> VPartialConstr (c, List.length fs, [])
+         | _ -> VConstr (c, []))
+     | ConstrApp (name, fields) ->
+       with_ident name (fun c -> eval_constr_app env c fields)
+     | ConstrBare (name, ids) ->
+       with_ident name (fun c ->
+         let named_fields =
+           match Hashtbl.find_opt constr_fields c with
+           | Some fields -> List.exists (fun dn -> dn <> None) fields
+           | None -> false
+         in
+         match Ast.constr_bare_construction ~named_fields name ids with
+         | ConstrApp (_, fields) -> eval_constr_app env c fields
+         | other -> eval env other)
+     | App (f, arg) ->
+       (* `Foo.Some 3`: the constructor, then what it is applied to. *)
+       apply (eval env (Qualified (m, f))) (eval env arg)
+     | other -> eval env other)
   | ConstrBare (name, ids) ->
     let named_fields =
       match Hashtbl.find_opt constr_fields (ctor_named name) with
@@ -1212,33 +1273,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | None -> false
     in
     eval env (Ast.constr_bare_construction ~named_fields name ids)
-  | ConstrApp (name, fields) ->
-    let provided = List.filter_map (fun (fname_opt, e) ->
-      match fname_opt with
-      | Some fname -> Some (fname, eval env e)
-      | None -> None
-    ) fields in
-    (match Hashtbl.find_opt constr_fields (ctor_named name) with
-     | None -> raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (List.map fst env))))
-     | Some field_names ->
-       let ordered = List.map (fun fname_opt ->
-         match fname_opt with
-         | None -> raise (EvalError (Printf.sprintf
-             "constructor '%s' has an unnamed field" name))
-         | Some fn ->
-           (match List.assoc_opt fn provided with
-            | Some v -> v
-            | None ->
-              (* Left out, so the declaration says what it holds. A default
-                 is a value written out, so it reads in an empty environment
-                 and the same way at every site that omits the field. *)
-              (match List.assoc_opt fn (defaults_of (ctor_named name)) with
-               | Some d -> eval (ctor_env ()) d
-               | None -> raise (EvalError (Printf.sprintf
-                   "constructor '%s' missing field '%s'" name fn))))
-       ) field_names in
-       VConstr ((ctor_named name), ordered))
+  | ConstrApp (name, fields) -> eval_constr_app env (ctor_named name) fields
   | ConstrUpdate (name, base, fields) ->
     let replacements = List.map (fun (fname, e) -> (fname, eval env e)) fields in
     (match eval env base, Hashtbl.find_opt constr_fields (ctor_named name) with
@@ -1485,6 +1520,38 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       c.at_col <- col;
       v
     end
+
+(* Build a record constructor's value from the fields a construction names.
+   Takes the identity rather than the name, so a qualified construction can
+   say which module's constructor it means. *)
+and eval_constr_app env c fields =
+  let name = Ctor.name c in
+  let provided = List.filter_map (fun (fname_opt, e) ->
+    match fname_opt with
+    | Some fname -> Some (fname, eval env e)
+    | None -> None
+  ) fields in
+  (match Hashtbl.find_opt constr_fields c with
+   | None -> raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
+       name (Util.hint name (List.map fst env))))
+   | Some field_names ->
+     let ordered = List.map (fun fname_opt ->
+       match fname_opt with
+       | None -> raise (EvalError (Printf.sprintf
+           "constructor '%s' has an unnamed field" name))
+       | Some fn ->
+         (match List.assoc_opt fn provided with
+          | Some v -> v
+          | None ->
+            (* Left out, so the declaration says what it holds. A default is
+               a value written out, so it reads in an empty environment and
+               the same way at every site that omits the field. *)
+            (match List.assoc_opt fn (defaults_of c) with
+             | Some d -> eval (ctor_env ()) d
+             | None -> raise (EvalError (Printf.sprintf
+                 "constructor '%s' missing field '%s'" name fn))))
+     ) field_names in
+     VConstr (c, ordered))
 
 and apply vf vx =
   (* The call is left with work to do after this returns -- it is a builtin
@@ -3495,6 +3562,9 @@ let rec decoder_of_type_expr venv (te : type_expr) :
   in
   match te with
   | TEName name -> named name
+  (* A decoder is derived from the declaration, which the module registered
+     under the type's own name. *)
+  | TEQual (_, name) -> named name
   | TEVar v ->
     (match List.assoc_opt v venv with
      | Some d -> d
@@ -4100,6 +4170,7 @@ let () = derive_encoder := encoder_value
 let rec usage_type_name (te : Ast.type_expr) =
   match te with
   | Ast.TEName n -> n
+  | Ast.TEQual (_, n) -> n
   | Ast.TEVar v -> "'" ^ v
   | Ast.TEApp (f, a) -> usage_type_name f ^ " " ^ usage_type_name a
   | Ast.TETuple ts ->

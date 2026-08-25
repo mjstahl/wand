@@ -1013,7 +1013,16 @@ let fold_items step env items =
 
 (* ── Module loading ───────────────────────────────────────────────────────── *)
 
-type module_result = import_env * (string * Typechecker.scheme) list * env * (string * string) list
+(* What a loaded module hands back: everything it can see, the values it
+   exports, their runtime bindings, the types it declares itself, and its
+   docs. Its own types are kept apart from everything it can see, because a
+   qualified name reaches only what the module declares. *)
+type module_result =
+  import_env
+  * (string * Typechecker.scheme) list
+  * env
+  * (string * Ast.type_def) list
+  * (string * string) list
 
 (* A module's cache key, by path: the hash of its source and of everything it
    imports. Recorded as modules load so a parent can fold its children's keys
@@ -1056,8 +1065,15 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
        Type definitions are the exception and do propagate, along with their
        constructors, because a value of an imported type is matched by
        constructor here. *)
-    let add_import modul_import type_entries eval_entries mod_docs =
-      ({ tenv     = modul_import.tenv @ acc.tenv;
+    (* A module's own types, under the name this file gave the import:
+       `Foo.Status` as well as `Status`. Step 4 stops adding the bare key. *)
+    let qualified_types alias own_tenv =
+      match alias with
+      | None -> []
+      | Some a -> List.map (fun (n, d) -> (a ^ "." ^ n, d)) own_tenv
+    in
+    let add_import ?alias ?(own_tenv = []) modul_import type_entries eval_entries mod_docs =
+      ({ tenv     = qualified_types alias own_tenv @ modul_import.tenv @ acc.tenv;
          type_env = type_entries @ acc.type_env;
          eval_env = eval_entries @ ctor_bindings_of modul_import.tenv @ acc.eval_env },
        mod_docs @ acc_docs)
@@ -1065,23 +1081,26 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
     match item with
     | Ast.TLImport kind ->
       let ns_name = namespace_name_of kind in
-      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
+      let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (ns_name ^ "." ^ n, d)) mod_docs in
-      add_import modul_import
+      add_import ~alias:ns_name ~own_tenv modul_import
         [(ns_name, Typechecker.Namespace own_type)]
-        [(ns_name, VRecord own_eval)]
+        (* The namespace holds the module's constructors as well as its
+           values, so `Foo.Live` reads the one `Foo` declares rather than
+           whichever `Live` was registered last. *)
+        [(ns_name, VRecord (own_eval @ ctor_bindings_of own_tenv))]
         prefixed_docs
     | Ast.TLLet (name, [], body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
-      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
+      let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
-      add_import modul_import
+      add_import ~alias:name ~own_tenv modul_import
         [(name, Typechecker.Namespace own_type)]
-        [(name, VRecord own_eval)]
+        [(name, VRecord (own_eval @ ctor_bindings_of own_tenv))]
         prefixed_docs
     | Ast.TLLetPat (pat, body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
-      let (modul_import, own_type, own_eval, mod_docs) = load_kind kind in
+      let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let (type_entries, eval_entries, extra_docs) = match pat with
         | Ast.PVar name ->
           let pdocs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
@@ -1197,7 +1216,8 @@ and load_module src_ref ~cache ~loading =
        let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
                            type_env;
                            eval_env = full_eval } in
-       (full_import, own_type, own_eval, prog.Ast.docs @ imp_docs))
+       (full_import, own_type, own_eval, local_tenv_of prog,
+        prog.Ast.docs @ imp_docs))
   in
   Hashtbl.replace cache path result;
   loading := List.filter (fun p -> p <> path) !loading;
@@ -1226,7 +1246,7 @@ let stdlib_module_sig name :
           load_module (Module_types.resolve_stdlib name)
             ~cache:(Hashtbl.create 8) ~loading:(ref [])
         with
-        | (_, own_type, _, docs) -> Some (own_type, docs)
+        | (_, own_type, _, _, docs) -> Some (own_type, docs)
         | exception _ -> None
     in
     Hashtbl.replace stdlib_sig_cache name r;

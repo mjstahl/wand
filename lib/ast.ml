@@ -11,9 +11,31 @@ type te_effects = {
   te_var    : string option;  (* Some "e" for 'e *)
 }
 
+(* A type or a constructor as it was written: `Status`, or `Foo.Status`.
+   The qualifier is the name the file gave the import, not the module's key.
+   Resolution turns one into the other; the parser keeps what was written so
+   the formatter can give it back. *)
+type qname = {
+  qual : string option;
+  base : string;
+}
+
+let bare base = { qual = None; base }
+
+let qualified qual base = { qual = Some qual; base }
+
+let show_qname q =
+  match q.qual with
+  | None -> q.base
+  | Some m -> m ^ "." ^ q.base
+
 type type_expr =
   | TEName  of string
   | TEVar   of string                    (* 'a — type variable *)
+  (* `Foo.Status`: a type reached through the module that declares it. Kept
+     apart from `TEName` so that every match on a type has to say what it
+     does with one. *)
+  | TEQual  of string * string
   | TEApp   of type_expr * type_expr    (* List Int, Result Int *)
   | TETuple of type_expr list            (* (Int, Int), 2+ elements *)
   (* Int -> Int, and what calling it performs. Only the innermost arrow of a
@@ -55,6 +77,11 @@ type pat =
      another file, so it keeps what was written and `constr_bare_reading`
      picks once the declaration is in hand. *)
   | PConstrBare   of string * string list
+  (* `Foo.Live`, `Foo.Conf(host = h)`: a constructor reached through the
+     module that declares it. A wrapper rather than a qualified twin of each
+     form, so `Foo.Conf(name, port)` reads by the same rules as `Conf(name,
+     port)` and only the reaching differs. *)
+  | PQualified    of string * pat
   (* `(p : Pod)`: the type a parameter is given. The annotation is a
      constraint on the pattern under it, not a pattern of its own. *)
   | PAnnot        of pat * type_expr
@@ -109,6 +136,9 @@ type expr =
      does not. A bare name *before* a named field is not this: `T(r, b = 3)`
      is an update, and that spelling was taken first. *)
   | ConstrBare of string * string list
+  (* `Foo.Live`, `Foo.Conf(host = "a")`: the expression side of
+     `PQualified`. *)
+  | Qualified of string * expr
   | Field      of expr * string
   | Seq      of expr * expr
   | Located  of Token.loc * expr
@@ -207,6 +237,7 @@ let rec show_pat : pat -> string = function
       (List.map (fun (k, p) -> k ^ "=" ^ show_pat p) kvs))
   | PConstrBare (c, ids) ->
     Printf.sprintf "%s(%s)" c (String.concat ", " ids)
+  | PQualified (m, p) -> Printf.sprintf "%s.%s" m (show_pat p)
   | PMap kvs ->
     "{" ^ String.concat ", " (List.map (fun (k, p) -> k ^ " = " ^ show_pat p) kvs) ^ "}"
   | PAnnot (p, _)  -> show_pat p
@@ -257,6 +288,7 @@ let rec show : expr -> string = function
     Printf.sprintf "(%s %s with %s)" c (show base) (String.concat ", "
       (List.map (fun (k, v) -> k ^ "=" ^ show v) kvs))
   | ConstrBare (c, ids) -> Printf.sprintf "%s(%s)" c (String.concat ", " ids)
+  | Qualified (m, e) -> Printf.sprintf "%s.%s" m (show e)
   | Field (e, l)    -> Printf.sprintf "(. %s %s)" (show e) l
   | Seq (a, b)      -> Printf.sprintf "(seq %s %s)" (show a) (show b)
   | Located (_, e)  -> show e
