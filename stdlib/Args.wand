@@ -1,6 +1,7 @@
 import JSON
 import List
 import Map
+import Option
 import String
 
 -- Reading a command line.
@@ -50,9 +51,29 @@ let _inline_pair arg =
 -- Ok(["a", "b"]) : Result String (List String)
 let _positional_key = "_"
 
-let _object_of flags args =
-  let set k v acc = Map.set k (JSON.of_string v) acc
-  in let boolean? k = List.any (fn f -> f == k) flags
+-- What a flag's own text cannot say: whether it takes a value, and whether
+-- it collects. A name the spec does not mention takes one value and the
+-- last one written wins.
+let _switch? spec k =
+  match Map.get k spec with
+  | Some "switch" -> true
+  | _ -> false
+
+let _repeated? spec k =
+  match Map.get k spec with
+  | Some "repeated" -> true
+  | _ -> false
+
+let _object_of_spec spec args =
+  -- A repeated flag is gathered separately and joined at the end: the value
+  -- of a key is one JSON string until a second `--tag` makes it a list, and
+  -- reading a list back out to append to it is work the type already knows
+  -- the answer to.
+  let set k v (fields, repeats) =
+    if _repeated? spec k
+    then (fields,
+          Map.set k (List.append (Option.default [] (Map.get k repeats)) [v]) repeats)
+    else (Map.set k (JSON.of_string v) fields, repeats)
   in let go acc positional args =
     match args with
     | [] -> Ok(acc, positional)
@@ -63,17 +84,37 @@ let _object_of flags args =
     )
     | [arg :: rest] -> (
       let k = _name_of arg in
-      if boolean? k then go (set k "true" acc) positional rest
+      if _switch? spec k then go (set k "true" acc) positional rest
       else match rest with
         | [v :: more] -> go (set k v acc) positional more
         | [] -> Error "--%{k} expects a value"
     )
-  in match go Map.empty [] args with
+  -- A flag that collects and was never written is none of them, not a
+  -- missing field: the empty list is what a `List` says for absent, as
+  -- `false` is for a `Bool`. Seeded here rather than by a rule about lists
+  -- everywhere, so a JSON document missing a key is still the error it was.
+  in let seeded = (List.fold_left
+    (fn acc (k, kind) -> if kind == "repeated" then Map.set k [] acc else acc)
+    Map.empty
+    (Map.to_list spec))
+  in match go (Map.empty, seeded) [] args with
   | Error e -> Error e
-  | Ok(fields, positional) -> (Ok
-    (JSON.of_map
-      (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) fields)
-    ))
+  | Ok((fields, repeats), positional) -> (
+    -- A flag declared repeated holds a list whether it was written once or
+    -- twenty times, so the type reads the same either way.
+    let gathered =
+      List.fold_left
+        (fn acc (k, vs) -> Map.set k (JSON.of_list (List.map JSON.of_string vs)) acc)
+        fields
+        (Map.to_list repeats);
+    Ok
+      (JSON.of_map
+        (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) gathered)
+      )
+  )
+
+let _object_of flags args =
+  _object_of_spec (Map.from_list (List.map (fn f -> (f, "switch")) flags)) args
 
 -- ── Parsing ─────────────────────────────────────────────────────────────
 
@@ -82,13 +123,13 @@ let _object_of flags args =
 -- document does not carry reads as `false`, so a switch needs nothing
 -- else said about it.
 --
--- Args.parse_with Opts.switches Opts.decoder (Env.args ())
+-- Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 --
 -- Which flags are boolean is the only fact a list of strings cannot
 -- reveal: without it, `--message -5` and a flag followed by a positional
 -- are the same shape. Everything else the type already says -- including
--- this, which `Opts.switches` derives from the `Bool` fields. A list
--- written by hand works too, and drifts the way any second copy does.
+-- this one, which is what `read` is for: a list written by hand drifts
+-- the way any second copy does.
 --
 -- >> Args.parse_with ["v"] (Decode.field "v" Decode.bool) ["--v"]
 -- Ok(true) : Result String Bool
@@ -120,3 +161,26 @@ let parse_with flags decoder args =
 -- >> Args.parse (Decode.optional "port" Decode.port) []
 -- Ok(None) : Result String (Option Port)
 let parse decoder args = parse_with [] decoder args
+
+-- Read arguments against a type's own account of its flags.
+--
+--     Args.read Opts.flags Opts.decoder (Env.args ())
+--
+-- `Opts.flags` is derived from the fields: a `Bool` is a switch, and a
+-- `List` collects, so `--tag a --tag b` is two tags where `--name a
+-- --name b` is one name written twice. Both are facts the type states and
+-- argv cannot -- a flag written once looks the same either way -- and this
+-- is how they reach the reading without being written a second time.
+--
+-- >> Args.read {v = "switch"} (Decode.field "v" Decode.bool) ["--v"]
+-- Ok(true) : Result String Bool
+--
+-- A flag the spec calls repeated holds a list however many times it was
+-- written:
+--
+-- >> Args.read {t = "repeated"} (Decode.field "t" (Decode.list Decode.string)) ["--t", "a"]
+-- Ok(["a"]) : Result String (List String)
+let read spec decoder args =
+  match _object_of_spec spec args with
+  | Error e -> Error e
+  | Ok obj -> JSON.decode decoder obj

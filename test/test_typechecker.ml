@@ -276,20 +276,16 @@ M.usage|}
     {|type T = A(x: Int) | B(x: Int)
 T.usage|}
     "has no derived usage";
-  (* Which flags take no value is the one fact argv cannot carry, so it comes
-     from the declaration rather than from a list written beside it. *)
-  ok "the switches are the Bool fields, in declaration order"
-    {|type M = M(host: String, verbose: Bool = false, quiet: Bool)
-M.switches|}
-    "[\"verbose\", \"quiet\"]";
-  ok "a type with none has an empty list"
-    {|type M = M(host: String)
-M.switches|}
-    "[]";
-  err_contains "and a type with several constructors has none"
-    {|type T = A(x: Int) | B(x: Int)
-T.switches|}
-    "has no derived switches"
+  (* What a flag's own text cannot say: whether it takes a value, and
+     whether it collects. Both travel together. *)
+  ok "the flags name what needs saying and nothing else"
+    {|type M = M(host: String, tag: List String, verbose: Bool = false)
+M.flags|}
+    "{tag = \"repeated\", verbose = \"switch\"}";
+  ok "a type whose flags all take one value says nothing"
+    {|type M = M(host: String, port: Port)
+M.flags|}
+    "{}"
 
 (* A flag is present or absent, so the two types that have a word for absent
    read a document that does not carry the key rather than failing on it. *)

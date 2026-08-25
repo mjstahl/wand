@@ -95,3 +95,36 @@ test "a single dash is positional" (fn t -> t.eq (Ok ["-5"]) (files ["-5"]))
 
 test "so are short flags, which this module does not have" (fn t ->
   t.eq (Ok ["-v"]) (files ["-v"]))
+
+-- ── A flag that collects ────────────────────────────────────────────────
+
+-- Whether a flag replaces or collects is the second fact argv cannot carry:
+-- `--tag a` looks the same either way. `T.flags` says both, beside which
+-- flags take no value.
+type Collect(tag: List String, name: String = "x", verbose: Bool = false)
+
+let read argv = Args.read Collect.flags Collect.decoder argv
+
+test "a repeated flag collects" (fn t ->
+  t.eq
+    (Ok Collect(tag = ["a", "b"], name = "x", verbose = false))
+    (read ["--tag", "a", "--tag", "b"]))
+
+test "written once it is still a list" (fn t ->
+  t.eq (Ok Collect(tag = ["a"], name = "x", verbose = false)) (read ["--tag", "a"]))
+
+test "never written it is none of them" (fn t ->
+  t.eq (Ok Collect(tag = [], name = "x", verbose = false)) (read []))
+
+test "a flag that does not collect keeps the last value" (fn t ->
+  t.eq
+    (Ok Collect(tag = [], name = "b", verbose = false))
+    (read ["--name", "a", "--name", "b"]))
+
+test "the spec still says which flags take no value" (fn t ->
+  t.eq (Ok Collect(tag = [], name = "x", verbose = true)) (read ["--verbose"]))
+
+test "the inline form collects too" (fn t ->
+  t.eq
+    (Ok Collect(tag = ["a", "b"], name = "x", verbose = false))
+    (read ["--tag=a", "--tag=b"]))

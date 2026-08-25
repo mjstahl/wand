@@ -301,7 +301,7 @@ group "verify-archives" (fn () -> [
 -- argv is a list of strings, so the whole parser is testable without a
 -- command line. `verbose` is named because whether a flag takes a value is
 -- the one fact a list of strings cannot reveal.
-let read argv = Args.parse_with Flags.switches opts argv
+let read argv = Args.read Flags.flags opts argv
 
 group "probe-args" (fn () -> [
   test "a host and nothing else takes the defaults" (fn t ->
@@ -326,10 +326,9 @@ group "probe-args" (fn () -> [
   -- flag cannot be in one and missing from the other.
   test "the usage line is the type's" (fn t ->
     t.eq "[--port :8080] [--timeout 30s] [--verbose]" Flags.usage),
-  -- Which flags take no value is the one fact argv cannot carry, and it
-  -- comes from the same declaration rather than from a list beside it.
-  test "and so is the list of flags that take no value" (fn t ->
-    t.eq ["verbose"] Flags.switches),
+  -- Which flags take no value, and which collect, are the facts argv
+  -- cannot carry, and they come from the same declaration.
+  test "and so is the account of the flags" (fn t -> t.eq {verbose = "switch"} Flags.flags),
   test "the line it reports" (fn t ->
     match read ["--verbose", "web-01"] with
     | Ok o -> t.eq "web-01:8080 timeout 30s (verbose)" (render o)

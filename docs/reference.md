@@ -1799,15 +1799,15 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage` and `T.switches` come from them too, as the command line that reads
+`T.usage` and `T.flags` come from them too, as the command line that reads
 them. Neither takes an argument for a type parameter -- both are facts about
 the declaration rather than readers built from it:
 
 ```ocaml
 type Opts(host : String, port : Port = :8080, verbose : Bool = false)
 
-Opts.usage      -- "--host <String> [--port :8080] [--verbose]"
-Opts.switches   -- ["verbose"]
+Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
+Opts.flags   -- {verbose = "switch"}
 ```
 
 A field with a default prints bracketed, showing the default. An `Option`
@@ -1816,8 +1816,10 @@ a switch with nothing after it, and bracketed whether or not it has a
 default, since an absent one reads as `false`. Anything else is required, and
 shows its type as the placeholder.
 
-`T.switches` is the `Bool` fields by name, in the order the type declares
-them, which is what `Args.parse_with` wants.
+`T.flags` is what a flag's own text cannot say: a `Bool` field is a
+`"switch"`, taking no value, and a `List` field is `"repeated"`, collecting
+rather than replacing. A field that needs neither said is left out, so the
+map is empty for a type whose flags all take one value.
 
 A type with more than one constructor has neither. Name one, and the error
 says which:
@@ -3524,6 +3526,7 @@ See [Decoders](#decoders).
 ```ocaml
 parse      : Decoder 'a -> List String -> Result String 'a
 parse_with : List String -> Decoder 'a -> List String -> Result String 'a
+read       : Map String -> Decoder 'a -> List String -> Result String 'a
 ```
 
 A command line is another boundary without types. wand reads it the same way
@@ -3546,12 +3549,27 @@ list of strings cannot show this one fact. Without the assumption,
 shape. Name the flags that take no value:
 
 ```ocaml
-Args.parse_with Opts.switches Opts.decoder (Env.args ())
+Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
-`Opts.switches` is derived from the type, so the flags that take no value are
-named once, where the fields are. A list written by hand works too, and drifts
-the way any second copy does.
+Whether a flag takes a value is not the only thing argv cannot say. A flag
+written twice replaces its value -- `--name a --name b` is one name, written
+twice -- unless the field is a `List`, in which case it collects. Both facts
+are in the type, and `Opts.flags` carries them together:
+
+```ocaml
+type Opts(host : String, tag : List String, verbose : Bool = false)
+
+Opts.flags   -- {tag = "repeated", verbose = "switch"}
+
+Args.read Opts.flags Opts.decoder (Env.args ())
+```
+
+`Args.read` is `parse_with` given the whole account rather than a list of
+switches alone. A flag the spec calls repeated holds a list however many times it was
+written, including none: `[]` rather than a missing field, the way an absent
+`Bool` reads as `false`. That reading is `Args`' own -- a JSON document
+missing a key is still the error it was.
 
 Each of those is `true` when it is there, and absent when it is not, so a
 `Bool` field left out of the document reads as `false`. A flag with nothing

@@ -2317,15 +2317,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
        the namespace lookup, so a module of the same name keeps its member. *)
     let derived = match ns_result, strip_located e, label with
       (* `Opts.usage`: what a command line reading this type looks like, and
-         `Opts.switches`: the flags on it that take no value. Neither takes a
-         decoder per parameter the way `decoder` does -- both are facts about
-         the declaration rather than readers built from it. *)
-      | None, Constr tname, (("usage" | "switches") as which) ->
+         `Opts.flags`: what its own text cannot say -- which take no value,
+         and which collect. Neither takes a decoder per parameter the way
+         `decoder` does: both are facts about the declaration rather than
+         readers built from it. *)
+      | None, Constr tname, (("usage" | "flags") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with
             | Ok () ->
-              Some (if which = "usage" then TString else TList TString)
+              Some (if which = "usage" then TString else TMap TString)
             | Error why ->
               raise (TypeError (Printf.sprintf
                 "type '%s' has no derived %s: %s" tname which why)))

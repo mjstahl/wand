@@ -1097,8 +1097,8 @@ let derive_encoder : (string -> value) ref =
 let derive_usage : (string -> value) ref =
   ref (fun _ -> raise (EvalError "usage derivation is not wired up"))
 
-let derive_switches : (string -> value) ref =
-  ref (fun _ -> raise (EvalError "switch derivation is not wired up"))
+let derive_flags : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "flag derivation is not wired up"))
 
 let rec eval (env : env) (e : expr) : value = eval_at false env e
 
@@ -1241,8 +1241,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
        !derive_encoder tname
      | Constr tname, "usage" when Hashtbl.mem derivable tname ->
        !derive_usage tname
-     | Constr tname, "switches" when Hashtbl.mem derivable tname ->
-       !derive_switches tname
+     | Constr tname, "flags" when Hashtbl.mem derivable tname ->
+       !derive_flags tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -4021,22 +4021,26 @@ let usage_value tname =
 
 let () = derive_usage := usage_value
 
-(* The flags on that command line which take no value. Whether a flag is a
-   switch is the one fact a list of strings cannot carry -- `--message
-   --later` is a flag with a value or two flags, and only the declaration
-   knows which -- so `Args.parse_with` has to be told. It was told by hand,
-   beside a type that already said it, which is the drift `usage` was added
-   to remove one line further down. *)
-let switches_value tname =
+(* Everything a command line needs said about a flag that its own text cannot
+   say. A `Bool` takes no value, and a `List` collects rather than replacing:
+   `--tag a --tag b` is two tags, where `--name a --name b` is one name,
+   written twice. Both are facts about the type, and neither is visible in
+   argv -- a flag written once looks the same either way.
+
+   Fields that need nothing said are left out, so the map is empty for a type
+   whose flags all take one value. *)
+let flags_value tname =
   match Hashtbl.find_opt derivable tname with
-  | None -> raise (EvalError (Printf.sprintf "no switches for type '%s'" tname))
+  | None -> raise (EvalError (Printf.sprintf "no flags for type '%s'" tname))
   | Some (_, _, fields) ->
-    VList (List.filter_map (fun (fname, te) ->
+    VMap (List.filter_map (fun (fname, te) ->
       match fname, te with
-      | Some name, Ast.TEName "Bool" -> Some (VString name)
+      | Some name, Ast.TEName "Bool" -> Some (name, VString "switch")
+      | Some name, Ast.TEApp (Ast.TEName "List", _) ->
+        Some (name, VString "repeated")
       | _ -> None) fields)
 
-let () = derive_switches := switches_value
+let () = derive_flags := flags_value
 
 (* Any wand value as TOML. TOML has no way to write a bare scalar, so the
    top level must be a table -- a map or a record -- and anything else says
