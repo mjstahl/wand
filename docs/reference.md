@@ -1799,9 +1799,10 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage`, `T.spec` and `T.reader` come from them too, as the command line
-that reads them. Neither takes an argument for a type parameter -- both are facts about
-the declaration rather than readers built from it:
+`T.usage`, `T.spec` and `T.reader` come from the same fields. They describe
+the command line that reads the type. None of them takes an argument for a
+type parameter. Each states a fact about the declaration. None of them is a
+reader built from it.
 
 ```ocaml
 type Opts(host : String, port : Port = :8080, verbose : Bool = false)
@@ -1810,17 +1811,19 @@ Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
 Opts.spec    -- {verbose = "switch"}
 ```
 
-A field with a default prints bracketed, showing the default. An `Option`
-field prints bracketed, showing what the flag takes. A `Bool` field prints as
-a switch with nothing after it, and bracketed whether or not it has a
-default, since an absent one reads as `false`. Anything else is required, and
-shows its type as the placeholder.
+`T.usage` prints one flag for each field. A field with a default prints in
+brackets and shows the default. An `Option` field prints in brackets and
+shows what the flag takes. A `Bool` field prints as a switch with no value
+after it. A `Bool` field always prints in brackets, because an absent one
+reads as `false`. Every other field is required and shows its type.
 
-`T.reader` is the decoder that reads a command line rather than a document.
-For a type that is all flags it is `T.decoder`. For one that describes a
-whole command line -- a field whose type is a record, holding the flags, and
-a field that is not, holding what was written without a flag in front of it
--- it maps the two onto the one flat object `Args` builds:
+`T.reader` is the decoder that reads a command line. `T.decoder` reads a
+document. For a type that is all flags, the two are the same.
+
+A type can also describe a whole command line. Such a type has two fields.
+One field has a record type and holds the flags. The other field does not
+have a record type. It holds what was written without a flag. `T.reader`
+maps both fields onto the flat object that `Args` builds.
 
 ```ocaml
 type Flags(port : Port = :8080, verbose : Bool = false)
@@ -1830,9 +1833,11 @@ Args.read Opts.spec Opts.reader (Env.args ())
 Opts.usage   -- "[--port :8080] [--verbose] <host>"
 ```
 
-Which field is which comes from the types, not the names, so both are yours
-to call anything. The argument field's type says how many there may be, and
-the reader refuses the rest naming the field:
+The types decide which field is which. The names do not. Call both fields
+what you like.
+
+The argument field's type says how many arguments there may be. The reader
+refuses any other number. The message names the field.
 
 | the field | arguments | usage |
 |---|---|---|
@@ -1840,14 +1845,17 @@ the reader refuses the rest naming the field:
 | `host : Option String` | one or none | `[<host>]` |
 | `paths : List Path` | any number | `<paths>...` |
 
-Each is read as its own type, so `port : Port` refuses `nope` where it
-stands. A type with two record fields, or with none left for the arguments,
-has no reading and says which fields made it ambiguous.
+The reader reads each argument as its own type. An argument field of type
+`Port` refuses `nope` at once.
 
-`T.spec` is what a flag's own text cannot say: a `Bool` field is a
-`"switch"`, taking no value, and a `List` field is `"repeated"`, collecting
-rather than replacing. A field that needs neither said is left out, so the
-map is empty for a type whose flags all take one value.
+Two shapes have no reading. The first has two record fields. The second has
+no field left for the arguments. The error names the fields that made the
+shape ambiguous.
+
+`T.spec` states what the text of a flag cannot state. A `Bool` field is a
+`"switch"` and takes no value. A `List` field is `"repeated"` and collects
+values instead of replacing them. A field that needs neither statement is
+left out. The map is empty when every flag takes one value.
 
 A type with more than one constructor has neither. Name one, and the error
 says which:
@@ -2116,44 +2124,43 @@ Conf(host = "example.com")     -- port :8080, retries 3
 Conf(host = "x", port = :9000) -- retries 3
 ```
 
-A field with no default is still required, and leaving one out is the same
-type error it always was. Where every field has a default, `Conf()` builds
-one from them.
+A field with no default is still required. Leaving one out is the same type
+error as before. Where every field has a default, `Conf()` builds a value
+from them.
 
-A default is a value written out -- a literal, or a constructor applied to
-literals. It reads with nothing in scope, so it says the same thing at every
-construction that omits the field, performs no effect for a construction to
-declare, and can be printed back as written. `port : Port = pick ()` is a
-type error naming this.
+A default is a value written out. Write a literal, or a constructor applied
+to literals. wand reads a default with nothing in scope. A default therefore
+holds the same value at every construction that omits the field. It performs
+no effect, so a construction declares none. It also prints back as written.
+`port : Port = pick ()` is a type error that says this.
 
-A derived decoder reads defaults too. A field the document does not carry
-takes its default rather than failing, and a field it does carry wins:
+A derived decoder reads defaults too. A field that the document does not
+carry takes its default. A field that the document carries wins:
 
 ```ocaml
 JSON.decode Conf.decoder (JSON.parse! `{"host": "a"}`)
 -- Ok(Conf("a", :8080, 3))
 ```
 
-A document writes null where the language has nothing, and `Decode.optional`
-already reads absent and null alike, so a default answers for both.
+A document writes null where the language has nothing. `Decode.optional`
+reads absent and null alike. A default answers for both.
 
-Two types answer for themselves when a document does not carry the key, with
-or without a default. An `Option` field reads as `None`, and a `Bool` field
-as `false` -- a flag is present or absent, and those are the two types with
-a word for absent. Every other field is required, and a document without it
-is an error naming the field. A field
-with no default that the document does not carry is still an error naming
+Two types answer for themselves when a document does not carry the key. An
+`Option` field reads as `None`. A `Bool` field reads as `false`. Those are
+the two types with a word for absent. A default is not needed for either.
+
+Every other field is required. A document without one is an error that names
 the field.
 
-A default and an `Option` say different things and compose. `Option` is about
-the value -- it may be nothing. A default is about the writing -- it may be
-left out. `tag : Option String = Some("none")` is a field you can omit, and
-omitting it gives `Some("none")`, not `None`.
+A default and an `Option` state different things. They compose. `Option` is
+about the value: the value may be nothing. A default is about the writing:
+the field may be left out. So `tag : Option String = Some("none")` is a field
+you can omit. Omitting it gives `Some("none")`, not `None`.
 
 #### Puns
 
-A field whose value is already held by a name of the same spelling puns, as
-it does in a pattern:
+A field puns when a name of the same spelling already holds its value. A
+pattern puns the same way:
 
 ```ocaml
 let x = 1
@@ -2163,10 +2170,10 @@ Point(x, y)             -- Point(x = 1, y = 2)
 Point(x = 8, y)         -- Point(x = 8, y = 2)
 ```
 
-One place a pun does not reach: a bare name written *before* a named field
-is the base of an update, which is what that spelling meant first. Write
-`Point(y = 9, x)` where you want both a change and a pun. A name that is not
-the record gets told so:
+A pun does not reach one place. A bare name written *before* a named field
+is the base of an update. That spelling meant an update first. Write
+`Point(y = 9, x)` when you want both a change and a pun. A name that is not
+the record gets an error that says so:
 
 ```ocaml
 let x = 1
@@ -2210,8 +2217,8 @@ let area c =
 let just_x p = match p with | Point (x = a) -> a
 ```
 
-A field whose name is the name you want for it puns, the way a map pattern
-already does. `Pod(name, restarts)` binds `name` and `restarts` to those two
+A field puns when its name is the name you want for it. A map pattern puns
+the same way. `Pod(name, restarts)` binds `name` and `restarts` to those two
 fields:
 
 ```ocaml
@@ -2220,13 +2227,13 @@ type Pod(name : String, restarts : Int)
 let summary p = match p with | Pod(name, restarts) -> "%{name}: %{restarts}"
 ```
 
-A pun mixes with a field that carries a pattern, in any order:
-`Pod(name, restarts = 0)` matches a pod that has never restarted and binds
-its name. A name that is not one of the constructor's fields is a type error
-naming both.
+A pun mixes with a field that carries a pattern, in any order. So
+`Pod(name, restarts = 0)` matches a pod that has never restarted. It also
+binds the name. A name that is not one of the constructor's fields is a type
+error. The error names the constructor and the field.
 
-The same spelling on a constructor whose payload is a tuple is that tuple,
-which is what it has always been:
+The same spelling means the tuple on a constructor whose payload is a tuple.
+That reading has not changed:
 
 ```ocaml
 type Span (Int, Int)
@@ -2234,10 +2241,12 @@ type Span (Int, Int)
 let width s = match s with | Span(a, b) -> b - a
 ```
 
-A construction reads its bare names the same way. Which of the two a pattern
-is comes from the declaration, not from the spelling, so the space in `Pod (name, restarts)` decides nothing. A single
-name is a payload either way -- `Wrap(v)` binds what `Wrap` holds -- so
-there is nothing for a declaration to settle there.
+A construction reads its bare names the same way. The declaration decides
+which of the two readings a pattern has. The spelling does not decide it, so
+the space in `Pod (name, restarts)` decides nothing.
+
+A single name is a payload under either reading. `Wrap(v)` binds what `Wrap`
+holds. A declaration has nothing to settle there.
 
 #### Named fields in a type with several constructors
 
@@ -3581,14 +3590,14 @@ shape. Name the flags that take no value:
 Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
-Each of those is `true` when it is there, and absent when it is not, so a
+Each named flag is `true` when it is there and absent when it is not. A
 `Bool` field left out of the document reads as `false`. A flag with nothing
 after it is an error: `--config expects a value`.
 
-Whether a flag takes a value is not the only thing argv cannot say. A flag
-written twice replaces its value -- `--name a --name b` is one name, written
-twice -- unless the field is a `List`, in which case it collects. Both facts
-are in the type, and `Opts.spec` carries them together:
+Whether a flag takes a value is not the only fact that argv cannot state. A
+flag written twice replaces its value. So `--name a --name b` is one name,
+written twice. A flag whose field is a `List` collects instead. The type
+states both facts, and `Opts.spec` carries them together:
 
 ```ocaml
 type Opts(host : String, tag : List String, verbose : Bool = false)
@@ -3598,14 +3607,19 @@ Opts.spec   -- {tag = "repeated", verbose = "switch"}
 Args.read Opts.spec Opts.decoder (Env.args ())
 ```
 
-`Args.read` is `parse_with` given the whole account rather than a list of
-switches alone. A flag the spec calls repeated holds a list however many
-times it was written, including none: `[]` rather than a missing field, the
-way an absent `Bool` reads as `false`. That reading is `Args`' own -- a JSON
-document missing a key is still the error it was.
+`Args.read` is `parse_with` given the whole account. `parse_with` takes a
+list of switches alone.
 
-The usage line comes from the same type, so a flag cannot be in one and
-missing from the other:
+A flag that the spec calls repeated always holds a list. It holds one however
+many times it was written, including none. A flag written no times holds
+`[]`. It is not a missing field. An absent `Bool` reads as `false` for the
+same reason.
+
+`Args` supplies that reading. A JSON document that is missing a key is still
+the error it was.
+
+The usage line comes from the same type. A flag cannot be in the type and
+missing from the line:
 
 ```ocaml
 type Flags(port : Port = :8080, timeout : Duration = 30s, verbose : Bool = false)
@@ -3614,23 +3628,22 @@ IO.println_err "usage: probe-args %{Flags.usage} host"
 -- usage: probe-args [--port :8080] [--timeout 30s] [--verbose] host
 ```
 
-What the type does not say is the shape around the flags. Positional
-arguments arrive under `_`, and nothing marks the field that reads them, so
-the trailing `host` above is written by hand.
-[`examples/ports/probe-args.wand`](../examples/ports/probe-args.wand) is the
-whole of it.
+The type does not state the shape around the flags. Positional arguments
+arrive under `_`. Nothing marks the field that reads them. So the trailing
+`host` above is written by hand. See
+[`examples/ports/probe-args.wand`](../examples/ports/probe-args.wand).
 
-`--` ends the flags. Everything after it is positional whatever it looks
-like, which is the only way to pass an argument that begins with two dashes:
+`--` ends the flags. Everything after it is positional, whatever it looks
+like. This is the only way to pass an argument that begins with two dashes:
 
 ```ocaml
 Args.parse (Decode.field "_" (Decode.list Decode.string)) ["a", "--", "--b"]
 -- Ok(["a", "--b"])
 ```
 
-`--help` is not a flag a type declares. It is a question about the command
-line rather than a value in it, and the answer is a usage line rather than a
-record, so it is asked before the arguments are read:
+`--help` is not a flag that a type declares. It asks a question about the
+command line. It is not a value in the command line. The answer is a usage
+line, not a record. So ask it before you read the arguments:
 
 ```ocaml
 if Args.help? (Env.args ())
@@ -3638,12 +3651,16 @@ then (IO.println "usage: probe %{Flags.usage} host"; Proc.exit 0)
 else ...
 ```
 
-`Args.help?` is false after `--`, where a `--help` is an argument like any
-other. Note that `wand script.wand -- ...` already spends one `--` handing
-the rest to the script, so a script's own separator is the second one:
-`wand script.wand -- -- --weird` gives it `["--", "--weird"]`, and `--weird`
-is a positional argument. Reading a command line that asks for help without answering it first
-is an error that says so: `--help expects a value; \`Args.help?\` answers it
+`Args.help?` is false after `--`. A `--help` there is an argument like any
+other.
+
+`wand script.wand -- ...` already spends one `--` to hand the rest to the
+script. A script's own separator is therefore the second one.
+`wand script.wand -- -- --weird` gives the script `["--", "--weird"]`, and
+`--weird` is a positional argument.
+
+Reading a command line that asks for help, without answering it first, is an
+error that says so: `--help expects a value; \`Args.help?\` answers it
 instead`.
 
 Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
@@ -3689,9 +3706,9 @@ get!      : Option 'a -> 'a ! {Raise}
 to_result : 'a -> Option 'b -> Result 'a 'b
 ```
 
-`Option 'a` is a built-in generic type -- `None | Some 'a` -- so its name and
-its two constructors need no import. The module holds the functions over it,
-and calling one of those needs `import Option` like any other module.
+`Option 'a` is a built-in generic type: `None | Some 'a`. Its name and its
+two constructors need no import. The module holds the functions over it.
+Calling one of those needs `import Option`, like any other module.
 
 `Option` says that a value can be absent. `Result` says that an operation
 ran and can have failed, and it carries the reason. The two do not mix. Pipe
@@ -4212,12 +4229,14 @@ punish the safer choice.
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `A-USES2` | a file performs effects and declares no manifest |
 
-`V-IMP2` reads the file and nothing else: the import binds names, and either
-one of them is mentioned below or none is. An import also brings its module's
-types and their constructors, and which module a type came from is not in
-this file — so the rule says nothing about any import in a file that mentions
-a type or constructor it did not declare and wand does not build in. The
-fix deletes a line, and a rule that deletes cannot guess.
+`V-IMP2` reads the file and nothing else. An import binds names. Either the
+file mentions one of them below, or it mentions none.
+
+An import also brings its module's types and their constructors. This file
+does not record which module a type came from. So the rule says nothing about
+any import in a file that mentions a type or constructor that it did not
+declare and that wand does not build in. The fix deletes a line, and a rule
+that deletes cannot guess.
 
 `V-DROP1` catches a bug, not a habit:
 
@@ -4269,10 +4288,10 @@ applies. One fix can reveal another. A new binary in `Shell(...)` can reveal a
 binary that no command runs. The fixes are the `fix` payloads that `--json`
 reports: it creates a manifest, replaces one (which includes the line that the
 manifest type error suggests), deletes a dead import, and inserts a missing
-one -- `IO.println` in a file without `import IO` names the module, so the
-line it is missing is a correction rather than a hint. An inserted import
-joins the run of plain imports in the order that run is kept, above any
-destructured `let {a} = import X`, under the manifest. wand prints one line
+one. `IO.println` in a file without `import IO` names the module. The missing
+line is therefore a correction, not a hint. An inserted import goes under the
+manifest. It joins the run of plain imports, in the order that run is kept,
+above any destructured `let {a} = import X`. wand prints one line
 for each applied fix: `rule: line — what changed`. With `--json` it prints the
 applied set in the diagnostics shape. A parse error refuses the whole run, and
 so does a type error with no fix. wand writes nothing, because a fix around a

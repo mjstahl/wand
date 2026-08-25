@@ -84,18 +84,18 @@ rule was widened to cover every import in the file rather than the leading
 run.
 
 **A usage line has no program name in it.** `T.usage` covers the flags and
-the arguments, so a command line is described by its type and nothing is
-written twice. The name at the front is still a literal: `Env.args ()`
-gives the arguments only, and there is no `argv[0]` to read, so
-`probe-args.wand` writes `"usage: probe-args %{Opts.usage}"`. bash has
-`$0` and C has `argv[0]`; whether wand should have one is undecided.
+the arguments. A type therefore describes its whole command line, and
+nothing is written twice. The name at the front is still a literal.
+`Env.args ()` gives the arguments only. There is no `argv[0]` to read. So
+`probe-args.wand` writes `"usage: probe-args %{Opts.usage}"`. bash has `$0`
+and C has `argv[0]`. Whether wand should have one is undecided.
 
-**A usage line has no room for what a flag means.** It names each flag,
-brackets the ones that may be left out and shows what each default holds,
-but there is nowhere to say what `--timeout` is for. The parser already
-collects doc comments, so a comment above a field is the obvious source;
-what a multi-flag block should look like once it stops being one line is
-not.
+**A usage line has no room for what a flag means.** It names each flag. It
+brackets the ones that may be left out. It shows what each default holds.
+There is nowhere to state what `--timeout` is for. The parser already
+collects doc comments, so a comment above a field is the obvious source. The
+shape of the output is not obvious. A line of flags becomes a block once each
+one carries a description.
 
 ## The standard library
 
