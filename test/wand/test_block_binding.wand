@@ -3,7 +3,6 @@ uses {FS.Read, FS.Write}
 let {test, group} = import Test
 import FS
 import Path
-import String
 
 -- A `let` in a block binds for the rest of the block. `;` ends its
 -- right-hand side, as a newline does at the top level of a file.

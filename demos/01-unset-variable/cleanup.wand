@@ -1,9 +1,7 @@
 uses {Env, IO}
 
 import Env
-import FS
 import IO
-import Path
 
 -- The None case has to go somewhere. Here it is refusing to do anything.
 match Env.get "STAGING_DIR" with

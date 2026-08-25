@@ -43,6 +43,36 @@ let test_imp1 () =
     "let {parse} = import JSON\nlet j = parse \"1\"\n\
      let {upper} = import String\nupper \"a\""
 
+(* An import that binds nothing the file mentions. The fix deletes the line,
+   so the rule stays silent whenever it cannot account for every name -- an
+   import brings its module's types and constructors as well as the names it
+   says, and which module a type came from is not in the file. *)
+
+let test_imp2 () =
+  fires "a namespace nothing calls"
+    "uses {IO}\nimport IO\nimport List\nIO.println \"hi\""
+    "V-IMP2";
+  silent "one that is called"
+    "uses {IO}\nimport IO\nimport List\nIO.println \"%{List.length [1]}\"";
+  fires "a destructured name nothing uses"
+    "import List\nlet {test} = import Test\nList.length [1]"
+    "V-IMP2";
+  silent "one that is used"
+    "let {test} = import Test\ntest \"x\" (fn t -> t.eq 1 1)";
+  (* Naming a built-in type is reading the language, not the module that
+     used to declare it -- which is what four dead `import Option` lines in
+     the standard library were hiding behind. *)
+  fires "a module named only as a built-in type"
+    "import Option\nimport List\nlet f (x: Option Int) = x\nList.length [1]"
+    "V-IMP2";
+  (* A type this file did not declare could have come from any of its
+     imports, so none of them is reported. *)
+  silent "a file that names a type it did not declare"
+    "import Test\nimport List\ntype Run(outcome: TestOutcome)\n\
+     Run(outcome = Pass \"x\")";
+  silent "and a constructor it did not declare"
+    "import Test\nimport List\nPass \"x\""
+
 (* The civil clock steps, so the length between two readings of it is wrong
    or zero on the day it does. The rule catches the shape a script is
    written in -- save a reading, work, subtract -- as well as the inline
@@ -476,6 +506,7 @@ let () =
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;
       Alcotest.test_case "V-DROP2"  `Quick test_drop2;
       Alcotest.test_case "V-IMP1"   `Quick test_imp1;
+      Alcotest.test_case "V-IMP2"   `Quick test_imp2;
       Alcotest.test_case "V-CLOCK1" `Quick test_clock1;
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;

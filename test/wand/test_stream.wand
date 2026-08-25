@@ -5,7 +5,6 @@ let {test} = import Test
 import FS
 import Stream
 import String
-import List
 
 -- A stream reads nothing until a terminal operation runs it, and each
 -- run is a fresh enumeration.

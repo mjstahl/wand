@@ -1,5 +1,3 @@
-import Option
-
 -- What a fallible operation answered.
 --
 -- Every operation that can fail comes as a pair: the plain name answers

@@ -22,6 +22,7 @@ type id =
   | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
+  | V_IMP2     (* an import binds a name the file never mentions *)
   | V_CLOCK1   (* two readings of the civil clock subtracted: a step spoils it *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
@@ -84,6 +85,13 @@ let all = [
   { id = V_IMP1;   code = "V-IMP1";
     summary = "an imported name is rebound by a later import";
     kind = Violation };
+  (* Decidable from the file alone: the import binds names, and either one
+     of them is mentioned below or none is. Reported only when every name
+     the file mentions can be accounted for -- see `Lint` -- so what it
+     deletes is never something a type or a constructor needed. *)
+  { id = V_IMP2;   code = "V-IMP2";
+    summary = "an import binds nothing the file uses";
+    kind = Violation };
   (* The civil clock steps: NTP corrects it, an operator sets it. So the
      second reading can be earlier than the first, and the length between
      them is wrong or zero. `Clock.timed` reads a clock that no correction
@@ -140,6 +148,15 @@ let imp1 ~name ~first ~second ~line =
      '%s' reads %s's -- above that line as well as below it; drop this \
      import, or rename one binding ({%s = other_name})"
     name first second line name second name
+
+let imp2 ~what ~names =
+  Printf.sprintf
+    "nothing in this file uses %s, so the import does nothing; %s"
+    what
+    (match names with
+     | [n] -> Printf.sprintf "'%s' is never mentioned below" n
+     | ns -> Printf.sprintf "none of %s is mentioned below"
+               (String.concat ", " (List.map (fun n -> "'" ^ n ^ "'") ns)))
 
 let clock1 =
   "this measures a length of time by subtracting two readings of the civil \

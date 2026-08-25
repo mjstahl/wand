@@ -195,6 +195,158 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
   go e;
   List.rev !acc
 
+(* Every name a file mentions, for the rule that reports an import nothing
+   uses. The match is exhaustive on purpose: a node this forgets is a name
+   it does not see, and the finding deletes a line, so a miss is a deleted
+   import that was needed. Adding a node to the AST without adding it here
+   is a compile error. *)
+let rec names_of_expr (e : Ast.expr) : string list =
+  let of_list es = List.concat_map names_of_expr es in
+  match e with
+  | Ast.Var n | Ast.Constr n -> [n]
+  (* `IO.println`: the head is the namespace, the label is its member. *)
+  | Ast.Field (e, label) -> label :: names_of_expr e
+  | Ast.Int _ | Ast.Float _ | Ast.String _ | Ast.Bool _ | Ast.Unit
+  | Ast.Path _ | Ast.Glob _ | Ast.DateTime _ | Ast.Duration _ | Ast.URL _
+  | Ast.IPv4 _ | Ast.CIDR _ | Ast.Port _ | Ast.Version _ | Ast.Size _
+  | Ast.EnvVar _ | Ast.Hole | Ast.RegexLit _ | Ast.RawString _ -> []
+  | Ast.ImportExpr _ -> []
+  | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) ->
+    names_of_expr a @ names_of_expr b
+  | Ast.UnOp (_, a) | Ast.Located (_, a) | Ast.Try a
+  | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) -> names_of_expr a
+  | Ast.Annot (te, a) -> names_of_type_expr te @ names_of_expr a
+  | Ast.Fn (ps, a) -> List.concat_map names_of_pat ps @ names_of_expr a
+  | Ast.Let (p, a, b, _) ->
+    names_of_pat p @ names_of_expr a @ names_of_expr b
+  | Ast.LetRec (bs, b, _) ->
+    List.concat_map (fun (_, ps, x) ->
+      List.concat_map names_of_pat ps @ names_of_expr x) bs
+    @ names_of_expr b
+  | Ast.If (c, t, f) -> of_list [c; t; f]
+  | Ast.Match (s, cases) ->
+    names_of_expr s
+    @ List.concat_map (fun (p, g, b) ->
+        names_of_pat p
+        @ (match g with Some g -> names_of_expr g | None -> [])
+        @ names_of_expr b) cases
+  | Ast.Tuple es | Ast.List es -> of_list es
+  | Ast.MapLit kvs -> of_list (List.map snd kvs)
+  | Ast.ConstrApp (c, kvs) -> c :: of_list (List.map snd kvs)
+  | Ast.ConstrUpdate (c, base, kvs) ->
+    c :: names_of_expr base @ of_list (List.map snd kvs)
+  | Ast.ConstrBare (c, ids) -> c :: ids
+  | Ast.Contract (reqs, ens, body) -> of_list (reqs @ ens @ [body])
+  | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
+    of_list (List.map snd parts)
+  | Ast.CmdInterp (parts, _) -> of_list (List.map (fun (_, e, _) -> e) parts)
+  | Ast.Handle (b, cases) ->
+    names_of_expr b
+    @ List.concat_map (function
+        | Ast.ReturnCase (p, x) -> names_of_pat p @ names_of_expr x
+        | Ast.EffectCase (op, p, _, x) ->
+          op :: names_of_pat p @ names_of_expr x) cases
+  | Ast.With (r, p, b) -> names_of_expr r @ names_of_pat p @ names_of_expr b
+
+and names_of_pat (p : Ast.pat) : string list =
+  match p with
+  | Ast.PConstr (c, ps) -> c :: List.concat_map names_of_pat ps
+  | Ast.PConstrNamed (c, kvs) -> c :: List.concat_map (fun (_, p) -> names_of_pat p) kvs
+  | Ast.PConstrBare (c, _) -> [c]
+  | Ast.PTuple ps | Ast.PList ps -> List.concat_map names_of_pat ps
+  | Ast.PCons (h, t) -> names_of_pat h @ names_of_pat t
+  | Ast.PMap kvs -> List.concat_map (fun (_, p) -> names_of_pat p) kvs
+  | Ast.PAnnot (p, te) -> names_of_pat p @ names_of_type_expr te
+  (* A binder introduces a name rather than using one, so it contributes
+     nothing: an import is not kept alive by something else shadowing it. *)
+  | _ -> []
+
+and names_of_type_expr (te : Ast.type_expr) : string list =
+  match te with
+  | Ast.TEName n -> [n]
+  | Ast.TEVar _ -> []
+  | Ast.TEApp (a, b) -> names_of_type_expr a @ names_of_type_expr b
+  | Ast.TETuple ts -> List.concat_map names_of_type_expr ts
+  | Ast.TEFun (a, b, _) -> names_of_type_expr a @ names_of_type_expr b
+
+let names_of_item (item : Ast.top_item) : string list =
+  match item with
+  | Ast.TLExpr e -> names_of_expr e
+  | Ast.TLLet (_, ps, body) ->
+    List.concat_map names_of_pat ps @ names_of_expr body
+  | Ast.TLLetRec bs ->
+    List.concat_map (fun (_, ps, b) ->
+      List.concat_map names_of_pat ps @ names_of_expr b) bs
+  | Ast.TLLetPat (p, body) -> names_of_pat p @ names_of_expr body
+  | Ast.TLType (tdef, _) ->
+    (match tdef with
+     | Ast.Alias (_, _, te) -> names_of_type_expr te
+     | Ast.Variants (_, _, ctors) ->
+       List.concat_map (fun c ->
+         List.concat_map (fun (_, te) -> names_of_type_expr te) c.Ast.fields
+         @ List.concat_map (fun (_, d) -> names_of_expr d) c.Ast.defaults) ctors)
+  | Ast.TLImport _ -> []
+
+(* The names an item mentions in type position, which is what tells a type
+   named in a signature from a namespace called in an expression. *)
+let names_of_item_types (item : Ast.top_item) : string list =
+  let rec te_of_expr (e : Ast.expr) =
+    match e with
+    | Ast.Annot (te, a) -> names_of_type_expr te @ te_of_expr a
+    | Ast.Located (_, a) | Ast.UnOp (_, a) | Ast.Try a
+    | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) -> te_of_expr a
+    | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> te_of_expr a @ te_of_expr b
+    | Ast.Fn (ps, a) -> List.concat_map te_of_pat ps @ te_of_expr a
+    | Ast.Let (p, a, b, _) -> te_of_pat p @ te_of_expr a @ te_of_expr b
+    | Ast.LetRec (bs, b, _) ->
+      List.concat_map (fun (_, ps, x) -> List.concat_map te_of_pat ps @ te_of_expr x) bs
+      @ te_of_expr b
+    | Ast.If (c, t, f) -> te_of_expr c @ te_of_expr t @ te_of_expr f
+    | Ast.Match (s, cases) ->
+      te_of_expr s
+      @ List.concat_map (fun (p, g, b) ->
+          te_of_pat p @ (match g with Some g -> te_of_expr g | None -> []) @ te_of_expr b)
+          cases
+    | Ast.Tuple es | Ast.List es -> List.concat_map te_of_expr es
+    | Ast.MapLit kvs -> List.concat_map (fun (_, v) -> te_of_expr v) kvs
+    | Ast.ConstrApp (_, kvs) -> List.concat_map (fun (_, v) -> te_of_expr v) kvs
+    | Ast.ConstrUpdate (_, b, kvs) ->
+      te_of_expr b @ List.concat_map (fun (_, v) -> te_of_expr v) kvs
+    | Ast.Contract (reqs, ens, body) ->
+      List.concat_map te_of_expr (reqs @ ens @ [body])
+    | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
+      List.concat_map (fun (_, e) -> te_of_expr e) parts
+    | Ast.CmdInterp (parts, _) -> List.concat_map (fun (_, e, _) -> te_of_expr e) parts
+    | Ast.Handle (b, cases) ->
+      te_of_expr b
+      @ List.concat_map (function
+          | Ast.ReturnCase (p, x) -> te_of_pat p @ te_of_expr x
+          | Ast.EffectCase (_, p, _, x) -> te_of_pat p @ te_of_expr x) cases
+    | Ast.With (r, p, b) -> te_of_expr r @ te_of_pat p @ te_of_expr b
+    | _ -> []
+  and te_of_pat (p : Ast.pat) =
+    match p with
+    | Ast.PAnnot (p, te) -> te_of_pat p @ names_of_type_expr te
+    | Ast.PTuple ps | Ast.PList ps | Ast.PConstr (_, ps) -> List.concat_map te_of_pat ps
+    | Ast.PCons (h, t) -> te_of_pat h @ te_of_pat t
+    | Ast.PConstrNamed (_, kvs) | Ast.PMap kvs ->
+      List.concat_map (fun (_, p) -> te_of_pat p) kvs
+    | _ -> []
+  in
+  match item with
+  | Ast.TLExpr e -> te_of_expr e
+  | Ast.TLLet (_, ps, body) -> List.concat_map te_of_pat ps @ te_of_expr body
+  | Ast.TLLetRec bs ->
+    List.concat_map (fun (_, ps, b) -> List.concat_map te_of_pat ps @ te_of_expr b) bs
+  | Ast.TLLetPat (p, body) -> te_of_pat p @ te_of_expr body
+  | Ast.TLType (tdef, _) ->
+    (match tdef with
+     | Ast.Alias (_, _, te) -> names_of_type_expr te
+     | Ast.Variants (_, _, ctors) ->
+       List.concat_map (fun c ->
+         List.concat_map (fun (_, te) -> names_of_type_expr te) c.Ast.fields) ctors)
+  | Ast.TLImport _ -> []
+
 (* `own_env` holds the program's own top-level bindings, already inferred, so
    the type-directed rules read what the checker concluded rather than
    re-deriving it. *)
@@ -225,6 +377,50 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
     | Ast.UserPath p     -> p
   in
   let imports_seen : (string * (Token.loc * string)) list ref = ref [] in
+  (* Every name the file mentions anywhere below its imports. An import is
+     reported only when none of the names it binds is in here. *)
+  let mentioned = List.concat_map names_of_item prog.Ast.items in
+  (* Naming a type is not using the module it came from when the type is
+     built in: `Option String` in a signature reads the language, not
+     `import Option`. Kept apart so that import can be reported dead, which
+     is what four of them in the standard library became when `Option`
+     stopped needing one. *)
+  let mentioned_as_value =
+    List.concat_map (fun item ->
+      let types = names_of_item_types item in
+      List.filter (fun n ->
+        not (List.mem n types) || not (Typechecker.builtin_type_name n))
+        (names_of_item item)) prog.Ast.items
+  in
+  (* An import brings its module's types and their constructors as well as
+     the names it says, and which module a type came from is not in this
+     file. So the rule stays silent about the whole file when it mentions a
+     type or constructor it did not declare and wand does not build in: that
+     name may be the only reason an import is there, and a fix that deletes
+     lines cannot guess. *)
+  let declared_here =
+    List.concat_map (function
+      | Ast.TLType (Ast.Variants (n, _, ctors), _) ->
+        n :: List.map (fun c -> c.Ast.name) ctors
+      | Ast.TLType (Ast.Alias (n, _, _), _) -> [n]
+      | _ -> []) prog.Ast.items
+  in
+  let is_upper n = n <> "" && n.[0] >= 'A' && n.[0] <= 'Z' in
+  let namespace_names =
+    List.filter_map (function
+      | Ast.TLImport k -> Some (Module_types.namespace_name_of k)
+      | Ast.TLLet (n, [], b) when Option.is_some (Module_types.import_kind_of b) -> Some n
+      | _ -> None) prog.Ast.items
+  in
+  let unattributable =
+    List.exists (fun n ->
+      is_upper n
+      && not (List.mem n declared_here)
+      && not (List.mem n namespace_names)
+      && not (Typechecker.builtin_type_name n)
+      && not (List.mem n ["Ok"; "Error"; "Some"; "None"; "true"; "false"]))
+      mentioned
+  in
   List.iteri (fun i (item : Ast.top_item) ->
     (* An item-level finding marks the whole item, first token to last. *)
     let loc =
@@ -258,6 +454,28 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
           imports_seen := (n, (loc, this)) :: List.remove_assoc n !imports_seen
         ) names
     end;
+    (* An import that binds nothing the file mentions. *)
+    (match item with
+     | _ when unattributable -> ()
+     | Ast.TLImport k ->
+       let n = Module_types.namespace_name_of k in
+       if not (List.mem n mentioned_as_value) then
+         add ~fix:DeleteLine Lint_rules.V_IMP2 loc
+           (Lint_rules.imp2 ~what:(import_display k) ~names:[n])
+     | Ast.TLLet (n, [], body) when Option.is_some (Module_types.import_kind_of body) ->
+       if not (List.mem n mentioned) then
+         add ~fix:DeleteLine Lint_rules.V_IMP2 loc
+           (Lint_rules.imp2
+              ~what:(import_display (Option.get (Module_types.import_kind_of body)))
+              ~names:[n])
+     | Ast.TLLetPat (pat, body) when Option.is_some (Module_types.import_kind_of body) ->
+       let names = pat_names pat in
+       if names <> [] && not (List.exists (fun n -> List.mem n mentioned) names) then
+         add ~fix:DeleteLine Lint_rules.V_IMP2 loc
+           (Lint_rules.imp2
+              ~what:(import_display (Option.get (Module_types.import_kind_of body)))
+              ~names)
+     | _ -> ());
     match item with
     | Ast.TLLet (name, params, body) ->
       (match Option.bind (List.assoc_opt name own_env) type_of_scheme with

@@ -4205,11 +4205,19 @@ punish the safer choice.
 | `V-DROP1` | a statement's value is a `Result` nothing reads, so a failure is lost |
 | `V-DROP2` | a statement's value is a `TestOutcome` nothing reads, so the test cannot fail |
 | `V-IMP1` | two imports bind the same name, so the first binding is dead — every use reads the second, above its line as well as below — rename one (`let {parse = csv_parse} = import CSV`) or drop it |
+| `V-IMP2` | an import binds nothing the file mentions, so it does nothing — drop the line |
 | `V-CLOCK1` | a length of time is measured by subtracting two readings of `Clock.now`, which a clock step spoils — wrap the work in `Clock.timed` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `A-USES2` | a file performs effects and declares no manifest |
+
+`V-IMP2` reads the file and nothing else: the import binds names, and either
+one of them is mentioned below or none is. An import also brings its module's
+types and their constructors, and which module a type came from is not in
+this file — so the rule says nothing about any import in a file that mentions
+a type or constructor it did not declare and wand does not build in. The
+fix deletes a line, and a rule that deletes cannot guess.
 
 `V-DROP1` catches a bug, not a habit:
 
@@ -4294,7 +4302,7 @@ object. A manifest suggestion carries the exact line:
 ```
 
 `A-USES1` and the manifest type error carry `fix.replace_line` instead.
-`V-IMP1` carries `"fix":{"delete_line":true}`. A drift error whose correction
+`V-IMP1` and `V-IMP2` carry `"fix":{"delete_line":true}`. A drift error whose correction
 is one substitution carries `"fix":{"replace":{"from":"and","to":"&&"}}`. A
 typed hole has a shape of its own:
 

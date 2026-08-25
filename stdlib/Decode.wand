@@ -24,8 +24,6 @@
 -- Decoding is pure. Reading the document is the caller's job, and already
 -- says so in the caller's signature.
 
-import Option
-
 -- Read a number. `int` requires a whole one; `float` accepts either, since
 -- a whole number in a document is an Int to the parser and a Float to
 -- whoever wrote it.

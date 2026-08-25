@@ -95,10 +95,11 @@ let test_import_inserted () =
   Alcotest.(check (list string)) "one E-TYPE" ["E-TYPE"] (codes applied)
 
 let test_import_joins_the_run () =
-  let (fixed, _) =
-    fix "import IO\nimport Path\n\nlet n = List.length [Path.of_string \"a\"]\nn\n" in
+  let src =
+    "uses {IO}\nimport IO\nimport Path\n\n     let n = List.length [Path.of_string \"a\"]\nIO.println \"%{n}\"\n" in
+  let (fixed, _) = fix src in
   Alcotest.(check string) "in the order the run is kept"
-    "import IO\nimport List\nimport Path\n\nlet n = List.length [Path.of_string \"a\"]\nn\n"
+    "uses {IO}\nimport IO\nimport List\nimport Path\n\n     let n = List.length [Path.of_string \"a\"]\nIO.println \"%{n}\"\n"
     fixed
 
 let test_import_before_destructured () =

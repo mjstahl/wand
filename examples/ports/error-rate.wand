@@ -2,7 +2,6 @@ uses {IO, Proc}
 
 import Float
 import IO
-import List
 import Proc
 import Regex
 import Stream

@@ -1,8 +1,6 @@
 uses {Env}
 
-import Test
 let {test} = import Test
-import String
 import List
 import Env
 

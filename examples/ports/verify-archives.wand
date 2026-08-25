@@ -6,7 +6,6 @@ import List
 import Par
 import Path
 import Proc
-import Shell
 import String
 
 -- Check every archive's checksum at once, and say which ones failed.

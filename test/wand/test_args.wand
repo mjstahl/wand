@@ -1,7 +1,6 @@
 let {test} = import Test
 import Args
 import Decode
-import List
 import String
 
 -- Reading a command line with a decoder.

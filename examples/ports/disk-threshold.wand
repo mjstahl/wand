@@ -2,7 +2,6 @@ uses {IO, Shell(df)}
 
 import IO
 import List
-import Option
 import String
 
 -- Which filesystems are fuller than a threshold.

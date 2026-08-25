@@ -3,7 +3,6 @@ import Decode
 import JSON
 import CSV
 import Map
-import Option
 import Shell
 import String
 import TOML

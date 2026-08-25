@@ -1,8 +1,6 @@
 let {test} = import Test
 import Decode
 import JSON
-import Map
-import Option
 
 -- A single-constructor type whose fields are named already says what a
 -- decoder for it would do: the field names, and what each one holds. So

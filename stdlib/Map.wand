@@ -1,4 +1,3 @@
-import Option
 import Result
 
 -- An empty map. `{}` is the same value written as a literal.
