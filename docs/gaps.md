@@ -65,13 +65,6 @@ have to change before anyone builds them.
 
 ## The language
 
-**An effect in a module's top-level binding dies unhandled.** An import
-evaluates a file's bindings, and it does so with no handler in scope, so
-`let greeting = $(hostname)` at the top of an imported module ends the
-program with `Unhandled(WandEffect ...)` rather than a wand error naming
-the file. Work belongs in a function that the script's last line calls;
-that runs when the file is the script and not when it is imported.
-
 **A bare `None` still has to be bracketed.** Parentheses after a
 constructor are its payload, whatever its arity, so `t.eq None (usage row)`
 reads as `t.eq (None (usage row))` and `(None)` is the way to write it.
@@ -108,6 +101,18 @@ There is nowhere to state what `--timeout` is for. The parser already
 collects doc comments, so a comment above a field is the obvious source. The
 shape of the output is not obvious. A line of flags becomes a block once each
 one carries a description.
+
+**The bound on nested calls is a count, not the stack.** A call with work
+waiting on it keeps a frame, so nesting without end runs out of stack, and
+OCaml's `Stack overflow` cannot be caught here: a handler that matches it --
+even one whose guard rejects it -- hangs rather than unwinds, because the
+guard runs on the stack that just ran out. So the depth is bounded before
+the stack goes. The bound is a fixed count and the stack it stands in for is
+not: the default holds millions of frames, and a run under
+`OCAMLRUNPARAM=l=...` or a small `ulimit -s` holds far fewer, where the
+bound never fires and the fatal comes back. `WAND_MAX_CALL_DEPTH` lowers it
+to suit. Reading the stack's real headroom is what would close this, and it
+is platform work.
 
 ## The standard library
 

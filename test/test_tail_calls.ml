@@ -120,6 +120,58 @@ let test_loc_inside_a_deep_tail_recursion () =
   at "import List\nlet deep n = if n == 0 then List.head! [] else deep (n - 1)\ndeep 5000\n"
     "2:29" "inside a tail recursion"
 
+(* ── The bound on the other path ─────────────────────────────────────────── *)
+
+(* A call with work waiting on it keeps a frame, so nesting them without end
+   used to exhaust the stack and end the run with OCaml's own "Fatal error:
+   exception Stack overflow" -- which cannot be caught here: a handler that
+   matches it, even one whose guard rejects it, hangs rather than unwinds,
+   because the guard runs on the stack that just ran out. So the depth is
+   bounded before the stack goes, and the reader gets an error instead.
+
+   The bound is read from the environment, which is what lets these run in
+   a hundredth of a second rather than the half-minute the real ceiling
+   takes to reach. *)
+let says needle hay =
+  let n = String.length needle and m = String.length hay in
+  let rec at i = i + n <= m && (String.sub hay i n = needle || at (i + 1)) in
+  at 0
+
+let low_cap = "WAND_MAX_CALL_DEPTH=1000"
+
+let nests_too_deep = "let f n = if n == 0 then 0 else 1 + f (n - 1)\nf 5000\n"
+
+let test_deep_nesting_is_an_error () =
+  let (code, out) = run ~env:low_cap nests_too_deep in
+  Alcotest.(check int) "refused rather than fatal" 1 code;
+  Alcotest.(check bool) "and says which position runs to any depth" true
+    (says "only a call in tail position" out);
+  Alcotest.(check bool) "never OCaml's own" false
+    (says "Fatal error" out)
+
+(* Neither function calls itself, so a message about self-recursion would be
+   about the wrong thing. The bound counts nesting, not who is nested in. *)
+let test_mutual_recursion_is_bounded () =
+  let (code, out) = run ~env:low_cap
+    "let f n = 1 + g (n + 1) and\n    g n = 1 + f (n + 1)\nf 1\n" in
+  Alcotest.(check int) "refused rather than fatal" 1 code;
+  Alcotest.(check bool) "never OCaml's own" false
+    (says "Fatal error" out)
+
+(* The whole point of bounding `apply` and not `apply_tail`: a tail call
+   keeps no frame, so no bound applies to it however low the bound is. *)
+let test_the_bound_exempts_tail_calls () =
+  let (code, out) = run ~env:low_cap (loop 200_000) in
+  Alcotest.(check int) "200k tail calls under a bound of 1000" 0 code;
+  Alcotest.(check string) "and the answer is right" "200000" out
+
+(* The same script the bound refuses runs when the bound is not in its way,
+   so what the tests above pin is the bound and not the script. *)
+let test_the_default_bound_allows_it () =
+  let (code, out) = run nests_too_deep in
+  Alcotest.(check int) "runs under the default bound" 0 code;
+  Alcotest.(check string) "and the answer is right" "5000" out
+
 let () =
   Alcotest.run "tail calls" [
     "a tail call does not grow the stack", [
@@ -127,6 +179,16 @@ let () =
       Alcotest.test_case "through an if"    `Quick test_tail_call_through_if;
       Alcotest.test_case "through a match"  `Quick test_tail_call_through_match;
       Alcotest.test_case "through a block"  `Quick test_tail_call_through_block;
+    ];
+    "nesting without end is refused, not fatal", [
+      Alcotest.test_case "deep nesting is an error" `Quick
+        test_deep_nesting_is_an_error;
+      Alcotest.test_case "mutual recursion too"     `Quick
+        test_mutual_recursion_is_bounded;
+      Alcotest.test_case "tail calls are exempt"    `Quick
+        test_the_bound_exempts_tail_calls;
+      Alcotest.test_case "and the default allows it" `Quick
+        test_the_default_bound_allows_it;
     ];
     "an error still says where it happened", [
       Alcotest.test_case "after a call returns" `Quick test_loc_after_a_call_returns;

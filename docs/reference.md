@@ -4205,10 +4205,24 @@ script that imports a module with 200 definitions goes from 16.5 ms to
 | `WAND_CACHE_HOME` | the cache directory itself |
 | `XDG_CACHE_HOME` | a parent for it; wand uses `$XDG_CACHE_HOME/wand` |
 | `WAND_STDLIB` | a standard library to use instead of the built-in one |
+| `WAND_MAX_CALL_DEPTH` | how deep calls may nest before a run is refused (default 1,000,000) |
 
 The cache goes in the first of these that is set: `WAND_CACHE_HOME`, then
 `$XDG_CACHE_HOME/wand`, then `~/.cache/wand`. On Windows it goes in
 `%LOCALAPPDATA%\wand\cache`, because Windows keeps nothing in `~/.cache`.
+
+A call with work waiting on it keeps a stack frame; a call in tail position
+does not. So a tail-recursive loop runs to any depth, and nesting calls
+without end runs out of stack. That used to end the run with OCaml's own
+`Fatal error: exception Stack overflow`, which cannot be caught: a handler
+that matches it hangs rather than unwinds, because the handler's own guard
+runs on the stack that just ran out. wand bounds the depth instead, and
+refuses with an error a script can catch.
+
+The default bound is above what any measured run reaches. Lower it when the
+stack is smaller than the default -- under `OCAMLRUNPARAM=l=...`, or a small
+`ulimit -s` -- because a bound above what the stack can carry never fires
+and the fatal comes back.
 
 The standard library is compiled into the binary. So wand runs the same way
 from any directory, and a `stdlib/` folder is only a folder. `WAND_STDLIB`

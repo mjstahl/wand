@@ -607,10 +607,33 @@ let request_interrupt code = Atomic.set interrupt_requested code
 
    Read only when an error is being reported. Until then it is written and
    never looked at. *)
-type loc_cell = { mutable at_line : int; mutable at_col : int }
+type loc_cell =
+  { mutable at_line : int; mutable at_col : int; mutable depth : int }
 
 let current_loc : loc_cell Domain.DLS.key =
-  Domain.DLS.new_key (fun () -> { at_line = 0; at_col = 0 })
+  Domain.DLS.new_key (fun () -> { at_line = 0; at_col = 0; depth = 0 })
+
+(* A call left with work to do after it returns keeps a frame; one in tail
+   position does not. So this bounds `apply` and never `apply_tail`, and a
+   loop written tail-recursively still runs however long it runs.
+
+   The bound exists because the alternative is OCaml's own `Stack overflow`,
+   which cannot be caught here: on this runtime a handler that matches it --
+   even one whose guard rejects it -- hangs instead of unwinding, because the
+   guard runs on the stack that just ran out. Refusing before the stack is
+   gone is the only way the reader gets an error they can read. *)
+(* Read once, so the check itself is an integer compare and not a lookup.
+   Settable because the ceiling it stands in for is not fixed: the default
+   stack holds millions of frames, and a run under `OCAMLRUNPARAM=l=...` or
+   a small `ulimit -s` holds far fewer. A bound above what the stack can
+   carry never fires, and the fatal it exists to prevent comes back. Lower
+   it to suit the stack the run actually has. *)
+let max_call_depth =
+  match Sys.getenv_opt "WAND_MAX_CALL_DEPTH" with
+  | Some s -> (match int_of_string_opt s with
+               | Some n when n > 0 -> n
+               | _ -> 1_000_000)
+  | None -> 1_000_000
 
 (* The position an error is reported at is the innermost `Located` still
    being evaluated. That is what the cell holds, provided every construct
@@ -638,7 +661,11 @@ let stamp_loc msg =
 let forget_loc () =
   let c = loc_cell () in
   c.at_line <- 0;
-  c.at_col <- 0
+  c.at_col <- 0;
+  (* Statements are evaluated one after another at depth zero. Resetting
+     here keeps a session from inheriting a count that an error unwound
+     past. *)
+  c.depth <- 0
 
 let interrupt_taken = Domain.DLS.new_key (fun () -> ref false)
 
@@ -1716,7 +1743,14 @@ and apply vf vx =
      `apply_tail` is the same call with nothing to come back to. *)
   let c = loc_cell () in
   let line = c.at_line and col = c.at_col in
-  let v = apply_tail vf vx in
+  if c.depth >= max_call_depth then
+    raise (EvalError
+      "too many nested calls -- only a call in tail position runs to any \
+       depth; carry the result in an argument instead of waiting on the \
+       call");
+  c.depth <- c.depth + 1;
+  let v = (try apply_tail vf vx with e -> c.depth <- c.depth - 1; raise e) in
+  c.depth <- c.depth - 1;
   c.at_line <- line;
   c.at_col  <- col;
   v

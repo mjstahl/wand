@@ -2,7 +2,37 @@
 
 ## [Unreleased]
 
+### Added
+
+- `WAND_MAX_CALL_DEPTH`, how deep calls may nest before a run is refused.
+  Default 1,000,000, which a runaway reaches in under two seconds. The cost
+  of reaching it is quadratic in the depth, not linear -- the frames are
+  live roots and every minor collection rescans them -- so a bound five
+  times higher is nineteen times the wait, not five. Lower it when the
+  stack is smaller than the default -- under `OCAMLRUNPARAM=l=...` or a
+  small `ulimit -s` -- because a bound above what the stack can carry never
+  fires; raise it for a script that genuinely nests deeper
+
 ### Fixed
+
+- **An effect in an imported module's top-level binding runs.** `let
+  greeting = $(hostname)` at the top of a module ended the program with
+  OCaml's `Unhandled(WandEffect ...)`. The cause was ordering, not policy:
+  imports were evaluated before the handler was installed, in every run
+  path. The module's bindings now run under the handler a script's own body
+  runs under. Manifests are unchanged -- a module whose `uses` is narrower
+  than what it does is still refused
+- **Nesting calls without end is an error, not a fatal.** It ended the run
+  with OCaml's `Fatal error: exception Stack overflow`. That cannot be
+  caught here: a handler that matches it, even one whose guard rejects it,
+  hangs rather than unwinds, because the guard runs on the stack that just
+  ran out. The depth is bounded before the stack goes, and the refusal is a
+  wand error a script can catch. Only `apply` is bounded and never
+  `apply_tail`, so a tail-recursive loop still runs to any depth
+- An operation with no handler comes back as a wand error naming it, rather
+  than as OCaml's `Effect.Unhandled` printed raw. The handler's cases end in
+  a fallthrough, so an unknown name or a payload of the wrong shape reached
+  it
 
 - An expression that answers Unit without performing anything prints its
   answer. `()` was silent, and so were `let u = () in u` and `if c then ()

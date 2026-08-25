@@ -557,7 +557,18 @@ let broken_pipe msg =
 
 let pipe_closed = Evaluator.Interrupted 141
 
+(* The cases below end in `_ -> None`, so an operation this handler does not
+   recognise -- an unknown name, or a payload of the wrong shape -- falls
+   through to OCaml's own `Effect.Unhandled` and ends the program with a
+   fatal error naming an internal constructor. That is wand's bug to report,
+   not the reader's to decode, so it comes back as a wand error like any
+   other and the caller that already renders `EvalError` renders this too. *)
+let unhandled_operation name =
+  EvalError (Printf.sprintf
+    "no handler for '%s' -- this is a bug in wand, not in the script" name)
+
 let run_with_default_handler (thunk : unit -> value) : value =
+  try
   Effect.Deep.match_with thunk ()
     { Effect.Deep.
         retc = (fun v -> v);
@@ -859,6 +870,8 @@ let run_with_default_handler (thunk : unit -> value) : value =
                 Effect.Deep.discontinue k e)
           | _ -> None
     }
+  with Effect.Unhandled (WandEffect (name, _)) ->
+    raise (unhandled_operation name)
 
 (* ── Import resolution ────────────────────────────────────────────────────── *)
 
@@ -1340,7 +1353,21 @@ and load_module src_ref ~cache ~loading =
           itself is fixed by this point, and every name the module goes on to
           look up sits in front of it. *)
        let base = index_env (stdlib_eval_env @ imported.eval_env) in
-       let full_eval = fold_items (run_item ~modul:path) base prog.Ast.items in
+       (* Under the same handler a script's own body runs under. An import
+          evaluates the module's bindings, and `let greeting = $(hostname)`
+          at the top of one is work like any other -- it used to reach an
+          empty handler stack and end the program with OCaml's own
+          `Effect.Unhandled`, because the load happened before the handler
+          went in rather than because the effect was not allowed. The
+          manifest still decides what a module may do; this decides only
+          that it is asked. *)
+       let full_eval =
+         let out = ref base in
+         ignore (run_with_default_handler (fun () ->
+           out := fold_items (run_item ~modul:path) base prog.Ast.items;
+           VUnit));
+         !out
+       in
        let n_own = List.length full_eval - List.length base in
        let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
          |> List.filter (fun (n, _) -> not (is_private n)) in
