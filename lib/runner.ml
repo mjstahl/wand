@@ -377,7 +377,7 @@ let exec_command_full cmd = capture cmd
 let exec_command_full_stdin cmd stdin = capture ~stdin cmd
 
 let shell_result stdout stderr code =
-  VConstr ("ShellResult", [VString stdout; VString stderr; VInt code])
+  VConstr (Ctor.Builtin "ShellResult", [VString stdout; VString stderr; VInt code])
 
 (* ── Rehearsal and tracing ────────────────────────────────────────────────── *)
 
@@ -958,12 +958,16 @@ let run_item env item =
      | _ -> Hashtbl.remove Evaluator.derivable tname);
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
-      Hashtbl.replace Evaluator.constr_fields ctor.Ast.name field_names;
-      Hashtbl.replace Evaluator.constr_defaults ctor.Ast.name ctor.Ast.defaults;
+      (* Step 1 gives every declaration the same identity it had: its bare
+         name. Which module owns it is what step 2 records. *)
+      let ident = Ctor.Local ctor.Ast.name in
+      Hashtbl.replace Evaluator.constr_fields ident field_names;
+      Hashtbl.replace Evaluator.constr_defaults ident ctor.Ast.defaults;
+      Evaluator.register_ctor ident;
       Evaluator.forget_ctor_env ();
       let v = match ctor.Ast.fields with
-        | [] -> VConstr (ctor.Ast.name, [])
-        | fs -> VPartialConstr (ctor.Ast.name, List.length fs, [])
+        | [] -> VConstr (ident, [])
+        | fs -> VPartialConstr (ident, List.length fs, [])
       in
       (ctor.Ast.name, v) :: env
     ) env ctors
@@ -1509,11 +1513,11 @@ let run_test_program ~base_dir ?(item_locs = []) prog
           in
           let with_path path s = String.concat " / " (path @ [s]) in
           let rec collect path v = match v with
-            | VConstr ("Pass", [VString label]) ->
+            | VConstr (Ctor.Local "Pass", [VString label]) ->
               outcomes := !outcomes @ [TPass (with_path path label)]
-            | VConstr ("Fail", [VString msg]) ->
+            | VConstr (Ctor.Local "Fail", [VString msg]) ->
               outcomes := !outcomes @ [TFail (with_path path msg)]
-            | VConstr ("Suite", [VString label; VList children]) ->
+            | VConstr (Ctor.Local "Suite", [VString label; VList children]) ->
               List.iter (collect (path @ [label])) children
             | _ -> ()
           in
@@ -1868,13 +1872,15 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLType (Ast.Alias _, _) -> ()
             | Ast.TLType (Ast.Variants (_, _, ctors), _) ->
               List.iter (fun ctor ->
-                Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
-                Hashtbl.replace constr_defaults ctor.Ast.name ctor.Ast.defaults;
+                let ident = Ctor.Local ctor.Ast.name in
+                Hashtbl.replace constr_fields ident (List.map fst ctor.Ast.fields);
+                Hashtbl.replace constr_defaults ident ctor.Ast.defaults;
+                register_ctor ident;
                 forget_ctor_env ();
                 env_ref := (ctor.Ast.name,
                   match ctor.Ast.fields with
-                  | [] -> VConstr (ctor.Ast.name, [])
-                  | _  -> VPartialConstr (ctor.Ast.name, List.length ctor.Ast.fields, [])
+                  | [] -> VConstr (ident, [])
+                  | _  -> VPartialConstr (ident, List.length ctor.Ast.fields, [])
                 ) :: !env_ref
               ) ctors
             | Ast.TLExpr e ->

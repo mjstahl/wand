@@ -2,20 +2,35 @@ open Ast
 
 (* ── Constructor field name registry ─────────────────────────────────────── *)
 
-let constr_fields : (string, string option list) Hashtbl.t = Hashtbl.create 16
+let constr_fields : (Ctor.t, string option list) Hashtbl.t = Hashtbl.create 16
 
 (* The defaults a constructor declares, by field name. A construction that
    leaves a field out takes its value from here, and so does a derived
    decoder reading a document with nothing under that name. *)
-let constr_defaults : (string, (string * Ast.expr) list) Hashtbl.t =
+let constr_defaults : (Ctor.t, (string * Ast.expr) list) Hashtbl.t =
   Hashtbl.create 16
 
+(* A pattern still carries a bare name, so a match has a name where the value
+   has an identity. This says which identity a name means. Until a module can
+   own a constructor, one name means one identity, and this is a lookup
+   rather than a choice. *)
+let ctor_of_name : (string, Ctor.t) Hashtbl.t = Hashtbl.create 16
+
+let register_ctor c = Hashtbl.replace ctor_of_name (Ctor.name c) c
+
+let ctor_named name =
+  match Hashtbl.find_opt ctor_of_name name with
+  | Some c -> c
+  | None -> Ctor.Local name
+
 let () =
-  Hashtbl.add constr_fields "ShellResult"
+  Hashtbl.add constr_fields (Ctor.Builtin "ShellResult")
     [Some "stdout"; Some "stderr"; Some "code"];
   (* Built in, so they are known before any file is read. *)
-  Hashtbl.add constr_fields "Some" [None];
-  Hashtbl.add constr_fields "None" []
+  Hashtbl.add constr_fields (Ctor.Builtin "Some") [None];
+  Hashtbl.add constr_fields (Ctor.Builtin "None") [];
+  List.iter (fun n -> Hashtbl.replace ctor_of_name n (Ctor.Builtin n))
+    ["ShellResult"; "Some"; "None"; "Ok"; "Error"]
 
 let defaults_of name =
   match Hashtbl.find_opt constr_defaults name with
@@ -95,8 +110,11 @@ type value =
   | VMap           of (string * value) list
   | VRecord        of (string * value) list  (* used for module namespaces *)
   | VFun           of env * pat list * expr
-  | VConstr        of string * value list
-  | VPartialConstr of string * int * value list
+  (* Which constructor, and whose. `Ctor.t` rather than the bare name: two
+     modules may each declare one called `Status`, and a pattern from one
+     file must not match a value from the other. *)
+  | VConstr        of Ctor.t * value list
+  | VPartialConstr of Ctor.t * int * value list
   | VFix           of string * env * pat list * expr
   | VFixGroup      of (string * pat list * expr) list * env * string
       (* mutually-recursive function group; last string is which member
@@ -168,12 +186,13 @@ let ctor_env () =
   | Some e -> e
   | None ->
     let e =
-      Hashtbl.fold (fun name fields acc ->
+      Hashtbl.fold (fun c fields acc ->
         let v = match fields with
-          | [] -> VConstr (name, [])
-          | fs -> VPartialConstr (name, List.length fs, [])
+          | [] -> VConstr (c, [])
+          | fs -> VPartialConstr (c, List.length fs, [])
         in
-        (name, v) :: acc) constr_fields []
+        (* Keyed by the name a default writes, which is the bare one. *)
+        (Ctor.name c, v) :: acc) constr_fields []
     in
     ctor_env_cache := Some e; e
 
@@ -369,10 +388,10 @@ let rec render ~quote v =
   | VLineSource _ -> "<line source>"
   | VDecoder _  -> "<decoder>"
   | VEnvIndex _ -> "<env index>"
-  | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" n
-  | VConstr (name, []) -> name
+  | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" (Ctor.name n)
+  | VConstr (name, []) -> (Ctor.name name)
   | VConstr (name, vs) ->
-    name ^ "(" ^ String.concat ", " (List.map sub vs) ^ ")"
+    (Ctor.name name) ^ "(" ^ String.concat ", " (List.map sub vs) ^ ")"
   | VTuple vs   ->
     "(" ^ String.concat ", " (List.map sub vs) ^ ")"
   | VList vs    ->
@@ -1002,7 +1021,7 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
         | Some env -> try_match ~prefix p v env)
       (Some env) ps vals
   | PConstr (name, pats), VConstr (vname, vals)
-    when name = vname && same_length pats vals ->
+    when name = (Ctor.name vname) && same_length pats vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
@@ -1012,13 +1031,14 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
      it does when the pattern is checked. *)
   | PConstrBare (name, ids), _ ->
     let named_fields =
-      match Hashtbl.find_opt constr_fields name with
+      match Hashtbl.find_opt constr_fields (ctor_named name) with
       | Some fields -> List.exists (fun dn -> dn <> None) fields
       | None -> false
     in
     try_match ~prefix (Ast.constr_bare_reading ~named_fields name ids) v env
-  | PConstrNamed (name, bindings), VConstr (vname, vals) when name = vname ->
-    (match Hashtbl.find_opt constr_fields name with
+  | PConstrNamed (name, bindings), VConstr (vname, vals)
+    when name = Ctor.name vname ->
+    (match Hashtbl.find_opt constr_fields vname with
      | None -> None
      | Some field_names ->
        List.fold_left (fun acc (fname, p) ->
@@ -1187,7 +1207,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
   | List es   -> VList  (List.map (eval env) es)
   | ConstrBare (name, ids) ->
     let named_fields =
-      match Hashtbl.find_opt constr_fields name with
+      match Hashtbl.find_opt constr_fields (ctor_named name) with
       | Some fields -> List.exists (fun dn -> dn <> None) fields
       | None -> false
     in
@@ -1198,7 +1218,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | Some fname -> Some (fname, eval env e)
       | None -> None
     ) fields in
-    (match Hashtbl.find_opt constr_fields name with
+    (match Hashtbl.find_opt constr_fields (ctor_named name) with
      | None -> raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst env))))
      | Some field_names ->
@@ -1213,17 +1233,17 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
               (* Left out, so the declaration says what it holds. A default
                  is a value written out, so it reads in an empty environment
                  and the same way at every site that omits the field. *)
-              (match List.assoc_opt fn (defaults_of name) with
+              (match List.assoc_opt fn (defaults_of (ctor_named name)) with
                | Some d -> eval (ctor_env ()) d
                | None -> raise (EvalError (Printf.sprintf
                    "constructor '%s' missing field '%s'" name fn))))
        ) field_names in
-       VConstr (name, ordered))
+       VConstr ((ctor_named name), ordered))
   | ConstrUpdate (name, base, fields) ->
     let replacements = List.map (fun (fname, e) -> (fname, eval env e)) fields in
-    (match eval env base, Hashtbl.find_opt constr_fields name with
+    (match eval env base, Hashtbl.find_opt constr_fields (ctor_named name) with
      | VConstr (_, values), Some field_names ->
-       VConstr (name, List.map2 (fun fname_opt v ->
+       VConstr ((ctor_named name), List.map2 (fun fname_opt v ->
          match fname_opt with
          | Some fn -> (match List.assoc_opt fn replacements with
                        | Some v' -> v'
@@ -1266,11 +1286,11 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
              (match List.nth_opt vals i with
               | Some v -> v
               | None   -> raise (EvalError (Printf.sprintf
-                  "constructor '%s' is not fully applied" name)))
+                  "constructor '%s' is not fully applied" (Ctor.name name))))
            | None -> raise (EvalError (Printf.sprintf
-               "constructor '%s' has no field named '%s'" name label)))
+               "constructor '%s' has no field named '%s'" (Ctor.name name) label)))
         | None -> raise (EvalError (Printf.sprintf
-            "constructor '%s' has no named fields" name)))
+            "constructor '%s' has no named fields" (Ctor.name name))))
      | _ -> raise (EvalError "field access on non-record")))
   | Seq (a, b) ->
     ignore (eval env a); eval_at tail env b
@@ -1416,10 +1436,10 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     restore @@
     Effect.Deep.match_with (fun () -> eval env e) ()
       { Effect.Deep.
-          retc = (fun v -> VConstr ("Ok", [v]));
+          retc = (fun v -> VConstr (Ctor.Builtin "Ok", [v]));
           exnc = (function
-            | EvalError msg -> VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
-            | Failure  msg  -> VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+            | EvalError msg -> VConstr (Ctor.Builtin "Error", [VString (Util.strip_loc_prefix msg)])
+            | Failure  msg  -> VConstr (Ctor.Builtin "Error", [VString (Util.strip_loc_prefix msg)])
             | exn           -> raise exn);
           effc = fun (type a) (_ : a Effect.t) ->
             (None : ((a, value) Effect.Deep.continuation -> value) option) }
@@ -1933,11 +1953,11 @@ let try_lex_single s =
 let to_domain ?shown name build s =
   let shown = Option.value shown ~default:s in
   let cannot () =
-    VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as %s" shown name)])
+    VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "cannot parse %S as %s" shown name)])
   in
   match lex_single s with
-  | Ok tok -> (match build tok with Some v -> VConstr ("Ok", [v]) | None -> cannot ())
-  | Error (Some why) -> VConstr ("Error", [VString why])
+  | Ok tok -> (match build tok with Some v -> VConstr (Ctor.Builtin "Ok", [v]) | None -> cannot ())
+  | Error (Some why) -> VConstr (Ctor.Builtin "Error", [VString why])
   | Error None -> cannot ()
 
 (* A port is `:8080` in wand's own notation; a document or an environment
@@ -2098,11 +2118,11 @@ let par_run limit f items ~collect =
   in
   let outcome_of run =
     match run () with
-    | v -> if collect then VConstr ("Ok", [v]) else VUnit
+    | v -> if collect then VConstr (Ctor.Builtin "Ok", [v]) else VUnit
     | exception EvalError msg ->
       (* A failure becomes a value, so it says what went wrong rather than
          where, exactly as `try` does. *)
-      if collect then VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+      if collect then VConstr (Ctor.Builtin "Error", [VString (Util.strip_loc_prefix msg)])
       else VUnit
   in
   (* Effects go back to the calling domain, where the handlers are. *)
@@ -2229,12 +2249,12 @@ let par_race thunks =
   let n = Array.length items in
   let outcome_of run =
     match run () with
-    | v -> VConstr ("Ok", [v])
+    | v -> VConstr (Ctor.Builtin "Ok", [v])
     | exception EvalError msg ->
-      VConstr ("Error", [VString (Util.strip_loc_prefix msg)])
+      VConstr (Ctor.Builtin "Error", [VString (Util.strip_loc_prefix msg)])
   in
   if n = 0 then
-    VConstr ("Error", [VString "race: nothing to race"])
+    VConstr (Ctor.Builtin "Error", [VString "race: nothing to race"])
   else if Atomic.get handlers > 0 then
     raise (EvalError
       "a race inside a handler runs its first thunk only. Move the handler \
@@ -2278,7 +2298,7 @@ let par_race thunks =
         | exception Fun.Finally_raised (Interrupted _) -> ()) domains);
     match !winner with
     | Some o -> o
-    | None -> VConstr ("Error", [VString "race: no thunk finished"]))
+    | None -> VConstr (Ctor.Builtin "Error", [VString "race: no thunk finished"]))
 
 (* ── Streams: running a terminal operation ────────────────────────────────
    A terminal operation performs one open-granularity effect per source --
@@ -2413,12 +2433,12 @@ let stdlib_eval_env : env = [
       Domain.DLS.set shell_deadline (Some (parse_dur_ms d));
       let restore () = Domain.DLS.set shell_deadline saved in
       (match Fun.protect ~finally:restore (fun () -> apply thunk VUnit) with
-       | v -> VConstr ("Ok", [v])
+       | v -> VConstr (Ctor.Builtin "Ok", [v])
        (* The raise carries a position by the time it gets here, and the
           marker sits after it. *)
        | exception EvalError msg
          when starts_with timeout_prefix (Util.strip_loc_prefix msg) ->
-         VConstr ("Error",
+         VConstr (Ctor.Builtin "Error",
                   [VString (drop_prefix timeout_prefix
                               (Util.strip_loc_prefix msg))])))
     | _ -> raise (EvalError "Shell.timeout: expected a Duration")));
@@ -2449,8 +2469,8 @@ let stdlib_eval_env : env = [
     VBuiltin (fun content ->
       Effect.perform (WandEffect ("FS!write_file", VTuple [path; content])))));
   (* Result constructors *)
-  ("Ok",    VPartialConstr ("Ok",    1, []));
-  ("Error", VPartialConstr ("Error", 1, []));
+  ("Ok",    VPartialConstr (Ctor.Builtin "Ok",    1, []));
+  ("Error", VPartialConstr (Ctor.Builtin "Error", 1, []));
   (* String primitives *)
   ("str_length", VBuiltin (function
     | VString s -> VInt (String.length s)
@@ -2556,21 +2576,21 @@ let stdlib_eval_env : env = [
   ("str_to_int", VBuiltin (function
     | VString s ->
       (match int_of_string_opt (String.trim s) with
-       | Some n -> VConstr ("Ok",    [VInt n])
-       | None   -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Int" s)]))
+       | Some n -> VConstr (Ctor.Builtin "Ok",    [VInt n])
+       | None   -> VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "cannot parse %S as Int" s)]))
     | _ -> raise (EvalError "str_to_int: expected String")));
   ("str_to_float", VBuiltin (function
     | VString s ->
       (match float_of_string_opt (String.trim s) with
-       | Some f -> VConstr ("Ok",    [VFloat f])
-       | None   -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Float" s)]))
+       | Some f -> VConstr (Ctor.Builtin "Ok",    [VFloat f])
+       | None   -> VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "cannot parse %S as Float" s)]))
     | _ -> raise (EvalError "str_to_float: expected String")));
   ("str_to_bool", VBuiltin (function
     | VString s ->
       (match String.lowercase_ascii (String.trim s) with
-       | "true"  -> VConstr ("Ok",    [VBool true])
-       | "false" -> VConstr ("Ok",    [VBool false])
-       | _       -> VConstr ("Error", [VString (Printf.sprintf "cannot parse %S as Bool" s)]))
+       | "true"  -> VConstr (Ctor.Builtin "Ok",    [VBool true])
+       | "false" -> VConstr (Ctor.Builtin "Ok",    [VBool false])
+       | _       -> VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "cannot parse %S as Bool" s)]))
     | _ -> raise (EvalError "str_to_bool: expected String")));
   ("str_to_path", VBuiltin (function
     | VString s -> VPath s
@@ -2597,8 +2617,8 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "port_to_int: expected Port")));
   ("port_of_int", VBuiltin (function
     | VInt n ->
-      if n >= 0 && n <= 65535 then VConstr ("Ok", [VPort n])
-      else VConstr ("Error", [VString
+      if n >= 0 && n <= 65535 then VConstr (Ctor.Builtin "Ok", [VPort n])
+      else VConstr (Ctor.Builtin "Error", [VString
         (Printf.sprintf "invalid port %d: must be 0-65535" n)])
     | _ -> raise (EvalError "port_of_int: expected Int")));
   ("str_to_port", VBuiltin (function
@@ -2658,8 +2678,8 @@ let stdlib_eval_env : env = [
   ("dt_on", VBuiltin (function
     | VTuple [VInt y; VInt m; VInt d] ->
       (match day_at y m d with
-       | Ok days -> VConstr ("Ok", [VDateTime (datetime_of_epoch (days * 86400))])
-       | Error msg -> VConstr ("Error", [VString msg]))
+       | Ok days -> VConstr (Ctor.Builtin "Ok", [VDateTime (datetime_of_epoch (days * 86400))])
+       | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "DateTime.on: expected three Ints")));
   (* The raising sibling, over the same answer, so the two say the same
      thing about the same day. *)
@@ -2868,9 +2888,9 @@ let stdlib_eval_env : env = [
     VBuiltin (fun release -> VResource (acquire, release))));
   ("regex_compile", VBuiltin (function
     | VString pat ->
-      (try VConstr ("Ok", [VRegex (Re.compile (Re.Pcre.re pat))])
+      (try VConstr (Ctor.Builtin "Ok", [VRegex (Re.compile (Re.Pcre.re pat))])
        with Re.Pcre.Parse_error ->
-         VConstr ("Error", [VString (Printf.sprintf "invalid regex: %s" pat)]))
+         VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "invalid regex: %s" pat)]))
     | _ -> raise (EvalError "regex_compile: expected String")));
   (* Path primitives — pure string operations on VPath values *)
   ("path_join", VBuiltin (function
@@ -3089,44 +3109,44 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "json_of_map: expected Map")));
   ("json_is_null",   VBuiltin (function VJson `Null -> VBool true | VJson _ -> VBool false | _ -> raise (EvalError "json_is_null: expected JSON")));
   ("json_get_bool",  VBuiltin (function
-    | VJson (`Bool b) -> VConstr ("Ok", [VBool b])
-    | VJson j -> VConstr ("Error", [VString ("expected bool, got " ^ Yojson.Basic.to_string j)])
+    | VJson (`Bool b) -> VConstr (Ctor.Builtin "Ok", [VBool b])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected bool, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_bool: expected JSON")));
   ("json_get_int",   VBuiltin (function
-    | VJson (`Int n) -> VConstr ("Ok", [VInt n])
-    | VJson j -> VConstr ("Error", [VString ("expected int, got " ^ Yojson.Basic.to_string j)])
+    | VJson (`Int n) -> VConstr (Ctor.Builtin "Ok", [VInt n])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected int, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_int: expected JSON")));
   ("json_get_float", VBuiltin (function
-    | VJson (`Float f) -> VConstr ("Ok", [VFloat f])
-    | VJson (`Int n)   -> VConstr ("Ok", [VFloat (float_of_int n)])
-    | VJson j -> VConstr ("Error", [VString ("expected float, got " ^ Yojson.Basic.to_string j)])
+    | VJson (`Float f) -> VConstr (Ctor.Builtin "Ok", [VFloat f])
+    | VJson (`Int n)   -> VConstr (Ctor.Builtin "Ok", [VFloat (float_of_int n)])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected float, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_float: expected JSON")));
   ("json_get_string", VBuiltin (function
-    | VJson (`String s) -> VConstr ("Ok", [VString s])
-    | VJson j -> VConstr ("Error", [VString ("expected string, got " ^ Yojson.Basic.to_string j)])
+    | VJson (`String s) -> VConstr (Ctor.Builtin "Ok", [VString s])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected string, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_string: expected JSON")));
   ("json_get_array", VBuiltin (function
-    | VJson (`List vs) -> VConstr ("Ok", [VList (List.map (fun j -> VJson j) vs)])
-    | VJson j -> VConstr ("Error", [VString ("expected array, got " ^ Yojson.Basic.to_string j)])
+    | VJson (`List vs) -> VConstr (Ctor.Builtin "Ok", [VList (List.map (fun j -> VJson j) vs)])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected array, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_array: expected JSON")));
   ("json_get_object", VBuiltin (function
     | VJson (`Assoc kvs) ->
-      VConstr ("Ok", [VMap (map_of_pairs (List.map (fun (k, j) -> (k, VJson j)) kvs))])
-    | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
+      VConstr (Ctor.Builtin "Ok", [VMap (map_of_pairs (List.map (fun (k, j) -> (k, VJson j)) kvs))])
+    | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_object: expected JSON")));
   ("json_field", VBuiltin (fun key ->
     VBuiltin (function
       | VJson (`Assoc kvs) ->
         let k = (match key with VString s -> s | _ -> raise (EvalError "json_field: key must be String")) in
         (match assoc_last k kvs with
-         | Some j -> VConstr ("Ok", [VJson j])
-         | None   -> VConstr ("Error", [VString ("no field: " ^ k)]))
-      | VJson j -> VConstr ("Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
+         | Some j -> VConstr (Ctor.Builtin "Ok", [VJson j])
+         | None   -> VConstr (Ctor.Builtin "Error", [VString ("no field: " ^ k)]))
+      | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
       | _ -> raise (EvalError "json_field: expected JSON"))));
   ("json_parse", VBuiltin (function
     | VString s ->
-      (try VConstr ("Ok", [VJson (Yojson.Basic.from_string s)])
-       with Yojson.Json_error msg -> VConstr ("Error", [VString msg]))
+      (try VConstr (Ctor.Builtin "Ok", [VJson (Yojson.Basic.from_string s)])
+       with Yojson.Json_error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "json_parse: expected String")));
   ("json_parse_exn", VBuiltin (function
     | VString s ->
@@ -3152,8 +3172,8 @@ let stdlib_eval_env : env = [
   ("toml_parse", VBuiltin (function
     | VString s ->
       (match Toml.Parser.from_string s with
-       | `Ok tbl  -> VConstr ("Ok", [VToml (Toml.Types.TTable tbl)])
-       | `Error (msg, _) -> VConstr ("Error", [VString msg]))
+       | `Ok tbl  -> VConstr (Ctor.Builtin "Ok", [VToml (Toml.Types.TTable tbl)])
+       | `Error (msg, _) -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "toml_parse: expected String")));
   ("toml_parse_exn", VBuiltin (function
     | VString s ->
@@ -3174,21 +3194,21 @@ let stdlib_eval_env : env = [
     | VToml _ -> VBool false
     | _ -> raise (EvalError "toml_is_array: expected TOML")));
   ("toml_get_bool", VBuiltin (function
-    | VToml (Toml.Types.TBool b) -> VConstr ("Ok", [VBool b])
-    | VToml _ -> VConstr ("Error", [VString "expected bool"])
+    | VToml (Toml.Types.TBool b) -> VConstr (Ctor.Builtin "Ok", [VBool b])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected bool"])
     | _ -> raise (EvalError "toml_get_bool: expected TOML")));
   ("toml_get_int", VBuiltin (function
-    | VToml (Toml.Types.TInt n) -> VConstr ("Ok", [VInt n])
-    | VToml _ -> VConstr ("Error", [VString "expected int"])
+    | VToml (Toml.Types.TInt n) -> VConstr (Ctor.Builtin "Ok", [VInt n])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected int"])
     | _ -> raise (EvalError "toml_get_int: expected TOML")));
   ("toml_get_float", VBuiltin (function
-    | VToml (Toml.Types.TFloat f) -> VConstr ("Ok", [VFloat f])
-    | VToml (Toml.Types.TInt n)   -> VConstr ("Ok", [VFloat (float_of_int n)])
-    | VToml _ -> VConstr ("Error", [VString "expected float"])
+    | VToml (Toml.Types.TFloat f) -> VConstr (Ctor.Builtin "Ok", [VFloat f])
+    | VToml (Toml.Types.TInt n)   -> VConstr (Ctor.Builtin "Ok", [VFloat (float_of_int n)])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected float"])
     | _ -> raise (EvalError "toml_get_float: expected TOML")));
   ("toml_get_string", VBuiltin (function
-    | VToml (Toml.Types.TString s) -> VConstr ("Ok", [VString s])
-    | VToml _ -> VConstr ("Error", [VString "expected string"])
+    | VToml (Toml.Types.TString s) -> VConstr (Ctor.Builtin "Ok", [VString s])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected string"])
     | _ -> raise (EvalError "toml_get_string: expected TOML")));
   ("toml_get_array", VBuiltin (function
     | VToml (Toml.Types.TArray arr) ->
@@ -3202,25 +3222,25 @@ let stdlib_eval_env : env = [
         | Toml.Types.NodeArray _   -> []
         | Toml.Types.NodeEmpty     -> []
       in
-      VConstr ("Ok", [VList items])
-    | VToml _ -> VConstr ("Error", [VString "expected array"])
+      VConstr (Ctor.Builtin "Ok", [VList items])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected array"])
     | _ -> raise (EvalError "toml_get_array: expected TOML")));
   ("toml_get_table", VBuiltin (function
     | VToml (Toml.Types.TTable tbl) ->
       let pairs = Toml.Types.Table.to_list tbl in
       let vmap = VMap (List.map (fun (k, v) ->
         (Toml.Types.Table.Key.to_string k, VToml v)) pairs) in
-      VConstr ("Ok", [vmap])
-    | VToml _ -> VConstr ("Error", [VString "expected table"])
+      VConstr (Ctor.Builtin "Ok", [vmap])
+    | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected table"])
     | _ -> raise (EvalError "toml_get_table: expected TOML")));
   ("toml_field", VBuiltin (fun key ->
     VBuiltin (function
       | VToml (Toml.Types.TTable tbl) ->
         let k = (match key with VString s -> s | _ -> raise (EvalError "toml_field: key must be String")) in
         (match Toml.Types.Table.find_opt (Toml.Types.Table.Key.of_string k) tbl with
-         | Some v -> VConstr ("Ok", [VToml v])
-         | None   -> VConstr ("Error", [VString ("no key: " ^ k)]))
-      | VToml _ -> VConstr ("Error", [VString "expected table"])
+         | Some v -> VConstr (Ctor.Builtin "Ok", [VToml v])
+         | None   -> VConstr (Ctor.Builtin "Error", [VString ("no key: " ^ k)]))
+      | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected table"])
       | _ -> raise (EvalError "toml_field: expected TOML"))));
   ("toml_field_exn", VBuiltin (fun key ->
     VBuiltin (function
@@ -3236,11 +3256,11 @@ let stdlib_eval_env : env = [
     | VInt n -> VBuiltin (function
       | VList xs ->
         let rec nth i = function
-          | []     -> VConstr ("Error", [VString (Printf.sprintf "index %d out of bounds" n)])
-          | x :: _ when i = 0 -> VConstr ("Ok", [x])
+          | []     -> VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "index %d out of bounds" n)])
+          | x :: _ when i = 0 -> VConstr (Ctor.Builtin "Ok", [x])
           | _ :: t -> nth (i - 1) t
         in
-        if n < 0 then VConstr ("Error", [VString (Printf.sprintf "index %d out of bounds" n)])
+        if n < 0 then VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "index %d out of bounds" n)])
         else nth n xs
       | _ -> raise (EvalError "list_get: expected List"))
     | _ -> raise (EvalError "list_get: expected Int index")));
@@ -3320,8 +3340,8 @@ let map_builtins : env = [
     | VString key -> VBuiltin (function
       | VMap kvs ->
         (match List.assoc_opt key kvs with
-         | Some v -> VConstr ("Ok", [v])
-         | None   -> VConstr ("Error", [VString ("key not found: " ^ key)]))
+         | Some v -> VConstr (Ctor.Builtin "Ok", [v])
+         | None   -> VConstr (Ctor.Builtin "Error", [VString ("key not found: " ^ key)]))
       | _ -> raise (EvalError "map_get: expected Map"))
     | _ -> raise (EvalError "map_get: expected String key")));
   ("map_get_exn", VBuiltin (function
@@ -3541,9 +3561,9 @@ and derived_decoder tname arg_decoders j path =
         raise (EvalError (Printf.sprintf
           "'%s' takes %d type argument(s)" tname (List.length params)))
     in
-    let defaults = defaults_of ctor in
+    let defaults = defaults_of (ctor_named ctor) in
     let rec go acc = function
-      | [] -> Ok (VConstr (ctor, List.rev acc))
+      | [] -> Ok (VConstr ((ctor_named ctor), List.rev acc))
       | (fname, te) :: rest ->
         let key = match fname with Some n -> n | None -> "" in
         (match read_field venv ~defaults key te j path with
@@ -3585,10 +3605,10 @@ and read_field venv ?(defaults = []) key te j path =
      | None | Some `Null ->
        (match absent () with
         | Some v -> Ok v
-        | None -> Ok (VConstr ("None", [])))
+        | None -> Ok (VConstr (Ctor.Builtin "None", [])))
      | Some v ->
        (match d v (("." ^ key) :: path) with
-        | Ok x      -> Ok (VConstr ("Some", [x]))
+        | Ok x      -> Ok (VConstr (Ctor.Builtin "Some", [x]))
         | Error msg -> Error msg))
   | _ ->
     let d = decoder_of_type_expr venv te in
@@ -3626,8 +3646,8 @@ and json_of_typed venv (te : type_expr) (v : value) : Yojson.Basic.t =
         | VJson j -> j
         | other   -> json_of_value other)
      | None -> json_of_value v)
-  | TEApp (TEName "Option", _), VConstr ("None", []) -> `Null
-  | TEApp (TEName "Option", inner), VConstr ("Some", [x]) -> json_of_typed venv inner x
+  | TEApp (TEName "Option", _), VConstr (Ctor.Builtin "None", []) -> `Null
+  | TEApp (TEName "Option", inner), VConstr (Ctor.Builtin "Some", [x]) -> json_of_typed venv inner x
   | TEApp (TEName "List", inner), VList vs ->
     `List (List.map (json_of_typed venv inner) vs)
   | TEApp (TEName "Map", inner), VMap kvs ->
@@ -3660,22 +3680,22 @@ and json_of_value (v : value) : Yojson.Basic.t =
   | VList vs -> `List (List.map json_of_value vs)
   | VMap kvs -> `Assoc (List.map (fun (k, v) -> (k, json_of_value v)) kvs)
   | VJson j -> j
-  | VConstr ("None", []) -> `Null
-  | VConstr ("Some", [x]) -> json_of_value x
+  | VConstr (Ctor.Builtin "None", []) -> `Null
+  | VConstr (Ctor.Builtin "Some", [x]) -> json_of_value x
   | VConstr (ctor, vals) ->
     (match Hashtbl.find_opt constr_fields ctor with
      | Some names when List.length names = List.length vals ->
        let pairs =
          List.concat (List.map2 (fun n v ->
            match n, v with
-           | Some _, VConstr ("None", []) -> []   (* absent, not null *)
+           | Some _, VConstr (Ctor.Builtin "None", []) -> []   (* absent, not null *)
            | Some name, v -> [(name, json_of_value v)]
            | None, _ -> []) names vals)
        in
        `Assoc pairs
      | _ ->
        raise (EvalError (Printf.sprintf
-         "cannot encode '%s': it has no named fields" ctor)))
+         "cannot encode '%s': it has no named fields" (Ctor.name ctor))))
   | _ -> raise (EvalError "cannot encode this value as JSON")
 
 and encoded_with tname arg_encoders v =
@@ -3694,7 +3714,7 @@ and encoded_with tname arg_encoders v =
          List.concat (List.map2 (fun (fname, te) x ->
            match fname, x with
            (* A field holding None is left out rather than written as null. *)
-           | Some _, VConstr ("None", []) -> []
+           | Some _, VConstr (Ctor.Builtin "None", []) -> []
            | Some name, x -> [(name, json_of_typed venv te x)]
            | None, _ -> []) fields vals)
        in
@@ -3750,7 +3770,7 @@ and reader_value tname =
            let d = decoder_of_type_expr [] inner in
            let here = ("." ^ aname) :: path in
            let read_one v = d v here in
-           let build v = Ok (VConstr (ctor,
+           let build v = Ok (VConstr ((ctor_named ctor),
              List.map (fun (n, _) ->
                if n = Some fname then flags else v) fields))
            in
@@ -3764,10 +3784,10 @@ and reader_value tname =
                    | Error msg -> Error msg)
               in
               (match go [] vs with Ok l -> build l | Error msg -> Error msg)
-            | `Maybe, [] -> build (VConstr ("None", []))
+            | `Maybe, [] -> build (VConstr (Ctor.Builtin "None", []))
             | `Maybe, [v] ->
               (match read_one v with
-               | Ok x -> build (VConstr ("Some", [x]))
+               | Ok x -> build (VConstr (Ctor.Builtin "Some", [x]))
                | Error msg -> Error msg)
             | `Maybe, vs ->
               decode_error here (Printf.sprintf
@@ -3805,11 +3825,11 @@ let as_decoder who = function
    in before it says what was wrong with it. *)
 let decode_each inner items =
   let rec go i acc = function
-    | [] -> VConstr ("Ok", [VList (List.rev acc)])
+    | [] -> VConstr (Ctor.Builtin "Ok", [VList (List.rev acc)])
     | x :: rest ->
       (match inner x [Printf.sprintf "[%d]" i] with
        | Ok v      -> go (i + 1) (v :: acc) rest
-       | Error msg -> VConstr ("Error", [VString msg]))
+       | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
   in
   go 0 [] items
 
@@ -3872,10 +3892,10 @@ let decode_builtins : env = [
         match j with
         | `Assoc kvs ->
           (match assoc_last key kvs with
-           | None | Some `Null -> Ok (VConstr ("None", []))
+           | None | Some `Null -> Ok (VConstr (Ctor.Builtin "None", []))
            | Some v ->
              (match inner v (("." ^ key) :: path) with
-              | Ok x      -> Ok (VConstr ("Some", [x]))
+              | Ok x      -> Ok (VConstr (Ctor.Builtin "Some", [x]))
               | Error msg -> Error msg))
         | _ -> expected "an object" path j))
     | _ -> raise (EvalError "decode_optional: key must be String")));
@@ -3905,10 +3925,10 @@ let decode_builtins : env = [
     let inner = as_decoder "decode_nullable" d in
     VDecoder (fun j path ->
       match j with
-      | `Null -> Ok (VConstr ("None", []))
+      | `Null -> Ok (VConstr (Ctor.Builtin "None", []))
       | _ ->
         (match inner j path with
-         | Ok v      -> Ok (VConstr ("Some", [v]))
+         | Ok v      -> Ok (VConstr (Ctor.Builtin "Some", [v]))
          | Error msg -> Error msg))));
   ("decode_list", VBuiltin (fun d ->
     let inner = as_decoder "decode_list" d in
@@ -4009,16 +4029,16 @@ let decode_builtins : env = [
     VBuiltin (function
       | VJson j ->
         (match inner j [] with
-         | Ok v      -> VConstr ("Ok", [v])
-         | Error msg -> VConstr ("Error", [VString msg]))
+         | Ok v      -> VConstr (Ctor.Builtin "Ok", [v])
+         | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
       | _ -> raise (EvalError "json_decode: expected JSON"))));
   ("toml_decode", VBuiltin (fun d ->
     let inner = as_decoder "toml_decode" d in
     VBuiltin (function
       | VToml t ->
         (match inner (json_of_toml t) [] with
-         | Ok v      -> VConstr ("Ok", [v])
-         | Error msg -> VConstr ("Error", [VString msg]))
+         | Ok v      -> VConstr (Ctor.Builtin "Ok", [v])
+         | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
       | _ -> raise (EvalError "toml_decode: expected TOML"))));
   (* One record per line, and the line is text: a command's output has no
      types of its own, so `Decode.int` reads the digits. *)
@@ -4037,8 +4057,8 @@ let decode_builtins : env = [
     VBuiltin (function
       | VString s ->
         (match inner (`String (String.trim s)) [] with
-         | Ok v      -> VConstr ("Ok", [v])
-         | Error msg -> VConstr ("Error", [VString msg]))
+         | Ok v      -> VConstr (Ctor.Builtin "Ok", [v])
+         | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
       | _ -> raise (EvalError "shell_decode: expected String"))));
   (* A CSV's first row names the columns, so a row arrives as an object and
      is read by field name like anything else. A file without a header is
@@ -4048,7 +4068,7 @@ let decode_builtins : env = [
     VBuiltin (function
       | VString s ->
         (match csv_parse_string "," s with
-         | [] -> VConstr ("Ok", [VList []])
+         | [] -> VConstr (Ctor.Builtin "Ok", [VList []])
          | header :: rows ->
            let as_object row =
              let rec pair hs cs = match hs, cs with
@@ -4102,7 +4122,7 @@ let rec usage_value tname =
        in
        VString (if flags = "" then arg else flags ^ " " ^ arg)
      | None ->
-    let defaults = defaults_of ctor in
+    let defaults = defaults_of (ctor_named ctor) in
     let part (fname, te) =
       match fname with
       | None -> ""
@@ -4172,7 +4192,7 @@ let rec toml_of_value (v : value) : Toml.Types.value =
   | VPath s | VDuration s | VURL s | VSize s | VVersion s
   | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> Toml.Types.TString s
   | VPort n -> Toml.Types.TInt n
-  | VConstr ("Some", [x]) -> toml_of_value x
+  | VConstr (Ctor.Builtin "Some", [x]) -> toml_of_value x
   | VList vs -> Toml.Types.TArray (toml_array vs)
   | VMap kvs -> Toml.Types.TTable (toml_table kvs)
   | VRecord kvs -> Toml.Types.TTable (toml_table kvs)
@@ -4182,14 +4202,14 @@ let rec toml_of_value (v : value) : Toml.Types.value =
        let pairs =
          List.concat (List.map2 (fun n v ->
            match n, v with
-           | Some _, VConstr ("None", []) -> []   (* absent, not empty *)
+           | Some _, VConstr (Ctor.Builtin "None", []) -> []   (* absent, not empty *)
            | Some name, v -> [(name, v)]
            | None, _ -> []) names vals)
        in
        Toml.Types.TTable (toml_table pairs)
      | _ ->
        raise (EvalError (Printf.sprintf
-         "cannot write '%s' as TOML: it has no named fields" ctor)))
+         "cannot write '%s' as TOML: it has no named fields" (Ctor.name ctor))))
   | _ -> raise (EvalError "cannot write this value as TOML")
 
 and toml_table kvs =
@@ -4197,7 +4217,7 @@ and toml_table kvs =
     (* A key that is absent is left out rather than written empty: TOML has
        no null, so the two would not read back the same. *)
     match v with
-    | VConstr ("None", []) -> tbl
+    | VConstr (Ctor.Builtin "None", []) -> tbl
     | _ -> Toml.Types.Table.add (Toml.Min.key k) (toml_of_value v) tbl)
     Toml.Types.Table.empty kvs
 
@@ -4235,13 +4255,13 @@ let toml_document v =
 let serialise_builtins : env = [
   ("json_of", VBuiltin (fun v ->
     match json_of_value v with
-    | j -> VConstr ("Ok", [VJson j])
-    | exception EvalError m -> VConstr ("Error", [VString m])));
+    | j -> VConstr (Ctor.Builtin "Ok", [VJson j])
+    | exception EvalError m -> VConstr (Ctor.Builtin "Error", [VString m])));
   ("json_of_exn", VBuiltin (fun v -> VJson (json_of_value v)));
   ("toml_of", VBuiltin (fun v ->
     match toml_document v with
-    | t -> VConstr ("Ok", [VToml t])
-    | exception EvalError m -> VConstr ("Error", [VString m])));
+    | t -> VConstr (Ctor.Builtin "Ok", [VToml t])
+    | exception EvalError m -> VConstr (Ctor.Builtin "Error", [VString m])));
   ("toml_of_exn", VBuiltin (fun v -> VToml (toml_document v)));
 ]
 
@@ -4250,18 +4270,18 @@ let stdlib_eval_env =
   (* `Option`'s constructors are built in, so a module reaches them the way
      it reaches a builtin function rather than by importing the module that
      used to declare the type. *)
-  @ [ ("Some", VPartialConstr ("Some", 1, []));
-      ("None", VConstr ("None", [])) ]
+  @ [ ("Some", VPartialConstr (Ctor.Builtin "Some", 1, []));
+      ("None", VConstr (Ctor.Builtin "None", [])) ]
   @ serialise_builtins
 
 (* Every function a file calls comes from a module it imported. These two
    are constructors of a built-in type, so there is no module to import
    them from. *)
 let base_eval_env : env = [
-  ("Ok",      VPartialConstr ("Ok",    1, []));
-  ("Error",   VPartialConstr ("Error", 1, []));
+  ("Ok",      VPartialConstr (Ctor.Builtin "Ok",    1, []));
+  ("Error",   VPartialConstr (Ctor.Builtin "Error", 1, []));
   (* `Option` is built in, so its constructors are here beside `Result`'s
      rather than arriving with an import. *)
-  ("Some",    VPartialConstr ("Some",  1, []));
-  ("None",    VConstr ("None", []));
+  ("Some",    VPartialConstr (Ctor.Builtin "Some",  1, []));
+  ("None",    VConstr (Ctor.Builtin "None", []));
 ]
