@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.48.1] - 2026-08-25
+
+### Fixed
+
+- A field could not hold a decoder. `type D(decoder: Decoder Pod)` could not
+  be built from `Pod.decoder`. A field's type reader turned `List`, `Map` and
+  `Result` into the forms the checker uses, and left `Decoder` as a plain
+  application, so nothing could fill the field. The error said `Decoder Pod
+  and Decoder Pod are not the same type`
+- A written signature did not bind the parameters before the body was read.
+  `let get : Box 'a -> 'a = fn b -> b.v` said `field access requires a named
+  type, got 'a`, although the signature one line up said what `b` was. A
+  signature over a lambda binds each parameter first now. A lambda with more
+  parameters than the signature has arrows still infers whole, so a wrong
+  signature is still caught
+
+[0.48.1]: https://github.com/mjstahl/wand/releases/tag/v0.48.1
+
 ## [0.48.0] - 2026-08-25
 
 ### Added
