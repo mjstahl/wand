@@ -78,14 +78,17 @@ let _object_of flags args =
 -- ── Parsing ─────────────────────────────────────────────────────────────
 
 -- Read arguments, naming the flags that take no value. Those become
--- `true` when present, and are absent otherwise -- so a `Bool` field
--- wants `Decode.optional`, or a decoder that supplies a default.
+-- `true` when present, and are absent otherwise -- and a `Bool` field a
+-- document does not carry reads as `false`, so a switch needs nothing
+-- else said about it.
 --
--- Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+-- Args.parse_with Opts.switches Opts.decoder (Env.args ())
 --
 -- Which flags are boolean is the only fact a list of strings cannot
 -- reveal: without it, `--message -5` and a flag followed by a positional
--- are the same shape. Everything else the type already says.
+-- are the same shape. Everything else the type already says -- including
+-- this, which `Opts.switches` derives from the `Bool` fields. A list
+-- written by hand works too, and drifts the way any second copy does.
 --
 -- >> Args.parse_with ["v"] (Decode.field "v" Decode.bool) ["--v"]
 -- Ok(true) : Result String Bool

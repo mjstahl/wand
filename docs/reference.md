@@ -1799,14 +1799,15 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage` comes from them too, as the command line that reads them. It is a
-`String`, and it takes no argument for a type parameter -- a usage line is
-text about the declaration rather than a reader built from it:
+`T.usage` and `T.switches` come from them too, as the command line that reads
+them. Neither takes an argument for a type parameter -- both are facts about
+the declaration rather than readers built from it:
 
 ```ocaml
 type Opts(host : String, port : Port = :8080, verbose : Bool = false)
 
-Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
+Opts.usage      -- "--host <String> [--port :8080] [--verbose]"
+Opts.switches   -- ["verbose"]
 ```
 
 A field with a default prints bracketed, showing the default. An `Option`
@@ -1814,6 +1815,9 @@ field prints bracketed, showing what the flag takes. A `Bool` field prints as
 a switch with nothing after it, and bracketed whether or not it has a
 default, since an absent one reads as `false`. Anything else is required, and
 shows its type as the placeholder.
+
+`T.switches` is the `Bool` fields by name, in the order the type declares
+them, which is what `Args.parse_with` wants.
 
 A type with more than one constructor has neither. Name one, and the error
 says which:
@@ -3542,8 +3546,12 @@ list of strings cannot show this one fact. Without the assumption,
 shape. Name the flags that take no value:
 
 ```ocaml
-Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+Args.parse_with Opts.switches Opts.decoder (Env.args ())
 ```
+
+`Opts.switches` is derived from the type, so the flags that take no value are
+named once, where the fields are. A list written by hand works too, and drifts
+the way any second copy does.
 
 Each of those is `true` when it is there, and absent when it is not, so a
 `Bool` field left out of the document reads as `false`. A flag with nothing

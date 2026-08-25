@@ -34,8 +34,9 @@ import Proc
 -- naming the field, and `:8080` is a `Port` from there on.
 
 -- The flags, with what each holds when it is left out. This is the only
--- place any of that is written: the decoder reads it, and so does the
--- usage line.
+-- place any of that is written: the decoder reads it, the usage line comes
+-- from it, and so does the list of flags that take no value -- which is
+-- the one fact a list of strings cannot carry.
 type Flags(port: Port = :8080, timeout: Duration = 30s, verbose: Bool = false)
 
 type Opts(host: String, flags: Flags)
@@ -57,7 +58,7 @@ let render (o: Opts) =
   "%{o.host}%{o.flags.port} timeout %{o.flags.timeout}%{if o.flags.verbose then " (verbose)" else ""}"
 
 let main () =
-  match Args.parse_with ["verbose"] opts (Env.args ()) with
+  match Args.parse_with Flags.switches opts (Env.args ()) with
   | Ok o -> IO.println (render o)
   | Error why -> (
     IO.println_err "%{why}";

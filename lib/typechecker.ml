@@ -2316,17 +2316,19 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (* `Pod.decoder`, when `Pod` is a type rather than a module. Checked after
        the namespace lookup, so a module of the same name keeps its member. *)
     let derived = match ns_result, strip_located e, label with
-      (* `Opts.usage`: what a command line reading this type looks like. It
-         takes no decoder per parameter the way `decoder` does -- a usage
-         line is text about the declaration, not a reader built from it. *)
-      | None, Constr tname, "usage" ->
+      (* `Opts.usage`: what a command line reading this type looks like, and
+         `Opts.switches`: the flags on it that take no value. Neither takes a
+         decoder per parameter the way `decoder` does -- both are facts about
+         the declaration rather than readers built from it. *)
+      | None, Constr tname, (("usage" | "switches") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with
-            | Ok () -> Some TString
+            | Ok () ->
+              Some (if which = "usage" then TString else TList TString)
             | Error why ->
               raise (TypeError (Printf.sprintf
-                "type '%s' has no derived usage: %s" tname why)))
+                "type '%s' has no derived %s: %s" tname which why)))
          | None -> None)
       | None, Constr tname, (("decoder" | "encoder") as which) ->
         (match List.assoc_opt tname tenv with

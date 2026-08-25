@@ -275,7 +275,21 @@ M.usage|}
   err_contains "a type with several constructors has none"
     {|type T = A(x: Int) | B(x: Int)
 T.usage|}
-    "has no derived usage"
+    "has no derived usage";
+  (* Which flags take no value is the one fact argv cannot carry, so it comes
+     from the declaration rather than from a list written beside it. *)
+  ok "the switches are the Bool fields, in declaration order"
+    {|type M = M(host: String, verbose: Bool = false, quiet: Bool)
+M.switches|}
+    "[\"verbose\", \"quiet\"]";
+  ok "a type with none has an empty list"
+    {|type M = M(host: String)
+M.switches|}
+    "[]";
+  err_contains "and a type with several constructors has none"
+    {|type T = A(x: Int) | B(x: Int)
+T.switches|}
+    "has no derived switches"
 
 (* A flag is present or absent, so the two types that have a word for absent
    read a document that does not carry the key rather than failing on it. *)
