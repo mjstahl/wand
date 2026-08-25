@@ -1,10 +1,8 @@
 uses {Env, IO, Proc}
 
 import Args
-import Decode
 import Env
 import IO
-import List
 import Proc
 
 -- Read a command line, and refuse one that does not say what it means.
@@ -33,35 +31,26 @@ import Proc
 -- A type says the shape once. `--port http` is refused at the boundary,
 -- naming the field, and `:8080` is a `Port` from there on.
 
--- The flags, with what each holds when it is left out. This is the only
--- place any of that is written: the decoder reads it, the usage line comes
--- from it, and so does the account of the flags themselves -- which take no
--- value, and which collect. Neither is visible in argv.
+-- The flags, with what each holds when it is left out.
 type Flags(port: Port = :8080, timeout: Duration = 30s, verbose: Bool = false)
 
-type Opts(host: String, flags: Flags)
-
--- Exactly one positional argument. `Args` puts them under `_`, which no
--- flag can collide with.
-let host_of =
-  (Decode.and_then
-    (fn hosts -> match hosts with
-      | [h] -> Decode.succeed h
-      | [] -> Decode.fail "expected a host"
-      | _ -> Decode.fail "expected one host, got %{List.length hosts}"
-    )
-    (Decode.field "_" (Decode.list Decode.string)))
-
-let opts = Decode.map2 (fn h f -> Opts(host = h, flags = f)) host_of Flags.decoder
+-- The whole command line: the flags, and the one thing written without a
+-- flag in front of it. `host` is a `String` rather than a list, which is
+-- what says there is exactly one of them -- and what refuses two.
+--
+-- This declaration is the only place any of it is written. The reader comes
+-- from it, and so do the usage line and the account of the flags: which take
+-- no value, and which collect. None of that is visible in argv.
+type Opts(flags: Flags, host: String)
 
 let render (o: Opts) =
   "%{o.host}%{o.flags.port} timeout %{o.flags.timeout}%{if o.flags.verbose then " (verbose)" else ""}"
 
-let usage = "usage: probe-args %{Flags.usage} host"
+let usage = "usage: probe-args %{Opts.usage}"
 
 let main () =
   if Args.help? (Env.args ()) then IO.println usage
-  else match Args.read Flags.spec opts (Env.args ()) with
+  else match Args.read Opts.spec Opts.reader (Env.args ()) with
     | Ok o -> IO.println (render o)
     | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
 

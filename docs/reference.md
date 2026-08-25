@@ -1799,8 +1799,8 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage` and `T.spec` come from them too, as the command line that reads
-them. Neither takes an argument for a type parameter -- both are facts about
+`T.usage`, `T.spec` and `T.reader` come from them too, as the command line
+that reads them. Neither takes an argument for a type parameter -- both are facts about
 the declaration rather than readers built from it:
 
 ```ocaml
@@ -1815,6 +1815,34 @@ field prints bracketed, showing what the flag takes. A `Bool` field prints as
 a switch with nothing after it, and bracketed whether or not it has a
 default, since an absent one reads as `false`. Anything else is required, and
 shows its type as the placeholder.
+
+`T.reader` is the decoder that reads a command line rather than a document.
+For a type that is all flags it is `T.decoder`. For one that describes a
+whole command line -- a field whose type is a record, holding the flags, and
+a field that is not, holding what was written without a flag in front of it
+-- it maps the two onto the one flat object `Args` builds:
+
+```ocaml
+type Flags(port : Port = :8080, verbose : Bool = false)
+type Opts(flags : Flags, host : String)
+
+Args.read Opts.spec Opts.reader (Env.args ())
+Opts.usage   -- "[--port :8080] [--verbose] <host>"
+```
+
+Which field is which comes from the types, not the names, so both are yours
+to call anything. The argument field's type says how many there may be, and
+the reader refuses the rest naming the field:
+
+| the field | arguments | usage |
+|---|---|---|
+| `host : String` | exactly one | `<host>` |
+| `host : Option String` | one or none | `[<host>]` |
+| `paths : List Path` | any number | `<paths>...` |
+
+Each is read as its own type, so `port : Port` refuses `nope` where it
+stands. A type with two record fields, or with none left for the arguments,
+has no reading and says which fields made it ambiguous.
 
 `T.spec` is what a flag's own text cannot say: a `Bool` field is a
 `"switch"`, taking no value, and a `List` field is `"repeated"`, collecting

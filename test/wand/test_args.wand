@@ -156,3 +156,47 @@ test "reading one that asks for help names the answer" (fn t ->
   match Args.parse (Decode.field "v" Decode.bool) ["--help"] with
   | Ok _ -> t.fail "expected a refusal"
   | Error why -> t.ok (String.contains? "Args.help?" why))
+
+-- ── A whole command line ────────────────────────────────────────────────
+
+-- The flags are a record, since each has a name and a type. What is written
+-- without a flag in front of it has no name at all, so it is the field that
+-- is not a record. The types say which is which; the names are ours.
+type Only(port: Port = :8080, verbose: Bool = false)
+
+type Line(flags: Only, host: String)
+
+type Several(flags: Only, paths: List Path)
+
+type Perhaps(flags: Only, host: Option String)
+
+let line argv = Args.read Line.spec Line.reader argv
+
+test "the flags and the argument are read together" (fn t ->
+  t.eq
+    (Ok Line(flags = Only(port = :90, verbose = true), host = "web-01"))
+    (line ["--port", ":90", "--verbose", "web-01"]))
+
+test "the argument may come first" (fn t ->
+  t.eq (Ok Line(flags = Only(), host = "web-01")) (line ["web-01"]))
+
+test "a String argument means exactly one" (fn t ->
+  t.eq (Error ".host: expected one host, got 2") (line ["a", "b"]))
+
+test "and none is refused by name" (fn t -> t.eq (Error ".host: expected a host") (line []))
+
+test "a List argument takes any number, read as its type" (fn t ->
+  t.eq
+    (Ok Several(flags = Only(), paths = [./a, /tmp/b]))
+    (Args.read Several.spec Several.reader ["./a", "/tmp/b"]))
+
+test "including none" (fn t ->
+  t.eq (Ok Several(flags = Only(), paths = [])) (Args.read Several.spec Several.reader []))
+
+test "an Option argument takes one or none" (fn t ->
+  t.eq (Ok Perhaps(flags = Only(), host = None)) (Args.read Perhaps.spec Perhaps.reader []))
+
+test "the usage line covers both halves" (fn t ->
+  t.eq "[--port :8080] [--verbose] <host>" Line.usage)
+
+test "and the spec is the flags' own" (fn t -> t.eq {verbose = "switch"} Line.spec)

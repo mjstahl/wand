@@ -285,7 +285,40 @@ M.spec|}
   ok "a type whose flags all take one value says nothing"
     {|type M = M(host: String, port: Port)
 M.spec|}
-    "{}"
+    "{}";
+  (* A whole command line is the flags and what was written without one. The
+     types say which field is which, so the names are the author's. *)
+  ok "the usage line covers the arguments too"
+    {|type F = F(verbose: Bool = false)
+type C = C(flags: F, host: String)
+C.usage|}
+    "[--verbose] <host>";
+  ok "the argument field's type says how many"
+    {|type F = F(verbose: Bool = false)
+type C = C(flags: F, paths: List Path)
+C.usage|}
+    "[--verbose] <paths>...";
+  ok "one or none is bracketed"
+    {|type F = F(verbose: Bool = false)
+type C = C(flags: F, host: Option String)
+C.usage|}
+    "[--verbose] [<host>]";
+  ok "the spec of the whole is the spec of its flags"
+    {|type F = F(verbose: Bool = false, tag: List String)
+type C = C(flags: F, host: String)
+C.spec|}
+    "{verbose = \"switch\", tag = \"repeated\"}";
+  err_contains "two records leave which holds the flags a guess"
+    {|type A = A(x: Int)
+type B = B(y: Int)
+type C = C(one: A, two: B, host: String)
+C.usage|}
+    "which holds the flags is a guess";
+  err_contains "and nothing left for the arguments is refused"
+    {|type A = A(x: Int)
+type C = C(one: A)
+C.usage|}
+    "nothing holds the arguments"
 
 (* A flag is present or absent, so the two types that have a word for absent
    read a document that does not carry the key rather than failing on it. *)

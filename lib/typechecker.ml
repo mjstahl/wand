@@ -1443,6 +1443,50 @@ let rec pat_is_refutable tenv (p : pat) =
   | PAnnot (p, _)  -> pat_is_refutable tenv p
   | _              -> true
 
+(* ── The shape of a command line ──────────────────────────────────────────
+   A command line is flags and arguments. The flags are a record, since each
+   has a name and a type; the arguments have no names at all. So a type that
+   describes a whole command line has one field whose type is a record -- the
+   flags -- and one that is not -- what was written without a flag in front
+   of it. Which is which comes from the types rather than the names, so both
+   are the author's to call whatever they like.
+
+   A type with no record field is the older, flatter shape: all flags, no
+   arguments. Anything else has no reading, and says so rather than guessing
+   which field meant what. *)
+type cmdline_shape =
+  | Flags_only
+  | Flags_and_arguments of string * string * type_expr
+      (* flags field, argument field, the argument field's type *)
+
+let is_record_field tenv (te : type_expr) =
+  match te with
+  | TEName n ->
+    (match List.assoc_opt n tenv with
+     | Some tdef -> derivable_typedef tenv [n] tdef = Ok ()
+     | None -> false)
+  | _ -> false
+
+let cmdline_shape tenv (ctor : ctor_def) : (cmdline_shape, string) result =
+  let named = List.filter_map (fun (n, te) ->
+    match n with Some n -> Some (n, te) | None -> None) ctor.fields in
+  match List.partition (fun (_, te) -> is_record_field tenv te) named with
+  | [], _ -> Ok Flags_only
+  | [(fname, _)], [(aname, ate)] -> Ok (Flags_and_arguments (fname, aname, ate))
+  | [(fname, _)], [] ->
+    Error (Printf.sprintf
+      "'%s' holds the flags and nothing holds the arguments; a field that is \
+       not a record is what the command line was given without a flag in \
+       front of it" fname)
+  | [(fname, _)], _ :: _ :: _ ->
+    Error (Printf.sprintf
+      "'%s' holds the flags, and more than one field is left for the \
+       arguments; a command line has one list of those" fname)
+  | (a, _) :: (b, _) :: _, _ ->
+    Error (Printf.sprintf
+      "'%s' and '%s' are both records, so which holds the flags is a guess; \
+       a command line has one set of them" a b)
+
 (* Built once per program rather than per lookup. A constructor's field
    effects are monomorphic (see `ctor_schemes`), so they only link the
    construction to the match that takes the field back out if both look at
@@ -2321,15 +2365,31 @@ let rec infer tenv (env : env) (e : expr) : typ =
          and which collect. Neither takes a decoder per parameter the way
          `decoder` does: both are facts about the declaration rather than
          readers built from it. *)
-      | None, Constr tname, (("usage" | "spec") as which) ->
+      | None, Constr tname, (("usage" | "spec" | "reader") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
+           let refuse why =
+             raise (TypeError (Printf.sprintf
+               "type '%s' has no derived %s: %s" tname which why))
+           in
            (match derivable_typedef tenv [tname] tdef with
+            | Error why -> refuse why
             | Ok () ->
-              Some (if which = "usage" then TString else TMap TString)
-            | Error why ->
-              raise (TypeError (Printf.sprintf
-                "type '%s' has no derived %s: %s" tname which why)))
+              (* All three read a command line, so all three need the type to
+                 describe one. *)
+              (match tdef with
+               | Variants (_, params, [ctor]) ->
+                 (match cmdline_shape tenv ctor with
+                  | Error why -> refuse why
+                  | Ok _ ->
+                    if which = "reader" && params <> [] then
+                      refuse "a command line is not generic, and this type \
+                              takes a parameter";
+                    Some (match which with
+                          | "usage" -> TString
+                          | "spec" -> TMap TString
+                          | _ -> TDecoder (TName tname)))
+               | _ -> refuse "it has no fields"))
          | None -> None)
       | None, Constr tname, (("decoder" | "encoder") as which) ->
         (match List.assoc_opt tname tenv with

@@ -14,7 +14,7 @@ let {attempt, read} = import ../../examples/ports/http-retry
 let {answering?, wait_for} = import ../../examples/ports/wait-for-port
 let {lock_at, missing} = import ../../examples/ports/stage-release
 let {failures, stated} = import ../../examples/ports/verify-archives
-let {opts, render} = import ../../examples/ports/probe-args
+let {render} = import ../../examples/ports/probe-args
 let {age, backup_name, expired, expired?, ours?, window} =
   import ../../examples/ports/rotate-backups
 -- `failures` is verify-archives' already, and the last import of a name
@@ -301,7 +301,7 @@ group "verify-archives" (fn () -> [
 -- argv is a list of strings, so the whole parser is testable without a
 -- command line. `verbose` is named because whether a flag takes a value is
 -- the one fact a list of strings cannot reveal.
-let read argv = Args.read Flags.spec opts argv
+let read argv = Args.read Opts.spec Opts.reader argv
 
 group "probe-args" (fn () -> [
   test "a host and nothing else takes the defaults" (fn t ->
@@ -317,7 +317,7 @@ group "probe-args" (fn () -> [
     match read ["--port", "http", "web-01"] with
     | Ok o -> t.fail "expected a refusal, got %{render o}"
     | Error why -> t.ok (String.contains? "port" why)),
-  test "no host is refused" (fn t -> t.eq (Error "expected a host") (read [])),
+  test "no host is refused" (fn t -> t.eq (Error ".host: expected a host") (read [])),
   test "and so is a second one" (fn t ->
     match read ["web-01", "web-02"] with
     | Ok o -> t.fail "expected a refusal, got %{render o}"
@@ -325,10 +325,10 @@ group "probe-args" (fn () -> [
   -- The usage line comes from the same declaration the decoder reads, so a
   -- flag cannot be in one and missing from the other.
   test "the usage line is the type's" (fn t ->
-    t.eq "[--port :8080] [--timeout 30s] [--verbose]" Flags.usage),
+    t.eq "[--port :8080] [--timeout 30s] [--verbose] <host>" Opts.usage),
   -- Which flags take no value, and which collect, are the facts argv
   -- cannot carry, and they come from the same declaration.
-  test "and so is the account of the flags" (fn t -> t.eq {verbose = "switch"} Flags.spec),
+  test "and so is the account of the flags" (fn t -> t.eq {verbose = "switch"} Opts.spec),
   test "the line it reports" (fn t ->
     match read ["--verbose", "web-01"] with
     | Ok o -> t.eq "web-01:8080 timeout 30s (verbose)" (render o)

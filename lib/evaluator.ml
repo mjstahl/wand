@@ -1100,6 +1100,9 @@ let derive_usage : (string -> value) ref =
 let derive_spec : (string -> value) ref =
   ref (fun _ -> raise (EvalError "spec derivation is not wired up"))
 
+let derive_reader : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "reader derivation is not wired up"))
+
 let rec eval (env : env) (e : expr) : value = eval_at false env e
 
 (* Evaluate in tail position: the value of `e` is the value of whatever
@@ -1243,6 +1246,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
        !derive_usage tname
      | Constr tname, "spec" when Hashtbl.mem derivable tname ->
        !derive_spec tname
+     | Constr tname, "reader" when Hashtbl.mem derivable tname ->
+       !derive_reader tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -3418,6 +3423,32 @@ let rec type_spine te =
    generic type is read by a decoder that takes one decoder per parameter --
    `Box.decoder : Decoder 'a -> Decoder (Box 'a)`. It is threaded rather than
    global because a type may mention itself with different arguments. *)
+(* The evaluator's half of `cmdline_shape`: a field whose type is a record is
+   the flags, and the other one is what was written without a flag in front
+   of it. The typechecker has already refused anything else, so this only has
+   to tell the two apart. *)
+let cmdline_parts fields =
+  let named = List.filter_map (fun (n, te) ->
+    match n with Some n -> Some (n, te) | None -> None) fields in
+  match List.partition (fun (_, te) ->
+    match te with
+    | Ast.TEName n -> Hashtbl.mem derivable n
+    | _ -> false) named with
+  | [], _ -> None
+  | (fname, Ast.TEName ftype) :: _, (aname, ate) :: _ ->
+    Some (fname, ftype, aname, ate)
+  | _ -> None
+
+(* How many arguments the field that reads them will take, and what each one
+   is. A `List` takes any number, an `Option` one or none, anything else
+   exactly one -- which is the check `probe-args.wand` used to write by
+   hand. *)
+let argument_arity (te : Ast.type_expr) =
+  match te with
+  | Ast.TEApp (Ast.TEName "List", inner) -> (`Many, inner)
+  | Ast.TEApp (Ast.TEName "Option", inner) -> (`Maybe, inner)
+  | te -> (`One, te)
+
 let rec decoder_of_type_expr venv (te : type_expr) :
   (Yojson.Basic.t -> string list -> (value, string) result) =
   let named name =
@@ -3685,6 +3716,70 @@ and encoder_value tname =
 (* What `T.decoder` is worth. A type with no parameters is a decoder; one
    with parameters is a function taking a decoder for each, in the order the
    type declares them -- `Box.decoder : Decoder 'a -> Decoder (Box 'a)`. *)
+(* The decoder that reads a command line, as opposed to a document. `Args`
+   builds one flat object -- the flags by name, and everything written
+   without a flag under `_` -- and a type that describes a whole command line
+   is two levels: its record field is those flags, and its other field is
+   what was under `_`. So the mapping is here rather than in `Args`, which
+   would have to be told the field names to do it, and rather than in
+   `T.decoder`, which reads a document and has to keep doing so. *)
+and reader_value tname =
+  match Hashtbl.find_opt derivable tname with
+  | None -> raise (EvalError (Printf.sprintf "no reader for type '%s'" tname))
+  | Some (ctor, _, fields) ->
+    (match cmdline_parts fields with
+     (* No record field: every field is a flag, which is what the decoder
+        already reads. *)
+     | None -> decoder_value tname
+     | Some (fname, ftype, aname, ate) ->
+       VDecoder (fun j path ->
+         (* The flags are read from the same object, not from a key of their
+            own: `--port` is at the top of what `Args` built. *)
+         match derived_decoder ftype [] j path with
+         | Error msg -> Error msg
+         | Ok flags ->
+           let written =
+             match j with
+             | `Assoc kvs ->
+               (match assoc_last "_" kvs with
+                | Some (`List vs) -> vs
+                | _ -> [])
+             | _ -> []
+           in
+           let (arity, inner) = argument_arity ate in
+           let d = decoder_of_type_expr [] inner in
+           let here = ("." ^ aname) :: path in
+           let read_one v = d v here in
+           let build v = Ok (VConstr (ctor,
+             List.map (fun (n, _) ->
+               if n = Some fname then flags else v) fields))
+           in
+           (match arity, written with
+            | `Many, vs ->
+              let rec go acc = function
+                | [] -> Ok (VList (List.rev acc))
+                | v :: rest ->
+                  (match read_one v with
+                   | Ok x -> go (x :: acc) rest
+                   | Error msg -> Error msg)
+              in
+              (match go [] vs with Ok l -> build l | Error msg -> Error msg)
+            | `Maybe, [] -> build (VConstr ("None", []))
+            | `Maybe, [v] ->
+              (match read_one v with
+               | Ok x -> build (VConstr ("Some", [x]))
+               | Error msg -> Error msg)
+            | `Maybe, vs ->
+              decode_error here (Printf.sprintf
+                "expected at most one %s, got %d" aname (List.length vs))
+            | `One, [v] ->
+              (match read_one v with Ok x -> build x | Error msg -> Error msg)
+            | `One, [] ->
+              decode_error here (Printf.sprintf "expected a %s" aname)
+            | `One, vs ->
+              decode_error here (Printf.sprintf
+                "expected one %s, got %d" aname (List.length vs)))))
+
 and decoder_value tname =
   match Hashtbl.find_opt derivable tname with
   | None -> raise (EvalError (Printf.sprintf "no decoder for type '%s'" tname))
@@ -3991,10 +4086,22 @@ let rec usage_type_name (te : Ast.type_expr) =
     "(" ^ String.concat ", " (List.map usage_type_name ts) ^ ")"
   | Ast.TEFun _ -> "function"
 
-let usage_value tname =
+let rec usage_value tname =
   match Hashtbl.find_opt derivable tname with
   | None -> raise (EvalError (Printf.sprintf "no usage for type '%s'" tname))
   | Some (ctor, _, fields) ->
+    (* A type that describes a whole command line prints its flags, then
+       what it takes without one. *)
+    (match cmdline_parts fields with
+     | Some (_, ftype, aname, ate) ->
+       let flags = match usage_value ftype with VString s -> s | _ -> "" in
+       let arg = match fst (argument_arity ate) with
+         | `Many  -> Printf.sprintf "<%s>..." aname
+         | `Maybe -> Printf.sprintf "[<%s>]" aname
+         | `One   -> Printf.sprintf "<%s>" aname
+       in
+       VString (if flags = "" then arg else flags ^ " " ^ arg)
+     | None ->
     let defaults = defaults_of ctor in
     let part (fname, te) =
       match fname with
@@ -4017,7 +4124,9 @@ let usage_value tname =
             | None -> Printf.sprintf "--%s <%s>" name (usage_type_name te)))
     in
     VString (String.concat " " (List.filter (fun p -> p <> "")
-      (List.map part fields)))
+      (List.map part fields))))
+
+let () = derive_reader := reader_value
 
 let () = derive_usage := usage_value
 
@@ -4029,10 +4138,15 @@ let () = derive_usage := usage_value
 
    Fields that need nothing said are left out, so the map is empty for a type
    whose flags all take one value. *)
-let spec_value tname =
+let rec spec_value tname =
   match Hashtbl.find_opt derivable tname with
   | None -> raise (EvalError (Printf.sprintf "no spec for type '%s'" tname))
   | Some (_, _, fields) ->
+    (* The flags of a whole command line are the record's, so the account of
+       them is the record's too. *)
+    match cmdline_parts fields with
+    | Some (_, ftype, _, _) -> spec_value ftype
+    | None ->
     VMap (List.filter_map (fun (fname, te) ->
       match fname, te with
       | Some name, Ast.TEName "Bool" -> Some (name, VString "switch")

@@ -83,15 +83,19 @@ error caught each, and would not have if the types had matched, so the
 rule was widened to cover every import in the file rather than the leading
 run.
 
-**A positional argument is not in the usage text a type derives.**
-`T.usage` names every flag, brackets the ones that may be left out, and
-shows what each default holds, so a flag cannot be in the type and missing
-from the line. What is left is the shape around them: `Args` puts
-positional arguments under `_`, and nothing in the type marks a field as
-the one that comes from there, so `probe-args.wand` writes
-`"usage: probe-args %{Flags.usage} host"` and the trailing `host` is its
-own to keep right. There is no program name either — `Env.args ()` gives
-the arguments only.
+**A usage line has no program name in it.** `T.usage` covers the flags and
+the arguments, so a command line is described by its type and nothing is
+written twice. The name at the front is still a literal: `Env.args ()`
+gives the arguments only, and there is no `argv[0]` to read, so
+`probe-args.wand` writes `"usage: probe-args %{Opts.usage}"`. bash has
+`$0` and C has `argv[0]`; whether wand should have one is undecided.
+
+**A usage line has no room for what a flag means.** It names each flag,
+brackets the ones that may be left out and shows what each default holds,
+but there is nowhere to say what `--timeout` is for. The parser already
+collects doc comments, so a comment above a field is the obvious source;
+what a multi-flag block should look like once it stops being one line is
+not.
 
 ## The standard library
 
