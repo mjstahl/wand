@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.48.0] - 2026-08-25
+
+### Added
+
+- A type and a constructor take the module's name: `Test.TestOutcome`,
+  `Test.Pass "x"`, `| Test.Pass s ->`. This works in a type, an expression
+  and a pattern. A standard library module is `Test`. A file is `one`. Both
+  spellings work
+- An uppercase name in a destructured import selects a type or a
+  constructor: `let {TestOutcome, Pass} = import Test`
+
+### Changed
+
+- A type belongs to the module that declares it. Two modules can each declare
+  a type called `Status`. They declare two types. A file can use both. Mixing
+  them is an error: `expected one.Status, got two.Status`. This used to
+  typecheck. One of the two types won, and nothing said which
+- **An import brings only what it names.** A module's types and constructors
+  used to arrive under their bare names. Reach them through the module, or
+  name them in the import. A file that writes a bare imported name now fails
+  with "unknown type" or "unknown constructor". Twenty-six places in this
+  repository needed the change
+- Renaming a type in an import also renames its constructor, where it has
+  one. `let {Conf = MyConf} = import ./foo` gives `MyConf(port = :80)`.
+  Renaming one constructor out of several is refused. The error says to
+  rename the type, or to use the module
+- An alias names what its target names. `type MyConf = Foo.Conf` builds and
+  matches. An alias used to name no constructor. An alias to a type with
+  several constructors is still not a value
+- A type error prints the short name. Where two names print the same, both
+  take the module
+- `wand f` prints an uppercase key in an import without quotes
+
+### Fixed
+
+- The compile cache keyed on a module's source and its dependencies. Two
+  files with the same bytes at two paths shared one entry, which gave one
+  file the other's type names. The key includes the path
+- One module reached by two spellings of its path was two modules. A module
+  key is normalised
+
+[0.48.0]: https://github.com/mjstahl/wand/releases/tag/v0.48.0
+
 ## [0.47.0] - 2026-08-24
 
 ### Added

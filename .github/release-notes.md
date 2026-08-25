@@ -1,51 +1,43 @@
-## 0.47.0 - 2026-08-24
+## 0.48.0 - 2026-08-25
 
-A command line is flags and arguments. The flags are a record -- each has a
-name and a type -- and what is written without a flag in front of it has no
-name at all. So a type with one field whose type is a record, and one that is
-not, describes the whole thing:
+A type belongs to the module that declares it.
 
-    type Flags(port : Port = :8080, timeout : Duration = 30s,
-               verbose : Bool = false)
+    let one = import ./one
+    let two = import ./two
 
-    type Opts(flags : Flags, host : String)
+    let f (s: one.Status) = s
+    f two.Live
+    -- expected one.Status, got two.Status
 
-    Args.read Opts.spec Opts.reader (Env.args ())
+Two modules can each declare a type called `Status`. They declare two types.
+A file can use both. The line above used to typecheck. One of the two types
+won, and nothing said which.
 
-    Opts.usage   -- "[--port :8080] [--timeout 30s] [--verbose] <host>"
+### Added
 
-Which field is which comes from the types rather than the names, so both are
-yours to call anything. The nesting is what tells a repeatable flag from the
-arguments: inside the record a `List` field collects, and outside it a `List`
-field is what was written bare.
+- A type and a constructor take the module's name: `Test.TestOutcome`,
+  `Test.Pass "x"`, `| Test.Pass s ->`. This works in a type, an expression
+  and a pattern
+- An uppercase name in a destructured import selects a type or a
+  constructor: `let {TestOutcome, Pass} = import Test`
 
-The argument field's type says how many there may be -- `String` exactly one,
-`Option` one or none, `List` any number -- and each is read as its own type,
-so a `Port` argument refuses `nope` where it stands. The refusals name the
-field: `.host: expected one host, got 2`.
+### Changed
 
-Two facts a command line cannot carry now come from the type instead of a
-list written beside it. A `Bool` field is a switch, taking no value. A `List`
-field collects, so `--tag a --tag b` is two tags where `--name a --name b` is
-one name written twice, and a flag that collects holds a list however many
-times it was written, including none.
+- An import brings only what it names. A file that writes a bare imported
+  type or constructor fails with "unknown type" or "unknown constructor".
+  Use one of the two spellings above. Twenty-six places in this repository
+  needed the change
+- Renaming a type in an import also renames its constructor, where it has
+  one. An alias does the same: `type MyConf = Foo.Conf` builds and matches.
+  Renaming one constructor out of several is refused
+- A type error prints the short name. Where two names print the same, both
+  take the module
+- `wand f` prints an uppercase key in an import without quotes
 
-`--` ends the flags. What follows is positional whatever it looks like, which
-is the only way to pass an argument beginning with two dashes -- and which
-`Args.parse raw ["--", "-x", "y"]` used to answer `Ok(["y"])`, having read
-`--` as a flag with no name that ate the next argument. Note that
-`wand script.wand -- ...` already spends one `--` handing the rest to the
-script, so a script's own separator is the second one.
+### Fixed
 
-`--help` is not a flag a type declares. It is a question about the command
-line rather than a value in it, and the answer is a usage line rather than a
-record, so `Args.help?` answers it before the arguments are read. Printing
-and exiting stay in the script, where the effects are declared.
-
-`examples/ports/probe-args.wand` is 57 lines from 74. Its decoder, its usage
-line, and its account of the flags all come from one declaration now.
-
-Also: `V-IMP2` reports an import that binds nothing the file mentions, and
-`wand t --fix` deletes the line. It found fourteen dead imports in this
-repository, six of them `import Option` lines that died when `Option` became
-built in last release.
+- The compile cache keyed on a module's source and its dependencies. Two
+  files with the same bytes at two paths shared one entry, which gave one
+  file the other's type names. The key includes the path
+- One module reached by two spellings of its path was two modules. A module
+  key is normalised
