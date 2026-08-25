@@ -197,10 +197,15 @@ let sort xs = list_sort xs
 -- ["a", "bb", "ccc"] : List String
 let sort_by f xs = list_sort_by f xs
 
--- Remove duplicate elements.
+-- Keep the first of each element, dropping the rest.
+--
+-- Two elements are the same when `==` says so, which reads a value rather
+-- than its spelling: `60s` and `1min` are one element.
 --
 -- >> List.unique [1, 2, 1, 3]
 -- [1, 2, 3] : List Int
+-- >> List.unique [60s, 1min, 2min]
+-- [60s, 2min] : List Duration
 let unique xs = list_unique xs
 
 -- Generate a list of integers from lo to hi, both included.

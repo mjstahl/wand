@@ -929,6 +929,45 @@ let rec wand_equal a b =
      with Invalid_argument _ ->
        raise (EvalError "cannot compare functions for equality"))
 
+(* A key that agrees with `wand_equal`: two values it calls equal always
+   produce the same key. The reverse need not hold -- values that share a
+   key are settled by `wand_equal` itself -- so a type whose equality is
+   subtler than any cheap key can be (a `Version` and its prerelease) keys
+   coarsely and still answers correctly.
+
+   This is what keeps a membership test a hash lookup. Comparing each value
+   against everything already seen would agree too, and would cost the
+   square of the length. *)
+let rec eq_key v =
+  match v with
+  (* Equality on a function is an error, but only once there is something to
+     compare it against: a list of one is still a list of one. One key for
+     all of them puts any two in the same bucket, so `wand_equal` is reached
+     and raises whichever two they are -- rather than the answer depending
+     on which values happened to share a bucket. A list holds one type, so
+     nothing else can land here beside them. *)
+  | VFun _ | VFix _ | VFixGroup _ | VBuiltin _ -> VUnit
+  (* The types whose text is not their value, keyed by the value. *)
+  | VDuration s -> VInt (parse_dur_ms s)
+  | VDateTime s -> VInt (datetime_epoch s)
+  | VIPv4 s     -> VInt (ipv4_key s)
+  | VSize s     -> VInt (size_bytes s)
+  (* The numbers only. Two equal versions have equal numbers, so this is a
+     sound key; the prerelease is left for `wand_equal` to settle. *)
+  | VVersion s ->
+    (match String.split_on_char '.' (fst (version_parts s)) with
+     | parts -> (try VList (List.map (fun p -> VInt (int_of_string p)) parts)
+                 with Failure _ -> VString s))
+  (* A value that normalizes can sit inside another one, so the walk goes
+     in, exactly as `wand_equal` does. *)
+  | VList xs        -> VList (List.map eq_key xs)
+  | VTuple xs       -> VTuple (List.map eq_key xs)
+  | VConstr (n, xs) -> VConstr (n, List.map eq_key xs)
+  | VRecord kvs     -> VRecord (List.map (fun (k, x) -> (k, eq_key x)) kvs)
+  | VMap kvs        -> VMap (List.map (fun (k, x) -> (k, eq_key x)) kvs)
+  | v -> v
+
+
 (* `List.sort` takes a list of any type, including types wand does not
    order, so it keeps structural comparison and reaches for `wand_order`
    only where wand defines one. *)
@@ -3401,16 +3440,22 @@ let stdlib_eval_env : env = [
       | _ -> raise (EvalError "list_sort_by: expected List"))));
   ("list_unique", VBuiltin (function
     | VList xs ->
-      (* Membership uses structural equality, which raises on a functional
-         value the same way `==` would; surface it as a catchable error
-         rather than a fatal one. *)
-      let seen = Hashtbl.create 16 in
+      (* Membership is equality, and equality is what `==` answers with.
+         This read the stored value instead, so `List.unique [60s, 1min]`
+         kept both while `60s == 1min` was true -- and a list of one instant
+         written two ways came back holding it twice.
+
+         `eq_key` narrows the search to the values that could be equal;
+         `wand_equal` decides among them. *)
+      let seen : (value, value list) Hashtbl.t = Hashtbl.create 16 in
       VList (List.filter (fun x ->
-        if (try Hashtbl.mem seen x
-            with Invalid_argument _ ->
-              raise (EvalError "cannot compare functions for equality"))
-        then false
-        else (Hashtbl.add seen x (); true)) xs)
+        let k = eq_key x in
+        let bucket = match Hashtbl.find seen k with
+          | b -> b
+          | exception Not_found -> []
+        in
+        if List.exists (wand_equal x) bucket then false
+        else (Hashtbl.replace seen k (x :: bucket); true)) xs)
     | _ -> raise (EvalError "list_unique: expected List")));
   ("list_range", VBuiltin (function
     | VInt lo -> VBuiltin (function

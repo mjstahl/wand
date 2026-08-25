@@ -27,6 +27,21 @@ test "unique preserves order" (fn t ->
   t.eq ["c", "a", "b"] (List.unique ["c", "a", "b", "a", "c"]))
 test "unique empty" (fn t -> let empty : List Int = [] in t.eq [] (List.unique empty))
 
+-- `unique` answers with the same equality `==` does. It read the stored
+-- value before, so two spellings of one instant both survived a list that
+-- is meant to hold each value once.
+test "unique agrees with == on durations" (fn t -> t.eq [60s] (List.unique [60s, 1min]))
+test "unique agrees with == on instants" (fn t ->
+  t.eq [2026-08-25] (List.unique [2026-08-25, 2026-08-25T00:00:00Z]))
+test "unique agrees with == on sizes" (fn t -> t.eq [1000KB] (List.unique [1000KB, 1MB]))
+test "unique keeps sizes that differ" (fn t ->
+  t.eq [1000KB, 2MB] (List.unique [1000KB, 1MB, 2MB]))
+test "unique reads inside a value" (fn t -> t.eq [[60s]] (List.unique [[60s], [1min]]))
+test "unique keeps a prerelease apart from its release" (fn t ->
+  t.eq [1.0.0-alpha, 1.0.0] (List.unique [1.0.0-alpha, 1.0.0, 1.0.0-alpha]))
+test "unique on functions raises, as == does" (fn t ->
+  t.raises (fn () -> List.unique [fn x -> x + 1, fn y -> y + 2]))
+
 -- ── range ───────────────────────────────────────────────────────────────
 
 test "range basic" (fn t -> t.eq [1, 2, 3, 4, 5] (List.range 1 5))
