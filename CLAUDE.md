@@ -164,8 +164,8 @@ multi-constructor one is not a value. A type shows with the alias it was
 written as — `Pair Int (= (Int, Int))`.
 
 A name declares one thing. Two `type`s of one name, two constructors
-sharing one, or a declaration over a built-in's name are all errors naming
-which to rename.
+sharing one, a value taking the name of a type or a constructor, or a
+declaration over a built-in's name are all errors naming which to rename.
 
 Arithmetic (`+ - * /`) works on `Int` and `Float` alike — one numeric
 type per expression, never mixed implicitly (`Float.of_int` /

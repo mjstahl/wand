@@ -3837,6 +3837,40 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
              "constructor '%s' is declared %s" c.name where)
          | None -> Hashtbl.add seen_ctors c.name tname)) ctors
     | _ -> ()) prog.items;
+  (* A value cannot take a name a type or a constructor already has. The two
+     were accepted together and read by position: `Pod.decoder` gave the
+     derived decoder, `Pod(host = "a")` constructed, and bare `Pod` was an
+     error suggesting the constructor. So the value was unreachable, and
+     nothing said so. Types are checked above; this is the same rule, at the
+     other kind of declaration. *)
+  List.iter (fun item ->
+    let bound = match item with
+      | TLLet (name, _, body) -> [(name, loc_of_expr body)]
+      | TLLetRec bs -> List.map (fun (n, _, b) -> (n, loc_of_expr b)) bs
+      | TLLetPat (pat, body) ->
+        let loc = loc_of_expr body in
+        let rec names (p : pat) =
+          match p with
+          | PVar n -> [n]
+          | PTuple ps | PList ps -> List.concat_map names ps
+          | PCons (h, t) -> names h @ names t
+          | PMap kvs | PConstrNamed (_, kvs) ->
+            List.concat_map (fun (_, p) -> names p) kvs
+          | PConstr (_, ps) -> List.concat_map names ps
+          | PAnnot (p, _) -> names p
+          | _ -> []
+        in
+        List.map (fun n -> (n, loc)) (names pat)
+      | _ -> []
+    in
+    List.iter (fun (name, loc) ->
+      if Hashtbl.mem seen_types name then
+        fail_at_opt loc (Printf.sprintf
+          "'%s' is a type, so it cannot also name a value" name)
+      else if Hashtbl.mem seen_ctors name then
+        fail_at_opt loc (Printf.sprintf
+          "'%s' is a constructor, so it cannot also name a value" name)) bound
+  ) prog.items;
   known_aliases :=
     List.filter_map (function
       | (n, Alias (_, params, te)) -> Some (n, (params, te))

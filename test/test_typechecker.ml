@@ -142,6 +142,23 @@ type W = W(o: Option String)
     {|type Option 'a = None | Some 'a
 1|}
     "built-in type";
+  (* A value cannot take the name either. The two used to sit together and be
+     read by position, which left the value unreachable and said nothing. *)
+  err_contains "a value with a type's name"
+    {|type Pod(host: String)
+let Pod = 1
+1|}
+    "'Pod' is a type, so it cannot also name a value";
+  err_contains "a value with a constructor's name"
+    {|type Color = Red | Green
+let Red = 1
+1|}
+    "'Red' is a constructor, so it cannot also name a value";
+  ok "and an ordinary name beside them is fine"
+    {|type Pod(host: String)
+let pod = Pod(host = "a")
+pod.host|}
+    "a";
   (* A module's type still needs the import that brings the module in, the
      same as its functions do. Unimported, it was silently a type of its
      own. *)
