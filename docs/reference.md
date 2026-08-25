@@ -130,12 +130,12 @@ floors there: `5s - 10s` is `0s`, the answer
 ### Comparison and `Ord`
 
 `==` and `!=` compare any two values of one type. `<`, `>`, `<=` and `>=`
-take an `Ord`: a type that wand orders. These eleven are ordered:
+take an `Ord`: a type that wand orders. These ten are ordered:
 
 ```text
 Int   Float   String
 Duration   DateTime
-Size   Version   Port   IPv4
+Size   Version   Port   IPv4   CIDR
 ```
 
 A type outside that set is a type error where it is written, not a failure
@@ -155,6 +155,31 @@ let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
 
 The constraints nest: every `Num` is an `Add`, and every `Add` is an `Ord`.
 A variable that is more than one of them is the narrowest.
+
+**`List.sort` orders more than `<` does.** It takes a list of any type, so
+sorting is available where the operator is not:
+
+```ocaml
+List.sort [(2, "a"), (1, "b")]      -- [(1, "b"), (2, "a")]
+(1, "b") < (2, "a")                 -- type error: not ordered
+```
+
+Where a type is one of the ten, sorting reads the value, exactly as `<`
+does. Everything else sorts by its shape: a tuple and a list read left to
+right, and **a variant sorts by its declaration** — a constructor sorts
+where it was written, not where its name falls in the alphabet.
+
+```ocaml
+type Prio = Low | Medium | High
+List.sort [High, Low, Medium]       -- [Low, Medium, High]
+```
+
+So renaming a constructor does not move values, and the order a reader sees
+in the declaration is the order they come back in. `Option` and `Result`
+declare their absent and failed cases first, so `None` sorts before `Some`
+and `Error` before `Ok`. Two functions have no order and say so.
+
+For an order the shape does not give, `List.sort_by` takes the key.
 
 **A comparison is on the value, not on the text it was written as.** A
 `Duration` is a sum of units, and a `DateTime` carries an offset, so one

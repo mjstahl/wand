@@ -23,7 +23,18 @@ let ctor_named name =
   | Some c -> c
   | None -> Ctor.Local name
 
+(* Where a constructor stands in its declaration. `List.sort` ordered a
+   variant by constructor name, so `type S = Zulu | Alpha` sorted to
+   `[Alpha, Zulu]` and renaming a constructor moved values around. The
+   declaration is what decides everything else about a type, and it decides
+   this too. *)
+let constr_index : (Ctor.t, int) Hashtbl.t = Hashtbl.create 16
+
 let () =
+  (* The built-in pairs declare their absent and failed cases first, which
+     is the order they already sorted in. *)
+  List.iter (fun (n, i) -> Hashtbl.replace constr_index (Ctor.Builtin n) i)
+    ["None", 0; "Some", 1; "Error", 0; "Ok", 1; "ShellResult", 0];
   Hashtbl.add constr_fields (Ctor.Builtin "ShellResult")
     [Some "stdout"; Some "stderr"; Some "code"];
   (* Built in, so they are known before any file is read. *)
@@ -821,6 +832,15 @@ let ipv4_key s =
   List.fold_left (fun acc part -> acc * 256 + int_of_string part) 0
     (String.split_on_char '.' s)
 
+(* A network, keyed by where it starts and then how far it reaches. Compared
+   as text, `10.0.0.0/8` sorted below `9.0.0.0/8` -- the same two addresses
+   the other way round from what `IPv4` answers, which reads them as
+   numbers. *)
+let cidr_key s =
+  match String.split_on_char '/' s with
+  | [addr; bits] -> (ipv4_key addr, int_of_string bits)
+  | _ -> raise (EvalError (Printf.sprintf "invalid CIDR: %S" s))
+
 (* Semver precedence. Numbers compare as numbers, so `1.10.0` is above
    `1.9.0`. A version with a prerelease is below the same version without
    one, and two prereleases compare identifier by identifier: a number
@@ -886,6 +906,7 @@ let wand_order a b =
   | VVersion x,  VVersion y  -> compare_versions x y
   | VPort x,     VPort y     -> compare x y
   | VIPv4 x,     VIPv4 y     -> compare (ipv4_key x) (ipv4_key y)
+  | VCIDR x,     VCIDR y     -> compare (cidr_key x) (cidr_key y)
   | _ -> raise (EvalError "these values have no order")
 
 (* Equality normalizes wherever ordering does, so the three relations agree.
@@ -896,7 +917,7 @@ let wand_order a b =
    read them rather than compare their spelling. `Port` is not here: it
    holds the number already. *)
 let normalized = function
-  | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ -> true
+  | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ | VCIDR _ -> true
   | _ -> false
 
 (* A value that holds code. Two of these cannot be compared, and the walk
@@ -968,16 +989,60 @@ let rec eq_key v =
   | v -> v
 
 
+(* Two constructors of one type, by where they were declared. Falling back
+   to the name covers a constructor that reached here without a declaration
+   being read; within one list both come from one type, so the two never
+   mix. *)
+let compare_ctor c1 c2 =
+  match Hashtbl.find_opt constr_index c1, Hashtbl.find_opt constr_index c2 with
+  | Some i, Some j -> compare i j
+  | _ -> compare (Ctor.name c1) (Ctor.name c2)
+
 (* `List.sort` takes a list of any type, including types wand does not
    order, so it keeps structural comparison and reaches for `wand_order`
-   only where wand defines one. *)
-let wand_compare a b =
-  if functional a || functional b then
+   only where wand defines one.
+
+   The walk is written out rather than left to the runtime's own compare,
+   which reads a constructor's name. It has to go all the way in: a
+   constructor inside a tuple inside a list is still a constructor, and
+   ordering it by name there would be the same defect one level down. *)
+let rec wand_compare a b =
+  match a, b with
+  | _ when functional a || functional b ->
     raise (EvalError "cannot order functions")
-  else if normalized a && normalized b then wand_order a b
-  else
-    try compare a b
-    with Invalid_argument _ -> raise (EvalError "cannot order functions")
+  | _ when normalized a && normalized b -> wand_order a b
+  | VConstr (c1, xs1), VConstr (c2, xs2) ->
+    let c = compare_ctor c1 c2 in
+    if c <> 0 then c else compare_each xs1 xs2
+  | VList xs, VList ys | VTuple xs, VTuple ys -> compare_each xs ys
+  | VRecord kvs1, VRecord kvs2 | VMap kvs1, VMap kvs2 ->
+    compare_pairs kvs1 kvs2
+  | _ ->
+    (try compare a b
+     with Invalid_argument _ -> raise (EvalError "cannot order functions"))
+
+(* Element by element, and a list that runs out first is the lesser -- the
+   order the runtime's own compare gives a list, kept. *)
+and compare_each xs ys =
+  match xs, ys with
+  | [], []             -> 0
+  | [], _              -> -1
+  | _, []              -> 1
+  | x :: xs, y :: ys   ->
+    let c = wand_compare x y in
+    if c <> 0 then c else compare_each xs ys
+
+and compare_pairs kvs1 kvs2 =
+  match kvs1, kvs2 with
+  | [], []                        -> 0
+  | [], _                         -> -1
+  | _, []                         -> 1
+  | (k1, v1) :: r1, (k2, v2) :: r2 ->
+    let c = compare k1 k2 in
+    if c <> 0 then c
+    else
+      let c = wand_compare v1 v2 in
+      if c <> 0 then c else compare_pairs r1 r2
 
 (* ── Pattern matching ─────────────────────────────────────────────────────── *)
 

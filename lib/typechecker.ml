@@ -162,7 +162,7 @@ let fresh_ord () = fresh_as Ord
 let is_ordered = function
   | TInt | TFloat | TString
   | TDuration | TDateTime
-  | TSize | TVersion | TPort | TIPv4 -> true
+  | TSize | TVersion | TPort | TIPv4 | TCIDR -> true
   | _ -> false
 
 (* The types `+` and `-` take. A `Size` and a `Duration` add to their own

@@ -983,7 +983,9 @@ let run_item ?modul env item =
             (Module_types.canonical_type ~modul:m tname) entry
         | None -> ())
      | _ -> Hashtbl.remove Evaluator.derivable tname);
+    let position = ref (-1) in
     List.fold_left (fun env ctor ->
+      incr position;
       let field_names = List.map fst ctor.Ast.fields in
       let ident =
         match modul with
@@ -992,6 +994,8 @@ let run_item ?modul env item =
       in
       Hashtbl.replace Evaluator.constr_fields ident field_names;
       Hashtbl.replace Evaluator.constr_defaults ident ctor.Ast.defaults;
+      (* Where it stands in the declaration, which is the order it sorts in. *)
+      Hashtbl.replace Evaluator.constr_index ident !position;
       Evaluator.register_ctor ident;
       Evaluator.forget_ctor_env ();
       let v = match ctor.Ast.fields with

@@ -93,11 +93,36 @@ group "Port and IPv4" (fn () -> [
   test "a padded octet is the same address" (fn t -> t.ok (192.168.001.1 == 192.168.1.1))
 ])
 
--- Sorting reads a value the same way. Each of these came back in the order
--- of its text before.
-group "List.sort agrees" (fn () -> [
-  test "addresses" (fn t ->
-    t.eq [10.0.0.2, 10.0.0.9, 10.0.0.10] (List.sort [10.0.0.10, 10.0.0.9, 10.0.0.2])),
-  test "versions" (fn t -> t.eq [1.2.3, 1.9.0, 1.10.0] (List.sort [1.10.0, 1.9.0, 1.2.3])),
-  test "sizes" (fn t -> t.eq [100B, 999MB, 1GB] (List.sort [1GB, 999MB, 100B]))
+-- A network reads as numbers too. Compared as text, `10.0.0.0/8` sat below
+-- `9.0.0.0/8` -- the same two addresses the other way round from what the
+-- addresses themselves answer.
+group "CIDR" (fn () -> [
+  test "where the network starts decides first" (fn t -> t.ok (9.0.0.0/8 < 10.0.0.0/8)),
+  test "then how far it reaches" (fn t -> t.ok (10.0.0.0/8 < 10.0.0.0/16)),
+  test "a network equals itself" (fn t -> t.ok (10.0.0.0/8 == 10.0.0.0/8)),
+  test "sorted" (fn t ->
+    t.eq
+      [9.0.0.0/8, 10.0.0.0/8, 10.0.0.0/16]
+      (List.sort [10.0.0.0/16, 10.0.0.0/8, 9.0.0.0/8]))
+])
+
+-- A type wand does not order still sorts, because `List.sort` takes a list
+-- of anything. What decides is the declaration: a constructor sorts where it
+-- was written, not where its name falls in the alphabet.
+type Prio = Low | Medium | High
+
+type S = Zulu | Alpha
+
+group "a variant sorts by its declaration" (fn () -> [
+  test "in the order written" (fn t ->
+    t.eq [Low, Medium, High] (List.sort [High, Low, Medium])),
+  test "not by name" (fn t -> t.eq [Zulu, Alpha] (List.sort [Alpha, Zulu])),
+  test "inside a tuple" (fn t ->
+    t.eq [(0, Zulu), (1, Zulu), (1, Alpha)] (List.sort [(1, Alpha), (0, Zulu), (1, Zulu)])),
+  test "inside a list" (fn t -> t.eq [[Zulu], [Alpha]] (List.sort [[Alpha], [Zulu]])),
+  test "the payload breaks a tie" (fn t ->
+    t.eq [Some 1, Some 2] (List.sort [Some 2, Some 1])),
+  -- The built-in pairs declare their absent and failed cases first.
+  test "None before Some" (fn t -> t.eq [None, Some 1] (List.sort [Some 1, None])),
+  test "Error before Ok" (fn t -> t.eq [Error "e", Ok 1] (List.sort [Ok 1, Error "e"]))
 ])

@@ -1262,7 +1262,18 @@ let test_ordering_is_a_constraint () =
   ok "a size" "100MB < 1GB" "true";
   ok "a version, by number and not by text" "1.10.0 > 1.9.0" "true";
   ok "an address, by its number" "10.0.0.9 < 10.0.0.10" "true";
+  ok "a network, by where it starts" "9.0.0.0/8 < 10.0.0.0/8" "true";
+  ok "then by how far it reaches" "10.0.0.0/8 < 10.0.0.0/16" "true";
   ok "a port" ":80 < :443" "true";
+  (* `List.sort` takes a list of anything, so a type outside the set still
+     sorts. What it sorts by is the declaration, not the constructor's name:
+     `S` below used to come back `[Alpha, Zulu]`, and renaming a constructor
+     moved values around. *)
+  fails "a type you declare" "type S = Zulu | Alpha\nZulu < Alpha"
+    "S is not ordered";
+  ok "but it sorts, in the order declared"
+    "import List\ntype S = Zulu | Alpha\n\"%{List.sort [Alpha, Zulu]}\""
+    "[Zulu, Alpha]";
   (* Ord composes as Num does: a function that only compares stays
      polymorphic over every ordered type. *)
   Alcotest.(check string) "a comparison stays polymorphic" "Ord -> Ord -> Ord"

@@ -32,8 +32,15 @@ running.
 under `<`. Every ordered type is one wand knows about, and a deriving
 mechanism is its own design. Nothing has asked for one yet.
 
-Ordering the types wand knows is done: eleven of them compare, and
-`List.sort` reads a value the same way rather than sorting its text.
+`List.sort` is the exception, and it is deliberate: it takes a list of any
+type, so it sorts what the operator refuses. A type wand orders sorts on its
+value; everything else sorts on its shape, a variant by its declaration.
+That is why widening `Ord` to match would be a decision rather than a
+change — it would have to say what `Circle < Rect` means, and the shape's
+answer is arbitrary where the operator's is not.
+
+Ordering the types wand knows is done: ten of them compare, and `List.sort`
+reads a value the same way rather than sorting its text.
 
 ## Decided against, for now
 
