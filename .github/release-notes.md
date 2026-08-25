@@ -1,32 +1,47 @@
-## 0.45.0 - 2026-08-24
+## 0.46.0 - 2026-08-24
 
-A field puns, in a pattern and in a construction.
+A field may say what it holds when a construction leaves it out.
 
-    match p with | Pod(name, restarts) -> "%{name}: %{restarts}"
-    let p = Pod(name, restarts)
+    type Conf(host : String, port : Port = :8080, retries : Int = 3)
 
-Both are what you would have written as `Pod(name = name, restarts =
-restarts)`. A map has punned since it got braces, and a record had no
-equivalent, so field names in a record pattern were spelled twice -- and the
-repetition grew with the record.
+    Conf(host = "example.com")   -- port :8080, retries 3
 
-Which reading a list of bare names carries comes from the declaration, not
-from the spelling. `Pod` names its fields, so those are fields. A constructor
-whose payload is a tuple reads the same list as the tuple, so `Some(a, b)` is
-what it always was. The space in `Pod (name, restarts)` decides nothing, and
-a single name is the payload either way.
+A default is a value written out: a literal, or a constructor applied to
+literals. It reads with nothing in scope, so it says the same thing at every
+site that omits the field, performs no effect for a construction to declare,
+and prints back as written. A field with no default is still required.
 
-A pun mixes with a field that carries a value: `Pod(name, restarts = 0)` in a
-pattern, `Pod(restarts = 0, name)` in a construction. The construction is the
-narrower of the two, because a bare name written first is the base of an
-update:
+A derived decoder reads them too, which is the wider half. A field the
+document does not carry takes its default rather than failing, and a field it
+does carry wins.
 
-    Pod(base, restarts = 7)   -- the update, as before
+That is what made the second half possible. `Args` turns argv into a document
+and a decoder reads it, so the flags are the fields -- but the line that tells
+somebody what those flags are was a string written beside the type, free to
+drift from it, which is half of what makes the shell version bad.
 
-Writing a pun there gets a type error that names the reordering.
+    type Flags(port : Port = :8080, timeout : Duration = 30s,
+               verbose : Bool = false)
 
-Also fixed: `type X (T, U)` left the parser's bracket count raised, so no
-newline after it ended a top-level statement. A definition two lines down was
-read as a continuation of the one above it, and `wand f` wrote that reading
-back to the file -- the formatter changing what the source meant. Every
-rewind in the parser now restores the count with the position.
+    Flags.usage   -- "[--port :8080] [--timeout 30s] [--verbose]"
+
+`examples/ports/probe-args.wand` was the port that carried that string and
+said so. Its flags are their own record now, so its decoder is derived as
+well. What is left by hand is the positional host, which `Args` puts under
+`_` with nothing in the type marking the field that reads it.
+
+`Option` is a built-in type. Its name and its constructors need no import,
+the way `Result` and `List` need none -- `Env.get` answers with one,
+`Decode.optional` builds one, a derived decoder reads an absent field as one,
+and both serialisers know what `Some` and `None` mean, yet
+`type Opts(tag : Option String)` said "unknown type 'Option'". The module
+keeps its functions. If you declare your own `type Option`, that is now an
+error, as it already was for any other built-in name.
+
+Two smaller things you may feel. A `Bool` field a document does not carry now
+reads as `false`, so a `Bool` flag no longer needs a default to be usable at
+all. And a constructor that declares one field name twice is refused, where
+it used to be taken silently with the first winning.
+
+`wand t --fix` inserts a missing import. The error already named the module;
+now the line it is missing travels with it.

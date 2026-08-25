@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.46.0] - 2026-08-24
+
+### Added
+
+- A field may declare a default: `type Conf(host : String, port : Port =
+  :8080)`. A construction may leave that field out, and `Conf()` builds one
+  where every field has a default. A default is a value written out -- a
+  literal, or a constructor applied to literals -- so it reads with nothing in
+  scope, says the same thing at every site that omits the field, and performs
+  no effect a construction would have to declare
+- A derived decoder reads defaults too: a field the document does not carry
+  takes its default rather than failing, and a field it does carry wins
+- `T.usage`, the command line that reads a type, derived beside `T.decoder`
+  and `T.encoder`. A field with a default prints bracketed and shows the
+  default; an `Option` field prints bracketed and shows what the flag takes;
+  a `Bool` prints as a switch; anything else is required and shows its type.
+  The usage line and the decoder now come from one declaration, so a flag
+  cannot be in one and missing from the other
+- `wand t --fix` inserts a missing import. The checker already named the
+  module, so the line rides with the error: it goes under the manifest, joins
+  the run of plain imports in the order that run is kept, and stays above any
+  destructured `let {a} = import X`
+
+### Changed
+
+- `Option` is a built-in type. Its name and its `Some` and `None`
+  constructors need no import, the way `Result`, `List` and `Map` need none.
+  The module keeps its functions, and calling one still needs `import
+  Option`. **Declaring `type Option` is now an error**, as it already was for
+  any other built-in name
+- A `Bool` field a document does not carry reads as `false`, the way an
+  `Option` field has always read as `None`. `Args.parse_with ["verbose"]`
+  failed on every command line that left `--verbose` off unless the field
+  carried a default. A default still wins over both
+- A constructor that declares one field name twice is an error. It was taken
+  silently and the first won, so the second's default never applied and its
+  type was never checked against anything
+- Empty parentheses read the same way in a pattern as in a construction:
+  `C()` names no fields where `C` has them, and is the constructor that
+  carries nothing where it does not
+- The declaration errors state what happened and stop; the clause after the
+  semicolon is gone from each
+
+### Fixed
+
+- Six declaration errors reported line 1, column 1 whichever line the
+  declaration was on. They now point at the thing the message names -- the
+  type name in the *second* of two declarations, the repeated constructor,
+  the repeated field, or the default expression itself
+- A keyword where a field name goes says which word is the problem.
+  `type Run(result : T)` reported "expected type name, got result", which
+  reads like nonsense beside a word that is plainly a name
+
+[0.46.0]: https://github.com/mjstahl/wand/releases/tag/v0.46.0
+
 ## [0.45.0] - 2026-08-24
 
 ### Added
