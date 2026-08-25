@@ -128,3 +128,31 @@ test "the inline form collects too" (fn t ->
   t.eq
     (Ok Collect(tag = ["a", "b"], name = "x", verbose = false))
     (read ["--tag=a", "--tag=b"]))
+
+-- ── The end of the flags, and the question that is not one ──────────────
+
+let _rest = Decode.field "_" (Decode.list Decode.string)
+
+test "`--` ends the flags" (fn t ->
+  t.eq (Ok ["-x", "--y", "z"]) (Args.parse _rest ["--", "-x", "--y", "z"]))
+
+test "and what came before it is still positional" (fn t ->
+  t.eq (Ok ["a", "--b"]) (Args.parse _rest ["a", "--", "--b"]))
+
+test "a flag before it is still a flag" (fn t ->
+  t.eq (Ok true) (Args.parse_with ["v"] (Decode.field "v" Decode.bool) ["--v", "--", "x"]))
+
+test "`--` alone leaves nothing after it" (fn t -> t.eq (Ok []) (Args.parse _rest ["--"]))
+
+test "help is asked for" (fn t -> t.eq true (Args.help? ["--verbose", "--help"]))
+
+test "and not asked for" (fn t -> t.eq false (Args.help? ["--verbose"]))
+
+test "after `--` it is an argument like any other" (fn t ->
+  t.eq false (Args.help? ["--", "--help"]))
+
+-- Reading a command line that asks for help says what to do about it.
+test "reading one that asks for help names the answer" (fn t ->
+  match Args.parse (Decode.field "v" Decode.bool) ["--help"] with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "Args.help?" why))

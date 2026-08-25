@@ -57,13 +57,12 @@ let opts = Decode.map2 (fn h f -> Opts(host = h, flags = f)) host_of Flags.decod
 let render (o: Opts) =
   "%{o.host}%{o.flags.port} timeout %{o.flags.timeout}%{if o.flags.verbose then " (verbose)" else ""}"
 
+let usage = "usage: probe-args %{Flags.usage} host"
+
 let main () =
-  match Args.read Flags.flags opts (Env.args ()) with
-  | Ok o -> IO.println (render o)
-  | Error why -> (
-    IO.println_err "%{why}";
-    IO.println_err "usage: probe-args %{Flags.usage} host";
-    Proc.exit 1
-  )
+  if Args.help? (Env.args ()) then IO.println usage
+  else match Args.read Flags.flags opts (Env.args ()) with
+    | Ok o -> IO.println (render o)
+    | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
 
 main ()

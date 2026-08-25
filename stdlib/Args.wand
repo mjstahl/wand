@@ -77,6 +77,10 @@ let _object_of_spec spec args =
   in let go acc positional args =
     match args with
     | [] -> Ok(acc, positional)
+    -- `--` ends the flags. What follows is positional whatever it looks
+    -- like, which is the only way to pass an argument that begins with two
+    -- dashes.
+    | ["--" :: rest] -> Ok(acc, List.append positional rest)
     | [arg :: rest] when !(_flag? arg) -> go acc (List.append positional [arg]) rest
     -- Only flags get past the guard above, so `=` here means `--key=value`.
     | [arg :: rest] when _inline? arg -> (
@@ -87,6 +91,10 @@ let _object_of_spec spec args =
       if _switch? spec k then go (set k "true" acc) positional rest
       else match rest with
         | [v :: more] -> go (set k v acc) positional more
+        -- Asking for help is not reading a command line, so it is answered
+        -- before one is read rather than by a field nobody declared.
+        | [] when k == "help" ->
+          Error "--help expects a value; `Args.help?` answers it instead"
         | [] -> Error "--%{k} expects a value"
     )
   -- A flag that collects and was never written is none of them, not a
@@ -184,3 +192,30 @@ let read spec decoder args =
   match _object_of_spec spec args with
   | Error e -> Error e
   | Ok obj -> JSON.decode decoder obj
+
+-- Return true if the arguments ask for help.
+--
+-- `--help` is not a flag a type declares: it is a question about the
+-- command line rather than a value in it, and the answer is a usage line
+-- rather than a record. So it is asked before the arguments are read:
+--
+--     if Args.help? (Env.args ())
+--     then (IO.println "usage: probe %{Flags.usage} host"; Proc.exit 0)
+--     else ...
+--
+-- >> Args.help? ["--verbose", "--help"]
+-- true : Bool
+--
+-- >> Args.help? ["--verbose"]
+-- false : Bool
+--
+-- After `--` there are no flags left, so a `--help` there is an argument
+-- like any other:
+--
+-- >> Args.help? ["--", "--help"]
+-- false : Bool
+let help? args =
+  match args with
+  | [] -> false
+  | ["--" :: _] -> false
+  | [a :: rest] -> if a == "--help" then true else help? rest

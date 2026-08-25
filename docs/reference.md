@@ -3527,6 +3527,7 @@ See [Decoders](#decoders).
 parse      : Decoder 'a -> List String -> Result String 'a
 parse_with : List String -> Decoder 'a -> List String -> Result String 'a
 read       : Map String -> Decoder 'a -> List String -> Result String 'a
+help?      : List String -> Bool
 ```
 
 A command line is another boundary without types. wand reads it the same way
@@ -3590,6 +3591,32 @@ arguments arrive under `_`, and nothing marks the field that reads them, so
 the trailing `host` above is written by hand.
 [`examples/ports/probe-args.wand`](../examples/ports/probe-args.wand) is the
 whole of it.
+
+`--` ends the flags. Everything after it is positional whatever it looks
+like, which is the only way to pass an argument that begins with two dashes:
+
+```ocaml
+Args.parse (Decode.field "_" (Decode.list Decode.string)) ["a", "--", "--b"]
+-- Ok(["a", "--b"])
+```
+
+`--help` is not a flag a type declares. It is a question about the command
+line rather than a value in it, and the answer is a usage line rather than a
+record, so it is asked before the arguments are read:
+
+```ocaml
+if Args.help? (Env.args ())
+then (IO.println "usage: probe %{Flags.usage} host"; Proc.exit 0)
+else ...
+```
+
+`Args.help?` is false after `--`, where a `--help` is an argument like any
+other. Note that `wand script.wand -- ...` already spends one `--` handing
+the rest to the script, so a script's own separator is the second one:
+`wand script.wand -- -- --weird` gives it `["--", "--weird"]`, and `--weird`
+is a positional argument. Reading a command line that asks for help without answering it first
+is an error that says so: `--help expects a value; \`Args.help?\` answers it
+instead`.
 
 Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
 There are no short flags. A positional argument arrives under `_`:
