@@ -609,6 +609,18 @@ exception TypeError of string
    prefix spliced into the message. *)
 exception TypeErrorAt of Token.loc * string
 
+(* Raise at a location when there is one. A declaration checked after the
+   file is read has no expression to blame, so it carries the location it was
+   written at; a built-in definition has none, and falls back to the
+   unlocated form. *)
+let fail_at_opt (loc : Token.loc option) msg =
+  match loc with
+  | Some l -> raise (TypeErrorAt (l, msg))
+  | None   -> raise (TypeError msg)
+
+let loc_of_expr (e : expr) : Token.loc option =
+  match e with Located (l, _) -> Some l | _ -> None
+
 (* The two types that did not fit, raised by the one case below that has
    nothing better to say. `unify` turns it into a message: which of the two
    the reader expected is known at the call site, not here. Every other
@@ -3091,13 +3103,14 @@ let stdlib_type_env : env = [
    declaration. *)
 let option_tdef : type_def =
   Variants ("Option", ["a"], [
-    { name = "None"; fields = []; defaults = [] };
-    { name = "Some"; fields = [ (None, TEVar "a") ]; defaults = [] };
+    { name = "None"; loc = None; fields = []; defaults = [] };
+    { name = "Some"; loc = None; fields = [ (None, TEVar "a") ]; defaults = [] };
   ])
 
 let shell_result_tdef : type_def =
   Variants ("ShellResult", [], [{
     name   = "ShellResult";
+    loc    = None;
     fields = [ (Some "stdout", TEName "String");
                (Some "stderr", TEName "String");
                (Some "code",   TEName "Int") ];
@@ -3494,11 +3507,15 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
          nonsense, because the name resolved to the builtin while the
          constructor came from here. *)
       if builtin_type_name tname then
-        raise (TypeError (Printf.sprintf
-          "'%s' is a built-in type, so it cannot be declared" tname));
+        fail_at_opt (match ctors with c :: _ -> c.loc | [] -> None)
+          (Printf.sprintf
+            "'%s' is a built-in type, so it cannot be declared" tname);
+      (* The location is the second declaration's, which is the one a repeat
+         is about: pointing at the first sends a reader -- and anything that
+         edits by location -- to the declaration that was already fine. *)
       if Hashtbl.mem seen_types tname then
-        raise (TypeError (Printf.sprintf
-          "'%s' is declared twice" tname));
+        fail_at_opt (match ctors with c :: _ -> c.loc | [] -> None)
+          (Printf.sprintf "'%s' is declared twice" tname);
       Hashtbl.add seen_types tname ();
       List.iter (fun c ->
         (* A name declares one thing here too. Two fields of one name used to
@@ -3511,8 +3528,8 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
           | None -> ()
           | Some f ->
             if Hashtbl.mem seen_fields f then
-              raise (TypeError (Printf.sprintf
-                "constructor '%s' declares field '%s' twice" c.name f));
+              fail_at_opt c.loc (Printf.sprintf
+                "constructor '%s' declares field '%s' twice" c.name f);
             Hashtbl.add seen_fields f ()) c.fields;
         (match Hashtbl.find_opt seen_ctors c.name with
          | Some owner ->
@@ -3520,8 +3537,8 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
              if owner = tname then Printf.sprintf "twice in '%s'" tname
              else Printf.sprintf "by '%s' and by '%s'" owner tname
            in
-           raise (TypeError (Printf.sprintf
-             "constructor '%s' is declared %s" c.name where))
+           fail_at_opt c.loc (Printf.sprintf
+             "constructor '%s' is declared %s" c.name where)
          | None -> Hashtbl.add seen_ctors c.name tname)) ctors
     | _ -> ()) prog.items;
   known_aliases :=
@@ -3540,11 +3557,11 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
       List.iter (fun c ->
         List.iter (fun (fname, e) ->
           if not (Ast.is_written_value e) then
-            raise (TypeError (Printf.sprintf
+            fail_at_opt (loc_of_expr e) (Printf.sprintf
               "the default for field '%s' of '%s' has to be a value written \
                out: a literal, or a constructor applied to literals. It is \
                read with nothing in scope, so it says the same thing at \
-               every construction that leaves the field out" fname c.name));
+               every construction that leaves the field out" fname c.name);
           let declared =
             match List.find_opt (fun (dn, _) -> dn = Some fname) c.fields with
             | Some (_, te) -> type_of_te te
@@ -3553,9 +3570,9 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
           let got = infer tenv (tenv_to_ctor_env tenv) e in
           (try unify_expected ~expected:declared ~got
            with TypeError why ->
-             raise (TypeError (Printf.sprintf
+             fail_at_opt (loc_of_expr e) (Printf.sprintf
                "the default for field '%s' of '%s' does not have the field's \
-                type: %s" fname c.name why)))
+                type: %s" fname c.name why))
         ) c.defaults) ctors
     | _ -> ()) prog.items;
   let item_index = ref (-1) in

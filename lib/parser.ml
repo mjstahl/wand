@@ -1465,6 +1465,7 @@ let parse_expr tokens =
 
 let parse_type_def s =
   (* type already consumed *)
+  let type_loc = peek_loc s in
   let type_name =
     let loc = peek_loc s in
     match advance s with
@@ -1540,7 +1541,8 @@ let parse_type_def s =
   (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
   if peek s = Token.LParen then begin
     let (fields, defaults) = parse_ctor_fields () in
-    Ast.Variants (type_name, !params, [{ Ast.name = type_name; fields; defaults }])
+    Ast.Variants (type_name, !params,
+      [{ Ast.name = type_name; loc = Some type_loc; fields; defaults }])
   end else begin
     expect s Token.Eq;
     (* After `=`, a shape that cannot be a constructor is a type expression,
@@ -1575,8 +1577,9 @@ let parse_type_def s =
       Ast.Alias (type_name, !params, parse_type_expr s)
     else begin
     let parse_ctor () =
+      let ctor_loc = peek_loc s in
       let name =
-        let loc = peek_loc s in
+        let loc = ctor_loc in
         match advance s with
         | Token.Upper n -> n
         | t -> fail_at loc (Format.asprintf "expected constructor name, got %a" Token.pp t)
@@ -1588,7 +1591,7 @@ let parse_type_def s =
            "a constructor takes its payload directly: 'Circle Int', not \
             'Circle of Int'");
       let (fields, defaults) = parse_ctor_fields () in
-      { Ast.name; fields; defaults }
+      { Ast.name; loc = Some ctor_loc; fields; defaults }
     in
     let ctors = ref [parse_ctor ()] in
     while peek s = Token.Pipe do

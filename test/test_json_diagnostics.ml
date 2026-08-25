@@ -204,6 +204,34 @@ let test_type_error_position () =
    | Some l -> Alcotest.(check int) "points into line 2" 2 l.Token.line
    | None -> Alcotest.fail "type error lost its position")
 
+(* A declaration is checked after the whole file is read, so there is no
+   expression to blame and these used to land on 1:1 -- which reads as "the
+   first declaration" to anything that edits by location, and the first is
+   exactly the one a repeat is not about. *)
+
+let line_of src =
+  let d = check_error src in
+  Alcotest.(check string) "code" "E-TYPE" d.Diag.code;
+  match d.Diag.loc with
+  | Some l -> l.Token.line
+  | None -> Alcotest.failf "declaration error lost its position: %s" d.Diag.message
+
+let test_declaration_error_positions () =
+  Alcotest.(check int) "a type declared twice points at the second"
+    3 (line_of "type A = Foo\n\ntype A = Bar\n\nBar\n");
+  Alcotest.(check int) "a constructor shared by two types points at the second"
+    3 (line_of "type A = Foo | Bar\n\ntype B = Foo\n\nFoo\n");
+  Alcotest.(check int) "a constructor repeated in one type"
+    1 (line_of "type A = Foo | Foo\n\nFoo\n");
+  Alcotest.(check int) "a field repeated in one constructor"
+    3 (line_of "let x = 1\n\ntype M(a: Int, a: Int)\n\nM(a = 1)\n");
+  Alcotest.(check int) "a declaration over a built-in name"
+    3 (line_of "let x = 1\n\ntype List \'a = Nil\n\nNil\n");
+  Alcotest.(check int) "a default of the wrong type points at the default"
+    3 (line_of "let x = 1\n\ntype C(port: Port = 30s)\n\nC()\n");
+  Alcotest.(check int) "a default that is not a written value"
+    3 (line_of "uses {Shell(hostname)}\n\ntype C(h: String = $(hostname))\n\nC()\n")
+
 (* The loc of a type error spans the whole expression the nearest `Located`
    wraps, not just its first token -- `x ++ "s"` is columns 9 through 16. *)
 let test_type_error_range () =
@@ -303,6 +331,8 @@ let () =
       Alcotest.test_case "strict severity"       `Quick test_strict_severity;
       Alcotest.test_case "file field"            `Quick test_file_field;
       Alcotest.test_case "item range"            `Quick test_finding_range;
+      Alcotest.test_case "declaration positions"  `Quick
+        test_declaration_error_positions;
     ];
     "holes", [
       Alcotest.test_case "shape" `Quick test_hole_shape;

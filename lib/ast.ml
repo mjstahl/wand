@@ -363,6 +363,12 @@ and is_constr_head (e : expr) : bool =
 
 type ctor_def = {
   name   : string;
+  (* Where it was written. A declaration is checked after the whole file is
+     read, so the error has no expression to blame and would otherwise land
+     on line 1 -- which reads as "the first declaration" to anything that
+     acts on a location, and the first is exactly the one a repeat is not.
+     `None` for the built-in definitions, which are in no file. *)
+  loc    : Token.loc option;
   fields : (string option * type_expr) list;
   (* `port : Port = :8080`. A field with one of these may be left out of a
      construction, and a derived decoder reads it from the default when the
