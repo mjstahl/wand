@@ -1966,13 +1966,23 @@ type Pod = Pod (metadata : Meta, status : Statsu)
 --   (did you mean 'Status'?)
 ```
 
-A type from another module needs an import of that module. Its functions
-need the same:
+A type belongs to the module that declares it. Reach it through that module,
+or name it in the import:
 
 ```ocaml
 import Test
+type Run = Run (outcome : Test.TestOutcome)
+
+let {TestOutcome} = import Test
 type Run = Run (outcome : TestOutcome)
 ```
+
+A constructor is reached the same way: `Test.Pass "x"`, or `Pass "x"` after
+naming `Pass` in the import. This holds in a pattern too.
+
+Two modules may each declare a type called `Status`. They declare two types.
+A file that imports both writes `one.Status` and `two.Status`, and mixing
+them is an error that says which is which.
 
 Built-in types are not from a module and need no import: `List`, `Map`,
 `Result`, `Option` and the domain types are always in scope.
@@ -2014,12 +2024,27 @@ the name in the message:
 let p : Point = (1, 2)       -- p : Point (= (Int, Int))
 ```
 
-It declares no constructor and nothing at run time, so an alias is not a
-value:
+An alias declares nothing at run time. It also declares no constructor of its
+own, but it names whatever its target names. A type with one constructor
+names that constructor, so an alias to one builds and matches:
 
 ```ocaml
-This
--- 'This' is a type, not a value; it is an alias, so build the type it names
+type Conf(port : Port = :8080)
+type MyConf = Conf
+
+MyConf(port = :90)                       -- a Conf
+match c with | MyConf(port = p) -> p     -- matches one
+```
+
+A type with several constructors has no single one to name, so an alias to
+one is not a value:
+
+```ocaml
+type Shape = Circle Int | Rect Int Int
+type S = Shape
+
+S
+-- 'S' is a type, not a value
 ```
 
 An alias takes parameters like any other type, and they are bound to the
@@ -2526,9 +2551,9 @@ stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
-`import IO`. The only names in scope without an import are `Ok`, `Error`, `Some` and
-`None`, which are constructors of built-in types and have no module to come
-from.
+`import IO`. A type and a constructor follow the same rule. The only names in
+scope without an import are `Ok`, `Error`, `Some` and `None`, which are
+constructors of built-in types and have no module to come from.
 
 Imported names are available under the module prefix:
 
@@ -2583,6 +2608,18 @@ let {foo, bar} = import ./utils         -- bind foo and bar
 Short entries and renamed entries mix freely. A map pattern behaves the same
 way.
 
+An uppercase name selects a type or one of its constructors:
+
+```ocaml
+let {TestOutcome, Pass, Fail} = import Test
+let {Conf = MyConf}           = import ./foo
+```
+
+Renaming a type renames its constructor where it has one, so `MyConf(port =
+:80)` builds a `Foo.Conf`. A type with several constructors has no single one
+to rename, so renaming one of them is refused. Rename the type, or reach the
+constructor through the module.
+
 #### What a destructure binds by
 
 Brackets destructure a list. Braces destructure a map or a module. What they
@@ -2593,6 +2630,7 @@ let [a, b]      = [10, 20]         -- a list: by position
 let {x = a}     = m                -- a map: by key
 let {map}       = import List      -- a module: by name
 let {map = m2}  = import List      -- a module: by name, renamed
+let {Pass}      = import Test      -- a module: a constructor, by name
 ```
 
 Only a list pattern is positional. The difference shows when the order

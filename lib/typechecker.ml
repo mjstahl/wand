@@ -1501,7 +1501,8 @@ let module_first tenv m =
    such a type -- by an alias, or by renaming it on import -- builds and
    matches one. A type with several has no single constructor to forward. *)
 let rec ctor_name_for tenv name =
-  match List.assoc_opt name tenv with
+  (* The name a file writes; the declaration is under its canonical one. *)
+  match List.assoc_opt (canonical_type_name name) tenv with
   | Some (Variants (_, _, [c])) when c.name <> name -> c.name
   | Some (Alias (_, _, TEName target)) when target <> name ->
     ctor_name_for tenv target

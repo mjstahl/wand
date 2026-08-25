@@ -146,6 +146,7 @@ The forms below are wand's; the parenthetical is the drift to avoid.
 | `{a = 1}` map; `{a, b = x}` pattern (puns) | `{a: 1}`, `[a = 1]` |
 | `T(r, b = 3)` record update | `{r with b = 3}` |
 | `Pod(name, restarts)` fields, punned in a pattern or a construction | `Pod{name}`, positional fields |
+| `Foo.Status`, `Foo.Live`; or `let {Status, Live} = import ./foo` | a bare imported type or constructor |
 | `type Pod(name: String, tries: Int = 3)` field default | a second constructor, an `Option` for "not given" |
 | `type Shape = Circle Int \| Rect Int Int` | `Circle of Int` |
 | `try e` yields a `Result` | `try ... with`, `raise` |
@@ -156,9 +157,11 @@ exists, not a new one: `type Point = (Int, Int)`, `type Ids = List Int`,
 `type F = Int -> Int`, `type This = That`, and parameterised,
 `type Pair 'a = ('a, 'a)`. It is transparent, so the two are one type and
 interchangeable both ways; it buys a name, not a type the checker keeps
-apart, which is what a record is for. It declares no constructor, so an
-alias is not a value. A type shows with the alias it was written as —
-`Pair Int (= (Int, Int))`.
+apart, which is what a record is for. It names whatever its target names, so
+an alias to a single-constructor type builds and matches
+(`type MyConf = Foo.Conf` gives `MyConf(port = :80)`); an alias to a
+multi-constructor one is not a value. A type shows with the alias it was
+written as — `Pair Int (= (Int, Int))`.
 
 A name declares one thing. Two `type`s of one name, two constructors
 sharing one, or a declaration over a built-in's name are all errors naming

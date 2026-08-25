@@ -50,6 +50,11 @@ have to change before anyone builds them.
 - **Syntax for timeouts.** `$(curl x) timeout 30s` would read well and is a
   far larger commitment than a label. `Shell.timeout` and `Par.timeout`
   have to earn it first.
+- **Renaming one constructor of several.** `let {Status = S} = import ./foo`
+  renames the type, and renames its constructor where it has one. There is
+  no way to rename `Live` alone, out of `Live | Gone`: the other would keep
+  the old name, and the type would answer to two spellings in one file.
+  Rename the type, or reach the constructor through the module.
 
 ## The language
 
