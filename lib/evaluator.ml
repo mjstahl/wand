@@ -40,8 +40,11 @@ let () =
   (* Built in, so they are known before any file is read. *)
   Hashtbl.add constr_fields (Ctor.Builtin "Some") [None];
   Hashtbl.add constr_fields (Ctor.Builtin "None") [];
+  (* What `T.parser` answers with, and what `Args.read` takes apart. *)
+  Hashtbl.add constr_fields (Ctor.Builtin "CommandLine")
+    [Some "spec"; Some "reader"; Some "usage"];
   List.iter (fun n -> Hashtbl.replace ctor_of_name n (Ctor.Builtin n))
-    ["ShellResult"; "Some"; "None"; "Ok"; "Error"]
+    ["ShellResult"; "CommandLine"; "Some"; "None"; "Ok"; "Error"]
 
 let defaults_of name =
   match Hashtbl.find_opt constr_defaults name with
@@ -1294,6 +1297,9 @@ let derive_usage : (string -> value) ref =
 let derive_spec : (string -> value) ref =
   ref (fun _ -> raise (EvalError "spec derivation is not wired up"))
 
+let derive_parser : (string -> value) ref =
+  ref (fun _ -> VUnit)
+
 let derive_reader : (string -> value) ref =
   ref (fun _ -> raise (EvalError "reader derivation is not wired up"))
 
@@ -1451,10 +1457,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
        !derive_encoder tname
      | Constr tname, "usage" when Hashtbl.mem derivable tname ->
        !derive_usage tname
-     | Constr tname, "spec" when Hashtbl.mem derivable tname ->
-       !derive_spec tname
-     | Constr tname, "reader" when Hashtbl.mem derivable tname ->
-       !derive_reader tname
+     | Constr tname, "parser" when Hashtbl.mem derivable tname ->
+       !derive_parser tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -4378,6 +4382,13 @@ let rec usage_value tname =
 let () = derive_reader := reader_value
 
 let () = derive_usage := usage_value
+
+(* The three, in the order `CommandLine` declares them. They are still
+   derived one at a time; what changed is that a caller takes them as one
+   value and cannot pair one type's with another's. *)
+let () = derive_parser := (fun tname ->
+  VConstr (Ctor.Builtin "CommandLine",
+           [!derive_spec tname; reader_value tname; usage_value tname]))
 
 (* Everything a command line needs said about a flag that its own text cannot
    say. A `Bool` takes no value, and a `List` collects rather than replacing:

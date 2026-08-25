@@ -297,12 +297,26 @@ T.usage|}
      whether it collects. Both travel together. *)
   ok "the flags name what needs saying and nothing else"
     {|type M = M(host: String, tag: List String, verbose: Bool = false)
-M.spec|}
+M.parser.spec|}
     "{tag = \"repeated\", verbose = \"switch\"}";
   ok "a type whose flags all take one value says nothing"
     {|type M = M(host: String, port: Port)
-M.spec|}
+M.parser.spec|}
     "{}";
+  (* The three travelled separately until 0.49.0, and one type's account of
+     its flags could meet another type's reader. Naming either says so. *)
+  err_contains "spec names what replaced it"
+    {|type M = M(host: String)
+M.spec|}
+    "write 'M.parser'";
+  err_contains "and so does reader"
+    {|type M = M(host: String)
+M.reader|}
+    "write 'M.parser'";
+  ok "the bundle carries the usage line too"
+    {|type M = M(host: String, verbose: Bool = false)
+M.parser.usage|}
+    "--host <String> [--verbose]";
   (* A whole command line is the flags and what was written without one. The
      types say which field is which, so the names are the author's. *)
   ok "the usage line covers the arguments too"
@@ -323,7 +337,7 @@ C.usage|}
   ok "the spec of the whole is the spec of its flags"
     {|type F = F(verbose: Bool = false, tag: List String)
 type C = C(flags: F, host: String)
-C.spec|}
+C.parser.spec|}
     "{verbose = \"switch\", tag = \"repeated\"}";
   err_contains "two records leave which holds the flags a guess"
     {|type A = A(x: Int)

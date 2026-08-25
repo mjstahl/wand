@@ -50,7 +50,7 @@ let usage = "usage: probe-args %{Opts.usage}"
 
 let main () =
   if Args.help? (Env.args ()) then IO.println usage
-  else match Args.read Opts.spec Opts.reader (Env.args ()) with
+  else match Args.read Opts.parser (Env.args ()) with
     | Ok o -> IO.println (render o)
     | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
 

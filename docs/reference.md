@@ -1824,17 +1824,27 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage`, `T.spec` and `T.reader` come from the same fields. They describe
-the command line that reads the type. None of them takes an argument for a
-type parameter. Each states a fact about the declaration. None of them is a
-reader built from it.
+`T.usage` and `T.parser` come from the same fields. They describe the
+command line that reads the type. Neither takes an argument for a type
+parameter.
 
 ```ocaml
 type Opts(host : String, port : Port = :8080, verbose : Bool = false)
 
-Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
-Opts.spec    -- {verbose = "switch"}
+Opts.usage         -- "--host <String> [--port :8080] [--verbose]"
+Opts.parser        -- CommandLine Opts
+Opts.parser.spec   -- {verbose = "switch"}
 ```
+
+`T.parser` holds the three things reading a command line takes: `spec`,
+`reader` and `usage`. `CommandLine` is a built-in type, so a file may take
+one apart and may build one.
+
+Until 0.49.0 `spec` and `reader` were members of their own, and `Args.read`
+took them side by side. Nothing said that they had to come from one type,
+so one type's account of its flags could meet another type's reader, and
+the run reported it as a fault in the arguments. They arrive together now.
+Naming either says what to write instead.
 
 `T.usage` prints one flag for each field. A field with a default prints in
 brackets and shows the default. An `Option` field prints in brackets and
@@ -1842,21 +1852,24 @@ shows what the flag takes. A `Bool` field prints as a switch with no value
 after it. A `Bool` field always prints in brackets, because an absent one
 reads as `false`. Every other field is required and shows its type.
 
-`T.reader` is the decoder that reads a command line. `T.decoder` reads a
-document. For a type that is all flags, the two are the same.
+`T.parser.reader` is the decoder that reads a command line. `T.decoder`
+reads a document. For a type that is all flags, the two are the same.
 
 A type can also describe a whole command line. Such a type has two fields.
 One field has a record type and holds the flags. The other field does not
-have a record type. It holds what was written without a flag. `T.reader`
+have a record type. It holds what was written without a flag. The reader
 maps both fields onto the flat object that `Args` builds.
 
 ```ocaml
 type Flags(port : Port = :8080, verbose : Bool = false)
 type Opts(flags : Flags, host : String)
 
-Args.read Opts.spec Opts.reader (Env.args ())
+Args.read Opts.parser (Env.args ())
 Opts.usage   -- "[--port :8080] [--verbose] <host>"
 ```
+
+`usage` stays a member of its own as well, because `--help` is answered
+before a command line is read. Nothing about that line is about parsing.
 
 The types decide which field is which. The names do not. Call both fields
 what you like.
@@ -1877,7 +1890,7 @@ Two shapes have no reading. The first has two record fields. The second has
 no field left for the arguments. The error names the fields that made the
 shape ambiguous.
 
-`T.spec` states what the text of a flag cannot state. A `Bool` field is a
+`T.parser.spec` states what the text of a flag cannot state. A `Bool` field is a
 `"switch"` and takes no value. A `List` field is `"repeated"` and collects
 values instead of replacing them. A field that needs neither statement is
 left out. The map is empty when every flag takes one value.
@@ -3645,7 +3658,7 @@ See [Decoders](#decoders).
 ```ocaml
 parse      : Decoder 'a -> List String -> Result String 'a
 parse_with : List String -> Decoder 'a -> List String -> Result String 'a
-read       : Map String -> Decoder 'a -> List String -> Result String 'a
+read       : CommandLine 'a -> List String -> Result String 'a
 help?      : List String -> Bool
 ```
 
@@ -3679,14 +3692,14 @@ after it is an error: `--config expects a value`.
 Whether a flag takes a value is not the only fact that argv cannot state. A
 flag written twice replaces its value. So `--name a --name b` is one name,
 written twice. A flag whose field is a `List` collects instead. The type
-states both facts, and `Opts.spec` carries them together:
+states both facts, and `Opts.parser` carries them:
 
 ```ocaml
 type Opts(host : String, tag : List String, verbose : Bool = false)
 
-Opts.spec   -- {tag = "repeated", verbose = "switch"}
+Opts.parser.spec   -- {tag = "repeated", verbose = "switch"}
 
-Args.read Opts.spec Opts.decoder (Env.args ())
+Args.read Opts.parser (Env.args ())
 ```
 
 `Args.read` is `parse_with` given the whole account. `parse_with` takes a

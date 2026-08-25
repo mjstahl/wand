@@ -2537,7 +2537,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
          and which collect. Neither takes a decoder per parameter the way
          `decoder` does: both are facts about the declaration rather than
          readers built from it. *)
-      | None, Constr tname, (("usage" | "spec" | "reader") as which) ->
+      (* Both were public until 0.49.0, and `Args.read` took them side by
+         side. Named here so the change says what to write rather than
+         falling through to a message about constructing the type. *)
+      | None, Constr tname, ("spec" | "reader")
+        when List.mem_assoc (canonical_type_name tname) tenv ->
+        raise (TypeError (Printf.sprintf
+          "'spec' and 'reader' are one member now: write '%s.parser', which \
+           holds both and the usage line" tname))
+      | None, Constr tname, (("usage" | "parser") as which) ->
         (match List.assoc_opt (canonical_type_name tname) tenv with
          | Some tdef ->
            let refuse why =
@@ -2554,13 +2562,14 @@ let rec infer tenv (env : env) (e : expr) : typ =
                  (match cmdline_shape tenv ctor with
                   | Error why -> refuse why
                   | Ok _ ->
-                    if which = "reader" && params <> [] then
+                    if which = "parser" && params <> [] then
                       refuse "a command line is not generic, and this type \
                               takes a parameter";
                     Some (match which with
                           | "usage" -> TString
-                          | "spec" -> TMap TString
-                          | _ -> TDecoder (TName (canonical_type_name tname))))
+                          | _ ->
+                            TApp (TName "CommandLine",
+                                  TName (canonical_type_name tname))))
                | _ -> refuse "it has no fields"))
          | None -> None)
       | None, Constr tname, (("decoder" | "encoder") as which) ->
@@ -3649,9 +3658,32 @@ let shell_result_tdef : type_def =
     defaults = [];
   }])
 
+(* Everything needed to read one command line and to describe it: what the
+   flags do that their own text cannot say, the reader for the type, and the
+   usage line. Derived together as `T.parser`, because they are only ever
+   used together and nothing stopped one type's account meeting another
+   type's reader -- `Args.read B.spec A.reader argv` typechecked, and failed
+   during the run with a message about the data.
+
+   Built in rather than declared in `stdlib/Args.wand` because a module's
+   types are keyed by its path, which moves with `WAND_STDLIB`, and the
+   compiler names this one. `CommandLine` rather than `Parser`: a built-in
+   name cannot be declared over, and `Parser` is a name a file has every
+   right to want. *)
+let command_line_tdef : type_def =
+  Variants ("CommandLine", ["a"], [{
+    name   = "CommandLine";
+    loc    = None;
+    fields = [ (Some "spec",   TEApp (TEName "Map", TEName "String"));
+               (Some "reader", TEApp (TEName "Decoder", TEVar "a"));
+               (Some "usage",  TEName "String") ];
+    defaults = [];
+  }])
+
 let builtin_tenv : typedef_env = [
   ("Option", option_tdef);
   ("ShellResult", shell_result_tdef);
+  ("CommandLine", command_line_tdef);
 ]
 
 (* Every function a file calls comes from a module it imported, so nothing

@@ -170,28 +170,34 @@ let parse_with flags decoder args =
 -- Ok(None) : Result String (Option Port)
 let parse decoder args = parse_with [] decoder args
 
--- Read arguments against a type's own account of its flags.
+-- Read arguments against a type's own account of its command line.
 --
---     Args.read Opts.spec Opts.decoder (Env.args ())
+--     Args.read Opts.parser (Env.args ())
 --
--- `Opts.spec` is derived from the fields: a `Bool` is a switch, and a
--- `List` collects, so `--tag a --tag b` is two tags where `--name a
--- --name b` is one name written twice. Both are facts the type states and
--- argv cannot -- a flag written once looks the same either way -- and this
--- is how they reach the reading without being written a second time.
+-- `Opts.parser` is derived from the fields, and holds the three things
+-- reading one takes: what the flags do that their own text cannot say, the
+-- reader, and the usage line. A `Bool` is a switch and a `List` collects, so
+-- `--tag a --tag b` is two tags where `--name a --name b` is one name
+-- written twice. Both are facts the type states and argv cannot -- a flag
+-- written once looks the same either way -- and this is how they reach the
+-- reading without being written a second time.
 --
--- >> Args.read {v = "switch"} (Decode.field "v" Decode.bool) ["--v"]
+-- The three arrive together because they are only ever used together. Taken
+-- separately, one type's account of its flags could meet another type's
+-- reader, and nothing said so until the run.
+--
+-- >> Args.read CommandLine(spec = {v = "switch"}, reader = Decode.field "v" Decode.bool, usage = "") ["--v"]
 -- Ok(true) : Result String Bool
 --
 -- A flag the spec calls repeated holds a list however many times it was
 -- written:
 --
--- >> Args.read {t = "repeated"} (Decode.field "t" (Decode.list Decode.string)) ["--t", "a"]
+-- >> Args.read CommandLine(spec = {t = "repeated"}, reader = Decode.field "t" (Decode.list Decode.string), usage = "") ["--t", "a"]
 -- Ok(["a"]) : Result String (List String)
-let read spec decoder args =
-  match _object_of_spec spec args with
-  | Error e -> Error e
-  | Ok obj -> JSON.decode decoder obj
+let read : CommandLine 'a -> List String -> Result String 'a =
+  fn parser args -> match _object_of_spec parser.spec args with
+    | Error e -> Error e
+    | Ok obj -> JSON.decode parser.reader obj
 
 -- Return true if the arguments ask for help.
 --

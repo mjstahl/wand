@@ -102,7 +102,7 @@ test "so are short flags, which this module does not have" (fn t ->
 -- flags take no value.
 type Collect(tag: List String, name: String = "x", verbose: Bool = false)
 
-let read argv = Args.read Collect.spec Collect.decoder argv
+let read argv = Args.read Collect.parser argv
 
 test "a repeated flag collects" (fn t ->
   t.eq
@@ -169,7 +169,7 @@ type Several(flags: Only, paths: List Path)
 
 type Perhaps(flags: Only, host: Option String)
 
-let line argv = Args.read Line.spec Line.reader argv
+let line argv = Args.read Line.parser argv
 
 test "the flags and the argument are read together" (fn t ->
   t.eq
@@ -187,15 +187,17 @@ test "and none is refused by name" (fn t -> t.eq (Error ".host: expected a host"
 test "a List argument takes any number, read as its type" (fn t ->
   t.eq
     (Ok Several(flags = Only(), paths = [./a, /tmp/b]))
-    (Args.read Several.spec Several.reader ["./a", "/tmp/b"]))
+    (Args.read Several.parser ["./a", "/tmp/b"]))
 
 test "including none" (fn t ->
-  t.eq (Ok Several(flags = Only(), paths = [])) (Args.read Several.spec Several.reader []))
+  t.eq (Ok Several(flags = Only(), paths = [])) (Args.read Several.parser []))
 
 test "an Option argument takes one or none" (fn t ->
-  t.eq (Ok Perhaps(flags = Only(), host = None)) (Args.read Perhaps.spec Perhaps.reader []))
+  t.eq (Ok Perhaps(flags = Only(), host = None)) (Args.read Perhaps.parser []))
 
 test "the usage line covers both halves" (fn t ->
   t.eq "[--port :8080] [--verbose] <host>" Line.usage)
 
-test "and the spec is the flags' own" (fn t -> t.eq {verbose = "switch"} Line.spec)
+-- The three travel as one value, and each is still reachable on it.
+test "and the spec is the flags' own" (fn t -> t.eq {verbose = "switch"} Line.parser.spec)
+test "the usage line is on it too" (fn t -> t.eq Line.usage Line.parser.usage)
