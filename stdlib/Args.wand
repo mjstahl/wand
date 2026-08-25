@@ -172,9 +172,9 @@ let parse decoder args = parse_with [] decoder args
 
 -- Read arguments against a type's own account of its flags.
 --
---     Args.read Opts.flags Opts.decoder (Env.args ())
+--     Args.read Opts.spec Opts.decoder (Env.args ())
 --
--- `Opts.flags` is derived from the fields: a `Bool` is a switch, and a
+-- `Opts.spec` is derived from the fields: a `Bool` is a switch, and a
 -- `List` collects, so `--tag a --tag b` is two tags where `--name a
 -- --name b` is one name written twice. Both are facts the type states and
 -- argv cannot -- a flag written once looks the same either way -- and this

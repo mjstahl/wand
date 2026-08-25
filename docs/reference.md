@@ -1799,7 +1799,7 @@ There is a worked example of each in `examples/`:
 `T.encoder` comes from the same fields. A type states its shape once, and
 both directions follow.
 
-`T.usage` and `T.flags` come from them too, as the command line that reads
+`T.usage` and `T.spec` come from them too, as the command line that reads
 them. Neither takes an argument for a type parameter -- both are facts about
 the declaration rather than readers built from it:
 
@@ -1807,7 +1807,7 @@ the declaration rather than readers built from it:
 type Opts(host : String, port : Port = :8080, verbose : Bool = false)
 
 Opts.usage   -- "--host <String> [--port :8080] [--verbose]"
-Opts.flags   -- {verbose = "switch"}
+Opts.spec    -- {verbose = "switch"}
 ```
 
 A field with a default prints bracketed, showing the default. An `Option`
@@ -1816,7 +1816,7 @@ a switch with nothing after it, and bracketed whether or not it has a
 default, since an absent one reads as `false`. Anything else is required, and
 shows its type as the placeholder.
 
-`T.flags` is what a flag's own text cannot say: a `Bool` field is a
+`T.spec` is what a flag's own text cannot say: a `Bool` field is a
 `"switch"`, taking no value, and a `List` field is `"repeated"`, collecting
 rather than replacing. A field that needs neither said is left out, so the
 map is empty for a type whose flags all take one value.
@@ -3560,14 +3560,14 @@ after it is an error: `--config expects a value`.
 Whether a flag takes a value is not the only thing argv cannot say. A flag
 written twice replaces its value -- `--name a --name b` is one name, written
 twice -- unless the field is a `List`, in which case it collects. Both facts
-are in the type, and `Opts.flags` carries them together:
+are in the type, and `Opts.spec` carries them together:
 
 ```ocaml
 type Opts(host : String, tag : List String, verbose : Bool = false)
 
-Opts.flags   -- {tag = "repeated", verbose = "switch"}
+Opts.spec   -- {tag = "repeated", verbose = "switch"}
 
-Args.read Opts.flags Opts.decoder (Env.args ())
+Args.read Opts.spec Opts.decoder (Env.args ())
 ```
 
 `Args.read` is `parse_with` given the whole account rather than a list of

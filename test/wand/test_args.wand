@@ -103,7 +103,7 @@ test "so are short flags, which this module does not have" (fn t ->
 -- flags take no value.
 type Collect(tag: List String, name: String = "x", verbose: Bool = false)
 
-let read argv = Args.read Collect.flags Collect.decoder argv
+let read argv = Args.read Collect.spec Collect.decoder argv
 
 test "a repeated flag collects" (fn t ->
   t.eq

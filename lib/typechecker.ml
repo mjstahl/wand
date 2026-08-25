@@ -2321,7 +2321,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
          and which collect. Neither takes a decoder per parameter the way
          `decoder` does: both are facts about the declaration rather than
          readers built from it. *)
-      | None, Constr tname, (("usage" | "flags") as which) ->
+      | None, Constr tname, (("usage" | "spec") as which) ->
         (match List.assoc_opt tname tenv with
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with

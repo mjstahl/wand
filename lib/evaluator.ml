@@ -1097,8 +1097,8 @@ let derive_encoder : (string -> value) ref =
 let derive_usage : (string -> value) ref =
   ref (fun _ -> raise (EvalError "usage derivation is not wired up"))
 
-let derive_flags : (string -> value) ref =
-  ref (fun _ -> raise (EvalError "flag derivation is not wired up"))
+let derive_spec : (string -> value) ref =
+  ref (fun _ -> raise (EvalError "spec derivation is not wired up"))
 
 let rec eval (env : env) (e : expr) : value = eval_at false env e
 
@@ -1241,8 +1241,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
        !derive_encoder tname
      | Constr tname, "usage" when Hashtbl.mem derivable tname ->
        !derive_usage tname
-     | Constr tname, "flags" when Hashtbl.mem derivable tname ->
-       !derive_flags tname
+     | Constr tname, "spec" when Hashtbl.mem derivable tname ->
+       !derive_spec tname
      | _ ->
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
@@ -4029,9 +4029,9 @@ let () = derive_usage := usage_value
 
    Fields that need nothing said are left out, so the map is empty for a type
    whose flags all take one value. *)
-let flags_value tname =
+let spec_value tname =
   match Hashtbl.find_opt derivable tname with
-  | None -> raise (EvalError (Printf.sprintf "no flags for type '%s'" tname))
+  | None -> raise (EvalError (Printf.sprintf "no spec for type '%s'" tname))
   | Some (_, _, fields) ->
     VMap (List.filter_map (fun (fname, te) ->
       match fname, te with
@@ -4040,7 +4040,7 @@ let flags_value tname =
         Some (name, VString "repeated")
       | _ -> None) fields)
 
-let () = derive_flags := flags_value
+let () = derive_spec := spec_value
 
 (* Any wand value as TOML. TOML has no way to write a bare scalar, so the
    top level must be a table -- a map or a record -- and anything else says

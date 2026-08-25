@@ -280,11 +280,11 @@ T.usage|}
      whether it collects. Both travel together. *)
   ok "the flags name what needs saying and nothing else"
     {|type M = M(host: String, tag: List String, verbose: Bool = false)
-M.flags|}
+M.spec|}
     "{tag = \"repeated\", verbose = \"switch\"}";
   ok "a type whose flags all take one value says nothing"
     {|type M = M(host: String, port: Port)
-M.flags|}
+M.spec|}
     "{}"
 
 (* A flag is present or absent, so the two types that have a word for absent
