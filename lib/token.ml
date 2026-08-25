@@ -199,3 +199,11 @@ let pp ppf tok =
   Format.pp_print_string ppf s
 
 let equal a b = a = b
+
+(* A word the language has taken. Used where a name is expected, so the
+   message can say why a perfectly ordinary-looking word was refused. *)
+let is_keyword = function
+  | Let | LetStar | In | Match | With | If | Then | Else | Type | Import
+  | Requires | Ensures | Result | Fn | For | Do | End | Class | Instance
+  | Orphan | When | As | And | Or | Handle | Return | Try -> true
+  | _ -> false

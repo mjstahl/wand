@@ -84,14 +84,28 @@ let test_adt () =
     "type Color = Red | Green | Blue
      let f c = match c with | Red -> 1 | Green -> 2"
     "non-exhaustive";
-  ok "exhaustive generic option"
-    "type Option 'a = None | Some 'a
-     let f o = match o with | Some v -> v | None -> 0
-     f (Some 5)"
+  (* Declared here rather than reaching for `Option`, which is built in and
+     so cannot be declared. The shape is what is under test. *)
+  ok "exhaustive generic variant"
+    "type Maybe 'a = Nothing | Just 'a
+     let f o = match o with | Just v -> v | Nothing -> 0
+     f (Just 5)"
+    "5";
+  err_contains "missing empty case"
+    "type Maybe 'a = Nothing | Just 'a
+     let f o = match o with | Just v -> v"
+    "non-exhaustive";
+  (* The built-in one is checked the same way, with nothing declared and
+     nothing imported. *)
+  ok "exhaustive Option"
+    "let f o = match o with | Some v -> v | None -> 0
+let x = f (Some 5)
+x"
     "5";
   err_contains "missing None case"
-    "type Option 'a = None | Some 'a
-     let f o = match o with | Some v -> v"
+    "let f o = match o with | Some v -> v
+let x = f (Some 5)
+x"
     "non-exhaustive";
   err_contains "missing nested case inside covered outer constructor"
     "type Shape = Circle Int | Rect Int Int

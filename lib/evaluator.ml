@@ -12,7 +12,10 @@ let constr_defaults : (string, (string * Ast.expr) list) Hashtbl.t =
 
 let () =
   Hashtbl.add constr_fields "ShellResult"
-    [Some "stdout"; Some "stderr"; Some "code"]
+    [Some "stdout"; Some "stderr"; Some "code"];
+  (* Built in, so they are known before any file is read. *)
+  Hashtbl.add constr_fields "Some" [None];
+  Hashtbl.add constr_fields "None" []
 
 let defaults_of name =
   match Hashtbl.find_opt constr_defaults name with
@@ -4104,6 +4107,11 @@ let serialise_builtins : env = [
 
 let stdlib_eval_env =
   stdlib_eval_env @ map_builtins @ decode_builtins @ stream_builtins
+  (* `Option`'s constructors are built in, so a module reaches them the way
+     it reaches a builtin function rather than by importing the module that
+     used to declare the type. *)
+  @ [ ("Some", VPartialConstr ("Some", 1, []));
+      ("None", VConstr ("None", [])) ]
   @ serialise_builtins
 
 (* Every function a file calls comes from a module it imported. These two
@@ -4112,4 +4120,8 @@ let stdlib_eval_env =
 let base_eval_env : env = [
   ("Ok",      VPartialConstr ("Ok",    1, []));
   ("Error",   VPartialConstr ("Error", 1, []));
+  (* `Option` is built in, so its constructors are here beside `Result`'s
+     rather than arriving with an import. *)
+  ("Some",    VPartialConstr ("Some",  1, []));
+  ("None",    VConstr ("None", []));
 ]

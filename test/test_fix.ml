@@ -85,6 +85,34 @@ let test_refuses_parse_error () =
   let d = refuse "let x = (1\n" in
   Alcotest.(check string) "the parse error is reported" "E-PARSE" d.Diag.code
 
+(* A missing import is a correction the checker already knows: the error
+   names the module, so the fix is the line the file lacks. *)
+
+let test_import_inserted () =
+  let (fixed, applied) = fix "uses {IO}\n\nlet () = IO.println \"hi\"\n" in
+  Alcotest.(check string) "under the manifest, with the blank line"
+    "uses {IO}\n\nimport IO\n\nlet () = IO.println \"hi\"\n" fixed;
+  Alcotest.(check (list string)) "one E-TYPE" ["E-TYPE"] (codes applied)
+
+let test_import_joins_the_run () =
+  let (fixed, _) =
+    fix "import IO\nimport Path\n\nlet n = List.length [Path.of_string \"a\"]\nn\n" in
+  Alcotest.(check string) "in the order the run is kept"
+    "import IO\nimport List\nimport Path\n\nlet n = List.length [Path.of_string \"a\"]\nn\n"
+    fixed
+
+let test_import_before_destructured () =
+  let (fixed, _) =
+    fix "let {test} = import Test\n\ntest \"x\" (fn t -> t.eq 1 (List.length [1]))\n" in
+  Alcotest.(check string) "a plain import goes above a destructured one"
+    "import List\n\nlet {test} = import Test\n\ntest \"x\" (fn t -> t.eq 1 (List.length [1]))\n"
+    fixed
+
+let test_imports_to_a_fixed_point () =
+  let (_, applied) =
+    fix "uses {IO}\n\nlet () = IO.println \"%{List.length (Map.keys {a = 1})}\"\n" in
+  Alcotest.(check int) "one per pass, three passes" 3 (List.length applied)
+
 let test_refuses_unfixable_type_error () =
   let d = refuse "let x = 1 + true\nx\n" in
   Alcotest.(check string) "the type error is reported" "E-TYPE" d.Diag.code
@@ -102,6 +130,12 @@ let () =
       Alcotest.test_case "dead import"    `Quick test_dead_import_deleted;
       Alcotest.test_case "clean file"     `Quick test_nothing_to_fix;
       Alcotest.test_case "no fix carried" `Quick test_unfixable_finding_left_alone;
+    ];
+    "imports", [
+      Alcotest.test_case "inserted"       `Quick test_import_inserted;
+      Alcotest.test_case "joins the run"  `Quick test_import_joins_the_run;
+      Alcotest.test_case "above destructured" `Quick test_import_before_destructured;
+      Alcotest.test_case "to a fixed point" `Quick test_imports_to_a_fixed_point;
     ];
     "refusals", [
       Alcotest.test_case "parse error"    `Quick test_refuses_parse_error;

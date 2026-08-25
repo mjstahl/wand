@@ -126,17 +126,29 @@ let w = W(b = Box 1) in 1|}
     {|type W = W(l: List Int, p: Path, d: Duration)
 1|}
     "1";
-  (* A module's type needs the import that brings the module in, the same as
-     its functions do. Unimported, it was silently a type of its own. *)
-  ok "an imported type is known"
+  (* `Option` is built in, like `Result` and `List`: the language answers
+     with one from `Env.get` to `Decode.optional`, so its name needs no
+     import. *)
+  ok "Option is known without an import"
+    {|type W = W(o: Option String)
+1|}
+    "1";
+  ok "and importing the module changes nothing about the type"
     {|import Option
 type W = W(o: Option String)
 1|}
     "1";
-  err_contains "the same type unimported"
-    {|type W = W(o: Option String)
+  err_contains "and it cannot be declared over"
+    {|type Option 'a = None | Some 'a
 1|}
-    "unknown type 'Option'"
+    "built-in type";
+  (* A module's type still needs the import that brings the module in, the
+     same as its functions do. Unimported, it was silently a type of its
+     own. *)
+  err_contains "a module's type unimported"
+    {|type W = W(outcome: TestOutcome)
+1|}
+    "unknown type 'TestOutcome'"
 
 (* A value of a multi-constructor type is one of its constructors, and which
    one is not known at the access. A field only some constructors carry used

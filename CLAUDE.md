@@ -99,7 +99,7 @@ Write the script, then let the tools drive the edits:
 
 ```bash
 wand t --file script.wand        # typecheck a file (wand t "expr" for a snippet)
-wand t --fix --file script.wand  # apply the fixes findings carry (manifest lines, dead imports)
+wand t --fix --file script.wand  # apply the fixes findings carry (manifest lines, missing and dead imports)
 wand f script.wand               # format in place
 wand s                           # run every test_*.wand from here down
 wand --dry-run script.wand       # report what it would change, without doing it

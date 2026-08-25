@@ -1,6 +1,3 @@
--- A value that may or may not be present.
-type Option 'a = None | Some 'a
-
 -- Return true if the option holds a value.
 --
 -- >> Option.some? (Some 3)

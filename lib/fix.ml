@@ -50,6 +50,44 @@ let manifest_line lines =
 
 let quote s = "\"" ^ String.trim s ^ "\""
 
+let is_import_text s =
+  let t = String.trim s in
+  String.length t > 7 && String.sub t 0 7 = "import "
+
+(* Where a missing `import` goes. A file reads manifest, then imports, and
+   the plain `import X` forms come before the destructured `let {a} = import
+   X` ones -- so the line joins the run of plain imports, in the order that
+   run is already kept. With no imports to join it goes under the manifest,
+   with a blank line between, which is where the first one would have been
+   written by hand. Returns a 1-based line to insert before. *)
+let import_line_for lines text =
+  let numbered = List.mapi (fun i l -> (i + 1, String.trim l)) lines in
+  let plain =
+    List.filter (fun (_, l) ->
+      String.length l > 7 && String.sub l 0 7 = "import ") numbered
+  in
+  let want = String.trim text in
+  match plain with
+  | [] ->
+    (* After the manifest and the blank line that follows it, or after a
+       shebang, or at the top. *)
+    let start =
+      match manifest_line lines with
+      | Some n -> n + 1
+      | None -> if is_shebang lines then 2 else 1
+    in
+    let rec skip_blank n =
+      match List.nth_opt lines (n - 1) with
+      | Some l when String.trim l = "" -> skip_blank (n + 1)
+      | _ -> n
+    in
+    if manifest_line lines = None then start else skip_blank start
+  | _ ->
+    (match List.find_opt (fun (_, l) -> l > want) plain with
+     | Some (n, _) -> n
+     | None -> fst (List.nth plain (List.length plain - 1)) + 1)
+
+
 (* Apply one fix, answering the new lines and what happened -- or None when
    the fix is not one this engine applies. *)
 let apply_fix lines (d : Diag.t) : (string list * applied) option =
@@ -59,12 +97,23 @@ let apply_fix lines (d : Diag.t) : (string list * applied) option =
   in
   match d.Diag.fix with
   | Some (Diag.InsertLine text) ->
-    (* Manifest creation: the manifest is the first thing in the file,
-       after a shebang if one is there. *)
-    let n = if is_shebang lines then 2 else 1 in
+    let n =
+      if is_import_text text then import_line_for lines text
+      (* Manifest creation: the manifest is the first thing in the file,
+         after a shebang if one is there. *)
+      else if is_shebang lines then 2 else 1
+    in
     let before = List.filteri (fun i _ -> i < n - 1) lines in
     let after  = List.filteri (fun i _ -> i >= n - 1) lines in
-    at n ("inserted " ^ quote text) (before @ [text] @ after)
+    (* An import that lands against the code below it takes the blank line
+       the formatter would put there, so a fixed file is a fixed point. *)
+    let inserted =
+      match is_import_text text, after with
+      | true, next :: _ when String.trim next <> "" && not (is_import_text next) ->
+        [text; ""]
+      | _ -> [text]
+    in
+    at n ("inserted " ^ quote text) (before @ inserted @ after)
   | Some (Diag.ReplaceLine text) ->
     let n =
       if is_manifest_text text then

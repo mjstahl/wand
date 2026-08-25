@@ -284,6 +284,13 @@ let expect_ident s =
   let loc = peek_loc s in
   match advance s with
   | Token.Ident name -> name
+  (* A word the language has taken cannot be a name here, and saying only
+     "expected identifier" leaves the reader looking at a word that plainly
+     is one. `result` is the one this is written for: it names a contract's
+     return value, so `type Run(result : T)` is refused. *)
+  | t when Token.is_keyword t ->
+    fail_at loc (Format.asprintf
+      "'%a' is a keyword, so it cannot be a name here" Token.pp t)
   | t -> fail_at loc (Format.asprintf "expected identifier, got %a" Token.pp t)
 
 (* A handler case's continuation binder. `_` is allowed and means the case
@@ -391,6 +398,13 @@ let rec parse_type_atom s =
   | Token.Ident name ->
     fail_at loc (Printf.sprintf "expected type name, got '%s'%s"
       name (Util.hint name builtin_types))
+  (* A field's name is read as a name only when it is one. `result` names a
+     contract's return value, so `type Run(result : T)` arrives here as a
+     keyword where a type should be, and the message has to say which of the
+     two words is the problem. *)
+  | t when Token.is_keyword t ->
+    fail_at loc (Format.asprintf
+      "'%a' is a keyword, so it cannot be a field name" Token.pp t)
   | t -> fail_at loc (Format.asprintf "expected type name, got %a" Token.pp t)
 
 and parse_type_app s =

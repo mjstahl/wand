@@ -1928,9 +1928,12 @@ A type from another module needs an import of that module. Its functions
 need the same:
 
 ```ocaml
-import Option
-type Slot = Slot (owner : Option String)
+import Test
+type Run = Run (outcome : TestOutcome)
 ```
+
+Built-in types are not from a module and need no import: `List`, `Map`,
+`Result`, `Option` and the domain types are always in scope.
 
 ### Enum-style (no payload)
 
@@ -2249,11 +2252,11 @@ A type definition can take type parameters. Write each one with a leading
 quote: `'a`, `'b`. `:t` already prints inferred polymorphic types this way:
 
 ```ocaml
-type Option 'a = None | Some 'a
+type Maybe 'a = Nothing | Just 'a
 
-let describe o = match o with
-| Some v -> "got a value"
-| None   -> "empty"
+let describe m = match m with
+| Just v  -> "got a value"
+| Nothing -> "empty"
 ```
 
 Separate several parameters with a space. Positional constructor fields work
@@ -2480,9 +2483,9 @@ stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
-`import IO`. The only names in scope without an import are `Ok` and
-`Error`, which are constructors of a built-in type and have no module to
-come from.
+`import IO`. The only names in scope without an import are `Ok`, `Error`, `Some` and
+`None`, which are constructors of built-in types and have no module to come
+from.
 
 Imported names are available under the module prefix:
 
@@ -3605,8 +3608,9 @@ get!      : Option 'a -> 'a ! {Raise}
 to_result : 'a -> Option 'b -> Result 'a 'b
 ```
 
-`Option 'a` is a generic type: `type Option 'a = None | Some 'a`. See
-"Generics" above.
+`Option 'a` is a built-in generic type -- `None | Some 'a` -- so its name and
+its two constructors need no import. The module holds the functions over it,
+and calling one of those needs `import Option` like any other module.
 
 `Option` says that a value can be absent. `Result` says that an operation
 ran and can have failed, and it carries the reason. The two do not mix. Pipe
@@ -4175,7 +4179,11 @@ apply. It writes the file, checks it again, and repeats until nothing more
 applies. One fix can reveal another. A new binary in `Shell(...)` can reveal a
 binary that no command runs. The fixes are the `fix` payloads that `--json`
 reports: it creates a manifest, replaces one (which includes the line that the
-manifest type error suggests), and deletes a dead import. wand prints one line
+manifest type error suggests), deletes a dead import, and inserts a missing
+one -- `IO.println` in a file without `import IO` names the module, so the
+line it is missing is a correction rather than a hint. An inserted import
+joins the run of plain imports in the order that run is kept, above any
+destructured `let {a} = import X`, under the manifest. wand prints one line
 for each applied fix: `rule: line — what changed`. With `--json` it prints the
 applied set in the diagnostics shape. A parse error refuses the whole run, and
 so does a type error with no fix. wand writes nothing, because a fix around a

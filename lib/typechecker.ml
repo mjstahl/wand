@@ -586,6 +586,20 @@ let rec occurs (tv : tv) t =
 
 (* ── Unification ──────────────────────────────────────────────────────────── *)
 
+(* When an error can be corrected mechanically, the correction rides beside
+   the exception rather than only inside its prose -- set just before the
+   raise, collected by the entry points into the structured error, applied by
+   `wand t --fix` and offered by the editor. A manifest line and a missing
+   import are both this. Never set for widening to bare `Shell`: erasing a
+   narrowing the author wrote is not a correction a tool should make on its
+   own. *)
+let pending_fix : Diag.fix option ref = ref None
+
+let take_pending_fix () =
+  let f = !pending_fix in
+  pending_fix := None;
+  f
+
 exception TypeError of string
 
 (* The located form. `TypeError` is raised where only the fact is known;
@@ -1001,7 +1015,7 @@ let builtin_type_names =
   [ "Int"; "Float"; "String"; "Bool"; "Unit"; "Path"; "Glob";
     "DateTime"; "Duration"; "URL"; "IPv4"; "CIDR";
     "Port"; "Version"; "Size"; "JSON"; "TOML";
-    "List"; "Map"; "Result"; "Decoder" ]
+    "List"; "Map"; "Result"; "Option"; "Decoder" ]
 
 let builtin_type_name n = List.mem n builtin_type_names
 
@@ -1863,6 +1877,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
         | "Ok"    -> let e = fresh () in let t = fresh () in t @-> TResult (e, t)
         | "Error" -> let e = fresh () in let t = fresh () in e @-> TResult (e, t)
         | _ when List.mem name stdlib_module_names ->
+          (* The fix is the line the file is missing, so it travels with the
+             finding: `wand t --fix` writes it, and the editor offers it. *)
+          pending_fix := Some (Diag.InsertLine ("import " ^ name));
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
         (* A name that is a type rather than a constructor is not unknown,
@@ -3060,6 +3077,24 @@ let stdlib_type_env : env = [
 ]
 
 (* Built-in type definitions always available *)
+
+(* `Option` is as built in as `Result`: `Env.get`, `Map.get` and `List.get`
+   answer with one, `Decode.optional` builds one, a derived decoder reads an
+   absent field as one, and both serialisers write `Some` through and leave
+   `None` out. It was declared in `stdlib/Option.wand` all the same, so the
+   name needed an import that no other type of its standing needed -- and
+   `type Opts(tag : Option String)` said "unknown type 'Option'" in a file
+   that had every reason to think it knew what an Option was.
+
+   Kept as an ordinary `Variants` rather than a type of its own, so
+   exhaustiveness, matching and derivation read it the way they read any
+   declaration. *)
+let option_tdef : type_def =
+  Variants ("Option", ["a"], [
+    { name = "None"; fields = []; defaults = [] };
+    { name = "Some"; fields = [ (None, TEVar "a") ]; defaults = [] };
+  ])
+
 let shell_result_tdef : type_def =
   Variants ("ShellResult", [], [{
     name   = "ShellResult";
@@ -3070,6 +3105,7 @@ let shell_result_tdef : type_def =
   }])
 
 let builtin_tenv : typedef_env = [
+  ("Option", option_tdef);
   ("ShellResult", shell_result_tdef);
 ]
 
@@ -3110,17 +3146,6 @@ let rec labels_of_typ t =
    nothing about blast radius. *)
 let manifest_relevant labels = Effect_set.EffSet.remove Effect_set.Raise labels
 
-(* When a manifest error can be corrected mechanically, the corrected line
-   rides beside the exception rather than only inside its prose -- set just
-   before the raise, collected by the entry points into the structured
-   error. Never set for widening to bare `Shell`: erasing a narrowing the
-   author wrote is not a correction a tool should make on its own. *)
-let pending_fix : Diag.fix option ref = ref None
-
-let take_pending_fix () =
-  let f = !pending_fix in
-  pending_fix := None;
-  f
 
 (* The manifest labels using a member commits a file to -- what typing
    `FS.write_file!` obliges `uses {...}` to say. Concrete labels only: a
@@ -3489,9 +3514,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
           | Some f ->
             if Hashtbl.mem seen_fields f then
               raise (TypeError (Printf.sprintf
-                "constructor '%s' declares field '%s' twice; a field names \
-                 one thing, so the second is the one to rename or remove"
-                c.name f));
+                "constructor '%s' declares field '%s' twice" c.name f));
             Hashtbl.add seen_fields f ()) c.fields;
         (match Hashtbl.find_opt seen_ctors c.name with
          | Some owner ->
