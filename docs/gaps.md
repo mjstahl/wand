@@ -39,9 +39,6 @@ That is why widening `Ord` to match would be a decision rather than a
 change — it would have to say what `Circle < Rect` means, and the shape's
 answer is arbitrary where the operator's is not.
 
-Ordering the types wand knows is done: ten of them compare, and `List.sort`
-reads a value the same way rather than sorting its text.
-
 ## Decided against, for now
 
 These are not missing so much as declined, each with a reason that would
