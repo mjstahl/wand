@@ -3552,6 +3552,10 @@ shape. Name the flags that take no value:
 Args.parse_with ["verbose"] Opts.decoder (Env.args ())
 ```
 
+Each of those is `true` when it is there, and absent when it is not, so a
+`Bool` field left out of the document reads as `false`. A flag with nothing
+after it is an error: `--config expects a value`.
+
 Whether a flag takes a value is not the only thing argv cannot say. A flag
 written twice replaces its value -- `--name a --name b` is one name, written
 twice -- unless the field is a `List`, in which case it collects. Both facts
@@ -3566,14 +3570,10 @@ Args.read Opts.flags Opts.decoder (Env.args ())
 ```
 
 `Args.read` is `parse_with` given the whole account rather than a list of
-switches alone. A flag the spec calls repeated holds a list however many times it was
-written, including none: `[]` rather than a missing field, the way an absent
-`Bool` reads as `false`. That reading is `Args`' own -- a JSON document
-missing a key is still the error it was.
-
-Each of those is `true` when it is there, and absent when it is not, so a
-`Bool` field left out of the document reads as `false`. A flag with nothing
-after it is an error: `--config expects a value`.
+switches alone. A flag the spec calls repeated holds a list however many
+times it was written, including none: `[]` rather than a missing field, the
+way an absent `Bool` reads as `false`. That reading is `Args`' own -- a JSON
+document missing a key is still the error it was.
 
 The usage line comes from the same type, so a flag cannot be in one and
 missing from the other:
