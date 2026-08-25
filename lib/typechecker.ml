@@ -1336,6 +1336,11 @@ let ctor_schemes ?key (tdef : type_def) : (string * scheme) list =
       | TEFun (a, b, eff) -> TFun (conv a, conv b, effects_of eff)
       | TETuple ts -> TTuple (List.map conv ts)
       | TEApp (TEName "List", arg)   -> TList   (conv arg)
+      (* A field may hold a decoder. Without this the field's type is a plain
+         application, which prints as `Decoder Pod` and unifies with nothing:
+         `type D(decoder: Decoder Pod)` could not be built from
+         `Pod.decoder`. *)
+      | TEApp (TEName "Decoder", arg) -> TDecoder (conv arg)
       | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
       | TEApp (TEName "Result", _) ->
         raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
