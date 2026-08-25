@@ -39,6 +39,20 @@ test "piped through a chain" (fn t ->
 test "piped into fold_left" (fn t ->
   t.eq 3 (pods |> List.fold_left (fn acc p -> acc + p.port) 0))
 
+-- ── A lambda in function position ───────────────────────────────────────
+--
+-- The argument stands right there; inferring the function before it is what
+-- hid it.
+
+test "applied where it is written" (fn t ->
+  t.eq 2 ((fn p -> p.port) Pod(host = "b", port = 2)))
+
+test "two parameters, both pinned" (fn t ->
+  t.eq 7 ((fn p n -> p.port + n) Pod(host = "b", port = 2) 5))
+
+test "piped into a bare lambda" (fn t ->
+  t.eq "b" (Pod(host = "b", port = 2) |> (fn p -> p.host)))
+
 -- ── What already worked, and still does ─────────────────────────────────
 
 group "unchanged" (fn () -> [

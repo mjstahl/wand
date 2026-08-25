@@ -1975,6 +1975,8 @@ let rec flatten_app e acc =
   | App (g, a)              -> flatten_app g ((None, a) :: acc)
   | _                       -> (e, acc)
 
+let is_fn e = match strip_located e with Fn _ -> true | _ -> false
+
 let rec any_lambda = function
   | [] -> false
   | (_, a) :: rest ->
@@ -2187,9 +2189,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
        here without taking anything apart. *)
     let two_pass =
       match strip_located f with
+      (* `(fn p -> p.port) pod` -- the argument stands right there, and
+         inferring the function before it is what hid it. *)
+      | Fn _  -> Some (f, [(None, x)])
       | App _ ->
         let (head, spine) = flatten_app f [(None, x)] in
-        if lambda_before_last spine then Some (head, spine) else None
+        if lambda_before_last spine || is_fn head then Some (head, spine)
+        else None
       | _ -> None
     in
     (match two_pass with
@@ -2975,29 +2981,44 @@ and infer_app_spine ?extra tenv (env : env) head args =
   (match args with
    | (_, first) :: _ -> check_app_shape tenv env head first
    | [] -> ());
-  let cur = ref (infer tenv env head) in
   let waiting = ref [] in
+  let fn_type param_ts body_result_t arg_effects =
+    let rec build = function
+      | []      -> body_result_t
+      | [t]     -> TFun (t, body_result_t, arg_effects)
+      | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
+    in
+    build param_ts
+  in
+  (* A lambda written in function position waits like one written as an
+     argument. Its type is built from what it declares -- the parameters and
+     an arrow -- which is all the arguments need in order to pin them; only
+     the body has to wait, and it is the body that wanted them pinned. *)
+  let cur = ref (
+    match strip_located head with
+    | Fn (params, body) ->
+      let param_ts = List.map (fun _ -> fresh ()) params in
+      let body_result_t = fresh () in
+      let arg_effects = Effect_set.unknown () in
+      waiting := [(loc_of_expr head, params, body, param_ts, body_result_t,
+                   arg_effects, None)];
+      fn_type param_ts body_result_t arg_effects
+    | _ -> infer tenv env head)
+  in
   List.iter (fun (loc, x) ->
     match strip_located x with
     | Fn (params, body) ->
       let param_ts = List.map (fun _ -> fresh ()) params in
       let body_result_t = fresh () in
       let arg_effects = Effect_set.unknown () in
-      let fn_arg_t =
-        let rec build = function
-          | []      -> body_result_t
-          | [t]     -> TFun (t, body_result_t, arg_effects)
-          | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
-        in
-        build param_ts
-      in
+      let fn_arg_t = fn_type param_ts body_result_t arg_effects in
       let tr = fresh () in
       let latent = Effect_set.unknown () in
       at loc (fun () ->
         unify_expected ~expected:!cur ~got:(TFun (fn_arg_t, tr, latent)));
       cur := tr;
       waiting := (loc, params, body, param_ts, body_result_t, arg_effects,
-                  latent) :: !waiting
+                  Some latent) :: !waiting
     | _ ->
       let tx = infer tenv env x in
       let tr = fresh () in
@@ -3039,7 +3060,9 @@ and infer_app_spine ?extra tenv (env : env) head args =
          raise (TypeError (effects_conflict_message
                              ~expected:"the parameter" ~got:"the function given"
                              a b)));
-      performs latent)) (List.rev !waiting);
+      (* A lambda in function position has no separate latent set: applying
+         it is what performs its body, and the arrow already carries that. *)
+      (match latent with Some l -> performs l | None -> ()))) (List.rev !waiting);
   !cur
 
 and infer_binop tenv (env : env) op a b : typ =
@@ -3128,9 +3151,10 @@ and infer_binop tenv (env : env) op a b : typ =
           the left. *)
        let piped =
          match strip_located b with
+         | Fn _  -> Some (b, [])
          | App _ ->
            let (head, spine) = flatten_app b [] in
-           if any_lambda spine then Some (head, spine) else None
+           if any_lambda spine || is_fn head then Some (head, spine) else None
          | _ -> None
        in
        match piped with
