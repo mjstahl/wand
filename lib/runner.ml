@@ -929,7 +929,10 @@ let merge_clause env name arity params body existing_params existing_body =
   VFix (name, env, List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
 (* Evaluate a single top-level item; imports already merged into env *)
-let run_item env item =
+(* `modul` is the key of the module whose items these are, when they belong
+   to one. A script's own declarations belong to no module: nothing else can
+   name its types, so its constructors stay `Local`. *)
+let run_item ?modul env item =
   match item with
   | Ast.TLLet (_, [], body) when Option.is_some (import_kind_of body) -> env  (* pre-loaded *)
   | Ast.TLLet (name, [], body) ->
@@ -958,9 +961,11 @@ let run_item env item =
      | _ -> Hashtbl.remove Evaluator.derivable tname);
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
-      (* Step 1 gives every declaration the same identity it had: its bare
-         name. Which module owns it is what step 2 records. *)
-      let ident = Ctor.Local ctor.Ast.name in
+      let ident =
+        match modul with
+        | Some m -> Ctor.Owned (m, ctor.Ast.name)
+        | None -> Ctor.Local ctor.Ast.name
+      in
       Hashtbl.replace Evaluator.constr_fields ident field_names;
       Hashtbl.replace Evaluator.constr_defaults ident ctor.Ast.defaults;
       Evaluator.register_ctor ident;
@@ -977,8 +982,21 @@ let run_item env item =
    Type definitions cross an import boundary, so their constructors have to
    as well: the typechecker learns them from the definition, and this is the
    evaluator's half of the same fact. *)
+(* The module that declared these has already registered them, with the
+   identity that says so. This only binds the names, and asks the evaluator
+   which identity each one means rather than deciding again. *)
 let ctor_bindings_of tenv =
-  List.fold_left (fun acc (_, tdef) -> run_item acc (Ast.TLType (tdef, None))) [] tenv
+  List.concat_map (fun (_, tdef) ->
+    match tdef with
+    | Ast.Alias _ -> []
+    | Ast.Variants (_, _, ctors) ->
+      List.map (fun (ctor : Ast.ctor_def) ->
+        let ident = Evaluator.ctor_named ctor.Ast.name in
+        let v = match ctor.Ast.fields with
+          | [] -> VConstr (ident, [])
+          | fs -> VPartialConstr (ident, List.length fs, [])
+        in
+        (ctor.Ast.name, v)) ctors) tenv
 
 (* Run top-level items, dropping a fresh index in every so often: a file's
    own definitions accumulate in front of the base, and without this a name
@@ -1171,7 +1189,7 @@ and load_module src_ref ~cache ~loading =
           itself is fixed by this point, and every name the module goes on to
           look up sits in front of it. *)
        let base = index_env (stdlib_eval_env @ imported.eval_env) in
-       let full_eval = fold_items run_item base prog.Ast.items in
+       let full_eval = fold_items (run_item ~modul:path) base prog.Ast.items in
        let n_own = List.length full_eval - List.length base in
        let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
          |> List.filter (fun (n, _) -> not (is_private n)) in
@@ -1513,11 +1531,16 @@ let run_test_program ~base_dir ?(item_locs = []) prog
           in
           let with_path path s = String.concat " / " (path @ [s]) in
           let rec collect path v = match v with
-            | VConstr (Ctor.Local "Pass", [VString label]) ->
+            (* `TestOutcome` is `Test`'s, so its constructors are owned by
+               that module. Matched by name: this reads whatever the file
+               under test imported as `Test`, which a development override
+               can point elsewhere. *)
+            | VConstr (c, [VString label]) when Ctor.name c = "Pass" ->
               outcomes := !outcomes @ [TPass (with_path path label)]
-            | VConstr (Ctor.Local "Fail", [VString msg]) ->
+            | VConstr (c, [VString msg]) when Ctor.name c = "Fail" ->
               outcomes := !outcomes @ [TFail (with_path path msg)]
-            | VConstr (Ctor.Local "Suite", [VString label; VList children]) ->
+            | VConstr (c, [VString label; VList children])
+              when Ctor.name c = "Suite" ->
               List.iter (collect (path @ [label])) children
             | _ -> ()
           in
