@@ -822,6 +822,29 @@ let test_a_name_is_declared_once () =
   ok "and two records may sit beside each other"
     "type P(i: Int)\ntype Q(i: Int)\nP(i = 1).i + Q(i = 2).i" "3"
 
+(* Dot access needs a named type, and when nothing has said what the value
+   is the answer is to write it down. The declarations are all in front of
+   the checker, so the message names the types that would answer rather than
+   leaving the reader to search for them. *)
+let test_field_access_needs_a_type () =
+  err_contains "one type has the field, so the message writes the annotation"
+    "type Pod(host: String, port: Int)\nlet port_of p = p.port\n0"
+    "write '(p: Pod)'";
+  err_contains "several, so it names them and asks which"
+    "type Pod(port: Int)\ntype Server(port: Int)\nlet f p = p.port\n0"
+    "'port' is a field of Pod, Server";
+  err_contains "a value that is not a name is bound first"
+    "type Pod(port: Int)\nlet f g = (g ()).port\n0"
+    "bind it to a name that carries its type";
+  err_contains "no type has the field at all"
+    "type Pod(port: Int)\nlet f p = p.prot\n0"
+    "no type declares a field 'prot'";
+  (* A concrete type that is simply not a record keeps the plain message:
+     annotating a `Size` would not help. *)
+  err_contains "a concrete type is not the annotation case"
+    "100MB.port"
+    "field access requires a named type, got Size"
+
 (* `type X = <a type>` is another name for that type, not a new one. It is
    transparent, so the two are interchangeable in both directions, and it
    introduces no constructor and nothing at run time. *)
@@ -1707,6 +1730,7 @@ let () =
     "rejections", [
       Alcotest.test_case "contract clauses"    `Quick test_contract_clauses_must_be_bool;
       Alcotest.test_case "a name is declared once" `Quick test_a_name_is_declared_once;
+      Alcotest.test_case "field access needs a type" `Quick test_field_access_needs_a_type;
       Alcotest.test_case "type aliases"        `Quick test_type_aliases;
       Alcotest.test_case "unbound names"       `Quick test_unbound_names;
       Alcotest.test_case "bare-word glob"      `Quick test_bare_word_glob;

@@ -2696,8 +2696,70 @@ let rec infer tenv (env : env) (e : expr) : typ =
         | (TMap vt, _) -> raise (TypeError (Printf.sprintf
             "cannot use dot access on a Map (Map %s); use Map.get for an \
              Option or Map.get! to raise on a missing key" (string_of_typ vt)))
-        | (t, _) -> raise (TypeError (Printf.sprintf
-            "field access requires a named type, got %s" (string_of_typ t)))))
+        | (t, _) ->
+          (match repr t with
+           (* Nothing has said what this is yet, so the answer is to write
+              the type down. The declarations are all here, so the message
+              can name the ones that would answer rather than leave the
+              reader to search for them. A concrete type that is simply not
+              a record falls through to the plain form below: annotating a
+              `Size` would not help. *)
+           | TVar _ ->
+             let owners =
+               List.sort_uniq compare
+                 (List.filter_map (fun (tname, tdef) ->
+                    match tdef with
+                    | Variants (_, _, ctors)
+                      when List.exists (fun c ->
+                             List.exists (fun (f, _) -> f = Some label)
+                               c.fields) ctors ->
+                      Some (short_type_name tname)
+                    | _ -> None) tenv)
+             in
+             (* A name can carry its type where it stands. Anything else has
+                to be bound to one first, so the two say different things. *)
+             let subject, write, choose =
+               match strip_located e with
+               | Var n ->
+                 Printf.sprintf "'%s'" n,
+                 (fun ty -> Printf.sprintf "write '(%s: %s)'" n ty),
+                 Printf.sprintf "write '(%s: T)', naming which" n
+               | _ ->
+                 "this value",
+                 (fun ty -> Printf.sprintf
+                    "bind it to a name that carries its type, \
+                     'let (x: %s) = ...'" ty),
+                 "bind it to a name that carries its type"
+             in
+             let msg =
+               match owners with
+               | [one] ->
+                 Printf.sprintf
+                   "%s needs its type before '.%s' can be read: %s"
+                   subject label (write one)
+               | [] ->
+                 Printf.sprintf
+                   "%s needs its type before '.%s' can be read, and no type \
+                    declares a field '%s'%s" subject label label
+                   (Util.hint label
+                      (List.sort_uniq compare
+                         (List.concat_map (fun (_, tdef) ->
+                            match tdef with
+                            | Variants (_, _, ctors) ->
+                              List.concat_map (fun c ->
+                                List.filter_map fst c.fields) ctors
+                            | _ -> []) tenv)))
+               | many ->
+                 Printf.sprintf
+                   "%s needs its type before '.%s' can be read: %s. '%s' is \
+                    a field of %s"
+                   subject label choose label (String.concat ", " many)
+             in
+             raise (TypeError msg)
+           | _ ->
+             raise (TypeError (Printf.sprintf
+               "field access requires a named type, got %s"
+               (string_of_typ t))))))
   | MapLit [] ->
     TMap (fresh ())
   | MapLit ((_, e0) :: rest) ->

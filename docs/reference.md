@@ -2468,8 +2468,13 @@ it:
 
 ```ocaml
 let describe p = p.name
--- type error: field access requires a named type, got 'a
+-- type error: 'p' needs its type before '.name' can be read:
+--             write '(p: Pod)'
 ```
+
+The message names the annotation to write. Where more than one declared
+type has the field it names them all and asks which, and where the value is
+not a plain name it says to bind it to one that carries its type.
 
 A lambda written as an argument is the other case, and it needs no
 annotation: the call itself says what the parameter is.
