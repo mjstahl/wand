@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.47.0] - 2026-08-24
+
+### Added
+
+- A type describes a whole command line. The flags are a record -- each has a
+  name and a type -- and what is written without a flag in front of it has no
+  name at all, so a type with one field whose type is a record and one that
+  is not describes both halves. Which field is which comes from the types
+  rather than the names
+- `T.reader`, the decoder that reads a command line rather than a document,
+  and `Args.read` to run it. The argument field's type says how many there
+  may be: `String` exactly one, `Option` one or none, `List` any number.
+  Each is read as its own type, and a refusal names the field --
+  `.host: expected one host, got 2`
+- `T.spec`, what a flag's own text cannot say: a `Bool` field is a switch
+  taking no value, and a `List` field collects rather than replacing. Both
+  reach the reading from the type instead of a list written beside it
+- `T.usage` covers the arguments as well as the flags:
+  `[--port :8080] [--verbose] <host>`
+- A repeated flag collects. `--tag a --tag b` is two tags where
+  `--name a --name b` is one name written twice, and a flag that collects
+  holds a list however many times it was written, including none
+- `Args.help?`, which answers `--help` before the arguments are read. It is
+  false after `--`, where a `--help` is an argument like any other
+- `V-IMP2`: an import that binds nothing the file mentions, with a fix that
+  deletes the line. It found fourteen dead imports here, six of them
+  `import Option` lines that died when `Option` became built in
+
+### Changed
+
+- `--` ends the flags. What follows is positional whatever it looks like,
+  which is the only way to pass an argument beginning with two dashes.
+  `Args.parse raw ["--", "-x", "y"]` used to answer `Ok(["y"])`, reading `--`
+  as a flag with no name that swallowed the next argument
+- Reading a command line that asks for help says what to do about it:
+  `--help expects a value; \`Args.help?\` answers it instead`
+
+[0.47.0]: https://github.com/mjstahl/wand/releases/tag/v0.47.0
+
 ## [0.46.0] - 2026-08-24
 
 ### Added
