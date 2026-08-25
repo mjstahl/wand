@@ -1265,6 +1265,27 @@ let test_add_constraint () =
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to
    allow at all. *)
+(* A written signature says what the parameters are, so they are bound to it
+   before the body is read. Without that a parameter is a bare variable while
+   the body is checked, and a field of one cannot be read. *)
+
+let test_signature_binds_parameters () =
+  prog_is "a field is read through a written signature"
+    "type Box \'a(v: \'a)\nlet get : Box \'a -> \'a = fn b -> b.v\nget"
+    "Box 'a -> 'a";
+  prog_is "and through a monomorphic one"
+    "type Conf(port: Int)\nlet p : Conf -> Int = fn c -> c.port\np Conf(port = 1)"
+    "Int";
+  prog_is "a signature with fewer arrows than parameters still infers"
+    "let f : Int -> Int -> Int = fn a b -> a + b\nf 1 2"
+    "Int";
+  err_contains "and a wrong signature is still caught"
+    "let f : Int -> String = fn a -> a\nf"
+    "expected String, got Int";
+  err_contains "as is one of the wrong shape"
+    "let f : Int -> Int = fn a b -> a + b\nf"
+    "expected Int, got Int -> Int"
+
 let test_written_effects_are_checked () =
   err_contains "declaring fewer effects than the body performs"
     "let f : Unit -> String ! {Shell} = fn () -> $(git status) in f"
@@ -1645,6 +1666,7 @@ let () =
     ];
     "effects", [
       Alcotest.test_case "written effects round-trip"   `Quick test_written_effects_round_trip;
+      Alcotest.test_case "signature binds params"        `Quick test_signature_binds_parameters;
       Alcotest.test_case "written effects are checked"   `Quick test_written_effects_are_checked;
       Alcotest.test_case "written effects relate a field"  `Quick test_written_effects_relate_a_field_across_a_module;
       Alcotest.test_case "constructor field keeps effects" `Quick test_constructor_field_keeps_its_effects;

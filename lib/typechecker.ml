@@ -2834,12 +2834,63 @@ let rec infer tenv (env : env) (e : expr) : typ =
     infer tenv env' body
   | Annot (te, e) ->
     let (t, written) = type_of_te_bound_with_vars [] te in
-    (* The annotation is what the reader expects; the body is what they
-       wrote. Naming both is what makes `expected 'a -> 'a, got Int -> Int`
-       readable at all. *)
-    unify_expected ~expected:t ~got:(infer tenv env e);
-    check_written_vars written;
-    t
+    (* A written signature over a lambda says what the parameters are, so the
+       parameters are bound to it before the body is read. Inferring the body
+       first and unifying after leaves a parameter as a bare variable while
+       the body is checked, and `fn b -> b.v` cannot read a field of one:
+       `let get : Box 'a -> 'a = fn b -> b.v` said "field access requires a
+       named type, got 'a".
+
+       Only as far as the annotation reaches. A lambda with more parameters
+       than the annotation has arrows falls back to inferring it whole. *)
+    let rec bind_params expected params env =
+      match params, repr expected with
+      | [], _ -> Some (expected, env)
+      | p :: rest, TFun (a, b, _) ->
+        bind_params b rest (infer_pat tenv p a env)
+      | _ -> None
+    in
+    (match strip_located e with
+     | Fn (params, body) when params <> [] ->
+       (match bind_params t params env with
+        | None ->
+          unify_expected ~expected:t ~got:(infer tenv env e);
+          check_written_vars written;
+          t
+        | Some (result_t, env') ->
+          let (body_t, body_effects) =
+            scoped_eff (fun () -> infer tenv env' body) in
+          let body_effects =
+            if List.exists (pat_is_refutable tenv) params
+            then Effect_set.add Effect_set.Raise body_effects
+            else body_effects
+          in
+          (* The effects the annotation states are checked against the ones
+             the body performs, which is what the unannotated path does when
+             the arrow it built meets the annotation. *)
+          let rec innermost_eff ty n =
+            match repr ty, n with
+            | TFun (_, b, eff), 1 -> Some (b, eff)
+            | TFun (_, b, _), n -> innermost_eff b (n - 1)
+            | _ -> None
+          in
+          (match innermost_eff t (List.length params) with
+           | Some (_, eff) ->
+             (try Effect_set.unify eff body_effects
+              with Effect_set.Conflict (a, b) ->
+                raise (TypeError (effects_conflict_message ~expected:"the type"
+                                    ~got:"the body" a b)))
+           | None -> ());
+          unify_expected ~expected:result_t ~got:body_t;
+          check_written_vars written;
+          t)
+     | _ ->
+       (* The annotation is what the reader expects; the body is what they
+          wrote. Naming both is what makes `expected 'a -> 'a, got Int ->
+          Int` readable at all. *)
+       unify_expected ~expected:t ~got:(infer tenv env e);
+       check_written_vars written;
+       t)
   | Located (loc, e) ->
     (try infer tenv env e
      with TypeError msg -> raise (TypeErrorAt (loc, msg)))
