@@ -477,7 +477,14 @@ let string_of_typ t =
     | TRegex    -> "Regex"
     | TJson     -> "JSON"
     | TToml     -> "TOML"
-    | TName n   -> n
+    (* A type carries the module that declares it. A reader wrote the short
+       name, so that is what a message shows. *)
+    (* A type carries the module that declares it. A reader wrote the short
+       name, so that is what a message shows. *)
+    | TName n   ->
+      (match String.rindex_opt n '#' with
+       | Some i -> String.sub n (i + 1) (String.length n - i - 1)
+       | None -> n)
     | TVar tv   ->
       (match tv.constrained with
        | Num  -> "Num"
@@ -729,11 +736,30 @@ let effects_conflict_message ?expected ?got allowed found =
     Printf.sprintf "these effects do not match: %s and %s"
       (Effect_set.to_string allowed) (Effect_set.to_string found)
 
+(* `<stdlib>/Test.wand#Testing` reads as `Test.Testing`: the module a reader
+   would name it through, not the path a loader found it at. Used only where
+   two types would otherwise print the same. *)
+let qualified_display t =
+  match repr t with
+  | TName n ->
+    (match String.rindex_opt n '#' with
+     | None -> n
+     | Some i ->
+       let path = String.sub n 0 i in
+       let short = String.sub n (i + 1) (String.length n - i - 1) in
+       Filename.remove_extension (Filename.basename path) ^ "." ^ short)
+  | _ -> string_of_typ t
+
+(* Two types that print the same, told apart by the module each came from. *)
+let disambiguate a b =
+  let (sa, sb) = (string_of_typ a, string_of_typ b) in
+  if sa = sb then (qualified_display a, qualified_display b) else (sa, sb)
+
 let unify t1 t2 =
   try unify_ t1 t2 with
   | Mismatch (a, b) ->
-    raise (TypeError (Printf.sprintf "%s and %s are not the same type"
-      (string_of_typ a) (string_of_typ b)))
+    let (sa, sb) = disambiguate a b in
+    raise (TypeError (Printf.sprintf "%s and %s are not the same type" sa sb))
   | Effect_set.Conflict (a, b) ->
     raise (TypeError (effects_conflict_message a b))
 
@@ -742,8 +768,8 @@ let unify t1 t2 =
 let unify_expected ~expected ~got =
   try unify_ expected got with
   | Mismatch (a, b) ->
-    raise (TypeError (Printf.sprintf "expected %s, got %s"
-      (string_of_typ a) (string_of_typ b)))
+    let (sa, sb) = disambiguate a b in
+    raise (TypeError (Printf.sprintf "expected %s, got %s" sa sb))
   | Effect_set.Conflict (a, b) ->
     raise (TypeError (effects_conflict_message ~expected:"the type"
                         ~got:"the body" a b))
@@ -1031,6 +1057,32 @@ let builtin_type_names =
 
 let builtin_type_name n = List.mem n builtin_type_names
 
+(* What a type name written in a file means. A type declared in a module is
+   keyed by the module as well as by its name, so two modules that each
+   declare `Status` declare two types. A file writes a short name -- its own,
+   one it selected from an import, or `Foo.Status` -- and this says which
+   canonical name that is.
+
+   Set around inference alongside `known_type_names`, and empty where there
+   is no file, in which case a name means itself. *)
+let type_name_map : (string * string) list ref = ref []
+
+let canonical_type_name n =
+  match List.assoc_opt n !type_name_map with
+  | Some c -> c
+  | None -> n
+
+(* The short name a canonical one was declared under, for a message. *)
+let short_type_name n =
+  match String.rindex_opt n '#' with
+  | Some i -> String.sub n (i + 1) (String.length n - i - 1)
+  | None -> n
+
+let with_type_name_map m f =
+  let saved = !type_name_map in
+  type_name_map := m;
+  Fun.protect ~finally:(fun () -> type_name_map := saved) f
+
 let with_known_type_names names f =
   let saved = !known_type_names in
   known_type_names := Some names;
@@ -1108,12 +1160,13 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        under its bare name. The key says the qualifier is right; the type is
        the one the bare name gives, so the two spellings are one type. Step 4
        makes them tell two modules' types apart. *)
+    (* `Foo.Status`: the module says which `Status` this is. *)
     | TEQual (m, n) ->
       (match !known_type_names with
        | Some names when not (List.mem (m ^ "." ^ n) names) ->
          raise (TypeError (Printf.sprintf "unknown type '%s.%s'" m n))
        | _ -> ());
-      go (TEName n)
+      TName (canonical_type_name (m ^ "." ^ n))
     | TEName name when List.mem_assoc name !known_aliases
                     && not (List.mem name !resolving) ->
       (* The name is kept over what it names, for the message. Everything
@@ -1141,12 +1194,16 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | "Version"  -> TVersion  | "Size"     -> TSize
        | "JSON"     -> TJson
        | "TOML"     -> TToml
+       (* A canonical name resolves to itself: it is not something a file
+          writes, it is what a declaration that travelled says. *)
+       | n when String.contains n '#' -> TName n
        | n          ->
          (match !known_type_names with
           | Some known when not (builtin_type_name n || List.mem n known) ->
             raise (TypeError (Printf.sprintf "unknown type '%s'%s"
               n (Util.hint n (known @ builtin_type_names))))
-          | _ -> TName n))
+          (* The name a file writes; the type is the one it stands for. *)
+          | _ -> TName (canonical_type_name n)))
     | TEVar name ->
       (match Hashtbl.find_opt vars name with
        | Some t -> t
@@ -1226,15 +1283,21 @@ let check_written_vars (written : (string * typ) list) =
   in
   distinct written
 
-let ctor_schemes (tdef : type_def) : (string * scheme) list =
+(* `key` is the name the definition is registered under, which for a module's
+   type is its canonical one. The name inside the declaration is the short one
+   a reader wrote, and is not what the type is called elsewhere. *)
+let ctor_schemes ?key (tdef : type_def) : (string * scheme) list =
   match tdef with
   (* An alias is another name for a type, not a new one, so it brings no
      constructor with it. *)
   | Alias _ -> []
   | Variants (tname, params, ctors) ->
     let var_table = List.map (fun p -> (p, fresh ())) params in
+    (* The declaration carries the short name; the type it builds is the
+       canonical one, which is what every other reference resolves to. *)
     let result =
-      List.fold_left (fun acc (_, v) -> TApp (acc, v)) (TName tname) var_table
+      let name = match key with Some k -> k | None -> canonical_type_name tname in
+      List.fold_left (fun acc (_, v) -> TApp (acc, v)) (TName name) var_table
     in
     (* One table for the whole declaration, so `'e` written twice in a field
        is one variable and the relationship it states actually holds. *)
@@ -1260,7 +1323,9 @@ let ctor_schemes (tdef : type_def) : (string * scheme) list =
           base te_labels
     in
     let rec conv = function
-      | TEQual (_, n) -> conv (TEName n)
+      (* The module says which type this is; the canonical name is what the
+         rest of the checker knows it by. *)
+      | TEQual (m, n) -> conv (TEName (canonical_type_name (m ^ "." ^ n)))
       | TEVar name ->
         (match List.assoc_opt name var_table with
          | Some v -> v
@@ -1342,13 +1407,17 @@ let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) 
   | TEName ("Int" | "Float" | "String" | "Bool" | "Path" | "Glob" | "Duration"
            | "URL" | "Size" | "Version" | "Date" | "Time" | "DateTime"
            | "IPv4" | "CIDR" | "Port") -> Ok ()
-  | TEQual (_, n) -> derivable_field_type tenv seen params (TEName n)
+  | TEQual (m, n) ->
+    derivable_field_type tenv seen params
+      (TEName (canonical_type_name (m ^ "." ^ n)))
   | TEName tname ->
-    if List.mem tname seen then Ok ()   (* recursive: read when it is reached *)
+    let key = canonical_type_name tname in
+    if List.mem key seen then Ok ()   (* recursive: read when it is reached *)
     else
-      (match List.assoc_opt tname tenv with
-       | Some tdef -> derivable_typedef tenv (tname :: seen) tdef
-       | None -> Error (Printf.sprintf "no decoder is known for type '%s'" tname))
+      (match List.assoc_opt key tenv with
+       | Some tdef -> derivable_typedef tenv (key :: seen) tdef
+       | None -> Error (Printf.sprintf "no decoder is known for type '%s'"
+                          (short_type_name tname)))
   | TEApp (TEName "List", inner)   -> derivable_field_type tenv seen params inner
   | TEApp (TEName "Option", inner) -> derivable_field_type tenv seen params inner
   | TEApp (TEName "Map", inner)    -> derivable_field_type tenv seen params inner
@@ -1416,16 +1485,48 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
 let module_first tenv m =
   let pre = m ^ "." in
   let n = String.length pre in
+  (* The module's own types, keyed as they are everywhere else. Putting them
+     first is what makes a constructor lookup find this module's. *)
   let own =
-    List.filter_map (fun (k, d) ->
-      if String.length k > n && String.sub k 0 n = pre
-      then Some (String.sub k n (String.length k - n), d)
-      else None) tenv
+    List.filter_map (fun (written, canon) ->
+      if String.length written > n && String.sub written 0 n = pre then
+        match List.assoc_opt canon tenv with
+        | Some d -> Some (canon, d)
+        | None -> None
+      else None) !type_name_map
   in
   (own, own @ tenv)
 
+(* A type with one constructor names that constructor too, so a name given to
+   such a type -- by an alias, or by renaming it on import -- builds and
+   matches one. A type with several has no single constructor to forward. *)
+let rec ctor_name_for tenv name =
+  match List.assoc_opt name tenv with
+  | Some (Variants (_, _, [c])) when c.name <> name -> c.name
+  | Some (Alias (_, _, TEName target)) when target <> name ->
+    ctor_name_for tenv target
+  | Some (Alias (_, _, TEQual (_, target))) when target <> name ->
+    ctor_name_for tenv target
+  | _ -> name
+
+(* Whose constructors a file may name without a qualifier: its own, the ones
+   it selected in an import, and the built-ins. A module's own types travel
+   under canonical names so that a value of one can be read and matched here,
+   but naming their constructors bare is what stopped being allowed. The
+   qualified forms lift this for the module they name. *)
+let visible_canonical : string list ref = ref []
+
+let nameable key =
+  not (String.contains key '#') || List.mem key !visible_canonical
+
+let with_visible keys f =
+  let saved = !visible_canonical in
+  visible_canonical := keys @ saved;
+  Fun.protect ~finally:(fun () -> visible_canonical := saved) f
+
 let find_ctor_in_tenv tenv name =
   List.find_map (fun (tname, tdef) ->
+    if not (nameable tname) then None else
     match tdef with
     | Alias _ -> None
     | Variants (_, _, ctors) ->
@@ -1530,12 +1631,13 @@ let ctor_schemes_for tname tdef =
   match Hashtbl.find_opt ctor_scheme_cache (tname, tdef) with
   | Some schemes -> schemes
   | None ->
-    let schemes = ctor_schemes tdef in
+    let schemes = ctor_schemes ~key:tname tdef in
     Hashtbl.replace ctor_scheme_cache (tname, tdef) schemes;
     schemes
 
 let tenv_to_ctor_env (tenv : typedef_env) : env =
-  List.concat_map (fun (tname, tdef) -> ctor_schemes_for tname tdef) tenv
+  List.concat_map (fun (tname, tdef) ->
+    if nameable tname then ctor_schemes_for tname tdef else []) tenv
 
 (* ── Pattern inference ────────────────────────────────────────────────────── *)
 
@@ -1618,6 +1720,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     let env' = infer_pat tenv hp elem_t env in
     infer_pat tenv tp (TList elem_t) env'
   | PConstr (name, pats) ->
+    let name = ctor_name_for tenv name in
     let ctor_env = tenv_to_ctor_env tenv in
     (match (match builtin_result_scheme name with
             | Some _ as s -> s
@@ -1643,7 +1746,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
       raise (TypeError (Printf.sprintf
         "'%s' declares no types, so '%s' names nothing in it"
         m (Ast.show_pat inner)));
-    infer_pat tenv' inner t env
+    with_visible (List.map fst own) (fun () -> infer_pat tenv' inner t env)
   | PConstrBare (name, ids) ->
     let named_fields =
       match find_ctor_in_tenv tenv name with
@@ -1652,6 +1755,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     in
     infer_pat tenv (Ast.constr_bare_reading ~named_fields name ids) t env
   | PConstrNamed (name, bindings) ->
+    let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
      | Some (tname, ctor) ->
@@ -1805,24 +1909,27 @@ let is_infinite_domain t =
    fields (a deliberate, conservative simplification: this can miss a
    genuinely non-exhaustive nested pattern inside a named field, but never
    produces a false "exhaustive" claim for the outer constructor itself). *)
-let rec match_against_ctor name arity (p : pat) =
+let rec match_against_ctor ?(tenv = []) name arity (p : pat) =
+  let ctor_of n = ctor_name_for tenv n in
   match p with
   | _ when is_wild_pat p -> `Wildcard
-  | PAnnot (inner, _) -> match_against_ctor name arity inner
+  | PAnnot (inner, _) -> match_against_ctor ~tenv name arity inner
   | Bool b -> if (b && name = "true") || (not b && name = "false") then `Match [] else `NoMatch
   | Unit -> `Match []
   | PTuple ps -> `Match ps
   | PList [] -> if name = "[]" then `Match [] else `NoMatch
   | PList (hd :: tl) -> if name = "::" then `Match [hd; PList tl] else `NoMatch
   | PCons (hp, tp) -> if name = "::" then `Match [hp; tp] else `NoMatch
-  | PConstr (n, ps) -> if n = name then `Match ps else `NoMatch
+  | PConstr (n, ps) -> if ctor_of n = name then `Match ps else `NoMatch
   | PConstrNamed (n, _) ->
-    if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
+    if ctor_of n = name then `Match (List.init arity (fun _ -> Wild))
+    else `NoMatch
   | PConstrBare (n, _) ->
-    if n = name then `Match (List.init arity (fun _ -> Wild)) else `NoMatch
+    if ctor_of n = name then `Match (List.init arity (fun _ -> Wild))
+    else `NoMatch
   (* Which module it was reached through does not change which constructor
      it is. *)
-  | PQualified (_, p) -> match_against_ctor name arity p
+  | PQualified (_, p) -> match_against_ctor ~tenv name arity p
   | _ -> `NoMatch  (* literal patterns never arise for finite-ctor types *)
 
 type witness = Witness of string * witness list
@@ -1894,7 +2001,7 @@ let check_exhaustive tenv (scrutinee_t : typ) (pats : pat list) : string option 
               match row with
               | [] -> None
               | h :: tl ->
-                match match_against_ctor cname arity h with
+                match match_against_ctor ~tenv cname arity h with
                 | `Match subs -> Some (subs @ tl)
                 | `Wildcard -> Some (List.init arity (fun _ -> Wild) @ tl)
                 | `NoMatch -> None
@@ -1977,6 +2084,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
           pending_fix := Some (Diag.InsertLine ("import " ^ name));
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
+        (* A type with one constructor names that constructor too. So a name
+           given to such a type -- by an alias, or by renaming it on import --
+           builds one, and the rename is whole rather than half. A type with
+           several has no single constructor to forward. *)
+        | _ when ctor_name_for tenv name <> name ->
+          let cname = ctor_name_for tenv name in
+          (match List.assoc_opt cname ctor_env with
+           | Some sch -> instantiate sch
+           | None -> raise (TypeError (Printf.sprintf
+               "'%s' is a type, not a value" name)))
         (* A name that is a type rather than a constructor is not unknown,
            and calling it so sends the reader looking for a declaration that
            is right there. An alias in particular has no constructor. *)
@@ -2236,7 +2353,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       raise (TypeError (Printf.sprintf
         "'%s' declares no types, so '%s' names nothing in it"
         m (Ast.show inner)));
-    infer tenv' env inner
+    with_visible (List.map fst own) (fun () -> infer tenv' env inner)
   | ConstrBare (name, ids) ->
     let named_fields =
       match find_ctor_in_tenv tenv name with
@@ -2245,6 +2362,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     in
     infer tenv env (Ast.constr_bare_construction ~named_fields name ids)
   | ConstrApp (name, fields) ->
+    let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
      (* A name that is a type rather than a constructor is not unknown, and
         saying so sends the reader looking for a declaration that is right
@@ -2412,7 +2530,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
          `decoder` does: both are facts about the declaration rather than
          readers built from it. *)
       | None, Constr tname, (("usage" | "spec" | "reader") as which) ->
-        (match List.assoc_opt tname tenv with
+        (match List.assoc_opt (canonical_type_name tname) tenv with
          | Some tdef ->
            let refuse why =
              raise (TypeError (Printf.sprintf
@@ -2434,11 +2552,11 @@ let rec infer tenv (env : env) (e : expr) : typ =
                     Some (match which with
                           | "usage" -> TString
                           | "spec" -> TMap TString
-                          | _ -> TDecoder (TName tname)))
+                          | _ -> TDecoder (TName (canonical_type_name tname))))
                | _ -> refuse "it has no fields"))
          | None -> None)
       | None, Constr tname, (("decoder" | "encoder") as which) ->
-        (match List.assoc_opt tname tenv with
+        (match List.assoc_opt (canonical_type_name tname) tenv with
          | Some tdef ->
            (match derivable_typedef tenv [tname] tdef with
             | Ok () ->
@@ -2450,7 +2568,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
                 match tdef with Variants (_, ps, _) | Alias (_, ps, _) -> ps in
               let vars = List.map (fun _ -> fresh ()) params in
               let applied =
-                List.fold_left (fun acc v -> TApp (acc, v)) (TName tname) vars
+                List.fold_left (fun acc v -> TApp (acc, v))
+                  (TName (canonical_type_name tname)) vars
               in
               (* An encoder is an ordinary function: encoding cannot fail, so
                  there is nothing for a type of its own to carry. *)
@@ -3535,8 +3654,8 @@ let settle_aliases ?(init_tenv=[]) (prog : program) : program =
   in
   { prog with items = List.map settle prog.items }
 
-let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (prog : program)
-    : typedef_env * env * env * typ =
+let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[])
+    (prog : program) : typedef_env * env * env * typ =
   next_id := 0;
   expr_item_types := [];
   local_binders := [];
@@ -3554,14 +3673,26 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | TLType (((Variants (n, _, _) | Alias (n, _, _)) as tdef), _) -> Some (n, tdef)
     | _ -> None) prog.items
   in
+  (* A module's own types are keyed by the module, so that two modules which
+     each declare `Status` declare two types. The file writes the short name
+     and `canonical_type_name` says which one it means. *)
+  let local_tenv =
+    List.map (fun (n, d) -> (canonical_type_name n, d)) local_tenv in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in
   (* Every type this file can name: its own, whatever it imported, and the
-     builtins. The definitions are collected before any of them is read, so
+     builtins. Written names, not canonical ones -- this is what a reader
+     may type. The definitions are collected before any of them is read, so
      a field may still name a type declared further down. Set around the
      constructor env too -- that is where a field's type is first read, and
      an unknown name in one has to be caught there rather than wherever the
      constructor is eventually used. *)
-  let known = List.map fst tenv in
+  let known =
+    List.map fst !type_name_map
+    @ List.filter_map (function
+        | TLType (((Variants (n, _, _) | Alias (n, _, _)), _)) -> Some n
+        | _ -> None) prog.items
+    @ List.map fst builtin_tenv
+  in
   (* Checked here, ahead of the constructor env, so the message can say which
      declaration invented the name. Reaching it through `type_of_te_bound`
      instead would report it wherever the constructor was first used, or --
@@ -3742,27 +3873,40 @@ let error_message = function
     Printf.sprintf "%d:%d: %s" loc.Token.line loc.Token.col msg
   | _ -> assert false
 
-let infer_program_full ?(init_tenv=[]) ?(init_env=[]) (prog : program)
+let infer_program_ ?base_env ?init_tenv ?init_env ?(type_names = []) prog =
+  (* A name with no dot is one this file may write: its own declarations, and
+     what it selected in an import. `Foo.Status` is written with the module,
+     and its constructors are reached the same way. *)
+  let visible =
+    List.filter_map (fun (written, canon) ->
+      if String.contains written '.' then None else Some canon) type_names
+  in
+  with_type_name_map type_names (fun () ->
+    with_visible visible (fun () ->
+      infer_program_body ?base_env ?init_tenv ?init_env prog))
+
+let infer_program_full ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[]) (prog : program)
     : (env * typ, string) result =
   try
-    let (_, env, _, last_t) = infer_program_ ~init_tenv ~init_env prog in
+    let (_, env, _, last_t) = infer_program_ ~init_tenv ~init_env ~type_names prog in
     Ok (env, last_t)
   with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 (* Returns (full_env, own_env); uses stdlib_type_env as base (for module loading). *)
-let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) (prog : program)
-    : (env * env, string) result =
+let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[])
+    (prog : program) : (env * env, string) result =
   try
-    let (_, env, own, _) = infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env prog in
+    let (_, env, own, _) =
+      infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env ~type_names prog in
     Ok (env, own)
   with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 let infer_program (prog : program) : (typ, string) result =
   Result.map snd (infer_program_full prog)
 
-let infer_program_env ?(init_tenv=[]) ?(init_env=[]) (prog : program)
-    : (env, string) result =
-  Result.map fst (infer_program_full ~init_tenv ~init_env prog)
+let infer_program_env ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[])
+    (prog : program) : (env, string) result =
+  Result.map fst (infer_program_full ~init_tenv ~init_env ~type_names prog)
 
 let string_of_scheme = function
   | Mono t | Poly (_, _, t) -> string_of_typ t
@@ -3771,12 +3915,12 @@ let string_of_scheme = function
 (* The Error side is (position, message, correction): everything the raise
    site knew, as data. *)
 let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
-    ?(init_env=[]) (prog : program)
+    ?(init_env=[]) ?(type_names=[]) (prog : program)
     : (env * env * typ * typ list,
        Token.loc option * string * Diag.fix option) result =
   try
     let (_, full_env, own_env, last_t) =
-      infer_program_ ~base_env ~init_tenv ~init_env prog in
+      infer_program_ ~base_env ~init_tenv ~init_env ~type_names prog in
     let hole_types = List.rev_map repr !holes in
     Ok (full_env, own_env, last_t, hole_types)
   with

@@ -7,19 +7,19 @@ let {over, usage} = import ../../examples/ports/disk-threshold
 let {plan, tidy} = import ../../examples/ports/normalize-names
 let {failed, stage} = import ../../examples/ports/ci-gate
 let {describe, gaps} = import ../../examples/ports/env-check
-let {count_into, share, status} = import ../../examples/ports/error-rate
-let {blockers} = import ../../examples/ports/release-check
+let {count_into, share, status, Tally = Tally} = import ../../examples/ports/error-rate
+let {blockers, Release = Release} = import ../../examples/ports/release-check
 let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
-let {attempt, read} = import ../../examples/ports/http-retry
+let {attempt, read, Health = Health} = import ../../examples/ports/http-retry
 let {answering?, wait_for} = import ../../examples/ports/wait-for-port
 let {lock_at, missing} = import ../../examples/ports/stage-release
 let {failures, stated} = import ../../examples/ports/verify-archives
-let {render} = import ../../examples/ports/probe-args
+let {render, Opts = Opts, Flags = Flags} = import ../../examples/ports/probe-args
 let {age, backup_name, expired, expired?, ours?, window} =
   import ../../examples/ports/rotate-backups
 -- `failures` is verify-archives' already, and the last import of a name
 -- decides every use of it (V-IMP1), so this one is renamed here.
-let {changed?, failures = unmet, line, outcome, outcomes, steps} =
+let {changed?, failures = unmet, line, outcome, outcomes, steps, Made, Already, Failed, Step} =
   import ../../examples/ports/provision-host
 import Args
 import Env

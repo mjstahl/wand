@@ -552,7 +552,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
     | Typechecker.TResult _ ->
       add Lint_rules.V_DROP1 loc
         (Lint_rules.drop1 ~typ:(Typechecker.string_of_typ t))
-    | Typechecker.TName "TestOutcome" ->
+    (* The type is `Test`'s, so its canonical name says which module it came
+       from. What the rule is about is the short name. *)
+    | Typechecker.TName n when Typechecker.short_type_name n = "TestOutcome" ->
       add Lint_rules.V_DROP2 loc Lint_rules.drop2
     | _ -> ()) !Typechecker.seq_discard_types;
   (* A manifest that permits more than the file uses. Checked from what

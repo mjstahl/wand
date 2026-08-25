@@ -90,17 +90,28 @@ let public = List.length [1, 2]|} (fun path ->
       (Printf.sprintf {|let utils = import %s
 List.length [1]|} path))
 
-(* Type definitions are the deliberate exception: a value of an imported type
-   is matched by constructor here, so the constructors have to cross. *)
+(* A constructor is reached through the module that declares it, the way a
+   value is. It used to arrive under its bare name, so two modules that each
+   declared `Red` collided and no file could say which it meant. *)
 let test_imported_constructors_cross () =
   with_named "colors" {|type Color = Red | Green
 let pick = Red
 let name c = match c with | Red -> "red" | Green -> "green"|} (fun path ->
     Alcotest.(check (result string string))
-      "a constructor of an imported type is usable"
+      "a constructor of an imported type is usable through the module"
       (Ok "green")
       (run (Printf.sprintf {|let colors = import %s
-colors.name Green|} path)))
+colors.name colors.Green|} path)))
+
+(* And by being named in the import, which is how a value is brought in. *)
+let test_imported_constructors_selected () =
+  with_named "hues" {|type Hue = Warm | Cool
+let name c = match c with | Warm -> "warm" | Cool -> "cool"|} (fun path ->
+    Alcotest.(check (result string string))
+      "a constructor named in the import is used bare"
+      (Ok "warm")
+      (run (Printf.sprintf {|let {name, Warm} = import %s
+name Warm|} path)))
 
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
@@ -122,5 +133,6 @@ let () =
       Alcotest.test_case "only what is named"       `Quick test_destructuring_binds_only_what_it_names;
       Alcotest.test_case "transitive do not leak"   `Quick test_transitive_imports_do_not_leak;
       Alcotest.test_case "constructors cross"       `Quick test_imported_constructors_cross;
+      Alcotest.test_case "constructors selected"    `Quick test_imported_constructors_selected;
     ];
   ]

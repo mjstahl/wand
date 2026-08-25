@@ -987,6 +987,14 @@ let pat_ctor_name (p : pat) =
   | PConstr (n, _) | PConstrNamed (n, _) | PConstrBare (n, _) -> n
   | _ -> ""
 
+(* Which constructor a name means here. A name bound in scope wins: that is
+   how a renamed import, and a type's own name where it has one constructor,
+   reach the constructor they stand for. *)
+let ctor_in_scope env name =
+  match lookup_var name env with
+  | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> c
+  | _ -> ctor_named name
+
 let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
   match p, v with
   | PVar name, v          -> Some ((name, v) :: env)
@@ -1027,7 +1035,7 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
         | Some env -> try_match ~prefix p v env)
       (Some env) ps vals
   | PConstr (name, pats), VConstr (vname, vals)
-    when name = (Ctor.name vname) && same_length pats vals ->
+    when Ctor.equal (ctor_in_scope env name) vname && same_length pats vals ->
     List.fold_left2
       (fun acc p v -> match acc with
         | None     -> None
@@ -1038,7 +1046,12 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
   (* `one.Live`: the module's namespace holds the constructor, so its
      identity comes from there. The pattern under the qualifier then matches
      the value as any other would. *)
-  | PQualified (m, inner), VConstr (vc, _) ->
+  (* `one.Live`: the module's namespace holds the constructor, so its identity
+     comes from there. What is under the qualifier is matched against the
+     value's fields directly -- resolving its bare name again would consult
+     the index, where one name holds one constructor and another module may
+     have registered it. *)
+  | PQualified (m, inner), VConstr (vc, vals) ->
     let owner =
       match lookup_var m env with
       | Some (VRecord kvs) ->
@@ -1048,18 +1061,53 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
       | _ -> None
     in
     (match owner with
-     | Some c when Ctor.equal c vc -> try_match ~prefix inner v env
+     | Some c when Ctor.equal c vc ->
+       let fields () = match Hashtbl.find_opt constr_fields vc with
+         | Some names -> names
+         | None -> []
+       in
+       let named bindings =
+         List.fold_left (fun acc (fname, p) ->
+           match acc with
+           | None -> None
+           | Some env ->
+             (match find_field_index (fields ()) fname with
+              | None -> None
+              | Some i ->
+                (match List.nth_opt vals i with
+                 | None -> None
+                 | Some v -> try_match ~prefix p v env))) (Some env) bindings
+       in
+       (match inner with
+        | PConstr (_, pats) when same_length pats vals ->
+          List.fold_left2 (fun acc p v ->
+            match acc with
+            | None -> None
+            | Some env -> try_match ~prefix p v env) (Some env) pats vals
+        | PConstr (_, _) -> None
+        | PConstrNamed (_, bindings) -> named bindings
+        | PConstrBare (_, ids) ->
+          let named_fields = List.exists (fun dn -> dn <> None) (fields ()) in
+          (match Ast.constr_bare_reading ~named_fields "" ids with
+           | PConstrNamed (_, bindings) -> named bindings
+           | PConstr (_, pats) when same_length pats vals ->
+             List.fold_left2 (fun acc p v ->
+               match acc with
+               | None -> None
+               | Some env -> try_match ~prefix p v env) (Some env) pats vals
+           | _ -> None)
+        | _ -> None)
      | _ -> None)
   | PQualified (_, _), _ -> None
   | PConstrBare (name, ids), _ ->
     let named_fields =
-      match Hashtbl.find_opt constr_fields (ctor_named name) with
+      match Hashtbl.find_opt constr_fields (ctor_in_scope env name) with
       | Some fields -> List.exists (fun dn -> dn <> None) fields
       | None -> false
     in
     try_match ~prefix (Ast.constr_bare_reading ~named_fields name ids) v env
   | PConstrNamed (name, bindings), VConstr (vname, vals)
-    when name = Ctor.name vname ->
+    when Ctor.equal (ctor_in_scope env name) vname ->
     (match Hashtbl.find_opt constr_fields vname with
      | None -> None
      | Some field_names ->
@@ -1273,7 +1321,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | None -> false
     in
     eval env (Ast.constr_bare_construction ~named_fields name ids)
-  | ConstrApp (name, fields) -> eval_constr_app env (ctor_named name) fields
+  | ConstrApp (name, fields) -> eval_constr_app env (ctor_in_scope env name) fields
   | ConstrUpdate (name, base, fields) ->
     let replacements = List.map (fun (fname, e) -> (fname, eval env e)) fields in
     (match eval env base, Hashtbl.find_opt constr_fields (ctor_named name) with

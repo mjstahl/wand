@@ -68,10 +68,10 @@ let test_imp2 () =
   (* A type this file did not declare could have come from any of its
      imports, so none of them is reported. *)
   silent "a file that names a type it did not declare"
-    "import Test\nimport List\ntype Run(outcome: TestOutcome)\n\
-     Run(outcome = Pass \"x\")";
+    "import Test\nimport List\ntype Run(outcome: Test.TestOutcome)\n\
+     Run(outcome = Test.Pass \"x\")";
   silent "and a constructor it did not declare"
-    "import Test\nimport List\nPass \"x\""
+    "import Test\nimport List\nTest.Pass \"x\""
 
 (* The civil clock steps, so the length between two readings of it is wrong
    or zero on the day it does. The rule catches the shape a script is

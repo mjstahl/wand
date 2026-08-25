@@ -242,7 +242,9 @@ let map_key k =
   in
   let plain =
     String.length core > 0
-    && (match core.[0] with 'a' .. 'z' | '_' -> true | _ -> false)
+    (* An uppercase key is how an import names a type or a constructor, and
+       the parser reads one bare. *)
+    && (match core.[0] with 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false)
     && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) core
   in
   if plain then k else "\"" ^ escape_string_body k ^ "\""

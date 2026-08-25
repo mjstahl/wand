@@ -879,9 +879,12 @@ type import_env = {
   tenv     : (string * Ast.type_def) list;
   type_env : Typechecker.env;
   eval_env : env;
+  (* What a type name written in this file means: the short name a reader
+     writes, and the canonical name it stands for. *)
+  type_names : (string * string) list;
 }
 
-let empty_import_env = { tenv = []; type_env = []; eval_env = [] }
+let empty_import_env = { tenv = []; type_env = []; eval_env = []; type_names = [] }
 
 (* ── Multi-clause merging ─────────────────────────────────────────────────── *)
 
@@ -946,8 +949,22 @@ let run_item ?modul env item =
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat ~prefix:true pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
-  (* An alias declares no constructor, so there is nothing to bind. *)
-  | Ast.TLType (Ast.Alias _, _) -> env
+  (* An alias to a type with one constructor names that constructor too, so
+     the alias binds it. An alias to anything else binds nothing. *)
+  | Ast.TLType (Ast.Alias (aname, _, target), _) ->
+    let rec target_name (te : Ast.type_expr) =
+      match te with
+      | Ast.TEName n -> Some n
+      | Ast.TEQual (_, n) -> Some n
+      | Ast.TEApp (f, _) -> target_name f
+      | _ -> None
+    in
+    (match target_name target with
+     | Some tn ->
+       (match Evaluator.lookup_var tn env with
+        | Some ((VConstr _ | VPartialConstr _) as v) -> (aname, v) :: env
+        | _ -> env)
+     | None -> env)
   | Ast.TLType (Ast.Variants (tname, params, ctors), _) ->
     (* A single-constructor type with named fields can have its decoder
        derived, so the definition is kept where the derivation can find it.
@@ -956,8 +973,15 @@ let run_item ?modul env item =
     (match ctors with
      | [ctor] when ctor.Ast.fields <> []
                        && List.for_all (fun (n, _) -> n <> None) ctor.Ast.fields ->
-       Hashtbl.replace Evaluator.derivable tname
-         (ctor.Ast.name, params, ctor.Ast.fields)
+       (* Under the canonical name, which a field type mentions, and under the
+          short one, which a file writes as `T.decoder`. *)
+       let entry = (ctor.Ast.name, params, ctor.Ast.fields) in
+       Hashtbl.replace Evaluator.derivable tname entry;
+       (match modul with
+        | Some m ->
+          Hashtbl.replace Evaluator.derivable
+            (Module_types.canonical_type ~modul:m tname) entry
+        | None -> ())
      | _ -> Hashtbl.remove Evaluator.derivable tname);
     List.fold_left (fun env ctor ->
       let field_names = List.map fst ctor.Ast.fields in
@@ -985,13 +1009,19 @@ let run_item ?modul env item =
 (* The module that declared these has already registered them, with the
    identity that says so. This only binds the names, and asks the evaluator
    which identity each one means rather than deciding again. *)
-let ctor_bindings_of tenv =
+let ctor_bindings_of ?modul tenv =
   List.concat_map (fun (_, tdef) ->
     match tdef with
     | Ast.Alias _ -> []
     | Ast.Variants (_, _, ctors) ->
       List.map (fun (ctor : Ast.ctor_def) ->
-        let ident = Evaluator.ctor_named ctor.Ast.name in
+        (* Named by the module that declares them where one is known: the
+           bare-name index holds one constructor per name, and two modules
+           may each declare `Live`. *)
+        let ident = match modul with
+          | Some m -> Ctor.Owned (m, ctor.Ast.name)
+          | None -> Evaluator.ctor_named ctor.Ast.name
+        in
         let v = match ctor.Ast.fields with
           | [] -> VConstr (ident, [])
           | fs -> VPartialConstr (ident, List.length fs, [])
@@ -1067,53 +1097,119 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
        constructor here. *)
     (* A module's own types, under the name this file gave the import:
        `Foo.Status` as well as `Status`. Step 4 stops adding the bare key. *)
-    let qualified_types alias own_tenv =
-      match alias with
-      | None -> []
-      | Some a -> List.map (fun (n, d) -> (a ^ "." ^ n, d)) own_tenv
+    (* A module's own types, keyed canonically, and the names this file may
+       write for them: `Foo.Status` for a namespace import. *)
+    let qualified_types ~modul alias own_tenv =
+      let canon n = Module_types.canonical_type ~modul n in
+      let entries = List.map (fun (n, d) -> (canon n, d)) own_tenv in
+      let names = match alias with
+        | None -> []
+        | Some a -> List.map (fun (n, _) -> (a ^ "." ^ n, canon n)) own_tenv
+      in
+      (entries, names)
     in
-    let add_import ?alias ?(own_tenv = []) modul_import type_entries eval_entries mod_docs =
-      ({ tenv     = qualified_types alias own_tenv @ modul_import.tenv @ acc.tenv;
+    (* `extra_tenv` is what a destructuring selected, under the names it gave
+       them. `own_tenv` is the module's own, for reaching them through it. *)
+    let add_import ~modul ?alias ?(own_tenv = []) ?(extra_names = [])
+        modul_import type_entries eval_entries mod_docs =
+      let (own_entries, qual_names) = qualified_types ~modul alias own_tenv in
+      (* An import brings what it names. A module's types used to arrive
+         under their bare names as well, so two modules that declared one
+         name collided and no file could say which it meant. The definitions
+         still travel -- a value of an imported type is read and matched
+         here -- but under their canonical names, which no file writes. *)
+      ({ tenv     = own_entries @ modul_import.tenv @ acc.tenv;
          type_env = type_entries @ acc.type_env;
-         eval_env = eval_entries @ ctor_bindings_of modul_import.tenv @ acc.eval_env },
+         eval_env = eval_entries @ acc.eval_env;
+         type_names = extra_names @ qual_names @ acc.type_names },
        mod_docs @ acc_docs)
     in
     match item with
     | Ast.TLImport kind ->
       let ns_name = namespace_name_of kind in
+      let modul = Module_types.key_of (resolve_import base_dir kind) in
       let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (ns_name ^ "." ^ n, d)) mod_docs in
-      add_import ~alias:ns_name ~own_tenv modul_import
+      add_import ~modul ~alias:ns_name ~own_tenv modul_import
         [(ns_name, Typechecker.Namespace own_type)]
         (* The namespace holds the module's constructors as well as its
            values, so `Foo.Live` reads the one `Foo` declares rather than
            whichever `Live` was registered last. *)
-        [(ns_name, VRecord (own_eval @ ctor_bindings_of own_tenv))]
+        [(ns_name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))]
         prefixed_docs
     | Ast.TLLet (name, [], body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
+      let modul = Module_types.key_of (resolve_import base_dir kind) in
       let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
-      add_import ~alias:name ~own_tenv modul_import
+      add_import ~modul ~alias:name ~own_tenv modul_import
         [(name, Typechecker.Namespace own_type)]
-        [(name, VRecord (own_eval @ ctor_bindings_of own_tenv))]
+        [(name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))]
         prefixed_docs
     | Ast.TLLetPat (pat, body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
+      let modul = Module_types.key_of (resolve_import base_dir kind) in
       let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
-      let (type_entries, eval_entries, extra_docs) = match pat with
+      let (type_entries, eval_entries, extra_docs, selected_tenv) = match pat with
         | Ast.PVar name ->
           let pdocs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
           [(name, Typechecker.Namespace own_type)],
-          [(name, VRecord own_eval)],
-          pdocs
+          [(name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))],
+          pdocs,
+          own_tenv
         | Ast.PMap binds ->
+          (* An uppercase name is a type or one of its constructors. Both are
+             selected the way a value is, and renamed the same way. *)
+          let is_upper n = n <> "" && n.[0] >= 'A' && n.[0] <= 'Z' in
+          let (uppers, lowers) =
+            List.partition (fun (field, _) -> is_upper field) binds in
           let te, ee = List.map (fun (field, p) ->
             match p with
             | Ast.PVar alias -> bind_field own_type own_eval field alias
             | _ -> failwith "import destructuring only supports name bindings"
-          ) binds |> List.split in
-          te, ee, []
+          ) lowers |> List.split in
+          (* `{TestOutcome = Outcome}`: the new name is uppercase, so it
+             parses as a constructor pattern rather than a variable. *)
+          let alias_of field p =
+            match p with
+            | Ast.PVar a -> a
+            | Ast.PConstr (a, []) -> a
+            | _ -> failwith (Printf.sprintf
+                "'%s' is renamed to a name, as in {%s = Other}" field field)
+          in
+          let selected_tenv = List.concat_map (fun (field, p) ->
+            let alias = alias_of field p in
+            match List.assoc_opt field own_tenv with
+            (* A type. Renaming it renames its constructor too where it has
+               one, which is what an alias to a single-constructor type
+               does. *)
+            | Some tdef -> [(alias, tdef)]
+            | None ->
+              (* Not a type of its own: a constructor of one. The type comes
+                 with it, under its own name, because a value of it is
+                 matched by constructor. *)
+              (match List.find_opt (fun (_, tdef) ->
+                       match tdef with
+                       | Ast.Variants (_, _, ctors) ->
+                         List.exists (fun c -> c.Ast.name = field) ctors
+                       | Ast.Alias _ -> false) own_tenv with
+               | Some (tname, tdef) ->
+                 if alias <> field then
+                   failwith (Printf.sprintf
+                     "'%s' is one constructor of '%s', and renaming it would \
+                      leave the others under the old name; rename the type, \
+                      or reach it through the module" field tname);
+                 [(tname, tdef)]
+               | None -> failwith (Printf.sprintf
+                   "module has no type or constructor '%s'" field))) uppers
+          in
+          let ctor_ee = List.concat_map (fun (field, p) ->
+            let alias = alias_of field p in
+            List.filter_map (fun (n, v) ->
+              if n = field then Some (alias, v) else None)
+              (ctor_bindings_of ~modul selected_tenv)) uppers
+          in
+          te, ee @ ctor_ee, [], selected_tenv
         | Ast.PList _ ->
           (* The 0.17 spelling. A list pattern on an import no longer
              selects members; the braces that do are one keystroke away. *)
@@ -1122,7 +1218,30 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
              import ..., not [foo, bar]"
         | _ -> failwith "unsupported pattern in import destructuring"
       in
-      add_import modul_import type_entries eval_entries extra_docs
+      (* A destructured import brings the types it names, under the names it
+         gives them. A namespace import brings the module's own, reachable
+         through it. *)
+      let alias = match pat with Ast.PVar n -> Some n | _ -> None in
+      (* A namespace import can reach all of the module's types. A
+         destructuring reaches the ones it named, under the names it gave
+         them. *)
+      let (own_tenv', extra_names) =
+        match pat with
+        | Ast.PVar _ -> (own_tenv, [])
+        | _ ->
+          ([], List.map (fun (alias, _) ->
+             (* `selected_tenv` is keyed by the alias; the canonical name is
+                the module's own for that type. *)
+             (alias, Module_types.canonical_type ~modul
+                       (match List.find_opt (fun (n, d) ->
+                                List.mem_assoc alias selected_tenv
+                                && List.assoc alias selected_tenv == d
+                                && n <> "") own_tenv with
+                        | Some (n, _) -> n
+                        | None -> alias))) selected_tenv)
+      in
+      add_import ~modul ?alias ~own_tenv:own_tenv' ~extra_names modul_import
+        type_entries eval_entries extra_docs
     | _ -> (acc, acc_docs)
   ) (empty_import_env, []) prog.Ast.items
 
@@ -1164,7 +1283,15 @@ and load_module src_ref ~cache ~loading =
           (Module_types.key_of (resolve_import base_dir kind))
       | _ -> None) prog.Ast.items
   in
-  let own_key = Compile_cache.key ~source:src ~deps:dep_keys in
+  (* This module's own types, by the name a reader writes and the name they
+     are known by everywhere else. *)
+  let own_type_names =
+    List.filter_map (function
+      | Ast.TLType ((Ast.Variants (n, _, _) | Ast.Alias (n, _, _)), _) ->
+        Some (n, Module_types.canonical_type ~modul:path n)
+      | _ -> None) prog.Ast.items
+  in
+  let own_key = Compile_cache.key ~path ~source:src ~deps:dep_keys in
   Hashtbl.replace module_keys path own_key;
   (* Only the module's own share is written down. What inference returns is
      `own @ constructors @ stdlib @ imports`, and the last two are the same
@@ -1185,7 +1312,8 @@ and load_module src_ref ~cache ~loading =
       Ok (rebuild (refresh own_part), refresh own_type)
     | None ->
       (match Typechecker.infer_program_env_with_own
-               ~init_tenv:imported.tenv ~init_env:imported.type_env prog with
+               ~init_tenv:imported.tenv ~init_env:imported.type_env
+               ~type_names:(own_type_names @ imported.type_names) prog with
        | Ok (type_env, own_type) as ok ->
          let n_own = List.length type_env - tail_len in
          if n_own >= 0 then begin
@@ -1213,10 +1341,20 @@ and load_module src_ref ~cache ~loading =
        let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
          |> List.filter (fun (n, _) -> not (is_private n)) in
        let own_type = List.filter (fun (n, _) -> not (is_private n)) own_type in
-       let full_import = { tenv     = local_tenv_of prog @ imported.tenv;
-                           type_env;
-                           eval_env = full_eval } in
-       (full_import, own_type, own_eval, local_tenv_of prog,
+       let own = local_tenv_of prog in
+       let own_names = List.map fst own in
+       let full_import =
+         { tenv = List.map (fun (n, d) ->
+                    (Module_types.canonical_type ~modul:path n,
+                     Module_types.canonicalise_tdef ~modul:path own_names d))
+                    own
+                  @ imported.tenv;
+           type_env;
+           eval_env = full_eval;
+           type_names = own_type_names @ imported.type_names } in
+       (full_import, own_type, own_eval,
+        List.map (fun (n, d) ->
+          (n, Module_types.canonicalise_tdef ~modul:path own_names d)) own,
         prog.Ast.docs @ imp_docs))
   in
   Hashtbl.replace cache path result;
@@ -1383,7 +1521,8 @@ let run_program ?(mode = Normal) ~base_dir prog =
      same program: `type This = That` is an alias to both of them or a
      variant to both, never one to each. *)
   let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
-  (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+  (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env
+           ~type_names:imp.type_names prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
      let result = run_in_mode mode (fun () ->
@@ -1530,7 +1669,8 @@ let run_test_program ~base_dir ?(item_locs = []) prog
   let loading = ref [] in
   let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
   match Typechecker.infer_program_env_with_own
-          ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+          ~init_tenv:imp.tenv ~init_env:imp.type_env
+          ~type_names:imp.type_names prog with
   | Error msg -> Error ("type error: " ^ msg)
   | Ok (_, own_type_env) ->
     match drop2_refusals (Lint.check prog item_locs own_type_env) with
@@ -1862,7 +2002,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
-            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+            ~init_tenv:merged_tenv ~init_env:merged_type_env
+            ~type_names:imp.type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
@@ -2064,7 +2205,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
       else Typechecker.builtin_type_env
     in
     match Typechecker.infer_program_full_with_own ~base_env
-            ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
+            ~init_tenv:imp.tenv ~init_env:imp.type_env
+            ~type_names:imp.type_names prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, own_type_env, last_t, holes) ->
       Ok { sc_type     = Typechecker.string_of_typ last_t;
@@ -2113,7 +2255,7 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)
-            ~init_env:imp.type_env prog with
+            ~init_env:imp.type_env ~type_names:imp.type_names prog with
     | Error msg -> Error ("type error: " ^ msg)
     | Ok (_, own_type_env) -> Ok (Lint.check prog item_locs own_type_env)
   with
@@ -2132,7 +2274,8 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
-            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+            ~init_tenv:merged_tenv ~init_env:merged_type_env
+            ~type_names:imp.type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (_, own_type_env, _, _) ->
       Ok (Lint.check prog item_locs own_type_env)
@@ -2150,7 +2293,8 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
-            ~init_tenv:merged_tenv ~init_env:merged_type_env prog with
+            ~init_tenv:merged_tenv ~init_env:merged_type_env
+            ~type_names:imp.type_names prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, _, last_t, hole_types) ->
       if hole_types <> [] then

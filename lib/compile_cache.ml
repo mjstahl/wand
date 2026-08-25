@@ -138,11 +138,16 @@ let binary_identity =
          st.Unix.st_mtime
      | exception _ -> Version.value)
 
-let key ~source ~deps =
+(* `path` is part of the key because a type's name now carries the module
+   that declares it. Two files with the same bytes at two paths declare two
+   types, and an entry keyed on the bytes alone would hand one file the
+   other's names. Moving a file therefore misses its entry, which costs one
+   re-check. *)
+let key ~path ~source ~deps =
   Digest.to_hex
     (Digest.string
        (String.concat "\000"
-          (format_version :: Lazy.force binary_identity :: source
+          (format_version :: Lazy.force binary_identity :: path :: source
           :: List.sort compare deps)))
 
 let path_for key = Filename.concat (dir ()) (key ^ ".wandc")

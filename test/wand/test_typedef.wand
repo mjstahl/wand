@@ -317,7 +317,10 @@ test "a qualified constructor matches" (fn t ->
     | Test.Suite s _ -> s
     ))
 
-test "a bare constructor still matches the same value" (fn t ->
+-- Named in the import, a constructor is used bare.
+let {Pass = Pass, Fail = Fail, Suite = Suite} = import Test
+
+test "a constructor named in the import is used bare" (fn t ->
   t.eq
     "x"
     (match Test.Pass "x" with

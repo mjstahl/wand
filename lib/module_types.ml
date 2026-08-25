@@ -24,9 +24,60 @@ type source =
    never consulted, because everything it imports is another stdlib module. *)
 let stdlib_base_dir = "<stdlib>"
 
+(* A type's canonical name: the module that declares it, and the name it was
+   declared under. Two modules that each declare `Status` therefore declare
+   two types, and a file that writes the short name says which through its
+   imports. A file that is run declares types nothing else can name, so its
+   own keep their short names. *)
+let canonical_type ~modul name = modul ^ "#" ^ name
+
+(* A declaration as it travels: references to the module's own types are
+   canonical, so rebuilding a constructor's type anywhere resolves to the
+   same type. A file that reads the declaration never writes these names. *)
+let canonicalise_tdef ~modul (own : string list) (tdef : Ast.type_def) =
+  let rec te (t : Ast.type_expr) : Ast.type_expr =
+    match t with
+    | Ast.TEName n when List.mem n own -> Ast.TEName (canonical_type ~modul n)
+    | Ast.TEName _ | Ast.TEVar _ -> t
+    | Ast.TEQual (_, _) -> t
+    | Ast.TEApp (f, a) -> Ast.TEApp (te f, te a)
+    | Ast.TETuple ts -> Ast.TETuple (List.map te ts)
+    | Ast.TEFun (a, b, e) -> Ast.TEFun (te a, te b, e)
+  in
+  match tdef with
+  | Ast.Alias (n, ps, t) -> Ast.Alias (n, ps, te t)
+  | Ast.Variants (n, ps, ctors) ->
+    Ast.Variants (n, ps,
+      List.map (fun (c : Ast.ctor_def) ->
+        { c with Ast.fields = List.map (fun (f, t) -> (f, te t)) c.Ast.fields })
+        ctors)
+
+(* One file, one key. A module reached as `../../x/a.wand` and as
+   `/abs/x/./a.wand` is the same module, and its types are the same types, so
+   the spelling a file happened to use cannot be part of its identity. *)
+let normalise path =
+  match Unix.realpath path with
+  | p -> p
+  | exception _ ->
+    (* The file may not exist yet, or the platform may not answer. Take out
+       what can be taken out without asking the filesystem. *)
+    let parts = String.split_on_char '/' path in
+    let rec go acc = function
+      | [] -> List.rev acc
+      | "." :: rest -> go acc rest
+      | ".." :: rest ->
+        (match acc with
+         | _ :: tl -> go tl rest
+         | [] -> go [".."] rest)
+      | "" :: rest when acc <> [] -> go acc rest
+      | p :: rest -> go (p :: acc) rest
+    in
+    let joined = String.concat "/" (go [] parts) in
+    if String.length path > 0 && path.[0] = '/' then "/" ^ joined else joined
+
 let key_of = function
   | Embedded name -> Filename.concat stdlib_base_dir (name ^ ".wand")
-  | File path -> path
+  | File path -> normalise path
 
 (* `WAND_STDLIB` points at a standard library to use instead of the embedded
    one. It is a development override -- run a built binary against a working

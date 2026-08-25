@@ -798,6 +798,12 @@ and brace_map_pat_ s =
       | Token.Ident k ->
         if peek s = Token.Eq then (ignore (advance s); (k, pat_ s))
         else (k, (PVar k : pat))
+      (* An uppercase key is how an import names a type or a constructor:
+         `let {TestOutcome, Pass} = import Test`. A map may have such a key
+         too, and reads the same way. *)
+      | Token.Upper k ->
+        if peek s = Token.Eq then (ignore (advance s); (k, pat_ s))
+        else (k, (PVar k : pat))
       | Token.String k ->
         expect s Token.Eq; (k, pat_ s)
       | t -> fail (Format.asprintf "expected map key, got %a" Token.pp t)

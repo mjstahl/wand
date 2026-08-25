@@ -870,11 +870,17 @@ let test_type_aliases () =
   (* A ring of them would resolve forever. *)
   err_contains "a ring of aliases" "type A = B\ntype B = A\nlet x : A = 1\nx"
     "is an alias for itself";
-  (* A type is not a value, and an alias has no constructor to reach for. *)
-  err_contains "an alias used as a value"
-    "type That(i: Int)\ntype This = That\nThis" "'This' is a type, not a value";
-  err_contains "and it says why" "type That(i: Int)\ntype This = That\nThis"
-    "it is an alias";
+  (* A type with one constructor names that constructor too, so an alias to
+     one builds it: renaming the type renames the whole thing. *)
+  prog_is "an alias to a single-constructor type builds it"
+    "type That(i: Int)\ntype This = That\nThis(i = 1).i" "Int";
+  prog_is "and matches it"
+    "type That(i: Int)\ntype This = That\nmatch This(i = 2) with | This(i = n) -> n"
+    "Int";
+  (* A type with several has no single constructor to forward. *)
+  err_contains "an alias to a multi-constructor type is not a value"
+    "type Shape = Circle Int | Rect Int\ntype S = Shape\nS"
+    "'S' is a type, not a value";
   err_contains "a variant's own name" "type Shape = Circle Int | Rect Int\nShape"
     "'Shape' is a type, not a value"
 
