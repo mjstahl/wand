@@ -209,28 +209,34 @@ let test_type_error_position () =
    first declaration" to anything that edits by location, and the first is
    exactly the one a repeat is not about. *)
 
-let line_of src =
+let position_of src =
   let d = check_error src in
   Alcotest.(check string) "code" "E-TYPE" d.Diag.code;
   match d.Diag.loc with
-  | Some l -> l.Token.line
+  | Some l -> (l.Token.line, l.Token.col)
   | None -> Alcotest.failf "declaration error lost its position: %s" d.Diag.message
 
+let at = Alcotest.(check (pair int int))
+
 let test_declaration_error_positions () =
-  Alcotest.(check int) "a type declared twice points at the second"
-    3 (line_of "type A = Foo\n\ntype A = Bar\n\nBar\n");
-  Alcotest.(check int) "a constructor shared by two types points at the second"
-    3 (line_of "type A = Foo | Bar\n\ntype B = Foo\n\nFoo\n");
-  Alcotest.(check int) "a constructor repeated in one type"
-    1 (line_of "type A = Foo | Foo\n\nFoo\n");
-  Alcotest.(check int) "a field repeated in one constructor"
-    3 (line_of "let x = 1\n\ntype M(a: Int, a: Int)\n\nM(a = 1)\n");
-  Alcotest.(check int) "a declaration over a built-in name"
-    3 (line_of "let x = 1\n\ntype List \'a = Nil\n\nNil\n");
-  Alcotest.(check int) "a default of the wrong type points at the default"
-    3 (line_of "let x = 1\n\ntype C(port: Port = 30s)\n\nC()\n");
-  Alcotest.(check int) "a default that is not a written value"
-    3 (line_of "uses {Shell(hostname)}\n\ntype C(h: String = $(hostname))\n\nC()\n")
+  (* The type's own name, in the declaration the repeat is about. *)
+  at "a type declared twice points at the second"
+    (3, 6) (position_of "type A = Foo\n\ntype A = Bar\n\nBar\n");
+  at "a declaration over a built-in name"
+    (3, 6) (position_of "let x = 1\n\ntype List \'a = Nil\n\nNil\n");
+  (* The constructor, where the constructor is what is repeated. *)
+  at "a constructor shared by two types points at the second"
+    (3, 10) (position_of "type A = Foo | Bar\n\ntype B = Foo\n\nFoo\n");
+  at "a constructor repeated in one type"
+    (1, 16) (position_of "type A = Foo | Foo\n\nFoo\n");
+  at "a field repeated in one constructor"
+    (3, 6) (position_of "let x = 1\n\ntype M(a: Int, a: Int)\n\nM(a = 1)\n");
+  (* The default itself, which the parser already wraps in `Located`. *)
+  at "a default of the wrong type points at the default"
+    (3, 21) (position_of "let x = 1\n\ntype C(port: Port = 30s)\n\nC()\n");
+  at "a default that is not a written value"
+    (3, 20)
+    (position_of "uses {Shell(hostname)}\n\ntype C(h: String = $(hostname))\n\nC()\n")
 
 (* The loc of a type error spans the whole expression the nearest `Located`
    wraps, not just its first token -- `x ++ "s"` is columns 9 through 16. *)

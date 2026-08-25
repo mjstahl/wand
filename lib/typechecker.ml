@@ -3403,12 +3403,12 @@ let expr_item_types : (int * typ) list ref = ref []
 let settle_aliases ?(init_tenv=[]) (prog : program) : program =
   let declared =
     List.filter_map (function
-      | TLType (Variants (n, _, _)) | TLType (Alias (n, _, _)) -> Some n
+      | TLType (Variants (n, _, _), _) | TLType (Alias (n, _, _), _) -> Some n
       | _ -> None) prog.items
     @ List.map fst init_tenv @ builtin_type_names
   in
   let settle = function
-    | TLType (Variants (n, params, [{ name = c; fields }]))
+    | TLType (Variants (n, params, [{ name = c; fields; _ }]), loc)
       (* Not its own name: `type Wrap 'a = Wrap 'a` is the wrapper form,
          where the constructor says the type's name again. Only a name that
          is some *other* type makes this an alias. *)
@@ -3421,7 +3421,7 @@ let settle_aliases ?(init_tenv=[]) (prog : program) : program =
          constructor carrying one. *)
       let te =
         List.fold_left (fun acc (_, ft) -> TEApp (acc, ft)) (TEName c) fields in
-      TLType (Alias (n, params, te))
+      TLType (Alias (n, params, te), loc)
     | item -> item
   in
   { prog with items = List.map settle prog.items }
@@ -3442,7 +3442,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   holes := [];
   let prog = settle_aliases ~init_tenv prog in
   let local_tenv = List.filter_map (function
-    | TLType ((Variants (n, _, _) | Alias (n, _, _)) as tdef) -> Some (n, tdef)
+    | TLType (((Variants (n, _, _) | Alias (n, _, _)) as tdef), _) -> Some (n, tdef)
     | _ -> None) prog.items
   in
   let tenv = local_tenv @ init_tenv @ builtin_tenv in
@@ -3466,7 +3466,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
     | TEFun (a, b, _) -> te_names a @ te_names b
   in
   List.iter (function
-    | TLType (Variants (tname, params, ctors)) ->
+    | TLType (Variants (tname, params, ctors), _) ->
       List.iter (fun c ->
         List.iter (fun (fname, te) ->
           List.iter (fun n ->
@@ -3500,22 +3500,20 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
   let seen_types = Hashtbl.create 16 in
   let seen_ctors = Hashtbl.create 16 in
   List.iter (function
-    | TLType (Variants (tname, _, ctors)) ->
+    | TLType (Variants (tname, _, ctors), tdef_loc) ->
       (* A builtin's name is taken too. Declaring over one used to be
          accepted, and then field access on the result answered "field
          access requires a named type, got Size" -- which reads like
          nonsense, because the name resolved to the builtin while the
          constructor came from here. *)
       if builtin_type_name tname then
-        fail_at_opt (match ctors with c :: _ -> c.loc | [] -> None)
-          (Printf.sprintf
-            "'%s' is a built-in type, so it cannot be declared" tname);
+        fail_at_opt tdef_loc (Printf.sprintf
+          "'%s' is a built-in type, so it cannot be declared" tname);
       (* The location is the second declaration's, which is the one a repeat
          is about: pointing at the first sends a reader -- and anything that
          edits by location -- to the declaration that was already fine. *)
       if Hashtbl.mem seen_types tname then
-        fail_at_opt (match ctors with c :: _ -> c.loc | [] -> None)
-          (Printf.sprintf "'%s' is declared twice" tname);
+        fail_at_opt tdef_loc (Printf.sprintf "'%s' is declared twice" tname);
       Hashtbl.add seen_types tname ();
       List.iter (fun c ->
         (* A name declares one thing here too. Two fields of one name used to
@@ -3553,7 +3551,7 @@ let infer_program_ ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[]) (
      It has to be a value written out, so there is no environment to read it
      in and no effect for a construction to declare. *)
   List.iter (function
-    | TLType (Variants (_, _, ctors)) ->
+    | TLType (Variants (_, _, ctors), _) ->
       List.iter (fun c ->
         List.iter (fun (fname, e) ->
           if not (Ast.is_written_value e) then

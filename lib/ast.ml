@@ -397,7 +397,11 @@ type top_item =
   | TLLetRec of (string * pat list * expr) list
   | TLLetPat of pat * expr
   | TLImport of import_kind
-  | TLType   of type_def
+  (* The declaration, and where it was written. A `type_def` also arrives
+     from an import and from the built-ins, where there is no file to point
+     into, so the location belongs to the item rather than to the definition
+     it carries. *)
+  | TLType   of type_def * Token.loc option
   | TLExpr   of expr
 
 type program = {

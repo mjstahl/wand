@@ -944,8 +944,8 @@ let run_item env item =
     Evaluator.bind_pat ~prefix:true pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
   (* An alias declares no constructor, so there is nothing to bind. *)
-  | Ast.TLType (Ast.Alias _) -> env
-  | Ast.TLType (Ast.Variants (tname, params, ctors)) ->
+  | Ast.TLType (Ast.Alias _, _) -> env
+  | Ast.TLType (Ast.Variants (tname, params, ctors), _) ->
     (* A single-constructor type with named fields can have its decoder
        derived, so the definition is kept where the derivation can find it.
        Anything else -- several constructors, positional fields, a generic --
@@ -974,7 +974,7 @@ let run_item env item =
    as well: the typechecker learns them from the definition, and this is the
    evaluator's half of the same fact. *)
 let ctor_bindings_of tenv =
-  List.fold_left (fun acc (_, tdef) -> run_item acc (Ast.TLType tdef)) [] tenv
+  List.fold_left (fun acc (_, tdef) -> run_item acc (Ast.TLType (tdef, None))) [] tenv
 
 (* Run top-level items, dropping a fresh index in every so often: a file's
    own definitions accumulate in front of the base, and without this a name
@@ -1227,8 +1227,8 @@ let defs_of_program (prog : Ast.program)
          | Ast.TLLet (name, _, _) -> [name]
          | Ast.TLLetRec bs -> List.map (fun (n, _, _) -> n) bs
          | Ast.TLLetPat (pat, _) -> Lint.pat_names pat
-         | Ast.TLType (Ast.Alias (tname, _, _)) -> [tname]
-         | Ast.TLType (Ast.Variants (tname, _, ctors)) ->
+         | Ast.TLType (Ast.Alias (tname, _, _), _) -> [tname]
+         | Ast.TLType (Ast.Variants (tname, _, ctors), _) ->
            tname :: List.map (fun (c : Ast.ctor_def) -> c.Ast.name) ctors
          | Ast.TLImport _ | Ast.TLExpr _ -> []
        in
@@ -1865,8 +1865,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat ~prefix:true pat (eval !env_ref e) !env_ref
-            | Ast.TLType (Ast.Alias _) -> ()
-            | Ast.TLType (Ast.Variants (_, _, ctors)) ->
+            | Ast.TLType (Ast.Alias _, _) -> ()
+            | Ast.TLType (Ast.Variants (_, _, ctors), _) ->
               List.iter (fun ctor ->
                 Hashtbl.replace constr_fields ctor.Ast.name (List.map fst ctor.Ast.fields);
                 Hashtbl.replace constr_defaults ctor.Ast.name ctor.Ast.defaults;
@@ -1939,8 +1939,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
               in
               (name, ty)) bindings)
           | Some (Ast.TLLetPat _) -> RSilent
-          | Some (Ast.TLType (Ast.Variants (name, _, _)))
-          | Some (Ast.TLType (Ast.Alias (name, _, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _), _))
+          | Some (Ast.TLType (Ast.Alias (name, _, _), _)) -> RType name
           | Some (Ast.TLExpr _) ->
             (match last_v with
              | VUnit -> RSilent
@@ -2113,8 +2113,8 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
             (match List.assoc_opt name full_type_env with
              | Some s -> RBind (name, Typechecker.string_of_scheme s)
              | None   -> RBind (name, "?"))
-          | Some (Ast.TLType (Ast.Variants (name, _, _)))
-          | Some (Ast.TLType (Ast.Alias (name, _, _))) -> RType name
+          | Some (Ast.TLType (Ast.Variants (name, _, _), _))
+          | Some (Ast.TLType (Ast.Alias (name, _, _), _)) -> RType name
           | Some (Ast.TLExpr _) -> RTypeExpr (Typechecker.string_of_typ last_t)
           | Some _ -> RSilent
         in

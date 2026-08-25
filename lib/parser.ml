@@ -1939,10 +1939,12 @@ let parse_program_generic ~on_item tokens =
            "expected module name or path after import, got %a" Token.pp t))
     | Token.Type ->
       ignore (advance s);
+      (* The type's own name, which is what a declaration error is about. *)
+      let tdef_loc = peek_loc s in
       let tdef = parse_type_def s in
       (match tdef with
        | Ast.Variants (name, _, _) | Ast.Alias (name, _, _) -> attach_doc name);
-      items := !items @ [Ast.TLType tdef]
+      items := !items @ [Ast.TLType (tdef, Some tdef_loc)]
     | _ ->
       let e = locate s (fun () -> expr_ 0 s) in
       items := !items @ [Ast.TLExpr e];

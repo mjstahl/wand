@@ -1456,7 +1456,7 @@ let emit_type_def = function
 let emit_top_item_pretty = function
   | TLImport (StdlibModule n) -> "import " ^ n
   | TLImport (UserPath p)     -> "import " ^ p
-  | TLType tdef -> emit_type_def tdef
+  | TLType (tdef, _) -> emit_type_def tdef
   | TLLetPat (p, e) ->
     let body = emit_expr 0 e in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in

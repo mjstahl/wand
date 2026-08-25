@@ -131,7 +131,7 @@ let import_kind_of e = match strip_located e with
 
 let local_tenv_of prog =
   List.filter_map (function
-    | Ast.TLType ((Ast.Variants (n, _, _) | Ast.Alias (n, _, _)) as tdef) ->
+    | Ast.TLType (((Ast.Variants (n, _, _) | Ast.Alias (n, _, _)) as tdef), _) ->
       Some (n, tdef)
     | _ -> None) prog.Ast.items
 
