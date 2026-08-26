@@ -54,6 +54,21 @@ let name_of = function
   | Proc    -> "Proc"
   | Raise   -> "Raise"
 
+(* What a label admits, one sentence each, for a reader who hovers a
+   manifest rather than reading the reference. Written in the manifest's
+   terms -- what the file may do -- because that is the question the label
+   is answering where it is read. *)
+let description = function
+  | Clock   -> "Waits: sleeps, or takes a wall-clock time it does not bound."
+  | Shell   -> "Runs subprocesses. `Shell(git, curl)` narrows it to the \
+                binaries named; bare `Shell` admits any."
+  | FsRead  -> "Reads from the filesystem."
+  | FsWrite -> "Creates, changes or removes something on disk."
+  | Env     -> "Reads or changes environment variables."
+  | IO      -> "Reads or writes the program's own streams."
+  | Proc    -> "Ends the process. Nothing catches this."
+  | Raise   -> "Can raise instead of returning."
+
 (* The inverse of `name_of`, derived from it rather than written out again:
    a manifest, a written signature and a printed one all spell an effect the
    same way, and a second list would be a second thing to keep in step. *)

@@ -4530,12 +4530,19 @@ author put it. Everything else has a formatting rule.
 
 `wand lsp` starts the language server. It speaks LSP over stdio. It is a
 subcommand of the compiler binary, so the editor gets the same inference, the
-same lint rules and the same formatter. The two cannot disagree. An editor that connects to it gets six things. It gets a diagnostic on each
+same lint rules and the same formatter. The two cannot disagree. An editor that connects to it gets seven things. It gets a diagnostic on each
 change. It gets hover, which shows the signature with its effect set, and the
-doc string. It gets completion. It gets a quick fix that carries the correction
-that `wand t --fix` applies. It gets formatting of the whole document. It gets
-go to definition, and a jump into the standard library opens the source of the
-module from the binary, as a read-only document.
+doc string. It gets a lens above each definition carrying its inferred type,
+which is hover's answer for a whole file at once. It gets completion. It gets
+a quick fix that carries the correction that `wand t --fix` applies. It gets
+formatting of the whole document. It gets go to definition, and a jump into
+the standard library opens the source of the module from the binary, as a
+read-only document.
+
+Hover reads the position as well as the word. A label inside `uses {...}` is
+an effect and is described as one: `Env` names a module elsewhere in the same
+file, and on the manifest line what it declares is the effect that module's
+calls perform.
 
 A qualified name resolves as you type it. Write `FS.write_file!` in a buffer
 that has not imported `FS`, and the editor inserts `import FS` into the sorted

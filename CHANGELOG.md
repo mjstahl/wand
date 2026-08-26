@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Added
+
+- A type lens above every definition in the editor. `wand lsp` answers
+  `textDocument/codeLens` with the inferred signature of each value the file
+  defines, on the line above it — the thing hover already knew, for the whole
+  file at once instead of one name at a time. Value definitions only: a
+  `type` line already says what it declares. Where one line binds several
+  names the lens carries the name, because two bare types side by side say
+  which is which only by the order they happen to be in
+
+### Changed
+
+- A manifest label hovers as the effect it is. `Env` and `IO` came back as
+  the modules they also are, which describes the wrong thing on that line —
+  what the manifest declares is the effect those modules' calls perform — and
+  `FS.Read`, `Raise` and `Proc` name no module at all, so they came back as
+  nothing. Inside `uses {...}` the label is the only thing the word can mean,
+  and the hover says what it admits
+- A doc example in a hover keeps its answer on its own line. A doc string is
+  markdown to the editor, where `>> ` opens two blockquotes and the line
+  under it is a lazy continuation of the same paragraph: the expression and
+  what it produces arrived on one line with the prompt eaten. Examples are
+  fenced now, so a hover shows the transcript `wand d` shows
+
 ## [0.50.0] - 2026-08-25
 
 ### Added

@@ -193,6 +193,7 @@ let capabilities : J.t =
        ("hoverProvider", `Bool true);
        ("completionProvider", `Assoc [("triggerCharacters", `List [`String "."])]);
        ("codeActionProvider", `Bool true);
+       ("codeLensProvider", `Assoc [("resolveProvider", `Bool false)]);
        ("definitionProvider", `Bool true);
        ("documentFormattingProvider", `Bool true);
      ]);
@@ -345,6 +346,27 @@ let describe (d : doc) word : (string * string option) option =
        else None)
   | _ -> None
 
+(* A label in the manifest names an effect, and answering for it from the
+   scope was wrong in both directions: `Env` and `IO` came back as the
+   modules they also are, when what the line declares is the effect their
+   calls perform, and `FS.Read`, `Raise` and `Proc` name no module at all,
+   so they came back as nothing. Inside the manifest's extent the label is
+   the only thing the word can mean, so it is answered before the scope is
+   consulted. *)
+let describe_manifest_label (d : doc) word line0 : (string * string option) option =
+  match d.d_check with
+  | Some { Runner.sc_manifest = Some loc; _ }
+    when loc.Token.line <= line0 + 1 && line0 + 1 <= loc.Token.end_line ->
+    Effect_set.of_name word
+    |> Option.map (fun e ->
+         ("effect",
+          Some (Effect_set.description e
+                ^ "\n\nThe manifest is the bound on what this file may do. "
+                ^ "Doing more than it says is a type error, and declaring "
+                ^ "more than the file does is an `A-USES1` warning; "
+                ^ "`wand t --fix` writes the line the file has earned.")))
+  | _ -> None
+
 (* A name the scope does not know: a local -- parameter, `let ... in`,
    pattern variable. Locals carry no positions, so the item enclosing the
    cursor stands in for lexical scope: right whenever the item does not
@@ -362,15 +384,40 @@ let describe_local (d : doc) word line0 : (string * string option) option =
        Option.bind locals (List.assoc_opt word)
        |> Option.map (fun t -> (t, None))
 
+(* A doc string is markdown to the client, and its examples are not: `>> `
+   opens two blockquotes, and what the example produces -- the line under
+   the prompt -- is a lazy continuation of the same paragraph, so the
+   expression and its answer arrive on one line with the prompt eaten.
+   Each example goes in a fence instead, where the prompt is a prompt and
+   the answer keeps its own line, the way `wand d` prints it. The fence is
+   left unlabelled: a transcript is not wand source, and a highlighter told
+   otherwise colours the prompt as an operator. *)
+let doc_markdown text =
+  let out = Buffer.create (String.length text + 32) in
+  let line l = Buffer.add_string out l; Buffer.add_char out '\n' in
+  List.iter (function
+    | Runner.Prose l -> line l
+    | Runner.Example (expr, expected) ->
+      line "```";
+      List.iteri (fun i l -> line ((if i = 0 then ">> " else ".. ") ^ l))
+        (String.split_on_char '\n' expr);
+      List.iter line expected;
+      line "```")
+    (Runner.doc_blocks text);
+  String.trim (Buffer.contents out)
+
 (* The name on its own line, the type under it: long signatures (a wide
-   effect set especially) stay readable instead of wrapping mid-type. *)
+   effect set especially) stay readable instead of wrapping mid-type. A
+   module and an effect have no signature to put there, so the kind takes
+   the place of one. *)
 let hover_markdown word (typ, doc) =
   let head =
-    if typ = "module" then Printf.sprintf "```wand\nmodule %s\n```" word
+    if typ = "module" || typ = "effect"
+    then Printf.sprintf "```wand\n%s %s\n```" typ word
     else Printf.sprintf "```wand\n%s\n: %s\n```" word typ
   in
   match doc with
-  | Some text -> head ^ "\n\n---\n\n" ^ text
+  | Some text -> head ^ "\n\n---\n\n" ^ doc_markdown text
   | None -> head
 
 (* ── Definition ──────────────────────────────────────────────────────────── *)
@@ -410,6 +457,53 @@ let definition_of (d : doc) uri word : J.t option =
        then Some (location (stdlib_uri plain) (Token.point 1 1 0))
        else None)
   | _ -> None
+
+(* ── Code lenses ─────────────────────────────────────────────────────────── *)
+
+(* The type of each definition, on the line above it. Hover answers this one
+   name at a time, and a reader going down a file wants it for all of them
+   at once -- the signature a wand file does not write out is still the
+   first thing to know about a definition.
+
+   Values only. A `type` line already says what it declares, and the lexer
+   is what tells the two apart: a lowercase name is a value, an uppercase
+   one a type or a constructor. The file's own environment answers, not the
+   scope, so an import cannot put a lens on a line the file did not write.
+
+   Where a line binds several names -- `let (a, b) = ...` -- each lens
+   carries its name, because two bare types side by side say which is
+   which only by accident of order. A line binding one name shows the type
+   alone. *)
+let code_lenses (d : doc) : J.t list =
+  match d.d_check with
+  | None -> []
+  | Some sc ->
+    let is_value name =
+      name <> "" && Autoedit.is_ident_continuation name.[0]
+      && Char.lowercase_ascii name.[0] = name.[0]
+    in
+    let defs =
+      List.filter_map (fun (name, (loc : Token.loc)) ->
+        if not (is_value name) then None
+        else Option.map (fun sch ->
+               (loc.Token.line, name, Typechecker.string_of_scheme sch))
+               (List.assoc_opt name sc.Runner.sc_env))
+        sc.Runner.sc_defs
+    in
+    let alone line =
+      List.length (List.filter (fun (l, _, _) -> l = line) defs) = 1
+    in
+    List.map (fun (line, name, typ) ->
+      let title = if alone line then typ else name ^ " : " ^ typ in
+      let l = max 0 (line - 1) in
+      `Assoc [("range", range0 l 0 l 0);
+              (* No command: the title is the whole of what a lens says
+                 here, and a lens that runs nothing should not look
+                 clickable. It is sent all the same, because a lens the
+                 client has to resolve needs a resolve provider. *)
+              ("command", `Assoc [("title", `String title);
+                                  ("command", `String "")])])
+      (List.sort compare defs)
 
 (* ── Completion ──────────────────────────────────────────────────────────── *)
 
@@ -677,15 +771,25 @@ let handle (st : state) (msg : J.t) : state * J.t list =
       match word_at line_text c with
       | None -> (st, [response id `Null])
       | Some (word, start, stop) ->
-        (match (match describe d word with
+        (match (match describe_manifest_label d word l with
                 | Some info -> Some info
-                | None -> describe_local d word l) with
+                | None ->
+                  (match describe d word with
+                   | Some info -> Some info
+                   | None -> describe_local d word l)) with
          | None -> (st, [response id `Null])
          | Some info ->
            (st, [response id (`Assoc [
               ("contents", `Assoc [("kind", `String "markdown");
                                    ("value", `String (hover_markdown word info))]);
               ("range", range0 l start l stop)])])))
+  | Some "textDocument/codeLens" ->
+    (match uri_of () with
+     | Some uri ->
+       (match doc_of uri with
+        | Some d -> (st, [response id (`List (code_lenses d))])
+        | None -> (st, [response id (`List [])]))
+     | None -> (st, [response id (`List [])]))
   | Some "textDocument/completion" ->
     at_position (fun _uri d l c line_text ->
       (st, [response id (`List (completion_items d l line_text c))]))

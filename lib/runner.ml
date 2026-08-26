@@ -2216,6 +2216,10 @@ type source_check = {
   (* per top-level item: its extent and the local binders typed inside it
      (parameters, `let ... in` names, pattern variables) -- what a hover
      answers for names sc_scope never sees. Innermost binding first. *)
+  sc_manifest : Token.loc option;
+  (* the extent of `uses {...}`, when the file declares one. A label inside
+     it is an effect and nothing else, which is not something the name on
+     its own can say: `Env` is a module everywhere else in the file. *)
 }
 
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
@@ -2265,7 +2269,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
                  List.filter_map (fun (j, (n, t)) ->
                    if j = i then Some (n, Typechecker.string_of_typ t)
                    else None) all))
-                item_locs) }
+                item_locs);
+           sc_manifest = Option.map snd prog.Ast.manifest }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
     | Typechecker.TypeErrorAt _ | Failure _) as e ->

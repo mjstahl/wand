@@ -1,7 +1,7 @@
 {
   "name": "wand",
   "displayName": "wand",
-  "description": "Language support for wand: diagnostics, hover with effect rows, completion with auto-import, quick fixes, formatting, and a dry-run lens.",
+  "description": "Language support for wand: diagnostics, hover with effect rows, a type lens over every definition, completion with auto-import, quick fixes, formatting, and a dry-run lens.",
   "version": "0.2.0",
   "publisher": "mjstahl",
   "license": "MIT",

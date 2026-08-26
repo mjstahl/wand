@@ -11,7 +11,12 @@ the compiler.
   `wand t` reports, with real ranges.
 - **Hover**: the inferred signature *with its effect row* — hovering
   `deploy!` shows `String -> String ! {FS.Write, Shell(git, rsync)}` — plus
-  the doc string.
+  the doc string, its examples kept as the transcripts they are. On a
+  manifest label it describes the effect the label admits, which is what
+  `Env` means on that line whatever else it names elsewhere.
+- **Type lens** above every definition: the signature the file does not
+  write out, on all of them at once rather than one hover at a time. VS
+  Code's `editor.codeLens` setting turns lenses off.
 - **Auto-import**: typing `FS.write_file!` in a file that has not imported
   `FS` inserts `import FS` (sorted into the import block) and adds
   `FS.Write` to the manifest, as you type. `Shell` is never touched

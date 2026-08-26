@@ -239,6 +239,88 @@ let test_hover_on_a_parameter () =
     Alcotest.(check bool) "the parameter's inferred type" true
       (contains (s (m "value" (m "contents" result))) "flag\n: Bool")
 
+(* A doc's example is a transcript, and markdown would run the expression
+   and its answer together on one line. The fence is what keeps them
+   apart. *)
+let test_hover_fences_a_doc_example () =
+  let text = "uses {IO}\nimport List\nlet f xs = List.head xs\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 16 "textDocument/hover" uri 2 16]
+  in
+  match response_for 16 outs with
+  | `Null -> Alcotest.fail "expected a hover"
+  | result ->
+    let value = s (m "value" (m "contents" result)) in
+    Alcotest.(check bool) "the prompt survives, the answer keeps its line" true
+      (contains value "```\n>> List.head [1, 2, 3]\nSome(1) : Option Int\n```")
+
+(* In the manifest a label is an effect. `Env` is also a module, and saying
+   so there describes the wrong thing. *)
+let test_hover_on_a_manifest_label () =
+  let (_, outs) =
+    session [did_open uri "uses {Env, FS.Read}\nimport Env\nEnv.get \"HOME\"\n";
+             at_position 17 "textDocument/hover" uri 0 7]
+  in
+  match response_for 17 outs with
+  | `Null -> Alcotest.fail "expected a hover on the label"
+  | result ->
+    let value = s (m "value" (m "contents" result)) in
+    Alcotest.(check bool) "an effect, not a module" true
+      (contains value "effect Env" && not (contains value "module"));
+    Alcotest.(check bool) "says what the label admits" true
+      (contains value "environment variables")
+
+(* A label that names no module at all was answered with nothing before. *)
+let test_hover_on_a_dotted_manifest_label () =
+  let (_, outs) =
+    session [did_open uri "uses {Env, FS.Read}\nimport Env\nEnv.get \"HOME\"\n";
+             at_position 18 "textDocument/hover" uri 0 13]
+  in
+  match response_for 18 outs with
+  | `Null -> Alcotest.fail "expected a hover on FS.Read"
+  | result ->
+    Alcotest.(check bool) "the read half of the filesystem" true
+      (contains (s (m "value" (m "contents" result))) "effect FS.Read")
+
+(* Outside the manifest the same word is the module it has always been. *)
+let test_hover_outside_the_manifest_is_the_module () =
+  let (_, outs) =
+    session [did_open uri "uses {Env}\nimport Env\nEnv.get \"HOME\"\n";
+             at_position 19 "textDocument/hover" uri 1 8]
+  in
+  match response_for 19 outs with
+  | `Null -> Alcotest.fail "expected a hover on the import"
+  | result ->
+    Alcotest.(check bool) "still the module" true
+      (contains (s (m "value" (m "contents" result))) "module Env")
+
+let lens_titles result =
+  match result with
+  | `List items ->
+    List.map (fun i -> (int_of (m "line" (m "start" (m "range" i))),
+                        s (m "title" (m "command" i)))) items
+  | _ -> Alcotest.fail "expected a code lens list"
+
+let test_code_lens_types_the_definitions () =
+  let text = "let double n = n * 2\nlet name = \"x\"\ntype Shape = Circle Int\ndouble 2\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 20 "textDocument/codeLens" uri 0 0]
+  in
+  let titles = lens_titles (response_for 20 outs) in
+  Alcotest.(check (list (pair int string))) "one per value definition, its type"
+    [(0, "Int -> Int"); (1, "String")] titles
+
+(* Several names off one line each say which they are; a type declaration
+   gets no lens -- its line already says what it declares. *)
+let test_code_lens_names_a_shared_line () =
+  let text = "let (a, b) = (1, \"x\")\na\n" in
+  let (_, outs) =
+    session [did_open uri text; at_position 21 "textDocument/codeLens" uri 0 0]
+  in
+  Alcotest.(check (list (pair int string))) "named, because order is not a label"
+    [(0, "a : Int"); (0, "b : String")]
+    (lens_titles (response_for 21 outs))
+
 let items_of result = match result with
   | `List items -> items
   | _ -> Alcotest.fail "expected a completion list"
@@ -491,6 +573,14 @@ let () =
       Alcotest.test_case "broken recheck"  `Quick test_hover_survives_a_broken_recheck;
       Alcotest.test_case "nothing"         `Quick test_hover_on_nothing;
       Alcotest.test_case "parameter"       `Quick test_hover_on_a_parameter;
+      Alcotest.test_case "doc example"     `Quick test_hover_fences_a_doc_example;
+      Alcotest.test_case "manifest label"  `Quick test_hover_on_a_manifest_label;
+      Alcotest.test_case "dotted label"    `Quick test_hover_on_a_dotted_manifest_label;
+      Alcotest.test_case "module outside"  `Quick test_hover_outside_the_manifest_is_the_module;
+    ];
+    "code lens", [
+      Alcotest.test_case "types definitions" `Quick test_code_lens_types_the_definitions;
+      Alcotest.test_case "shared line"       `Quick test_code_lens_names_a_shared_line;
     ];
     "completion", [
       Alcotest.test_case "in scope"        `Quick test_completion_in_scope;
