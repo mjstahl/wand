@@ -395,6 +395,13 @@ let column_after col s =
   | None -> col + String.length s
   | Some i -> String.length s - i - 1
 
+(* `fn a b ->`, and `fn ->` when it binds nothing. Joining an empty
+   parameter list with spaces on both sides wrote `fn  ->`. *)
+let emit_fn_head ps =
+  match ps with
+  | [] -> "fn ->"
+  | _ -> "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " ->"
+
 let carries_the_break e =
   opens_a_bracket e
   || (match strip_located e with
@@ -552,7 +559,7 @@ and emit_expr_inner ?col indent e =
   | Fn (ps, body) ->
     (* The body is written after `fn params -> `, so that is where it
        starts -- an `if` in here was the other half of this bug. *)
-    let head = "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " -> " in
+    let head = emit_fn_head ps ^ " " in
     (* A wrapped application as the body ends at its first line, and what is
        left below it reads as something new -- the same hazard a binding's
        body has, and the lambda gives it no bracket of its own. *)
@@ -723,9 +730,21 @@ and emit_expr_inner ?col indent e =
     let emitted_body = emit_expr indent body in
     let wrapped = String.contains emitted_body '\n' in
     let head = if wrapped then "(" ^ emitted_body ^ ")" else emitted_body in
-    "handle " ^ head ^ " with\n"
-    ^ String.make arm_indent ' ' ^ String.concat ("\n" ^ String.make arm_indent ' ')
-        (List.map emit_arm cases)
+    (* The arms carry the line break, so with no arms there is no break to
+       carry. Emitting one anyway left a trailing newline that the item
+       joiner then separated from the next item, so `handle () with` grew a
+       blank line under it on every pass and `wand f` run twice was not
+       `wand f` run once. Found by test/fuzz.
+
+       Only `handle` needs this. A `match` with no cases does not parse at
+       all -- "match has no cases" -- so the same shape there is a state no
+       source can reach. *)
+    "handle " ^ head ^ " with"
+    ^ (match cases with
+       | [] -> ""
+       | _ ->
+         let pad = String.make arm_indent ' ' in
+         "\n" ^ pad ^ String.concat ("\n" ^ pad) (List.map emit_arm cases))
   | Try e -> "try " ^ emit_expr indent e
   (* The body stays at the bracket's own indentation rather than stepping in.
      Brackets nest -- a temp dir holding a lock holding a directory change --
@@ -783,7 +802,7 @@ and emit_app ?col indent e =
                  :: List.map (fun a -> emit_arg ~last:false indent a) before)
             in
             let head_s =
-              prefix ^ " (fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " ->" in
+              prefix ^ " (" ^ emit_fn_head ps in
             (* A bracketed body opens on the arrow's line, as it does after
                an `=`, rather than spending a line on a bracket alone. *)
             if opens_a_bracket body then
@@ -1087,20 +1106,32 @@ and emit_fn_clauses ~col indent p params fbody =
     | Some cs -> cs
     | None    -> [(params, fbody)]
   in
-  let clause_indent i = if i = 0 then indent else name_column indent let_keyword in
+  (* Every clause repeats `let`, and every clause sits at the same indent.
+     The continuation used to be the bare name, aligned under the first --
+     and that spelling only parses where a newline ends an expression, which
+     is to say at bracket depth zero. Inside a `( ... )` a newline continues
+     the expression instead, so the bare `count log = 2` was read as more of
+     the previous clause's body and the `=` had nowhere to go.
+
+     Repeating `let` parses in all three places: at the top level, in a bare
+     `fn` body, and inside brackets. It is also what the top-level emitter
+     has always written, so local and top-level multi-clause functions now
+     read the same. Found by test/fuzz. *)
   let lines = List.mapi (fun i (pats, body) ->
-    let ci = clause_indent i in
-    let kw = if i = 0 then let_keyword ^ " " ^ name else name in
     let (annot_s, body) = split_clause_annot body in
-    let head = kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
-    let clause_col = if i = 0 then col else ci in
-    let oneline = head ^ " = " ^ emit_expr ci body in
+    let head =
+      let_keyword ^ " " ^ name ^ " "
+      ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s
+    in
+    (* The first clause starts where the caller left the cursor; the rest
+       start their own line at the indent. *)
+    let clause_col = if i = 0 then col else indent in
+    let oneline = head ^ " = " ^ emit_expr indent body in
     if fits clause_col oneline then oneline
-    else emit_bound_value ~col:clause_col ci head body
+    else emit_bound_value ~col:clause_col indent head body
   ) clauses in
   String.concat "\n"
-    (List.mapi (fun i l ->
-       if i = 0 then l else String.make (clause_indent i) ' ' ^ l) lines)
+    (List.mapi (fun i l -> if i = 0 then l else String.make indent ' ' ^ l) lines)
 
 (* One binding of a block, with no body after it: the `;` that follows is
    the terminator, as a newline is at the top level of a file. *)

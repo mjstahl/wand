@@ -14,35 +14,27 @@
 
 # ── The formatter writes source that does not parse ──────────────────────
 #
-# One case left, and it is not the two that were fixed. The formatter merges
-# two same-name `let` clauses into the aligned multi-clause form:
+# Not the two that were fixed. A comment between a binding's `=` and its
+# value:
 #
-#   let count log = a
-#   let count log = b
-#   in ...
+#   let d =
+#   --
+#   (fn n r -> ...) (arg) (arg)
 #
-# becomes
-#
-#   let count log = a
-#       count log = b
-#   in ...
-#
-# which does not parse back when the whole thing sits inside a call --
-# `(fn t -> ...)`. It parses at the top level and inside a bare `fn` body,
-# so the call context is part of it and this has not been minimised further.
-# The parser and the formatter disagree about where the clause form is
-# allowed, and settling that is a grammar question, not a layout one.
+# The application below the comment wraps and does not get the parentheses
+# that a wrapped application gets everywhere else -- the comment path
+# bypasses the guard -- so the continuation lines read as new definitions.
 format:unparses
 
-# ── The formatter does not settle ────────────────────────────────────────
+# ── The formatter changes what a file means ──────────────────────────────
 #
-#   handle () with
-#   "" (fn -> ())
+#   "";-let a=(fn->())
 #
-# grows one blank line after `handle () with` on every pass. `wand f` run
-# twice is not `wand f` run once, so a file grows without bound. The corpus
-# check cannot see this: it asks whether formatted files stay formatted,
-# and these files are already fixed points.
+# becomes `""` and then `-(let a = fn -> () in ())` on its own line, which
+# reads back as `"" - (...)`: a subtraction that was not there. Reported as
+# `format:unstable`, because the second pass joins them onto one line and
+# that is what the oracle noticed first. The type check either side did not
+# catch it -- both are E-TYPE, for different reasons.
 format:unstable
 
 # ── The formatter drops a comment ────────────────────────────────────────

@@ -92,6 +92,36 @@ let test_a_wrapped_try_with_is_left_alone () =
   if Lint.contains out "(try" then
     Alcotest.failf "a try whose body is a `with` does not need parentheses:\n%s" out
 
+(* A `handle` with no arms. The arms carry the line break, so
+   with none there is no break to carry -- but the break was written anyway,
+   and the item joiner then separated that trailing newline from the next
+   item. `wand f` run twice was not `wand f` run once, and the file grew a
+   blank line every time. A `match` with no cases cannot reach this: the
+   parser refuses it outright. Found by test/fuzz. *)
+let test_an_armless_handle_settles () =
+  assert_idempotent "armless handle" "handle () with\nlet x = 1\n"
+
+(* A local multi-clause function inside a call. The continuation clause used
+   to be written as the bare name aligned under the first, which only parses
+   where a newline ends an expression -- so inside `( ... )`, where a newline
+   continues one, it was read as more of the previous clause's body. Every
+   clause repeats `let` now, which parses in all three places and is what the
+   top-level emitter already wrote. Found by test/fuzz. *)
+let test_local_clauses_inside_a_call_parse () =
+  formats_and_parses "local clauses in a call" 92
+    (String.concat "\n"
+       [ "let go = fn () -> 0";
+         "test \"x\" (fn t ->";
+         "  let count log = 1";
+         "  let count log = 2";
+         "  in t.eq 0 count)"; "" ])
+
+(* `fn` binding nothing wrote two spaces before the arrow. *)
+let test_a_parameterless_fn_has_one_space () =
+  let out = fmt "let f = fn -> ()\n" in
+  if Lint.contains out "fn  ->" then
+    Alcotest.failf "a parameterless fn should not double its space:\n%s" out
+
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
   (* A sweep that reads nothing passes every file it never opens. *)
@@ -668,22 +698,22 @@ let test_handle_and_regex_round_trip () =
     "import Regex\nRegex.match? r/fix|bug/i \"FIXED\""
     "true"
 
-(* A binding's later clauses line up under the first one's name, and the
-   `in` closes the group from the keyword's own column -- so the shape says
-   which lines belong to the binding and which one ends it. Both spellings
-   of the source converge, since which was written is not in the AST. *)
+(* Every clause of a binding repeats `let`, at the binding's own indent.
+   Both spellings of the source converge, since which was written is not in
+   the AST.
+
+   The later clauses used to line up under the first one's name instead --
+   a shape that says more clearly which lines belong to the binding and
+   which one ends it, and which is still what a reader may prefer. It was
+   given up because it is not a spelling the language always accepts: the
+   bare continuation parses only where a newline ends an expression, so the
+   same function inside a `( ... )` came back as a parse error. Repeating
+   `let` parses at the top level, in a bare `fn` body, and inside brackets,
+   and it is what the top-level emitter has always written. One spelling
+   that works everywhere beat a nicer one that works in most places. *)
 let test_let_clause_alignment () =
   let lines ls = String.concat "\n" ls in
   let expected =
-    lines [ "let answer =";
-            "  let fib 0 = 0";
-            "      fib 1 = 1";
-            "      fib n = fib (n - 1) + fib (n - 2)";
-            "  in fib 10";
-            "";
-            "answer" ]
-  in
-  let repeated_let =
     lines [ "let answer =";
             "  let fib 0 = 0";
             "  let fib 1 = 1";
@@ -692,11 +722,20 @@ let test_let_clause_alignment () =
             "";
             "answer" ]
   in
+  let aligned =
+    lines [ "let answer =";
+            "  let fib 0 = 0";
+            "      fib 1 = 1";
+            "      fib n = fib (n - 1) + fib (n - 2)";
+            "  in fib 10";
+            "";
+            "answer" ]
+  in
   Alcotest.(check string) "from the repeated-let spelling"
-    expected (String.trim (fmt repeated_let));
-  Alcotest.(check string) "from the aligned spelling"
     expected (String.trim (fmt expected));
-  assert_idempotent "the layout is a fixed point" repeated_let
+  Alcotest.(check string) "from the aligned spelling"
+    expected (String.trim (fmt aligned));
+  assert_idempotent "the layout is a fixed point" expected
 
 (* A backtick string has to come back as one. Rendered as a quoted string it
    would return escaped -- the whole point of writing it was not to escape --
@@ -1018,6 +1057,12 @@ let () =
         test_a_wrapped_try_scrutinee_keeps_its_with;
       Alcotest.test_case "wrapped try with is left alone" `Quick
         test_a_wrapped_try_with_is_left_alone;
+      Alcotest.test_case "armless handle settles" `Quick
+        test_an_armless_handle_settles;
+      Alcotest.test_case "local clauses inside a call parse" `Quick
+        test_local_clauses_inside_a_call_parse;
+      Alcotest.test_case "parameterless fn spacing" `Quick
+        test_a_parameterless_fn_has_one_space;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;

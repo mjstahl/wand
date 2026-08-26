@@ -170,7 +170,7 @@ let each f [h :: t] = let _ = f h in each f t
 -- [(0, "a"), (1, "b")] : List (Int, String)
 let indexed xs =
   let go _ [] = []
-      go i [h :: t] = (i, h) :: go (i + 1) t
+  let go i [h :: t] = (i, h) :: go (i + 1) t
   in go 0 xs
 
 -- Return the element at index n, or None if out of bounds.

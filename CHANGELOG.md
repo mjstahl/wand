@@ -29,6 +29,18 @@
 
 ### Fixed
 
+- `wand f` settles. A `handle` with no arms wrote the line break its arms
+  would have carried, and the item joiner then separated that trailing
+  newline from the next item -- so `handle () with` grew a blank line under
+  it on every pass and a file grew without bound. A `match` with no cases
+  cannot reach this; the parser refuses it outright. A `fn` binding nothing
+  also wrote two spaces before its arrow
+- A local multi-clause function keeps its clauses. Each one repeats `let`
+  now, at the binding's own indent. The later clauses used to line up under
+  the first one's name -- a clearer shape, and one the language does not
+  always accept: the bare continuation parses only where a newline ends an
+  expression, so the same function inside a `( ... )` came back as a parse
+  error. `stdlib/List.wand` is the one file that changed
 - `wand f` no longer writes source that does not parse, in two shapes. An
   application that wrapped in an `if`'s condition left the `then` attached to
   nothing -- the condition was the one part of an `if` emitted with no guard
