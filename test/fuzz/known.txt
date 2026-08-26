@@ -47,7 +47,7 @@ format:unstable
 # input did not. Caught by the type either side rather than by the parse,
 # which is what that property is for. Not caused by the newline rule
 # changing: it reproduces against the parser as it was.
-format:retyped
+format:retyped:was E-TYPE, now typechecks to String
 
 # ── The formatter drops a comment ────────────────────────────────────────
 #
