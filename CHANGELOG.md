@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- `docs/llm-authoring.md`. What in wand serves work that a model writes and a
+  person reads, and why the syntax is ML-style rather than Algol or Wirth.
+  Design rationale, not a benchmark -- it says so, and it says how the claim
+  could be measured instead of asserted. Linked from the README
+- `V-SHADOW1`. A top-level name bound twice in one file is reported on the
+  second binding. The first is not dead -- a second `let` does not assign to
+  it, and anything that closed over it goes on reading it -- so which value
+  the name means depends on the line it is read from. A binding named `_` is
+  exempt, an inner binding shadows freely, and two imports binding one name
+  stay `V-IMP1`'s. The rule found one in wand's own tests: two unrelated
+  values called `base`, 120 lines apart, of different types
+
 ## [0.52.0] - 2026-08-26
 
 ### Added

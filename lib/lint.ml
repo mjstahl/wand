@@ -427,6 +427,12 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
       && not (List.mem n ["Ok"; "Error"; "Some"; "None"; "true"; "false"]))
       mentioned
   in
+  (* Every top-level name a `let` binds, and the line it was bound on. The
+     imports are not in here: V-IMP1 already reports those, and reports them
+     the other way round -- an import that is rebound is dead, so the finding
+     lands on the earlier line and offers to delete it. A value's earlier
+     binding is not dead, so this reports the second one instead. *)
+  let value_bindings_seen = ref [] in
   List.iteri (fun i (item : Ast.top_item) ->
     (* An item-level finding marks the whole item, first token to last. *)
     let loc =
@@ -482,6 +488,26 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
               ~what:(import_display (Option.get (Module_types.import_kind_of body)))
               ~names)
      | _ -> ());
+    (* A name bound twice at the top level. *)
+    (let rebinds =
+       match item with
+       | Ast.TLLet (name, _, body)
+         when Option.is_none (Module_types.import_kind_of body) -> [name]
+       | Ast.TLLetPat (pat, body)
+         when Option.is_none (Module_types.import_kind_of body) -> pat_names pat
+       | _ -> []
+     in
+     List.iter (fun n ->
+       (* `_` is the name for a value that is deliberately not read, so a
+          file may have as many as it likes. *)
+       if n <> "_" then begin
+         (match List.assoc_opt n !value_bindings_seen with
+          | Some first_line ->
+            add Lint_rules.V_SHADOW1 loc (Lint_rules.shadow1 ~name:n ~line:first_line)
+          | None -> ());
+         value_bindings_seen :=
+           (n, loc.Token.line) :: List.remove_assoc n !value_bindings_seen
+       end) rebinds);
     match item with
     | Ast.TLLet (name, params, body) ->
       (match Option.bind (List.assoc_opt name own_env) type_of_scheme with

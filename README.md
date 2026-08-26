@@ -175,4 +175,5 @@ edges and breaking changes.
 
 - **[Language reference](docs/reference.md)** — the full language
 - **[Reading a command line](docs/examples-args.md)** — six ways to read argv, and what each one prints
+- **[Writing wand with an LLM](docs/llm-authoring.md)** — what in the language serves a model writing and a person reading, and why the syntax is ML-style
 - **[Examples](examples/)** — scripts that run, and that CI runs

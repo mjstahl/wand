@@ -24,6 +24,7 @@ type id =
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
   | V_IMP2     (* an import binds a name the file never mentions *)
   | V_CLOCK1   (* two readings of the civil clock subtracted: a step spoils it *)
+  | V_SHADOW1  (* a top-level name is bound twice, so its meaning depends on the line *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -107,6 +108,9 @@ let all = [
   { id = V_SHELL1; code = "V-SHELL1";
     summary = "the manifest narrows Shell, but this command word is decided at run time";
     kind = Violation };
+  { id = V_SHADOW1; code = "V-SHADOW1";
+    summary = "a top-level name is bound twice in one file";
+    kind = Violation };
 ]
 
 let rule id = List.find (fun r -> r.id = id) all
@@ -148,6 +152,20 @@ let imp1 ~name ~first ~second ~line =
      '%s' reads %s's -- above that line as well as below it; drop this \
      import, or rename one binding ({%s = other_name})"
     name first second line name second name
+
+(* The second binding is what the finding names, not the first. An import
+   that is rebound really is dead, which is why `imp1` points at the earlier
+   line and offers to delete it -- but a value's earlier binding is not dead.
+   A function defined between the two closes over it and goes on reading it
+   after the second binding exists. That is the whole reason this is worth
+   saying, and the reason no fix travels with it: the correction is a name,
+   and only the author has one. *)
+let shadow1 ~name ~line =
+  Printf.sprintf
+    "'%s' is already bound on line %d. Every mention between the two lines \
+     reads that one and every mention below reads this one, so the name no \
+     longer says which value it means -- rename one of them"
+    name line
 
 let imp2 ~what ~names =
   Printf.sprintf

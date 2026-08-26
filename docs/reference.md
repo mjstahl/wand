@@ -4344,6 +4344,7 @@ punish the safer choice.
 | `V-DROP2` | a statement's value is a `TestOutcome` nothing reads, so the test cannot fail |
 | `V-IMP1` | two imports bind the same name, so the first binding is dead — every use reads the second, above its line as well as below — rename one (`let {parse = csv_parse} = import CSV`) or drop it |
 | `V-IMP2` | an import binds nothing the file mentions, so it does nothing — drop the line |
+| `V-SHADOW1` | a top-level name is bound twice in one file, so which value the name means depends on the line it is read from — rename one of them |
 | `V-CLOCK1` | a length of time is measured by subtracting two readings of `Clock.now`, which a clock step spoils — wrap the work in `Clock.timed` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
@@ -4358,6 +4359,24 @@ does not record which module a type came from. So the rule says nothing about
 any import in a file that mentions a type or constructor that it did not
 declare and that wand does not build in. The fix deletes a line, and a rule
 that deletes cannot guess.
+
+`V-SHADOW1` is about reading, not running. A second `let` of the same name
+does not assign to the first: it binds a new value, and anything that closed
+over the earlier one goes on reading it.
+
+```ocaml
+let limit = 100
+let check = fn n -> n < limit     -- reads 100, and always will
+let limit = 500                   -- V-SHADOW1: a second `limit`
+```
+
+`check` answers against `100` even below the second line. The rule fires on
+the second binding, because the first is not dead — that is the point. It
+carries no fix: the correction is a name, and only the author has one. A
+binding named `_` is exempt, and a name bound inside a function shadows
+freely; this is about the top level of a file, where the two bindings can be
+hundreds of lines apart. `V-IMP1` covers the same shape for imports, and
+reports the *earlier* line, because an import that is rebound really is dead.
 
 `V-DROP1` catches a bug, not a habit:
 

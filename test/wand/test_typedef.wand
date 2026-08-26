@@ -237,10 +237,10 @@ test "a pun follows a named field" (fn t -> (
 
 -- A bare name before a named field is the base of an update, which is what
 -- that spelling has always meant.
-let base = Pod(name = "db", restarts = 1)
+let pod_base = Pod(name = "db", restarts = 1)
 
 test "a name before a named field is still the base of an update" (fn t -> (
-  let p = Pod(base, restarts = 7);
+  let p = Pod(pod_base, restarts = 7);
   t.eq "db/7" "%{p.name}/%{p.restarts}"
 ))
 

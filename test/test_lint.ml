@@ -19,6 +19,13 @@ let silent label src =
   | [] -> ()
   | got -> Alcotest.failf "%s: expected no findings, got [%s]" label (String.concat "; " got)
 
+(* `silent` asks for no findings at all, which is the wrong question when the
+   source is meant to trip a different rule. *)
+let not_fired label src code =
+  let got = codes src in
+  if List.mem code got then
+    Alcotest.failf "%s: expected no %s, got [%s]" label code (String.concat "; " got)
+
 (* ── Individual rules ────────────────────────────────────────────────────── *)
 
 (* Two imports fighting over one name leave the first binding dead and
@@ -347,7 +354,13 @@ let test_stdlib_is_clean () =
    point is an error has to contain one, and each of these is asserted by its
    own run.sh. *)
 let expected_findings =
-  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2") ]
+  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2");
+    (* V-SHADOW1 discourages binding a top-level name twice. What the
+       evaluator does when someone binds one anyway is still a fact, and
+       `test_script.wand` is where that fact is asserted -- so the file has
+       to contain the thing the rule reports. Lint is advice; the nearest
+       binding winning is behaviour. *)
+    ("test_script.wand", "V-SHADOW1") ]
 
 let expected_type_errors =
   [ (* D1: the same script bash would run, which wand will not. *)
@@ -494,6 +507,44 @@ let test_every_documented_id_exists () =
     end else incr i
   done
 
+(* A top-level name bound twice. The finding lands on the second binding --
+   the first is not dead, which is the whole reason the rule exists -- and
+   the message names the line the first is on so a reader can go and look. *)
+let test_shadow1 () =
+  let src = "let limit = 100\nlet check = fn n -> n < limit\nlet limit = 500" in
+  fires "a second binding of one name" src "V-SHADOW1";
+  let f =
+    List.find (fun (f : Lint.finding) -> f.Lint.rule = Lint_rules.V_SHADOW1)
+      (findings src)
+  in
+  Alcotest.(check int) "reports the second binding" 3 f.Lint.loc.Token.line;
+  if not (Lint.contains f.Lint.text "line 1") then
+    Alcotest.failf "the message should name the first binding's line: %s" f.Lint.text;
+  (* Renaming is the correction the message asks for, and it silences it. *)
+  silent "renamed apart"
+    "let limit = 100\nlet check = fn n -> n < limit\nlet ceiling = 500\ncheck ceiling"
+
+(* An inner binding shadows freely. It is visible on one screen, which is
+   exactly what two top-level bindings cannot be assumed to be. *)
+let test_shadow1_is_top_level_only () =
+  not_fired "an inner let" "let x = 1\nlet f = fn () -> let x = 2 in x\nf ()" "V-SHADOW1"
+
+(* `_` is the name for a value that is deliberately not read, so a file may
+   have as many as it likes. *)
+let test_shadow1_ignores_underscore () =
+  not_fired "two discards" "let _ = 1\nlet _ = 2\n3" "V-SHADOW1"
+
+(* Two imports binding one name belong to V-IMP1, which reports the earlier
+   line because that binding really is dead. Reporting both would put two
+   findings on one mistake and point them at different lines. *)
+let test_shadow1_leaves_imports_to_imp1 () =
+  fires "two imports, one name"
+    "let {parse} = import JSON\nlet {parse} = import TOML\nparse \"x = 1\""
+    "V-IMP1";
+  not_fired "two imports, one name"
+    "let {parse} = import JSON\nlet {parse} = import TOML\nparse \"x = 1\""
+    "V-SHADOW1"
+
 let () =
   Alcotest.run "Lint" [
     "rules", [
@@ -513,6 +564,13 @@ let () =
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;
       Alcotest.test_case "A-USES2"  `Quick test_uses2;
       Alcotest.test_case "V-SHELL1" `Quick test_shell1_dynamic;
+      Alcotest.test_case "V-SHADOW1" `Quick test_shadow1;
+      Alcotest.test_case "V-SHADOW1 top level only" `Quick
+        test_shadow1_is_top_level_only;
+      Alcotest.test_case "V-SHADOW1 ignores _" `Quick
+        test_shadow1_ignores_underscore;
+      Alcotest.test_case "V-SHADOW1 leaves imports to V-IMP1" `Quick
+        test_shadow1_leaves_imports_to_imp1;
     ];
     "catalog", [
       Alcotest.test_case "kinds"        `Quick test_kinds;
