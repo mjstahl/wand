@@ -21,10 +21,32 @@
 # minimised. `fuzz --seed 8888` finds it; `--show` prints what came out.
 format:unparses
 
-# ── A typecheck that does not finish ─────────────────────────────────────
+# ── The formatter moves a constructor's argument ─────────────────────────
 #
-# One 2.7KB mutant of test/wand/test_process.wand does not finish inside
-# five seconds. Not yet narrowed -- shrinking a hang costs the full timeout
-# on every probe, which is why the shrink has a wall clock as well as a
-# call count.
+#   l.A S a
+#
+# comes back as `l.A (S) a` and then as `l.A S a` again, so it never
+# settles. A bare constructor is greedy -- `S a` is `S` applied to `a` --
+# and the brackets `emit_arg` adds to keep a non-final constructor from
+# swallowing the next argument are put round the constructor alone rather
+# than round what it swallowed. Reported as `format:unstable` because the
+# oscillation is what shows first.
+format:unstable
+
+# ── A typecheck that takes nine seconds ──────────────────────────────────
+#
+# Not a hang: it finishes, in 9.45s, every time, on any --path. The file it
+# was mutated from typechecks in 0.07s, so a `swap-lines` and a `repeat`
+# made the same 7.4KB of wand 135 times slower to check.
+#
+# `fuzz --seed 555` finds it. Shrunk by hand from 7.4KB to 3.1KB before the
+# probes ran out; what is left is a run of top-level `test` items full of
+# unbound names, so the file is one long list of type errors and the
+# typechecker takes seconds to reach the first one it reports. The cost is
+# in inference and not in the `Ok` path -- `sc_locals` is quadratic in the
+# item count, but this input never reaches it.
+#
+# Worth narrowing further before it is worth fixing. Every probe costs the
+# full timeout, which is what makes it slow to shrink as well as slow to
+# run.
 timeout
