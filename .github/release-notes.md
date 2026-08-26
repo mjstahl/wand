@@ -1,22 +1,24 @@
 ## 0.50.0 - 2026-08-25
 
-This release is about what a run says when it cannot continue. Three ways a
-script could end with a raw OCaml exception — an effect in an imported
-module, an operation with no handler, and nesting calls without end — and a
-reader who got a line naming an internal constructor and no position. None of
-them do that now.
+Three ways a script could end with a raw OCaml exception, and none of them do
+now: an effect in an imported module, an operation with no handler, and
+nesting calls without end. Each ended the run with an OCaml fatal error —
+two of them naming an internal constructor — none of them carrying a
+position, and none of them catchable.
 
-The last of the three could not be fixed by catching it. `Stack overflow`
-cannot be caught on this runtime: a handler that matches it hangs rather than
-unwinds, and so does one whose guard rejects it, because the guard runs on
-the stack that just ran out. So the depth is bounded before the stack goes.
-That bound rejects a non-tail recursion deeper than a million, which is the
-one change here that can refuse code that ran before. It is listed below.
+The last could not be fixed by catching it. `Stack overflow` cannot be caught
+on this runtime: a handler that matches it hangs rather than unwinds, and so
+does one whose guard rejects it, because the guard runs on the stack that
+just ran out. So the depth is bounded before the stack goes. That bound
+refuses a non-tail recursion deeper than a million, and is the one change
+here that can reject code that ran before.
 
-The verdict a lint reaches is also reachable now from the path that runs the
-file. `wand a.wand --lint` reports the findings and runs it anyway; a lint is
-not a type error and not a compiler error, so it is not a condition of
-running unless you ask for that with `--strict`.
+The rest is smaller. A lint's verdict is reachable now from the path that
+runs the file: `wand a.wand --lint` reports the findings and runs it anyway,
+because a lint is not a type error and not a compiler error, and so is not a
+condition of running unless `--strict` asks for that. A Unit answer that was
+suppressed is printed. A constructor that swallowed an argument is corrected
+rather than only reported.
 
 ### Added
 
