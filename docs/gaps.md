@@ -58,8 +58,9 @@ have to change before anyone builds them.
 ## The language
 
 **A destructured import is replaced by a later one, above the line as well
-as below it — warned, not fixed.** Every import binds before the file's own bindings, wherever
-it is written, so the last import of a name decides every use of it:
+as below it — warned where the file is checked, not where it is run.**
+Every import binds before the file's own bindings, wherever it is written,
+so the last import of a name decides every use of it:
 
 ```ocaml
 let {f} = import ./a
@@ -72,6 +73,16 @@ let {f} = import ./b
 error caught each, and would not have if the types had matched, so the
 rule was widened to cover every import in the file rather than the leading
 run.
+
+The warning is not on the path that runs the file. `Lint.check` is reached
+from `wand t`, from the editor and from the test runner, and running a
+script reaches none of them: the file above prints `./b`'s answer and exits
+0, saying nothing about the import that decided it. `--strict` turns the
+rule into an error, which serves a build; it does not reach the reader who
+runs the file and reads the output, which is where the shadowing does its
+work. Linting on the way to running would close this, and it would put a
+lint's verdict in the path of every run -- a decision about what running a
+script is for, rather than a fix to this rule.
 
 **A usage line has no program name in it.** `T.usage` covers the flags and
 the arguments. A type therefore describes its whole command line, and
