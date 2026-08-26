@@ -72,7 +72,8 @@ rather than only reported.
   parse is unchanged — reading arity there is what made `Ctor (a, b)` mean
   different things in different files
 
-The bound on nesting is a count, and the stack it stands in for is not: under
-a smaller stack it never fires and the fatal comes back. `docs/gaps.md`
-records that, and `WAND_MAX_CALL_DEPTH` is how to suit the bound to the stack
-a run actually has.
+The bound on nesting is a count, and the stack it stands in for is not: the
+default holds millions of frames, and under `OCAMLRUNPARAM=l=...` or a small
+`ulimit -s` it holds far fewer, where the bound never fires and the fatal
+comes back. `WAND_MAX_CALL_DEPTH` is how to suit the bound to the stack a run
+actually has.
