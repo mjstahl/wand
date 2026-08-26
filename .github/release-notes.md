@@ -1,26 +1,22 @@
-## 0.51.0 - 2026-08-26
+## 0.52.0 - 2026-08-26
 
-Three editor problems, all in `wand lsp`. The binary carries the fix. The
-extension does not change.
-
-### Added
-
-- **A type lens above each definition.** `wand lsp` answers
-  `textDocument/codeLens`. Each lens gives the inferred signature of one
-  value. A `type` line gets no lens. When a line binds more than one name,
-  each lens shows its name. The `editor.codeLens` setting turns lenses off
+Two errors that were not reporting as errors. The binary carries both fixes.
+Nothing you write changes.
 
 ### Fixed
 
-- **A label in `uses {...}` is an effect.** The hover showed `Env` and `IO`
-  as modules. A manifest declares effects, not modules. It showed nothing for
-  `FS.Read`, `Raise` and `Proc`, because they name no module. The parser now
-  gives the extent of the manifest. A label reads as an effect in the
-  manifest, and as a module elsewhere
-- **A doc example keeps its answer on its own line.** The editor reads a doc
-  string as markdown. `>> ` starts a blockquote, so the answer joined the
-  paragraph above it and the prompt disappeared. Examples now go in a fence.
-  A hover shows the transcript that `wand d` shows
+- **An import that cannot be loaded says where it is.** A module this binary
+  does not carry, a file that is not there, a symbol or constructor a module
+  does not export, a bare `import` that binds nothing, a pattern that cannot
+  destructure one, a cycle -- each of these came back as an internal failure
+  with no position, so `wand t` could not point at the line and the editor
+  could not underline it. They report as `E-IMPORT` now, at the import
+- **A wide type prints as a type.** A type with more than 26 type variables
+  named the 27th `'{` and the ones after it as bytes that are not characters.
+  Past 158 it stopped printing at all and gave a backtrace. Names run `'a` to
+  `'z`, then `'a1`. A function of 180 arguments is enough to have met this
 
-A hover uses the last check that was successful. In a file that never
-typechecked, a manifest label still reads as a module.
+Both were found by a fuzzer that is new in this release, in `test/fuzz`. It
+mutates the wand already in the repository and checks that a typecheck of
+anything at all answers with a diagnostic rather than a crash. It runs
+nightly. Nothing about it reaches an installed wand.

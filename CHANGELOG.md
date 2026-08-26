@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-08-26
+
 ### Added
 
 - A fuzzer, in `test/fuzz`. It reads every `.wand` file under `stdlib/`,
@@ -1394,6 +1396,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.52.0]: https://github.com/mjstahl/wand/compare/v0.51.0...v0.52.0
 [0.51.0]: https://github.com/mjstahl/wand/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/mjstahl/wand/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/mjstahl/wand/compare/v0.48.1...v0.49.0
