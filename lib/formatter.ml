@@ -552,16 +552,38 @@ and emit_atom indent e =
   if is_control_expr e' || is_binop_or_unop e' || is_app e'
   then parenthesize indent s else s
 
-(* An argument, which is an atom with one extra hazard: a bare constructor is
-   greedy. `f None x` parses as `f (None x)`, because a constructor takes the
-   next atom as its payload -- so `None` is safe only as the final argument,
-   where there is nothing left for it to swallow. Dropping those parentheses
-   anywhere else changes what the program means, and a formatter that changes
-   meaning is worse than no formatter. *)
-and emit_arg ~last indent e =
-  match strip_located e with
-  | Constr _ as c when not last -> parenthesize indent (emit_expr_inner indent c)
-  | _ -> emit_atom indent e
+(* An argument is an atom. A bare constructor is one hazard on top of that,
+   and the hazard is narrower than it looks: a constructor absorbs a
+   following *bracketed* expression and nothing else.
+
+     f None (x)     is  f (None x)
+     f None x       is  (f None) x
+     f None [1]     is  (f None) [1]
+     f None 1       is  (f None) 1
+
+   So a constructor argument needs brackets exactly when the text after it
+   opens with `(`. That is a question about the rendering, not about the
+   position -- and position is what this used to ask, bracketing every
+   constructor that was not the last argument. Two things went wrong. It
+   added brackets nothing needed, and after a qualified name those brackets
+   changed the parse: `l.A S a` is `(l.A S) a`, while `l.A (S) a` reads `S`
+   as the payload of `l.A`. The formatter wrote each spelling as the other
+   and never settled. Found by test/fuzz.
+
+   `following` is what comes after the last of these, when the caller has
+   already decided it -- a trailing lambda renders as `(fn ...`, which a
+   constructor before it would absorb just the same. *)
+and guard_constructors args rendered following =
+  let args = Array.of_list args and rendered = Array.of_list rendered in
+  let n = Array.length rendered in
+  List.init n (fun i ->
+    let next = if i + 1 < n then rendered.(i + 1) else following in
+    let absorbs = next <> "" && next.[0] = '(' in
+    match strip_located args.(i) with
+    | Constr _ when absorbs -> "(" ^ rendered.(i) ^ ")"
+    | _ -> rendered.(i))
+
+and emit_arg indent e = emit_atom indent e
 
 and emit_expr_inner ?col indent e =
   let col = match col with Some c -> c | None -> indent in
@@ -812,9 +834,8 @@ and emit_app ?col indent e =
   let (head, args) = flatten e in
   if args = [] then emit_expr indent head
   else
-    let emit_args ind =
-      let n = List.length args in
-      List.mapi (fun i a -> emit_arg ~last:(i = n - 1) ind a) args
+    let emit_args ?(following = "") ind =
+      guard_constructors args (List.map (emit_arg ind) args) following
     in
     let oneline = emit_atom indent head ^ " " ^ String.concat " " (emit_args indent) in
     if fits col oneline then oneline
@@ -835,7 +856,8 @@ and emit_app ?col indent e =
             let prefix =
               String.concat " "
                 (emit_atom indent head
-                 :: List.map (fun a -> emit_arg ~last:false indent a) before)
+                 :: guard_constructors before
+                      (List.map (emit_arg indent) before) "(")
             in
             let head_s =
               prefix ^ " (" ^ emit_fn_head ps in
@@ -852,10 +874,12 @@ and emit_app ?col indent e =
              further in, and would leave the call's first line closed, which
              costs it a pair of parentheses on top. *)
           | last_v when opens_a_bracket last_v ->
+            let tail = emit_expr ~col:0 indent last_v in
             let prefix =
               String.concat " "
                 (emit_atom indent head
-                 :: List.map (fun a -> emit_arg ~last:false indent a) before)
+                 :: guard_constructors before
+                      (List.map (emit_arg indent) before) tail)
             in
             prefix ^ " "
             ^ emit_expr ~col:(column_after col prefix + 1) indent last_v

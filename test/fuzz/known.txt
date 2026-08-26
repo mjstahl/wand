@@ -21,18 +21,6 @@
 # minimised. `fuzz --seed 8888` finds it; `--show` prints what came out.
 format:unparses
 
-# ── The formatter moves a constructor's argument ─────────────────────────
-#
-#   l.A S a
-#
-# comes back as `l.A (S) a` and then as `l.A S a` again, so it never
-# settles. A bare constructor is greedy -- `S a` is `S` applied to `a` --
-# and the brackets `emit_arg` adds to keep a non-final constructor from
-# swallowing the next argument are put round the constructor alone rather
-# than round what it swallowed. Reported as `format:unstable` because the
-# oscillation is what shows first.
-format:unstable
-
 # ── A typecheck that takes nine seconds ──────────────────────────────────
 #
 # Not a hang: it finishes, in 9.45s, every time, on any --path. The file it

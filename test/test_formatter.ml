@@ -418,11 +418,21 @@ let test_float_literal_type_preserved () =
   type_after_format "integral float in a constructor" "Ok 42.0" "Result 'a Float";
   type_after_format "non-integral float unaffected" "3.14" "Float"
 
-(* A bare constructor takes the next atom as its payload, so `f None x`
-   means `f (None x)`. Parentheses around a constructor that is not the last
-   argument are load-bearing, and dropping them changes what the program
-   means -- which a formatter may never do. The final position is safe and
-   stays bare, so formatted code does not fill up with parentheses. *)
+(* A bare constructor absorbs a following *bracketed* expression, and only
+   that:
+
+     f None (x)   is  f (None x)
+     f None x     is  (f None) x
+     f None [1]   is  (f None) [1]
+     f None 1     is  (f None) 1
+
+   So a constructor argument needs brackets exactly when the text after it
+   opens with `(`. This used to be decided by position -- brackets on every
+   constructor that was not the last argument -- which added brackets
+   nothing needed and, after a qualified name, changed the parse. `l.A S a`
+   is `(l.A S) a`; `l.A (S) a` reads `S` as the payload of `l.A`. The
+   formatter wrote each spelling as the other and never settled. Found by
+   test/fuzz. *)
 let test_constructor_argument_keeps_its_parens () =
   (* Behaviour, not text: formatted, this still returns the first argument
      rather than applying the constructor to the second. *)
@@ -432,13 +442,19 @@ let test_constructor_argument_keeps_its_parens () =
   ok_after_format "constructor as the last argument"
     "type Opt = None | Some Int\nlet f a b = a\nf 7 None"
     "7";
-  (* And the parens appear only where they carry weight. *)
+  (* The brackets appear where the next argument would be absorbed. *)
+  Alcotest.(check string) "a bracketed argument follows"
+    "let f a b = b\nlet x = f (None) (1 + 1)\n"
+    (fmt "let f a b = b\nlet x = f (None) (1 + 1)");
+  (* And nowhere else. *)
   Alcotest.(check string) "last argument stays bare"
     "let f a b = a\nlet x = f 1 None\n"
     (fmt "let f a b = a\nlet x = f 1 None");
-  Alcotest.(check string) "earlier argument keeps its parens"
-    "let f a b = b\nlet x = f (None) 1\n"
-    (fmt "let f a b = b\nlet x = f (None) 1")
+  Alcotest.(check string) "a bare argument follows"
+    "let f a b = b\nlet x = f None 1\n"
+    (fmt "let f a b = b\nlet x = f (None) 1");
+  (* The shape that never settled. *)
+  assert_idempotent "a constructor after a qualified name" "l.A S a\n"
 
 (* `else ()` is the empty branch written out, and the one-armed form is the
    same expression. The formatter prints the shorter one either way. *)

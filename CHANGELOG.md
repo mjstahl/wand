@@ -49,6 +49,14 @@
 
 ### Fixed
 
+- A constructor argument is bracketed where the brackets do something. A
+  bare constructor absorbs a following bracketed expression -- `f None (x)`
+  is `f (None x)` -- and absorbs nothing else: `f None x`, `f None [1]` and
+  `f None 1` all read as two arguments. The formatter bracketed by position
+  instead, on every constructor that was not the last argument, which added
+  brackets nothing needed and after a qualified name changed the parse.
+  `l.A S a` is `(l.A S) a` while `l.A (S) a` reads `S` as the payload of
+  `l.A`, so the formatter wrote each spelling as the other and never settled
 - `wand f` keeps the space that tells two commands apart. A bracket written
   straight onto the `$` is literal command text; one written a space away is
   an expression that answers with the command. `$(i)` runs the command `i`
