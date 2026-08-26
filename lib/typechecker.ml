@@ -439,7 +439,19 @@ let string_of_typ t =
     match Hashtbl.find_opt names id with
     | Some n -> n
     | None   ->
-      let n = Printf.sprintf "'%c" (Char.chr (Char.code 'a' + !counter)) in
+      (* Past 'z the names wrap and take a number rather than running on
+         through the byte after 'z: 'a1, 'b1, and so on. Adding the counter
+         to 'a printed punctuation from the 27th variable on -- `'{`, then
+         bytes that are not characters at all -- and raised `Char.chr` on
+         the 159th, so a type wide enough turned `wand t` into a backtrace.
+         A type that wide is one line of wand: a function of 159 arguments,
+         or a tuple of 159 holes. Found by test/fuzz. *)
+      let n =
+        let letter = Char.chr (Char.code 'a' + !counter mod 26) in
+        let wrap = !counter / 26 in
+        if wrap = 0 then Printf.sprintf "'%c" letter
+        else Printf.sprintf "'%c%d" letter wrap
+      in
       incr counter; Hashtbl.add names id n; n
   in
   let linking_sets = collect_evars t in

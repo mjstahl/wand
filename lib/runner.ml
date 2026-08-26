@@ -11,6 +11,11 @@ let diag_of_exn = function
   | Parser.ParseError (loc, msg)       -> Diag.error ~code:"E-PARSE" ?loc msg
   | Typechecker.TypeError msg          -> Diag.error ~code:"E-TYPE" msg
   | Typechecker.TypeErrorAt (loc, msg) -> Diag.error ~code:"E-TYPE" ~loc msg
+  (* Module loading has a code and a position of its own. Everything it
+     refuses is something a person wrote at an import site, so it reports
+     like a type error rather than like an internal failure. *)
+  | Module_types.ImportError msg       -> Diag.error ~code:"E-IMPORT" msg
+  | Module_types.ImportErrorAt (loc, msg) -> Diag.error ~code:"E-IMPORT" ~loc msg
   | Failure msg                        -> Diag.error ~code:"E-FAIL" msg
   | e -> raise e
 
@@ -1080,25 +1085,42 @@ let module_keys : (string, string) Hashtbl.t = Hashtbl.create 16
 (* Load imports for a program.
    `cache` maps path -> result so each module is loaded once per run_program.
    `loading` detects import cycles. *)
-let rec load_imports_for ~base_dir ~cache ~loading prog =
-  List.fold_left (fun (acc, acc_docs) item ->
+(* `item_locs` is what `Parser.parse_program_with_locs` returns alongside
+   the program, in the same order. It is optional because most callers do
+   not have it and a diagnostic without a position is still a diagnostic --
+   but `wand t` and the language server do have it, and an import error
+   they cannot point at is one the editor cannot underline.
+
+   A module loaded from here loads its own imports without locations, so a
+   failure deep in a chain arrives as a bare `ImportError` and is pinned to
+   the import that started the chain. That is the line the reader wrote. *)
+let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading prog =
+  List.fold_left (fun (acc, acc_docs) (item_index, item) ->
+    let at_import f =
+      try f () with
+      | Module_types.ImportError msg ->
+        (match List.nth_opt item_locs item_index with
+         | Some (start_loc, _) ->
+           raise (Module_types.ImportErrorAt (start_loc, msg))
+         | None -> raise (Module_types.ImportError msg))
+    in
     let load_kind kind =
       let src_ref = resolve_import base_dir kind in
       let key = Module_types.key_of src_ref in
       match Hashtbl.find_opt cache key with
       | Some cached -> cached
       | None ->
-        if List.mem key !loading then failwith ("import cycle detected: " ^ key)
+        if List.mem key !loading then raise (Module_types.ImportError ("import cycle detected: " ^ key))
         else load_module src_ref ~cache ~loading
     in
     let bind_field own_type own_eval field alias =
       let t = match List.assoc_opt field own_type with
         | Some s -> s
-        | None -> failwith (Printf.sprintf "module has no exported symbol '%s'" field)
+        | None -> raise (Module_types.ImportError (Printf.sprintf "module has no exported symbol '%s'" field))
       in
       let v = match List.assoc_opt field own_eval with
         | Some v -> v
-        | None -> failwith (Printf.sprintf "module has no exported symbol '%s'" field)
+        | None -> raise (Module_types.ImportError (Printf.sprintf "module has no exported symbol '%s'" field))
       in
       ((alias, t), (alias, v))
     in
@@ -1141,6 +1163,7 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
          type_names = extra_names @ qual_names @ acc.type_names },
        mod_docs @ acc_docs)
     in
+    at_import @@ fun () ->
     match item with
     | Ast.TLImport kind ->
       let ns_name = namespace_name_of kind in
@@ -1183,7 +1206,7 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
           let te, ee = List.map (fun (field, p) ->
             match p with
             | Ast.PVar alias -> bind_field own_type own_eval field alias
-            | _ -> failwith "import destructuring only supports name bindings"
+            | _ -> raise (Module_types.ImportError "import destructuring only supports name bindings")
           ) lowers |> List.split in
           (* `{TestOutcome = Outcome}`: the new name is uppercase, so it
              parses as a constructor pattern rather than a variable. *)
@@ -1191,8 +1214,8 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
             match p with
             | Ast.PVar a -> a
             | Ast.PConstr (a, []) -> a
-            | _ -> failwith (Printf.sprintf
-                "'%s' is renamed to a name, as in {%s = Other}" field field)
+            | _ -> raise (Module_types.ImportError (Printf.sprintf
+                "'%s' is renamed to a name, as in {%s = Other}" field field))
           in
           let selected_tenv = List.concat_map (fun (field, p) ->
             let alias = alias_of field p in
@@ -1212,13 +1235,13 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
                        | Ast.Alias _ -> false) own_tenv with
                | Some (tname, tdef) ->
                  if alias <> field then
-                   failwith (Printf.sprintf
+                   raise (Module_types.ImportError (Printf.sprintf
                      "'%s' is one constructor of '%s', and renaming it would \
                       leave the others under the old name; rename the type, \
-                      or reach it through the module" field tname);
+                      or reach it through the module" field tname));
                  [(tname, tdef)]
-               | None -> failwith (Printf.sprintf
-                   "module has no type or constructor '%s'" field))) uppers
+               | None -> raise (Module_types.ImportError (Printf.sprintf
+                   "module has no type or constructor '%s'" field)))) uppers
           in
           let ctor_ee = List.concat_map (fun (field, p) ->
             let alias = alias_of field p in
@@ -1230,10 +1253,10 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
         | Ast.PList _ ->
           (* The 0.17 spelling. A list pattern on an import no longer
              selects members; the braces that do are one keystroke away. *)
-          failwith
+          raise (Module_types.ImportError
             "an import is destructured with braces -- let {foo, bar} = \
-             import ..., not [foo, bar]"
-        | _ -> failwith "unsupported pattern in import destructuring"
+             import ..., not [foo, bar]")
+        | _ -> raise (Module_types.ImportError "unsupported pattern in import destructuring")
       in
       (* A destructured import brings the types it names, under the names it
          gives them. A namespace import brings the module's own, reachable
@@ -1260,7 +1283,7 @@ let rec load_imports_for ~base_dir ~cache ~loading prog =
       add_import ~modul ?alias ~own_tenv:own_tenv' ~extra_names modul_import
         type_entries eval_entries extra_docs
     | _ -> (acc, acc_docs)
-  ) (empty_import_env, []) prog.Ast.items
+  ) (empty_import_env, []) (List.mapi (fun i it -> (i, it)) prog.Ast.items)
 
 and load_module src_ref ~cache ~loading =
   (* Embedded or on disk, a module is a name and some source from here on:
@@ -1271,8 +1294,8 @@ and load_module src_ref ~cache ~loading =
   let tokens =
     try Lexer.tokenize src
     with Lexer.LexError (loc, msg) ->
-      failwith (Printf.sprintf "lex error in '%s': %d:%d: %s"
-                  path loc.Token.line loc.Token.col msg)
+      raise (Module_types.ImportError (Printf.sprintf "lex error in '%s': %d:%d: %s"
+                  path loc.Token.line loc.Token.col msg))
   in
   let prog =
     try Parser.parse_program tokens
@@ -1281,7 +1304,7 @@ and load_module src_ref ~cache ~loading =
         | Some l -> Printf.sprintf "%d:%d: " l.Token.line l.Token.col
         | None -> ""
       in
-      failwith (Printf.sprintf "parse error in '%s': %s%s" path pos msg)
+      raise (Module_types.ImportError (Printf.sprintf "parse error in '%s': %s%s" path pos msg))
   in
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
@@ -1347,7 +1370,7 @@ and load_module src_ref ~cache ~loading =
   in
   let result =
     (match inferred with
-     | Error msg -> failwith ("type error: " ^ msg)
+     | Error msg -> raise (Module_types.ImportError ("type error: " ^ msg))
      | Ok (type_env, own_type) ->
        (* Indexed here: everything a module can see that it did not define
           itself is fixed by this point, and every name the module goes on to
@@ -1593,7 +1616,8 @@ let run_string src =
     run_program ~base_dir:(Sys.getcwd ()) prog
   with
   | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
-  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+  | (Lexer.LexError _ | Parser.ParseError _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 (* ── Stopping ─────────────────────────────────────────────────────────────── *)
@@ -1663,7 +1687,8 @@ let run_file ?(mode = Normal) path =
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
   | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
-  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+  | (Lexer.LexError _ | Parser.ParseError _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 (* ── `wand s` ──────────────────────────────────────────────────────────── *)
@@ -1799,7 +1824,8 @@ let run_test_file path : (test_outcome list, string) result =
   with
   | Sys_error msg         -> Error ("cannot open file: " ^ msg)
   | EvalError msg -> Error ("eval error: " ^ Evaluator.stamp_loc msg)
-  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+  | (Lexer.LexError _ | Parser.ParseError _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 (* Under --json the only stdout contract is the JSON value, but a test is
@@ -2183,7 +2209,8 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
       end
   with
   | EvalError msg -> Error ("runtime error: " ^ Evaluator.stamp_loc msg)
-  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+  | (Lexer.LexError _ | Parser.ParseError _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 (* Typecheck a file without running it, resolving its imports the same way
@@ -2238,7 +2265,7 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     let base_dir = Filename.dirname full in
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
-    let (imp, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
+    let (imp, imp_docs) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
     (* A file in the stdlib is checked as what it is: a module, whose body
        calls the raw builtins the modules are built from. Checked as a
        script it fails on the first one, so nothing here could be checked
@@ -2273,7 +2300,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
            sc_manifest = Option.map snd prog.Ast.manifest }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
-    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    | Typechecker.TypeErrorAt _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (diag_of_exn e)
 
 let typecheck_file path : (source_check, Diag.t) result =
@@ -2299,7 +2327,7 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let base_dir = Module_types.stdlib_base_dir in
-    let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+    let (imp, _) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)
             ~init_env:imp.type_env ~type_names:imp.type_names prog with
@@ -2307,7 +2335,8 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     | Ok (_, own_type_env) -> Ok (Lint.check prog item_locs own_type_env)
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
-    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    | Typechecker.TypeErrorAt _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 (* Lints share the typecheck's parse and inference rather than repeating
@@ -2317,7 +2346,7 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let tokens = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let loading = ref [] in
-    let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     match Typechecker.infer_program_full_with_own
@@ -2328,7 +2357,8 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
       Ok (Lint.check prog item_locs own_type_env)
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
-    | Typechecker.TypeErrorAt _ | Failure _) as e ->
+    | Typechecker.TypeErrorAt _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (legacy_of_exn e)
 
 let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) result =
@@ -2360,5 +2390,6 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
         in
         Ok display
   with
-  | (Lexer.LexError _ | Parser.ParseError _ | Failure _) as e ->
+  | (Lexer.LexError _ | Parser.ParseError _ | Module_types.ImportError _
+    | Module_types.ImportErrorAt _ | Failure _) as e ->
     Error (diag_of_exn e)

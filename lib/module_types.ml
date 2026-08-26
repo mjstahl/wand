@@ -5,6 +5,23 @@
    `Ast`/`Lexer`/`Parser`, never `Evaluator.value` -- so both can depend on it
    without a cycle. *)
 
+(* What module loading answers with when it refuses: a path that is not
+   there, a name this binary does not carry, a symbol a module does not
+   export, a pattern that cannot destructure one.
+
+   An exception of its own rather than `Failure`, because `diag_of_exn`
+   turns any `Failure` into `E-FAIL` -- no code, no position -- and every
+   one of these is a diagnostic a person meets by mistyping an import, not
+   an internal error. Reported as `E-IMPORT`.
+
+   The location travels separately and is attached by the caller: the import
+   site is a position in the file being checked, which is not something this
+   module can see. `ImportError` is what the refusing site raises;
+   `ImportErrorAt` is what the import walk re-raises once it knows where.
+   Found by test/fuzz. *)
+exception ImportError of string
+exception ImportErrorAt of Token.loc * string
+
 let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
 
 (* Where a module's source comes from. The standard library is carried in
@@ -118,21 +135,21 @@ let resolve_stdlib name =
         (* Pointing at the wrong directory is the likely mistake, and it is
            worth saying so: the override is the only thing standing between
            the run and a standard library that is known to be present. *)
-        failwith
+        raise (ImportError
           (Printf.sprintf
              "no standard library module named '%s': WAND_STDLIB is set to \
               %S, which has no %s.wand. Unset it to use the standard library \
               built into this binary."
-             name dir name)
+             name dir name))
   | None ->
     (match embedded_module name with
      | Some n -> Embedded n
      | None ->
-       failwith
+       raise (ImportError
          (Printf.sprintf
             "no standard library module named '%s'. This binary carries: %s."
             name
-            (String.concat ", " (List.map fst Stdlib_embed.table))))
+            (String.concat ", " (List.map fst Stdlib_embed.table)))))
 
 let resolve_import base_dir = function
   | Ast.StdlibModule name -> resolve_stdlib name
@@ -146,10 +163,10 @@ let read_source = function
   | Embedded name ->
     (match List.assoc_opt name Stdlib_embed.table with
      | Some src -> src
-     | None -> failwith ("no standard library module named '" ^ name ^ "'"))
+     | None -> raise (ImportError ("no standard library module named '" ^ name ^ "'")))
   | File path ->
     (try In_channel.with_open_text path In_channel.input_all
-     with Sys_error msg -> failwith ("cannot import '" ^ path ^ "': " ^ msg))
+     with Sys_error msg -> raise (ImportError ("cannot import '" ^ path ^ "': " ^ msg)))
 
 (* Whether a directory is a standard library, asked of a directory someone
    already named rather than searched for. A directory holding every module
@@ -170,9 +187,9 @@ let is_stdlib_dir dir =
 let namespace_name_of = function
   | Ast.StdlibModule name -> name
   | Ast.UserPath path ->
-    failwith (Printf.sprintf
+    raise (ImportError (Printf.sprintf
       "bare `import %s` does not bind a name; write `let name = import %s` \
-       or destructure it: `let {foo, bar} = import %s`" path path path)
+       or destructure it: `let {foo, bar} = import %s`" path path path))
 
 let strip_located = Ast.strip_located
 

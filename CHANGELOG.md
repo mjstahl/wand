@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added
+
+- A fuzzer, in `test/fuzz`. It reads every `.wand` file under `stdlib/`,
+  `test/wand/` and `examples/`, edits copies of them in memory, and checks
+  that a typecheck of the result answers with a diagnostic. It never writes
+  to the files it reads. An escaping exception, a stack overflow or a hang is a
+  finding. It shrinks what it finds, confirms it in a fresh process, and
+  writes one reproducer per distinct signature. `--seed S --only I` replays
+  a finding exactly. `.github/workflows/nightly-fuzz.yml` runs it nightly on
+  four seeds and files an issue for each new signature
+- `test/fuzz/regressions/` holds a reproducer for each fuzz finding that is
+  fixed. `dune test` runs them on every PR
+
+### Fixed
+
+- An import that cannot be loaded reports as `E-IMPORT`, at the line of the
+  import. Every way module loading can refuse -- a module this binary does
+  not carry, a file that is not there, a symbol or constructor a module does
+  not export, a bare `import` that binds nothing, a pattern that cannot
+  destructure one, an import cycle -- raised `Failure`, and arrived as
+  `E-FAIL` with no code of its own and no position. `wand t` could not point
+  at the line and the language server could not underline it. Found by the
+  fuzzer, eight ways
+- A type with more than 26 type variables prints them all as type variables.
+  `string_of_typ` added the count to `'a`, so the 27th printed as `'{` and
+  the 159th raised `Invalid_argument`. A function of 180 arguments turned
+  `wand t` into a backtrace. Names now wrap: `'a` to `'z`, then `'a1`. Found
+  by the fuzzer
+
 ## [0.51.0] - 2026-08-26
 
 ### Added

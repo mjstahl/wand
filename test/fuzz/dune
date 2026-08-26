@@ -1,0 +1,17 @@
+; The oracle and the mutations are a library so the regression suite can
+; check a filed reproducer with the same code that found it. A fixture that
+; passes a second implementation of the check proves nothing.
+
+(library
+ (name wand_fuzz)
+ (modules mutate oracle)
+ (libraries wand unix))
+
+; Not attached to `runtest`: a fuzz run is a nightly job with a time budget,
+; not something every PR waits on. What every PR runs is
+; `test/test_fuzz_regressions.ml`, over the reproducers this has filed.
+
+(executable
+ (name fuzz)
+ (modules fuzz)
+ (libraries wand_fuzz unix))

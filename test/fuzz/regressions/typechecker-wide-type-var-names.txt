@@ -1,0 +1,15 @@
+found:     test/fuzz, seed 7, iteration 8318, 2026-08-26
+crashed:   Invalid_argument("Char.chr") from Typechecker.string_of_typ
+fixed in:  lib/typechecker.ml, string_of_typ's name_of
+
+`string_of_typ` named the nth type variable by adding n to 'a. From the
+27th it printed punctuation, and from the 159th `Char.chr` raised, so
+`wand t` answered a wide enough type with an OCaml backtrace. Inference
+renders types while it works, not only when it reports, so nothing has to
+go wrong in the program for this to be reached: 180 parameters is enough.
+
+The fuzzer reached it from test/wand/test_resource.wand through
+truncate, duplicate-line and repeat -- `repeat` is what widened a
+parameter list far enough, and it is in the mutation set for this reason.
+The 777-byte mutant shrank to the two lines here by hand once the
+backtrace named the function.

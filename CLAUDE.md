@@ -28,7 +28,14 @@ examples. Most tasks need only one part.
 - `test/` — Alcotest suites (`test_*.ml`, one per area) plus `test/wand/*.wand`, which are wand-language tests run by `wand s`.
 - `tools/check_fmt.wand` — CI gate that `stdlib/`, `test/wand/` and `examples/` are formatter fixed points. Run it locally as shown below.
 - `tools/check_docs.wand` — CI gate that every stdlib function has a `>>` example and that every example produces what it says. The handful that cannot have one are listed in the script with the reason. `wand d -x <name>` prints a doc with its examples run; `wand d -t` checks them and says nothing when they hold.
-- `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands.
+- `test/fuzz/` — the fuzzer. `oracle.ml` holds the property (a typecheck of
+  any input answers with a diagnostic; anything else is a finding),
+  `mutate.ml` the edits it makes to the corpus, `fuzz.ml` the driver.
+  `known.txt` lists signatures that are found and not yet fixed, so a
+  nightly run is red only for what is new; `regressions/` holds a reproducer
+  for each one that is fixed, run by `test_fuzz_regressions.ml` on every PR.
+  Run it locally as shown below.
+- `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands; `nightly-fuzz.yml` runs the fuzzer on four seeds each night and files an issue per new signature.
 - `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
 
 ### Verifying a change
@@ -49,7 +56,19 @@ WAND=$PWD/_build/default/bin/wand.exe \
 WAND=$PWD/_build/default/bin/wand.exe \
   $PWD/_build/default/bin/wand.exe tools/check_docs.wand
 dune build @fmt                                       # dune files
+_build/default/test/fuzz/fuzz.exe --seed 0 --iterations 20000
 ```
+
+A fuzz run of 20,000 inputs takes about fifteen seconds and is worth doing
+after a change to the lexer, the parser or the typechecker -- those three
+are the whole of what it exercises. It exits 0 when it finds nothing new.
+A finding is written to `_fuzz-findings/` as two files: the input, byte for
+byte, and a `.json` beside it holding the seed, the iteration, the edits and
+the backtrace. JSON because the nightly job reads it to decide what to file.
+`--seed S --only I` replays a finding, and `--input FILE --path P` rechecks
+one. When the bug is fixed, the input
+moves to `test/fuzz/regressions/` with a `.txt` beside it saying what it
+was, and `dune test` holds the fix in place from then on.
 
 Changing `lib/formatter.ml` needs more: the formatter has produced source
 that does not parse, so check that the corpus (stdlib + examples) is still a

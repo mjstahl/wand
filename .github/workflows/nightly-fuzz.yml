@@ -1,0 +1,164 @@
+# The fuzzer, given time. `dune test` runs the reproducers it has already
+# filed; this is the half that looks for new ones, and it looks for as long
+# as a nightly job can afford.
+#
+# A scheduled workflow only ever runs from the default branch, and GitHub
+# disables one after 60 days without a push -- so a quiet month turns this
+# off silently. `workflow_dispatch` is here to run it by hand, with a seed,
+# which is also how a red night is reproduced.
+
+name: Nightly fuzz
+
+on:
+  schedule:
+    # 07:00 UTC. Nothing depends on the hour; it is early enough that a
+    # finding is waiting rather than arriving mid-morning.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Seed to start from (blank uses the run id)"
+        required: false
+        default: ""
+      minutes:
+        description: "Minutes per shard"
+        required: false
+        default: "45"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: nightly-fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      # Four seeds rather than one long run: the mutations are independent,
+      # so four hours of wall clock in one hour is four times the inputs,
+      # and a shard that finds something does not stop the others.
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.x"
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test
+
+      - name: Build
+        run: opam exec -- dune build
+
+      # The seed is the run id plus the shard, so it is different every
+      # night, recorded in the run, and enough on its own to replay a
+      # finding: `fuzz --seed S --only I`. A finding's notes carry both.
+      - name: Fuzz
+        id: fuzz
+        run: |
+          # No -e: a finding is a non-zero exit from the fuzzer, and this
+          # step has to record it rather than die on it. The last step of
+          # the job is what turns it into a red run.
+          set +e
+          set -uo pipefail
+          BASE="${{ github.event.inputs.seed }}"
+          if [ -z "$BASE" ]; then BASE="${{ github.run_id }}"; fi
+          SEED=$(( BASE + ${{ matrix.shard }} ))
+          MINUTES="${{ github.event.inputs.minutes }}"
+          if [ -z "$MINUTES" ]; then MINUTES=45; fi
+          echo "seed=$SEED" >> "$GITHUB_OUTPUT"
+          _build/default/test/fuzz/fuzz.exe \
+            --seed "$SEED" \
+            --iterations 100000000 \
+            --seconds $(( MINUTES * 60 )) \
+            --timeout 20 \
+            --shrink 2000 \
+            | tee fuzz.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # Uploaded whether or not anything was found: the log is the record of
+      # how many inputs a night actually got through, which is the only way
+      # to notice the fuzzer quietly slowing down or stopping early.
+      - name: Keep the findings and the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-shard-${{ matrix.shard }}
+          path: |
+            _fuzz-findings/
+            fuzz.log
+          if-no-files-found: warn
+
+      - name: Fail if the shard found something new
+        if: steps.fuzz.outputs.status != '0'
+        run: |
+          echo "seed ${{ steps.fuzz.outputs.seed }} found something new" >&2
+          exit 1
+
+  # One job after all four, so a signature two shards hit becomes one issue
+  # rather than two.
+  report:
+    needs: fuzz
+    if: always() && needs.fuzz.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: findings
+
+      # One issue per signature, and the title is the signature -- so the
+      # second night a bug survives updates nothing and files nothing. The
+      # body carries the replay line and the shrunk input, which is all
+      # anyone needs to start.
+      - name: File an issue for each new signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The label has to exist before an issue can carry it, and a
+          # fresh clone of this repository has no reason to have it.
+          gh label create fuzz --description "Found by the nightly fuzzer" \
+            --color FBCA04 2>/dev/null || true
+          filed=0
+          for notes in findings/*/_fuzz-findings/*.json; do
+            input="${notes%.json}.wand"
+            sig=$(jq -r '.signature' "$notes")
+            [ -n "$sig" ] && [ "$sig" != "null" ] || continue
+            title="fuzz: $sig"
+            if gh issue list --state all --search "$(printf '%s' "$title") in:title" \
+                 --json title --jq '.[].title' | grep -Fxq "$title"; then
+              echo "already filed: $title"
+              continue
+            fi
+            {
+              echo "Found by the nightly fuzzer (\`${{ github.workflow }}\`, run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
+              echo
+              echo '```json'
+              cat "$notes"
+              echo '```'
+              echo
+              echo "Input:"
+              echo
+              echo '```'
+              cat "$input"
+              echo '```'
+              echo
+              echo "If this is not going to be fixed now, put the signature in"
+              echo "\`test/fuzz/known.txt\` so the next night is green. When it is fixed,"
+              echo "put the input in \`test/fuzz/regressions/\`."
+            } > body.md
+            gh issue create --title "$title" --body-file body.md --label fuzz
+            filed=$((filed + 1))
+          done
+          echo "filed $filed issue(s)"

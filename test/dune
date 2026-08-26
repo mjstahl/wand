@@ -182,3 +182,17 @@
  ; closure, so the only place to see them is the source.
  (deps ../lib/evaluator.ml)
  (libraries wand alcotest re))
+
+; The reproducers test/fuzz has filed for bugs that are now fixed. Cheap --
+; each is one typecheck -- and it is the half of the fuzzer that runs on
+; every PR. The nightly job finds; this keeps what was found from coming
+; back. `../stdlib` and `wand` are here for a fixture whose `.under` says
+; it must be typechecked as one of their files.
+
+(test
+ (name test_fuzz_regressions)
+ (deps
+  (source_tree fuzz/regressions)
+  (source_tree ../stdlib)
+  (source_tree wand))
+ (libraries wand_fuzz alcotest))

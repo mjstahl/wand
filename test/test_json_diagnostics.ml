@@ -329,6 +329,45 @@ let test_strict_json_clean_file () =
        let (code, _) = run ["t"; "--strict"; "--json"; "--file"; path] in
        Alcotest.(check int) "a clean file still passes" 0 code)
 
+(* Module loading refuses in several ways, and every one of them used to
+   arrive as `E-FAIL`: a `Failure` from inside a stage, with no code of its
+   own and no position. A mistyped import is something a person writes, so
+   `wand t` has to be able to point at the line and the editor has to be
+   able to underline it. All of these were found by test/fuzz. *)
+
+let import_error src =
+  let d = check_error src in
+  Alcotest.(check string) "code" "E-IMPORT" d.Diag.code;
+  match d.Diag.loc with
+  | Some l -> l
+  | None -> Alcotest.failf "import error lost its position:\n%s" src
+
+let test_import_unknown_module () =
+  let l = import_error "let x = 1\nimport NoSuchModule" in
+  Alcotest.(check (pair int int)) "the import's line" (2, 1)
+    (l.Token.line, l.Token.col)
+
+let test_import_unknown_symbol () =
+  ignore (import_error "let {nope} = import Test")
+
+let test_import_unknown_constructor () =
+  ignore (import_error "let {A} = import Test")
+
+let test_import_bare_path () =
+  ignore (import_error "import ./thing")
+
+let test_import_bad_pattern () =
+  ignore (import_error "let () = import Test")
+
+let test_import_missing_file () =
+  ignore (import_error "let m = import ./no-such-module-anywhere")
+
+(* The position is the import that the reader wrote, not 1:1 -- which is
+   what anything editing by location would otherwise rewrite. *)
+let test_import_error_is_not_the_first_line () =
+  let l = import_error "let a = 1\nlet b = 2\nlet {nope} = import Test" in
+  Alcotest.(check int) "the third line" 3 l.Token.line
+
 let () =
   Alcotest.run "json diagnostics" [
     "findings", [
@@ -339,6 +378,16 @@ let () =
       Alcotest.test_case "item range"            `Quick test_finding_range;
       Alcotest.test_case "declaration positions"  `Quick
         test_declaration_error_positions;
+    ];
+    "imports", [
+      Alcotest.test_case "unknown module"      `Quick test_import_unknown_module;
+      Alcotest.test_case "unknown symbol"      `Quick test_import_unknown_symbol;
+      Alcotest.test_case "unknown constructor" `Quick test_import_unknown_constructor;
+      Alcotest.test_case "bare path"           `Quick test_import_bare_path;
+      Alcotest.test_case "bad pattern"         `Quick test_import_bad_pattern;
+      Alcotest.test_case "missing file"        `Quick test_import_missing_file;
+      Alcotest.test_case "not the first line"  `Quick
+        test_import_error_is_not_the_first_line;
     ];
     "holes", [
       Alcotest.test_case "shape" `Quick test_hole_shape;

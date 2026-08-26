@@ -1,0 +1,13 @@
+# Signatures the fuzzer has found and that are not yet fixed. One per line,
+# with a comment saying what it is. A line here keeps a nightly run green
+# for a bug already written down -- it does not hide it: the summary counts
+# every hit under "known, not failing".
+#
+# A line leaves when the bug is fixed. Where the fix goes depends on the
+# finding. One that can be written as an ordinary test belongs in the
+# ordinary suite -- the eight import failures this file used to hold are
+# now `test_json_diagnostics.ml`'s "imports" group. One that cannot, because
+# the input is a byte sequence no person would write, goes into
+# test/fuzz/regressions/ as the input itself.
+#
+# Empty is the state to keep it in.

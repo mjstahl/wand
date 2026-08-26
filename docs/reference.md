@@ -4427,7 +4427,8 @@ Without the flag, the output for a person does not change.
 
 Each finding and each error carries `severity`, either `"error"` or
 `"warning"`. It carries `code`, such as `A-USES2` or `V-DROP1`. An error gets
-`E-TYPE`, `E-PARSE` or `E-LEX`. It also carries `line`, `col` and `message`.
+`E-TYPE`, `E-PARSE`, `E-LEX` or `E-IMPORT`. It also carries `line`, `col` and
+`message`.
 `file` appears when you named a file with `--file`. A diagnostic that covers a
 range also carries `end_line` and `end_col`, which are exclusive. A finding
 spans the whole item. A type error spans the whole expression at fault. A lex
