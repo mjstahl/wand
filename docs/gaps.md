@@ -26,19 +26,6 @@ the `sleep`, and wand stops waiting on it rather than waiting for a process
 it did not start. A wrapper script that spawns and exits leaves its work
 running.
 
-## Ordering
-
-**A type you define does not compare.** Two `Circle`s are a type error
-under `<`. Every ordered type is one wand knows about, and a deriving
-mechanism is its own design. Nothing has asked for one yet.
-
-`List.sort` is the exception, and it is deliberate: it takes a list of any
-type, so it sorts what the operator refuses. A type wand orders sorts on its
-value; everything else sorts on its shape, a variant by its declaration.
-That is why widening `Ord` to match would be a decision rather than a
-change — it would have to say what `Circle < Rect` means, and the shape's
-answer is arbitrary where the operator's is not.
-
 ## Decided against, for now
 
 These are not missing so much as declined, each with a reason that would
@@ -48,6 +35,14 @@ have to change before anyone builds them.
   *finish*, and a winner that raised comes back as `Error`. A `race_ok`
   that skipped past failures is a defensible second function, and one
   construct per problem holds until a script needs the other.
+- **Ordering a type you define.** Two `Circle`s are a type error under `<`,
+  and there is no deriving mechanism. `List.sort` is what covers it, and
+  deliberately: it takes a list of any type, so it sorts what the operator
+  refuses. A type wand orders sorts on its value; everything else sorts on
+  its shape, a variant by its declaration. Widening `Ord` to match would be
+  a decision rather than a change — it would have to say what `Circle <
+  Rect` means, and the shape's answer is arbitrary where the operator's is
+  not.
 - **Scheduling.** No `Clock.deadline`, no repeat, no cron. A poll loop is
   `Clock.sleep` in a recursive function, and the machine already has a
   scheduler.
