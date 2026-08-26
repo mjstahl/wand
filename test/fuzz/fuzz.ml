@@ -62,15 +62,20 @@ let load_known path =
    without the parts of it that only pay off on inputs far larger than a
    wand script.
 
-   The budget is a hard count of oracle calls, not a time: a slow finding
-   is exactly the one whose shrink would otherwise run all night. *)
-let shrink ~timeout ~path ~target ~budget src =
+   Two budgets, and either one ends it. The count of oracle calls bounds the
+   ordinary case. The wall clock bounds the case the count cannot: shrinking
+   a finding that is *itself* a timeout costs the full timeout on every probe
+   that still hangs, so 400 calls at ten seconds is an hour on one input.
+   That is not a hypothetical -- it is what a 20,000-input run did before
+   this line existed. *)
+let shrink ~timeout ~width ~path ~target ~budget ~seconds src =
   let calls = ref 0 in
+  let until = Unix.gettimeofday () +. seconds in
   let still s =
-    if !calls >= budget then false
+    if !calls >= budget || Unix.gettimeofday () > until then false
     else begin
       incr calls;
-      Oracle.signature (Oracle.check ~timeout ~path s) = Some target
+      Oracle.signature (Oracle.check_all ~timeout ~width ~path s) = Some target
     end
   in
   let by_lines s =
@@ -78,12 +83,12 @@ let shrink ~timeout ~path ~target ~budget src =
     let n = List.length (String.split_on_char '\n' !current) in
     let width = ref (max 1 (n / 2)) in
     let continue_ = ref true in
-    while !continue_ && !calls < budget do
+    while !continue_ && !calls < budget && Unix.gettimeofday () <= until do
       continue_ := false;
       let ls = String.split_on_char '\n' !current in
       let total = List.length ls in
       let i = ref 0 in
-      while !i < total && !calls < budget do
+      while !i < total && !calls < budget && Unix.gettimeofday () <= until do
         let lo = !i and hi = min total (!i + !width) in
         let kept =
           List.filteri (fun j _ -> j < lo || j >= hi) ls |> String.concat "\n"
@@ -100,20 +105,21 @@ let shrink ~timeout ~path ~target ~budget src =
   in
   let by_bytes s =
     let current = ref s in
-    List.iter (fun width ->
+    List.iter (fun span ->
       let progressed = ref true in
-      while !progressed && !calls < budget do
+      while !progressed && !calls < budget && Unix.gettimeofday () <= until do
         progressed := false;
         let len = String.length !current in
         let off = ref 0 in
-        while !off < len && !off + width <= String.length !current && !calls < budget do
+        while !off < len && !off + span <= String.length !current
+              && !calls < budget && Unix.gettimeofday () <= until do
           let c = !current in
           let kept =
             String.sub c 0 !off
-            ^ String.sub c (!off + width) (String.length c - !off - width)
+            ^ String.sub c (!off + span) (String.length c - !off - span)
           in
           if still kept then begin current := kept; progressed := true end
-          else off := !off + width
+          else off := !off + span
         done
       done) [64; 16; 4; 1];
     !current
@@ -151,7 +157,7 @@ let json_string s = "\"" ^ json_escape s ^ "\""
 let json_field name value =
   Printf.sprintf "  %s: %s" (json_string name) (json_string value)
 
-let report ~out ~seed ~iteration ~origin ~edits ~verdict src =
+let report ~out ~seed ~iteration ~origin ~edits ~width ~verdict src =
   let sg = Option.get (Oracle.signature verdict) in
   let base = Filename.concat out (Oracle.slug sg) in
   write_file (base ^ ".wand") src;
@@ -160,9 +166,11 @@ let report ~out ~seed ~iteration ~origin ~edits ~verdict src =
       ("verdict",   Oracle.describe verdict);
       ("origin",    origin);
       ("edits",     String.concat ", " edits);
+      ("width",     string_of_int width);
       ("input",     base ^ ".wand");
       ("replay",    Printf.sprintf "fuzz --seed %d --only %d" seed iteration);
-      ("recheck",   Printf.sprintf "fuzz --input %s.wand --path %s" base origin);
+      ("recheck",   Printf.sprintf "fuzz --input %s.wand --path %s --width %d"
+                      base origin width);
       ("backtrace", Oracle.backtrace_of verdict) ]
   in
   write_file (base ^ ".json")
@@ -183,13 +191,16 @@ let usage = {|usage: fuzz [options]
   --seconds N       stop after N seconds, whichever comes first
   --only N          run just iteration N of this seed, and report it
   --timeout SECS    per-input budget before a hang is a finding (default 10)
+  --width N         format at this margin rather than one drawn per input
   --shrink N        oracle calls a single shrink may spend (default 400)
+  --shrink-seconds N  wall clock a single shrink may spend (default 45)
   --edits N         at most N mutations per input (default 6)
   --corpus DIR      a directory of .wand files (repeatable; defaults to
                     stdlib/, test/wand/ and examples/)
   --out DIR         where reproducers are written (default _fuzz-findings/)
   --known FILE      signatures not to fail on (default test/fuzz/known.txt)
   --input FILE      check one file and exit, no mutation
+  --show            with --input, print what the formatter did to it
   --path P          the name --input is checked under
   --quiet           only print the summary and the findings
 
@@ -200,8 +211,11 @@ let () =
   Printexc.record_backtrace true;
   let seed = ref 0 and iterations = ref 1000 and seconds = ref infinity in
   let only = ref (-1) and timeout = ref 10.0 and shrink_budget = ref 400 in
+  let shrink_seconds = ref 45.0 in
   let edits = ref 6 and corpus = ref [] and out = ref "" and known_path = ref "" in
+  let width = ref 0 in
   let input = ref "" and input_path = ref "" and quiet = ref false in
+  let show = ref false in
   let args = Array.to_list Sys.argv in
   let rec parse = function
     | [] -> ()
@@ -210,7 +224,9 @@ let () =
     | "--seconds" :: v :: r -> seconds := float_of_string v; parse r
     | "--only" :: v :: r -> only := int_of_string v; parse r
     | "--timeout" :: v :: r -> timeout := float_of_string v; parse r
+    | "--width" :: v :: r -> width := int_of_string v; parse r
     | "--shrink" :: v :: r -> shrink_budget := int_of_string v; parse r
+    | "--shrink-seconds" :: v :: r -> shrink_seconds := float_of_string v; parse r
     | "--edits" :: v :: r -> edits := int_of_string v; parse r
     | "--corpus" :: v :: r -> corpus := !corpus @ [v]; parse r
     | "--out" :: v :: r -> out := v; parse r
@@ -218,6 +234,7 @@ let () =
     | "--input" :: v :: r -> input := v; parse r
     | "--path" :: v :: r -> input_path := v; parse r
     | "--quiet" :: r -> quiet := true; parse r
+    | "--show" :: r -> show := true; parse r
     | ("-h" | "--help") :: _ -> print_string usage; Stdlib.exit 0
     | a :: _ -> prerr_endline ("fuzz: unknown argument " ^ a);
                 prerr_string usage; Stdlib.exit 2
@@ -240,7 +257,9 @@ let () =
      how the regression fixtures are checked. *)
   if !input <> "" then begin
     let path = if !input_path = "" then !input else !input_path in
-    let v = Oracle.check_in_child ~timeout:!timeout ~path (read_file !input) in
+    let w = if !width > 0 then !width else 92 in
+    if !show then Oracle.explain ~width:w ~path (read_file !input);
+    let v = Oracle.check_in_child ~timeout:!timeout ~width:w ~path (read_file !input) in
     print_endline (!input ^ ": " ^ Oracle.describe v);
     Stdlib.exit (if Oracle.is_finding v then 1 else 0)
   end;
@@ -275,9 +294,14 @@ let () =
     let donor = sources.(Random.State.int st n) in
     let origin = files.(k) in
     let (mutant, applied) = Mutate.mutate ~max_edits:!edits st ~donor sources.(k) in
-    let v = Oracle.check ~timeout:!timeout ~path:origin mutant in
+    (* A margin per input unless one was asked for. Narrow enough to force
+       wrapping everywhere, wide enough that nothing wraps at all, and the
+       default in between. *)
+    let w = if !width > 0 then !width else 24 + Random.State.int st 96 in
+    let v = Oracle.check_all ~timeout:!timeout ~width:w ~path:origin mutant in
     (match v with
-     | Oracle.Typed -> bump "typed"
+     | Oracle.Skipped -> bump "checked"
+     | Oracle.Typed _ -> bump "typed"
      | Oracle.Rejected code -> bump ("rejected " ^ code)
      | _ -> bump "finding");
     if Oracle.is_finding v then begin
@@ -288,7 +312,7 @@ let () =
       else if not (Hashtbl.mem filed sg) then begin
         (* Confirm it in a process that has typechecked nothing before
            spending a shrink on it -- see Oracle.check_in_child. *)
-        match Oracle.check_in_child ~timeout:!timeout ~path:origin mutant with
+        match Oracle.check_in_child ~timeout:!timeout ~width:w ~path:origin mutant with
         | v' when Oracle.signature v' <> Some sg ->
           incr unverified;
           if not !quiet then
@@ -297,12 +321,12 @@ let () =
         | v' ->
           Hashtbl.replace filed sg ();
           let small =
-            shrink ~timeout:!timeout ~path:origin ~target:sg
-              ~budget:!shrink_budget mutant
+            shrink ~timeout:!timeout ~width:w ~path:origin ~target:sg
+              ~budget:!shrink_budget ~seconds:!shrink_seconds mutant
           in
           let base =
             report ~out:!out ~seed:!seed ~iteration:i ~origin ~edits:applied
-              ~verdict:v' small
+              ~width:w ~verdict:v' small
           in
           Printf.printf "  [%d] %s\n      %s\n      %d bytes -> %s.wand\n%!"
             i (Oracle.describe v') origin (String.length small) base

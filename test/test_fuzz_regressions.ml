@@ -40,7 +40,10 @@ let fixtures () =
   |> List.map (Filename.concat dir)
 
 let check fixture () =
-  let v = Wand_fuzz.Oracle.check ~timeout:30.0 ~path:(path_for fixture) (read fixture) in
+  let v =
+    Wand_fuzz.Oracle.check_all ~timeout:30.0 ~width:92 ~path:(path_for fixture)
+      (read fixture)
+  in
   if Wand_fuzz.Oracle.is_finding v then
     Alcotest.failf "%s: %s\n\nsee %s for what this was"
       fixture (Wand_fuzz.Oracle.describe v)

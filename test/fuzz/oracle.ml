@@ -18,19 +18,36 @@
 open Wand
 
 type verdict =
-  | Typed                        (* Ok: the input typechecked *)
+  | Skipped                      (* not this oracle's business *)
+  | Typed of string              (* Ok: the input typechecked, to this type *)
   | Rejected of string           (* Error: a diagnostic, with its code *)
   | Internal of string           (* E-FAIL: a `Failure` from inside a stage *)
   | Crash    of string * string  (* an exception escaped: signature, backtrace *)
   | Overflow                     (* Stack_overflow *)
   | Timeout                      (* did not finish inside the budget *)
   | Died     of string           (* the process itself did not survive *)
+  (* ── The formatter ────────────────────────────────────────────────────── *)
+  | FmtUnparses  of string       (* `wand f` wrote source that does not parse *)
+  | FmtUnstable                  (* a second pass changed it again *)
+  | FmtLostComment               (* a comment did not survive the round trip *)
+  | FmtRetyped   of string       (* it means something else afterwards *)
+  | FmtCrash     of string * string
+  (* A verdict reached in another process, carried back whole. The child has
+     already computed the signature and the description, so nothing here has
+     to reconstruct a verdict from its own output -- which was a parser for
+     a format this file both writes and reads, and would have to grow a case
+     for every constructor above. *)
+  | Reported of { sg : string; desc : string; bt : string }
 
 exception Timed_out
 
 let is_finding = function
-  | Typed | Rejected _ -> false
+  | Skipped | Typed _ | Rejected _ -> false
   | Internal _ | Crash _ | Overflow | Timeout | Died _ -> true
+  | FmtUnparses _ | FmtUnstable | FmtLostComment | FmtRetyped _ | FmtCrash _ -> true
+  (* A child reports whatever it reached, pass or finding. An empty
+     signature is how it says "nothing wrong", so that is what decides. *)
+  | Reported r -> r.sg <> ""
 
 (* Digits, quoted text and file paths are the parts of a message that vary
    between two arrivals of one bug, so they come out of the signature. Two
@@ -84,8 +101,20 @@ let frame_of raw =
     go 0
 
 let signature = function
-  | Typed -> None
+  | Skipped -> None
+  | Typed _ -> None
   | Rejected _ -> None
+  (* The parse error's text is not in the signature. It is a property of the
+     input, not of the bug: four mutants produced four messages for what is
+     one broken claim -- that formatting source produces source. Four lines
+     in known.txt for one bug is a report nobody can read, and the message
+     is still in the finding's own notes where a reader needs it. *)
+  | FmtUnparses _ -> Some "format:unparses"
+  | FmtUnstable -> Some "format:unstable"
+  | FmtLostComment -> Some "format:lost-comment"
+  | FmtRetyped what -> Some ("format:retyped:" ^ normalise what)
+  | FmtCrash (sg, _) -> Some ("format:crash:" ^ sg)
+  | Reported r -> if r.sg = "" then None else Some r.sg
   | Internal msg -> Some ("internal:" ^ normalise msg)
   | Crash (sg, _) -> Some ("crash:" ^ sg)
   | Overflow -> Some "overflow:Stack_overflow"
@@ -93,15 +122,25 @@ let signature = function
   | Died how -> Some ("died:" ^ how)
 
 let describe = function
-  | Typed -> "typechecked"
+  | Skipped -> "not checked"
+  | Typed t -> "typechecked (" ^ t ^ ")"
   | Rejected code -> "rejected (" ^ code ^ ")"
+  | FmtUnparses msg -> "wand f wrote source that does not parse: " ^ normalise msg
+  | FmtUnstable -> "wand f is not idempotent here"
+  | FmtLostComment -> "wand f dropped or restyled a comment"
+  | FmtRetyped what -> "wand f changed what the file means: " ^ what
+  | FmtCrash (sg, _) -> "wand f raised: " ^ sg
+  | Reported r -> r.desc
   | Internal msg -> "E-FAIL: " ^ normalise msg
   | Crash (sg, _) -> "escaped: " ^ sg
   | Overflow -> "stack overflow"
   | Timeout -> "timed out"
   | Died how -> "process died: " ^ how
 
-let backtrace_of = function Crash (_, bt) -> bt | _ -> ""
+let backtrace_of = function
+  | Crash (_, bt) | FmtCrash (_, bt) -> bt
+  | Reported r -> r.bt
+  | _ -> ""
 
 (* A file name a finding can be written to. *)
 let slug sg =
@@ -135,7 +174,7 @@ let check ?(timeout = 10.0) ~path src =
   try
     with_timeout timeout (fun () ->
       match Runner.typecheck_source ~path src with
-      | Ok _ -> Typed
+      | Ok sc -> Typed sc.Runner.sc_type
       | Error d when d.Diag.code = "E-FAIL" -> Internal d.Diag.message
       | Error d -> Rejected d.Diag.code)
   with
@@ -144,6 +183,135 @@ let check ?(timeout = 10.0) ~path src =
   | e ->
     let raw = Printexc.get_raw_backtrace () in
     Crash (Printexc.to_string e ^ "@" ^ frame_of raw, Printexc.raw_backtrace_to_string raw)
+
+(* ── The formatter ────────────────────────────────────────────────────────── *)
+
+(* `wand f` is a fixed point on the tree, and `test_formatter.ml` holds that:
+   every file in the stdlib formats to itself. What nothing held is the same
+   claim about source nobody wrote. The formatter has produced source that
+   does not parse before -- it is written down in CLAUDE.md, as the reason a
+   formatter change is verified differently from any other change -- and a
+   corpus that is already a fixed point cannot find that again.
+
+   Four properties, on any input that parses:
+
+     it parses     formatting produces source the parser accepts
+     it settles    a second pass changes nothing the first did not
+     it remembers  every comment survives, unedited
+     it means it   the file still typechecks to what it typechecked to
+
+   The last one is not implied by the others. The formatter sorts the leading
+   import block, and an import decides what a name refers to, so a reordering
+   that is wrong is a reordering that changes the program while leaving it
+   perfectly parseable and perfectly stable.
+
+   The margin varies per input. A layout bug is a bug about what fits, and a
+   margin that is always 92 tests one column and calls it the formatter. *)
+
+(* Trailing whitespace comes off before comparing. A formatter is supposed
+   to remove it -- it is invisible, and leaving it is how a file ends up with
+   a diff nobody meant. Keeping it in the comparison made the oracle report
+   `-- Return true ` becoming `-- Return true` as a lost comment, which is
+   the formatter doing its job. Leading space is left alone: the space after
+   `--` is style the formatter must not touch. *)
+let rstrip s =
+  let n = ref (String.length s) in
+  while !n > 0 && (match s.[!n - 1] with ' ' | '\t' | '\r' -> true | _ -> false) do
+    decr n
+  done;
+  String.sub s 0 !n
+
+let comments_of src =
+  let tokens = Lexer.tokenize src in
+  List.sort compare
+    (List.map (fun (c : Formatter.comment_tok) -> rstrip c.Formatter.c_text)
+       (Formatter.all_comments src tokens))
+
+let parses src =
+  match Parser.parse_program (Lexer.tokenize src) with
+  | _ -> true
+  | exception _ -> false
+
+let check_format ?(timeout = 10.0) ~width ~path ~before src =
+  (* Source that does not parse is the other oracle's business. *)
+  if not (parses src) then Skipped
+  else
+    try
+      with_timeout timeout (fun () ->
+        let fmt s = Formatter.with_width width (fun () -> Formatter.format_source s) in
+        let once = fmt src in
+        if not (parses once) then
+          FmtUnparses
+            (match Runner.typecheck_source ~path once with
+             | Error d -> d.Diag.message
+             | Ok _ -> "the parser refused it, and then did not")
+        else if fmt once <> once then FmtUnstable
+        else if comments_of once <> comments_of src then FmtLostComment
+        else
+          match before, Runner.typecheck_source ~path once with
+          | Typed was, Ok sc when sc.Runner.sc_type <> was ->
+            FmtRetyped (Printf.sprintf "was %s, now %s" was sc.Runner.sc_type)
+          | Typed was, Error d ->
+            FmtRetyped (Printf.sprintf "was %s, now %s" was d.Diag.code)
+          | Rejected was, Ok sc ->
+            FmtRetyped (Printf.sprintf "was %s, now typechecks to %s" was sc.Runner.sc_type)
+          | Rejected was, Error d when d.Diag.code <> was ->
+            FmtRetyped (Printf.sprintf "was %s, now %s" was d.Diag.code)
+          | _ -> Skipped)
+    with
+    | Timed_out -> Timeout
+    | Stack_overflow -> Overflow
+    | e ->
+      let raw = Printexc.get_raw_backtrace () in
+      FmtCrash (Printexc.to_string e ^ "@" ^ frame_of raw,
+                Printexc.raw_backtrace_to_string raw)
+
+(* What the formatter did to one input, for a person reading a finding. A
+   format finding says a property broke; it does not say what came out, and
+   what came out is the whole of what a reader needs. *)
+let explain ~width ~path src =
+  let fmt s = Formatter.with_width width (fun () -> Formatter.format_source s) in
+  let show label text =
+    Printf.printf "── %s ──\n%s\n" label text
+  in
+  show "input" src;
+  match fmt src with
+  | exception e -> Printf.printf "wand f raised: %s\n" (Printexc.to_string e)
+  | once ->
+    show "formatted once" once;
+    (match fmt once with
+     | exception e -> Printf.printf "the second pass raised: %s\n" (Printexc.to_string e)
+     | twice ->
+       if twice <> once then show "formatted twice (differs)" twice
+       else print_endline "── formatted twice: unchanged ──");
+    let before = try comments_of src with _ -> ["<unlexable>"] in
+    let after  = try comments_of once with _ -> ["<unlexable>"] in
+    if before <> after then begin
+      Printf.printf "── comments before (%d) ──\n%s\n" (List.length before)
+        (String.concat "\n" (List.map (Printf.sprintf "%S") before));
+      Printf.printf "── comments after (%d) ──\n%s\n" (List.length after)
+        (String.concat "\n" (List.map (Printf.sprintf "%S") after))
+    end else Printf.printf "── comments: %d, unchanged ──\n" (List.length before);
+    (match Runner.typecheck_source ~path src, Runner.typecheck_source ~path once with
+     | Ok a, Ok b -> Printf.printf "── type: %s -> %s ──\n" a.Runner.sc_type b.Runner.sc_type
+     | Ok a, Error d -> Printf.printf "── type: %s -> %s ──\n" a.Runner.sc_type d.Diag.code
+     | Error d, Ok b -> Printf.printf "── type: %s -> %s ──\n" d.Diag.code b.Runner.sc_type
+     | Error a, Error b -> Printf.printf "── type: %s -> %s ──\n" a.Diag.code b.Diag.code)
+
+(* Both properties, in the order that costs least: the typecheck oracle
+   first, and the formatter only on input it did not already condemn. The
+   first verdict is handed to the second, so an input is typechecked twice
+   and not three times. *)
+let check_all ?(timeout = 10.0) ~width ~path src =
+  let v = check ~timeout ~path src in
+  if is_finding v then v
+  else
+    match check_format ~timeout ~width ~path ~before:v src with
+    (* The formatter had nothing to say, so the input is still whatever the
+       typecheck made of it. Returning `Skipped` here threw that away and
+       reported every input in one bucket. *)
+    | Skipped -> v
+    | f -> f
 
 (* ── Running one input in a process of its own ────────────────────────────── *)
 
@@ -156,14 +324,25 @@ let check ?(timeout = 10.0) ~path src =
 
    It also catches what an exception handler cannot: a segfault from the C
    stubs, or a hang the alarm does not interrupt. *)
-let check_in_child ?(timeout = 10.0) ~path src =
+let check_in_child ?(timeout = 10.0) ~width ~path src =
+  (* Whatever this process has buffered and not written belongs to it alone.
+     A fork copies the buffer, and the child flushes its copy when it exits,
+     so anything printed before this line would appear twice. *)
+  flush stdout;
+  flush stderr;
   let (r, w) = Unix.pipe ~cloexec:false () in
   match Unix.fork () with
   | 0 ->
     Unix.close r;
-    let v = try check ~timeout ~path src with _ -> Died "child raised" in
-    let payload = match signature v with None -> "" | Some s -> s in
-    let payload = (match v with Crash (_, bt) -> payload ^ "\n" ^ bt | _ -> payload) in
+    let v = try check_all ~timeout ~width ~path src with e -> Died (Printexc.to_string e) in
+    (* signature, description and backtrace, one per record, newlines in the
+       backtrace escaped so the three can be split apart again. *)
+    let payload =
+      String.concat "\x1e"
+        [ (match signature v with None -> "" | Some sg -> sg);
+          describe v;
+          String.concat "\x1f" (String.split_on_char '\n' (backtrace_of v)) ]
+    in
     let b = Bytes.of_string payload in
     (try ignore (Unix.write w b 0 (Bytes.length b)) with _ -> ());
     Unix.close w;
@@ -182,22 +361,13 @@ let check_in_child ?(timeout = 10.0) ~path src =
     Unix.close r;
     let (_, status) = Unix.waitpid [] child in
     let payload = Buffer.contents buf in
-    let (sg, bt) =
-      match String.index_opt payload '\n' with
-      | Some i -> (String.sub payload 0 i,
-                   String.sub payload (i + 1) (String.length payload - i - 1))
-      | None -> (payload, "")
-    in
     (match status with
-     | Unix.WEXITED 0 when sg = "" -> Typed          (* or Rejected: a pass either way *)
      | Unix.WEXITED 0 ->
-       if sg = "overflow:Stack_overflow" then Overflow
-       else if sg = "timeout" then Timeout
-       else if String.length sg > 9 && String.sub sg 0 9 = "internal:" then
-         Internal (String.sub sg 9 (String.length sg - 9))
-       else if String.length sg > 6 && String.sub sg 0 6 = "crash:" then
-         Crash (String.sub sg 6 (String.length sg - 6), bt)
-       else Died sg
+       (match String.split_on_char '\x1e' payload with
+        | [sg; desc; bt] ->
+          Reported { sg; desc;
+                     bt = String.concat "\n" (String.split_on_char '\x1f' bt) }
+        | _ -> Died ("unreadable child payload: " ^ payload))
      | Unix.WEXITED n -> Died (Printf.sprintf "exit %d" n)
      | Unix.WSIGNALED n -> Died (Printf.sprintf "signal %d" n)
      | Unix.WSTOPPED n -> Died (Printf.sprintf "stopped %d" n))

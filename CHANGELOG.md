@@ -4,6 +4,17 @@
 
 ### Added
 
+- A second fuzz oracle, over the formatter. On any input that parses, `wand f`
+  must produce source that parses, must settle after one pass, must keep every
+  comment, and must leave the file meaning what it meant. The margin varies per
+  input, because a layout bug is a bug about what fits. `tools/check_fmt.wand`
+  asks whether formatted files stay formatted, which a corpus that is already a
+  fixed point can always answer yes to; this asks the same question about
+  source nobody wrote. It found four bugs on its first run
+- `fuzz --input FILE --show`, which prints what the formatter did to one input:
+  both passes, the comments before and after, and the type either side. A
+  format finding says a property broke and not what came out, and what came out
+  is what a reader needs
 - `docs/llm-authoring.md`. What in wand serves work that a model writes and a
   person reads, and why the syntax is ML-style rather than Algol or Wirth.
   Design rationale, not a benchmark -- it says so, and it says how the claim

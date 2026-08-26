@@ -5,9 +5,68 @@
 #
 # A line leaves when the bug is fixed. Where the fix goes depends on the
 # finding. One that can be written as an ordinary test belongs in the
-# ordinary suite -- the eight import failures this file used to hold are
-# now `test_json_diagnostics.ml`'s "imports" group. One that cannot, because
-# the input is a byte sequence no person would write, goes into
-# test/fuzz/regressions/ as the input itself.
+# ordinary suite. One that cannot, because the input is a byte sequence no
+# person would write, goes into test/fuzz/regressions/ as the input itself.
 #
-# Empty is the state to keep it in.
+# The reproducer is written out beside each line here, because these are
+# small enough to read and a signature on its own is not something anyone
+# can act on.
+
+# ── The formatter writes source that does not parse ──────────────────────
+#
+# The serious class: `wand f` writes in place, so this is a tool corrupting
+# a file. Both are the same shape -- an application wrapped across lines
+# inside a construct that ends in a keyword, so the keyword no longer reads
+# as belonging to it.
+#
+#   let()=if Args.help?(Env.args())then match(())with|r->("")
+#
+# at a 25-column margin becomes
+#
+#   let () =
+#     if Args.help?
+#       (Env.args ()) then
+#       match () with
+#     | r -> ""
+#
+# and `if Args.help?\n  (Env.args ()) then` no longer parses: the wrapped
+# argument is read as a new expression and the `then` has nothing to close.
+#
+#   let k=match try thunk k k k k k k k k k k k k k k k k k k k k k k()with|O->""
+#
+# at 65 columns wraps every argument onto its own line, and the trailing
+# `with` then belongs to nothing.
+#
+# Two more of the same family have been seen: a `let` inside a wrapped call
+# ("expected ), got ="), and a multi-clause `let` inside a `fn` body
+# ("expected ), got _"). The signature does not carry the parse message --
+# it varies with the input, and one broken property should be one line.
+format:unparses
+
+# ── The formatter does not settle ────────────────────────────────────────
+#
+#   handle () with
+#   "" (fn -> ())
+#
+# grows one blank line after `handle () with` on every pass. `wand f` run
+# twice is not `wand f` run once, so a file grows without bound. The corpus
+# check cannot see this: it asks whether formatted files stay formatted,
+# and these files are already fixed points.
+format:unstable
+
+# ── The formatter drops a comment ────────────────────────────────────────
+#
+# A bare `--` on a line of its own, inside a bracketed expression, does not
+# survive. Two comments went in and one came out. Not minimised: a bare `--`
+# alone in a list or in parentheses survives, so something else in the
+# surrounding shape is needed to lose it. `wand f --show` on the reproducer
+# prints the two lists side by side.
+format:lost-comment
+
+# ── A typecheck that does not finish ─────────────────────────────────────
+#
+# One 2.7KB mutant of test/wand/test_process.wand does not finish inside
+# five seconds. Not yet narrowed -- shrinking a hang costs the full timeout
+# on every probe, which is why the shrink has a wall clock as well as a
+# call count.
+timeout
