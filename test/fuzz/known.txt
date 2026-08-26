@@ -12,6 +12,17 @@
 # small enough to read and a signature on its own is not something anyone
 # can act on.
 
+# ── The formatter writes source that does not parse ──────────────────────
+#
+# A `;`-separated block whose second statement is a `let`, printed on one
+# line after a URL literal:
+#
+#   (http://; let s = (fn -> r) [] [] in ())
+#
+# comes back "expected ), got let". `fuzz --seed 1` finds it. Not
+# minimised.
+format:unparses
+
 # ── The formatter takes a raw string apart ───────────────────────────────
 #
 # Nine bytes:
