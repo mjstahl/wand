@@ -80,12 +80,17 @@ script reaches none of them: the file above prints `./b`'s answer and exits
 0, saying nothing about the import that decided it. `--strict` turns the
 rule into an error, which serves a build; it does not reach the reader who
 runs the file and reads the output, which is where the shadowing does its
-work. It stays that way on purpose: a lint is not a type error and not a
-compiler error. It is a judgement about code that runs, and a file that
-earns one still runs correctly by the language's own rules. Putting it on
-the way to running would make every rule a condition of running, which is
-what `wand t` and `--strict` are for. The reader who wants the verdict
-asks for it.
+work. It stays off the default path on purpose: a lint is not a type error
+and not a compiler error. It is a judgement about code that runs, and a file
+that earns one still runs correctly by the language's own rules, so making
+every rule a condition of running would answer a question the reader did not
+ask.
+
+The reader who wants the verdict asks for it, and can ask on this path:
+`wand a.wand --lint` reports the findings and runs the file anyway, and
+`--lint --strict` makes a violation a failure, which does not run. So the
+warning is reachable from where the shadowing does its work, without being
+in the way of a run that did not ask.
 
 **A usage line has no program name in it.** `T.usage` covers the flags and
 the arguments. A type therefore describes its whole command line, and

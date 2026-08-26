@@ -13,9 +13,16 @@
    is bought back by `--`: everything after the terminator is the script's,
    whatever it looks like, so a script that does take a `--dry-run` of its
    own can still be given one. Anything else wand knows -- `--json`,
-   `--file`, `--load`, `--strict`, `--fix` -- belongs to a subcommand, and no
-   subcommand runs a script with arguments, so those reach a script untouched
-   and are pinned here too.
+   `--file`, `--load`, `--fix` -- belongs to a subcommand, and no subcommand
+   runs a script with arguments, so those reach a script untouched and are
+   pinned here too.
+
+   `--lint` is wand's on this path: it asks for the findings before the run.
+   `--strict` says what to do with findings, so it is wand's only alongside
+   `--lint`, and on its own it stays the script's, which is what it has
+   always been here. That is a narrower claim than the mode flags make, and
+   deliberately: taking `--dry-run` from a script is worth it because the
+   alternative runs a deploy for real, and nothing about a lint is.
 
    These run the real binary, because the question is what the CLI does with
    argv before any of the library sees it. *)
@@ -42,6 +49,24 @@ let run args =
   ignore (Unix.close_process_in ic);
   String.trim out
 
+(* With the exit code, which is the half of `--strict` that matters. *)
+let run_full args =
+  let cmd =
+    String.concat " " (List.map Filename.quote (wand_binary :: args)) ^ " 2>&1"
+  in
+  let ic = Unix.open_process_in cmd in
+  let out = In_channel.input_all ic in
+  let code = match Unix.close_process_in ic with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
+  in
+  (code, out)
+
+let says needle hay =
+  let n = String.length needle and m = String.length hay in
+  let rec at i = i + n <= m && (String.sub hay i n = needle || at (i + 1)) in
+  at 0
+
 let check label expected args =
   Alcotest.(check string) label expected (run args)
 
@@ -64,11 +89,58 @@ let test_every_other_flag_reaches_the_script () =
     check "--load" "[\"--load\", \"x\"]" [argv_script; "--load"; "x"];
     check "--strict and --fix" "[\"--strict\", \"--fix\"]"
       [argv_script; "--strict"; "--fix"];
+    (* `--strict` is wand's only where `--lint` asked for findings. *)
+    check "--strict alone is still the script's" "[\"--strict\"]"
+      [argv_script; "--strict"];
     check "a command name is just a word here" "[\"s\", \"version\"]"
       [argv_script; "s"; "version"];
     (* A single dash is not a flag to wand any more than it is to Args. *)
     check "a lone dash and a negative number" "[\"-\", \"-5\"]"
       [argv_script; "-"; "-5"])
+
+(* `--lint` asks for the verdict on the way to running, so wand takes it and
+   the script does not see it. `--strict` beside it is taken as well; without
+   it, it is a word like any other. *)
+let test_lint_flags () =
+  write_probe ();
+  Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
+    check "--lint is taken, not passed on" "[\"x\"]" [argv_script; "--lint"; "x"];
+    check "--strict beside it is taken too" "[\"x\"]"
+      [argv_script; "--lint"; "--strict"; "x"];
+    check "after -- both are the script's" "[\"--lint\", \"--strict\"]"
+      [argv_script; "--"; "--lint"; "--strict"])
+
+(* What the flags do, as against which of them wand keeps. A lint is not a
+   condition of running, so the plain run says nothing and still runs; asked
+   for, the findings come first and the run follows; and `--strict` is the
+   promise `wand t --strict` makes, so the run does not happen at all. *)
+let test_lint_reports_and_still_runs () =
+  let script = "wand_argv_lint.wand" in
+  let oc = open_out script in
+  output_string oc
+    ("uses {IO, FS.Write}\n\nimport IO\nimport FS\n\n\
+      let go () = FS.create_file /tmp/wand_argv_lint_probe\n\
+      let () = (go (); IO.println \"ran\")\n");
+  close_out oc;
+  Fun.protect ~finally:(fun () ->
+    Sys.remove script;
+    try Sys.remove "/tmp/wand_argv_lint_probe" with Sys_error _ -> ())
+    (fun () ->
+      let (code, out) = run_full [script] in
+      Alcotest.(check int) "a plain run succeeds" 0 code;
+      Alcotest.(check bool) "and says nothing about the finding" false
+        (says "V-DROP1" out);
+      Alcotest.(check bool) "but does run" true (says "ran" out);
+
+      let (code, out) = run_full [script; "--lint"] in
+      Alcotest.(check int) "--lint still succeeds" 0 code;
+      Alcotest.(check bool) "reports the finding" true (says "V-DROP1" out);
+      Alcotest.(check bool) "and still runs" true (says "ran" out);
+
+      let (code, out) = run_full [script; "--lint"; "--strict"] in
+      Alcotest.(check int) "--strict fails" 1 code;
+      Alcotest.(check bool) "reports the finding" true (says "V-DROP1" out);
+      Alcotest.(check bool) "and does not run" false (says "ran" out))
 
 (* Both positions choose the mode, and both have to keep working: the first
    is what every example writes, the second is what a hand reaches for. *)
@@ -119,6 +191,10 @@ let () =
             test_the_mode_flags_are_wands_wherever_they_appear;
           Alcotest.test_case "every other flag passes through" `Quick
             test_every_other_flag_reaches_the_script;
+          Alcotest.test_case "the lint flags are wand's" `Quick
+            test_lint_flags;
+          Alcotest.test_case "--lint reports, --strict refuses" `Quick
+            test_lint_reports_and_still_runs;
           Alcotest.test_case "both positions rehearse" `Quick
             test_both_positions_rehearse;
           Alcotest.test_case "-- hands the rest over" `Quick

@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`wand a.wand --lint` reports the lint findings, then runs the file.**
+  A lint is not a type error and not a compiler error -- a file that earns
+  one still runs correctly by the language's own rules -- so a plain run
+  does not lint and never did. This is how the verdict is asked for on the
+  path that runs the file, which is where a rule like `V-IMP1` describes
+  something the reader is about to be surprised by. Findings go to stderr,
+  so stdout stays the script's
+- **`--lint --strict` makes a violation a failure, and a failure does not
+  run.** The promise `wand t --strict` already makes. `--strict` is wand's
+  only beside `--lint`; on its own it reaches the script untouched, as every
+  other subcommand's flag does
+
 - `WAND_MAX_CALL_DEPTH`, how deep calls may nest before a run is refused.
   Default 1,000,000, which a runaway reaches in under two seconds. The cost
   of reaching it is quadratic in the depth, not linear -- the frames are

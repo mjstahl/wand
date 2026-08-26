@@ -2,7 +2,7 @@ let usage () =
   print_endline "wand — a typed language for human/AI pairing";
   print_endline "";
   print_endline "Usage: wand <command> [options] [args]";
-  print_endline "       wand [--dry-run|--trace] <file.wand> [args]";
+  print_endline "       wand [--dry-run|--trace] <file.wand> [--lint [--strict]] [args]";
   print_endline "       wand <file.wand> [args]";
   print_endline "       wand <file.wand> -- [args]   (everything after -- is the script's)";
   print_endline "";
@@ -21,6 +21,8 @@ let usage () =
   print_endline "Running a script:";
   print_endline "  --dry-run        Report what the script would change, without doing it";
   print_endline "  --trace          Run it, reporting each effect as it happens";
+  print_endline "  --lint           Report the lint findings first, then run it";
+  print_endline "  --strict         Only with --lint: a violation is a failure, and does not run";
   print_endline "  --               End wand's arguments: the rest are the script's";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
@@ -170,6 +172,32 @@ let report_lints ~strict ~json ?(holes = []) sess src =
        violation is a failure, and a caller that only reads the code is
        still told so. *)
     if strict && List.exists Wand.Lint.fails_strict findings then 1 else 0
+
+(* `wand a.wand --lint` asks for the verdict on the way to running. A lint is
+   not a type error and not a compiler error -- a file that earns one still
+   runs correctly by the language's own rules -- so it is not a condition of
+   running and the plain run says nothing. Asked for, the findings go to
+   stderr, which leaves stdout the script's, and the script still runs.
+   `--strict` is the promise `wand t --strict` makes: a violation is a
+   failure, and a failure does not run.
+
+   The check costs a parse and an inference that the run then does again.
+   That is the price of the flag and it is not paid without it. *)
+let lint_before_running ~strict path =
+  match Wand.Runner.typecheck_file path with
+  | Error d ->
+    (* The run would refuse for the same reason; saying it once is enough. *)
+    Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1
+  | Ok sc ->
+    List.iter (fun f ->
+      Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f))
+      sc.Wand.Runner.sc_findings;
+    (* Both streams are buffered and both are flushed at exit, so a verdict
+       written before the run still reads after its output. Flushed here so
+       the findings stand where they happened: before the script ran. *)
+    flush stderr;
+    if strict && List.exists Wand.Lint.fails_strict sc.Wand.Runner.sc_findings
+    then exit 1
 
 (* One-shot commands let an expression name a stdlib module without importing
    it. Importing all of them to provide that costs a disk read, lex, parse,
@@ -647,18 +675,31 @@ let main () =
          if !had_error || !failed > 0 then exit 1)
     | path ->
       (* Legacy: wand <file.wand> [args] *)
-      let mode, rest =
+      let mode, lint, strict, rest =
         (* Only what precedes `--` can be wand's. *)
         let (before, after) = split_own rest in
         let has f = List.mem f before in
-        let strip =
-          List.filter (fun a -> a <> "--dry-run" && a <> "--trace") before @ after
+        let lint = has "--lint" in
+        (* `--strict` says what to do with findings, so it is wand's only
+           where findings were asked for. On its own it stays the script's,
+           which is what it has always been on this path and what
+           `test_script_argv` pins: a subcommand's flag reaches a script
+           untouched. `--dry-run` and `--trace` are taken unconditionally
+           because getting those wrong runs a deploy for real; nothing here
+           is worth that. *)
+        let own =
+          "--dry-run" :: "--trace" :: "--lint"
+          :: (if lint then ["--strict"] else []) in
+        let strip = List.filter (fun a -> not (List.mem a own)) before @ after in
+        let mode =
+          if has "--dry-run" then Wand.Runner.DryRun
+          else if has "--trace" then Wand.Runner.Trace
+          else Wand.Runner.Normal
         in
-        if has "--dry-run" then (Wand.Runner.DryRun, strip)
-        else if has "--trace" then (Wand.Runner.Trace, strip)
-        else (Wand.Runner.Normal, strip)
+        (mode, lint, lint && has "--strict", strip)
       in
       Wand.Evaluator.exe_args_ref := rest;
+      if lint then lint_before_running ~strict path;
       (* A running script can be stopped by a signal or by `exit`. Both
          unwind, so whatever the script is holding is released first, and
          the code it stops with is the one the caller expects. *)

@@ -4151,6 +4151,18 @@ wand script.wand arg1     # pass arguments (available via Env.args)
 wand script.wand -- arg1  # everything after -- is the script's, whatever it looks like
 ```
 
+```sh
+wand script.wand --lint            # report the lint findings, then run it
+wand script.wand --lint --strict   # a violation is a failure, and does not run
+```
+
+A lint is not a type error and not a compiler error: a file that earns one
+still runs correctly by the language's own rules. So a plain run does not
+lint, and `--lint` is how the verdict is asked for on the way to running.
+The findings go to stderr, which leaves stdout the script's. `--strict` says
+what to do with them and is wand's only beside `--lint`; on its own it is
+the script's, like any other subcommand's flag.
+
 `--dry-run` and `--trace` are wand's own wherever they appear before a `--`,
 so `wand deploy.wand --dry-run` rehearses. A script that takes an argument of
 the same name needs the terminator: `wand deploy.wand -- --dry-run` runs for
