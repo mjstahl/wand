@@ -20,7 +20,7 @@ import Shell
 -- `$?()` answers with a `ShellResult` rather than raising, so a stage that
 -- fails is a value the script can hold.
 
-let stage name r = (name, Shell.ok? r)
+let stage (name: String) r = (name, Shell.ok? r)
 
 let failed stages = List.filter (fn (_, ok?) -> !ok?) stages
 
