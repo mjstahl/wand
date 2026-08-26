@@ -14,33 +14,24 @@
 
 # ── The formatter writes source that does not parse ──────────────────────
 #
-# The serious class: `wand f` writes in place, so this is a tool corrupting
-# a file. Both are the same shape -- an application wrapped across lines
-# inside a construct that ends in a keyword, so the keyword no longer reads
-# as belonging to it.
+# One case left, and it is not the two that were fixed. The formatter merges
+# two same-name `let` clauses into the aligned multi-clause form:
 #
-#   let()=if Args.help?(Env.args())then match(())with|r->("")
+#   let count log = a
+#   let count log = b
+#   in ...
 #
-# at a 25-column margin becomes
+# becomes
 #
-#   let () =
-#     if Args.help?
-#       (Env.args ()) then
-#       match () with
-#     | r -> ""
+#   let count log = a
+#       count log = b
+#   in ...
 #
-# and `if Args.help?\n  (Env.args ()) then` no longer parses: the wrapped
-# argument is read as a new expression and the `then` has nothing to close.
-#
-#   let k=match try thunk k k k k k k k k k k k k k k k k k k k k k k()with|O->""
-#
-# at 65 columns wraps every argument onto its own line, and the trailing
-# `with` then belongs to nothing.
-#
-# Two more of the same family have been seen: a `let` inside a wrapped call
-# ("expected ), got ="), and a multi-clause `let` inside a `fn` body
-# ("expected ), got _"). The signature does not carry the parse message --
-# it varies with the input, and one broken property should be one line.
+# which does not parse back when the whole thing sits inside a call --
+# `(fn t -> ...)`. It parses at the top level and inside a bare `fn` body,
+# so the call context is part of it and this has not been minimised further.
+# The parser and the formatter disagree about where the clause form is
+# allowed, and settling that is a grammar question, not a layout one.
 format:unparses
 
 # ── The formatter does not settle ────────────────────────────────────────

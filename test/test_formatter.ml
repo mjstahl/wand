@@ -23,9 +23,10 @@ let test_idempotent_stdlib () =
 
 (* ── The output parses, at any margin ─────────────────────────────────────── *)
 
-(* Three separate bugs shipped where `wand f` emitted source that would not
+(* Five separate bugs shipped where `wand f` emitted source that would not
    parse, and each waited for someone to write a line long enough to wrap
-   before it showed. Narrowing the margin makes every line long enough, so
+   before it showed. The last two waited for test/fuzz instead, which is the
+   difference: nobody has to write the line. Narrowing the margin makes every line long enough, so
    the whole corpus exercises the wrapping paths at once rather than the
    handful of places that happen to be wide today.
 
@@ -49,6 +50,47 @@ let parses out =
   match Parser.parse_program (Lexer.tokenize out) with
   | _ -> Ok ()
   | exception e -> Error (Printexc.to_string e)
+
+(* The two the fuzzer found. Both are one shape: a keyword that has to follow
+   an expression, and an expression that wrapped. The expression is over by
+   the time the next line starts, so the keyword arrives with nothing to
+   attach to and the parser stops at the argument below.
+
+   Kept at the margins they were found at. A wrapping bug is a bug about what
+   fits, and neither of these is reachable at 92 columns. *)
+let formats_and_parses label width src =
+  let fmt s = Formatter.with_width width (fun () -> Formatter.format_source s) in
+  let out = fmt src in
+  (match parses out with
+   | Ok () -> ()
+   | Error e ->
+     Alcotest.failf "%s: wand f wrote source that does not parse (%s):\n%s" label e out);
+  Alcotest.(check string) (label ^ ": and settles") out (fmt out)
+
+(* `if <application that wrapped> then` -- the condition was the one part of
+   an `if` that was emitted with no guard on it. *)
+let test_a_wrapped_if_condition_keeps_its_then () =
+  formats_and_parses "if condition" 25
+    "let () = if Args.help? (Env.args ()) then match () with | r -> \"\""
+
+(* `match try <application that wrapped> with` -- `try` is transparent to
+   whether the tail is still owed something, and was not treated as such. *)
+let test_a_wrapped_try_scrutinee_keeps_its_with () =
+  let ks = String.concat " " (List.init 28 (fun _ -> "k")) in
+  formats_and_parses "match try" 65
+    ("let k = match try thunk " ^ ks ^ " () with | O -> \"\"")
+
+(* And the shape that must not gain parentheses for either fix: a `try` whose
+   body is a `with ... ->`, which is still owed its body when its first line
+   ends. This is in the corpus, so a fix that over-reaches breaks the fixed
+   point rather than any test -- which is a worse way to find out. *)
+let test_a_wrapped_try_with_is_left_alone () =
+  let src =
+    "let r =\n  try with FS.temp_dir \"d_\" as d ->\n  let x = Path.to_string d in x\n"
+  in
+  let out = Formatter.with_width 92 (fun () -> Formatter.format_source src) in
+  if Lint.contains out "(try" then
+    Alcotest.failf "a try whose body is a `with` does not need parentheses:\n%s" out
 
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
@@ -970,6 +1012,12 @@ let () =
       Alcotest.test_case "snippets" `Quick test_idempotent_snippets;
       Alcotest.test_case "stdlib"   `Quick test_idempotent_stdlib;
       Alcotest.test_case "parses at any margin" `Slow test_output_parses_at_any_margin;
+      Alcotest.test_case "wrapped if condition keeps its then" `Quick
+        test_a_wrapped_if_condition_keeps_its_then;
+      Alcotest.test_case "wrapped try scrutinee keeps its with" `Quick
+        test_a_wrapped_try_scrutinee_keeps_its_with;
+      Alcotest.test_case "wrapped try with is left alone" `Quick
+        test_a_wrapped_try_with_is_left_alone;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;

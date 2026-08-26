@@ -443,15 +443,35 @@ let depth_after_first_line str =
   in
   go 0 0 false
 
+(* Does wrapping this finish it? An application does end where its line
+   does, so what follows is read as something new. `try` is transparent
+   here: it prefixes a keyword and changes nothing about whether the tail is
+   still owed something, so `try f a b` is as unsafe as `f a b` and
+   `try with r as p -> ...` is as safe as the `with` -- which is still owed
+   its body when the first line ends.
+
+   Everything else is safe: an `if` is owed a `then`, a `match` and a
+   `handle` are owed cases, a `fn` is owed a body. The parse is unfinished
+   at the first line, so the lines below it can only belong to it.
+
+   `Try` was missing here, which is how `match try f a b ... with` came to
+   be formatted into source that does not parse. Found by test/fuzz. *)
+let rec wrapping_ends_it e =
+  match strip_located e with
+  | App _ -> true
+  | Try inner -> wrapping_ends_it inner
+  | _ -> false
+
 let bracket_if_wrapped_app body emitted =
     (* Both conditions, and only together. A `match` or an `if` is safe with
        nothing left open, because its parse is not finished at the first line
        -- the cases are still owed. An application's is: it ends where the
        line does, and what follows is read as something new. *)
-    match strip_located body with
-    | App _ when String.contains emitted '\n' && depth_after_first_line emitted <= 0 ->
-      "(" ^ emitted ^ ")"
-    | _ -> emitted
+    if String.contains emitted '\n'
+       && depth_after_first_line emitted <= 0
+       && wrapping_ends_it body
+    then "(" ^ emitted ^ ")"
+    else emitted
 
 let rec emit_expr ?col indent e =
   emit_expr_inner ?col indent (strip_located e)
@@ -1195,7 +1215,12 @@ and emit_letrec indent bindings e2 =
 
 and emit_if ?col indent c t el =
   let col = match col with Some c -> c | None -> indent in
-  let cs = emit_expr indent c and ts = emit_expr indent t in
+  (* The condition gets the same treatment the branches get, and did not.
+     `then` has to follow it, and an application that wrapped is over by the
+     time the next line starts -- so the parser arrives at the argument
+     below still owed a `then`. Found by test/fuzz. *)
+  let cs = bracket_if_wrapped_app c (emit_expr indent c)
+  and ts = emit_expr indent t in
   (* A branch that does nothing is written by leaving it out, so `else ()` --
      however it was written -- comes back as the one-armed form. *)
   match strip_located el with
@@ -1221,7 +1246,8 @@ and emit_if ?col indent c t el =
          below reads as continuing whatever the `if` belongs to. *)
       let rec ladder c t el =
         let clause =
-          Printf.sprintf "if %s then %s" (emit_expr cont c)
+          Printf.sprintf "if %s then %s"
+            (bracket_if_wrapped_app c (emit_expr cont c))
             (bracket_if_wrapped_app t (emit_expr cont t)) in
         match strip_located el with
         | Unit -> [clause]

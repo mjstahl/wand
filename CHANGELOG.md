@@ -10,7 +10,7 @@
   input, because a layout bug is a bug about what fits. `tools/check_fmt.wand`
   asks whether formatted files stay formatted, which a corpus that is already a
   fixed point can always answer yes to; this asks the same question about
-  source nobody wrote. It found four bugs on its first run
+  source nobody wrote. It found four bugs on its first run, two of them fixed below
 - `fuzz --input FILE --show`, which prints what the formatter did to one input:
   both passes, the comments before and after, and the type either side. A
   format finding says a property broke and not what came out, and what came out
@@ -26,6 +26,19 @@
   exempt, an inner binding shadows freely, and two imports binding one name
   stay `V-IMP1`'s. The rule found one in wand's own tests: two unrelated
   values called `base`, 120 lines apart, of different types
+
+### Fixed
+
+- `wand f` no longer writes source that does not parse, in two shapes. An
+  application that wrapped in an `if`'s condition left the `then` attached to
+  nothing -- the condition was the one part of an `if` emitted with no guard
+  on it. And a `try` whose body wrapped did the same to whatever keyword
+  followed it, because the guard that parenthesises a wrapped application did
+  not see through `try`. It sees through it now, and only where it must: `try
+  with r as p -> ...` is still owed its body when its first line ends, so it
+  is left alone. `wand f` writes in place, so this was a tool corrupting the
+  file it was asked to tidy. Found by the fuzzer, which does not need anyone
+  to write a long enough line first
 
 ## [0.52.0] - 2026-08-26
 
