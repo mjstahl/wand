@@ -510,8 +510,44 @@ let bracket_if_wrapped_app body emitted =
     then bracket emitted
     else emitted
 
+(* Every layout this file has produced for the item being written, keyed by
+   where the expression came from and where it is being put.
+
+   The emitters ask twice. To know whether a value fits on one line they lay
+   it out and measure it; if it does not, they lay it out again at the
+   indent it will really sit at. Each of those two layouts asks the same
+   question of every child, so the cost doubles with every level of nesting
+   -- a `let ... in` chain fourteen deep took two minutes, and the shapes
+   that reach that depth are ordinary code at a narrow margin. Found by
+   test/fuzz, which draws a margin per input and so keeps meeting them.
+
+   The key is the expression's own span in the source, which is unique and
+   two integers, rather than the expression itself, which would have to be
+   hashed and compared. Only a `Located` node has one; anything else is laid
+   out as before, which costs nothing extra because its parent is cached.
+
+   The margin is in the key as well, because a probe asks what the layout
+   would be at an unbounded one and the answer must not be handed back as
+   the layout at the real one.
+
+   Emptied for each top-level item, because the interior comments a layout
+   may have read are fixed for the length of one item and not beyond it. *)
+let layouts : (int * int * int * int * int, string) Hashtbl.t = Hashtbl.create 512
+
 let rec emit_expr ?col indent e =
-  emit_expr_inner ?col indent (strip_located e)
+  match e with
+  | Located (l, _) ->
+    let key =
+      (l.Token.offset, l.Token.end_offset, indent,
+       (match col with Some c -> c | None -> indent), !max_width)
+    in
+    (match Hashtbl.find_opt layouts key with
+     | Some text -> text
+     | None ->
+       let text = emit_expr_inner ?col indent (strip_located e) in
+       Hashtbl.replace layouts key text;
+       text)
+  | _ -> emit_expr_inner ?col indent (strip_located e)
 
 (* App-chain function/argument positions require strict "atom" syntax --
    a bare BinOp/UnOp/If/Match/Fn/Let there would be reparsed differently
@@ -842,7 +878,14 @@ and emit_app ?col indent e =
     let emit_args ?(following = "") ind =
       guard_constructors args (List.map (emit_arg ind) args) following
     in
-    let oneline = emit_atom indent head ^ " " ^ String.concat " " (emit_args indent) in
+    (* Asked at an unbounded margin, where nothing can choose to wrap. This
+       is the one shape the cache cannot help on its own: the two questions
+       are asked at two different indents, so neither answer is the other's.
+       Asked flat, the question costs one pass over the subtree. *)
+    let oneline =
+      with_width max_int
+        (fun () -> emit_atom indent head ^ " " ^ String.concat " " (emit_args indent))
+    in
     if fits col oneline then oneline
     else
       (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
@@ -1170,7 +1213,11 @@ and emit_block ?col indent e =
      further in, so the walk runs twice. Reading comments does not consume
      them, so the second walk sees what the first did; `prev_end` is put
      back so its windows open in the same places. *)
-  let probe = items indent e in
+  (* Asked at an unbounded margin, for the reason the application's probe is:
+     the measuring walk and the real one run at two different indents, so
+     neither answer is the other's and the cache cannot pair them. Flat, the
+     question costs one pass. *)
+  let probe = with_width max_int (fun () -> items indent e) in
   let probe_claimed = !claimed in
   prev_end := max_int; claimed := false;
   let oneline = "(" ^ String.concat "; " (List.map snd probe) ^ ")" in
@@ -1499,14 +1546,18 @@ and emit_bound_value ~col indent head body =
        under the head beats a bracket opened here and closed three lines
        down. *)
     if not (String.contains indented '\n') then head ^ " =" ^ below ^ indented
+    else if not (carries_the_break body) then
+      head ^ " =" ^ below ^ bracket_if_wrapped_app body indented
     else
-      let c = cuddled () in
       (* The shape says the call ends in a bracket; this says the bracket is
          still open where the first line ends, which is the whole reason the
          value may start here. A short one stays on that line and closes
-         it, and then the definition would end there. *)
-      if carries_the_break body && depth_after_first_line c > 0 then
-        head ^ " = " ^ c
+         it, and then the definition would end there.
+
+         `carries_the_break` is asked first because it reads the shape and
+         costs nothing, while `cuddled ()` lays the whole value out again. *)
+      let c = cuddled () in
+      if depth_after_first_line c > 0 then head ^ " = " ^ c
       else head ^ " =" ^ below ^ bracket_if_wrapped_app body indented
 
 let emit_one_equation head_kw pats body =
@@ -1607,7 +1658,10 @@ let emit_type_def = function
 
 (* ── Top-level items ──────────────────────────────────────────────────────── *)
 
-let emit_top_item_pretty = function
+(* One item's layouts belong to that item. `interior` and `item_start` are
+   set around this call and read while it runs, so a layout produced under
+   one item's comments must not be handed to the next. *)
+let emit_top_item_pretty_uncached = function
   | TLImport (StdlibModule n) -> "import " ^ n
   | TLImport (UserPath p)     -> "import " ^ p
   | TLType (tdef, _) -> emit_type_def tdef
@@ -1682,6 +1736,13 @@ let emit_top_item_pretty = function
           | _ -> false)
     in
     if continues_the_line_above then bracket text else text
+
+(* One item's layouts belong to that item. `interior` and `item_start` are
+   set around this call and read while it runs, so a layout produced under
+   one item's comments must not be handed to the next. *)
+let emit_top_item_pretty item =
+  Hashtbl.reset layouts;
+  emit_top_item_pretty_uncached item
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────
 

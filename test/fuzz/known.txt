@@ -36,28 +36,17 @@ format:unparses
 # `format:unstable` because the second pass moves them again.
 format:unstable
 
-# ── The formatter is exponential in nesting depth ────────────────────────
+# ── The formatter is still slow on one shape ─────────────────────────────
 #
-# Recorded first as a nine-second typecheck, which it is not. The typecheck
-# takes 0.01s. `fuzz --input` runs the formatter oracle as well, and that is
-# where the time goes: 5.57s to format the 7.4KB input at a 79-column
-# margin.
+# Most of the exponential is gone. What is left times out at five seconds:
+# `fuzz --seed 555` finds a 2.9KB mutant that takes 5.5s to format at a
+# 58-column margin, where the 7.4KB one that used to take 5.2s now takes
+# 0.34.
 #
-# It doubles with every level of nesting. `f (f (f ... x) 1) 1`, formatted
-# at a 40-column margin:
-#
-#   depth 16    0.04 s
-#   depth 20    0.83 s
-#   depth 22    4.13 s
-#
-# The margin is what decides whether it bites. The same depth-22 expression
-# takes 0.01s at 92 columns and 4.03s at 40: the blow-up needs a run of
-# levels that each fail to fit, because each level renders its subtree once
-# to ask whether the one-line form fits and again to write the wrapped one.
-# That is why the corpus is fast at the default margin and why the fuzzer,
-# which draws a margin per input between 24 and 119, keeps finding it.
-#
-# Fixing it means the emitter stops rendering a subtree twice -- memoising
-# on the node, or measuring width without building the string. Both are more
-# than a patch.
+# The cure for the rest was a layout cache plus flat probes at the two
+# places that ask their question at a different indent from the one they
+# answer at. Adding flat probes at the other eight `oneline` sites made
+# things worse -- the 7.4KB case went from 0.34s to 0.92s and this one did
+# not move -- so whatever is left is not another instance of the same thing,
+# and guessing at it costs more than measuring it will.
 timeout

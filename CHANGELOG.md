@@ -49,6 +49,17 @@
 
 ### Fixed
 
+- `wand f` no longer costs exponentially in nesting depth. To decide whether
+  a value fits on one line the emitters laid it out and measured it, then
+  laid it out again at the indent it would really sit at -- and both layouts
+  asked the same question of every child, so the work doubled with every
+  level. A `let ... in` chain fourteen deep took nearly two minutes at a
+  forty-column margin. Layouts are cached per item, keyed by the
+  expression's span, its indent and the margin; the two places that ask at a
+  different indent from the one they answer at ask flat instead, where
+  nothing can wrap. A 7.4KB file that took 5.2s takes 0.34s, and depth forty
+  finishes in hundredths either way
+
 - A constructor argument is bracketed where the brackets do something. A
   bare constructor absorbs a following bracketed expression -- `f None (x)`
   is `f (None x)` -- and absorbs nothing else: `f None x`, `f None [1]` and

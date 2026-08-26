@@ -218,6 +218,47 @@ let test_an_item_opening_with_an_operator_is_bracketed () =
   if not (Lint.contains out "(-1)") then
     Alcotest.failf "the brackets that make it its own statement went:\n%s" out
 
+(* Nesting costs what it weighs, and not more.
+
+   To decide whether a value fits on one line the emitters laid it out and
+   measured it, then -- if it did not fit -- laid it out again at the indent
+   it would really sit at. Both layouts asked the same question of every
+   child, so the work doubled with every level. A `let ... in` chain
+   fourteen deep took nearly two minutes at a forty-column margin, and the
+   shapes that reach that depth are ordinary code: a file of `test` items
+   inside a `with`, mutated a little.
+
+   These are depth forty at a margin nothing fits under, which is where the
+   old emitter stopped finishing. If this test ever hangs rather than fails,
+   that is the bug coming back. Found by test/fuzz, which draws a margin per
+   input and so kept meeting it. *)
+let test_nesting_does_not_cost_exponentially () =
+  let rec build n shape acc =
+    if n = 0 then acc
+    else
+      let acc =
+        match shape with
+        | `App   -> Printf.sprintf "f (%s) 1" acc
+        | `Let   -> Printf.sprintf "let y%d = %s in y%d" n acc n
+        | `Block -> Printf.sprintf "(let z%d = %s; z%d)" n acc n
+        | `List  -> Printf.sprintf "[%s, 1]" acc
+      in
+      build (n - 1) shape acc
+  in
+  List.iter
+    (fun shape ->
+       let src =
+         Printf.sprintf "let f a b = a\nlet x = 1\nlet r = %s\nr\n"
+           (build 40 shape "x")
+       in
+       let out = Formatter.with_width 40 (fun () -> fmt src) in
+       (match parses out with
+        | Ok () -> ()
+        | Error e -> Alcotest.failf "deep nesting did not parse back: %s" e);
+       Alcotest.(check string) "and it settles"
+         out (Formatter.with_width 40 (fun () -> fmt out)))
+    [ `App; `Let; `Block; `List ]
+
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
   (* A sweep that reads nothing passes every file it never opens. *)
@@ -1181,6 +1222,8 @@ let () =
         test_a_field_on_a_number_keeps_its_brackets;
       Alcotest.test_case "a bracket is kept off a glob" `Quick
         test_a_bracket_is_kept_off_a_glob;
+      Alcotest.test_case "nesting is not exponential" `Quick
+        test_nesting_does_not_cost_exponentially;
       Alcotest.test_case "a command keeps its space" `Quick
         test_a_command_keeps_the_space_that_gives_it_meaning;
       Alcotest.test_case "a float reads back as itself" `Quick
