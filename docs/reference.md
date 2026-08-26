@@ -574,9 +574,22 @@ A newline alone ends a statement. So at the top level of a file you need `;`
 in two cases only: to put several statements on one line, or to make the
 sequence explicit.
 
-A newline does not end a statement if the next line starts with an operator.
-That line continues the statement. A pipeline that leads with `|>` needs
-this:
+A newline does not end a statement if the next line is indented past the
+statement it follows. That line continues it:
+
+```ocaml
+let names =
+  List.filter
+    short?
+    everyone
+```
+
+Indentation is the whole of the rule. A line back at the statement's own
+column starts a new statement; a line further in continues the one above.
+A file indented consistently is a layout choice, not one long expression.
+
+A newline does not end a statement if the next line starts with an operator
+either. A pipeline that leads with `|>` needs this:
 
 ```ocaml
 let count =
@@ -595,10 +608,32 @@ let a = 1
 
 Write `let b = -2` if you want a second statement.
 
-A newline cannot separate statements inside a function body. The same holds
-anywhere else that wand expects an expression. Inside brackets a newline is
-formatting, and an application can continue across it. So there you sequence
-statements with `;` inside parentheses:
+A newline ends a binding inside a block, exactly as it does at the top
+level:
+
+```ocaml
+let deploy! target = (
+  let config = Path.of_string "%{target}/config.toml"
+  FS.write_file! config "version = \"1\"\n"
+)
+```
+
+`;` still works, and so does `in`. All three say the same thing, and `wand f`
+prints back whichever was written.
+
+Inside a bracket that a statement opened, a newline is formatting again and
+an application continues across it. That is what lets an argument list run
+down the page:
+
+```ocaml
+let deploy! target = (
+  FS.mkdir! (Path.of_string target);
+  FS.write_file! (Path.of_string "%{target}/config.toml") "version = \"1\"\n";
+  "deployed"
+)
+```
+
+The `;` form, spelled out:
 
 ```ocaml
 let deploy! target = (
@@ -4105,10 +4140,11 @@ small dialect on purpose, for a reader who comes from the shell and not from
 ML. The standard library uses the full language, because the compiler team
 writes it and reads it. A script does not have to.
 
-- **One statement per line at the top level.** A newline ends a statement.
-  Top-level code needs no terminator and no `let () =`. Do the thing, then do
-  the next thing. A line that starts with an operator is the exception: it
-  continues the line above. See [Sequencing](#sequencing).
+- **One statement per line.** A newline ends a statement, at the top level
+  and inside a block alike. Code needs no terminator and no `let () =`. Do
+  the thing, then do the next thing. A line indented past the statement above
+  it continues that statement instead, as does a line that starts with an
+  operator. See [Sequencing](#sequencing).
 
 - **Sequence with `;` in parentheses inside a body.** A function body is one
   expression. So put several statements in parentheses and separate them with

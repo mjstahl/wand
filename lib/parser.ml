@@ -25,6 +25,20 @@ type state = {
        a `match` scrutinee or `handle` body in progress. `try e` followed
        by `with` is OCaml drift worth naming, but only when no such owner
        is waiting: `match try thunk () with | ...` is idiomatic wand. *)
+  mutable clause_name : string option;
+    (* the name whose equations are being read, while a clause body is being
+       read. A line below that begins another equation for it ends the body,
+       however far in it is indented -- see `newline_breaks_expr`. *)
+  mutable stmt_depth : int;
+    (* the bracket depth the anchor below was set at. Inside a bracket
+       opened since then, a newline means nothing again -- which is the half
+       of the old rule that was right. *)
+  mutable stmt_col : int;
+    (* the column the statement being parsed began at. A newline ends that
+       statement unless the line after it is indented past this -- which is
+       what lets a definition run onto more lines without brackets, and what
+       lets a newline end a binding inside a block the way it does at the top
+       level. Saved and restored around each nested statement. *)
   mutable shell_allow : string list option;
     (* the manifest's Shell(...) allowlist, once one has been parsed --
        stamped onto every $()/$?() site so the bound travels with the
@@ -34,7 +48,7 @@ type state = {
 let make tokens =
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
     paren_depth = 0; top_fns = Hashtbl.create 16; with_owners = 0;
-    shell_allow = None }
+    clause_name = None; stmt_depth = 0; stmt_col = 1; shell_allow = None }
 
 (* Comments are invisible to the real parser, exactly like `Newline`. A run
    of them above a definition is that definition's documentation, which
@@ -64,13 +78,77 @@ let has_newline_before_next s =
   done;
   !seen_break
 
-(* A newline only ends a statement/application chain outside of any open
-   bracket -- inside one (still-open call args, list/tuple elements, ...) it's
-   just formatting, and the enclosing bracket's own `expect ... RParen`-style
-   check is what will catch a genuinely malformed program. Without this,
-   an unclosed application spanning a newline could silently be read as two
-   unrelated statements instead of either parsing correctly or erroring. *)
-let newline_breaks_expr s = has_newline_before_next s && s.paren_depth = 0
+let peek_col s =
+  let i = ref s.pos in
+  while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
+  if !i < Array.length s.tokens then (snd s.tokens.(!i)).Token.col else 0
+
+(* Does a newline here end the statement?
+
+   It used to be decided by bracket depth alone: outside every bracket a
+   newline ended a statement, inside one it meant nothing. That is two rules
+   for one piece of punctuation, and it is why `let a = 1` inside a `( ... )`
+   needed a `;` or an `in` when the same line at the top level needed
+   neither, and why a definition could not run onto a second line without
+   being bracketed first.
+
+   One rule now: indentation. A newline ends the statement unless the line
+   after it is indented past the column the statement began at. So a
+   continuation says it is one by sitting further in, which is how it would
+   be written anyway, and a line that starts back at the statement's own
+   column starts a new one.
+
+   Depth still matters, but only to say when the anchor stops applying: a
+   bracket opened since the anchor was set puts the statement back inside
+   something, and a newline in there is formatting again. That is why
+   `let seeded = (List.fold_left\n    ...)` keeps working with its
+   continuation lines to the left of the `let` -- they are inside the
+   bracket, not after the statement.
+
+   This only ever decides whether two atoms juxtapose into an application.
+   An infix operator is never blocked by a newline -- `1\n  + 2` was already
+   one expression -- and a construct still owed a body (`fn x ->`, `match ...
+   with`) reads that body through a path that never consults this. *)
+(* Is what comes next another equation for `name`? `let f 0 = ...` and then
+   `f n = ...` on the line below, with or without a repeated `let`.
+
+   A clause's body would otherwise swallow the equation under it whenever
+   that equation is indented past the binding's `let` -- which is exactly
+   how the aligned spelling is written:
+
+     let fib 0 = 0
+         fib 1 = 1
+
+   The scan stops at the `=`, and refuses to cross a line end, so it can
+   only ever match something written as one equation. *)
+let starts_another_equation s name =
+  let n = Array.length s.tokens in
+  let i = ref s.pos in
+  while !i < n && is_skippable (fst s.tokens.(!i)) do incr i done;
+  if !i < n && fst s.tokens.(!i) = Token.Let then begin
+    incr i;
+    while !i < n && is_skippable (fst s.tokens.(!i)) do incr i done
+  end;
+  match (if !i < n then Some s.tokens.(!i) else None) with
+  | Some (Token.Ident n', loc) when n' = name ->
+    let line = loc.Token.line in
+    let j = ref (!i + 1) in
+    let answer = ref false and go = ref true in
+    while !go && !j < n do
+      (match s.tokens.(!j) with
+       | (Token.Eq, _) -> answer := true; go := false
+       | (_, l) when l.Token.line <> line -> go := false
+       | (Token.Newline, _) | (Token.LineComment _, _) -> go := false
+       | _ -> incr j)
+    done;
+    !answer
+  | _ -> false
+
+let newline_breaks_expr s =
+  has_newline_before_next s
+  && (match s.clause_name with
+      | Some name when starts_another_equation s name -> true
+      | _ -> s.paren_depth = s.stmt_depth && peek_col s <= s.stmt_col)
 
 let peek s =
   let i = ref s.pos in
@@ -139,6 +217,16 @@ let locate s f =
   let e = f () in
   Ast.Located (span_to_here s start, e)
 
+(* The column of the token just consumed. Used by `let_`, which is entered
+   with its `let` already taken and needs that keyword's column. *)
+let prev_col s =
+  let i = ref (s.pos - 1) in
+  while !i > 0 && is_skippable (fst s.tokens.(!i)) do decr i done;
+  if !i >= 0 && !i < Array.length s.tokens then (snd s.tokens.(!i)).Token.col else 1
+
+let open_bracket s = s.paren_depth <- s.paren_depth + 1
+let close_bracket s = s.paren_depth <- max 0 (s.paren_depth - 1)
+
 let advance s =
   skip s;
   if s.pos >= Array.length s.tokens then Token.EOF
@@ -146,8 +234,8 @@ let advance s =
     let t = fst s.tokens.(s.pos) in
     s.pos <- s.pos + 1;
     (match t with
-     | Token.LParen | Token.LBracket | Token.LBrace -> s.paren_depth <- s.paren_depth + 1
-     | Token.RParen | Token.RBracket | Token.RBrace -> s.paren_depth <- max 0 (s.paren_depth - 1)
+     | Token.LParen | Token.LBracket | Token.LBrace -> open_bracket s
+     | Token.RParen | Token.RBracket | Token.RBrace -> close_bracket s
      | _ -> ());
     t
   end
@@ -160,8 +248,8 @@ let advance_loc s =
     let pair = s.tokens.(s.pos) in
     s.pos <- s.pos + 1;
     (match fst pair with
-     | Token.LParen | Token.LBracket | Token.LBrace -> s.paren_depth <- s.paren_depth + 1
-     | Token.RParen | Token.RBracket | Token.RBrace -> s.paren_depth <- max 0 (s.paren_depth - 1)
+     | Token.LParen | Token.LBracket | Token.LBrace -> open_bracket s
+     | Token.RParen | Token.RBracket | Token.RBrace -> close_bracket s
      | _ -> ());
     pair
   end
@@ -173,9 +261,11 @@ let advance_loc s =
    whose fields are read by trying the named form first, the definition two
    lines down was read as a continuation of the one above it, and `wand f`
    wrote that reading back. *)
-let mark s = (s.pos, s.paren_depth)
+let mark s = (s.pos, s.paren_depth, s.stmt_col, s.stmt_depth, s.clause_name)
 
-let rewind s (pos, depth) = s.pos <- pos; s.paren_depth <- depth
+let rewind s (pos, depth, col, sdepth, cname) =
+  s.pos <- pos; s.paren_depth <- depth; s.stmt_col <- col;
+  s.stmt_depth <- sdepth; s.clause_name <- cname
 
 (* Whether a lowercase module name starts a type after a `:`. A user
    module's namespace is its file name, and only the dot after it tells
@@ -1229,6 +1319,12 @@ and parse_body s =
    supported in a strict language (self-reference only works through a
    function's laziness), so `and`-bound members must be functions. *)
 and parse_fn_binding s name =
+  (* Every body read below is a clause of `name`, so a line that begins
+     another equation for it ends the body it is under. Restored on the way
+     out: a nested binding inside one of these bodies sets its own. *)
+  let outer_clause = s.clause_name in
+  s.clause_name <- Some name;
+  Fun.protect ~finally:(fun () -> s.clause_name <- outer_clause) @@ fun () ->
   let loc = peek_loc s in
   let params = ref [] in
   while is_pat_atom_start (peek s) do
@@ -1294,6 +1390,21 @@ and paren_seq s =
 
 and let_ ?(block = false) s =
   (* let already consumed *)
+  (* The `let` keyword's own column anchors this binding. Its value runs on
+     to the next line only where that line is indented past the keyword, so
+     a newline ends a binding inside a block exactly as it does at the top
+     level -- `let a = 1` and then `a`, with no `;` and no `in`. The keyword
+     rather than the name: at the top level `let y = f` continues onto an
+     indented `1` below it, and the name's column would refuse that.
+
+     Restored on the way out, so the expression this binding sits inside
+     goes on measuring against its own anchor. *)
+  let outer_col = s.stmt_col and outer_depth = s.stmt_depth in
+  s.stmt_col <- prev_col s;
+  s.stmt_depth <- s.paren_depth;
+  Fun.protect
+    ~finally:(fun () -> s.stmt_col <- outer_col; s.stmt_depth <- outer_depth)
+  @@ fun () ->
   let p = pat_ s in
   (* The body, and the spelling that joined it: `in`, or the `;` of a block.
      Both bind the name over everything that follows, and the difference
@@ -1901,29 +2012,20 @@ let parse_program_generic ~on_item tokens =
      | Some d -> pending_doc := Some d
      | None -> ());
     let start_loc = peek_loc s in
+    (* This item's own column is what decides, for everything inside it,
+       whether a line below continues it or starts something new. *)
+    s.stmt_col <- start_loc.Token.col;
+    s.stmt_depth <- 0;
     (match !previous_item with
      (* Only where an item is about to begin on a later line: the end of the
         file carries a position too, and definitions separated by `;` sit on
         one line, where a greater column means nothing. *)
-     | Some (col, end_line)
-       when peek s <> Token.EOF
-            && start_loc.Token.line > end_line
-            && start_loc.Token.col > col
-            && !items <> []
-            (* Only a bare expression, which is the shape a stray argument
-               takes. A definition that happens to be indented is a whole
-               file's layout choice, not a mistake -- and indenting the body
-               of something is how people write, so rejecting it would fire
-               on correct code, which teaches a reader to stop reading
-               errors. *)
-            && (match peek s with
-                | Token.Let | Token.LetStar | Token.Type | Token.Import -> false
-                | _ -> true) ->
-       fail_at start_loc
-         "this line is indented as though it continued the definition \
-          above, but a definition ends at the end of its line.\n       \
-          Put the whole expression on one line, or bracket what continues it: \
-          parentheses, or a leading |> for a pipeline."
+     (* A line indented past the definition above it used to be refused
+        here, with an error telling the reader to bracket it. It is read as
+        the continuation it looks like now -- see `newline_breaks_expr` --
+        so by the time the loop comes round again there is no indented line
+        left to refuse. What remains of `previous_item` is the position it
+        carries, which nothing else reads. *)
      | _ -> ());
     let before_items = !items in
     (match peek s with

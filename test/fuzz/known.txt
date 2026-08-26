@@ -37,6 +37,18 @@ format:unparses
 # catch it -- both are E-TYPE, for different reasons.
 format:unstable
 
+# ── The formatter joins two statements into one ──────────────────────────
+#
+#   let guest = $
+#   (i)
+#
+# is a bare `$` and then a separate `(i)`. `wand f` prints them as `$(i)`,
+# which is one command and a different program -- it typechecks, where the
+# input did not. Caught by the type either side rather than by the parse,
+# which is what that property is for. Not caused by the newline rule
+# changing: it reproduces against the parser as it was.
+format:retyped
+
 # ── The formatter drops a comment ────────────────────────────────────────
 #
 # A bare `--` on a line of its own, inside a bracketed expression, does not

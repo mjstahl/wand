@@ -27,6 +27,26 @@
   stay `V-IMP1`'s. The rule found one in wand's own tests: two unrelated
   values called `base`, 120 lines apart, of different types
 
+### Changed
+
+- A newline ends a statement wherever a statement can end. It used to end one
+  at the top level of a file and mean nothing inside a bracket, which is two
+  rules for one piece of punctuation. Indentation decides now: a line
+  indented past the statement above it continues that statement, and a line
+  back at its column starts a new one. A bracket the statement opened
+  suspends the rule until it closes, so an argument list still runs down the
+  page
+- A binding inside a block ends at a newline, as one at the top level does.
+  `let a = 1` and then `a` on the next line needs no `;` and no `in`. Both
+  still work, and `wand f` prints back whichever was written
+- A definition runs onto an indented line without being bracketed first.
+  `let y = f` and then an indented `1` below it is one application. That
+  used to be a parse error whose message told the reader to add brackets --
+  the honest answer while there was no layout rule, and unnecessary now
+  there is one. A function's next equation still ends the body above it
+  however far in it is indented, so the aligned spelling of a multi-clause
+  binding keeps parsing
+
 ### Fixed
 
 - `wand f` settles. A `handle` with no arms wrote the line break its arms

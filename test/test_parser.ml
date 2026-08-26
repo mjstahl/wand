@@ -753,30 +753,36 @@ let test_handler_continuation_binder () =
        let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
        at 0)
 
-(* An application cannot cross a line: an identifier starts a new definition
-   just as well as it continues one, and wand has no layout rule to tell
-   them apart. Left alone that parses as separate definitions and fails much
-   later as an unbound name that is plainly in scope, which is a bad way to
-   learn a layout rule. *)
+(* An application crosses a line where the line below is indented past the
+   definition it continues. wand does have a layout rule now, and this is
+   it: indentation is what tells a continuation from a new definition.
+
+   This used to be refused, with an error telling the reader to bracket it.
+   The refusal was the honest thing to do while there was no rule -- an
+   identifier starts a definition as readily as it continues one -- but it
+   also meant a newline ended a statement at the top level and meant nothing
+   inside brackets, which is two rules for one piece of punctuation and the
+   reason a binding inside a block needed a `;` or an `in` that the same
+   binding at the top level did not. *)
 let test_indented_continuation () =
   let parse src = Lexer.tokenize src |> Parser.parse_program in
-  (match parse "let add a b = a + b\nlet f x =\n  add\n    x\n    1\n" with
-   | _ -> Alcotest.fail "expected the indented continuation to be rejected"
-   | exception Parser.ParseError (_, m) ->
-     let says sub =
-       let n = String.length sub and t = String.length m in
-       let rec at i = i + n <= t && (String.sub m i n = sub || at (i + 1)) in
-       at 0
-     in
-     Alcotest.(check bool) "names the real problem" true
-       (says "indented as though it continued the definition above");
-     Alcotest.(check bool) "and says what to do" true (says "one line"));
-  (* Everything that legitimately spans lines must still parse. *)
   let ok label src =
     match parse src with
     | _ -> ()
     | exception Parser.ParseError (_, m) -> Alcotest.failf "%s: %s" label m
   in
+  ok "an indented application continues"
+    "let add a b = a + b\nlet f x =\n  add\n    x\n    1\n";
+  (* Back at the definition's own column it is a new definition, not a
+     continuation -- which is the half of the rule that has to hold for a
+     file of definitions to read as one. *)
+  ok "a line at the same column starts a definition"
+    "let a = 1\nlet b = 2\nb\n";
+  (* And a whole file indented consistently is a layout choice, not one
+     enormous application. *)
+  ok "consistently indented items stay separate"
+    "type C = R | G\n     let f c = match c with | R -> 1 | G -> 2\n     f R\n";
+  (* Everything that legitimately spans lines must still parse. *)
   ok "a pipeline continuation" "let n = xs\n  |> f\n";
   ok "if/else across lines" "let f x = if x then\n  1\n  else 2\n";
   ok "a list across lines" "let xs = [\n  1,\n  2\n]\n";

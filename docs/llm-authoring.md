@@ -151,11 +151,17 @@ wand t --file script.wand          -- a file
 does not error. It answers a different question, correctly. This was got
 wrong twice while writing this document.
 
-**A newline ends a statement at bracket depth 0.** Inside brackets it does
-not. A definition ends at the end of its line.
+That is the list. It used to be longer. Two entries came off it by being
+fixed rather than explained:
 
-**`let ... in` is an expression.** A top-level `let` is not. The two look
-alike and are not the same.
+- A newline ended a statement at bracket depth 0 and meant nothing inside
+  brackets. It was two rules for one piece of punctuation. Indentation
+  decides now, at both levels.
+- A binding inside a block needed a `;` or an `in` that the same binding at
+  the top level did not. It needs neither now.
+
+A rule that has to be written down here is a rule worth removing. This
+document is a list of what is left.
 
 ## How to check any of this
 
