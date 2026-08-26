@@ -7,19 +7,19 @@
 ### Added
 
 - `wand a.wand --lint` reports the lint findings, then runs the file. A lint
-  is not a type error and not a compiler error -- a file that earns one still
-  runs correctly by the language's own rules -- so a plain run does not lint
+  is not a type error and not a compiler error — a file that earns one still
+  runs correctly by the language's own rules — so a plain run does not lint
   and still does not. This is how the verdict is asked for on the path that
   runs the file, which is where a rule like `V-IMP1` describes something the
   reader is about to be surprised by. Findings go to stderr, so stdout stays
   the script's
 - `wand a.wand --lint --strict` makes a violation a failure, and a failure
-  does not run -- the promise `wand t --strict` already makes. `--strict` is
+  does not run — the promise `wand t --strict` already makes. `--strict` is
   wand's only beside `--lint`; on its own it reaches the script untouched, as
   every other subcommand's flag does
 - `WAND_MAX_CALL_DEPTH`, how deep calls may nest before a run is refused.
-  Default 1,000,000. Lower it when the stack is smaller than the default --
-  under `OCAMLRUNPARAM=l=...` or a small `ulimit -s` -- because a bound above
+  Default 1,000,000. Lower it when the stack is smaller than the default —
+  under `OCAMLRUNPARAM=l=...` or a small `ulimit -s` — because a bound above
   what the stack can carry never fires; raise it for a script that genuinely
   nests deeper
 
@@ -28,7 +28,7 @@
 - **A call that nests deeper than 1,000,000 is refused.** A call with work
   waiting on it keeps a stack frame, so nesting without end used to exhaust
   the stack and end the run with OCaml's `Fatal error: exception Stack
-  overflow` -- which cannot be caught: a handler that matches it, even one
+  overflow` — which cannot be caught: a handler that matches it, even one
   whose guard rejects it, hangs rather than unwinds, because the guard runs
   on the stack that just ran out. The depth is bounded before the stack goes,
   and the refusal is a wand error a script can catch. Only `apply` is bounded
@@ -43,7 +43,7 @@
 - An expression that answers Unit without performing anything prints its
   answer. `()` was silent, and so were `let u = () in u` and `if c then ()
   else ()`. Every Unit was suppressed, which is right for `IO.println "hi"`
-  -- the line is already on the screen, and `() : Unit` under it is noise --
+  — the line is already on the screen, and `() : Unit` under it is noise —
   but the suppression keyed off the value, and a unit the user asked to see
   has the same value as one a call handed back. It now keys off the effects
   the expression performed, which is the question actually being asked
@@ -52,7 +52,7 @@
   `Unhandled(WandEffect ...)`. The cause was ordering, not policy: imports
   were evaluated before the handler was installed, in every run path. The
   module's bindings now run under the handler a script's own body runs under.
-  Manifests are unchanged -- a module whose `uses` is narrower than what it
+  Manifests are unchanged — a module whose `uses` is narrower than what it
   does is still refused
 - An operation with no handler comes back as a wand error naming it, rather
   than as OCaml's `Effect.Unhandled` printed raw. The handler's cases end in
@@ -62,7 +62,7 @@
   arity, so `f None (1)` is `f (None 1)` and the argument meant for the call
   went to `None`. The checker knew the arity and said to write `(None)`;
   `wand t --fix` and the editor's code action now write it. The parse is
-  unchanged -- reading arity there is what made `Ctor (a, b)` mean different
+  unchanged — reading arity there is what made `Ctor (a, b)` mean different
   things in different files
 
 ## [0.49.0] - 2026-08-25
