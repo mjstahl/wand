@@ -25,20 +25,28 @@
 # `format:unstable` because the second pass moves them again.
 format:unstable
 
-# ── A typecheck that takes nine seconds ──────────────────────────────────
+# ── The formatter is exponential in nesting depth ────────────────────────
 #
-# Not a hang: it finishes, in 9.45s, every time, on any --path. The file it
-# was mutated from typechecks in 0.07s, so a `swap-lines` and a `repeat`
-# made the same 7.4KB of wand 135 times slower to check.
+# Recorded first as a nine-second typecheck, which it is not. The typecheck
+# takes 0.01s. `fuzz --input` runs the formatter oracle as well, and that is
+# where the time goes: 5.57s to format the 7.4KB input at a 79-column
+# margin.
 #
-# `fuzz --seed 555` finds it. Shrunk by hand from 7.4KB to 3.1KB before the
-# probes ran out; what is left is a run of top-level `test` items full of
-# unbound names, so the file is one long list of type errors and the
-# typechecker takes seconds to reach the first one it reports. The cost is
-# in inference and not in the `Ok` path -- `sc_locals` is quadratic in the
-# item count, but this input never reaches it.
+# It doubles with every level of nesting. `f (f (f ... x) 1) 1`, formatted
+# at a 40-column margin:
 #
-# Worth narrowing further before it is worth fixing. Every probe costs the
-# full timeout, which is what makes it slow to shrink as well as slow to
-# run.
+#   depth 16    0.04 s
+#   depth 20    0.83 s
+#   depth 22    4.13 s
+#
+# The margin is what decides whether it bites. The same depth-22 expression
+# takes 0.01s at 92 columns and 4.03s at 40: the blow-up needs a run of
+# levels that each fail to fit, because each level renders its subtree once
+# to ask whether the one-line form fits and again to write the wrapped one.
+# That is why the corpus is fast at the default margin and why the fuzzer,
+# which draws a margin per input between 24 and 119, keeps finding it.
+#
+# Fixing it means the emitter stops rendering a subtree twice -- memoising
+# on the node, or measuring width without building the string. Both are more
+# than a patch.
 timeout
