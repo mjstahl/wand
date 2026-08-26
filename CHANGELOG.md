@@ -2,60 +2,43 @@
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-08-25
+
 ### Added
 
-- **`wand a.wand --lint` reports the lint findings, then runs the file.**
-  A lint is not a type error and not a compiler error -- a file that earns
-  one still runs correctly by the language's own rules -- so a plain run
-  does not lint and never did. This is how the verdict is asked for on the
-  path that runs the file, which is where a rule like `V-IMP1` describes
-  something the reader is about to be surprised by. Findings go to stderr,
-  so stdout stays the script's
-- **`--lint --strict` makes a violation a failure, and a failure does not
-  run.** The promise `wand t --strict` already makes. `--strict` is wand's
-  only beside `--lint`; on its own it reaches the script untouched, as every
-  other subcommand's flag does
-
+- `wand a.wand --lint` reports the lint findings, then runs the file. A lint
+  is not a type error and not a compiler error -- a file that earns one still
+  runs correctly by the language's own rules -- so a plain run does not lint
+  and still does not. This is how the verdict is asked for on the path that
+  runs the file, which is where a rule like `V-IMP1` describes something the
+  reader is about to be surprised by. Findings go to stderr, so stdout stays
+  the script's
+- `wand a.wand --lint --strict` makes a violation a failure, and a failure
+  does not run -- the promise `wand t --strict` already makes. `--strict` is
+  wand's only beside `--lint`; on its own it reaches the script untouched, as
+  every other subcommand's flag does
 - `WAND_MAX_CALL_DEPTH`, how deep calls may nest before a run is refused.
-  Default 1,000,000, which a runaway reaches in under two seconds. The cost
-  of reaching it is quadratic in the depth, not linear -- the frames are
-  live roots and every minor collection rescans them -- so a bound five
-  times higher is nineteen times the wait, not five. Lower it when the
-  stack is smaller than the default -- under `OCAMLRUNPARAM=l=...` or a
-  small `ulimit -s` -- because a bound above what the stack can carry never
-  fires; raise it for a script that genuinely nests deeper
+  Default 1,000,000. Lower it when the stack is smaller than the default --
+  under `OCAMLRUNPARAM=l=...` or a small `ulimit -s` -- because a bound above
+  what the stack can carry never fires; raise it for a script that genuinely
+  nests deeper
+
+### Changed
+
+- **A call that nests deeper than 1,000,000 is refused.** A call with work
+  waiting on it keeps a stack frame, so nesting without end used to exhaust
+  the stack and end the run with OCaml's `Fatal error: exception Stack
+  overflow` -- which cannot be caught: a handler that matches it, even one
+  whose guard rejects it, hangs rather than unwinds, because the guard runs
+  on the stack that just ran out. The depth is bounded before the stack goes,
+  and the refusal is a wand error a script can catch. Only `apply` is bounded
+  and never `apply_tail`, so a tail-recursive loop still runs to any depth.
+  A non-tail recursion deeper than the bound ran before and does not now;
+  reaching that depth costs time quadratic in it, because the frames are live
+  roots and every minor collection rescans them, so the code this rejects was
+  already paying for the depth. `WAND_MAX_CALL_DEPTH` raises it
 
 ### Fixed
-
-- **A bare constructor that swallowed an argument is corrected, not just
-  reported.** Parentheses after a constructor are its payload whatever its
-  arity, so `f None (1)` is `f (None 1)` and the argument meant for the call
-  went to `None`. The checker knew the arity and said to write `(None)`;
-  `wand t --fix` and the editor's code action now write it. The parse is
-  unchanged -- reading arity there is what made `Ctor (a, b)` mean different
-  things in different files. A `Diag.Replace` is applied over an extent that
-  holds exactly the text it replaces, which is the test the editor already
-  made, so one occurrence of a name on a line is corrected and another is
-  left alone
-
-- **An effect in an imported module's top-level binding runs.** `let
-  greeting = $(hostname)` at the top of a module ended the program with
-  OCaml's `Unhandled(WandEffect ...)`. The cause was ordering, not policy:
-  imports were evaluated before the handler was installed, in every run
-  path. The module's bindings now run under the handler a script's own body
-  runs under. Manifests are unchanged -- a module whose `uses` is narrower
-  than what it does is still refused
-- **Nesting calls without end is an error, not a fatal.** It ended the run
-  with OCaml's `Fatal error: exception Stack overflow`. That cannot be
-  caught here: a handler that matches it, even one whose guard rejects it,
-  hangs rather than unwinds, because the guard runs on the stack that just
-  ran out. The depth is bounded before the stack goes, and the refusal is a
-  wand error a script can catch. Only `apply` is bounded and never
-  `apply_tail`, so a tail-recursive loop still runs to any depth
-- An operation with no handler comes back as a wand error naming it, rather
-  than as OCaml's `Effect.Unhandled` printed raw. The handler's cases end in
-  a fallthrough, so an unknown name or a payload of the wrong shape reached
-  it
 
 - An expression that answers Unit without performing anything prints its
   answer. `()` was silent, and so were `let u = () in u` and `if c then ()
@@ -64,6 +47,23 @@
   but the suppression keyed off the value, and a unit the user asked to see
   has the same value as one a call handed back. It now keys off the effects
   the expression performed, which is the question actually being asked
+- An effect in an imported module's top-level binding runs. `let greeting =
+  $(hostname)` at the top of a module ended the program with OCaml's
+  `Unhandled(WandEffect ...)`. The cause was ordering, not policy: imports
+  were evaluated before the handler was installed, in every run path. The
+  module's bindings now run under the handler a script's own body runs under.
+  Manifests are unchanged -- a module whose `uses` is narrower than what it
+  does is still refused
+- An operation with no handler comes back as a wand error naming it, rather
+  than as OCaml's `Effect.Unhandled` printed raw. The handler's cases end in
+  a fallthrough, so an unknown name or a payload of the wrong shape reached it
+- A bare constructor that swallowed an argument is corrected, not just
+  reported. Parentheses after a constructor are its payload whatever its
+  arity, so `f None (1)` is `f (None 1)` and the argument meant for the call
+  went to `None`. The checker knew the arity and said to write `(None)`;
+  `wand t --fix` and the editor's code action now write it. The parse is
+  unchanged -- reading arity there is what made `Ctor (a, b)` mean different
+  things in different files
 
 ## [0.49.0] - 2026-08-25
 
@@ -1341,7 +1341,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.49.0...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.50.0]: https://github.com/mjstahl/wand/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/mjstahl/wand/compare/v0.48.1...v0.49.0
 [0.48.1]: https://github.com/mjstahl/wand/compare/v0.48.0...v0.48.1
 [0.48.0]: https://github.com/mjstahl/wand/compare/v0.47.0...v0.48.0

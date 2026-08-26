@@ -1,79 +1,76 @@
-## 0.49.0 - 2026-08-25
+## 0.50.0 - 2026-08-25
 
-This release began as a question: does wand need a trait system to get the
-abstractions it is missing? The answer was no, and finding that out turned up
-four defects that were costing more than any missing abstraction.
+This release is about what a run says when it cannot continue. Three ways a
+script could end with a raw OCaml exception — an effect in an imported
+module, an operation with no handler, and nesting calls without end — and a
+reader who got a line naming an internal constructor and no position. None of
+them do that now.
 
-wand already has a closed trait system — `Num`, `Add` and `Ord`, narrowed on
-unification and dispatched on the value. Opening it buys one thing, ordering
-on a type you define, and costs a constraint clause on every printed type.
-Meanwhile records and higher-order functions did not compose at all, two
-relations disagreed with each other, and `List.sort` answered by the alphabet.
-Those are fixed here. The trait question is recorded in `docs/gaps.md` and
-left where it was.
+The last of the three could not be fixed by catching it. `Stack overflow`
+cannot be caught on this runtime: a handler that matches it hangs rather than
+unwinds, and so does one whose guard rejects it, because the guard runs on
+the stack that just ran out. So the depth is bounded before the stack goes.
+That bound rejects a non-tail recursion deeper than a million, which is the
+one change here that can refuse code that ran before. It is listed below.
 
-Two changes reject code that used to compile, and one changes what a sort
-returns. Each is listed below.
+The verdict a lint reaches is also reachable now from the path that runs the
+file. `wand a.wand --lint` reports the findings and runs it anyway; a lint is
+not a type error and not a compiler error, so it is not a condition of
+running unless you ask for that with `--strict`.
 
 ### Added
 
-- `T.parser`, holding everything reading a command line takes: the account of
-  the flags, the reader, and the usage line
-
-      Args.read Opts.parser (Env.args ())
-
-- `CommandLine`, the built-in record type `T.parser` answers with. A file can
-  take one apart and can build one
-- `CIDR` is an ordered type. `9.0.0.0/8 < 10.0.0.0/8`, and `Ord` is ten types
+- `wand a.wand --lint` reports the lint findings, then runs the file.
+  Findings go to stderr, so stdout stays the script's. `V-IMP1` — a later
+  import silently deciding an earlier line — was reachable from `wand t`,
+  from the editor and from the test runner, and from nothing that ran a
+  file: loudest where the shadowing is harmless and silent where it does its
+  work
+- `wand a.wand --lint --strict` makes a violation a failure, and a failure
+  does not run. `--strict` is wand's only beside `--lint`; on its own it
+  reaches the script untouched, as every other subcommand's flag does
+- `WAND_MAX_CALL_DEPTH`, how deep calls may nest before a run is refused.
+  Lower it when the stack is smaller than the default — under
+  `OCAMLRUNPARAM=l=...` or a small `ulimit -s` — because a bound above what
+  the stack can carry never fires
 
 ### Changed
 
-- **`Args.read` takes one argument where it took two.** `spec` and `reader`
-  were derived separately and only ever used together, and nothing said they
-  had to come from one type — `Args.read B.spec A.reader argv` typechecked
-  and failed during the run with a message about the arguments. A `Map
-  String` carries no trace of the type it came from, so the pairing could not
-  be checked anywhere. One member cannot be mispaired
-- **A value cannot take the name of a type or a constructor.** `type
-  Pod(host: String)` beside `let Pod = 1` was accepted, and the value could
-  not be reached from anywhere. A name declares one thing
-- The error at a field access on a type nothing has pinned names the
-  annotation to write, and the declared types that have the field:
-
-      let port_of p = p.port
-      -- 'p' needs its type before '.port' can be read: write '(p: Pod)'
-
-### Removed
-
-- `T.spec` and `T.reader`. Naming either says to write `T.parser`, which
-  holds both and the usage line
+- **A call that nests deeper than 1,000,000 is refused.** A call with work
+  waiting on it keeps a frame, so nesting without end exhausted the stack.
+  The depth is bounded before that happens and the refusal is a wand error a
+  script can catch. Only `apply` is bounded and never `apply_tail`, so a
+  tail-recursive loop still runs to any depth. A non-tail recursion deeper
+  than the bound ran before and does not now; reaching that depth costs time
+  quadratic in it, because the frames are live roots and every minor
+  collection rescans them, so what this rejects was already paying for the
+  depth. `WAND_MAX_CALL_DEPTH` raises it
 
 ### Fixed
 
-- A lambda written before the argument that says what its parameter is could
-  not read a field off it. `List.map (fn p -> p.host) pods` was a type error,
-  as were `filter`, `sort_by`, `fold_left` and every pipe form — every
-  higher-order function in the standard library takes its function first.
-  Not one lambda in `examples/` read a record field; they had all been
-  written around the hole. Arguments are still read in written order, and a
-  lambda's body now waits until the rest have been read
-- A lambda applied where it is written had the same fault, one position over.
-  `(fn p -> p.port) pod` could not see the argument under it
-- `List.unique` did not answer with the equality `==` answers with.
-  `2026-08-25 == 2026-08-25T00:00:00Z` was true, and
-  `List.unique [2026-08-25, 2026-08-25T00:00:00Z]` returned both. Membership
-  compared the stored value, so it compared the spelling. The same for `60s`
-  and `1min`, and for `1000KB` and `1MB`
-- `List.sort` compared a `CIDR` as text, so `10.0.0.0/8` sorted below
-  `9.0.0.0/8` — the two addresses the opposite way round from what `IPv4`
-  answers
-- **`List.sort` ordered a variant by constructor name.** `type S = Zulu |
-  Alpha` sorted to `[Alpha, Zulu]`, and renaming a constructor moved values.
-  A constructor sorts where it was declared, so `List.sort [High, Low,
-  Medium]` on `Low | Medium | High` comes back in that order. `Option` and
-  `Result` declare their absent and failed cases first, so `None` before
-  `Some` and `Error` before `Ok` are unchanged
+- An expression that answers Unit without performing anything prints its
+  answer. `()` was silent, and so were `let u = () in u` and `if c then ()
+  else ()`. Every Unit was suppressed, which is right for `IO.println "hi"`
+  — the line is already on the screen — but the suppression keyed off the
+  value, and a unit you asked to see has the same value as one a call handed
+  back. It keys off the effects the expression performed now
+- An effect in an imported module's top-level binding runs. `let greeting =
+  $(hostname)` at the top of a module ended the program with
+  `Unhandled(WandEffect ...)`. The cause was ordering, not policy: imports
+  were evaluated before the handler was installed, in every run path.
+  Manifests are unchanged — a module whose `uses` is narrower than what it
+  does is still refused
+- An operation with no handler comes back as a wand error naming it. The
+  handler's cases end in a fallthrough, so an unknown name or a payload of
+  the wrong shape reached OCaml's `Effect.Unhandled` and printed raw
+- A bare constructor that swallowed an argument is corrected, not just
+  reported. `f None (1)` is `f (None 1)`, and the argument meant for the
+  call went to `None`. The checker knew the arity and said to write
+  `(None)`; `wand t --fix` and the editor's code action write it now. The
+  parse is unchanged — reading arity there is what made `Ctor (a, b)` mean
+  different things in different files
 
-`List.sort` still takes a list of any type and so orders more than `<` does.
-The reference says why, and `List.sort_by` remains the answer where the
-shape's order is not the one wanted.
+The bound on nesting is a count, and the stack it stands in for is not: under
+a smaller stack it never fires and the fatal comes back. `docs/gaps.md`
+records that, and `WAND_MAX_CALL_DEPTH` is how to suit the bound to the stack
+a run actually has.
