@@ -532,22 +532,38 @@ let bracket_if_wrapped_app body emitted =
 
    Emptied for each top-level item, because the interior comments a layout
    may have read are fixed for the length of one item and not beyond it. *)
-let layouts : (int * int * int * int * int, string) Hashtbl.t = Hashtbl.create 512
+(* Keyed by the expression itself, compared by identity.
+
+   A key made from the source span was the first attempt, and it covered
+   almost nothing: only a few hundred of a file's expression nodes carry a
+   location. Counted on one input, 1,049,210 layouts went uncached against
+   841 cached ones, and the walk stayed exponential while the layouts it
+   produced were being reused.
+
+   Physical equality needs no location and is sound: the same node, at the
+   same indent and column, under the same margin, lays out the same way. The
+   hash mixes those three with a shallow hash of the node, so nodes of the
+   same shape do not pile into one bucket; comparison is `==`, which costs
+   nothing when they do. *)
+module Layout_key = struct
+  type t = expr * int * int * int
+  let equal (a, i1, c1, w1) (b, i2, c2, w2) =
+    a == b && i1 = i2 && c1 = c2 && w1 = w2
+  let hash (e, i, c, w) = Hashtbl.hash (Hashtbl.hash_param 8 32 e, i, c, w)
+end
+
+module Layouts = Hashtbl.Make (Layout_key)
+
+let layouts : string Layouts.t = Layouts.create 1024
 
 let rec emit_expr ?col indent e =
-  match e with
-  | Located (l, _) ->
-    let key =
-      (l.Token.offset, l.Token.end_offset, indent,
-       (match col with Some c -> c | None -> indent), !max_width)
-    in
-    (match Hashtbl.find_opt layouts key with
-     | Some text -> text
-     | None ->
-       let text = emit_expr_inner ?col indent (strip_located e) in
-       Hashtbl.replace layouts key text;
-       text)
-  | _ -> emit_expr_inner ?col indent (strip_located e)
+  let key = (e, indent, (match col with Some c -> c | None -> indent), !max_width) in
+  match Layouts.find_opt layouts key with
+  | Some text -> text
+  | None ->
+    let text = emit_expr_inner ?col indent (strip_located e) in
+    Layouts.replace layouts key text;
+    text
 
 (* App-chain function/argument positions require strict "atom" syntax --
    a bare BinOp/UnOp/If/Match/Fn/Let there would be reparsed differently
@@ -1741,7 +1757,7 @@ let emit_top_item_pretty_uncached = function
    set around this call and read while it runs, so a layout produced under
    one item's comments must not be handed to the next. *)
 let emit_top_item_pretty item =
-  Hashtbl.reset layouts;
+  Layouts.reset layouts;
   emit_top_item_pretty_uncached item
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────

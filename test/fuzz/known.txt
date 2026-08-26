@@ -35,18 +35,3 @@ format:unparses
 # newline written into one is a newline in the value. Reported as
 # `format:unstable` because the second pass moves them again.
 format:unstable
-
-# ── The formatter is still slow on one shape ─────────────────────────────
-#
-# Most of the exponential is gone. What is left times out at five seconds:
-# `fuzz --seed 555` finds a 2.9KB mutant that takes 5.5s to format at a
-# 58-column margin, where the 7.4KB one that used to take 5.2s now takes
-# 0.34.
-#
-# The cure for the rest was a layout cache plus flat probes at the two
-# places that ask their question at a different indent from the one they
-# answer at. Adding flat probes at the other eight `oneline` sites made
-# things worse -- the 7.4KB case went from 0.34s to 0.92s and this one did
-# not move -- so whatever is left is not another instance of the same thing,
-# and guessing at it costs more than measuring it will.
-timeout
