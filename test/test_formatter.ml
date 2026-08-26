@@ -159,9 +159,17 @@ let test_a_field_on_a_number_keeps_its_brackets () =
 (* A bracket is not written straight onto a glob. A glob literal opens with
    a star, and the two together make the sequence the lexer reads as an
    attempt at a block comment -- so `-*w J::i` came back as source that
-   would not lex. Found by test/fuzz. *)
+   would not lex. Found by test/fuzz.
+
+   Fixed once in `parenthesize`, and found again from a case body, which
+   writes its own brackets. Every site that wraps emitted text goes through
+   one helper now, so both cases are here: a bug that belongs to the bracket
+   rather than to any one of its writers has to be tested at more than one
+   of them. *)
 let test_a_bracket_is_kept_off_a_glob () =
-  formats_and_parses "a bracketed glob" 111 "-*w J::i\n"
+  formats_and_parses "a bracketed glob" 111 "-*w J::i\n";
+  formats_and_parses "a glob in a case body" 25
+    "match e with|()->(match e with|k->())(fn()->match t with|Ok(Oke)->*.wn\"%ed\";match d with|_->())\n"
 
 (* A bracket written straight onto the `$` is literal command text; one
    written a space away is an expression that answers with the command.

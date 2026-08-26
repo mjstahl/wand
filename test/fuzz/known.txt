@@ -12,14 +12,18 @@
 # small enough to read and a signature on its own is not something anyone
 # can act on.
 
-# ── The formatter writes source that does not parse ──────────────────────
+# ── The formatter takes a raw string apart ───────────────────────────────
 #
-# One shape left, and not either of the two that were fixed. Nested
-# `let ... in` chains inside a list, at a 50-column margin, come back with
-# "expected ), got in". Every hand-cut version of it parses -- the list, the
-# second argument and the margin all seem to be needed -- so it has not been
-# minimised. `fuzz --seed 8888` finds it; `--show` prints what came out.
-format:unparses
+# Nine bytes:
+#
+#   ``!`t
+#   `!e
+#
+# comes back with the backticked pieces on lines of their own, and a raw
+# string is its layout -- the text between the backticks is the value, so a
+# newline written into one is a newline in the value. Reported as
+# `format:unstable` because the second pass moves them again.
+format:unstable
 
 # ── A typecheck that takes nine seconds ──────────────────────────────────
 #

@@ -79,7 +79,10 @@
   is bracketed on top of that, and a name ending in a digit is left alone
 - `wand f` keeps a bracket off a glob. A glob literal opens with a star, and
   a bracket written straight onto one makes the sequence the lexer reads as
-  an attempt at a block comment
+  an attempt at a block comment. Every place that wraps emitted text in
+  brackets goes through one helper, because the hazard belongs to the
+  bracket and not to any one of its writers -- it was fixed in one of them
+  first and turned up again from a case body
 - `wand f` keeps a comment that its own output happens to quote. Whether an
   interior comment survived was decided by counting occurrences of its text
   in the rendered item, so a rendering that had dropped the comment `--`

@@ -488,6 +488,17 @@ let rec wrapping_ends_it e =
   | Try inner -> wrapping_ends_it inner
   | _ -> false
 
+(* An opening bracket, kept off a star.
+
+   A glob literal opens with one, and a bracket written straight onto it
+   makes the two characters the lexer reads as an attempt at a block comment
+   -- it reports that, having no idea a bracket was meant. Every place that
+   wraps emitted text in brackets goes through here, because the hazard
+   belongs to the bracket rather than to any one of them: it was fixed in
+   `parenthesize` first, and turned up again from a case body. Found by
+   test/fuzz, twice. *)
+let bracket s = (if s <> "" && s.[0] = '*' then "( " else "(") ^ s ^ ")"
+
 let bracket_if_wrapped_app body emitted =
     (* Both conditions, and only together. A `match` or an `if` is safe with
        nothing left open, because its parse is not finished at the first line
@@ -496,7 +507,7 @@ let bracket_if_wrapped_app body emitted =
     if String.contains emitted '\n'
        && depth_after_first_line emitted <= 0
        && wrapping_ends_it body
-    then "(" ^ emitted ^ ")"
+    then bracket emitted
     else emitted
 
 let rec emit_expr ?col indent e =
@@ -517,13 +528,7 @@ let rec emit_expr ?col indent e =
    bracket whose content already closed at this indent joins that line
    instead of opening another. *)
 and parenthesize indent s =
-  (* A glob literal opens with a star, and an opening bracket written
-     straight onto one makes the two-character sequence the lexer reads as
-     an attempt at a block comment -- it says so, having no idea a bracket
-     was meant. One space is the whole fix, and it is only ever written
-     where the two would touch. Found by test/fuzz, from `-*w J::i`. *)
-  let s = if s <> "" && s.[0] = '*' then " " ^ s else s in
-  if not (String.contains s '\n') then "(" ^ s ^ ")"
+  if not (String.contains s '\n') then bracket s
   else
     let ind = String.make indent ' ' in
     (* Unless what is being wrapped already closed on a line of its own, at
@@ -536,8 +541,8 @@ and parenthesize indent s =
       List.exists (fun c -> String.ends_with ~suffix:("\n" ^ ind ^ c) s)
         [")"; "]"; "}"]
     in
-    if closed_here then "(" ^ s ^ ")"
-    else "(" ^ s ^ "\n" ^ ind ^ ")"
+    if closed_here then bracket s
+    else bracket (s ^ "\n" ^ ind)
 
 (* What goes between `%{` and `}`. A newline in there ends the string as far
    as the lexer is concerned, and the rest of the splice is then read as
@@ -580,7 +585,7 @@ and guard_constructors args rendered following =
     let next = if i + 1 < n then rendered.(i + 1) else following in
     let absorbs = next <> "" && next.[0] = '(' in
     match strip_located args.(i) with
-    | Constr _ when absorbs -> "(" ^ rendered.(i) ^ ")"
+    | Constr _ when absorbs -> bracket rendered.(i)
     | _ -> rendered.(i))
 
 and emit_arg indent e = emit_atom indent e
@@ -787,7 +792,7 @@ and emit_expr_inner ?col indent e =
        gets the brackets. *)
     let emitted_body = emit_expr indent body in
     let wrapped = String.contains emitted_body '\n' in
-    let head = if wrapped then "(" ^ emitted_body ^ ")" else emitted_body in
+    let head = if wrapped then bracket emitted_body else emitted_body in
     (* The arms carry the line break, so with no arms there is no break to
        carry. Emitting one anyway left a trailing newline that the item
        joiner then separated from the next item, so `handle () with` grew a
@@ -894,7 +899,7 @@ and emit_app ?col indent e =
 and command_body indent e =
   match strip_located e with
   | String _ | Interp _ | CmdInterp _ | RawString _ | RawInterp _ ->
-    "(" ^ emit_command indent e ^ ")"
+    bracket (emit_command indent e)
   | _ -> " (" ^ emit_expr indent e ^ ")"
 
 (* A command's text, with interpolations left as %{...} and nothing quoted. *)
@@ -949,7 +954,7 @@ and emit_field indent e l =
      bracketed in this position, including that one. *)
   let target =
     let t = emit_atom indent e' in
-    if numeric_literal && ends_in_a_digit t then "(" ^ t ^ ")" else t
+    if numeric_literal && ends_in_a_digit t then bracket t else t
   in
   target ^ "." ^ l
 
@@ -1021,7 +1026,7 @@ and emit_pipeline indent a b =
   let piece e =
     match strip_located e with
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
-      | Let _ | LetRec _ | With _) as inner -> "(" ^ emit_expr indent inner ^ ")"
+      | Let _ | LetRec _ | With _) as inner -> bracket (emit_expr indent inner)
     (* A stage that wrapped ends at its first line; the `|>` leading the
        next stage says nothing about the argument left below this one. *)
     | _ -> bracket_if_wrapped_app e (emit_expr (indent + 2) e)
@@ -1043,12 +1048,12 @@ and emit_binop ?col indent op a b =
       let ok = cp > prec || (cp = prec && (match side with
         | `Left -> assoc = `Left | `Right -> assoc = `Right)) in
       let inner = emit_binop indent op2 a2 b2 in
-      if ok then inner else "(" ^ inner ^ ")"
+      if ok then inner else bracket inner
     (* These extend as far to the right as they can, so an operand needs
        parentheses or the operator is swallowed into it: `(try e) == x`
        printed bare re-parses as `try (e == x)`. *)
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
-      | Let _ | LetRec _) as inner -> "(" ^ emit_expr indent inner ^ ")"
+      | Let _ | LetRec _) as inner -> bracket (emit_expr indent inner)
     (* An operand that wrapped ends at its first line, so the rest of it
        reads as something new -- the operator having said nothing about how
        far its right side goes. *)
@@ -1431,7 +1436,7 @@ and emit_case_body ?col indent body =
    it happens to parse back correctly -- always wrap for clarity/safety. *)
 and emit_scrutinee indent scr =
   match strip_located scr with
-  | Match _ -> "(" ^ emit_expr indent scr ^ ")"
+  | Match _ -> bracket (emit_expr indent scr)
   (* `with` has to follow the scrutinee, and an application that wrapped has
      already ended by the time the next line starts -- the parser reaches the
      argument below expecting the keyword. *)
@@ -1676,7 +1681,7 @@ let emit_top_item_pretty = function
           | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
           | _ -> false)
     in
-    if continues_the_line_above then "(" ^ text ^ ")" else text
+    if continues_the_line_above then bracket text else text
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────
 
