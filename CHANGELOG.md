@@ -2,29 +2,28 @@
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-08-26
+
 ### Added
 
-- A type lens above every definition in the editor. `wand lsp` answers
-  `textDocument/codeLens` with the inferred signature of each value the file
-  defines, on the line above it — the thing hover already knew, for the whole
-  file at once instead of one name at a time. Value definitions only: a
-  `type` line already says what it declares. Where one line binds several
-  names the lens carries the name, because two bare types side by side say
-  which is which only by the order they happen to be in
+- A type lens above each definition. `wand lsp` answers
+  `textDocument/codeLens`. Each lens gives the inferred signature of one
+  value. A `type` line gets no lens, because it already says what it
+  declares. When a line binds more than one name, each lens shows its name.
+  The `editor.codeLens` setting turns lenses off
 
-### Changed
+### Fixed
 
-- A manifest label hovers as the effect it is. `Env` and `IO` came back as
-  the modules they also are, which describes the wrong thing on that line —
-  what the manifest declares is the effect those modules' calls perform — and
-  `FS.Read`, `Raise` and `Proc` name no module at all, so they came back as
-  nothing. Inside `uses {...}` the label is the only thing the word can mean,
-  and the hover says what it admits
-- A doc example in a hover keeps its answer on its own line. A doc string is
-  markdown to the editor, where `>> ` opens two blockquotes and the line
-  under it is a lazy continuation of the same paragraph: the expression and
-  what it produces arrived on one line with the prompt eaten. Examples are
-  fenced now, so a hover shows the transcript `wand d` shows
+- A label in `uses {...}` hovers as the effect it is. The hover showed `Env`
+  and `IO` as the modules they also name. A manifest declares effects, not
+  modules. It showed nothing for `FS.Read`, `Raise` and `Proc`, because they
+  name no module. The parser now gives the extent of the manifest. A label
+  reads as an effect in the manifest, and as a module elsewhere
+- A doc example in a hover keeps its answer on its own line. The editor reads
+  a doc string as markdown. `>> ` starts a blockquote, so the answer joined
+  the paragraph above it and the prompt disappeared. Examples now go in a
+  fence, split by the same reader `wand d` uses. A hover shows the transcript
+  that `wand d` shows
 
 ## [0.50.0] - 2026-08-25
 
@@ -1366,6 +1365,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.51.0]: https://github.com/mjstahl/wand/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/mjstahl/wand/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/mjstahl/wand/compare/v0.48.1...v0.49.0
 [0.48.1]: https://github.com/mjstahl/wand/compare/v0.48.0...v0.48.1
