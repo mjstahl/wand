@@ -1643,25 +1643,44 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
        may reach a file. Anything but exactly once sends the item back to a
        verbatim slice, which is what every item with an interior comment
        used to be. *)
-    let occurrences text hay =
-      let n = String.length text and h = String.length hay in
-      let count = ref 0 in
-      for i = 0 to h - n do
-        if String.sub hay i n = text then incr count
-      done;
-      !count
+    (* Counted by lexing the rendering, not by searching its text. A
+       comment's characters can appear in the output without being a
+       comment: a rendering that had dropped the comment `--` still held a
+       string `"--"`, the search found its two characters, and the item was
+       accepted with the comment gone. Lexing asks the question that was
+       meant. Trailing whitespace comes off both sides, because removing it
+       is the formatter doing its job. Found by test/fuzz. *)
+    let rendered_comments text =
+      match all_comments text (Lexer.tokenize text) with
+      | cs -> Some (List.map (fun c -> rstrip_ws c.c_text) cs)
+      | exception _ -> None
     in
     let attempt =
       if mine = [] then Some (emit_top_item_pretty item)
       else begin
         interior := List.sort (fun a b -> compare a.c_offset b.c_offset) mine;
         item_start := start_loc.offset;
-        let text = emit_top_item_pretty item in
-        interior := []; item_start := 0;
+        (* Cleared however this ends. `emit_top_item_pretty` can raise, and
+           these two are module-level: left set, they would be read by
+           whatever the next call to `format_source` formats, in this process
+           or any other that keeps one alive -- the language server does.
+           Found by test/fuzz, which noticed findings that reproduced in the
+           loop and not in a process of their own. *)
+        let text =
+          Fun.protect ~finally:(fun () -> interior := []; item_start := 0)
+            (fun () -> emit_top_item_pretty item)
+        in
         let ok =
-          List.for_all (fun c ->
-            let wanted = List.length (List.filter (fun d -> d.c_text = c.c_text) mine) in
-            occurrences c.c_text text = wanted) mine
+          (* A rendering that will not lex cannot be checked, so it is not
+             trusted: the item goes back to a verbatim slice. *)
+          match rendered_comments text with
+          | None -> false
+          | Some got ->
+            List.for_all (fun c ->
+              let want = rstrip_ws c.c_text in
+              let wanted =
+                List.length (List.filter (fun d -> rstrip_ws d.c_text = want) mine) in
+              List.length (List.filter (( = ) want) got) = wanted) mine
         in
         if ok then Some text else None
       end

@@ -49,6 +49,16 @@
 
 ### Fixed
 
+- `wand f` keeps a comment that its own output happens to quote. Whether an
+  interior comment survived was decided by counting occurrences of its text
+  in the rendered item, so a rendering that had dropped the comment `--`
+  still satisfied the count by holding the string `"--"`. The count is taken
+  by lexing the rendering now
+- The formatter clears its interior-comment state however an item ends.
+  `emit_top_item_pretty` can raise, and the two module-level references it
+  reads were left set -- so the next file formatted in the same process, such
+  as the next one the language server touches, was laid out against another
+  file's comments
 - `wand f` settles. A `handle` with no arms wrote the line break its arms
   would have carried, and the item joiner then separated that trailing
   newline from the next item -- so `handle () with` grew a blank line under

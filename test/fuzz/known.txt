@@ -49,15 +49,6 @@ format:unstable
 # changing: it reproduces against the parser as it was.
 format:retyped:was E-TYPE, now typechecks to String
 
-# ── The formatter drops a comment ────────────────────────────────────────
-#
-# A bare `--` on a line of its own, inside a bracketed expression, does not
-# survive. Two comments went in and one came out. Not minimised: a bare `--`
-# alone in a list or in parentheses survives, so something else in the
-# surrounding shape is needed to lose it. `wand f --show` on the reproducer
-# prints the two lists side by side.
-format:lost-comment
-
 # ── A typecheck that does not finish ─────────────────────────────────────
 #
 # One 2.7KB mutant of test/wand/test_process.wand does not finish inside

@@ -122,6 +122,24 @@ let test_a_parameterless_fn_has_one_space () =
   if Lint.contains out "fn  ->" then
     Alcotest.failf "a parameterless fn should not double its space:\n%s" out
 
+(* An interior comment survives even when the rendering happens to contain
+   its characters somewhere else.
+
+   Whether a comment came through was decided by counting occurrences of its
+   text in the rendered item. Here the comment is a bare `--` and the body
+   holds the string `"--"`, so a rendering that had dropped the comment
+   still contained its two characters, the count came out right, and the
+   item was accepted. Counting is done by lexing the rendering now. Found by
+   test/fuzz. *)
+let test_a_string_does_not_stand_in_for_a_comment () =
+  let src = "\"\"(fn->--\n(()[\"--\"]))\n" in
+  let out = Formatter.with_width 43 (fun () -> fmt src) in
+  let comments t =
+    List.map (fun (c : Formatter.comment_tok) -> c.Formatter.c_text)
+      (Formatter.all_comments t (Lexer.tokenize t))
+  in
+  Alcotest.(check (list string)) "the comment survives" (comments src) (comments out)
+
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
   (* A sweep that reads nothing passes every file it never opens. *)
@@ -1063,6 +1081,8 @@ let () =
         test_local_clauses_inside_a_call_parse;
       Alcotest.test_case "parameterless fn spacing" `Quick
         test_a_parameterless_fn_has_one_space;
+      Alcotest.test_case "a string is not a comment" `Quick
+        test_a_string_does_not_stand_in_for_a_comment;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
