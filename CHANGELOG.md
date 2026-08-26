@@ -49,6 +49,20 @@
 
 ### Fixed
 
+- `wand f` keeps the space that tells two commands apart. A bracket written
+  straight onto the `$` is literal command text; one written a space away is
+  an expression that answers with the command. `$(i)` runs the command `i`
+  and `$ (i)` runs whatever the value `i` holds -- both were printed as
+  `$(...)`, which turned the second into the first without saying so
+- A float reads back as the number that was written. The printer carried six
+  significant digits and switched to an exponent past them, so `2222222.5`
+  came back as `2.22222e+06` -- a different number, in a spelling wand has
+  no lexer for. It is written as the shortest plain decimal that reads back
+  equal
+- A top-level item that opens with an operator gets brackets. A line opening
+  with one continues the line above, which is how a pipeline is written, so
+  an item of its own that began `-1` was read as a subtraction on the next
+  pass
 - `wand f` brackets a field access that needs it. `(6).o` came back as
   `6.o`, which the lexer reads as a float missing its fraction, and
   `(S 6).o` came back as `S 6.o`, which is `S (6.o)` -- a different program

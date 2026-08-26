@@ -163,6 +163,53 @@ let test_a_field_on_a_number_keeps_its_brackets () =
 let test_a_bracket_is_kept_off_a_glob () =
   formats_and_parses "a bracketed glob" 111 "-*w J::i\n"
 
+(* A bracket written straight onto the `$` is literal command text; one
+   written a space away is an expression that answers with the command.
+   `$(i)` runs the command `i`; `$ (i)` runs whatever the value `i` holds.
+   Both were printed as `$(...)`, which turned the second into the first
+   without saying so. Found by test/fuzz. *)
+let test_a_command_keeps_the_space_that_gives_it_meaning () =
+  let expr_form = fmt "let s = \"ls\"\nlet g = $ (s)\ng\n" in
+  if not (Lint.contains expr_form "$ (s)") then
+    Alcotest.failf "an expression command loses its space:\n%s" expr_form;
+  let text_form = fmt "let g = $(ls)\ng\n" in
+  if not (Lint.contains text_form "$(ls)") then
+    Alcotest.failf "a literal command gained a space:\n%s" text_form;
+  (* `$?` has no such pair. `$? (e)` does not lex as a query, so a query's
+     body is always the text and is always written tight. *)
+  let query_form = fmt "let g = $?(ls)\ng\n" in
+  if not (Lint.contains query_form "$?(ls)") then
+    Alcotest.failf "a query gained a space:\n%s" query_form
+
+(* A float comes back as the number that was written. `%g` carries six
+   significant digits and switches to an exponent past them, so `2222222.5`
+   came back as `2.22222e+06` -- a different number, and one wand cannot
+   read: there is no exponent form, so it lexed as `2.22222`, `e`, `+`, `6`.
+   Found by test/fuzz. *)
+let test_a_float_reads_back_as_itself () =
+  List.iter
+    (fun v ->
+       let out = fmt (Printf.sprintf "let x = %s\nx\n" v) in
+       let first = List.hd (String.split_on_char '\n' out) in
+       Alcotest.(check string) ("the float " ^ v)
+         (Printf.sprintf "let x = %s" v) first)
+    [ "1.5"; "0.1"; "100.0"; "2222222.5"; "0.000001"; "3.14159265358979" ];
+  (* And nothing anywhere in the output spells an exponent. *)
+  let out = fmt "let x = 2222222.5\nx\n" in
+  if Lint.contains out "e+" || Lint.contains out "E+" then
+    Alcotest.failf "a float was written with an exponent wand cannot read:\n%s" out
+
+(* A top-level item that opens with an operator gets brackets. A line
+   opening with one continues the line above -- that is how a pipeline is
+   written -- so `-1` as an item of its own, printed under a definition,
+   was read as a subtraction on the next pass. Found by test/fuzz. *)
+let test_an_item_opening_with_an_operator_is_bracketed () =
+  assert_idempotent "an item that opens with a minus"
+    "let{}=import T\nimport N-1\n";
+  let out = fmt "let a = 1\n(-1)\n" in
+  if not (Lint.contains out "(-1)") then
+    Alcotest.failf "the brackets that make it its own statement went:\n%s" out
+
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
   (* A sweep that reads nothing passes every file it never opens. *)
@@ -1110,6 +1157,12 @@ let () =
         test_a_field_on_a_number_keeps_its_brackets;
       Alcotest.test_case "a bracket is kept off a glob" `Quick
         test_a_bracket_is_kept_off_a_glob;
+      Alcotest.test_case "a command keeps its space" `Quick
+        test_a_command_keeps_the_space_that_gives_it_meaning;
+      Alcotest.test_case "a float reads back as itself" `Quick
+        test_a_float_reads_back_as_itself;
+      Alcotest.test_case "an item opening with an operator" `Quick
+        test_an_item_opening_with_an_operator_is_bracketed;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;

@@ -176,12 +176,31 @@ let prefers_raw s = String.contains s '"' && raw_safe s
 (* `%g` drops a trailing `.0` for integral floats (`42.0` -> `"42"`), which
    then re-lexes as an Int literal, not a Float -- silently changing the
    program. Force the printed form to always look like a float. *)
+(* The shortest plain-decimal spelling that reads back as the same value.
+
+   `%g` was none of those things. It carries six significant digits and
+   switches to an exponent past them, so `2222222.5` came back as
+   `2.22222e+06` -- a different number, in a spelling wand has no lexer for:
+   there is no exponent form, so that re-read as four tokens, `2.22222`,
+   `e`, `+` and `6`. Found by test/fuzz.
+
+   Precision rises until the string reads back equal, so the answer is exact
+   and no longer than it has to be. It starts at one digit, which is what
+   keeps the `.` that tells a Float from an Int. Every float printed here
+   was a literal someone wrote, and wand has no way to write one that needs
+   an exponent, so the cap is only a backstop. *)
 let string_of_wand_float f =
-  let s = Printf.sprintf "%g" f in
-  if String.contains s '.' || String.contains s 'e' || String.contains s 'E'
-     || s = "nan" || s = "inf" || s = "-inf"
-  then s
-  else s ^ ".0"
+  match classify_float f with
+  | FP_nan -> "nan"
+  | FP_infinite -> if f > 0.0 then "inf" else "-inf"
+  | _ ->
+    let rec go p =
+      if p > 24 then Printf.sprintf "%.24f" f
+      else
+        let s = Printf.sprintf "%.*f" p f in
+        if float_of_string s = f then s else go (p + 1)
+    in
+    go 1
 
 (* ── Verbatim fallback ─────────────────────────────────────────────────────
    An item whose interior holds a comment is re-emitted as an exact source
@@ -657,8 +676,19 @@ and emit_expr_inner ?col indent e =
     ^ (if reqs = [] && ens = [] then "" else "\n" ^ ind)
     ^ emit_expr indent body
   (* The text inside $() is a command, not a string literal: quoting it
-     would hand the whole thing to the shell as one word. *)
-  | RunCmd (e, _)   -> "$(" ^ emit_command indent e ^ ")"
+     would hand the whole thing to the shell as one word.
+
+     A bracket written straight onto the `$` is that literal text; one
+     written after a space is an expression that answers with the command.
+     `$(i)` runs the command `i`, and `$ (i)` runs whatever the value `i`
+     holds -- two different programs, told apart by a space. So the space is
+     written back where the body is an expression, and withheld where it is
+     the text. Printing both as `$(...)` turned the second into the first,
+     silently. Found by test/fuzz. *)
+  | RunCmd (e, _)   -> "$" ^ command_body indent e
+  (* `$?` has no spelling with a space: `$? (e)` does not lex as a query at
+     all, and the parser builds a `RunQuery` only from the tight form. So
+     its body is always the text, and always written tight. *)
   | RunQuery (e, _) -> "$?(" ^ emit_command indent e ^ ")"
   | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
   | ImportExpr (StdlibModule n) -> "import " ^ n
@@ -834,6 +864,14 @@ and emit_app ?col indent e =
             emit_atom indent head ^ "\n" ^ inner
             ^ String.concat ("\n" ^ inner) (emit_args (indent + 2)))
        | _, None -> oneline)
+
+(* What follows the `$`, brackets and all: the literal text spelled tight
+   against the bracket, or the expression spelled a space away from it. *)
+and command_body indent e =
+  match strip_located e with
+  | String _ | Interp _ | CmdInterp _ | RawString _ | RawInterp _ ->
+    "(" ^ emit_command indent e ^ ")"
+  | _ -> " (" ^ emit_expr indent e ^ ")"
 
 (* A command's text, with interpolations left as %{...} and nothing quoted. *)
 and emit_command indent e =
@@ -1601,7 +1639,20 @@ let emit_top_item_pretty = function
   | TLExpr e ->
     (* A top-level expression is subject to the same rule as a binding's
        value: wrapped as a bare application it stops being one expression. *)
-    bracket_if_wrapped_app e (emit_expr 0 e)
+    let text = bracket_if_wrapped_app e (emit_expr 0 e) in
+    (* And to one more. A line that opens with an operator continues the
+       line above it -- that is how a pipeline is written, and the reference
+       warns that `-` surprises people the same way. An item of its own that
+       opens with one is read as more of the item before it, so `-1` under a
+       definition becomes a subtraction. Brackets say it is its own
+       statement. Found by test/fuzz. *)
+    let continues_the_line_above =
+      text <> ""
+      && (match text.[0] with
+          | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
+          | _ -> false)
+    in
+    if continues_the_line_above then "(" ^ text ^ ")" else text
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────
 

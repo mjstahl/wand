@@ -21,29 +21,6 @@
 # minimised. `fuzz --seed 8888` finds it; `--show` prints what came out.
 format:unparses
 
-# ── The formatter changes what a file means ──────────────────────────────
-#
-#   "";-let a=(fn->())
-#
-# becomes `""` and then `-(let a = fn -> () in ())` on its own line, which
-# reads back as `"" - (...)`: a subtraction that was not there. Reported as
-# `format:unstable`, because the second pass joins them onto one line and
-# that is what the oracle noticed first. The type check either side did not
-# catch it -- both are E-TYPE, for different reasons.
-format:unstable
-
-# ── The formatter joins two statements into one ──────────────────────────
-#
-#   let guest = $
-#   (i)
-#
-# is a bare `$` and then a separate `(i)`. `wand f` prints them as `$(i)`,
-# which is one command and a different program -- it typechecks, where the
-# input did not. Caught by the type either side rather than by the parse,
-# which is what that property is for. Not caused by the newline rule
-# changing: it reproduces against the parser as it was.
-format:retyped:was E-TYPE, now typechecks to String
-
 # ── A typecheck that does not finish ─────────────────────────────────────
 #
 # One 2.7KB mutant of test/wand/test_process.wand does not finish inside
