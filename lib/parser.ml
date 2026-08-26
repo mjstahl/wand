@@ -115,6 +115,13 @@ let peek_loc s =
   while !i < Array.length s.tokens && is_skippable (fst s.tokens.(!i)) do incr i done;
   if !i < Array.length s.tokens then snd s.tokens.(!i) else Token.point 0 0 0
 
+(* The token just consumed. `advance` steps past skippables before taking
+   one, so `tokens.(pos - 1)` is it -- which is the extent of a name that has
+   already been read, as against `peek_loc`, which is the one still ahead. *)
+let last_loc s =
+  if s.pos = 0 || s.pos > Array.length s.tokens then peek_loc s
+  else snd s.tokens.(s.pos - 1)
+
 (* `start` widened to stop at the last token consumed. `peek` never moves
    `pos`, and `advance` steps past skippables before consuming, so
    `tokens.(pos - 1)` is always the last real token of whatever just
@@ -1019,6 +1026,13 @@ and constr_atom_ s =
   | t -> fail_at (peek_loc s) (Format.asprintf
       "expected a constructor after the module name, got %a" Token.pp t)
 and constr_body_ s name =
+  (* The constructor's own extent, taken before anything after it is read.
+     A diagnostic about the constructor -- `None` swallowing the argument
+     meant for the call -- is reported here rather than at the head of the
+     spine, and a correction can only be offered over the span that holds
+     exactly the name it replaces. *)
+  let ctor_loc = last_loc s in
+  let constr = Located (ctor_loc, Constr name) in
   if peek_named_args s then begin
     ignore (advance s); (* consume LParen *)
     let fields = ref [] in
@@ -1082,13 +1096,13 @@ and constr_body_ s name =
          lived, and `Some (a, b)` was read as two arguments in every file
          but Option's own. *)
       match !args with
-      | (_ :: _ :: _ as es) -> App (Constr name, Tuple es)
+      | (_ :: _ :: _ as es) -> App (constr, Tuple es)
       | args ->
-        List.fold_left (fun acc arg -> App (acc, arg)) (Constr name) args
+        List.fold_left (fun acc arg -> App (acc, arg)) constr args
       end
     end
   end else
-    Constr name
+    constr
 
 and postfix_field_ s e =
   let e = ref e in

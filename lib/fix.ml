@@ -4,10 +4,13 @@
    CLI's generate/typecheck loop, `codeAction` for the human in the
    editor. A fix that behaves differently in the two paths is a bug.
 
-   The textual drift corrections (`Diag.Replace`) are deliberately not
-   applied: they annotate lex and parse errors, and rewriting a file that
-   does not parse is guesswork. An error carrying no applicable fix
-   refuses the whole run -- nothing is written. *)
+   A `Diag.Replace` is applied only over an extent that holds exactly the
+   text it replaces -- the test `codeAction` makes, so a fix cannot behave
+   one way here and another in the editor. The textual drift corrections
+   are `Replace`s that name their substitution in prose rather than
+   spanning it, so they go on declining, which is what keeps a file that
+   did not parse from being rewritten on a guess. An error carrying no
+   applicable fix refuses the whole run -- nothing is written. *)
 
 type applied = {
   code : string;    (* "A-USES2", "V-IMP1", "E-TYPE", ... *)
@@ -129,7 +132,34 @@ let apply_fix lines (d : Diag.t) : (string list * applied) option =
     (match List.nth_opt lines (loc_line - 1) with
      | Some old -> at loc_line ("deleted " ^ quote old) (delete_line lines loc_line)
      | None -> None)
-  | Some (Diag.Replace _) | None -> None
+  (* Applied only when the flagged extent holds exactly the text being
+     replaced -- the same test `codeAction` makes, so the two consumers
+     agree. Anything looser would be a guess about which occurrence on the
+     line was meant, and a line may hold the name twice. A drift correction
+     declines under the same test: it names its substitution in prose and
+     the extent it is flagged over is not the span of that text, so nothing
+     is rewritten on its behalf. *)
+  | Some (Diag.Replace { from_; to_ }) ->
+    (match d.Diag.loc with
+     | Some l when l.Token.line = l.Token.end_line ->
+       (match List.nth_opt lines (l.Token.line - 1) with
+        | Some old ->
+          let start = l.Token.col - 1 in
+          let stop  = l.Token.end_col - 1 in
+          if start >= 0 && stop > start && stop <= String.length old
+             && String.sub old start (stop - start) = from_
+          then
+            let replaced =
+              String.sub old 0 start ^ to_
+              ^ String.sub old stop (String.length old - stop)
+            in
+            at l.Token.line
+              (Printf.sprintf "replaced %s with %s" (quote from_) (quote to_))
+              (replace_line lines l.Token.line replaced)
+          else None
+        | None -> None)
+     | _ -> None)
+  | None -> None
 
 (* One pass over a clean check's findings, bottom-up so earlier line
    numbers stay valid, at most one fix per line -- overlapping fixes wait

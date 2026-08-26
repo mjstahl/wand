@@ -1430,7 +1430,9 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
         raise (EvalError (Printf.sprintf
           "'%s' has no constructor '%s'" m name))
     in
-    (match inner with
+    (* The constructor after the dot carries its own extent now, so the
+       shapes below are read through it. *)
+    (match strip_located inner with
      | Constr name -> with_ident name (fun c ->
          match Hashtbl.find_opt constr_fields c with
          | Some (_ :: _ as fs) -> VPartialConstr (c, List.length fs, [])

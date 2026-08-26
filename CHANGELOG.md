@@ -15,6 +15,17 @@
 
 ### Fixed
 
+- **A bare constructor that swallowed an argument is corrected, not just
+  reported.** Parentheses after a constructor are its payload whatever its
+  arity, so `f None (1)` is `f (None 1)` and the argument meant for the call
+  went to `None`. The checker knew the arity and said to write `(None)`;
+  `wand t --fix` and the editor's code action now write it. The parse is
+  unchanged -- reading arity there is what made `Ctor (a, b)` mean different
+  things in different files. A `Diag.Replace` is applied over an extent that
+  holds exactly the text it replaces, which is the test the editor already
+  made, so one occurrence of a name on a line is corrected and another is
+  left alone
+
 - **An effect in an imported module's top-level binding runs.** `let
   greeting = $(hostname)` at the top of a module ended the program with
   OCaml's `Unhandled(WandEffect ...)`. The cause was ordering, not policy:

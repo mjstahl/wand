@@ -118,6 +118,37 @@ let test_refuses_unfixable_type_error () =
   let d = refuse "let x = 1 + true\nx\n" in
   Alcotest.(check string) "the type error is reported" "E-TYPE" d.Diag.code
 
+(* ── A constructor that swallowed an argument ────────────────────────────── *)
+
+(* Parentheses after a constructor are its payload, so `f None (1)` is
+   `f (None 1)` and a nullary constructor has taken the argument meant for
+   the call. The checker knew the arity and said what to write; now it hands
+   over the correction as well, over the constructor's own extent. *)
+let test_bare_constructor_bracketed () =
+  let (fixed, applied) =
+    fix "type Opt = None | Some Int\nlet f a b = b\nlet r = f None (1)\n" in
+  Alcotest.(check string) "the constructor is bracketed"
+    "type Opt = None | Some Int\nlet f a b = b\nlet r = f (None) (1)\n" fixed;
+  Alcotest.(check (list string)) "reported as a type error" ["E-TYPE"]
+    (codes applied)
+
+(* The name appears twice, and only the occurrence the extent covers is
+   rewritten -- which is why the extent has to be the constructor's own
+   rather than the statement's. *)
+let test_only_the_flagged_occurrence () =
+  let (fixed, _) =
+    fix "type Opt = None | Some Int\nlet f a b = b\nlet g = None\nlet r = f None (1)\n" in
+  Alcotest.(check string) "the bare None is untouched"
+    "type Opt = None | Some Int\nlet f a b = b\nlet g = None\nlet r = f (None) (1)\n"
+    fixed
+
+(* A drift correction names its substitution in prose rather than spanning
+   it, so it declines the same test and nothing is written on its behalf. *)
+let test_drift_still_declines () =
+  let d = refuse "let b = not true\n" in
+  Alcotest.(check bool) "refused rather than rewritten" true
+    (Lint.contains (Diag.legacy d) "boolean not is")
+
 let () =
   Alcotest.run "fix" [
     "manifest", [
@@ -137,6 +168,12 @@ let () =
       Alcotest.test_case "joins the run"  `Quick test_import_joins_the_run;
       Alcotest.test_case "above destructured" `Quick test_import_before_destructured;
       Alcotest.test_case "to a fixed point" `Quick test_imports_to_a_fixed_point;
+    ];
+    "a constructor that swallowed an argument", [
+      Alcotest.test_case "bracketed"      `Quick test_bare_constructor_bracketed;
+      Alcotest.test_case "only the flagged one" `Quick
+        test_only_the_flagged_occurrence;
+      Alcotest.test_case "drift declines" `Quick test_drift_still_declines;
     ];
     "refusals", [
       Alcotest.test_case "parse error"    `Quick test_refuses_parse_error;

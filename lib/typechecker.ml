@@ -2996,10 +2996,22 @@ and check_app_shape tenv (env : env) f x =
            "'%s' takes no arguments -- write `%s`, with nothing after it"
            name name))
        else
-         raise (TypeError (Printf.sprintf
+         let msg = Printf.sprintf
            "'%s' takes no arguments. Parentheses after a constructor are its \
             payload, so `%s (x)` applies it -- write `(%s)` to pass the \
-            constructor on its own" name name name))
+            constructor on its own" name name name
+         in
+         (* Reported at the constructor rather than at the head of the spine,
+            because the correction goes over the constructor: both consumers
+            of a fix check that the flagged extent holds exactly the text
+            being replaced, so the span has to be the name's own. Without one
+            the message stands alone, as it did before. *)
+         (match f with
+          | Located (l, _) ->
+            pending_fix :=
+              Some (Diag.Replace { from_ = name; to_ = "(" ^ name ^ ")" });
+            raise (TypeErrorAt (l, msg))
+          | _ -> raise (TypeError msg))
      | Constr name, Tuple es when List.length es > 1 ->
        (match find_ctor_in_tenv tenv name with
         | Some (_, ctor)
