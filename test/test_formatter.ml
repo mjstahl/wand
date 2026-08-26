@@ -140,6 +140,29 @@ let test_a_string_does_not_stand_in_for_a_comment () =
   in
   Alcotest.(check (list string)) "the comment survives" (comments src) (comments out)
 
+(* A field access on a numeric literal keeps the literal's brackets. `(6).o`
+   written back as `6.o` is not a field access -- the lexer reads it as a
+   float with nothing after the point and says so. A name that ends in a
+   digit is left alone, because its token never started as a number. Found
+   by test/fuzz. *)
+let test_a_field_on_a_number_keeps_its_brackets () =
+  formats_and_parses "field on an int" 29 "\"\"(fn->((6).o()))\n";
+  (* And an application, which is the worse half: `(S 6).o` written as
+     `S 6.o` is `S (6.o)` -- a different program before it is a lex error.
+     The field target is rendered as an atom now, so every form that needs
+     brackets in that position gets them. *)
+  formats_and_parses "field on an application" 29 "\"\"(fn->((S 6).o()))\n";
+  let out = fmt "let r = {x1 = 1}\nr.x1\n" in
+  if Lint.contains out "(x1)" then
+    Alcotest.failf "a name ending in a digit needs no brackets:\n%s" out
+
+(* A bracket is not written straight onto a glob. A glob literal opens with
+   a star, and the two together make the sequence the lexer reads as an
+   attempt at a block comment -- so `-*w J::i` came back as source that
+   would not lex. Found by test/fuzz. *)
+let test_a_bracket_is_kept_off_a_glob () =
+  formats_and_parses "a bracketed glob" 111 "-*w J::i\n"
+
 let test_output_parses_at_any_margin () =
   let files = corpus_files () in
   (* A sweep that reads nothing passes every file it never opens. *)
@@ -1083,6 +1106,10 @@ let () =
         test_a_parameterless_fn_has_one_space;
       Alcotest.test_case "a string is not a comment" `Quick
         test_a_string_does_not_stand_in_for_a_comment;
+      Alcotest.test_case "field on a number keeps brackets" `Quick
+        test_a_field_on_a_number_keeps_its_brackets;
+      Alcotest.test_case "a bracket is kept off a glob" `Quick
+        test_a_bracket_is_kept_off_a_glob;
     ];
     "canonicalization", [
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;

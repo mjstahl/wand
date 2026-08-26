@@ -14,16 +14,11 @@
 
 # ── The formatter writes source that does not parse ──────────────────────
 #
-# Not the two that were fixed. A comment between a binding's `=` and its
-# value:
-#
-#   let d =
-#   --
-#   (fn n r -> ...) (arg) (arg)
-#
-# The application below the comment wraps and does not get the parentheses
-# that a wrapped application gets everywhere else -- the comment path
-# bypasses the guard -- so the continuation lines read as new definitions.
+# One shape left, and not either of the two that were fixed. Nested
+# `let ... in` chains inside a list, at a 50-column margin, come back with
+# "expected ), got in". Every hand-cut version of it parses -- the list, the
+# second argument and the margin all seem to be needed -- so it has not been
+# minimised. `fuzz --seed 8888` finds it; `--show` prints what came out.
 format:unparses
 
 # ── The formatter changes what a file means ──────────────────────────────

@@ -49,6 +49,15 @@
 
 ### Fixed
 
+- `wand f` brackets a field access that needs it. `(6).o` came back as
+  `6.o`, which the lexer reads as a float missing its fraction, and
+  `(S 6).o` came back as `S 6.o`, which is `S (6.o)` -- a different program
+  before it is a lex error. The target of a `.` is rendered as an atom now,
+  which is what brackets every form that needs them there; a numeric literal
+  is bracketed on top of that, and a name ending in a digit is left alone
+- `wand f` keeps a bracket off a glob. A glob literal opens with a star, and
+  a bracket written straight onto one makes the sequence the lexer reads as
+  an attempt at a block comment
 - `wand f` keeps a comment that its own output happens to quote. Whether an
   interior comment survived was decided by counting occurrences of its text
   in the rendered item, so a rendering that had dropped the comment `--`

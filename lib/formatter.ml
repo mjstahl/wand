@@ -498,6 +498,12 @@ let rec emit_expr ?col indent e =
    bracket whose content already closed at this indent joins that line
    instead of opening another. *)
 and parenthesize indent s =
+  (* A glob literal opens with a star, and an opening bracket written
+     straight onto one makes the two-character sequence the lexer reads as
+     an attempt at a block comment -- it says so, having no idea a bracket
+     was meant. One space is the whole fix, and it is only ever written
+     where the two would touch. Found by test/fuzz, from `-*w J::i`. *)
+  let s = if s <> "" && s.[0] = '*' then " " ^ s else s in
   if not (String.contains s '\n') then "(" ^ s ^ ")"
   else
     let ind = String.make indent ' ' in
@@ -859,10 +865,29 @@ and emit_command indent e =
 
 and emit_field indent e l =
   let e' = strip_located e in
-  let target = match e' with
-    | BinOp _ | UnOp _ | Let _ | LetRec _ | If _ | Match _ | Fn _
-    | Handle _ | Try _ | Contract _ -> "(" ^ emit_expr indent e' ^ ")"
-    | _ -> emit_expr indent e'
+  (* A literal that ends in a digit keeps its brackets, because the `.` that
+     follows would otherwise be read as part of the number: `(6).o` written
+     as `6.o` is not a field access, it is a float missing its fraction, and
+     the lexer says so. A name ending in a digit is safe -- `x1.field` reads
+     as a field access, because the token did not start as a number -- so
+     this asks what the expression is as well as how it ends. Found by
+     test/fuzz. *)
+  let numeric_literal = match e' with
+    | Int _ | Float _ | Port _ | Version _ | IPv4 _ | CIDR _
+    | DateTime _ | Duration _ | Size _ -> true
+    | _ -> false
+  in
+  let ends_in_a_digit t =
+    t <> "" && (match t.[String.length t - 1] with '0' .. '9' -> true | _ -> false)
+  in
+  (* The target is an atom, which is what `.` binds to. It was a list of
+     the forms that need brackets, and the list left `App` out -- so
+     `(S 6).o` came back as `S 6.o`, which is a different program before it
+     is a lex error. `emit_atom` already knows every form that has to be
+     bracketed in this position, including that one. *)
+  let target =
+    let t = emit_atom indent e' in
+    if numeric_literal && ends_in_a_digit t then "(" ^ t ^ ")" else t
   in
   target ^ "." ^ l
 
