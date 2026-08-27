@@ -1,9 +1,11 @@
 (* Edits applied to a known-good `.wand` source.
 
-   Phase 1 of the fuzzer is mutation-based on purpose. `stdlib/`,
-   `test/wand/` and `examples/` are already valid wand, so a handful of
-   edits lands near the language rather than in random bytes, and the
-   generator that phase 2 needs does not have to exist first.
+   The fuzzer is mutation-based on purpose. `stdlib/`, `test/wand/` and
+   `examples/` are already valid wand, so a handful of edits lands near the
+   language rather than in random bytes, and a generator that builds a
+   well-typed program from a type does not have to exist first. One would
+   answer questions these cannot -- `docs/llm-authoring.md` names the one it
+   wants -- and nothing here waits on it.
 
    Every mutation is named, and the names travel with a finding: a
    reproducer says how it was reached, not just what it was. *)

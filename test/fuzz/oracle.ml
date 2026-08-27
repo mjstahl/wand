@@ -1,5 +1,6 @@
-(* The property phase 1 checks: `wand t` on any input at all answers with a
-   diagnostic, and never any other way.
+(* The first of the two properties this file checks: `wand t` on any input at
+   all answers with a diagnostic, and never any other way. `check_format`
+   below holds the second, over `wand f`.
 
    `Runner.typecheck_source` catches `LexError`, `ParseError`, `TypeError`,
    `TypeErrorAt` and `Failure`, and turns each into a `Diag.t`. Anything

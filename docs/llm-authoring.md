@@ -156,11 +156,15 @@ wrong twice while writing this document.
 The claims above are mechanism, not measurement. There is a way to measure
 them.
 
-`test/fuzz` has a generator planned for phase 2. It builds well-typed
-programs from a type, not from text. The same generator can print one AST in
-two surface syntaxes. Generate a large sample. Ask a model to reproduce each
-program from its description. Compare how often each syntax parses on the
-first try.
+`test/fuzz` mutates source that is already valid wand. That finds bugs, and
+it cannot measure this: a mutant is not a program anyone meant, so nothing
+about it says which syntax is easier to write.
 
-That turns a model's self-report into a number. Until someone runs it, treat
-this document as a record of reasoning, not a finding.
+The measurement needs a generator instead -- one that builds well-typed
+programs from a type rather than from text, and that can print one AST in two
+surface syntaxes. No such generator exists. With one: generate a large
+sample, ask a model to reproduce each program from its description, and
+compare how often each syntax parses on the first try.
+
+That turns a model's self-report into a number. Until someone builds it and
+runs it, treat this document as a record of reasoning, not a finding.
