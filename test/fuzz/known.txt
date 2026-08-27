@@ -11,27 +11,8 @@
 # The reproducer is written out beside each line here, because these are
 # small enough to read and a signature on its own is not something anyone
 # can act on.
-
-# ── The formatter writes source that does not parse ──────────────────────
 #
-# A `;`-separated block whose second statement is a `let`, printed on one
-# line after a URL literal:
-#
-#   (http://; let s = (fn -> r) [] [] in ())
-#
-# comes back "expected ), got let". `fuzz --seed 1` finds it. Not
-# minimised.
-format:unparses
-
-# ── The formatter takes a raw string apart ───────────────────────────────
-#
-# Nine bytes:
-#
-#   ``!`t
-#   `!e
-#
-# comes back with the backticked pieces on lines of their own, and a raw
-# string is its layout -- the text between the backticks is the value, so a
-# newline written into one is a newline in the value. Reported as
-# `format:unstable` because the second pass moves them again.
-format:unstable
+# The list is empty. Everything the fuzzer has found so far is fixed, and
+# each fix is held in place by a test -- an ordinary one where the input
+# could be written by hand, and a reproducer under regressions/ where it
+# could not.

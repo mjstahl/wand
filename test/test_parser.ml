@@ -290,6 +290,51 @@ let test_rewind_keeps_bracket_depth () =
       (Ast.strip_located body)
   | _ -> Alcotest.fail "expected a type, a binding and an expression"
 
+(* And the same rule for the payload a constructor takes in brackets. The
+   uppercase payload already stopped at a line back at the declaration's own
+   column; the bracketed one did not, so `type Colour = Red` followed by a
+   line opening with `(` read that line as Red's field list. `wand f` writes
+   a leading unary minus bracketed, which turned two items into source the
+   parser then refused. Found by test/fuzz. *)
+let test_a_bracketed_payload_stops_at_the_line_end () =
+  let prog = parse_program "type Colour = Red\n(1, 2)\n" in
+  Alcotest.(check int) "two top-level items" 2 (List.length prog.items);
+  (match prog.items with
+   | [_; TLExpr e] ->
+     Alcotest.(check expr) "the bracket starts its own item"
+       (Tuple [Int 1; Int 2]) (Ast.strip_located e)
+   | _ -> Alcotest.fail "expected a type and an expression");
+  (* Indented past the `type`, it is still the payload it looks like. *)
+  let payload = parse_program "type Shape = Circle\n  (Int)\nlet f x = x\n" in
+  Alcotest.(check int) "an indented bracket stays the payload" 2
+    (List.length payload.items);
+  (* The single-constructor shorthand reads the same way, so a field list
+     back at column one is not one -- and says so where it is written. *)
+  refuses "the shorthand's field list" "type Span\n(Int, Int)\n" "expected =";
+  let shorthand = parse_program "type Span\n  (Int, Int)\nlet n = 5\n" in
+  Alcotest.(check int) "an indented field list is still one" 2
+    (List.length shorthand.items)
+
+(* The bracket a constructor takes as its payload has to be one the statement
+   is still open for. `peek` steps over a newline without asking, so a
+   constructor alone on its line absorbed a bracket that opened the next item
+   -- `H` and `("s" H)` were two items, and reading the formatter's own output
+   back made them one, so `wand f` never settled. Found by test/fuzz. *)
+let test_a_constructor_payload_stops_at_the_line_end () =
+  let prog = parse_program "H\n(\"s\" H)\n" in
+  Alcotest.(check int) "two top-level items" 2 (List.length prog.items);
+  (* Indented past the item, it is the payload it looks like. *)
+  let payload = parse_program "let a = S\n  (1)\nlet b = 2\n" in
+  Alcotest.(check int) "an indented bracket stays the payload" 2
+    (List.length payload.items);
+  (* And a bracket the statement itself opened suspends the rule, so a
+     newline inside one means nothing -- which is the general rule, not an
+     exception made here. *)
+  Alcotest.(check expr) "inside a bracket it is still the payload"
+    (parse "(S (1))") (parse "(S\n(1))");
+  (* On one line, nothing changes. *)
+  Alcotest.(check expr) "on one line" (parse "S(1)") (parse "S (1)")
+
 (* ── Tuples ──────────────────────────────────────────────────────────────── *)
 
 let test_tuple () =
@@ -884,6 +929,10 @@ let () =
       Alcotest.test_case "program newlines" `Quick test_program_newlines;
       Alcotest.test_case "rewind keeps bracket depth" `Quick
         test_rewind_keeps_bracket_depth;
+      Alcotest.test_case "bracketed payload stops at the line end" `Quick
+        test_a_bracketed_payload_stops_at_the_line_end;
+      Alcotest.test_case "constructor payload stops at the line end" `Quick
+        test_a_constructor_payload_stops_at_the_line_end;
       Alcotest.test_case "tuple"        `Quick test_tuple;
       Alcotest.test_case "list"         `Quick test_list;
       Alcotest.test_case "brace map literal" `Quick test_brace_map_literal;

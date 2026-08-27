@@ -154,7 +154,26 @@ let test_a_field_on_a_number_keeps_its_brackets () =
   formats_and_parses "field on an application" 29 "\"\"(fn->((S 6).o()))\n";
   let out = fmt "let r = {x1 = 1}\nr.x1\n" in
   if Lint.contains out "(x1)" then
-    Alcotest.failf "a name ending in a digit needs no brackets:\n%s" out
+    Alcotest.failf "a name ending in a digit needs no brackets:\n%s" out;
+  (* A literal whose lexeme runs on into the `.` keeps its brackets whatever
+     it ends in. `.` is a path body character and a URL runs to the
+     punctuation around it, so `(./p).log` written as `./p.log` is one token
+     -- a field access turned into a path, which typechecks, so nothing
+     downstream complains. These are checked as text because the property is
+     that the brackets are still there: source that already had them lost
+     them here too, so a round trip alone would have agreed with itself.
+     Found by test/fuzz. *)
+  List.iter (fun (lit, written) ->
+    let out = fmt (Printf.sprintf "let v = (%s).log\nv\n" lit) in
+    if not (Lint.contains out (written ^ ".log")) then
+      Alcotest.failf "%s lost the brackets that make it a field access:\n%s"
+        lit out)
+    [ "./p",      "(./p)";
+      " *.wa",    "( *.wa)";
+      "http://x", "(http://x)";
+      "~/h",      "(~/h)";
+      "/etc/h",   "(/etc/h)";
+      "$HOME",    "($HOME)" ]
 
 (* A bracket is not written straight onto a glob. A glob literal opens with
    a star, and the two together make the sequence the lexer reads as an
@@ -162,14 +181,28 @@ let test_a_field_on_a_number_keeps_its_brackets () =
    would not lex. Found by test/fuzz.
 
    Fixed once in `parenthesize`, and found again from a case body, which
-   writes its own brackets. Every site that wraps emitted text goes through
-   one helper now, so both cases are here: a bug that belongs to the bracket
-   rather than to any one of its writers has to be tested at more than one
-   of them. *)
+   writes its own brackets. Every site that writes a bracket in front of
+   emitted text goes through one helper now, so all of them are here: a bug
+   that belongs to the bracket rather than to any one of its writers has to
+   be tested at more than one of them.
+
+   The last three do not wrap anything -- they open a bracket and put the
+   first item after it, which is the same two characters, and each was still
+   writing its own. Found by test/fuzz, three times. *)
 let test_a_bracket_is_kept_off_a_glob () =
   formats_and_parses "a bracketed glob" 111 "-*w J::i\n";
   formats_and_parses "a glob in a case body" 25
-    "match e with|()->(match e with|k->())(fn()->match t with|Ok(Oke)->*.wn\"%ed\";match d with|_->())\n"
+    "match e with|()->(match e with|k->())(fn()->match t with|Ok(Oke)->*.wn\"%ed\";match d with|_->())\n";
+  formats_and_parses "first in a tuple" 92 "let t = ( *.wa, 1)\nt\n";
+  formats_and_parses "first in a block" 92 "let f x = ( *.wa; x)\nf 1\n";
+  formats_and_parses "the base of a record update" 92
+    "type T(g: Glob, a: Int)\nlet b = T(g = *.wa, a = 1)\nlet v = T( b, a = 2)\nv\n";
+  (* `[` and `{` are not the comment opener, and a space nobody needs is a
+     diff nobody meant. *)
+  Alcotest.(check string) "a list gains no space"
+    "let l = [*.wa]\n" (fmt "let l = [ *.wa]");
+  Alcotest.(check string) "nor does a map"
+    "let m = {a = *.wa}\n" (fmt "let m = {a = *.wa}")
 
 (* A bracket written straight onto the `$` is literal command text; one
    written a space away is an expression that answers with the command.
@@ -503,7 +536,22 @@ let test_constructor_argument_keeps_its_parens () =
     "let f a b = b\nlet x = f None 1\n"
     (fmt "let f a b = b\nlet x = f (None) 1");
   (* The shape that never settled. *)
-  assert_idempotent "a constructor after a qualified name" "l.A S a\n"
+  assert_idempotent "a constructor after a qualified name" "l.A S a\n";
+  (* A run of them, and the head. Bracketing one constructor opens the same
+     hole one place to its left, so the guard has to work backwards and has
+     to reach the head: each of these came back reading two of its atoms as
+     one application. Behaviour, by way of the parse -- the spelling is the
+     guard's business, and only the shape has to survive. *)
+  List.iter (fun src ->
+    let out = fmt src in
+    Alcotest.(check string) ("the spine survives: " ^ src)
+      (Ast.show (Parser.parse_expr (Lexer.tokenize src)))
+      (Ast.show (Parser.parse_expr (Lexer.tokenize out))))
+    [ "(f S S) (B m)";      (* two constructors before a bracket *)
+      "(S S S) (B m)";      (* and a constructor head above them *)
+      "(l.A S) (B m)";      (* a qualified head, which absorbs harmfully *)
+      "(l.A) (g x)";        (* and does so with no constructor argument at all *)
+      "f None (1 + 1)" ]
 
 (* `else ()` is the empty branch written out, and the one-armed form is the
    same expression. The formatter prints the shorter one either way. *)
@@ -924,6 +972,23 @@ let test_raw_multiline_keeps_its_shape () =
   let out = fmt "let b = `\none\ntwo\n`\nb" in
   assert_contains "content still starts on its own line" out "`\none\ntwo\n`"
 
+(* An item's last line, not the line its last token began on. A raw string
+   with a newline in it starts on one line and ends on another, and the
+   assembly step read the start as the end -- so it saw a gap where the
+   source had none and filled it with a blank line. `wand f` therefore added
+   a line the second time it ran over its own output. Found by test/fuzz. *)
+let test_a_multiline_literal_does_not_open_a_gap () =
+  let src = "let banner = `\nhello\n`\nlet n = 1\nn\n" in
+  let out = fmt src in
+  let rec gap = function
+    | a :: b :: tl ->
+      if String.trim a = "`" && String.trim b = "" then true else gap (b :: tl)
+    | _ -> false
+  in
+  if gap (String.split_on_char '\n' out) then
+    Alcotest.failf "a blank line appeared after the literal:\n%s" out;
+  assert_idempotent "a multi-line literal is a fixed point" src
+
 (* Five sequences make the lexer stop inside a string: `%{` interpolates,
    and `%!{`, `${`, `$!{` and `#{` are each refused as the wrong spelling of
    it. A string holding one as text wrote it escaped, and it has to come
@@ -1276,6 +1341,8 @@ let () =
       Alcotest.test_case "let clause layout" `Quick test_let_clause_alignment;
       Alcotest.test_case "raw strings" `Quick test_raw_strings_round_trip;
       Alcotest.test_case "raw layout" `Quick test_raw_multiline_keeps_its_shape;
+      Alcotest.test_case "multiline literal opens no gap" `Quick
+        test_a_multiline_literal_does_not_open_a_gap;
       Alcotest.test_case "wide application"  `Quick test_wide_application_breaks;
     ];
     "comments", [

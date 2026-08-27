@@ -85,7 +85,17 @@ let test_urls () =
   check "https bare"   "https://example.com"           [URL "https://example.com"];
   check "http"         "http://localhost:8080"          [URL "http://localhost:8080"];
   check "with path"    "https://example.com/api/v1"    [URL "https://example.com/api/v1"];
-  check "with query"   "https://example.com/s?q=foo"   [URL "https://example.com/s?q=foo"]
+  check "with query"   "https://example.com/s?q=foo"   [URL "https://example.com/s?q=foo"];
+  (* A URL ends where the punctuation around it begins. `;` was missing from
+     that set, so a URL as any but the last statement of a `( a; b )` block
+     ate the separator and the statement after it arrived with nothing in
+     front of it: `(http://x; let y = 1 in ())` came back "expected ), got
+     let". A newline had always ended one, so the shape only appeared once
+     `wand f` wrote the block on a single line. Found by test/fuzz. *)
+  check "a semicolon ends it" "http://x; y"
+    [URL "http://x"; Semicolon; Ident "y"];
+  check "as a bracket does"   "(http://x)"
+    [LParen; URL "http://x"; RParen]
 
 (* ── IPv4 ───────────────────────────────────────────────────────────────── *)
 

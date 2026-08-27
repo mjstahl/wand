@@ -287,6 +287,28 @@ let read_line_comment s =
 
 (* ── Paths ──────────────────────────────────────────────────────────────── *)
 
+(* Is there a `]` to reach, on this line and before the glob would have
+   ended anyway? A character class runs to its `]`, and the scan for one used
+   to stop only at the end of the file -- so an unmatched `[` turned the whole
+   rest of the source into one glob. It swallowed the newline that ends the
+   statement, and any bracket written after it: `wand f` wrapped a line
+   holding one in brackets, and the closing bracket went into the glob, so
+   the formatter wrote source that would not parse. Found by test/fuzz.
+
+   An unmatched `[` is a literal `[` here, which is what fnmatch(3) makes of
+   it too. Whitespace stops the scan because whitespace stops a glob: a class
+   that seems to hold a space is a `[` that was never a class. *)
+let closes_a_class s =
+  let n = len s in
+  let rec go i =
+    if i >= n then false
+    else match s.src.[i] with
+      | ']' -> true
+      | ' ' | '\t' | '\n' | '\r' -> false
+      | _ -> go (i + 1)
+  in
+  go s.pos
+
 let read_path_body s prefix =
   let buf = Buffer.create 16 in
   Buffer.add_string buf prefix;
@@ -300,7 +322,7 @@ let read_path_body s prefix =
         has_glob := true;
         Buffer.add_char buf (advance s);
         (* consume rest of bracket expression *)
-        if c = '[' then begin
+        if c = '[' && closes_a_class s then begin
           while not (is_at_end s) && peek s <> ']' do
             Buffer.add_char buf (advance s)
           done;
@@ -321,8 +343,15 @@ let read_url s scheme =
   let buf = Buffer.create 32 in
   Buffer.add_string buf scheme;
   Buffer.add_string buf "://";
+  (* `;` ends a URL for the same reason a bracket does: it is punctuation
+     that closes what the literal sits in, and a URL that ate it left the
+     statement after it with nothing in front of it -- `(http://x; let y = 1
+     in ())` came back "expected ), got let". A newline had always ended one,
+     so the shape only appeared once `wand f` wrote the block on a single
+     line. A URL that really holds a `;` is written as a string, as one
+     holding a `,` already is. Found by test/fuzz. *)
   while not (is_at_end s)
-     && not (List.mem (peek s) [' '; '\t'; '\n'; '\r'; ')'; ']'; '}'; ',']) do
+     && not (List.mem (peek s) [' '; '\t'; '\n'; '\r'; ')'; ']'; '}'; ','; ';']) do
     Buffer.add_char buf (advance s)
   done;
   URL (Buffer.contents buf)

@@ -1123,7 +1123,19 @@ and constr_body_ s name =
      exactly the name it replaces. *)
   let ctor_loc = last_loc s in
   let constr = Located (ctor_loc, Constr name) in
-  if peek_named_args s then begin
+  (* The bracket a constructor takes has to be one the statement is still
+     open for. `peek` steps over a newline without asking, so a constructor
+     alone on its line used to absorb a bracket that opened the *next* item:
+     `H` and `("..." H)` were two items, and re-reading them made one. The
+     rule is the ordinary one -- a line back at the statement's own column
+     starts something new, and a bracket the statement already opened
+     suspends it -- so an indented `(` is still a payload. Found by
+     test/fuzz.
+
+     All three shapes below need it, and all three want the same `(`, so the
+     question is asked once. *)
+  let takes_a_bracket = peek s = Token.LParen && not (newline_breaks_expr s) in
+  if takes_a_bracket && peek_named_args s then begin
     ignore (advance s); (* consume LParen *)
     let fields = ref [] in
     if peek s <> Token.RParen then begin
@@ -1142,7 +1154,7 @@ and constr_body_ s name =
     end;
     expect s Token.RParen;
     ConstrApp (name, !fields)
-  end else if peek_bare_args s then begin
+  end else if takes_a_bracket && peek_bare_args s then begin
     ignore (advance s); (* consume LParen *)
     let ids = ref [expect_ident s] in
     while peek s = Token.Comma do
@@ -1150,7 +1162,7 @@ and constr_body_ s name =
     done;
     expect s Token.RParen;
     ConstrBare (name, !ids)
-  end else if peek s = Token.LParen then begin
+  end else if takes_a_bracket then begin
     ignore (advance s); (* consume LParen *)
     (* `M()` is a construction naming no fields where `M` has fields, all of
        which must then have defaults, and a constructor applied to unit
@@ -1723,7 +1735,13 @@ let parse_type_def s =
     (* The newline check belongs on the first payload as much as the rest: a
        constructor without one would otherwise take the next line's type name
        as its payload, so `type Color = Red | Green` followed by a line
-       starting with an uppercase name silently became `Green <that>`. *)
+       starting with an uppercase name silently became `Green <that>`.
+
+       It belongs on the bracketed payload for the same reason. Without it,
+       `type S = C` followed by a line opening with `(` took that line as
+       C's field list -- and `wand f`, which writes a leading unary minus
+       bracketed, turned the two items `type S = C` and `-1` into source the
+       parser then refused. Found by test/fuzz. *)
     | (Token.Upper _ | Token.TypeVar _) when not (newline_breaks_expr s) ->
       let fields = ref [(None, parse_type_atom s)] in
       while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
@@ -1736,7 +1754,7 @@ let parse_type_def s =
           "only a named field takes a default: give the field a name, as in \
            'A(n: Int = 3)'";
       (!fields, [])
-    | Token.LParen ->
+    | Token.LParen when not (newline_breaks_expr s) ->
       let saved = mark s in
       ignore (advance s);
       (match peek s with
@@ -1775,7 +1793,10 @@ let parse_type_def s =
     | _ -> ([], [])
   in
   (* Single-constructor shorthand: type Foo (fields...) desugars to type Foo = Foo (fields...) *)
-  if peek s = Token.LParen then begin
+  (* Same newline rule as the payload below: a `(` back at the declaration's
+     own column opens the next item, not this one's field list. A field list
+     indented past the `type` is still read as one. *)
+  if peek s = Token.LParen && not (newline_breaks_expr s) then begin
     let (fields, defaults) = parse_ctor_fields () in
     Ast.Variants (type_name, !params,
       [{ Ast.name = type_name; loc = Some type_loc; fields; defaults }])

@@ -493,11 +493,37 @@ let rec wrapping_ends_it e =
    A glob literal opens with one, and a bracket written straight onto it
    makes the two characters the lexer reads as an attempt at a block comment
    -- it reports that, having no idea a bracket was meant. Every place that
-   wraps emitted text in brackets goes through here, because the hazard
-   belongs to the bracket rather than to any one of them: it was fixed in
-   `parenthesize` first, and turned up again from a case body. Found by
-   test/fuzz, twice. *)
-let bracket s = (if s <> "" && s.[0] = '*' then "( " else "(") ^ s ^ ")"
+   writes a bracket in front of emitted text goes through here, because the
+   hazard belongs to the bracket rather than to any one of them: it was fixed
+   in `parenthesize` first, then turned up again from a case body, and again
+   from a tuple, a `;` block and a record update, none of which wrap anything
+   -- they open a bracket and put the first item after it, which is the same
+   two characters. Found by test/fuzz, three times.
+
+   `(` only: `[*` and `{*` are not the comment opener and need no space, and
+   a space written where none is needed is a diff nobody meant. *)
+let opener o s = if o = "(" && s <> "" && s.[0] = '*' then "( " else o
+
+let bracket s = opener "(" s ^ s ^ ")"
+
+(* Which atoms take a following bracket as their own. `constr_body_` reads
+   one straight after a constructor name, qualified or not, and nothing else
+   on an application spine does it. *)
+let rec absorbs_a_bracket e =
+  match strip_located e with
+  | Constr _ -> true
+  | Qualified (_, inner) -> absorbs_a_bracket inner
+  | _ -> false
+
+(* Absorption at the head of a spine is harmless while the name is bare:
+   `S (x)` and `S x` both build `App (S, x)`, so there is nothing to guard
+   against. Qualified, it is not -- `l.A (x)` puts the application inside
+   the qualification, `l.(A x)`, where the spine wants it outside,
+   `(l.A) x`. So a qualified head facing a bracket needs one of its own. *)
+let head_needs_a_bracket e =
+  match strip_located e with
+  | Qualified (_, inner) -> absorbs_a_bracket inner
+  | _ -> false
 
 let bracket_if_wrapped_app body emitted =
     (* Both conditions, and only together. A `match` or an `if` is safe with
@@ -629,16 +655,42 @@ and emit_atom indent e =
 
    `following` is what comes after the last of these, when the caller has
    already decided it -- a trailing lambda renders as `(fn ...`, which a
-   constructor before it would absorb just the same. *)
+   constructor before it would absorb just the same.
+
+   Right to left, because a bracket written onto one argument is the next
+   one's business too: it is the text the argument before it now faces. Asked
+   left to right against the unguarded renderings, the guard fixed one
+   position and opened the same hole one place to its left -- `(f S S) (B m)`
+   came back as `f S (S) (B m)`, where the two constructors read as one
+   application. Every argument absorbs only the bracket directly after it, so
+   working backwards settles in one pass, and it settles against the head,
+   which `guard_spine` guards. Found by test/fuzz, three times. *)
 and guard_constructors args rendered following =
   let args = Array.of_list args and rendered = Array.of_list rendered in
   let n = Array.length rendered in
-  List.init n (fun i ->
-    let next = if i + 1 < n then rendered.(i + 1) else following in
+  let out = Array.make n "" in
+  for i = n - 1 downto 0 do
+    let next = if i + 1 < n then out.(i + 1) else following in
     let absorbs = next <> "" && next.[0] = '(' in
-    match strip_located args.(i) with
-    | Constr _ when absorbs -> bracket rendered.(i)
-    | _ -> rendered.(i))
+    out.(i) <-
+      (if absorbs && absorbs_a_bracket args.(i) then bracket rendered.(i)
+       else rendered.(i))
+  done;
+  Array.to_list out
+
+(* The spine as its pieces, head first, each guarded against the one after
+   it. The head is here because it is where a run of constructors stops:
+   guarding the arguments alone left `(l.A S) (B m)` to come back as
+   `l.A (S) (B m)`, which reads `S` as the payload of `l.A`. *)
+and guard_spine head head_s args rendered following =
+  let guarded = guard_constructors args rendered following in
+  let next = match guarded with x :: _ -> x | [] -> following in
+  let head_s =
+    if head_needs_a_bracket head && next <> "" && next.[0] = '(' then
+      bracket head_s
+    else head_s
+  in
+  head_s :: guarded
 
 and emit_arg indent e = emit_atom indent e
 
@@ -730,7 +782,8 @@ and emit_expr_inner ?col indent e =
       emit_expr indent base
       :: List.map (fun (k, v) -> k ^ " = " ^ emit_expr indent v) kvs
     in
-    let oneline = name ^ "(" ^ String.concat ", " items ^ ")" in
+    let body = String.concat ", " items in
+    let oneline = name ^ opener "(" body ^ body ^ ")" in
     if fits col oneline then oneline
     else
       let ind = String.make indent ' ' in
@@ -891,16 +944,18 @@ and emit_app ?col indent e =
   let (head, args) = flatten e in
   if args = [] then emit_expr indent head
   else
-    let emit_args ?(following = "") ind =
-      guard_constructors args (List.map (emit_arg ind) args) following
+    (* The head travels with the arguments: guarding one of them can put a
+       bracket in front of the head, so the two cannot be joined afterwards. *)
+    let spine ?(following = "") ind =
+      guard_spine head (emit_atom indent head) args
+        (List.map (emit_arg ind) args) following
     in
     (* Asked at an unbounded margin, where nothing can choose to wrap. This
        is the one shape the cache cannot help on its own: the two questions
        are asked at two different indents, so neither answer is the other's.
        Asked flat, the question costs one pass over the subtree. *)
     let oneline =
-      with_width max_int
-        (fun () -> emit_atom indent head ^ " " ^ String.concat " " (emit_args indent))
+      with_width max_int (fun () -> String.concat " " (spine indent))
     in
     if fits col oneline then oneline
     else
@@ -919,9 +974,8 @@ and emit_app ?col indent e =
           | Fn (ps, body) ->
             let prefix =
               String.concat " "
-                (emit_atom indent head
-                 :: guard_constructors before
-                      (List.map (emit_arg indent) before) "(")
+                (guard_spine head (emit_atom indent head) before
+                   (List.map (emit_arg indent) before) "(")
             in
             let head_s =
               prefix ^ " (" ^ emit_fn_head ps in
@@ -941,16 +995,20 @@ and emit_app ?col indent e =
             let tail = emit_expr ~col:0 indent last_v in
             let prefix =
               String.concat " "
-                (emit_atom indent head
-                 :: guard_constructors before
-                      (List.map (emit_arg indent) before) tail)
+                (guard_spine head (emit_atom indent head) before
+                   (List.map (emit_arg indent) before) tail)
             in
             prefix ^ " "
             ^ emit_expr ~col:(column_after col prefix + 1) indent last_v
           | _ ->
-            (* Otherwise one argument per line, under the head. *)
-            emit_atom indent head ^ "\n" ^ inner
-            ^ String.concat ("\n" ^ inner) (emit_args (indent + 2)))
+            (* Otherwise one argument per line, under the head. A newline
+               does not stop a constructor absorbing the bracket below it --
+               the parser's lookahead steps over one -- so the guard applies
+               to this layout exactly as it does to the flat one. *)
+            (match spine (indent + 2) with
+             | head_s :: rest ->
+               head_s ^ "\n" ^ inner ^ String.concat ("\n" ^ inner) rest
+             | [] -> oneline))
        | _, None -> oneline)
 
 (* What follows the `$`, brackets and all: the literal text spelled tight
@@ -1011,9 +1069,22 @@ and emit_field indent e l =
      `(S 6).o` came back as `S 6.o`, which is a different program before it
      is a lex error. `emit_atom` already knows every form that has to be
      bracketed in this position, including that one. *)
+  (* A literal whose lexeme runs on into the `.` keeps its brackets whatever
+     it ends in, because there is no spelling of it that does not. `.` is a
+     path body character and a URL runs to the punctuation around it, so
+     `(./p).log` written as `./p.log` is one path token, not a field access
+     -- a different program, and one that typechecks, so nothing downstream
+     says a word. Bracketed source lost its brackets here too, which is why
+     no file in the corpus showed it. Found by test/fuzz. *)
+  let lexeme_eats_the_dot = match e' with
+    | Path _ | Glob _ | URL _ | EnvVar _ -> true
+    | _ -> false
+  in
   let target =
     let t = emit_atom indent e' in
-    if numeric_literal && ends_in_a_digit t then bracket t else t
+    if lexeme_eats_the_dot || (numeric_literal && ends_in_a_digit t) then
+      bracket t
+    else t
   in
   target ^ "." ^ l
 
@@ -1063,7 +1134,8 @@ and emit_list ?col indent es =
 
 and emit_sequence ?col indent opening closing items =
   let col = match col with Some c -> c | None -> indent in
-  let oneline = opening ^ String.concat ", " items ^ closing in
+  let body = String.concat ", " items in
+  let oneline = opener opening body ^ body ^ closing in
   if fits col oneline then oneline
   else
     let inner = String.make (indent + 2) ' ' in
@@ -1236,7 +1308,7 @@ and emit_block ?col indent e =
   let probe = with_width max_int (fun () -> items indent e) in
   let probe_claimed = !claimed in
   prev_end := max_int; claimed := false;
-  let oneline = "(" ^ String.concat "; " (List.map snd probe) ^ ")" in
+  let oneline = bracket (String.concat "; " (List.map snd probe)) in
   if not probe_claimed && fits col oneline && not (String.contains oneline '\n')
   then oneline
   else begin
@@ -1878,10 +1950,16 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
        the AST's end_loc says, and trusting that would leave an apparent gap
        for `assemble` to fill with a blank line -- separating a doc comment
        from the binding it documents. Count the lines actually emitted. *)
+    (* `end_loc.end_line`, not `end_loc.line`: the two differ when the item's
+       last token spans lines of its own -- a raw string with a newline in it
+       is the case that arises -- and `line` is where that token *started*.
+       Reading it as the item's last line left an apparent gap for `assemble`
+       to fill, so `wand f` inserted a blank line the second time it ran over
+       its own output. Found by test/fuzz. *)
     let end_line =
       if is_verbatim then
         start_loc.line + List.length (String.split_on_char '\n' text) - 1
-      else end_loc.line
+      else end_loc.Token.end_line
     in
     let piece = { offset = start_loc.offset; start_line = start_loc.line;
                   end_line; text; is_comment = false; blank_after = false } in

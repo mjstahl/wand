@@ -10,7 +10,8 @@
   input, because a layout bug is a bug about what fits. `tools/check_fmt.wand`
   asks whether formatted files stay formatted, which a corpus that is already a
   fixed point can always answer yes to; this asks the same question about
-  source nobody wrote. It found four bugs on its first run, two of them fixed below
+  source nobody wrote. It found four bugs on its first run, and everything it
+  has found since is fixed below -- `test/fuzz/known.txt` holds no signature
 - `fuzz --input FILE --show`, which prints what the formatter did to one input:
   both passes, the comments before and after, and the type either side. A
   format finding says a property broke and not what came out, and what came out
@@ -67,7 +68,14 @@
   instead, on every constructor that was not the last argument, which added
   brackets nothing needed and after a qualified name changed the parse.
   `l.A S a` is `(l.A S) a` while `l.A (S) a` reads `S` as the payload of
-  `l.A`, so the formatter wrote each spelling as the other and never settled
+  `l.A`, so the formatter wrote each spelling as the other and never settled.
+  The guard now works backwards along the spine and reaches the head. A
+  bracket written onto one argument is the text the argument before it
+  faces, so asking the question forwards closed one hole and opened the same
+  one a place to its left: `(f S S) (B m)` came back as `f S (S) (B m)`,
+  reading the two constructors as one application. The head needs the same
+  guard when it is qualified -- `(l.A) (g x)` came back as `l.A (g x)`,
+  which puts the application inside the qualification
 - `wand f` keeps the space that tells two commands apart. A bracket written
   straight onto the `$` is literal command text; one written a space away is
   an expression that answers with the command. `$(i)` runs the command `i`
@@ -93,7 +101,10 @@
   an attempt at a block comment. Every place that wraps emitted text in
   brackets goes through one helper, because the hazard belongs to the
   bracket and not to any one of its writers -- it was fixed in one of them
-  first and turned up again from a case body
+  first and turned up again from a case body, and then from a tuple, a `;`
+  block and a record update. Those three wrap nothing: they open a bracket
+  and put the first item after it, which is the same two characters. `[` and
+  `{` are not the comment opener and are left alone
 - `wand f` keeps a comment that its own output happens to quote. Whether an
   interior comment survived was decided by counting occurrences of its text
   in the rendered item, so a rendering that had dropped the comment `--`
@@ -126,6 +137,43 @@
   is left alone. `wand f` writes in place, so this was a tool corrupting the
   file it was asked to tidy. Found by the fuzzer, which does not need anyone
   to write a long enough line first
+- The newline rule reaches the bracket a constructor takes as its payload. A
+  constructor absorbs a following bracketed expression, and the parser looked
+  for that bracket with a lookahead that steps over a newline without asking
+  -- so a constructor at the end of its line took a bracket that opened the
+  *next* statement. It cost two shapes. `type Colour = Red` above a line
+  opening with `(` read that line as Red's field list, which is how `wand f`,
+  writing a leading unary minus bracketed, turned `type S = C` and `-1` into
+  source the parser refused. And `H` above `("s" H)` was two items that read
+  back as one, so `wand f` never settled on its own output. A bracket
+  indented past the statement is still the payload it looks like, and one
+  inside a bracket the statement opened is too
+- An unmatched `[` in a glob is a literal `[`, as it is to fnmatch(3). The
+  scan for the closing `]` stopped only at the end of the file, so a glob
+  holding one swallowed everything after it -- the newline that ends the
+  statement, and any bracket written later on the line. `wand f` wrapped a
+  line holding such a glob and the closing bracket went into the glob, so it
+  wrote source that would not parse. Whitespace ends the scan because
+  whitespace ends a glob
+- A `;` ends a URL literal, as a bracket already did. A URL as any but the
+  last statement of a `( a; b )` block ate the separator, and the statement
+  after it arrived with nothing in front of it: `(http://x; let y = 1 in ())`
+  came back "expected ), got let". A newline had always ended a URL, so the
+  shape appeared only once `wand f` wrote the block on one line. A URL that
+  really holds a `;` is written as a string, as one holding a `,` already is
+- `wand f` brackets a field access on a path, a glob, a URL or an env var.
+  `.` is a path body character and a URL runs to the punctuation around it,
+  so `(./p).log` written as `./p.log` is a single path token -- a field
+  access turned into a path. It typechecks, so nothing downstream says a
+  word; the file just means something else. Source that already carried the
+  brackets lost them here too, which is why no file in the corpus showed it.
+  This is the numeric-literal rule above, extended to the literals that eat
+  the `.` whatever they end in
+- `wand f` adds no blank line under an item whose last token spans lines. The
+  assembly step read an item's last line off the line its last token
+  *started* on, which differ when that token is a raw string with a newline
+  in it -- so it saw a gap the source did not have and filled it, and the
+  formatter grew a line the second time it ran over its own output
 
 ## [0.52.0] - 2026-08-26
 
