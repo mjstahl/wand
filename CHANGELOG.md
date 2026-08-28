@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.53.2] - 2026-08-28
+
+### Fixed
+
+- **`wand f` no longer grows a file without bound.** 0.53.1 writes a `;` before
+  a top-level item that opens with an operator, so it does not read as a
+  continuation of the item above. The separator goes on the piece above, and a
+  comment cannot hold one: it runs to the end of its line and swallowed the
+  `;`. So a `--` above a `-` line gained a character on every pass, and the
+  comment's own text changed under it. `wand f` writes in place, so a file
+  formatted twice was a file corrupted twice. Nothing is owed above a comment
+  anyway -- a comment ends its line, so an operator below it continues
+  nothing. 0.53.0 is not affected
+
 ## [0.53.1] - 2026-08-28
 
 ### Fixed
