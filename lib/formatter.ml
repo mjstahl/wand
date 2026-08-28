@@ -2144,6 +2144,7 @@ let assemble pieces =
   let buf = Buffer.create 1024 in
   let prev_end = ref None in
   let prev_blank_after = ref false in
+  let prev_is_comment = ref false in
   List.iter (fun p ->
     (match !prev_end with
      | None -> ()
@@ -2151,7 +2152,18 @@ let assemble pieces =
        if p.is_comment && p.start_line = pel then
          Buffer.add_string buf "  "
        else begin
-         if (not p.is_comment) && opens_with_an_operator p.text then
+         (* The separator goes on the piece above, so there has to be one
+            that can hold it. A comment runs to the end of its line and
+            swallows whatever is written after it: the `;` became part of
+            the comment, the operator line still opened a line of its own,
+            and the next pass wrote another one -- `--` grew a `;` per pass,
+            for ever, and the comment's own text changed under it.
+
+            Nothing is owed above a comment anyway. A comment ends the line
+            it is on, so the operator below it is not continuing anything.
+            Found by test/fuzz, on eight seeds at once. *)
+         if (not p.is_comment) && (not !prev_is_comment)
+            && opens_with_an_operator p.text then
            Buffer.add_char buf ';';
          Buffer.add_char buf '\n';
          if !prev_blank_after || p.start_line - pel - 1 > 0 then
@@ -2159,7 +2171,8 @@ let assemble pieces =
        end);
     Buffer.add_string buf p.text;
     prev_end := Some p.end_line;
-    prev_blank_after := p.blank_after
+    prev_blank_after := p.blank_after;
+    prev_is_comment := p.is_comment
   ) sorted;
   if Buffer.length buf > 0 then Buffer.add_char buf '\n';
   Buffer.contents buf

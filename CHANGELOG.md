@@ -2,6 +2,17 @@
 
 ## [0.54.0] - 2026-08-28
 
+### Fixed
+
+- **`wand f` no longer grows a file without bound.** 0.53.1 added a `;` before
+  a top-level item opening with an operator, to stop it continuing the item
+  above. The separator goes on the piece above, and a comment cannot hold one:
+  it runs to the end of its line and swallowed the `;`, so `--` above a `-`
+  line gained a character on every pass and the comment's own text changed
+  under it. Nothing is owed above a comment anyway -- a comment ends its line,
+  so an operator below it continues nothing. Only 0.53.1 is affected; 0.53.0
+  is not
+
 ### Changed
 
 - **`wand t` takes a file.** An expression is given with `-e`/`--expr`. It was the

@@ -1,0 +1,27 @@
+found:     test/fuzz, all eight seeds, 2026-08-28
+reported:  format:unstable and format:lost-comment, eleven times
+fixed in:  lib/formatter.ml, assemble
+
+A regression, shipped in 0.53.1 and not caught until the sweep after it.
+
+An item opening with an operator continues the item above it, so
+`assemble` writes a `;` on the piece above to end it. That piece has to
+be one that can hold a `;`. A comment cannot: it runs to the end of its
+line and swallows whatever follows, so the separator became part of the
+comment, the operator line still opened a line of its own, and the next
+pass wrote another one.
+
+  --          -->   --;        -->   --;;
+  -                 -                -
+  --                --               --
+  let e=e           let e=e          let e=e
+
+A character per pass, without bound, and the comment's own text changed
+under it -- which is the `format:lost-comment` half of the same bug.
+
+Nothing is owed above a comment in the first place. A comment ends the
+line it is on, so an operator below it is not continuing anything.
+
+The fixture that pinned the original fix,
+formatter-operator-item-after-a-verbatim-slice, has a code item above the
+operator and so never reached this path. Both are kept.
