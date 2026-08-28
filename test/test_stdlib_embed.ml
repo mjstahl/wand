@@ -97,7 +97,7 @@ let test_runs_outside_any_tree () =
   with_scratch (fun d ->
     Alcotest.(check string)
       "a directory with no stdlib above it" "2 : Int"
-      (run ~dir:d [ "e"; "List.length [1,2]" ]))
+      (run ~dir:d [ "-e"; "List.length [1,2]" ]))
 
 let decoy dir =
   let s = Filename.concat dir "stdlib" in
@@ -110,7 +110,7 @@ let test_decoy_stdlib_is_ignored () =
     decoy d;
     Alcotest.(check string)
       "a stdlib/ in the working directory changes nothing" "2 : Int"
-      (run ~dir:d [ "e"; "List.length [1,2]" ]))
+      (run ~dir:d [ "-e"; "List.length [1,2]" ]))
 
 let test_decoy_stdlib_above_is_ignored () =
   with_scratch (fun d ->
@@ -119,7 +119,7 @@ let test_decoy_stdlib_above_is_ignored () =
     Unix.mkdir sub 0o755;
     Alcotest.(check string)
       "a stdlib/ in a parent directory changes nothing" "2 : Int"
-      (run ~dir:sub [ "e"; "List.length [1,2]" ]))
+      (run ~dir:sub [ "-e"; "List.length [1,2]" ]))
 
 (* The override is what makes a built binary usable against a working tree,
    so it has to actually replace the library rather than merely be read. *)
@@ -134,7 +134,7 @@ let test_override_replaces_the_library () =
           (fun oc -> Out_channel.output_string oc src))
       Stdlib_embed.table;
     let cmd =
-      Printf.sprintf "cd %s && WAND_STDLIB=%s %s e %s 2>&1" (Filename.quote d)
+      Printf.sprintf "cd %s && WAND_STDLIB=%s %s -e %s 2>&1" (Filename.quote d)
         (Filename.quote alt) (Filename.quote wand_binary)
         (Filename.quote "List.length [1,2]")
     in

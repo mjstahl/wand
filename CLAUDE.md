@@ -15,7 +15,7 @@ examples. Most tasks need only one part.
 
 ### Layout
 
-- `bin/wand.ml` — the CLI: dispatch for `e`/`t`/`i`/`d`/`v`/`f`/`s`, running a script by path, flags like `--dry-run` and `--trace`.
+- `bin/wand.ml` — the CLI: dispatch for `t`/`i`/`d`/`v`/`f`/`s`, running a script by path or `-e` by expression, flags like `--dry-run` and `--trace`.
 - `lib/` — the pipeline, one stage per module:
   - `token.ml`, `lexer.ml` — tokens and lexing, including domain literals (paths, globs, durations, sizes) and the string/command interpolation forms.
   - `parser.ml`, `ast.ml` — recursive-descent parser. A newline ends a statement unless the line below is indented past it, or opens with an operator; a bracket the statement opened suspends the rule until it closes. `stmt_col`/`stmt_depth` carry that anchor, and `clause_name` is what lets a function's next equation end the body above it.
@@ -117,12 +117,12 @@ row are not the flake; read the log.
 Write the script, then let the tools drive the edits:
 
 ```bash
-wand t --file script.wand        # typecheck a file (wand t "expr" for a snippet)
-wand t --fix --file script.wand  # apply the fixes findings carry (manifest lines, missing and dead imports)
-wand f script.wand               # format in place
-wand s                           # run every test_*.wand from here down
-wand --dry-run script.wand       # report what it would change, without doing it
-wand script.wand                 # the real run
+wand t script.wand          # typecheck a file (wand t --expr "..." for a snippet)
+wand t --fix script.wand    # apply the fixes findings carry (manifest lines, missing and dead imports)
+wand f script.wand          # format in place
+wand s                      # run every test_*.wand from here down
+wand --dry-run script.wand  # report what it would change, without doing it
+wand script.wand            # the real run
 ```
 
 Never write effect annotations by hand. `wand t` tells you the manifest line

@@ -15,7 +15,7 @@ let lookup_module name sess =
   | Some (Typechecker.Namespace members) -> Some members
   | _ -> None
 
-(* ── wand e (eval) ───────────────────────────────────────────────────────── *)
+(* ── evaluating an expression (wand -e) ─────────────────────────────────── *)
 
 let test_eval () =
   let sess = make_sess () in
@@ -288,8 +288,9 @@ let test_repl_answers_pure_unit () =
 
 (* Checking a file without running it: what an editing loop and CI both want,
    and what a manifest violation will be reported through. The path is stated
-   with --file rather than guessed from the argument, since `deploy.wand` is
-   itself a valid path expression and would otherwise typecheck as one. *)
+   named directly, as it is everywhere else; an expression is what carries a
+   flag (`--expr`), since `deploy.wand` is itself a valid path expression and
+   the two cannot be told apart by shape. *)
 
 let with_file name contents f =
   let path = Filename.concat (Filename.get_temp_dir_name ()) name in

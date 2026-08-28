@@ -400,7 +400,7 @@ let test_corpus_is_clean () =
     files
 
 (* The same modules through the path a person uses. `lint_module_source`
-   above is the library call; this is `wand t --file`, which has to reach
+   above is the library call; this is `wand t <file>`, which has to reach
    them too -- a module body calls the raw builtins, and checked as a script
    it fails on the first one. Without this the standard library could only
    be checked by importing it, so a module could go wrong in a way nobody

@@ -6,7 +6,7 @@
    check that cited rules exist, but no test read a documented type.
 
    So this one reads them all. A line of the form `Module.name : type`
-   inside the reference is looked up with `wand t` and compared. Lines
+   inside the reference is looked up with `wand t --expr` and compared. Lines
    naming something that is not a standard library module are skipped --
    the document defines a few types of its own for examples. *)
 
@@ -18,7 +18,7 @@ let reference_path = "../docs/reference.md"
 
 let run_type expr =
   let cmd =
-    Printf.sprintf "%s t %s 2>&1" (Filename.quote wand_binary)
+    Printf.sprintf "%s t --expr %s 2>&1" (Filename.quote wand_binary)
       (Filename.quote expr)
   in
   let ic = Unix.open_process_in cmd in

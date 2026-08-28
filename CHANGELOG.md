@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.54.0] - 2026-08-28
+
+### Changed
+
+- **`wand t` takes a file.** An expression is given with `--expr`. It was the
+  other way round, and the argument is the same either way -- `deploy.wand` is
+  a valid path expression -- so `wand t ./deploy.wand` typechecked the *path
+  literal*, answered `Path` and exited 0. A checking tool reported success for
+  a file it never opened. One rule now covers the CLI: a file is named
+  directly, an expression carries a flag
+- **`wand e` is gone; an expression is `wand -e` or `wand --expr`.** The same
+  rule at the top level, where a file was already the positional argument.
+  `wand e "1 + 2"` reports `no such file: e` and names the command that works
+- **`wand t --file` is gone.** The file is the argument
+- `--load` with a file is refused rather than ignored. It seeds a session,
+  which a file does not use, and a flag accepted and dropped is a check that
+  did not happen
+- `--dry-run` and `--trace` with `--expr` are refused. They are built around a
+  script's effects and there is no mode to give an expression; accepting one
+  and ignoring it would run for real, which is what `--dry-run` exists to
+  prevent
+
 ## [0.53.1] - 2026-08-28
 
 ### Fixed

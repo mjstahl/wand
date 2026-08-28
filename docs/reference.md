@@ -52,8 +52,8 @@ wand script.wand        # run a script
 wand --dry-run deploy.wand   # report what it would change, without doing it
 wand --trace deploy.wand     # run it, reporting each effect as it happens
 wand i                  # interactive session
-wand e "1 + 2"          # evaluate an expression
-wand t "1 + 2"          # typecheck without evaluating
+wand -e "1 + 2"         # evaluate an expression
+wand t script.wand      # typecheck a file without running it
 wand d "List.map"       # show doc string
 wand v                  # list all names in scope
 wand f script.wand      # format a file in place
@@ -1325,7 +1325,7 @@ not check only what a run performs. A function that runs a command still runs
 it when another file imports it and calls it.
 
 ```console
-$ wand t --file deploy.wand
+$ wand t deploy.wand
 Error: type error: 'publish' performs Shell, which the manifest does not allow.
        The manifest should be:  "uses {Shell(rsync), FS.Write}"
 ```
@@ -2008,7 +2008,7 @@ hole typechecks, and it does not run. `wand t` and `wand e` report the type
 that belongs there:
 
 ```console
-$ wand t 'List.fold_left ? 0 [1, 2, 3]'
+$ wand t --expr 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
 
@@ -4339,8 +4339,8 @@ wand d "List.map"                     # show doc string
 wand d -x "List.map"                  # print the doc with its examples run
 wand d -t List                        # check a module's examples; silent if right
 wand d --json "List.map"              # the same, as JSON for tools
-wand e "1 + 2"                        # evaluate and print result
-wand e --load config.wand "host"      # evaluate in context of a file
+wand -e "1 + 2"                       # evaluate and print result
+wand --load config.wand -e "host"     # evaluate in context of a file
 wand f script.wand                    # format a file in place
 wand f stdlib/*.wand                  # format multiple files in place
 wand h                                # show all commands
@@ -4348,7 +4348,7 @@ wand h e                              # help for a specific command
 wand s                                # run every test_*.wand from here down
 wand s test_deploy.wand               # run named test files
 wand s --json                         # per-test results as JSON, for tools
-wand t "List.map"                     # typecheck only
+wand t --expr "List.map"              # typecheck an expression
 wand v                                # list all names and modules in scope
 wand v List                           # list one module's members
 wand v --json List                    # the same, as JSON for tools
@@ -4451,14 +4451,14 @@ that it does not have. A run that discards its assertions cannot answer the
 question you asked.
 
 ```sh
-wand t --strict "..."             # violations become errors (exit 1)
-wand t --json "..."               # diagnostics as JSON, for tools
-wand t --fix --file script.wand   # apply the fixes the findings carry
+wand t --strict script.wand       # violations become errors (exit 1)
+wand t --json script.wand         # diagnostics as JSON, for tools
+wand t --fix script.wand          # apply the fixes the findings carry
 ```
 
 ### `--fix`
 
-`wand t --fix --file script.wand` applies each correction that a machine can
+`wand t --fix script.wand` applies each correction that a machine can
 apply. It writes the file, checks it again, and repeats until nothing more
 applies. One fix can reveal another. A new binary in `Shell(...)` can reveal a
 binary that no command runs. The fixes are the `fix` payloads that `--json`
@@ -4484,7 +4484,7 @@ Each finding and each error carries `severity`, either `"error"` or
 `"warning"`. It carries `code`, such as `A-USES2` or `V-DROP1`. An error gets
 `E-TYPE`, `E-PARSE`, `E-LEX` or `E-IMPORT`. It also carries `line`, `col` and
 `message`.
-`file` appears when you named a file with `--file`. A diagnostic that covers a
+`file` appears when a file was checked. A diagnostic that covers a
 range also carries `end_line` and `end_col`, which are exclusive. A finding
 spans the whole item. A type error spans the whole expression at fault. A lex
 error spans the token that failed. Under `--strict`, a must-fix finding reports

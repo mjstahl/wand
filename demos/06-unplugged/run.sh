@@ -11,7 +11,7 @@ sed -n '9,14p' "$D/deploy.wand" | sed 's/^/  /'
 
 echo
 printf '  deploy! : '
-"$WAND" t --load "$D/deploy.wand" 'deploy!'
+"$WAND" t --load "$D/deploy.wand" --expr 'deploy!'
 
 echo
 echo "== its test suite =="

@@ -13,7 +13,7 @@
    is bought back by `--`: everything after the terminator is the script's,
    whatever it looks like, so a script that does take a `--dry-run` of its
    own can still be given one. Anything else wand knows -- `--json`,
-   `--file`, `--load`, `--fix` -- belongs to a subcommand, and no subcommand
+   `--expr`, `--load`, `--fix` -- belongs to a subcommand, and no subcommand
    runs a script with arguments, so those reach a script untouched and are
    pinned here too.
 
@@ -85,7 +85,7 @@ let test_every_other_flag_reaches_the_script () =
     check "an ordinary flag" "[\"--out\", \"/tmp/x\"]" [argv_script; "--out"; "/tmp/x"];
     (* Flags of the subcommands. None of them is read on this path. *)
     check "--json" "[\"--json\", \"x\"]" [argv_script; "--json"; "x"];
-    check "--file" "[\"--file\", \"x\"]" [argv_script; "--file"; "x"];
+    check "--expr" "[\"--expr\", \"x\"]" [argv_script; "--expr"; "x"];
     check "--load" "[\"--load\", \"x\"]" [argv_script; "--load"; "x"];
     check "--strict and --fix" "[\"--strict\", \"--fix\"]"
       [argv_script; "--strict"; "--fix"];

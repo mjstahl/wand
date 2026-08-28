@@ -78,7 +78,7 @@ Write `?` where you do not know what belongs, then typecheck. wand answers with
 the type of the hole.
 
 ```console
-$ wand t 'List.fold_left ? 0 [1, 2, 3]'
+$ wand t --expr 'List.fold_left ? 0 [1, 2, 3]'
 Hole: Int -> Int -> Int ! 'e
 ```
 
@@ -127,7 +127,7 @@ install wand-0.22.0-macos-aarch64/wand ~/.local/bin/
 
 The binary holds its own standard library. You install nothing else. Startup is
 short enough for CI glue and for an editing loop. The release binary runs
-`wand e "1 + 2"` in about 9 ms on macOS x86_64. That is about 2 times
+`wand -e "1 + 2"` in about 9 ms on macOS x86_64. That is about 2 times
 `bash -c :`. `bench/startup.sh` repeats the measurement.
 
 **From source.** This is the contributor path. It needs OCaml 5.x and opam:
@@ -140,8 +140,8 @@ dune exec wand -- script.wand
 ```sh
 wand script.wand        # run a script
 wand i                  # interactive session
-wand e "1 + 2"          # evaluate an expression
-wand t "1 + 2"          # typecheck, report holes, and lint
+wand -e "1 + 2"         # evaluate an expression
+wand t script.wand      # typecheck a file, report holes, and lint
 wand d "List.map"       # show a doc string
 wand f script.wand      # format in place
 wand s                  # run every test_*.wand from here down

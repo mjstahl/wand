@@ -295,19 +295,19 @@ let with_violating_file f =
 
 let test_strict_json_exit_code () =
   with_violating_file (fun path ->
-    let (code, out) = run ["t"; "--strict"; "--json"; "--file"; path] in
+    let (code, out) = run ["t"; "--strict"; "--json"; path] in
     if not (Lint.contains out "\"severity\":\"error\"") then
       Alcotest.failf "the finding was not reported as an error:\n%s" out;
     Alcotest.(check int) "--strict --json fails on a violation" 1 code)
 
 let test_strict_text_exit_code () =
   with_violating_file (fun path ->
-    let (code, _) = run ["t"; "--strict"; "--file"; path] in
+    let (code, _) = run ["t"; "--strict"; path] in
     Alcotest.(check int) "and says the same without --json" 1 code)
 
 let test_json_without_strict_is_a_warning () =
   with_violating_file (fun path ->
-    let (code, out) = run ["t"; "--json"; "--file"; path] in
+    let (code, out) = run ["t"; "--json"; path] in
     if not (Lint.contains out "\"severity\":\"warning\"") then
       Alcotest.failf "expected a warning without --strict:\n%s" out;
     Alcotest.(check int) "a warning is not a failure" 0 code)
@@ -315,7 +315,8 @@ let test_json_without_strict_is_a_warning () =
 let test_strict_json_expression () =
   (* The same rule for an expression, which takes a different path through
      the CLI than a file does. *)
-  let (code, out) = run ["t"; "--strict"; "--json"; "let big? n = n + 1"] in
+  let (code, out) =
+    run ["t"; "--strict"; "--json"; "--expr"; "let big? n = n + 1"] in
   if not (Lint.contains out "V-PRED1") then
     Alcotest.failf "expected V-PRED1:\n%s" out;
   Alcotest.(check int) "--strict --json fails on an expression too" 1 code
@@ -326,7 +327,7 @@ let test_strict_json_clean_file () =
     Out_channel.output_string oc "let double n = n * 2\n");
   Fun.protect ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
     (fun () ->
-       let (code, _) = run ["t"; "--strict"; "--json"; "--file"; path] in
+       let (code, _) = run ["t"; "--strict"; "--json"; path] in
        Alcotest.(check int) "a clean file still passes" 0 code)
 
 (* Module loading refuses in several ways, and every one of them used to
@@ -368,6 +369,84 @@ let test_import_error_is_not_the_first_line () =
   let l = import_error "let a = 1\nlet b = 2\nlet {nope} = import Test" in
   Alcotest.(check int) "the third line" 3 l.Token.line
 
+(* ── Which argument is a file and which is an expression ─────────────────── *)
+
+(* `wand t` takes a file, as every other command that takes one does; an
+   expression is given with `--expr`. The two cannot be told apart by shape --
+   `deploy.wand` is a valid path expression -- so the rarer one carries the
+   flag.
+
+   What this pins is the failure. Before it, `wand t ./x.wand` typechecked the
+   *path literal*, answered `Path`, and exited 0: a checking tool reporting
+   success for a file it never opened. *)
+
+(* `run` sends stderr to /dev/null, and everything this section is about --
+   the warnings, the errors and the hints -- is written there. *)
+let run_all args =
+  let cmd = String.concat " " (List.map Filename.quote (wand_binary :: args)) in
+  let ic = Unix.open_process_in (cmd ^ " 2>&1") in
+  let out = In_channel.input_all ic in
+  let code = match Unix.close_process_in ic with
+    | Unix.WEXITED n -> n
+    | Unix.WSIGNALED n | Unix.WSTOPPED n -> 128 + n
+  in
+  (code, String.trim out)
+
+let says out needle =
+  if not (Lint.contains out needle) then
+    Alcotest.failf "expected %S in:\n%s" needle out
+
+let test_file_is_the_default () =
+  with_violating_file (fun path ->
+    let (code, out) = run_all ["t"; path] in
+    (* The file was read: its finding is reported. *)
+    says out "V-SHELL1";
+    Alcotest.(check int) "a warning alone is not a failure" 0 code)
+
+let test_a_path_is_not_typechecked_as_a_literal () =
+  (* The shape that used to answer `Path` and exit 0. *)
+  with_violating_file (fun path ->
+    let (_, out) = run_all ["t"; "./" ^ Filename.basename path] in
+    if Lint.contains out "Path" then
+      Alcotest.failf "the path was checked as a literal:\n%s" out)
+
+let test_expression_needs_the_flag () =
+  let (code, out) = run ["t"; "--expr"; "1 + 2"] in
+  says out "Int";
+  Alcotest.(check int) "an expression still checks" 0 code
+
+let test_missing_file_hints_at_expr () =
+  let (code, out) = run_all ["t"; "1 + 2"] in
+  says out "no such file";
+  says out "wand t --expr";
+  Alcotest.(check int) "and fails" 1 code
+
+let test_a_missing_wand_file_gets_no_hint () =
+  (* A name that is spelled like a file is a file that is not there. Offering
+     `--expr` on a typo is noise. *)
+  let (_, out) = run_all ["t"; "no-such-thing.wand"] in
+  says out "no such file";
+  if Lint.contains out "--expr" then
+    Alcotest.failf "a .wand name should not be offered --expr:\n%s" out
+
+let test_eval_is_a_top_level_flag () =
+  let (code, out) = run ["-e"; "1 + 2"] in
+  says out "3";
+  Alcotest.(check int) "evaluates" 0 code
+
+let test_eval_subcommand_hints () =
+  let (code, out) = run_all ["e"; "1 + 2"] in
+  says out "no such file: e";
+  says out "wand -e";
+  Alcotest.(check int) "and fails" 1 code
+
+let test_mode_flags_refuse_an_expression () =
+  (* Accepting `--dry-run` and ignoring it would run for real, which is the
+     one mistake that flag exists to prevent. *)
+  let (code, out) = run_all ["--dry-run"; "-e"; "1 + 2"] in
+  says out "applies to a script";
+  Alcotest.(check int) "and fails" 1 code
+
 let () =
   Alcotest.run "json diagnostics" [
     "findings", [
@@ -378,6 +457,19 @@ let () =
       Alcotest.test_case "item range"            `Quick test_finding_range;
       Alcotest.test_case "declaration positions"  `Quick
         test_declaration_error_positions;
+    ];
+    "file or expression", [
+      Alcotest.test_case "a file is the default"      `Quick test_file_is_the_default;
+      Alcotest.test_case "a path is not a literal"    `Quick
+        test_a_path_is_not_typechecked_as_a_literal;
+      Alcotest.test_case "--expr checks an expression" `Quick test_expression_needs_the_flag;
+      Alcotest.test_case "missing file hints --expr"  `Quick test_missing_file_hints_at_expr;
+      Alcotest.test_case "a .wand name gets no hint"  `Quick
+        test_a_missing_wand_file_gets_no_hint;
+      Alcotest.test_case "-e evaluates"               `Quick test_eval_is_a_top_level_flag;
+      Alcotest.test_case "`wand e` hints at -e"       `Quick test_eval_subcommand_hints;
+      Alcotest.test_case "--dry-run refuses -e"       `Quick
+        test_mode_flags_refuse_an_expression;
     ];
     "imports", [
       Alcotest.test_case "unknown module"      `Quick test_import_unknown_module;

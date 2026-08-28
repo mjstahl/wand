@@ -92,7 +92,7 @@ let levels = Stream.fold_left ? Map.empty (IO.stdin_lines ())
 ```
 
 ```
-$ wand t --file summarize.wand
+$ wand t summarize.wand
 Hole: Map 'a -> String -> Map 'a ! {IO, Raise | 'e}
 ```
 
@@ -108,7 +108,7 @@ any.
 A diagnostic is data, not prose to be parsed:
 
 ```
-$ wand t --file bad.wand --json
+$ wand t bad.wand --json
 [{"severity":"error","code":"E-LEX","file":"bad.wand","line":1,"col":11,
   "end_line":1,"end_col":12,
   "message":"a comment is '-- ...' to the end of the line, not '//'",
@@ -139,17 +139,6 @@ describes a model exactly.
 ## What still goes wrong
 
 Honest list. These are the things that are got wrong in practice.
-
-**`wand t` takes an expression.** A file needs `--file`:
-
-```
-wand t 'List.map'                  -- an expression
-wand t --file script.wand          -- a file
-```
-
-`wand t script.wand` typechecks the *path literal* and answers `Path`. It
-does not error. It answers a different question, correctly. This was got
-wrong twice while writing this document.
 
 ## How to check any of this
 

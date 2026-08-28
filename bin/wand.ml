@@ -5,18 +5,24 @@ let usage () =
   print_endline "       wand [--dry-run|--trace] <file.wand> [--lint [--strict]] [args]";
   print_endline "       wand <file.wand> [args]";
   print_endline "       wand <file.wand> -- [args]   (everything after -- is the script's)";
+  print_endline "       wand -e <expr>               Evaluate an expression and exit";
+  print_endline "";
+  print_endline "A file is named directly. An expression is given with -e/--expr.";
   print_endline "";
   print_endline "Commands:";
   print_endline "  d   doc <name>              Print the doc string for a name";
-  print_endline "  e   eval <expr>             Evaluate an expression and exit";
   print_endline "  f   fmt <file>...           Format .wand files in place";
   print_endline "  h   help [cmd]              Show this help, or help for a command";
   print_endline "  i   interactive             Start an interactive session";
   print_endline "      lsp                     Start the language server (LSP over stdio)";
   print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
-  print_endline "  t   type <expr>             Typecheck an expression without evaluating";
+  print_endline "  t   type <file>             Typecheck a file without running it";
   print_endline "  v   env [module]            List names and modules in scope";
   print_endline "  V   version                 Print the version and exit";
+  print_endline "";
+  print_endline "Evaluating an expression:";
+  print_endline "  -e, --expr <expr>  Evaluate it and print the result";
+  print_endline "  --load <file>      Load a .wand file first (repeatable)";
   print_endline "";
   print_endline "Running a script:";
   print_endline "  --dry-run        Report what the script would change, without doing it";
@@ -42,23 +48,21 @@ let usage_for sub =
     print_endline "";
     print_endline "Options:";
     print_endline "  --load <file>   Load a .wand file before starting (repeatable)"
-  | "e" | "eval" ->
-    print_endline "Usage: wand e [--load <file>]... <expr>";
-    print_endline "";
-    print_endline "Evaluate a wand expression and print the result.";
-    print_endline "If the expression contains a hole (?), typechecks only.";
-    print_endline "";
-    print_endline "Options:";
-    print_endline "  --load <file>   Load a .wand file before evaluating (repeatable)"
   | "t" | "type" ->
-    print_endline "Usage: wand t [--load <file>]... <expr>";
+    print_endline "Usage: wand t <file>";
+    print_endline "       wand t [--load <file>]... --expr <expr>";
     print_endline "";
-    print_endline "Typecheck a wand expression without evaluating it.";
+    print_endline "Typecheck a wand file without running it.";
+    print_endline "";
+    print_endline "A file is named directly, as it is everywhere else. An";
+    print_endline "expression is given with --expr: `deploy.wand` is itself a";
+    print_endline "valid path expression, so the two cannot be told apart by";
+    print_endline "shape and one of them has to say which it is.";
     print_endline "";
     print_endline "Options:";
-    print_endline "  --file <file>   Typecheck a .wand file instead of an expression";
-    print_endline "  --fix           Apply the fixes the findings carry, in place (needs --file)";
-    print_endline "  --load <file>   Load a .wand file before typechecking (repeatable)";
+    print_endline "  --expr <expr>   Typecheck an expression instead of a file";
+    print_endline "  --fix           Apply the fixes the findings carry, in place (a file only)";
+    print_endline "  --load <file>   Load a .wand file first (with --expr; repeatable)";
     print_endline "  --strict        Treat violation lint findings as errors";
     print_endline "  --json          Emit lint findings as JSON instead of text";
     print_endline "";
@@ -371,10 +375,59 @@ let split_own args =
   in
   go [] args
 
+(* A path that is not there and reads like source rather than a file name.
+
+   `.wand` is the whole test. A command that takes a file was handed
+   something not named like a wand file, and the likeliest reason is that it
+   is an expression -- `1 + 2`, `List.map`, or the `e` that used to be a
+   subcommand. A name that does end in `.wand` gets no hint: it is a file
+   that is not there, and offering `--expr` on a typo is noise. *)
+let reads_as_an_expression s = not (Filename.check_suffix s ".wand")
+
+(* The argument written the way it would have to be written again. A hint
+   that cannot be pasted is half a hint. *)
+let requote s =
+  let b = Buffer.create (String.length s + 2) in
+  Buffer.add_char b '"';
+  String.iter (fun c ->
+    if c = '"' || c = '\\' then Buffer.add_char b '\\';
+    Buffer.add_char b c) s;
+  Buffer.add_char b '"';
+  Buffer.contents b
+
+(* What is wrong, then the command that works. Nothing about what the
+   spelling used to be: whoever reads this needs the right command, not its
+   history. *)
+let no_such_file ?hint path =
+  Printf.eprintf "Error: no such file: %s\n" path;
+  (match hint with
+   | Some cmd -> Printf.eprintf "       did you mean: %s\n" cmd
+   | None -> ());
+  exit 1
+
 let main () =
   let args = Array.to_list Sys.argv |> List.tl in
+  (* `--load` may come either side of the expression, so the loads come out
+     of the whole line before asking whether this is the expression form. The
+     result is used only when it is; otherwise `args` is matched as it
+     arrived and a subcommand's own `--load` reaches the subcommand. *)
+  let (top_loads, top_rest) = parse_loads args in
   match args with
   | [] | ["--help"] | ["-h"] -> usage ()
+  | _ when (match top_rest with ("-e" | "--expr") :: _ -> true | _ -> false) ->
+    (match top_rest with
+     | flag :: [] ->
+       Printf.eprintf
+         "Error: expected an expression after %s\nRun 'wand h' for usage.\n" flag;
+       exit 1
+     | _ :: [expr] ->
+       let sess = load_files ~sources:[expr] top_loads in
+       (match Wand.Runner.run_session sess expr with
+        | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
+        | Ok (_, r) -> Wand.Repl.print_result r)
+     | _ ->
+       Printf.eprintf "Error: too many arguments\nRun 'wand h' for usage.\n";
+       exit 1)
   (* Printed bare, as `wand 0.1.0`, so an installer can compare it to what it
      meant to install without parsing prose. *)
   | ["V"] | ["version"] ->
@@ -382,6 +435,13 @@ let main () =
   | sub :: rest when sub = "--dry-run" || sub = "--trace" ->
     (* The mode can come first, which reads better: wand --dry-run deploy.wand *)
     (match rest with
+     | ("-e" | "--expr") :: _ ->
+       (* Rehearsing and tracing are built around a script's effects and
+          `run_session` has no mode to give them. Said plainly rather than
+          accepted and ignored: a `--dry-run` that quietly ran for real is
+          the one mistake this flag exists to prevent. *)
+       Printf.eprintf "Error: %s applies to a script, not to an expression\n" sub;
+       exit 1
      | path :: args ->
        let mode = if sub = "--dry-run" then Wand.Runner.DryRun else Wand.Runner.Trace in
        let (before, after) = split_own args in
@@ -405,94 +465,108 @@ let main () =
       Wand.Repl.run ~base_dir:(Sys.getcwd ()) ~loads ()
     | "lsp" ->
       exit (Wand.Lsp.serve stdin stdout)
-    | "e" | "eval" ->
-      let (loads, rest') = parse_loads rest in
-      (match rest' with
-       | [] ->
-         Printf.eprintf "Error: expected expression\nRun 'wand h e' for usage.\n"; exit 1
-       | [expr] ->
-         let sess = load_files ~sources:[expr] loads in
-         (match Wand.Runner.run_session sess expr with
-          | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
-          | Ok (_, r) -> Wand.Repl.print_result r)
-       | _ ->
-         Printf.eprintf "Error: too many arguments\nRun 'wand h e' for usage.\n"; exit 1)
     | "t" | "type" ->
       let (strict, json, fix, rest) = parse_lint_flags rest in
-      (* `wand t --file script.wand` checks a file; without it the argument is
-         an expression. Stated rather than guessed from the argument's shape,
-         since `deploy.wand` is itself a valid path expression. *)
-      let rec take_file acc = function
-        | "--file" :: path :: tl -> (Some path, List.rev_append acc tl)
-        | x :: tl -> take_file (x :: acc) tl
+      (* A file is named directly, as it is everywhere else in the CLI; an
+         expression is given with `--expr`. Which one it is has to be said
+         rather than guessed from the argument's shape, because `deploy.wand`
+         is itself a valid path expression -- the two cannot be told apart,
+         so one of them carries a flag, and it is the rarer one. *)
+      let rec take_expr acc = function
+        | "--expr" :: e :: tl -> (Some e, List.rev_append acc tl)
+        | x :: tl -> take_expr (x :: acc) tl
         | [] -> (None, List.rev acc)
       in
-      (match take_file [] rest with
-       | None, _ when fix ->
+      (match take_expr [] rest with
+       | Some _, _ when fix ->
          Printf.eprintf
-           "Error: --fix rewrites a file, so it needs --file\n\
+           "Error: --fix rewrites a file, so it cannot be used with --expr\n\
             Run 'wand h t' for usage.\n";
          exit 1
-       | Some path, _ when fix ->
-         (match Wand.Fix.fix_file path with
-          | Error d ->
-            (* An error with no applicable fix: nothing was written. *)
-            if json then
-              (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
-            else (Printf.eprintf "Error: %s\nnothing fixed\n" (Wand.Diag.legacy d); exit 1)
-          | Ok applied ->
-            if json then
-              print_endline
-                (Wand.Diag.to_json_array ~file:path
-                   (List.map (fun a -> a.Wand.Fix.diag) applied))
-            else
-              List.iter (fun a ->
-                Printf.printf "%s: %d — %s\n"
-                  a.Wand.Fix.code a.Wand.Fix.line a.Wand.Fix.note) applied)
-       | Some path, _ ->
-         (match Wand.Runner.typecheck_file path with
-          | Error d ->
-            if json then
-              (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
-            else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
-          | Ok sc ->
-            let holes    = sc.Wand.Runner.sc_holes in
-            let findings = sc.Wand.Runner.sc_findings in
-            if not json then begin
-              if holes <> [] then
-                List.iter (fun h -> Printf.printf "Hole: %s\n" h) holes
-              else if sc.Wand.Runner.sc_type <> "Unit" then
-                print_endline sc.Wand.Runner.sc_type
-            end;
-            if json then
-              print_endline
-                (Wand.Lint.diagnostics_json ~strict ~file:path ~holes findings)
-            else List.iter (fun f ->
-              Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
-            (* Whatever the output looks like, `--strict` means a violation
-               ends the command in failure. Reporting it as an error inside
-               the JSON and then exiting 0 told the CI step that read the
-               code -- which is most of them -- that the file was clean. *)
-            if strict && List.exists Wand.Lint.fails_strict findings
-            then exit 1)
+       | Some expr, rest ->
+         let (loads, rest') = parse_loads rest in
+         (match rest' with
+          | [] ->
+            let sess = load_files ~sources:[expr] loads in
+            (match Wand.Runner.typecheck_session sess expr with
+             | Error d ->
+               if json then (print_endline (Wand.Diag.to_json_array [d]); exit 1)
+               else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
+             | Ok r ->
+               if not json then Wand.Repl.print_result r;
+               let holes = match r with Wand.Runner.RHoles hs -> hs | _ -> [] in
+               let code = report_lints ~strict ~json ~holes sess expr in
+               if code <> 0 then exit code)
+          | _ ->
+            Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n";
+            exit 1)
        | None, rest ->
-      let (loads, rest') = parse_loads rest in
-      (match rest' with
-       | [] ->
-         Printf.eprintf "Error: expected expression\nRun 'wand h t' for usage.\n"; exit 1
-       | [expr] ->
-         let sess = load_files ~sources:[expr] loads in
-         (match Wand.Runner.typecheck_session sess expr with
-          | Error d ->
-            if json then (print_endline (Wand.Diag.to_json_array [d]); exit 1)
-            else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
-          | Ok r      ->
-            if not json then Wand.Repl.print_result r;
-            let holes = match r with Wand.Runner.RHoles hs -> hs | _ -> [] in
-            let code = report_lints ~strict ~json ~holes sess expr in
-            if code <> 0 then exit code)
-       | _ ->
-         Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n"; exit 1))
+         let (loads, rest') = parse_loads rest in
+         (* `--load` seeds a session and a file is checked on its own, so the
+            two do not combine. Refused rather than dropped: a flag quietly
+            ignored is a check that did not happen. *)
+         if loads <> [] then begin
+           Printf.eprintf
+             "Error: --load applies to --expr, not to a file\n\
+              Run 'wand h t' for usage.\n";
+           exit 1
+         end;
+         let path =
+           match rest' with
+           | [path] -> path
+           | [] ->
+             Printf.eprintf "Error: expected a file\nRun 'wand h t' for usage.\n";
+             exit 1
+           | _ ->
+             Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n";
+             exit 1
+         in
+         if not (Sys.file_exists path) then
+           no_such_file path
+             ?hint:(if reads_as_an_expression path
+                    then Some ("wand t --expr " ^ requote path) else None);
+         if fix then
+           (match Wand.Fix.fix_file path with
+            | Error d ->
+              (* An error with no applicable fix: nothing was written. *)
+              if json then
+                (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
+              else (Printf.eprintf "Error: %s\nnothing fixed\n" (Wand.Diag.legacy d); exit 1)
+            | Ok applied ->
+              if json then
+                print_endline
+                  (Wand.Diag.to_json_array ~file:path
+                     (List.map (fun a -> a.Wand.Fix.diag) applied))
+              else
+                List.iter (fun a ->
+                  Printf.printf "%s: %d — %s\n"
+                    a.Wand.Fix.code a.Wand.Fix.line a.Wand.Fix.note) applied)
+         else
+           (match Wand.Runner.typecheck_file path with
+            | Error d ->
+              if json then
+                (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
+              else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
+            | Ok sc ->
+              let holes    = sc.Wand.Runner.sc_holes in
+              let findings = sc.Wand.Runner.sc_findings in
+              if not json then begin
+                if holes <> [] then
+                  List.iter (fun h -> Printf.printf "Hole: %s\n" h) holes
+                else if sc.Wand.Runner.sc_type <> "Unit" then
+                  print_endline sc.Wand.Runner.sc_type
+              end;
+              if json then
+                print_endline
+                  (Wand.Lint.diagnostics_json ~strict ~file:path ~holes findings)
+              else List.iter (fun f ->
+                Printf.eprintf "warning: %s\n" (Wand.Lint.to_text f)) findings;
+              (* Whatever the output looks like, `--strict` means a violation
+                 ends the command in failure. Reporting it as an error inside
+                 the JSON and then exiting 0 told the CI step that read the
+                 code -- which is most of them -- that the file was clean. *)
+              if strict && List.exists Wand.Lint.fails_strict findings
+              then exit 1))
     | "d" | "doc" ->
       let (json, rest) = parse_json_flag rest in
       let (execute, rest) = parse_execute_flag rest in
@@ -674,6 +748,20 @@ let main () =
          Printf.printf "%d passed, %d failed\n" !passed !failed;
          if !had_error || !failed > 0 then exit 1)
     | path ->
+      (* An unknown word reaches here too, since anything that is not a
+         command is taken as a script to run. `wand e "1 + 2"` is the one
+         worth naming: it is a hyphen away from right, and the argument it
+         was given is the expression to put in the hint. *)
+      if not (Sys.file_exists path) then begin
+        let hint =
+          match path, rest with
+          | ("e" | "eval"), [expr] -> Some ("wand -e " ^ requote expr)
+          | _, [] when reads_as_an_expression path ->
+            Some ("wand -e " ^ requote path)
+          | _ -> None
+        in
+        no_such_file ?hint path
+      end;
       (* Legacy: wand <file.wand> [args] *)
       let mode, lint, strict, rest =
         (* Only what precedes `--` can be wand's. *)

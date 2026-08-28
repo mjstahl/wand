@@ -289,14 +289,14 @@ reaching for a rehearsal and getting a deployment is the worse failure. A
 script that wants a rehearsal flag of its own should call it something
 else — `--rehearse`, `--plan`, `--check`.
 
-Every other flag wand has — `--json`, `--file`, `--load`, `--strict`,
+Every other flag wand has — `--json`, `--expr`, `--load`, `--strict`,
 `--fix` — belongs to a subcommand (`wand t`, `wand d`, `wand v`, `wand s`),
 and no subcommand runs a script with arguments, so a script receives those
 as ordinary words:
 
 ```
-$ wand argv.wand --json --file x
-[--json, --file, x]
+$ wand argv.wand --json --expr x
+[--json, --expr, x]
 ```
 
 **A derived decoder looks for the field's own name.** A field called
