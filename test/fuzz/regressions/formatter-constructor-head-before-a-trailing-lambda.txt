@@ -1,0 +1,20 @@
+found:     test/fuzz, seed 0, 2026-08-28
+reported:  format:unparses -- expected identifier, got (
+fixed in:  lib/formatter.ml, guard_spine
+
+A regression, and the only one in this batch: introduced by the
+constructor-absorption fix in the commit before this, caught by the run
+that checked that commit.
+
+`guard_spine` takes what follows the spine so a constructor at the end of
+it can be guarded against a bracket. The trailing-lambda branch passes
+the string `"("` for that -- a sentinel meaning "a wholly bracketed
+argument is coming", not a rendering of one. `bracket_holds_all` read it
+as a rendering, found a bracket that never closes, and answered that the
+argument is not wholly bracketed. So the head was guarded when it needed
+no guard:
+
+  Kach (fn ...)    became  (Kach) (fn ...)
+  t.Kach (fn ...)  became  t.(Kach) (fn ...)   which does not parse
+
+The sentinel is now read as what it means.

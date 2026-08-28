@@ -1,0 +1,4 @@
+let z = t.Kach (fn (from, to) -> (
+  println "%{Path.to_string from} -> %{Path.to_string to} and then some more";
+  m to
+))
