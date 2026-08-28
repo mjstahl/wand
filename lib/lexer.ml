@@ -67,6 +67,51 @@ let keyword_or_ident word = match word with
   | s when s.[0] >= 'A' && s.[0] <= 'Z' -> Upper s
   | s          -> Ident s
 
+(* The body of a `%{...}`, up to the `}` that closes it.
+
+   Brace depth decides where it ends, and a `$(...)` inside it is not wand
+   source: it is shell, where a brace is an ordinary character. Counting
+   those made the string in test/fuzz/regressions end at the `}` after the
+   `)`, so the interpolation
+   swallowed a brace the string meant to keep and the formatter wrote the
+   literal back one `}` short -- source that no longer lexes. So the scan
+   copies a command body through without reading braces in it, tracking only
+   the parens that say where the command ends.
+
+   Nested strings are not handled here and do not need to be: a quote or a
+   backtick inside an interpolation is refused by the lexer before this can
+   matter. All three interpolation forms share this, which is why it is one
+   function. Found by test/fuzz. *)
+let read_interp_body s ~unterminated =
+  let expr_buf = Buffer.create 16 in
+  let depth = ref 1 in
+  (* Inside `$(`/`$?(`/`$!(`, copying verbatim until the parens balance. *)
+  let cmd_parens = ref 0 in
+  while !depth > 0 do
+    if is_at_end s then raise (Fail unterminated);
+    let c = advance s in
+    if !cmd_parens > 0 then begin
+      if c = '(' then incr cmd_parens
+      else if c = ')' then decr cmd_parens;
+      Buffer.add_char expr_buf c
+    end else if c = '$' && peek s = '(' then begin
+      cmd_parens := 1;
+      Buffer.add_char expr_buf c;
+      Buffer.add_char expr_buf (advance s)
+    end else if c = '$' && (peek s = '?' || peek s = '!') && peek2 s = '(' then begin
+      cmd_parens := 1;
+      Buffer.add_char expr_buf c;
+      Buffer.add_char expr_buf (advance s);
+      Buffer.add_char expr_buf (advance s)
+    end else if c = '{' then (incr depth; Buffer.add_char expr_buf c)
+    else if c = '}' then begin
+      decr depth;
+      if !depth > 0 then Buffer.add_char expr_buf c
+    end else
+      Buffer.add_char expr_buf c
+  done;
+  Buffer.contents expr_buf
+
 (* ── String literals ────────────────────────────────────────────────────── *)
 
 let read_string s =
@@ -110,19 +155,9 @@ let read_string s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
-      let expr_buf = Buffer.create 16 in
-      let depth = ref 1 in
-      while !depth > 0 do
-        if is_at_end s then raise (Fail "unterminated string interpolation");
-        let c = advance s in
-        if c = '{' then (incr depth; Buffer.add_char expr_buf c)
-        else if c = '}' then begin
-          decr depth;
-          if !depth > 0 then Buffer.add_char expr_buf c
-        end else
-          Buffer.add_char expr_buf c
-      done;
-      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      let body =
+        read_interp_body s ~unterminated:"unterminated string interpolation" in
+      parts := !parts @ [(lit, body)];
       loop ()
     (* `$NAME` is text here. Reading the environment is an expression like
        any other, so it goes through the one interpolation form -- write
@@ -171,23 +206,13 @@ let read_raw_string s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
-      let expr_buf = Buffer.create 16 in
-      let depth = ref 1 in
-      while !depth > 0 do
-        if is_at_end s then
-          raise (Fail "unterminated %{...} interpolation in a `...` \
-                           string. A `...` string cannot hold a literal %{ \
-                           -- for that text, use an ordinary \"...\" string \
-                           and write \\%{");
-        let c = advance s in
-        if c = '{' then (incr depth; Buffer.add_char expr_buf c)
-        else if c = '}' then begin
-          decr depth;
-          if !depth > 0 then Buffer.add_char expr_buf c
-        end else
-          Buffer.add_char expr_buf c
-      done;
-      parts := !parts @ [(lit, Buffer.contents expr_buf)];
+      let body =
+        read_interp_body s
+          ~unterminated:"unterminated %{...} interpolation in a `...` \
+                         string. A `...` string cannot hold a literal %{ \
+                         -- for that text, use an ordinary \"...\" string \
+                         and write \\%{" in
+      parts := !parts @ [(lit, body)];
       loop ()
     | c -> Buffer.add_char buf c; loop ()
   in
@@ -236,18 +261,8 @@ let read_run_cmd s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
-      let expr_buf = Buffer.create 16 in
-      let idepth = ref 1 in
-      while !idepth > 0 do
-        if is_at_end s then raise (Fail "unterminated command interpolation");
-        let c = advance s in
-        if c = '{' then (incr idepth; Buffer.add_char expr_buf c)
-        else if c = '}' then begin
-          decr idepth;
-          if !idepth > 0 then Buffer.add_char expr_buf c
-        end else
-          Buffer.add_char expr_buf c
-      done;
+      let expr_buf_contents =
+        read_interp_body s ~unterminated:"unterminated command interpolation" in
       (* Backticks are not a quote the value has to be escaped for: what is
          inside them is source for a shell of its own, which reads an
          ordinary single-quoted argument exactly as the outer one would. *)
@@ -257,7 +272,7 @@ let read_run_cmd s =
           | '\'' | '"' as q -> Token.Inside q
           | _ -> Token.Arg
       in
-      parts := !parts @ [(lit, Buffer.contents expr_buf, hole)];
+      parts := !parts @ [(lit, expr_buf_contents, hole)];
       loop ()
     | '\\' when peek s = '\n' -> ignore (advance s); loop ()
     (* A backslash spends the next character wherever the shell would let it

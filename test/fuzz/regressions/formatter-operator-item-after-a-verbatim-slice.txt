@@ -1,0 +1,19 @@
+found:     test/fuzz, seed 33193288373+0, 2026-08-28
+reported:  format:retyped:was E-IMPORT, now E-TYPE
+fixed in:  lib/formatter.ml, assemble
+
+A top-level item opening with an operator continues the item above it.
+`emit_top_item_pretty_uncached` brackets a `TLExpr` for exactly that, but
+an item holding a comment falls back to a verbatim source slice and never
+reaches the guard -- and cannot use it, since brackets round the slice
+would enclose the comment that sent it there.
+
+Such an item was written after a `;` on the line above, which is how it
+parsed as an item at all. The slice starts at the item, so the `;` was
+dropped and a newline took its place: `let b = import /p; -` came back as
+two lines and re-read as `let b = import /p - ...`, with the `import`
+inside a binary expression.
+
+`assemble` writes the `;` back. That restores the boundary the source
+stated rather than inventing brackets, which is the smaller claim of the
+two.

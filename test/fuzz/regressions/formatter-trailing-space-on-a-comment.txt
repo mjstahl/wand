@@ -1,0 +1,15 @@
+found:     test/fuzz, four seeds, 2026-08-28
+reported:  format:unstable, four times in one night
+fixed in:  lib/formatter.ml, all_comments
+
+A comment's text was kept with whatever trailing whitespace the source
+had. The formatter wrote a line ending `-- `, the next pass lexed that
+comment without the space and wrote `--`, and the file changed on every
+second pass -- alternating between the two spellings for ever.
+
+`rstrip_ws` already existed and was already applied where comments are
+compared, which is why the comment check never complained. It is applied
+at the token now, so nothing downstream can carry the space.
+
+Only the trailing end: the space after the dashes is style the formatter
+must not touch.

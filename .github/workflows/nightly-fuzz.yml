@@ -144,7 +144,9 @@ jobs:
           gh label create fuzz --description "Found by the nightly fuzzer" \
             --color FBCA04 2>/dev/null || true
 
-          # Every title already filed, read once, from the issues endpoint.
+          # Every title with an issue still open, read once, from the
+          # issues endpoint.
+          #
           # This used to ask the search endpoint per signature, and search is
           # indexed asynchronously: two shards hitting one signature four
           # seconds apart both found nothing and both filed, which is how
@@ -152,7 +154,16 @@ jobs:
           # read-your-writes, and a title filed in this run is added below,
           # so the second shard sees the first shard's issue whatever the
           # index is doing.
-          gh issue list --label fuzz --state all --limit 500 \
+          #
+          # Open, not all. A closed issue says the bug is fixed, so the same
+          # signature arriving again is a regression or a second bug wearing
+          # the first one's name -- the two things most worth being told
+          # about. Counting closed issues as filed hid four `format:unstable`
+          # findings behind an issue closed hours earlier, and they surfaced
+          # only because someone downloaded the artifacts. A bug that is
+          # known and not being fixed belongs in test/fuzz/known.txt, which
+          # keeps the run green without hiding anything.
+          gh issue list --label fuzz --state open --limit 500 \
             --json title --jq '.[].title' > filed.txt
 
           filed=0

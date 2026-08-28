@@ -1,0 +1,18 @@
+found:     test/fuzz, seed 33193288373+2, 2026-08-28
+reported:  format:unparses -- unterminated string interpolation
+fixed in:  lib/lexer.ml, read_interp_body
+
+A `%{...}` ends where brace depth returns to zero, and every brace was
+counted -- including one inside a `$(...)`, which is shell, where a brace
+is an ordinary character. So `"%{$({)}}"` ended at the `}` after the
+`)`, the interpolation swallowed a brace the string meant to keep, and
+the formatter wrote the literal back one `}` short: source that no longer
+lexes.
+
+All three interpolation forms had their own copy of the loop and all
+three had the bug, so they share one function now. The three lines here
+are one per form.
+
+Nested strings are not handled and do not need to be: a quote or a
+backtick inside an interpolation is refused before this matters, so those
+inputs never reach the formatter.

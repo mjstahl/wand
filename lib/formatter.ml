@@ -27,6 +27,24 @@ type comment_tok = {
   c_own_line : bool;
 }
 
+(* Trailing whitespace, off a comment's text before anything sees it.
+
+   It is never meaningful there -- a comment runs to the end of its line, so
+   the spaces before that end say nothing -- and carrying it made the
+   formatter write a line ending in `-- `. The next pass lexed that comment
+   without the space and wrote `--`, so the file changed on the second pass
+   and went on changing between the two spellings. Four seeds found it the
+   same night.
+
+   Only the trailing end. The space *after* the dashes is style the
+   formatter must not touch. *)
+let rstrip_ws raw =
+  let len = String.length raw in
+  let j = ref len in
+  while !j > 0 && (raw.[!j - 1] = ' ' || raw.[!j - 1] = '\t'
+                   || raw.[!j - 1] = '\n' || raw.[!j - 1] = '\r') do decr j done;
+  String.sub raw 0 !j
+
 let starts_its_line src off =
   let rec back i = i < 0 || (match src.[i] with
     | '\n' -> true
@@ -40,7 +58,7 @@ let all_comments src tokens : comment_tok list =
     | Token.LineComment text ->
       (* A comment is always exactly one line. *)
       Some { c_offset = loc.offset; c_start_line = loc.line;
-             c_end_line = loc.line; c_text = "--" ^ text;
+             c_end_line = loc.line; c_text = rstrip_ws ("--" ^ text);
              c_own_line = starts_its_line src loc.offset }
     | _ -> None
   ) tokens
@@ -1190,8 +1208,16 @@ and emit_field indent e l =
      -- a different program, and one that typechecks, so nothing downstream
      says a word. Bracketed source lost its brackets here too, which is why
      no file in the corpus showed it. Found by test/fuzz. *)
+  (* `import` renders as the keyword and then a path or a module name, and
+     the `.` runs into whichever it is: `(import /t).s` written as
+     `import /t.s` imports a different file, and `(import FS).s` written as
+     `import FS.s` names a different module. Both were an error about where
+     `import` may appear and became an error about a missing file, which is
+     a different program answering a different question. The hazard is the
+     rendering's last token, not the node -- an `import` is the case where
+     those differ. Found by test/fuzz. *)
   let lexeme_eats_the_dot = match e' with
-    | Path _ | Glob _ | URL _ | EnvVar _ -> true
+    | Path _ | Glob _ | URL _ | EnvVar _ | ImportExpr _ -> true
     | _ -> false
   in
   let target =
@@ -1980,13 +2006,6 @@ type piece = {
 
 (* Trim trailing whitespace/newlines only -- leading indentation and
    interior formatting are preserved exactly (verbatim rendering). *)
-let rstrip_ws raw =
-  let len = String.length raw in
-  let j = ref len in
-  while !j > 0 && (raw.[!j - 1] = ' ' || raw.[!j - 1] = '\t'
-                   || raw.[!j - 1] = '\n' || raw.[!j - 1] = '\r') do decr j done;
-  String.sub raw 0 !j
-
 (* For each item, decide its rendered text and its [start_offset, stop)
    span. An item falls back to an exact verbatim source slice only when a
    comment sits inside its own span (multi-equation clauses, or a comment
@@ -2096,6 +2115,27 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
     in
     (is_verbatim, consumed, start_loc.offset, stop, piece))
 
+(* A piece that opens with an operator continues the piece above it, which
+   is the hazard `emit_top_item_pretty_uncached` brackets a `TLExpr` for. An
+   item that fell back to a verbatim slice never reached that guard, and
+   cannot use it either: the slice holds the comment that sent it there, so
+   brackets around it would enclose a comment and whatever else the item
+   spans.
+
+   The separator is what it had. Such an item was written after a `;` on the
+   line above -- that is how it parsed as an item of its own rather than as
+   more of the item before it -- and the slice starts at the item, so the
+   `;` was dropped and a newline put in its place. Writing the `;` back is
+   the smaller claim: it restores the boundary the source stated, rather
+   than inventing brackets. `let b = import /p; -` re-read as
+   `let b = import /p - ...` without it, which moved the `import` inside a
+   binary expression. Found by test/fuzz. *)
+let opens_with_an_operator text =
+  text <> ""
+  && (match text.[0] with
+      | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
+      | _ -> false)
+
 let assemble pieces =
   (* Source order, not line order: an item and a comment can start on the
      same line, and which came first decides whether the comment trails the
@@ -2111,6 +2151,8 @@ let assemble pieces =
        if p.is_comment && p.start_line = pel then
          Buffer.add_string buf "  "
        else begin
+         if (not p.is_comment) && opens_with_an_operator p.text then
+           Buffer.add_char buf ';';
          Buffer.add_char buf '\n';
          if !prev_blank_after || p.start_line - pel - 1 > 0 then
            Buffer.add_char buf '\n'

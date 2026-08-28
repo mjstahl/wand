@@ -1,0 +1,14 @@
+found:     test/fuzz, seed 33193288373+3, 2026-08-28
+reported:  format:retyped:was E-TYPE, now E-IMPORT
+fixed in:  lib/formatter.ml, emit_field's lexeme_eats_the_dot
+
+`import` renders as the keyword and then a path or a module name, and a
+`.` after it runs into whichever it is. `(import /t).s` written as
+`import /t.s` names a different file; `(import FS).s` written as
+`import FS.s` names a different module. The input asked where `import`
+may appear and the output asked for a file that is not there -- a
+different question, answered by a different error.
+
+The list this belongs to was of node types whose *lexeme* runs on into
+the dot. An `import` is the case where the node and its last token
+differ: the node is not a path, and what it renders ends in one.
