@@ -25,7 +25,12 @@
   the empty field list, and `O 2024-02-29.n` as `O (2024-02-29).n`, moving
   the field access. A decimal literal too large for a double lexes to
   infinity, and was written back as `inf` -- a variable, not a number. It is
-  written back as digits that overflow again
+  written back as digits that overflow again. An `import` renders as the
+  keyword and then a path or a module name, and a `.` after it runs into
+  whichever it is: `(import /t).s` written as `import /t.s` names a different
+  file. An item opening with an operator continues the item above it, and one
+  that fell back to a verbatim slice never reached the guard for that -- the
+  `;` such an item was written after is kept now
 - A `with` below a `try` is a statement of its own. The hint that wand has no
   `try ... with` was owed on any following `with`, including one back at the
   `try`'s own column -- so a top-level `with ... as ... -> body` under a
@@ -33,9 +38,17 @@
   and it runs. The layout rule decides now, as it does everywhere else: the
   hint is owed on the same line, or on a line indented past the `try`, and
   both still report it
-- `wand f` settles. `let (P(a, b)) = y` alternated between two spellings, and
-  each constructor-absorption shape above disagreed with itself on a second
-  pass
+- `wand f` settles. A comment kept whatever trailing whitespace its source
+  had, so the formatter wrote a line ending `-- `, the next pass lexed that
+  comment without the space, and the file alternated between the two
+  spellings for ever -- four seeds found it in one night.
+  `let (P(a, b)) = y` alternated between two spellings, and each
+  constructor-absorption shape above disagreed with itself on a second pass
+- `%{...}` ends where wand's braces balance, not where a shell's do. Every
+  brace was counted, including one inside a `$(...)`, where a brace is an
+  ordinary character -- so an interpolation could end early, swallow a brace
+  the string meant to keep, and come back a `}` short. All three
+  interpolation forms had their own copy of the loop and all three had it
 
 ## [0.53.0] - 2026-08-26
 
