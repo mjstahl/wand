@@ -19,6 +19,19 @@
   report an argument count; a flag the command does not have is now said to
   be one
 
+- **A missing manifest is a violation, not advice.** `A-USES2` becomes
+  `V-USES2`: a file that reaches outside itself and says nothing has no line
+  to be checked against, which is the thing the manifest exists to stop. A
+  manifest *wider* than the file stays `A-USES1` and stays advisory -- that
+  one is imprecise, not unsafe. `wand t --fix` writes the missing line
+- **`--strict` implies `--lint` when running a script, and is wand's whether
+  or not `--lint` is beside it.** It reports the findings and refuses to run
+  if any is a violation. It used to mean nothing on its own and reach the
+  script untouched, so someone who typed it before a deploy asked for a gate,
+  got an ordinary run, and was told nothing. A script with a `--strict` of
+  its own is given it after `--`, the same trade already made for
+  `--dry-run`. A plain run still says nothing and still runs
+
 ### Added
 
 - An unknown option is named by every command that takes an argument, not

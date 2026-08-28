@@ -2,7 +2,7 @@ let usage () =
   print_endline "wand — a typed language for human/AI pairing";
   print_endline "";
   print_endline "Usage: wand <command> [options] [args]";
-  print_endline "       wand [--dry-run|--trace] <file.wand> [--lint [--strict]] [args]";
+  print_endline "       wand [--dry-run|--trace] <file.wand> [--lint|--strict] [args]";
   print_endline "       wand <file.wand> [args]";
   print_endline "       wand <file.wand> -- [args]   (everything after -- is the script's)";
   print_endline "       wand -e <expr>               Evaluate an expression and exit";
@@ -28,7 +28,7 @@ let usage () =
   print_endline "  --dry-run        Report what the script would change, without doing it";
   print_endline "  --trace          Run it, reporting each effect as it happens";
   print_endline "  --lint           Report the lint findings first, then run it";
-  print_endline "  --strict         Only with --lint: a violation is a failure, and does not run";
+  print_endline "  --strict         Report them, and refuse to run if any is a violation";
   print_endline "  --               End wand's arguments: the rest are the script's";
   print_endline "";
   print_endline "Run 'wand h <command>' for command-specific help."
@@ -838,24 +838,27 @@ let main () =
         (* Only what precedes `--` can be wand's. *)
         let (before, after) = split_own rest in
         let has f = List.mem f before in
-        let lint = has "--lint" in
-        (* `--strict` says what to do with findings, so it is wand's only
-           where findings were asked for. On its own it stays the script's,
-           which is what it has always been on this path and what
-           `test_script_argv` pins: a subcommand's flag reaches a script
-           untouched. `--dry-run` and `--trace` are taken unconditionally
-           because getting those wrong runs a deploy for real; nothing here
-           is worth that. *)
-        let own =
-          "--dry-run" :: "--trace" :: "--lint"
-          :: (if lint then ["--strict"] else []) in
+        (* `--strict` asks for the findings and refuses to run on a
+           violation, so it implies `--lint` rather than needing it. It is
+           taken unconditionally, like `--dry-run` and `--trace` and for the
+           same reason: getting one of those wrong runs a deploy for real.
+           `--strict` alone used to reach the script untouched, so someone
+           who typed it before a deploy asked for a gate, got an ordinary
+           run, and was told nothing -- the failure this flag exists to
+           prevent, wearing the flag's own name.
+
+           A script with a `--strict` of its own is given it after `--`,
+           which is the same trade already made for `--dry-run`. *)
+        let strict = has "--strict" in
+        let lint = has "--lint" || strict in
+        let own = ["--dry-run"; "--trace"; "--lint"; "--strict"] in
         let strip = List.filter (fun a -> not (List.mem a own)) before @ after in
         let mode =
           if has "--dry-run" then Wand.Runner.DryRun
           else if has "--trace" then Wand.Runner.Trace
           else Wand.Runner.Normal
         in
-        (mode, lint, lint && has "--strict", strip)
+        (mode, lint, strict, strip)
       in
       Wand.Evaluator.exe_args_ref := rest;
       if lint then lint_before_running ~strict path;

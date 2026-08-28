@@ -17,7 +17,7 @@ type id =
   | V_BANG2    (* the name says it raises, and it cannot *)
   | A_SHELL1   (* a shell blob hides work the type system could see *)
   | A_USES1    (* the manifest permits more than the file needs *)
-  | A_USES2    (* the file reaches outside itself and does not say so *)
+  | V_USES2    (* the file reaches outside itself and does not say so *)
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
   | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
@@ -67,12 +67,24 @@ let all = [
   { id = V_NAME1;  code = "V-NAME1";
     summary = "a public signature exposes a trailing-underscore parameter";
     kind = Violation };
+  (* The two halves of the manifest, and they are not the same kind of
+     wrong. A manifest wider than the file is imprecise: everything the file
+     does is declared, and what is left over grants a permission nothing
+     asks for. That is worth saying and not worth failing a build over.
+
+     A file with no manifest at all is the other way round -- it reaches
+     outside itself and says nothing, so there is no line to check what it
+     does against, and reading the first line tells you nothing about what
+     running it will touch. That is the thing the manifest exists to stop,
+     which makes it a violation: a repo running --strict can insist that a
+     file which touches the world says so. `wand t --fix` writes the line,
+     so the remedy is one command. *)
   { id = A_USES1;  code = "A-USES1";
     summary = "the manifest permits effects the file does not use";
     kind = Advisory };
-  { id = A_USES2;  code = "A-USES2";
+  { id = V_USES2;  code = "V-USES2";
     summary = "the file performs effects and declares no manifest";
-    kind = Advisory };
+    kind = Violation };
   { id = V_DROP1;  code = "V-DROP1";
     summary = "a statement discards a Result, so a failure goes unread";
     kind = Violation };

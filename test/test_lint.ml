@@ -274,7 +274,7 @@ let test_uses1_shell_binaries () =
 
 let test_uses2 () =
   fires "effects and no manifest"
-    "let publish! () = $(rsync -a . host:/srv)\npublish!" "A-USES2";
+    "let publish! () = $(rsync -a . host:/srv)\npublish!" "V-USES2";
   (* Saying so is the whole point, so having said it ends the matter. *)
   silent "the same file, declared"
     "uses {Shell}\nlet publish! () = $(rsync -a . host:/srv)\npublish!";
@@ -283,8 +283,12 @@ let test_uses2 () =
      that only raises has nothing it could declare. *)
   silent "raising alone"
     "import List\nlet head! xs = List.get! 0 xs\nhead! [1]";
+  (* A file that reaches outside itself and says nothing has no line to be
+     checked against, which is the thing the manifest exists to stop. A repo
+     running --strict can insist on it, so this is a violation and not the
+     advisory it used to be. *)
   let undeclared = findings "let publish! () = $(rsync -a . host:/srv)\npublish!" in
-  Alcotest.(check bool) "never fails --strict" false
+  Alcotest.(check bool) "fails --strict" true
     (List.exists Lint.fails_strict undeclared)
 
 let test_shell1 () =
@@ -302,7 +306,16 @@ let test_kinds () =
     (Lint_rules.kind Lint_rules.V_PRED1 = Lint_rules.Violation);
   Alcotest.(check bool) "A-SHELL1 is advisory" true
     (Lint_rules.kind Lint_rules.A_SHELL1 = Lint_rules.Advisory);
-  let shell = findings "let c = $(a | b | c | d)\nc" in
+  (* The two halves of the manifest differ. A manifest wider than the file
+     is imprecise; a file with no manifest declares nothing at all. *)
+  Alcotest.(check bool) "A-USES1 is advisory" true
+    (Lint_rules.kind Lint_rules.A_USES1 = Lint_rules.Advisory);
+  Alcotest.(check bool) "V-USES2 must be fixed" true
+    (Lint_rules.kind Lint_rules.V_USES2 = Lint_rules.Violation);
+  (* Declared, so the only finding left is the advisory one. Without the
+     manifest this snippet also trips V-USES2, which does fail --strict, and
+     the check would be measuring that instead. *)
+  let shell = findings "uses {Shell}\nlet c = $(a | b | c | d)\nc" in
   Alcotest.(check bool) "an advisory finding never fails --strict" false
     (List.exists Lint.fails_strict shell)
 
@@ -354,7 +367,7 @@ let test_stdlib_is_clean () =
    point is an error has to contain one, and each of these is asserted by its
    own run.sh. *)
 let expected_findings =
-  [ ("backup.wand", "A-USES2"); ("backup-phoning-home.wand", "A-USES2");
+  [ ("backup.wand", "V-USES2"); ("backup-phoning-home.wand", "V-USES2");
     (* V-SHADOW1 discourages binding a top-level name twice. What the
        evaluator does when someone binds one anyway is still a fact, and
        `test_script.wand` is where that fact is asserted -- so the file has
@@ -562,7 +575,7 @@ let () =
       Alcotest.test_case "A-SHELL1" `Quick test_shell1;
       Alcotest.test_case "A-USES1"  `Quick test_uses1;
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;
-      Alcotest.test_case "A-USES2"  `Quick test_uses2;
+      Alcotest.test_case "V-USES2"  `Quick test_uses2;
       Alcotest.test_case "V-SHELL1" `Quick test_shell1_dynamic;
       Alcotest.test_case "V-SHADOW1" `Quick test_shadow1;
       Alcotest.test_case "V-SHADOW1 top level only" `Quick

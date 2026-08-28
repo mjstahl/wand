@@ -639,7 +639,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          Typechecker.render_manifest
            ?shell:(Typechecker.shell_suggestion ()) performs in
        add ~fix:(InsertLine corrected)
-         Lint_rules.A_USES2 (Token.point 1 1 0)
+         Lint_rules.V_USES2 (Token.point 1 1 0)
          (Lint_rules.uses2
             ~performs:(String.concat ", "
               (List.map Effect_set.name_of (Effect_set.EffSet.elements performs)))

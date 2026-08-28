@@ -22,7 +22,7 @@ let test_manifest_created () =
   Alcotest.(check string) "manifest inserted first"
     "uses {FS.Write}\nimport FS\nlet f p = FS.write_file p \"x\"\nf /tmp/y\n"
     fixed;
-  Alcotest.(check (list string)) "one A-USES2" ["A-USES2"] (codes applied)
+  Alcotest.(check (list string)) "one V-USES2" ["V-USES2"] (codes applied)
 
 let test_manifest_after_shebang () =
   let (fixed, _) =

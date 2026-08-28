@@ -13,7 +13,7 @@
    applicable fix refuses the whole run -- nothing is written. *)
 
 type applied = {
-  code : string;    (* "A-USES2", "V-IMP1", "E-TYPE", ... *)
+  code : string;    (* "V-USES2", "V-IMP1", "E-TYPE", ... *)
   line : int;       (* the 1-based line it changed, in the file as it was *)
   note : string;    (* what changed, for the per-fix report *)
   diag : Diag.t;    (* the diagnostic it answered, for --json *)

@@ -17,15 +17,10 @@
    runs a script with arguments, so those reach a script untouched and are
    pinned here too.
 
-   `--lint` is wand's on this path: it asks for the findings before the run.
-   `--strict` says what to do with findings, so it is wand's only alongside
-   `--lint`, and on its own it stays the script's, which is what it has
-   always been here. That is a narrower claim than the mode flags make, and
-   deliberately: taking `--dry-run` from a script is worth it because the
-   alternative runs a deploy for real, and nothing about a lint is.
-
-   These run the real binary, because the question is what the CLI does with
-   argv before any of the library sees it. *)
+   `--lint` and `--strict` are both wand's on this path: one asks for the
+   findings before the run, the other makes them a condition of it. Both are
+   bought back by `--`.
+*)
 
 let wand_binary =
   let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
@@ -87,26 +82,31 @@ let test_every_other_flag_reaches_the_script () =
     check "--json" "[\"--json\", \"x\"]" [argv_script; "--json"; "x"];
     check "--expr" "[\"--expr\", \"x\"]" [argv_script; "--expr"; "x"];
     check "--load" "[\"--load\", \"x\"]" [argv_script; "--load"; "x"];
-    check "--strict and --fix" "[\"--strict\", \"--fix\"]"
-      [argv_script; "--strict"; "--fix"];
-    (* `--strict` is wand's only where `--lint` asked for findings. *)
-    check "--strict alone is still the script's" "[\"--strict\"]"
-      [argv_script; "--strict"];
+    check "--fix" "[\"--fix\"]" [argv_script; "--fix"];
     check "a command name is just a word here" "[\"s\", \"version\"]"
       [argv_script; "s"; "version"];
     (* A single dash is not a flag to wand any more than it is to Args. *)
     check "a lone dash and a negative number" "[\"-\", \"-5\"]"
       [argv_script; "-"; "-5"])
 
-(* `--lint` asks for the verdict on the way to running, so wand takes it and
-   the script does not see it. `--strict` beside it is taken as well; without
-   it, it is a word like any other. *)
+(* `--lint` asks for the verdict on the way to running and `--strict` makes
+   it a condition of running, so wand takes both and the script sees neither.
+
+   `--strict` alone used to be the script's, on the grounds that it only says
+   what to do with findings nobody asked for. What that meant in practice is
+   that someone who typed it before a deploy asked for a gate, got an
+   ordinary run, and was told nothing. It implies `--lint` now, and is wand's
+   whether or not `--lint` is beside it. A script with a `--strict` of its
+   own is given it after `--`, the same trade already made for
+   `--dry-run`. *)
 let test_lint_flags () =
   write_probe ();
   Fun.protect ~finally:(fun () -> Sys.remove argv_script) (fun () ->
     check "--lint is taken, not passed on" "[\"x\"]" [argv_script; "--lint"; "x"];
     check "--strict beside it is taken too" "[\"x\"]"
       [argv_script; "--lint"; "--strict"; "x"];
+    check "--strict alone is wand's now" "[\"x\"]"
+      [argv_script; "--strict"; "x"];
     check "after -- both are the script's" "[\"--lint\", \"--strict\"]"
       [argv_script; "--"; "--lint"; "--strict"])
 
@@ -114,6 +114,20 @@ let test_lint_flags () =
    condition of running, so the plain run says nothing and still runs; asked
    for, the findings come first and the run follows; and `--strict` is the
    promise `wand t --strict` makes, so the run does not happen at all. *)
+(* `--strict` refuses on a violation and not on advice. An over-broad
+   manifest is imprecise, not unsafe, and stopping a deploy for it would
+   teach its audience to reach for a way of turning the whole thing off. *)
+let test_strict_does_not_block_on_advice () =
+  let script = "wand_argv_advice.wand" in
+  let oc = open_out script in
+  output_string oc "uses {IO, FS.Write}\n\nimport IO\n\nIO.println \"ran\"\n";
+  close_out oc;
+  Fun.protect ~finally:(fun () -> Sys.remove script) (fun () ->
+    let (code, out) = run_full [script; "--strict"] in
+    Alcotest.(check bool) "the advisory is reported" true (says "A-USES1" out);
+    Alcotest.(check bool) "and it still runs" true (says "ran" out);
+    Alcotest.(check int) "and succeeds" 0 code)
+
 let test_lint_reports_and_still_runs () =
   let script = "wand_argv_lint.wand" in
   let oc = open_out script in
@@ -136,6 +150,15 @@ let test_lint_reports_and_still_runs () =
       Alcotest.(check int) "--lint still succeeds" 0 code;
       Alcotest.(check bool) "reports the finding" true (says "V-DROP1" out);
       Alcotest.(check bool) "and still runs" true (says "ran" out);
+
+      (* Alone, without `--lint` beside it: the shape someone reaches for
+         before a deploy, which used to be an ordinary run. *)
+      let (code, out) = run_full [script; "--strict"] in
+      Alcotest.(check int) "--strict alone fails" 1 code;
+      Alcotest.(check bool) "--strict alone reports the finding" true
+        (says "V-DROP1" out);
+      Alcotest.(check bool) "--strict alone does not run it" false
+        (says "ran" out);
 
       let (code, out) = run_full [script; "--lint"; "--strict"] in
       Alcotest.(check int) "--strict fails" 1 code;
@@ -195,6 +218,8 @@ let () =
             test_lint_flags;
           Alcotest.test_case "--lint reports, --strict refuses" `Quick
             test_lint_reports_and_still_runs;
+          Alcotest.test_case "--strict spares advice" `Quick
+            test_strict_does_not_block_on_advice;
           Alcotest.test_case "both positions rehearse" `Quick
             test_both_positions_rehearse;
           Alcotest.test_case "-- hands the rest over" `Quick

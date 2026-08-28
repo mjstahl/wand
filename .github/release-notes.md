@@ -62,6 +62,40 @@ offering `--expr` on a typo is noise.
   accepting one and ignoring it would run for real, which is the single
   mistake `--dry-run` exists to prevent
 
+### Manifests and `--strict`
+
+**A missing manifest is now a violation.** `A-USES2` becomes `V-USES2`. A file
+that reaches outside itself and declares nothing has no line to be checked
+against, which is the thing the manifest exists to stop. A manifest *wider*
+than the file stays `A-USES1` and stays advisory — imprecise, not unsafe.
+
+```
+$ wand t deploy.wand
+warning: 1:1: V-USES2: this file performs IO and does not say so; it could
+declare "uses {IO}"
+
+$ wand t --fix deploy.wand
+V-USES2: 1 — inserted "uses {IO}"
+```
+
+**`--strict` now works on a run, and implies `--lint`.** It reports the
+findings and refuses to run if any is a violation:
+
+```
+$ wand deploy.wand --strict
+warning: 1:1: V-USES2: ...
+exit 1        (the script does not run)
+```
+
+It used to mean nothing on its own — it was passed to the script, so someone
+who typed it before a deploy asked for a gate, got an ordinary run, and was
+told nothing. That gives one shape for each end of a script's life:
+`wand t --strict` while writing it, `wand deploy.wand --strict` where it runs.
+
+A plain `wand deploy.wand` is unchanged: no findings, no delay. A script that
+takes a `--strict` of its own is given it after `--`, the same trade already
+made for `--dry-run`. Advice never blocks a run.
+
 ### Added
 
 **`--help` and `-h` on every command**, printing that command's usage:

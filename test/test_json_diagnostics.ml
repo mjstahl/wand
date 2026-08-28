@@ -16,8 +16,8 @@ let findings src =
 (* ── Findings ─────────────────────────────────────────────────────────────── *)
 
 let test_manifest_fix () =
-  regression "A-USES2 carries insert_line"
-    "[{\"severity\":\"warning\",\"code\":\"A-USES2\",\"line\":1,\"col\":1,\
+  regression "V-USES2 carries insert_line"
+    "[{\"severity\":\"warning\",\"code\":\"V-USES2\",\"line\":1,\"col\":1,\
       \"message\":\"this file performs FS.Write and does not say so; it \
       could declare \\\"uses {FS.Write}\\\"\",\
       \"fix\":{\"insert_line\":\"uses {FS.Write}\"}}]"
@@ -50,11 +50,11 @@ let test_file_field () =
     Lint.diagnostics_json ~strict:false ~file:"deploy.wand" ~holes:[]
       (findings "import FS\nlet f p = FS.write_file p \"x\"\nf /tmp/y")
   in
-  if not (Lint.contains json "\"code\":\"A-USES2\",\"file\":\"deploy.wand\",") then
+  if not (Lint.contains json "\"code\":\"V-USES2\",\"file\":\"deploy.wand\",") then
     Alcotest.failf "file field missing or misplaced:\n%s" json
 
 (* A finding marks the whole item it is about, and the range rides along
-   as end_line/end_col. A point diagnostic (like A-USES2's line 1) keeps
+   as end_line/end_col. A point diagnostic (like V-USES2's line 1) keeps
    the original object shape -- the check above locks that. *)
 let test_finding_range () =
   let json =

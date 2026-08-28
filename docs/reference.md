@@ -1350,7 +1350,7 @@ alone.
 ### Performing effects without saying so is a warning
 
 ```text
-warning: 1:1: A-USES2: this file performs Shell, FS.Write and does not say
+warning: 1:1: V-USES2: this file performs Shell, FS.Write and does not say
          so; it could declare "uses {Shell(rsync), FS.Write}"
 ```
 
@@ -4189,20 +4189,26 @@ wand script.wand -- arg1  # everything after -- is the script's, whatever it loo
 
 ```sh
 wand script.wand --lint            # report the lint findings, then run it
-wand script.wand --lint --strict   # a violation is a failure, and does not run
+wand script.wand --strict          # a violation is a failure, and does not run
 ```
 
 A lint is not a type error and not a compiler error: a file that earns one
 still runs correctly by the language's own rules. So a plain run does not
 lint, and `--lint` is how the verdict is asked for on the way to running.
-The findings go to stderr, which leaves stdout the script's. `--strict` says
-what to do with them and is wand's only beside `--lint`; on its own it is
-the script's, like any other subcommand's flag.
+The findings go to stderr, which leaves stdout the script's.
 
-`--dry-run` and `--trace` are wand's own wherever they appear before a `--`,
-so `wand deploy.wand --dry-run` rehearses. A script that takes an argument of
-the same name needs the terminator: `wand deploy.wand -- --dry-run` runs for
-real and hands the flag on.
+`--strict` asks for the findings and makes them a condition of running, so
+it implies `--lint`: a violation is reported and the script does not run.
+Advice does not stop it -- `A-USES1` says a manifest is wider than the file,
+which is imprecise rather than unsafe. The two together are one shape for
+each end of a script's life: `wand t --strict` while writing it, to clear
+everything, and `wand deploy.wand --strict` where it runs, to refuse a file
+that has drifted.
+
+`--dry-run`, `--trace`, `--lint` and `--strict` are wand's own wherever they
+appear before a `--`, so `wand deploy.wand --dry-run` rehearses. A script
+that takes an argument of the same name needs the terminator:
+`wand deploy.wand -- --dry-run` runs for real and hands the flag on.
 
 A script can also run itself, with a shebang line and the executable bit:
 
@@ -4385,7 +4391,7 @@ punish the safer choice.
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
-| `A-USES2` | a file performs effects and declares no manifest |
+| `V-USES2` | a file performs effects and declares no manifest |
 
 `V-IMP2` reads the file and nothing else. An import binds names. Either the
 file mentions one of them below, or it mentions none.
@@ -4481,7 +4487,7 @@ The array holds one object for each diagnostic. The exit codes do not change.
 Without the flag, the output for a person does not change.
 
 Each finding and each error carries `severity`, either `"error"` or
-`"warning"`. It carries `code`, such as `A-USES2` or `V-DROP1`. An error gets
+`"warning"`. It carries `code`, such as `V-USES2` or `V-DROP1`. An error gets
 `E-TYPE`, `E-PARSE`, `E-LEX` or `E-IMPORT`. It also carries `line`, `col` and
 `message`.
 `file` appears when a file was checked. A diagnostic that covers a
@@ -4492,7 +4498,7 @@ as `"error"`. A correction that a machine can apply travels with it, in a `fix`
 object. A manifest suggestion carries the exact line:
 
 ```json
-{"severity":"warning","code":"A-USES2","line":1,"col":1,
+{"severity":"warning","code":"V-USES2","line":1,"col":1,
  "message":"this file performs FS.Write and does not say so; it could declare \"uses {FS.Write}\"",
  "fix":{"insert_line":"uses {FS.Write}"}}
 ```
