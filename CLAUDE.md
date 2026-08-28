@@ -117,7 +117,7 @@ row are not the flake; read the log.
 Write the script, then let the tools drive the edits:
 
 ```bash
-wand t script.wand          # typecheck a file (wand t --expr "..." for a snippet)
+wand t script.wand          # typecheck a file (wand t -e "..." for a snippet)
 wand t --fix script.wand    # apply the fixes findings carry (manifest lines, missing and dead imports)
 wand f script.wand          # format in place
 wand s                      # run every test_*.wand from here down

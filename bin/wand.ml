@@ -50,21 +50,21 @@ let usage_for sub =
     print_endline "  --load <file>   Load a .wand file before starting (repeatable)"
   | "t" | "type" ->
     print_endline "Usage: wand t <file>";
-    print_endline "       wand t [--load <file>]... --expr <expr>";
+    print_endline "       wand t [--load <file>]... -e <expr>";
     print_endline "";
     print_endline "Typecheck a wand file without running it.";
     print_endline "";
     print_endline "A file is named directly, as it is everywhere else. An";
-    print_endline "expression is given with --expr: `deploy.wand` is itself a";
-    print_endline "valid path expression, so the two cannot be told apart by";
-    print_endline "shape and one of them has to say which it is.";
+    print_endline "expression is given with -e/--expr: `deploy.wand` is itself";
+    print_endline "a valid path expression, so the two cannot be told apart";
+    print_endline "by shape and one of them has to say which it is.";
     print_endline "";
     print_endline "Options:";
-    print_endline "  --expr <expr>   Typecheck an expression instead of a file";
-    print_endline "  --fix           Apply the fixes the findings carry, in place (a file only)";
-    print_endline "  --load <file>   Load a .wand file first (with --expr; repeatable)";
-    print_endline "  --strict        Treat violation lint findings as errors";
-    print_endline "  --json          Emit lint findings as JSON instead of text";
+    print_endline "  -e, --expr <expr>  Typecheck an expression instead of a file";
+    print_endline "  --fix              Apply the fixes the findings carry, in place (a file only)";
+    print_endline "  --load <file>      Load a .wand file first (with -e; repeatable)";
+    print_endline "  --strict           Treat violation lint findings as errors";
+    print_endline "  --json             Emit lint findings as JSON instead of text";
     print_endline "";
     print_endline "Lint findings are reported as warnings. Rule IDs carry";
     print_endline "what they do to a build: V- rules report a violation and";
@@ -473,7 +473,7 @@ let main () =
          is itself a valid path expression -- the two cannot be told apart,
          so one of them carries a flag, and it is the rarer one. *)
       let rec take_expr acc = function
-        | "--expr" :: e :: tl -> (Some e, List.rev_append acc tl)
+        | ("--expr" | "-e") :: e :: tl -> (Some e, List.rev_append acc tl)
         | x :: tl -> take_expr (x :: acc) tl
         | [] -> (None, List.rev acc)
       in
@@ -511,6 +511,21 @@ let main () =
               Run 'wand h t' for usage.\n";
            exit 1
          end;
+         (* An argument that opens with `-` is a flag this command does not
+            have. Taken as the file it would be reported as a missing path,
+            or -- with an expression after it -- as too many arguments, and
+            neither names the thing that is actually wrong. Found by asking
+            what `wand t -e "1 + 2"` does. *)
+         List.iter (fun a ->
+           if String.length a > 1 && a.[0] = '-' then begin
+             Printf.eprintf "Error: unknown option: %s\n" a;
+             (match a with
+              | "--file" ->
+                Printf.eprintf "       did you mean: wand t <file>\n"
+              | _ -> ());
+             Printf.eprintf "Run 'wand h t' for usage.\n";
+             exit 1
+           end) rest';
          let path =
            match rest' with
            | [path] -> path

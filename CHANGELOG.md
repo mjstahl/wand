@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **`wand t` takes a file.** An expression is given with `--expr`. It was the
+- **`wand t` takes a file.** An expression is given with `-e`/`--expr`. It was the
   other way round, and the argument is the same either way -- `deploy.wand` is
   a valid path expression -- so `wand t ./deploy.wand` typechecked the *path
   literal*, answered `Path` and exited 0. A checking tool reported success for
@@ -14,6 +14,10 @@
   rule at the top level, where a file was already the positional argument.
   `wand e "1 + 2"` reports `no such file: e` and names the command that works
 - **`wand t --file` is gone.** The file is the argument
+- `-e` and `--expr` mean the same thing in both places they appear
+- An unknown option is named. `wand t -e` used to take `-e` for the file and
+  report an argument count; a flag the command does not have is now said to
+  be one
 - `--load` with a file is refused rather than ignored. It seeds a session,
   which a file does not use, and a flag accepted and dropped is a check that
   did not happen

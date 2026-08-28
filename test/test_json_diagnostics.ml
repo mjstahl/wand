@@ -429,6 +429,34 @@ let test_a_missing_wand_file_gets_no_hint () =
   if Lint.contains out "--expr" then
     Alcotest.failf "a .wand name should not be offered --expr:\n%s" out
 
+(* `-e` and `--expr` mean the same thing in both places they appear. The
+   short spelling used to work at the top level and not in `wand t`, where
+   `wand t -e "1 + 2"` took `-e` for the file name and reported too many
+   arguments -- a flag this command does not have, described as an argument
+   count. *)
+let test_short_and_long_agree () =
+  let (c1, o1) = run_all ["t"; "-e"; "1 + 2"] in
+  let (c2, o2) = run_all ["t"; "--expr"; "1 + 2"] in
+  Alcotest.(check string) "wand t -e and --expr agree" o2 o1;
+  Alcotest.(check int) "and both succeed" c2 c1;
+  let (c3, o3) = run_all ["-e"; "1 + 2"] in
+  let (c4, o4) = run_all ["--expr"; "1 + 2"] in
+  Alcotest.(check string) "wand -e and --expr agree" o4 o3;
+  Alcotest.(check int) "and both succeed" c4 c3
+
+let test_unknown_option_is_named () =
+  (* Not taken for the file, which would report a missing path or a wrong
+     argument count instead of the flag. *)
+  let (code, out) = run_all ["t"; "--nope"; "examples/party.wand"] in
+  says out "unknown option: --nope";
+  Alcotest.(check int) "and fails" 1 code
+
+let test_the_old_file_flag_is_named () =
+  let (code, out) = run_all ["t"; "--file"; "examples/party.wand"] in
+  says out "unknown option: --file";
+  says out "wand t <file>";
+  Alcotest.(check int) "and fails" 1 code
+
 let test_eval_is_a_top_level_flag () =
   let (code, out) = run ["-e"; "1 + 2"] in
   says out "3";
@@ -466,6 +494,9 @@ let () =
       Alcotest.test_case "missing file hints --expr"  `Quick test_missing_file_hints_at_expr;
       Alcotest.test_case "a .wand name gets no hint"  `Quick
         test_a_missing_wand_file_gets_no_hint;
+      Alcotest.test_case "-e and --expr agree"        `Quick test_short_and_long_agree;
+      Alcotest.test_case "unknown option is named"    `Quick test_unknown_option_is_named;
+      Alcotest.test_case "--file is named"            `Quick test_the_old_file_flag_is_named;
       Alcotest.test_case "-e evaluates"               `Quick test_eval_is_a_top_level_flag;
       Alcotest.test_case "`wand e` hints at -e"       `Quick test_eval_subcommand_hints;
       Alcotest.test_case "--dry-run refuses -e"       `Quick

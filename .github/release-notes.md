@@ -7,7 +7,7 @@
 
 ```
 wand t script.wand            # was: wand t --file script.wand
-wand t --expr "1 + 2"         # was: wand t "1 + 2"
+wand t -e "1 + 2"             # was: wand t "1 + 2"
 wand -e "1 + 2"               # was: wand e "1 + 2"
 ```
 
@@ -55,6 +55,8 @@ offering `--expr` on a typo is noise.
 - `--load` alongside a file is refused rather than ignored. It seeds a
   session, which checking a file does not use, and a flag accepted and dropped
   is a check that did not happen
+- An unknown option is named rather than taken for the file. `wand t -e`
+  used to read `-e` as a file name and report an argument count
 - `--dry-run` and `--trace` alongside `--expr` are refused. They are built
   around a script's effects and there is no mode to hand an expression;
   accepting one and ignoring it would run for real, which is the single
@@ -67,7 +69,7 @@ Three substitutions cover it:
 | was | now |
 |---|---|
 | `wand t --file F` | `wand t F` |
-| `wand t 'EXPR'` | `wand t --expr 'EXPR'` |
+| `wand t 'EXPR'` | `wand t -e 'EXPR'` |
 | `wand e 'EXPR'` | `wand -e 'EXPR'` |
 
 `--fix`, `--json`, `--strict` and `--load` are unchanged in spelling. `--fix`
