@@ -1,0 +1,27 @@
+# Temporary. Two nightly fuzz slots have passed with no run of any kind, and
+# nothing in the repository explains it: public, not a fork, Actions enabled,
+# the cron on the default branch. This asks the only question the API cannot
+# answer -- whether a schedule in this repository fires at all.
+#
+# Every ten minutes, doing nothing. If this runs, registration works and the
+# nightly's 07:37 slot is being dropped on its own. If it does not, schedules
+# are broken for the whole repository and the time of day is beside the point.
+#
+# Delete this once it has answered.
+
+name: Cron probe
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "fired by ${{ github.event_name }}"
