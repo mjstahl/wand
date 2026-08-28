@@ -55,11 +55,11 @@ wand i                  # interactive session
 wand -e "1 + 2"         # evaluate an expression
 wand t script.wand      # typecheck a file without running it
 wand d "List.map"       # show doc string
-wand v                  # list all names in scope
+wand d                  # list all names in scope
 wand f script.wand      # format a file in place
 wand s                  # run every test_*.wand from here down
 wand h                  # help
-wand V                  # print the version
+wand v                  # print the version
 ```
 
 ---
@@ -4355,10 +4355,10 @@ wand s                                # run every test_*.wand from here down
 wand s test_deploy.wand               # run named test files
 wand s --json                         # per-test results as JSON, for tools
 wand t --expr "List.map"              # typecheck an expression
-wand v                                # list all names and modules in scope
-wand v List                           # list one module's members
-wand v --json List                    # the same, as JSON for tools
-wand V                                # print the version, as `wand 0.1.0`
+wand d                                # list all names and modules in scope
+wand d List                           # list one module's members
+wand d --json List                    # the same, as JSON for tools
+wand v                                # print the version, as `wand 0.1.0`
 ```
 
 Each subcommand has a full-word alias: `d`/`doc`, `e`/`eval`, `f`/`fmt`, `h`/`help`, `i`/`interactive`, `s`/`test`, `t`/`type`, `v`/`env`, `V`/`version`.
@@ -4523,9 +4523,9 @@ does not leave the key out:
  "doc":"Apply a function to every element of a list, returning a new list."}
 ```
 
-`wand v --json` prints an array over the scope. A binding is
+`wand d --json` prints an array over the scope. A binding is
 `{"name":...,"type":...}`. A module is `{"name":...,"module":true}`.
-`wand v --json <module>` prints the members of the module, with qualified
+`wand d --json <module>` prints the members of the module, with qualified
 names:
 
 ```json

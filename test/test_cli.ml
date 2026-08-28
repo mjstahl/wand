@@ -141,7 +141,7 @@ let double x = x * 2|} with
    | Some d -> Alcotest.failf "doc: a blank line did not end the run: %s" d
    | None -> ())
 
-(* ── wand v (list all) ─────────────────────────────────────────────────── *)
+(* ── wand d, with no name (everything in scope) ──────────────────────────── *)
 
 let test_env_all () =
   let sess = make_sess () in
@@ -159,7 +159,7 @@ let test_env_all () =
   if not (List.mem_assoc "answer" sess2.Runner.s_type_env) then
     Alcotest.fail "env: user binding not in type env"
 
-(* ── wand v <Module> ───────────────────────────────────────────────────── *)
+(* ── wand d <Module> ───────────────────────────────────────────────────── *)
 
 let test_env_module () =
   let sess = make_sess () in
@@ -460,7 +460,7 @@ let () =
       Alcotest.test_case "type lookup"   `Quick test_doc;
       Alcotest.test_case "doc strings"   `Quick test_doc_strings;
     ];
-    "env", [
+    "scope", [
       Alcotest.test_case "list all"      `Quick test_env_all;
       Alcotest.test_case "module lookup" `Quick test_env_module;
       Alcotest.test_case "Map module"    `Quick test_env_map_module;

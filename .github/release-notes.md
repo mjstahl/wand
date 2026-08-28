@@ -62,6 +62,31 @@ offering `--expr` on a typo is noise.
   accepting one and ignoring it would run for real, which is the single
   mistake `--dry-run` exists to prevent
 
+### One command for "what is this"
+
+`wand v` is merged into `wand d`, and `wand v` is now the version:
+
+```
+wand d List.map     # the doc, as before
+wand d List         # every name in the module      (was: wand v List)
+wand d              # everything in scope           (was: wand v)
+wand v              # the version                   (was: wand V)
+```
+
+Two commands answered the same question, split on a line nobody could guess:
+`wand v List.map` said `Unknown module`, and `wand d List` said `no doc`. Each
+rejected what the other took. `wand d`'s own usage already claimed that "a
+module name takes every name in it" — the code for it existed under `-x`/`-t`
+and was never wired to the plain path.
+
+`--load` carries through, so `wand d --load mine.wand` still answers "what
+does my file define".
+
+**`wand d --json` is now always an array** — for a single name as much as for
+a module or the whole scope. It used to return a bare object for one name, so
+a consumer had to branch on what was asked. The shape belongs to the command
+now, not to the argument.
+
 ### Manifests and `--strict`
 
 **A missing manifest is now a violation.** `A-USES2` becomes `V-USES2`. A file
@@ -102,7 +127,7 @@ made for `--dry-run`. Advice never blocks a run.
 
 ```
 wand t --help      wand f --help      wand s --help      wand d --help
-wand v --help      wand i --help      wand lsp --help    wand h --help
+wand d --help      wand i --help      wand lsp --help    wand h --help
 ```
 
 `wand i --help` used to start an interactive session and `wand lsp --help` a
@@ -117,7 +142,7 @@ of the expression.
 
 - An unknown option is named by every command that takes an argument, rather
   than read as one. `wand f --nope` looked for a file called `--nope`,
-  `wand v --nope` for a module, and `wand d --nope` reported no documentation
+  `wand d --nope` for a name, and it reported no documentation
   for it and exited 0
 - A flag that takes a value and did not get one says which value is missing.
   `wand t -e` reported an unknown option, which is the wrong problem — `-e`
@@ -128,13 +153,16 @@ of the expression.
 
 ### Upgrading
 
-Three substitutions cover it:
+These substitutions cover it:
 
 | was | now |
 |---|---|
 | `wand t --file F` | `wand t F` |
 | `wand t 'EXPR'` | `wand t -e 'EXPR'` |
 | `wand e 'EXPR'` | `wand -e 'EXPR'` |
+| `wand v` | `wand d` |
+| `wand v Module` | `wand d Module` |
+| `wand V` | `wand v` |
 
 `--fix`, `--json`, `--strict` and `--load` are unchanged in spelling. `--fix`
 now applies to the file argument, and is refused with `--expr`, which it never

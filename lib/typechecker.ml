@@ -2,7 +2,7 @@ open Ast
 
 (* Every module under `stdlib/`. The list drives three things that must agree
    with what is on disk: which names `wand d` will import to answer about,
-   which ones `wand v` lists, and which unknown name gets "did you forget
+   which ones `wand d` lists, and which unknown name gets "did you forget
    to import" instead of "unknown constructor". A module missing from here
    still imports and runs -- it just becomes invisible to the tools, which is
    how `Test` went a long time with unreachable doc strings. *)
@@ -851,7 +851,7 @@ let foreign_member_hint ns member =
    binary can enumerate what exists, and a reader who has never seen wand
    has no other way to learn that. *)
 let discovery_hint =
-  " -- 'wand v' lists the modules, 'wand v List' one module's members"
+  " -- 'wand d' lists the modules, 'wand d List' one module's members"
 
 let lookup name (env : env) =
   match List.assoc_opt name env with
@@ -2530,7 +2530,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
               | None ->
                 (match Util.hint label (List.map fst ns_env) with
                  | "" -> Printf.sprintf
-                     " -- 'wand v %s' lists its members" ns_name
+                     " -- 'wand d %s' lists its members" ns_name
                  | h -> h)
             in
             raise (TypeError (Printf.sprintf

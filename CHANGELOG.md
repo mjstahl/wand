@@ -32,10 +32,21 @@
   its own is given it after `--`, the same trade already made for
   `--dry-run`. A plain run still says nothing and still runs
 
+- **`wand v` is merged into `wand d`, and `wand v` is now the version.**
+  `wand d <name>` gives a doc, `wand d <module>` gives every name in it with
+  its signature, and `wand d` alone gives everything in scope. `wand d`'s
+  usage always claimed a module took every name in it, and the plain path
+  never did it -- it looked for a doc on the namespace and reported none.
+  `--load` carries through, so `wand d --load mine.wand` still says what a
+  file defines. `wand V` becomes `wand v`
+- **`wand d --json` is always an array**, for a name as much as for a module
+  or the whole scope, so the shape belongs to the command and nothing
+  downstream branches on the argument
+
 ### Added
 
 - An unknown option is named by every command that takes an argument, not
-  read as one. `wand f --nope` looked for a file, `wand v --nope` for a
+  read as one. `wand f --nope` looked for a file, `wand d --nope` for a
   module, and `wand d --nope` reported no documentation and exited 0
 - A flag that takes a value and did not get one says so. `wand t -e` reported
   an unknown option, which names the wrong problem

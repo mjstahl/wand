@@ -65,9 +65,9 @@ let exempt = [
   "IO.flush"
 ]
 
--- `wand v` lists a module's members, one per line, as `Module.name : type`.
+-- `wand d` lists a module's members, one per line, as `Module.name : type`.
 let members_of! name =
-  $(%{wand} v %{name})
+  $(%{wand} d %{name})
     |> String.lines
     |> List.filter (fn l -> String.starts_with? "%{name}." l)
     |> List.map (fn l -> List.head! (String.split " : " l))

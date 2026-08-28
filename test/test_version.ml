@@ -40,7 +40,7 @@ let test_binary_prints_it () =
       Alcotest.(check string)
         (Printf.sprintf "wand %s" flag)
         expected (run [ flag ]))
-    [ "V"; "version" ]
+    [ "v"; "version" ]
 
 let () =
   Alcotest.run "version"

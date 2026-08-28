@@ -10,15 +10,15 @@ let usage () =
   print_endline "A file is named directly. An expression is given with -e/--expr.";
   print_endline "";
   print_endline "Commands:";
-  print_endline "  d   doc <name>              Print the doc string for a name";
+  print_endline "  d   doc [name]              What a name is: its doc, a module's members,";
+  print_endline "                              or everything in scope";
   print_endline "  f   fmt <file>...           Format .wand files in place";
   print_endline "  h   help [cmd]              Show this help, or help for a command";
   print_endline "  i   interactive             Start an interactive session";
   print_endline "      lsp                     Start the language server (LSP over stdio)";
   print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
   print_endline "  t   type <file>             Typecheck a file without running it";
-  print_endline "  v   env [module]            List names and modules in scope";
-  print_endline "  V   version                 Print the version and exit";
+  print_endline "  v   version                 Print the version and exit";
   print_endline "";
   print_endline "Evaluating an expression:";
   print_endline "  -e, --expr <expr>  Evaluate it and print the result";
@@ -35,8 +35,8 @@ let usage () =
 
 let usage_for sub =
   match sub with
-  | "V" | "version" ->
-    print_endline "Usage: wand V";
+  | "v" | "version" ->
+    print_endline "Usage: wand v";
     print_endline "";
     print_endline "Print the version and exit. Written bare, as `wand 0.1.0`,";
     print_endline "so an installer can compare it to what it meant to install."
@@ -76,9 +76,14 @@ let usage_for sub =
     print_endline "--strict promotes them to errors; A- rules are advisory and";
     print_endline "always stay warnings."
   | "d" | "doc" ->
-    print_endline "Usage: wand d [-x|-t] [--load <file>]... <name>";
+    print_endline "Usage: wand d [-x|-t] [--load <file>]... [name]";
     print_endline "";
-    print_endline "Print the doc string for a name. A module name takes every name in it.";
+    print_endline "What a name is. A function or a value gives its type and";
+    print_endline "doc; a module gives every name in it with its signature;";
+    print_endline "no name at all gives everything in scope.";
+    print_endline "";
+    print_endline "`--load` puts a file's own names in scope first, so";
+    print_endline "`wand d --load mine.wand` says what that file defines.";
     print_endline "";
     print_endline "Options:";
     print_endline "  -x, --execute   Print the doc with its examples run where they stand,";
@@ -88,15 +93,6 @@ let usage_for sub =
     print_endline "                  does not, so it can gate a build";
     print_endline "  --json          Emit the name, type, and doc as JSON";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
-  | "v" | "env" ->
-    print_endline "Usage: wand v [--load <file>]... [module]";
-    print_endline "";
-    print_endline "List all names and modules in scope, or one module's members:";
-    print_endline "wand v List shows every List export with its signature.";
-    print_endline "";
-    print_endline "Options:";
-    print_endline "  --json          Emit the listing as JSON";
-    print_endline "  --load <file>   Load a .wand file first (repeatable)"
   | "f" | "fmt" ->
     print_endline "Usage: wand f <file.wand>...";
     print_endline "";
@@ -415,8 +411,8 @@ let no_such_file ?hint path =
    when a command was actually named. *)
 let is_a_command = function
   | "h" | "help" | "i" | "interactive" | "lsp" | "t" | "type"
-  | "d" | "doc" | "v" | "env" | "f" | "fmt" | "s" | "test"
-  | "V" | "version" -> true
+  | "d" | "doc" | "f" | "fmt" | "s" | "test"
+  | "v" | "version" -> true
   | _ -> false
 
 (* Whatever is left after a command has taken its own flags. Anything still
@@ -478,7 +474,7 @@ let main () =
        exit 1)
   (* Printed bare, as `wand 0.1.0`, so an installer can compare it to what it
      meant to install without parsing prose. *)
-  | ["V"] | ["version"] ->
+  | ["v"] | ["version"] ->
     print_endline ("wand " ^ Wand.Version.value)
   | sub :: rest when sub = "--dry-run" || sub = "--trace" ->
     (* The mode can come first, which reads better: wand --dry-run deploy.wand *)
@@ -647,8 +643,31 @@ let main () =
       end;
       let (loads, rest') = parse_loads rest in
       (match rest' with
+       | [] when execute || test ->
+         Printf.eprintf
+           "Error: -x and -t run one name's examples, so they need a name\n\
+            Run 'wand h d' for usage.\n";
+         exit 1
        | [] ->
-         Printf.eprintf "Error: expected name\nRun 'wand h d' for usage.\n"; exit 1
+         (* No name: what is in scope. This was a command of its own, and
+            it is the same question with the argument left off -- a name has
+            a doc, a module has the names in it, and no name at all has the
+            modules. *)
+         let sess = load_files ~sources:[all_stdlib_imports] loads in
+         if json then print_endline (Wand.Runner.scope_json sess)
+         else begin
+           let entries =
+             List.sort (fun (a, _) (b, _) -> String.compare a b)
+               sess.Wand.Runner.s_type_env in
+           if entries = [] then print_endline "(empty)"
+           else
+             List.iter (fun (name, sc) ->
+               match sc with
+               | Wand.Typechecker.Namespace _ -> print_endline name
+               | _ ->
+                 Printf.printf "%s : %s\n" name
+                   (Wand.Typechecker.string_of_scheme sc)) entries
+         end
        | [name] when execute || test ->
          (* A module runs every example it documents; a single name runs its
             own. Under `-t` the exit code is the answer, so this can gate a
@@ -691,52 +710,37 @@ let main () =
          end
        | [name] ->
          let sess = load_files ~sources:[name] loads in
-         if json then
-           print_endline (Wand.Runner.doc_json sess name)
-         else begin
-           (match Wand.Runner.lookup_type sess name with
-            | Some t -> Printf.printf "%s : %s\n" name t
-            | None   -> ());
-           (match List.assoc_opt name sess.Wand.Runner.s_docs with
-            | Some doc -> print_endline doc
-            | None     -> Printf.printf "%s: no doc\n" name)
-         end
+         (* A module takes every name in it, which the usage has always
+            said and this path did not do: it looked for a doc on the
+            namespace, found none, and said so. Listing the members is the
+            question that was asked. *)
+         (match List.assoc_opt name sess.Wand.Runner.s_type_env with
+          | Some (Wand.Typechecker.Namespace members) ->
+            if json then
+              (match Wand.Runner.module_json sess name with
+               | Ok out    -> print_endline out
+               | Error msg -> Printf.eprintf "%s\n" msg; exit 1)
+            else
+              List.iter (fun (n, scheme) ->
+                Printf.printf "%s.%s : %s\n" name n
+                  (Wand.Typechecker.string_of_scheme scheme))
+                (List.sort (fun (a, _) (b, _) -> String.compare a b) members)
+          | _ ->
+            if json then
+              (* An array whether one name was asked about or a whole
+                 module, so the shape belongs to the command rather than to
+                 the argument and nothing downstream has to branch on it. *)
+              print_endline ("[" ^ Wand.Runner.doc_json sess name ^ "]")
+            else begin
+              (match Wand.Runner.lookup_type sess name with
+               | Some t -> Printf.printf "%s : %s\n" name t
+               | None   -> ());
+              (match List.assoc_opt name sess.Wand.Runner.s_docs with
+               | Some doc -> print_endline doc
+               | None     -> Printf.printf "%s: no doc\n" name)
+            end)
        | _ ->
          Printf.eprintf "Error: too many arguments\nRun 'wand h d' for usage.\n"; exit 1)
-    | "v" | "env" ->
-      let (json, rest) = parse_json_flag rest in
-      let (loads, rest') = parse_loads rest in
-      reject_unknown_options "v" rest';
-      (* `wand v <module>` needs only that module; bare `wand v` lists
-         everything in scope, so it does load them all. *)
-      let sess = match rest' with
-        | [modname] -> load_files ~sources:[modname] loads
-        | _ -> load_files ~sources:[all_stdlib_imports] loads
-      in
-      (match rest' with
-       | [modname] when json ->
-         (match Wand.Runner.module_json sess modname with
-          | Ok out    -> print_endline out
-          | Error msg -> Printf.eprintf "%s\n" msg; exit 1)
-       | [modname] ->
-         (match List.assoc_opt modname sess.Wand.Runner.s_type_env with
-          | Some (Wand.Typechecker.Namespace members) ->
-            let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) members in
-            List.iter (fun (name, scheme) ->
-              Printf.printf "%s.%s : %s\n" modname name (Wand.Typechecker.string_of_scheme scheme)
-            ) sorted
-          | Some _ -> Printf.eprintf "%s is a binding, not a module\n" modname; exit 1
-          | None   -> Printf.eprintf "Unknown module '%s'\n" modname; exit 1)
-       | _ when json ->
-         print_endline (Wand.Runner.scope_json sess)
-       | _ ->
-         let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Wand.Runner.s_type_env in
-         if entries = [] then print_endline "(empty)"
-         else List.iter (fun (name, s) ->
-           match s with
-           | Wand.Typechecker.Namespace _ -> print_endline name
-           | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
-         ) entries)
     | "f" | "fmt" ->
       reject_unknown_options "f" rest;
       (match rest with
@@ -827,6 +831,9 @@ let main () =
         let hint =
           match path, rest with
           | ("e" | "eval"), [expr] -> Some ("wand -e " ^ requote expr)
+          | "V", [] -> Some "wand v"
+          | "env", [] -> Some "wand d"
+          | "env", [m] -> Some ("wand d " ^ m)
           | _, [] when reads_as_an_expression path ->
             Some ("wand -e " ^ requote path)
           | _ -> None

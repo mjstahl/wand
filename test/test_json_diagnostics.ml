@@ -72,7 +72,7 @@ let test_hole_shape () =
     "[{\"kind\":\"hole\",\"type\":\"Int -> Int -> Int ! 'e\"}]"
     (Lint.diagnostics_json ~strict:false ~holes:["Int -> Int -> Int ! 'e"] [])
 
-(* ── Query commands (`wand d --json`, `wand v --json`) ───────────────────── *)
+(* ── Query commands (`wand d --json`) ────────────────────────────────────── *)
 
 let query_sess src =
   let sess = Runner.make_session () in
@@ -470,7 +470,7 @@ let test_every_command_answers_help () =
       Alcotest.(check int)
         (Printf.sprintf "wand %s %s exits 0" cmd flag) 0 code)
       ["--help"; "-h"])
-    ["t"; "f"; "s"; "d"; "v"; "i"; "lsp"; "h"; "V"]
+    ["t"; "f"; "s"; "d"; "i"; "lsp"; "h"; "v"]
 
 let test_help_is_not_taken_from_a_script () =
   (* A flag after a script belongs to the script, which is what makes
@@ -501,14 +501,14 @@ let test_a_flag_missing_its_value () =
   says out "expected a file after --load"
 
 (* Every command that takes an argument used to read a stray flag as one:
-   `wand f --nope` looked for a file, `wand v --nope` for a module, and
+   `wand f --nope` looked for a file, `wand d --nope` for a name, and
    `wand d --nope` reported no documentation and exited 0. *)
 let test_every_command_names_an_unknown_option () =
   List.iter (fun cmd ->
     let (code, out) = run_all [cmd; "--nope"] in
     says out "unknown option: --nope";
     Alcotest.(check int) (cmd ^ " fails") 1 code)
-    ["t"; "f"; "s"; "d"; "v"]
+    ["t"; "f"; "s"; "d"]
 
 (* `--fix` rewrites a file, so it says whether it did. Printing nothing and
    exiting 0 reads exactly like a file that was fixed. *)

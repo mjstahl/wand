@@ -449,7 +449,7 @@ let test_a_script_cannot_call_builtins () =
 (* ── The stdlib the tools know about ─────────────────────────────────────── *)
 
 (* `stdlib_module_names` drives which modules `wand d` will import to answer
-   about, which `wand v` lists, and which unknown name gets "did you forget
+   about, which `wand d` lists, and which unknown name gets "did you forget
    to import". A module on disk but missing from the list still imports and
    runs -- it just goes invisible to the tools. `Test` sat that way with
    unreachable doc strings until someone asked `wand d` about it. *)

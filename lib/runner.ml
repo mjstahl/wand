@@ -1936,7 +1936,7 @@ let lookup_type (sess : session) (name : string) : string option =
   | _ -> None
 
 (* ── `--json` for the query commands ──────────────────────────────────────
-   `wand d --json` and `wand v --json` print these: the same facts the text
+   `wand d --json` prints these: the same facts the text
    output states, as one JSON value on stdout. A fact the session lacks is
    null rather than omitted, so a consumer reads "no doc" as an answer and
    not as a schema difference. *)

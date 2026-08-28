@@ -290,7 +290,7 @@ script that wants a rehearsal flag of its own should call it something
 else — `--rehearse`, `--plan`, `--check`.
 
 Every other flag wand has — `--json`, `--expr`, `--load`, `--strict`,
-`--fix` — belongs to a subcommand (`wand t`, `wand d`, `wand v`, `wand s`),
+`--fix` — belongs to a subcommand (`wand t`, `wand d`, `wand s`),
 and no subcommand runs a script with arguments, so a script receives those
 as ordinary words:
 
