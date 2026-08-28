@@ -1,0 +1,17 @@
+found:     test/fuzz, seeds 5 and 6, 2026-08-28
+reported:  format:unparses -- expected =, got . / expected ->, got .
+fixed in:  lib/formatter.ml, emit_pat_atom
+
+A parameter list is read as names until the `->` or the `=`, so a `.`
+inside one stops the parse. The brackets that make `t.A` a pattern there
+were dropped:
+
+  let a (t.A) = c      came back as  let a t.A = c
+  fn (e.T) -> s        came back as  fn e.T -> s
+
+The same omission as the top-level binder, in the other position.
+`emit_pat_binder` was written for the binder and deliberately not applied
+to parameters, on the grounds that a `let ... in` and a block binding
+parse their head as a pattern already -- true for the binder, and nothing
+to do with parameters, which are their own position and never the head of
+anything. The fuzzer found both halves within a day of each other.

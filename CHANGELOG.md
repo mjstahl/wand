@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- `wand f` writes source that parses. Four shapes broke this. An application
+- `wand f` writes source that parses. Five shapes broke this. An application
   whose callee spans lines ends where the callee's bracket closes, and the
   guard counted only what the *first* line left open -- so the argument under
   a block callee, and the `in` under that, read as continuing the definition.
@@ -13,7 +13,9 @@
   that are a pattern's syntax there: `let (e.I) = ""` came back as
   `let e.I = ""`, which stops at the dot. A unary operator written onto its
   operand made one token of the two: `- ./` came back as `-./`, the float
-  operator ML has and wand does not
+  operator ML has and wand does not. A parameter list is read as names until
+  the `->` or the `=`, and the brackets that make `t.A` a pattern in one were
+  dropped: `let a (t.A) = c` came back as `let a t.A = c`
 - `wand f` writes source that means the same thing. A top-level `let` reads
   its head as the name being defined, so `let (E) = []` came back as a value
   named `E` rather than a match against the constructor, and

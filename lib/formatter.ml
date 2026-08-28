@@ -321,8 +321,15 @@ let rec emit_pat (p : pat) : string = match p with
      is a cons expression. *)
   | PAnnot (p, te) -> "(" ^ emit_pat p ^ ": " ^ emit_type_expr te ^ ")"
 
+(* A parameter. `PQualified` belongs here for the same reason it belongs in
+   `emit_pat_binder`: a parameter list is read as names until the `->` or the
+   `=`, so a `.` inside one stops the parse. `let a (t.A) = c` came back as
+   `let a t.A = c` and `fn (e.T) -> s` as `fn e.T -> s`, neither of which
+   parses. Unlike the binder case this holds in every position, because a
+   parameter is never the head of anything. Found by test/fuzz. *)
 and emit_pat_atom (p : pat) : string = match p with
-  | PConstr (_, _ :: _) | PConstrNamed _ | PConstrBare _ -> "(" ^ emit_pat p ^ ")"
+  | PConstr (_, _ :: _) | PConstrNamed _ | PConstrBare _ | PQualified _ ->
+    "(" ^ emit_pat p ^ ")"
   | _ -> emit_pat p
 
 (* The pattern a *top-level* `let` binds. At the top of a file the head of a
