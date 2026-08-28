@@ -14,11 +14,18 @@ on:
     # 07:37 UTC. Nothing depends on the exact time; it is early enough that a
     # finding is waiting rather than arriving mid-morning.
     #
-    # Off the hour on purpose. `schedule` is best effort, and the top of an
-    # hour is where every other repository's cron sits, so a run asked for
-    # there is the one most likely to arrive late or not at all. This asked
-    # for 07:00 first and the first night it was due produced no run of any
-    # kind.
+    # This schedule does not currently fire, and the time of day is not why.
+    # 07:00 was asked for first and produced no run. 07:37 produced no run.
+    # A probe workflow at `*/10 * * * *` then produced no run in five slots,
+    # while pushes to the same repository built normally. So the fault is in
+    # `schedule` for this repository, not in the hour chosen. Nothing here
+    # accounts for it: the repository is public, it is not a fork, Actions
+    # is enabled, and this file is on the default branch. Only GitHub can
+    # say more; ask their support.
+    #
+    # Until a run appears here on its own, treat the nightly as manual: use
+    # `workflow_dispatch`, driven by a scheduler outside GitHub. Dispatch
+    # works, so a finding is still one command away.
     - cron: "37 7 * * *"
   workflow_dispatch:
     inputs:
