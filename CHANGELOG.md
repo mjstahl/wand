@@ -2,83 +2,80 @@
 
 ## [0.54.0] - 2026-08-28
 
-### Fixed
+### Added
 
-- **`wand f` no longer grows a file without bound.** 0.53.1 added a `;` before
-  a top-level item opening with an operator, to stop it continuing the item
-  above. The separator goes on the piece above, and a comment cannot hold one:
-  it runs to the end of its line and swallowed the `;`, so `--` above a `-`
-  line gained a character on every pass and the comment's own text changed
-  under it. Nothing is owed above a comment anyway -- a comment ends its line,
-  so an operator below it continues nothing. Only 0.53.1 is affected; 0.53.0
-  is not
+- `--help` and `-h` on every command. Each prints that command's usage and
+  exits 0. Two commands did not answer before. `wand i --help` started a
+  session, and `wand lsp --help` started a server. Both hang. A flag after a
+  script is still the script's. `--help` after `-e` is still part of the
+  expression
+- `wand l` as a second spelling of `wand lsp`. Every other command has a
+  single-letter spelling. `wand lsp` still works, so an editor that spawns it
+  needs no change
 
 ### Changed
 
-- **`wand t` takes a file.** An expression is given with `-e`/`--expr`. It was the
-  other way round, and the argument is the same either way -- `deploy.wand` is
-  a valid path expression -- so `wand t ./deploy.wand` typechecked the *path
-  literal*, answered `Path` and exited 0. A checking tool reported success for
-  a file it never opened. One rule now covers the CLI: a file is named
-  directly, an expression carries a flag
-- **`wand e` is gone; an expression is `wand -e` or `wand --expr`.** The same
-  rule at the top level, where a file was already the positional argument.
-  `wand e "1 + 2"` reports `no such file: e` and names the command that works
-- **`wand t --file` is gone.** The file is the argument
-- `-e` and `--expr` mean the same thing in both places they appear
-- An unknown option is named. `wand t -e` used to take `-e` for the file and
-  report an argument count; a flag the command does not have is now said to
-  be one
+- **`wand t` takes a file.** Give an expression with `-e` or `--expr`. The two
+  cannot be told apart by shape, because `deploy.wand` is a valid path
+  expression. `wand t ./deploy.wand` typechecked the path literal, answered
+  `Path`, and exited 0. It reported success for a file it never opened
+- **An expression at the top level is `wand -e`.** A file is still the
+  positional argument. `-e` and `--expr` mean the same thing in both places
+- **`wand d` answers every "what is this" question.** A name gives its type
+  and doc. A module gives every name in it with its signature. No name gives
+  everything in scope. `--load` still puts a file's own names in scope, so
+  `wand d --load mine.wand` says what that file defines
+- **`wand d --json` is always an array.** It returned a bare object for a
+  single name, so a reader had to branch on the argument
+- **`wand v` prints the version.** It was `wand V`
+- **A missing manifest is a violation.** `A-USES2` becomes `V-USES2`. A file
+  that reaches outside itself and says nothing has no line to check it
+  against. A manifest wider than the file stays `A-USES1` and stays advisory.
+  That one is imprecise, not unsafe. `wand t --fix` writes the missing line
+- **`--strict` implies `--lint` when it runs a script.** It reports the
+  findings, and it refuses to run the file if a finding is a violation.
+  Advice does not stop a run. `--strict` alone used to reach the script
+  untouched, so it asked for a gate and got an ordinary run. A script that
+  takes its own `--strict` gets it after `--`
+- `--load` beside a file is refused. It seeds a session, which a file check
+  does not use. A flag that is accepted and dropped is a check that did not
+  happen
+- `--dry-run` and `--trace` are refused with `-e`. They report a script's
+  effects, and there is no mode to give an expression
 
-- **A missing manifest is a violation, not advice.** `A-USES2` becomes
-  `V-USES2`: a file that reaches outside itself and says nothing has no line
-  to be checked against, which is the thing the manifest exists to stop. A
-  manifest *wider* than the file stays `A-USES1` and stays advisory -- that
-  one is imprecise, not unsafe. `wand t --fix` writes the missing line
-- **`--strict` implies `--lint` when running a script, and is wand's whether
-  or not `--lint` is beside it.** It reports the findings and refuses to run
-  if any is a violation. It used to mean nothing on its own and reach the
-  script untouched, so someone who typed it before a deploy asked for a gate,
-  got an ordinary run, and was told nothing. A script with a `--strict` of
-  its own is given it after `--`, the same trade already made for
-  `--dry-run`. A plain run still says nothing and still runs
+### Removed
 
-- **`wand v` is merged into `wand d`, and `wand v` is now the version.**
-  `wand d <name>` gives a doc, `wand d <module>` gives every name in it with
-  its signature, and `wand d` alone gives everything in scope. `wand d`'s
-  usage always claimed a module took every name in it, and the plain path
-  never did it -- it looked for a doc on the namespace and reported none.
-  `--load` carries through, so `wand d --load mine.wand` still says what a
-  file defines. `wand V` becomes `wand v`
-- **`wand d --json` is always an array**, for a name as much as for a module
-  or the whole scope, so the shape belongs to the command and nothing
-  downstream branches on the argument
+- `wand e`. Use `wand -e`
+- `wand t --file`. The file is the argument
+- `wand v` as the scope listing, and `wand env`. Use `wand d`
+- `wand V`. Use `wand v`
 
-- `wand l` is `wand lsp`. It was the one command with no letter, and every
-  other one has had a single-letter spelling since the CLI existed. `wand lsp`
-  still works, so an editor configured to spawn it is untouched
+Each removed spelling reports what is wrong and names the one that works.
 
-### Added
+### Fixed
 
-- An unknown option is named by every command that takes an argument, not
-  read as one. `wand f --nope` looked for a file, `wand d --nope` for a
-  module, and `wand d --nope` reported no documentation and exited 0
-- A flag that takes a value and did not get one says so. `wand t -e` reported
-  an unknown option, which names the wrong problem
-- `wand t --fix` says when it changed nothing. It printed nothing and exited
-  0, which reads the same as a file that was fixed
-- **`--help` and `-h` on every command**, printing that command's usage and
-  exiting 0. `wand i --help` used to start a session and `wand lsp --help` a
-  server -- both hang rather than answer -- and `wand d --help` looked up a
-  doc for `--help` and exited 0. A flag after a script is still the script's,
-  and `--help` after `-e` is still part of the expression
-- `--load` with a file is refused rather than ignored. It seeds a session,
-  which a file does not use, and a flag accepted and dropped is a check that
-  did not happen
-- `--dry-run` and `--trace` with `--expr` are refused. They are built around a
-  script's effects and there is no mode to give an expression; accepting one
-  and ignoring it would run for real, which is what `--dry-run` exists to
-  prevent
+- An unknown option is named by every command that takes an argument. It used
+  to be read as the argument. `wand f --nope` looked for a file of that name,
+  `wand v --nope` for a module, and `wand d --nope` reported no documentation
+  and exited 0
+- A flag that takes a value and did not get one says which value is missing.
+  It was reported as an unknown option, which names the wrong problem
+- `wand t --fix` says `nothing to fix in <file>` when it changed nothing. It
+  printed nothing and exited 0, which reads the same as a file it did fix
+
+## [0.53.2] - 2026-08-28
+
+### Fixed
+
+- **`wand f` no longer grows a file without bound.** 0.53.1 writes a `;`
+  before a top-level item that opens with an operator, so the item does not
+  read as a continuation of the item above. The separator goes on the piece
+  above, and a comment cannot hold one. A comment runs to the end of its line
+  and swallowed the `;`. A `--` above a `-` line gained a character on every
+  pass, and the comment's own text changed under it. `wand f` writes in place,
+  so a file formatted twice was a file corrupted twice. Nothing is owed above
+  a comment. A comment ends its line, so an operator below it continues
+  nothing. 0.53.0 is not affected
 
 ## [0.53.1] - 2026-08-28
 
@@ -1621,6 +1618,9 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.54.0]: https://github.com/mjstahl/wand/compare/v0.53.2...v0.54.0
+[0.53.2]: https://github.com/mjstahl/wand/compare/v0.53.1...v0.53.2
+[0.53.1]: https://github.com/mjstahl/wand/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/mjstahl/wand/compare/v0.52.0...v0.53.0
 [0.52.0]: https://github.com/mjstahl/wand/compare/v0.51.0...v0.52.0
 [0.51.0]: https://github.com/mjstahl/wand/compare/v0.50.0...v0.51.0

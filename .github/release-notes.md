@@ -15,23 +15,15 @@ Nothing is silently accepted: every old spelling reports what is wrong and
 names the command that works. The **Upgrading** table at the end is the whole
 list.
 
-### Fixed since 0.53.1
+### If you are on 0.53.1, take 0.53.2 first
 
-**`wand f` could grow a file without bound.** 0.53.1 writes a `;` before a
-top-level item that opens with an operator, so it does not read as a
-continuation of the item above. The separator lands on the piece above, and a
-comment cannot hold one — it runs to the end of its line and swallows it:
+0.53.1 has a bug that corrupts a file. `wand f` writes a `;` onto the line
+above a top-level item that opens with an operator. A comment cannot hold a
+`;`, so the file grows a character on every pass and the comment loses its
+text. 0.53.2 fixes it and changes nothing else.
 
-```
---          -->   --;        -->   --;;
--                 -                -
---                --               --
-let e=e           let e=e          let e=e
-```
-
-A character per pass, without bound, and the comment's text changed under it.
-`wand f` writes in place, so a file formatted twice was a file corrupted
-twice. **0.53.0 is not affected; upgrade past 0.53.1.**
+0.54.0 carries the same fix. Take 0.53.2 if you are not ready for the command
+line changes below. 0.53.0 is not affected.
 
 ### Why
 
