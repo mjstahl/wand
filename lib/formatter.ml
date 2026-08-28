@@ -192,7 +192,15 @@ let prefers_raw s = String.contains s '"' && raw_safe s
 let string_of_wand_float f =
   match classify_float f with
   | FP_nan -> "nan"
-  | FP_infinite -> if f > 0.0 then "inf" else "-inf"
+  (* A literal too large for a double lexes to infinity, and `inf` is not a
+     way to write that back: the word re-reads as a variable, which is how a
+     file that typechecked came back as an unbound name. The only notation
+     wand has for it is the one the input used -- enough digits to overflow
+     -- so that is what goes back. `1` and 309 zeros is the first power of
+     ten past the largest finite double. Found by test/fuzz. *)
+  | FP_infinite ->
+    let overflowing = "1" ^ String.make 309 '0' ^ ".0" in
+    if f > 0.0 then overflowing else "-" ^ overflowing
   | _ ->
     let rec go p =
       if p > 24 then Printf.sprintf "%.24f" f
@@ -315,6 +323,26 @@ let rec emit_pat (p : pat) : string = match p with
 
 and emit_pat_atom (p : pat) : string = match p with
   | PConstr (_, _ :: _) | PConstrNamed _ | PConstrBare _ -> "(" ^ emit_pat p ^ ")"
+  | _ -> emit_pat p
+
+(* The pattern a *top-level* `let` binds. At the top of a file the head of a
+   `let` is read as the name being defined, so a pattern that does not begin
+   as a plain name has to arrive inside brackets or the parse stops partway
+   through it: `let e.I =` stops at the dot and `let P(a = 1) =` stops at
+   the `=` between the parentheses. Three more change meaning instead of
+   failing -- `let Some x = e` is read back as a one-clause definition of a
+   function named `Some`, `let E = e` as a value named `E` rather than a
+   match against the constructor, and `let P(a, b) = e` loses the hug that
+   says the identifiers are the payload.
+
+   Only at the top level. A `let ... in` and a block binding parse their
+   head as a pattern already, so the same brackets there are noise -- they
+   rewrote four lines of test/wand/test_typedef.wand, which is what said so.
+   A tuple, a list and a map carry brackets of their own in either position
+   and take no second pair. Found by test/fuzz, under three signatures. *)
+and emit_pat_binder (p : pat) : string = match p with
+  | PQualified _ | PConstrNamed _ | PConstrBare _ | PConstr _ ->
+    "(" ^ emit_pat p ^ ")"
   | _ -> emit_pat p
 
 and emit_cons_chain (h : pat) (t : pat) : string =
@@ -469,6 +497,35 @@ let depth_after_first_line str =
   in
   go 0 0 false
 
+(* Every line end the parser is free to stop at. `depth_after_first_line`
+   asks about the first line alone, which was enough while a wrapped
+   application put its argument straight below a callee that fit on one
+   line. It is not enough when the callee itself spans lines: a block
+   argument opens a bracket on the first line and closes it three lines
+   down, and the argument written below *that* is where the definition
+   quietly ends. So this looks for any line end that closes everything it
+   opened and still has text after it -- every point the parse can be called
+   finished, not just the first. Found by test/fuzz. *)
+let breaks_at_depth_zero str =
+  let n = String.length str in
+  let rec blank_from i =
+    i >= n
+    || (match str.[i] with ' ' | '\t' | '\n' -> blank_from (i + 1) | _ -> false)
+  in
+  let rec go i depth in_string =
+    if i >= n then false
+    else
+      match str.[i] with
+      | '\n' when not in_string ->
+        (depth <= 0 && not (blank_from (i + 1))) || go (i + 1) depth in_string
+      | '\\' when in_string -> go (i + 2) depth in_string
+      | '"' -> go (i + 1) depth (not in_string)
+      | ('(' | '[' | '{') when not in_string -> go (i + 1) (depth + 1) in_string
+      | (')' | ']' | '}') when not in_string -> go (i + 1) (depth - 1) in_string
+      | _ -> go (i + 1) depth in_string
+  in
+  go 0 0 false
+
 (* Does wrapping this finish it? An application does end where its line
    does, so what follows is read as something new. `try` is transparent
    here: it prefixes a keyword and changes nothing about whether the tail is
@@ -515,6 +572,31 @@ let rec absorbs_a_bracket e =
   | Qualified (_, inner) -> absorbs_a_bracket inner
   | _ -> false
 
+(* Whether the bracket an argument opens with holds the whole of it, and
+   holds something. A constructor takes the bracket written after it either
+   way, and that is harmless exactly when the two are the same text: `S (x)`
+   and `S x` build one node. Two renderings are not that. `()` is the empty
+   field list rather than unit in brackets, so `O ()` comes back as the
+   constructor with no payload where `O (())` keeps the argument. And a
+   bracket that closes before the end leaves what follows it outside the
+   payload: `O (d).n` reads as `(O d).n`, a different program, and one that
+   still typechecks. Found by test/fuzz, under three signatures. *)
+let bracket_holds_all s =
+  let n = String.length s in
+  n > 2 && s.[0] = '('
+  && (let rec go i depth in_string =
+        if i >= n then false
+        else
+          match s.[i] with
+          | '\\' when in_string -> go (i + 2) depth in_string
+          | '"' -> go (i + 1) depth (not in_string)
+          | ('(' | '[' | '{') when not in_string -> go (i + 1) (depth + 1) in_string
+          | (')' | ']' | '}') when not in_string ->
+            if depth <= 1 then i = n - 1 else go (i + 1) (depth - 1) in_string
+          | _ -> go (i + 1) depth in_string
+      in
+      go 0 0 false)
+
 (* Absorption at the head of a spine is harmless while the name is bare:
    `S (x)` and `S x` both build `App (S, x)`, so there is nothing to guard
    against. Qualified, it is not -- `l.A (x)` puts the application inside
@@ -526,13 +608,12 @@ let head_needs_a_bracket e =
   | _ -> false
 
 let bracket_if_wrapped_app body emitted =
-    (* Both conditions, and only together. A `match` or an `if` is safe with
-       nothing left open, because its parse is not finished at the first line
-       -- the cases are still owed. An application's is: it ends where the
-       line does, and what follows is read as something new. *)
-    if String.contains emitted '\n'
-       && depth_after_first_line emitted <= 0
-       && wrapping_ends_it body
+    (* Both conditions, and only together. A `match` or an `if` is safe
+       wherever it breaks, because its parse is not finished there -- the
+       cases are still owed. An application's is: it ends at the first line
+       end that leaves nothing open, and what follows is read as something
+       new. *)
+    if breaks_at_depth_zero emitted && wrapping_ends_it body
     then bracket emitted
     else emitted
 
@@ -686,8 +767,13 @@ and guard_spine head head_s args rendered following =
   let guarded = guard_constructors args rendered following in
   let next = match guarded with x :: _ -> x | [] -> following in
   let head_s =
-    if head_needs_a_bracket head && next <> "" && next.[0] = '(' then
-      bracket head_s
+    (* A qualified head needs its brackets whatever follows. A bare one needs
+       them only where absorption is not the identity it is claimed to be --
+       which `bracket_holds_all` is the test for. *)
+    if next <> "" && next.[0] = '('
+       && (head_needs_a_bracket head
+           || (absorbs_a_bracket head && not (bracket_holds_all next)))
+    then bracket head_s
     else head_s
   in
   head_s :: guarded
@@ -741,7 +827,21 @@ and emit_expr_inner ?col indent e =
   | If (c, t, el) -> emit_if ~col indent c t el
   | Match (scr, cases) -> emit_match ~col indent scr cases
   | BinOp (op, a, b) -> emit_binop ~col indent op a b
-  | UnOp (op, e) -> op ^ emit_atom indent e
+  | UnOp (op, e) ->
+    (* A space where the two would lex as one token. `-` against a path or a
+       glob starting `.` makes `-.`, which the lexer reports as a float
+       operator wand does not have -- so `- ./` came back unreadable. `!` has
+       the same hazard in front of `=`. The space is only written where it is
+       needed, so `-x` and `!ok` are untouched. Found by test/fuzz. *)
+    let arg = emit_atom indent e in
+    let glues =
+      arg <> ""
+      && (match op, arg.[0] with
+          | "-", ('.' | '-') -> true
+          | "!", '=' -> true
+          | _ -> false)
+    in
+    op ^ (if glues then " " else "") ^ arg
   (* An item is placed two columns in, so that is the indent it wraps to --
      rendering it at the sequence's own indent puts an item's continuation
      lines to the left of the item itself. *)
@@ -1416,7 +1516,15 @@ and emit_let ?col indent p e1 e2 =
        with type T". Must go back out through the dedicated
        `let name : T = e` syntax (parser.ml:707-717) instead. *)
     let name = emit_pat p in
-    let bodys = emit_expr indent body in
+    (* The annotated value needs the same brackets the unannotated one gets
+       from `emit_bound_value`: a call that wrapped ends at its first line,
+       and here the `in` below it is read as continuing the definition
+       rather than closing it. This branch went around that helper and so
+       around the guard. Found by test/fuzz. *)
+    let bodys =
+      let emitted = emit_expr indent body in
+      bracket_if_wrapped_app body emitted
+    in
     let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
@@ -1755,10 +1863,10 @@ let emit_top_item_pretty_uncached = function
   | TLType (tdef, _) -> emit_type_def tdef
   | TLLetPat (p, e) ->
     let body = emit_expr 0 e in
-    let oneline = Printf.sprintf "let %s = %s" (emit_pat p) body in
+    let oneline = Printf.sprintf "let %s = %s" (emit_pat_binder p) body in
     if fits 0 oneline then oneline
     else
-      Printf.sprintf "let %s =\n  %s" (emit_pat p)
+      Printf.sprintf "let %s =\n  %s" (emit_pat_binder p)
         (bracket_if_wrapped_app e (emit_expr 2 e))
   | TLLet (name, [], Annot (te, body)) ->
     (* Same ambiguity as the local-`let` case: reprinting via inline

@@ -1,0 +1,12 @@
+found:     test/fuzz, seed 33178672742, iteration 1419804, 2026-08-28
+reported:  format:retyped:was Unit, now E-TYPE
+fixed in:  lib/formatter.ml, string_of_wand_float
+
+A decimal literal too large for a double lexes to infinity. The formatter
+wrote that back as `inf`, which is not a float in wand -- it re-reads as a
+variable, so a file that typechecked came back with an unbound name.
+
+There is no exponent form to write it in, so the way back is the way in:
+enough digits to overflow. The 320 here are the fuzzer's; the formatter
+now writes 1 and 309 zeros, the first power of ten past the largest
+finite double.

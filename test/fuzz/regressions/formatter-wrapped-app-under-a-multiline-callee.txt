@@ -1,0 +1,14 @@
+found:     test/fuzz, seed 33178672744, iteration 446561, 2026-08-28
+reported:  format:unparses -- expected ), got in
+fixed in:  lib/formatter.ml, breaks_at_depth_zero
+
+An application that wrapped needs brackets, because it ends where its
+first line ends and the lines after it become something else. The guard
+for that asked whether the *first* line left a bracket open, which is not
+where the risk is once the callee itself spans lines: the block below
+opens a bracket on line one and closes it three lines down, and the
+argument after that is where the definition quietly ends. The `in` below
+was then read as continuing it.
+
+The guard now looks for any line end that closes everything it opened and
+still has text after it, rather than only the first.

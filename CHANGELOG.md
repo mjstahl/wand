@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.53.1] - 2026-08-28
+
+### Fixed
+
+- `wand f` writes source that parses. Four shapes broke this. An application
+  whose callee spans lines ends where the callee's bracket closes, and the
+  guard counted only what the *first* line left open -- so the argument under
+  a block callee, and the `in` under that, read as continuing the definition.
+  `let x : T = e` is written by a branch of its own, which went around the
+  helper that brackets a wrapped value. A top-level `let` lost the brackets
+  that are a pattern's syntax there: `let (e.I) = ""` came back as
+  `let e.I = ""`, which stops at the dot. A unary operator written onto its
+  operand made one token of the two: `- ./` came back as `-./`, the float
+  operator ML has and wand does not
+- `wand f` writes source that means the same thing. A top-level `let` reads
+  its head as the name being defined, so `let (E) = []` came back as a value
+  named `E` rather than a match against the constructor, and
+  `let (Some x) = e` as a one-clause definition of a function called `Some`.
+  A bare constructor absorbs the bracket after it, which is harmless only
+  while that bracket holds the whole argument: `O (())` came back as `O ()`,
+  the empty field list, and `O 2024-02-29.n` as `O (2024-02-29).n`, moving
+  the field access. A decimal literal too large for a double lexes to
+  infinity, and was written back as `inf` -- a variable, not a number. It is
+  written back as digits that overflow again
+- `wand f` settles. `let (P(a, b)) = y` alternated between two spellings, and
+  each constructor-absorption shape above disagreed with itself on a second
+  pass
+
 ## [0.53.0] - 2026-08-26
 
 ### Added

@@ -1,0 +1,13 @@
+found:     test/fuzz, seed 33178672745, iteration 299173, 2026-08-28
+reported:  format:unparses -- expected ), got in
+fixed in:  lib/formatter.ml, emit_let's Annot branch
+
+`let x : T = e` is written by a branch of its own, because inline
+`e : T` would re-parse as cons rather than ascription. That branch
+emitted its value directly and so went around emit_bound_value, which is
+where a wrapped application gets the brackets that keep it one
+expression. The `in` after it was read as continuing the definition.
+
+The branch now guards its value the same way, which at this width shows
+up as the formatter disagreeing with itself on a second pass rather than
+as source that does not parse.

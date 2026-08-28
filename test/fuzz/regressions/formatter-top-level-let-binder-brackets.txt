@@ -1,0 +1,18 @@
+found:     test/fuzz, seed 33178672742/33178672743, 2026-08-28
+reported:  format:unparses, format:retyped
+fixed in:  lib/formatter.ml, emit_pat_binder
+
+At the top of a file the head of a `let` is read as the name being
+defined, so the brackets around a pattern there are the syntax and not
+decoration. The formatter dropped them, and the three shapes in this file
+each break a different way.
+
+  let (e.I) = ""         parse stops at the dot
+  let (E) = []           reads as a value named E, not a match against
+                         the constructor -- so a file that did not
+                         typecheck came back as one that does
+  let (Some x) = Some 1  reads as a one-clause definition of a function
+                         named Some
+
+A `let ... in` and a block binding parse their head as a pattern already
+and need no brackets, so the rule is the top level's alone.

@@ -1,0 +1,16 @@
+found:     test/fuzz, seeds 33178672742/3/4, 2026-08-28
+reported:  format:unstable, three times
+fixed in:  lib/formatter.ml, bracket_holds_all and guard_spine
+
+A constructor takes the bracket written after it: `S (x)` and `S x` build
+one node. The formatter read that as "a bare constructor head never needs
+guarding", which holds only while the bracket holds the whole argument.
+
+  O(())          printed `O ()`, which is the empty field list -- the
+                 constructor with no payload, not applied to unit
+  J$N.e          printed `J ($N).e`, where J takes `($N)` and `.e` then
+                 applies to the result: `(J $N).e`
+  O 2024-02-29.n printed `O (2024-02-29).n`, the same way
+
+Each is a different program, and each still typechecks, so only a second
+formatting pass disagreeing said anything.

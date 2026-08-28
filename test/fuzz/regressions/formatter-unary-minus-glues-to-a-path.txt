@@ -1,0 +1,14 @@
+found:     test/fuzz, seed 2, iteration 63050, 2026-08-28
+reported:  format:unparses -- there is no '-.'
+fixed in:  lib/formatter.ml, the UnOp case of emit_expr_inner
+
+A unary operator was written straight onto its operand. `- ./` became
+`-./`, and `-.` is the float operator ML has and wand does not, so the
+lexer rejected the file with a message about a spelling nobody used.
+
+The space is written only where the two would otherwise lex as one token,
+so `-x` and `!ok` are unchanged.
+
+Found by the run that checked the five fixes beside this one, not by the
+night that filed them. It is older than all of them: the pre-fix binary
+fails this input the same way.
