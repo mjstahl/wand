@@ -143,14 +143,25 @@ jobs:
           # fresh clone of this repository has no reason to have it.
           gh label create fuzz --description "Found by the nightly fuzzer" \
             --color FBCA04 2>/dev/null || true
+
+          # Every title already filed, read once, from the issues endpoint.
+          # This used to ask the search endpoint per signature, and search is
+          # indexed asynchronously: two shards hitting one signature four
+          # seconds apart both found nothing and both filed, which is how
+          # this repository got two issues with one title. Listing is
+          # read-your-writes, and a title filed in this run is added below,
+          # so the second shard sees the first shard's issue whatever the
+          # index is doing.
+          gh issue list --label fuzz --state all --limit 500 \
+            --json title --jq '.[].title' > filed.txt
+
           filed=0
           for notes in findings/*/_fuzz-findings/*.json; do
             input="${notes%.json}.wand"
             sig=$(jq -r '.signature' "$notes")
             [ -n "$sig" ] && [ "$sig" != "null" ] || continue
             title="fuzz: $sig"
-            if gh issue list --state all --search "$(printf '%s' "$title") in:title" \
-                 --json title --jq '.[].title' | grep -Fxq "$title"; then
+            if grep -Fxq "$title" filed.txt; then
               echo "already filed: $title"
               continue
             fi
@@ -172,6 +183,9 @@ jobs:
               echo "put the input in \`test/fuzz/regressions/\`."
             } > body.md
             gh issue create --title "$title" --body-file body.md --label fuzz
+            # Before the next shard's finding is considered, not after the
+            # loop: the duplicate this guards against is inside one run.
+            printf '%s\n' "$title" >> filed.txt
             filed=$((filed + 1))
           done
           echo "filed $filed issue(s)"

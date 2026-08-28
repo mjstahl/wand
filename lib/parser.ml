@@ -1093,7 +1093,17 @@ and atom_base_ s =
   | Token.With   -> parse_with_ s
   | Token.Try    ->
     let body = expr_ 0 s in
-    if peek s = Token.With && s.with_owners = 0 then
+    (* Only a `with` this statement still reaches. The hint is for someone
+       writing OCaml's `try e with cases`, which is one statement -- so it
+       is owed only where the `with` is still part of one: on the same line,
+       or on a line indented past the `try`. A `with` that opens a statement
+       of its own is a `with ... as ... ->` bracket at the top level, which
+       is an ordinary thing for a script to do, and the layout rule that
+       every other construct obeys says so. Reporting it here made
+       `try h` above a top-level `with` unparseable, and left the formatter
+       bracketing every top-level `with` to avoid a hazard that need not
+       exist. Found by test/fuzz. *)
+    if peek s = Token.With && s.with_owners = 0 && not (newline_breaks_expr s) then
       fail_at (peek_loc s)
         "try takes no cases, so there is no 'try ... with': 'try e' \
          yields a Result to match on -- and 'handle ... with' is what \

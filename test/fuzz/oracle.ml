@@ -105,12 +105,27 @@ let signature = function
   | Skipped -> None
   | Typed _ -> None
   | Rejected _ -> None
-  (* The parse error's text is not in the signature. It is a property of the
-     input, not of the bug: four mutants produced four messages for what is
-     one broken claim -- that formatting source produces source. Four lines
-     in known.txt for one bug is a report nobody can read, and the message
-     is still in the finding's own notes where a reader needs it. *)
-  | FmtUnparses _ -> Some "format:unparses"
+  (* The parse error's text is in the signature, and the first night said
+     why. It read four `format:unparses` findings as one bug and filed one
+     issue; they were four bugs, in four places, and the two the dedup
+     collapsed had no ticket and were found only by rereading the artifacts.
+     A signature that cannot tell two bugs apart hides one of them, which is
+     the more expensive of the two mistakes available here.
+
+     The other mistake is still real: the message carries input tokens
+     (`expected ), got in`), so one bug can split across several
+     signatures and file an issue for each. Two of that night's four did
+     share a message while having different causes, so this does not
+     separate bugs exactly -- it only stops one bucket from swallowing
+     them. Duplicate issues are cheap to close; a bug nobody was told
+     about is not.
+
+     `normalise` still takes quoted text out, because a message quoting a
+     name from the input would fragment on the input rather than on the
+     bug. It costs some readability in the title -- a parser error quotes
+     the language, not the program -- and the finding's notes carry the
+     message in full. *)
+  | FmtUnparses m -> Some ("format:unparses:" ^ normalise m)
   | FmtUnstable -> Some "format:unstable"
   | FmtLostComment -> Some "format:lost-comment"
   | FmtRetyped what -> Some ("format:retyped:" ^ normalise what)

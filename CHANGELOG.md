@@ -24,6 +24,13 @@
   the field access. A decimal literal too large for a double lexes to
   infinity, and was written back as `inf` -- a variable, not a number. It is
   written back as digits that overflow again
+- A `with` below a `try` is a statement of its own. The hint that wand has no
+  `try ... with` was owed on any following `with`, including one back at the
+  `try`'s own column -- so a top-level `with ... as ... -> body` under a
+  `try` did not parse, though the reference gives four examples of the form
+  and it runs. The layout rule decides now, as it does everywhere else: the
+  hint is owed on the same line, or on a line indented past the `try`, and
+  both still report it
 - `wand f` settles. `let (P(a, b)) = y` alternated between two spellings, and
   each constructor-absorption shape above disagreed with itself on a second
   pass

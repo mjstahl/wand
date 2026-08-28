@@ -1,0 +1,21 @@
+found:     test/fuzz, seed 0, iteration 158335, 2026-08-28
+reported:  format:unparses -- try takes no cases
+fixed in:  lib/parser.ml, the Token.Try branch of atom_base_
+
+`try h; with "" as d -> h` loses the `;` to a line break, and the `with`
+below was then read as the cases of the `try` above it -- reported as
+`try ... with`, a form wand does not have.
+
+The hint is for someone writing OCaml, where `try e with cases` is one
+statement. It was owed on any following `with` at all, including one
+opening a statement of its own. A top-level `with ... as ... -> body` is
+an ordinary thing for a script to do: it typechecks, it runs, and the
+layout rule every other construct obeys says a line back at the `try`'s
+column starts something new. So the hint is now owed only where the
+`with` is still part of the same statement -- on the same line, or
+indented past the `try`. Both of those still report it.
+
+Fixed here rather than in the formatter. Bracketing every top-level
+`with` would have avoided the crash by making a working construct print
+as `(with ...)`, which is a worse answer than letting the layout rule
+mean what it says.

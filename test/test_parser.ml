@@ -667,6 +667,30 @@ let test_paren_seq () =
     "fn x -> (x + 1; x * 2)"
     (Fn ([PVar "x"], Seq (BinOp ("+", Var "x", Int 1), BinOp ("*", Var "x", Int 2))))
 
+(* ── `try` and the `with` below it ───────────────────────────────────────── *)
+
+(* The hint for `try e with cases` is for someone writing OCaml, where that
+   is one statement. It was owed on any following `with`, which made a
+   top-level `with ... as ... ->` under a `try` unparseable -- a construct
+   the reference gives four examples of. The layout rule decides now: a
+   `with` still inside the statement gets the hint, one that opens a
+   statement of its own is a resource bracket. *)
+
+let parses label src =
+  match (try Ok (parse_program src) with Parser.ParseError (_, m) -> Error m) with
+  | Ok _ -> ()
+  | Error m -> Alcotest.failf "%s: %s" label m
+
+let test_try_then_with () =
+  (* Still one statement, so the hint is still owed. *)
+  refuses "same line" "let r = try f () with | Error e -> 1"
+    "try takes no cases";
+  refuses "indented past the try" "let h = 1\ntry h\n  with r as d -> h"
+    "try takes no cases";
+  (* Back at the `try`'s column, so it opens a statement of its own. *)
+  parses "a resource bracket below" "let h = 1\ntry h\nwith h as d -> d";
+  parses "a resource bracket alone" "with h as d -> d"
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 (* Equations for one function are a single definition, so they must be
@@ -957,6 +981,7 @@ let () =
     ];
     "constructs", [
       Alcotest.test_case "let"          `Quick test_let;
+      Alcotest.test_case "try then with" `Quick test_try_then_with;
       Alcotest.test_case "record update" `Quick test_record_update;
       Alcotest.test_case "annotated payload" `Quick test_annotated_payload_pattern;
       Alcotest.test_case "local multi-equation" `Quick test_local_multi_equation;

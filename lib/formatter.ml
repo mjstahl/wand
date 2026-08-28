@@ -1932,25 +1932,11 @@ let emit_top_item_pretty_uncached = function
        opens with one is read as more of the item before it, so `-1` under a
        definition becomes a subtraction. Brackets say it is its own
        statement. Found by test/fuzz. *)
-    (* `with` is the same hazard spelled as a word. An item opening with it
-       is read as the cases of a `try` on the item above -- which the parser
-       reports as `try ... with`, a form wand does not have -- and the item
-       above only has to *end* in a `try` for that to happen, so the guard
-       belongs here rather than on whatever came before. Found by
-       test/fuzz. *)
-    let opens_with_a_keyword =
-      let kw = "with" in
-      let n = String.length kw in
-      String.length text > n
-      && String.sub text 0 n = kw
-      && (match text.[n] with ' ' | '\t' | '\n' -> true | _ -> false)
-    in
     let continues_the_line_above =
-      opens_with_a_keyword
-      || (text <> ""
-          && (match text.[0] with
-              | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
-              | _ -> false))
+      text <> ""
+      && (match text.[0] with
+          | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
+          | _ -> false)
     in
     if continues_the_line_above then bracket text else text
 
