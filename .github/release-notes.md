@@ -62,6 +62,23 @@ offering `--expr` on a typo is noise.
   accepting one and ignoring it would run for real, which is the single
   mistake `--dry-run` exists to prevent
 
+### Added
+
+**`--help` and `-h` on every command**, printing that command's usage:
+
+```
+wand t --help      wand f --help      wand s --help      wand d --help
+wand v --help      wand i --help      wand lsp --help    wand h --help
+```
+
+`wand i --help` used to start an interactive session and `wand lsp --help` a
+language server — both of which hang instead of answering. `wand d --help`
+looked up documentation for a name called `--help` and exited 0.
+
+A flag after a script still belongs to the script, so `wand deploy.wand
+--help` passes `--help` through as before. `--help` after `-e` is still part
+of the expression.
+
 ### Upgrading
 
 Three substitutions cover it:

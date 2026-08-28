@@ -457,6 +457,40 @@ let test_the_old_file_flag_is_named () =
   says out "wand t <file>";
   Alcotest.(check int) "and fails" 1 code
 
+(* Every command answers `--help` with its own usage, and answers it before
+   doing anything. `wand i --help` started a session and `wand lsp --help`
+   started a server -- both hang rather than answer -- and `wand d --help`
+   looked up a doc for `--help` and exited 0. *)
+let test_every_command_answers_help () =
+  List.iter (fun cmd ->
+    List.iter (fun flag ->
+      let (code, out) = run_all [cmd; flag] in
+      if not (Lint.contains out "Usage: wand") then
+        Alcotest.failf "wand %s %s did not print usage:\n%s" cmd flag out;
+      Alcotest.(check int)
+        (Printf.sprintf "wand %s %s exits 0" cmd flag) 0 code)
+      ["--help"; "-h"])
+    ["t"; "f"; "s"; "d"; "v"; "i"; "lsp"; "h"; "V"]
+
+let test_help_is_not_taken_from_a_script () =
+  (* A flag after a script belongs to the script, which is what makes
+     `wand deploy.wand --help` the script's business and not wand's. *)
+  let path = Filename.temp_file "wand_argv" ".wand" in
+  Out_channel.with_open_text path (fun oc ->
+    Out_channel.output_string oc
+      "uses {Env, IO}\n\nimport Env\nimport IO\n\nIO.println \"%{Env.args ()}\"\n");
+  Fun.protect ~finally:(fun () -> Sys.remove path) (fun () ->
+    let (_, out) = run_all [path; "--help"] in
+    says out "[\"--help\"]")
+
+let test_help_is_not_taken_from_an_expression () =
+  (* `--help` after `-e` is the expression, not a request for usage. In wand
+     `--` opens a comment, so this one checks as an empty program. *)
+  let (code, out) = run_all ["t"; "-e"; "--help"] in
+  if Lint.contains out "Usage: wand" then
+    Alcotest.failf "the expression was read as a request for help:\n%s" out;
+  Alcotest.(check int) "and checks clean" 0 code
+
 let test_eval_is_a_top_level_flag () =
   let (code, out) = run ["-e"; "1 + 2"] in
   says out "3";
@@ -497,6 +531,10 @@ let () =
       Alcotest.test_case "-e and --expr agree"        `Quick test_short_and_long_agree;
       Alcotest.test_case "unknown option is named"    `Quick test_unknown_option_is_named;
       Alcotest.test_case "--file is named"            `Quick test_the_old_file_flag_is_named;
+      Alcotest.test_case "every command has --help"   `Quick test_every_command_answers_help;
+      Alcotest.test_case "a script keeps --help"      `Quick test_help_is_not_taken_from_a_script;
+      Alcotest.test_case "-e keeps --help"            `Quick
+        test_help_is_not_taken_from_an_expression;
       Alcotest.test_case "-e evaluates"               `Quick test_eval_is_a_top_level_flag;
       Alcotest.test_case "`wand e` hints at -e"       `Quick test_eval_subcommand_hints;
       Alcotest.test_case "--dry-run refuses -e"       `Quick

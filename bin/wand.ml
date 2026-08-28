@@ -35,6 +35,11 @@ let usage () =
 
 let usage_for sub =
   match sub with
+  | "V" | "version" ->
+    print_endline "Usage: wand V";
+    print_endline "";
+    print_endline "Print the version and exit. Written bare, as `wand 0.1.0`,";
+    print_endline "so an installer can compare it to what it meant to install."
   | "lsp" ->
     print_endline "Usage: wand lsp";
     print_endline "";
@@ -405,6 +410,28 @@ let no_such_file ?hint path =
    | None -> ());
   exit 1
 
+(* Which words are commands. The file-running path takes anything else, and
+   a flag after a script belongs to the script -- so `--help` is wand's only
+   when a command was actually named. *)
+let is_a_command = function
+  | "h" | "help" | "i" | "interactive" | "lsp" | "t" | "type"
+  | "d" | "doc" | "v" | "env" | "f" | "fmt" | "s" | "test"
+  | "V" | "version" -> true
+  | _ -> false
+
+(* `--help` anywhere among a command's own arguments, except where it is the
+   value of a flag that takes one: `wand t -e "--help"` is asking about an
+   expression that happens to be spelled like a flag. *)
+let wants_help args =
+  let rec go prev = function
+    | [] -> false
+    | a :: tl ->
+      let is_a_value =
+        match prev with Some ("-e" | "--expr" | "--load") -> true | _ -> false in
+      if (a = "--help" || a = "-h") && not is_a_value then true else go (Some a) tl
+  in
+  go None args
+
 let main () =
   let args = Array.to_list Sys.argv |> List.tl in
   (* `--load` may come either side of the expression, so the loads come out
@@ -453,6 +480,12 @@ let main () =
         | exception Wand.Evaluator.Interrupted code -> exit code)
      | [] ->
        Printf.eprintf "Error: expected a script after %s\n" sub; exit 1)
+  (* Asked for before anything is done with it. `wand i --help` started a
+     session and `wand lsp --help` started a server, both of which hang
+     rather than answer; `wand d --help` looked up a doc for `--help` and
+     exited 0. Every command has usage text already -- this is only about
+     reaching it. *)
+  | sub :: rest when is_a_command sub && wants_help rest -> usage_for sub
   | sub :: rest ->
     match sub with
     | "h" | "help" ->

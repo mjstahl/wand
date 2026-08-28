@@ -18,6 +18,14 @@
 - An unknown option is named. `wand t -e` used to take `-e` for the file and
   report an argument count; a flag the command does not have is now said to
   be one
+
+### Added
+
+- **`--help` and `-h` on every command**, printing that command's usage and
+  exiting 0. `wand i --help` used to start a session and `wand lsp --help` a
+  server -- both hang rather than answer -- and `wand d --help` looked up a
+  doc for `--help` and exited 0. A flag after a script is still the script's,
+  and `--help` after `-e` is still part of the expression
 - `--load` with a file is refused rather than ignored. It seeds a session,
   which a file does not use, and a flag accepted and dropped is a check that
   did not happen
