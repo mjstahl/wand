@@ -491,6 +491,36 @@ let test_help_is_not_taken_from_an_expression () =
     Alcotest.failf "the expression was read as a request for help:\n%s" out;
   Alcotest.(check int) "and checks clean" 0 code
 
+(* A flag the command has, with its value missing, is not an unknown flag.
+   `wand t -e` said "unknown option: -e", which names the wrong problem. *)
+let test_a_flag_missing_its_value () =
+  let (code, out) = run_all ["t"; "-e"] in
+  says out "expected an expression after -e";
+  Alcotest.(check int) "and fails" 1 code;
+  let (_, out) = run_all ["t"; "--load"] in
+  says out "expected a file after --load"
+
+(* Every command that takes an argument used to read a stray flag as one:
+   `wand f --nope` looked for a file, `wand v --nope` for a module, and
+   `wand d --nope` reported no documentation and exited 0. *)
+let test_every_command_names_an_unknown_option () =
+  List.iter (fun cmd ->
+    let (code, out) = run_all [cmd; "--nope"] in
+    says out "unknown option: --nope";
+    Alcotest.(check int) (cmd ^ " fails") 1 code)
+    ["t"; "f"; "s"; "d"; "v"]
+
+(* `--fix` rewrites a file, so it says whether it did. Printing nothing and
+   exiting 0 reads exactly like a file that was fixed. *)
+let test_fix_says_when_it_changed_nothing () =
+  let path = Filename.temp_file "wand_clean" ".wand" in
+  Out_channel.with_open_text path (fun oc ->
+    Out_channel.output_string oc "let x = 1\n");
+  Fun.protect ~finally:(fun () -> Sys.remove path) (fun () ->
+    let (code, out) = run_all ["t"; "--fix"; path] in
+    says out "nothing to fix";
+    Alcotest.(check int) "and succeeds" 0 code)
+
 let test_eval_is_a_top_level_flag () =
   let (code, out) = run ["-e"; "1 + 2"] in
   says out "3";
@@ -535,6 +565,11 @@ let () =
       Alcotest.test_case "a script keeps --help"      `Quick test_help_is_not_taken_from_a_script;
       Alcotest.test_case "-e keeps --help"            `Quick
         test_help_is_not_taken_from_an_expression;
+      Alcotest.test_case "a flag missing its value"   `Quick test_a_flag_missing_its_value;
+      Alcotest.test_case "unknown option, every cmd"  `Quick
+        test_every_command_names_an_unknown_option;
+      Alcotest.test_case "--fix says it did nothing"  `Quick
+        test_fix_says_when_it_changed_nothing;
       Alcotest.test_case "-e evaluates"               `Quick test_eval_is_a_top_level_flag;
       Alcotest.test_case "`wand e` hints at -e"       `Quick test_eval_subcommand_hints;
       Alcotest.test_case "--dry-run refuses -e"       `Quick

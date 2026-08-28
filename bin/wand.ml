@@ -419,6 +419,27 @@ let is_a_command = function
   | "V" | "version" -> true
   | _ -> false
 
+(* Whatever is left after a command has taken its own flags. Anything still
+   opening with `-` is one this command does not have -- taken for a file or
+   a name instead, it was reported as a missing path, an unknown module, or
+   (`wand d --nope`) as a name with no documentation, at exit 0. *)
+let reject_unknown_options cmd args =
+  List.iter (fun a ->
+    if String.length a > 1 && a.[0] = '-' then begin
+      Printf.eprintf "Error: unknown option: %s\n" a;
+      (if cmd = "t" && a = "--file" then
+         Printf.eprintf "       did you mean: wand t <file>\n");
+      Printf.eprintf "Run 'wand h %s' for usage.\n" cmd;
+      exit 1
+    end) args
+
+(* A flag that takes a value and did not get one. It is a flag the command
+   has, so saying it is unknown names the wrong problem. *)
+let missing_value cmd flag what =
+  Printf.eprintf "Error: expected %s after %s\n" what flag;
+  Printf.eprintf "Run 'wand h %s' for usage.\n" cmd;
+  exit 1
+
 (* `--help` anywhere among a command's own arguments, except where it is the
    value of a flag that takes one: `wand t -e "--help"` is asking about an
    expression that happens to be spelled like a flag. *)
@@ -507,6 +528,8 @@ let main () =
          so one of them carries a flag, and it is the rarer one. *)
       let rec take_expr acc = function
         | ("--expr" | "-e") :: e :: tl -> (Some e, List.rev_append acc tl)
+        | [("--expr" | "-e") as flag] -> missing_value "t" flag "an expression"
+        | ["--load"] -> missing_value "t" "--load" "a file"
         | x :: tl -> take_expr (x :: acc) tl
         | [] -> (None, List.rev acc)
       in
@@ -549,16 +572,7 @@ let main () =
             or -- with an expression after it -- as too many arguments, and
             neither names the thing that is actually wrong. Found by asking
             what `wand t -e "1 + 2"` does. *)
-         List.iter (fun a ->
-           if String.length a > 1 && a.[0] = '-' then begin
-             Printf.eprintf "Error: unknown option: %s\n" a;
-             (match a with
-              | "--file" ->
-                Printf.eprintf "       did you mean: wand t <file>\n"
-              | _ -> ());
-             Printf.eprintf "Run 'wand h t' for usage.\n";
-             exit 1
-           end) rest';
+         reject_unknown_options "t" rest';
          let path =
            match rest' with
            | [path] -> path
@@ -585,6 +599,11 @@ let main () =
                 print_endline
                   (Wand.Diag.to_json_array ~file:path
                      (List.map (fun a -> a.Wand.Fix.diag) applied))
+              else if applied = [] then
+                (* A command that rewrites a file says whether it did. It
+                   printed nothing and exited 0, which reads the same as a
+                   file that was fixed and is not the same thing at all. *)
+                Printf.printf "nothing to fix in %s\n" path
               else
                 List.iter (fun a ->
                   Printf.printf "%s: %d — %s\n"
@@ -619,6 +638,7 @@ let main () =
       let (json, rest) = parse_json_flag rest in
       let (execute, rest) = parse_execute_flag rest in
       let (test, rest) = parse_test_flag rest in
+      reject_unknown_options "d" (snd (parse_loads rest));
       if execute && test then begin
         Printf.eprintf
           "Error: -x runs the examples and shows what they do; -t runs them \
@@ -686,6 +706,7 @@ let main () =
     | "v" | "env" ->
       let (json, rest) = parse_json_flag rest in
       let (loads, rest') = parse_loads rest in
+      reject_unknown_options "v" rest';
       (* `wand v <module>` needs only that module; bare `wand v` lists
          everything in scope, so it does load them all. *)
       let sess = match rest' with
@@ -717,6 +738,7 @@ let main () =
            | _ -> Printf.printf "%s : %s\n" name (Wand.Typechecker.string_of_scheme s)
          ) entries)
     | "f" | "fmt" ->
+      reject_unknown_options "f" rest;
       (match rest with
        | [] ->
          Printf.eprintf "Error: expected one or more files\nRun 'wand h f' for usage.\n"; exit 1
@@ -739,6 +761,7 @@ let main () =
          if !had_error then exit 1)
     | "s" | "test" ->
       let (json, rest) = parse_json_flag rest in
+      reject_unknown_options "s" rest;
       (* No argument means the directory you are standing in, which is what
          you want after editing a script: run its tests without naming them.
          A directory argument searches it the same way; a file is run as

@@ -21,6 +21,13 @@
 
 ### Added
 
+- An unknown option is named by every command that takes an argument, not
+  read as one. `wand f --nope` looked for a file, `wand v --nope` for a
+  module, and `wand d --nope` reported no documentation and exited 0
+- A flag that takes a value and did not get one says so. `wand t -e` reported
+  an unknown option, which names the wrong problem
+- `wand t --fix` says when it changed nothing. It printed nothing and exited
+  0, which reads the same as a file that was fixed
 - **`--help` and `-h` on every command**, printing that command's usage and
   exiting 0. `wand i --help` used to start a session and `wand lsp --help` a
   server -- both hang rather than answer -- and `wand d --help` looked up a

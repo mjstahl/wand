@@ -79,6 +79,19 @@ A flag after a script still belongs to the script, so `wand deploy.wand
 --help` passes `--help` through as before. `--help` after `-e` is still part
 of the expression.
 
+**Clearer refusals**, from sweeping the flag combinations:
+
+- An unknown option is named by every command that takes an argument, rather
+  than read as one. `wand f --nope` looked for a file called `--nope`,
+  `wand v --nope` for a module, and `wand d --nope` reported no documentation
+  for it and exited 0
+- A flag that takes a value and did not get one says which value is missing.
+  `wand t -e` reported an unknown option, which is the wrong problem — `-e`
+  is a flag it has
+- `wand t --fix` says `nothing to fix in <file>` when it changed nothing. It
+  printed nothing and exited 0, which reads exactly like a file that was
+  fixed
+
 ### Upgrading
 
 Three substitutions cover it:
