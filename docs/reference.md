@@ -4590,7 +4590,7 @@ author put it. Everything else has a formatting rule.
 
 ### Language server
 
-`wand lsp` starts the language server. It speaks LSP over stdio. It is a
+`wand l` (or `wand lsp`) starts the language server. It speaks LSP over stdio. It is a
 subcommand of the compiler binary, so the editor gets the same inference, the
 same lint rules and the same formatter. The two cannot disagree. An editor that connects to it gets seven things. It gets a diagnostic on each
 change. It gets hover, which shows the signature with its effect set, and the

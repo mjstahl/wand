@@ -15,7 +15,7 @@ let usage () =
   print_endline "  f   fmt <file>...           Format .wand files in place";
   print_endline "  h   help [cmd]              Show this help, or help for a command";
   print_endline "  i   interactive             Start an interactive session";
-  print_endline "      lsp                     Start the language server (LSP over stdio)";
+  print_endline "  l   lsp                     Start the language server (LSP over stdio)";
   print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
   print_endline "  t   type <file>             Typecheck a file without running it";
   print_endline "  v   version                 Print the version and exit";
@@ -40,8 +40,8 @@ let usage_for sub =
     print_endline "";
     print_endline "Print the version and exit. Written bare, as `wand 0.1.0`,";
     print_endline "so an installer can compare it to what it meant to install."
-  | "lsp" ->
-    print_endline "Usage: wand lsp";
+  | "l" | "lsp" ->
+    print_endline "Usage: wand l";
     print_endline "";
     print_endline "Start the language server, speaking the Language Server";
     print_endline "Protocol over stdin/stdout. Meant to be spawned by an";
@@ -410,7 +410,7 @@ let no_such_file ?hint path =
    a flag after a script belongs to the script -- so `--help` is wand's only
    when a command was actually named. *)
 let is_a_command = function
-  | "h" | "help" | "i" | "interactive" | "lsp" | "t" | "type"
+  | "h" | "help" | "i" | "interactive" | "l" | "lsp" | "t" | "type"
   | "d" | "doc" | "f" | "fmt" | "s" | "test"
   | "v" | "version" -> true
   | _ -> false
@@ -513,7 +513,7 @@ let main () =
     | "i" | "interactive" ->
       let (loads, _) = parse_loads rest in
       Wand.Repl.run ~base_dir:(Sys.getcwd ()) ~loads ()
-    | "lsp" ->
+    | "l" | "lsp" ->
       exit (Wand.Lsp.serve stdin stdout)
     | "t" | "type" ->
       let (strict, json, fix, rest) = parse_lint_flags rest in

@@ -43,6 +43,10 @@
   or the whole scope, so the shape belongs to the command and nothing
   downstream branches on the argument
 
+- `wand l` is `wand lsp`. It was the one command with no letter, and every
+  other one has had a single-letter spelling since the CLI existed. `wand lsp`
+  still works, so an editor configured to spawn it is untouched
+
 ### Added
 
 - An unknown option is named by every command that takes an argument, not

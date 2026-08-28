@@ -62,6 +62,12 @@ offering `--expr` on a typo is noise.
   accepting one and ignoring it would run for real, which is the single
   mistake `--dry-run` exists to prevent
 
+### `wand l`
+
+The language server is `wand l` as well as `wand lsp` — it was the one command
+without a single-letter spelling. `wand lsp` still works, so an editor
+configured to spawn it needs no change.
+
 ### One command for "what is this"
 
 `wand v` is merged into `wand d`, and `wand v` is now the version:

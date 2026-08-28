@@ -470,7 +470,7 @@ let test_every_command_answers_help () =
       Alcotest.(check int)
         (Printf.sprintf "wand %s %s exits 0" cmd flag) 0 code)
       ["--help"; "-h"])
-    ["t"; "f"; "s"; "d"; "i"; "lsp"; "h"; "v"]
+    ["t"; "f"; "s"; "d"; "i"; "l"; "lsp"; "h"; "v"]
 
 let test_help_is_not_taken_from_a_script () =
   (* A flag after a script belongs to the script, which is what makes
