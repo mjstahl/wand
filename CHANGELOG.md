@@ -1555,6 +1555,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.53.2]: https://github.com/mjstahl/wand/compare/v0.53.1...v0.53.2
+[0.53.1]: https://github.com/mjstahl/wand/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/mjstahl/wand/compare/v0.52.0...v0.53.0
 [0.52.0]: https://github.com/mjstahl/wand/compare/v0.51.0...v0.52.0
 [0.51.0]: https://github.com/mjstahl/wand/compare/v0.50.0...v0.51.0
