@@ -1,7 +1,7 @@
 ## 0.54.0 - 2026-08-28
 
-**This release changes the command line, and scripts that call `wand t` or
-`wand e` need editing.** One rule now covers the whole CLI:
+**This release changes the command line. Scripts that call `wand t`, `wand e`
+or `wand v` need editing.** One rule now covers the whole CLI:
 
 > A file is named directly. An expression is given with `-e`/`--expr`.
 
@@ -11,9 +11,9 @@ wand t -e "1 + 2"             # was: wand t "1 + 2"
 wand -e "1 + 2"               # was: wand e "1 + 2"
 ```
 
-`wand e` no longer exists, and `wand t --file` no longer exists. Nothing is
-silently accepted: the old spellings report what is wrong and name the command
-that works.
+Nothing is silently accepted: every old spelling reports what is wrong and
+names the command that works. The **Upgrading** table at the end is the whole
+list.
 
 ### Why
 
@@ -50,23 +50,9 @@ Error: no such file: e
 A name that ends in `.wand` gets no hint — it is a file that is not there, and
 offering `--expr` on a typo is noise.
 
-### Also changed
-
-- `--load` alongside a file is refused rather than ignored. It seeds a
-  session, which checking a file does not use, and a flag accepted and dropped
-  is a check that did not happen
-- An unknown option is named rather than taken for the file. `wand t -e`
-  used to read `-e` as a file name and report an argument count
-- `--dry-run` and `--trace` alongside `--expr` are refused. They are built
-  around a script's effects and there is no mode to hand an expression;
-  accepting one and ignoring it would run for real, which is the single
-  mistake `--dry-run` exists to prevent
-
-### `wand l`
-
-The language server is `wand l` as well as `wand lsp` — it was the one command
-without a single-letter spelling. `wand lsp` still works, so an editor
-configured to spawn it needs no change.
+`docs/llm-authoring.md` had a section for "the things that are got wrong in
+practice", and this was its first entry, noting it had been got wrong twice
+while writing that document. That entry is deleted rather than reworded.
 
 ### One command for "what is this"
 
@@ -127,39 +113,51 @@ A plain `wand deploy.wand` is unchanged: no findings, no delay. A script that
 takes a `--strict` of its own is given it after `--`, the same trade already
 made for `--dry-run`. Advice never blocks a run.
 
-### Added
+### `--help` on every command
 
-**`--help` and `-h` on every command**, printing that command's usage:
+Every command answers `--help` and `-h` with its own usage, and answers it
+before doing anything:
 
 ```
-wand t --help      wand f --help      wand s --help      wand d --help
-wand d --help      wand i --help      wand lsp --help    wand h --help
+wand d --help      wand f --help      wand h --help      wand i --help
+wand l --help      wand s --help      wand t --help      wand v --help
 ```
 
-`wand i --help` used to start an interactive session and `wand lsp --help` a
-language server — both of which hang instead of answering. `wand d --help`
-looked up documentation for a name called `--help` and exited 0.
+Two of those used to hang rather than answer: `wand i --help` started an
+interactive session and `wand lsp --help` started a language server. A third,
+`wand d --help`, looked up documentation for a name called `--help`, found
+none, and exited 0.
 
 A flag after a script still belongs to the script, so `wand deploy.wand
---help` passes `--help` through as before. `--help` after `-e` is still part
-of the expression.
+--help` passes `--help` through as before. `--help` after `-e` is part of the
+expression.
 
-**Clearer refusals**, from sweeping the flag combinations:
+The language server is also `wand l` now — it was the one command without a
+single-letter spelling. `wand lsp` still works, so an editor configured to
+spawn it needs no change.
 
-- An unknown option is named by every command that takes an argument, rather
-  than read as one. `wand f --nope` looked for a file called `--nope`,
-  `wand d --nope` for a name, and it reported no documentation
-  for it and exited 0
-- A flag that takes a value and did not get one says which value is missing.
-  `wand t -e` reported an unknown option, which is the wrong problem — `-e`
-  is a flag it has
-- `wand t --fix` says `nothing to fix in <file>` when it changed nothing. It
-  printed nothing and exited 0, which reads exactly like a file that was
-  fixed
+### Clearer refusals
+
+From sweeping every command against its own flags, in both orders, with
+values present and missing:
+
+- **An unknown option is named** rather than read as an argument. `wand f
+  --nope` looked for a file called `--nope`, `wand v --nope` for a module of
+  that name, and `wand d --nope` reported that it had no documentation and
+  exited 0
+- **A flag that takes a value and did not get one** says which value is
+  missing, instead of being taken for the argument
+- **`wand t --fix` says `nothing to fix in <file>`** when it changed nothing.
+  It printed nothing and exited 0, which reads exactly like a file it did fix
+- **`--load` alongside a file is refused** rather than ignored. It seeds a
+  session, which checking a file does not use, and a flag accepted and
+  dropped is a check that did not happen
+- **`--dry-run` and `--trace` are refused with `-e`.** They are built around a
+  script's effects and there is no mode to hand an expression; accepting one
+  and ignoring it would run for real, which is the single mistake `--dry-run`
+  exists to prevent
 
 ### Upgrading
-
-These substitutions cover it:
 
 | was | now |
 |---|---|
@@ -171,5 +169,11 @@ These substitutions cover it:
 | `wand V` | `wand v` |
 
 `--fix`, `--json`, `--strict` and `--load` are unchanged in spelling. `--fix`
-now applies to the file argument, and is refused with `--expr`, which it never
-worked with.
+now applies to the file argument and is refused with `-e`, which it never
+worked with. `wand lsp`, `wand f`, `wand s`, `wand i` and running a script are
+unchanged.
+
+Two changes are not spellings and will not announce themselves: `--strict` on
+a run now refuses to run a file with a violation, and a missing manifest is
+now such a violation. A CI step that runs `wand deploy.wand --strict` against
+a file with no `uses` line will start failing. `wand t --fix` writes the line.
