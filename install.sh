@@ -96,7 +96,11 @@ tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 # From an empty directory, the way setup-wand does: wand carries its own
 # standard library, so answering here is the whole claim the binary makes,
 # and a broken download fails now rather than in your first script.
-got=$(cd "$tmp" && "./$name/wand" e '1 + 1') \
+# `wand -e` is the spelling from 0.55.0 on and `wand e` the one before it.
+# WAND_VERSION installs whatever it is given, so both are asked and an older
+# release is not a failure.
+got=$(cd "$tmp" && { "./$name/wand" -e '1 + 1' 2>/dev/null \
+                     || "./$name/wand" e '1 + 1' 2>/dev/null; }) \
   || fail "the downloaded binary did not run"
 [ "$got" = "2 : Int" ] || fail "the downloaded binary answered '$got' to 1 + 1"
 
