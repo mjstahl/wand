@@ -1,13 +1,13 @@
 # The fuzzer, given time. `dune test` runs the reproducers it has already
 # filed; this is the half that looks for new ones, and it looks for as long
-# as a nightly job can afford.
+# as a daily job can afford.
 #
 # A scheduled workflow only ever runs from the default branch, and GitHub
 # disables one after 60 days without a push -- so a quiet month turns this
 # off silently. `workflow_dispatch` is here to run it by hand, with a seed,
 # which is also how a red night is reproduced.
 
-name: Nightly fuzz
+name: Daily Fuzz
 
 on:
   schedule:
@@ -23,7 +23,7 @@ on:
     # is enabled, and this file is on the default branch. Only GitHub can
     # say more; ask their support.
     #
-    # Until a run appears here on its own, treat the nightly as manual: use
+    # Until a run appears here on its own, treat the schedule as manual: use
     # `workflow_dispatch`, driven by a scheduler outside GitHub. Dispatch
     # works, so a finding is still one command away.
     - cron: "37 7 * * *"
@@ -43,7 +43,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: nightly-fuzz
+  group: daily-fuzz
   cancel-in-progress: false
 
 jobs:
@@ -141,7 +141,7 @@ jobs:
           shopt -s nullglob
           # The label has to exist before an issue can carry it, and a
           # fresh clone of this repository has no reason to have it.
-          gh label create fuzz --description "Found by the nightly fuzzer" \
+          gh label create fuzz --description "Found by the daily fuzzer" \
             --color FBCA04 2>/dev/null || true
 
           # Every title with an issue still open, read once, from the
@@ -177,7 +177,7 @@ jobs:
               continue
             fi
             {
-              echo "Found by the nightly fuzzer (\`${{ github.workflow }}\`, run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
+              echo "Found by the daily fuzzer (\`${{ github.workflow }}\`, run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
               echo
               echo '```json'
               cat "$notes"

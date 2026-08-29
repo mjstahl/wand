@@ -40,7 +40,7 @@ let write_file path contents =
 (* ── Findings already accounted for ───────────────────────────────────────── *)
 
 (* One signature per line; `#` comments. A bug that is known and not yet
-   fixed belongs here with the issue number beside it, so a nightly run
+   fixed belongs here with the issue number beside it, so a daily run
    stays red only for what is new. Nothing is suppressed silently: the
    summary counts every suppressed hit. *)
 let load_known path =
@@ -131,7 +131,7 @@ let shrink ~timeout ~width ~path ~target ~budget ~seconds src =
 (* A finding is two files: the input, byte for byte, and everything else as
    JSON beside it.
 
-   JSON because the nightly workflow reads this to decide what to file, and
+   JSON because the daily workflow reads this to decide what to file, and
    a format invented here would mean a shell script picking it apart with
    `sed` -- which works until a message contains whatever the pattern
    assumed it would not. The input stays a separate file rather than a

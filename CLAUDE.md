@@ -33,10 +33,10 @@ examples. Most tasks need only one part.
   any input answers with a diagnostic; anything else is a finding),
   `mutate.ml` the edits it makes to the corpus, `fuzz.ml` the driver.
   `known.txt` lists signatures that are found and not yet fixed, so a
-  nightly run is red only for what is new; `regressions/` holds a reproducer
+  daily run is red only for what is new; `regressions/` holds a reproducer
   for each one that is fixed, run by `test_fuzz_regressions.ml` on every PR.
   Run it locally as shown below.
-- `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands; `nightly-fuzz.yml` runs the fuzzer on four seeds each night and files an issue per new signature.
+- `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands; `daily-fuzz.yml` runs the fuzzer on four seeds each day and files an issue per new signature.
 - `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
 
 ### Verifying a change
@@ -66,7 +66,7 @@ after a change to the lexer, the parser or the typechecker -- those three
 are the whole of what it exercises. It exits 0 when it finds nothing new.
 A finding is written to `_fuzz-findings/` as two files: the input, byte for
 byte, and a `.json` beside it holding the seed, the iteration, the edits and
-the backtrace. JSON because the nightly job reads it to decide what to file.
+the backtrace. JSON because the daily job reads it to decide what to file.
 `--seed S --only I` replays a finding, and `--input FILE --path P` rechecks
 one. `tools/fuzz_sweep.wand` runs several seeds and keeps each seed's
 findings in `_fuzz-findings/sweep/seedN/` -- a finding is keyed by signature,

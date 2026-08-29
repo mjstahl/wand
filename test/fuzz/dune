@@ -7,7 +7,7 @@
  (modules mutate oracle)
  (libraries wand unix))
 
-; Not attached to `runtest`: a fuzz run is a nightly job with a time budget,
+; Not attached to `runtest`: a fuzz run is a daily job with a time budget,
 ; not something every PR waits on. What every PR runs is
 ; `test/test_fuzz_regressions.ml`, over the reproducers this has filed.
 

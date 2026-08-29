@@ -1,5 +1,5 @@
 # Signatures the fuzzer has found and that are not yet fixed. One per line,
-# with a comment saying what it is. A line here keeps a nightly run green
+# with a comment saying what it is. A line here keeps a daily run green
 # for a bug already written down -- it does not hide it: the summary counts
 # every hit under "known, not failing".
 #

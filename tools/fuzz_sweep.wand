@@ -55,7 +55,7 @@ let seeds = int_env "SEEDS" 6
 let seconds = int_env "SECONDS_PER_SEED" 300
 
 -- The seeds are independent, so they run together. Four at once is what the
--- nightly job has always used, and it is a safe default for a laptop: the
+-- daily job has always used, and it is a safe default for a laptop: the
 -- fuzzer is CPU-bound and each seed is given a wall-clock budget, so more
 -- workers than cores means every seed covers less ground in its own five
 -- minutes. Raise it where there are cores to spare.
