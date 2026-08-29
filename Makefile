@@ -61,7 +61,24 @@ release:
 # this archive needs rebuilding or reattaching.
 release-archive:
 	@test -n "$(VERSION)" || { echo "usage: make release-archive VERSION=0.1.0"; exit 1; }
+# This is the one archive a person builds, because GitHub's Intel macOS
+# runner never leaves the queue. So it is the one archive that can be built
+# from the wrong tree, and it was: a `release-archive VERSION=0.53.2` run
+# from `main` put a 0.54.0 binary on the 0.53.2 tag, over a `--clobber`
+# upload, 47 minutes after that release went out. Nothing said so. Everyone
+# installing 0.53.2 on this platform got a different release with a
+# different command line.
+#
+# Three questions, asked before anything is built. What is checked out has
+# to be the tag being released, the tree has to be clean, and the binary
+# that comes out has to say the number on the box.
+	@test -z "$$(git status --porcelain)" || 	  { echo "working tree is dirty; commit before building an archive"; exit 1; }
+	@at=$$(git describe --tags --exact-match 2>/dev/null || echo none); 	  test "$$at" = "v$(VERSION)" || 	  { echo "HEAD is at $$at, not v$(VERSION);"; 	    echo "check out the tag you are building: git checkout v$(VERSION)"; exit 1; }
 	dune build --profile release bin/wand.exe
+	@got=$$(_build/default/bin/wand.exe version 2>/dev/null \
+	          || _build/default/bin/wand.exe V 2>/dev/null); \
+	  test "$$got" = "wand $(VERSION)" || \
+	  { echo "the built binary reports '$$got', not 'wand $(VERSION)'"; exit 1; }
 	rm -rf dist/$(NAME) dist/$(NAME).tar.gz*
 	mkdir -p dist/$(NAME)
 	cp _build/default/bin/wand.exe dist/$(NAME)/wand
