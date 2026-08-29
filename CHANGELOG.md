@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **`wand f` keeps a shebang.** The lexer steps over `#!` on line one and
+  emits no token for it, so it reached neither the parser nor the pieces the
+  output is assembled from, and the formatter wrote every other line back
+  without it. `wand f` writes in place, so formatting a script that runs
+  itself stopped it running. Present in 0.53.x and 0.54.0
 - The manifest `wand t --fix` writes stands off from the file below it. It
   was written against the first import, which is correct and reads as
   hand-patched: every file in the tree puts a blank line there, and so does

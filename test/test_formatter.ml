@@ -855,6 +855,31 @@ let test_blank_lines () =
     Alcotest.failf "expected blank-line run to collapse to one, got:\n%s" out
 
 
+(* ── The shebang ─────────────────────────────────────────────────────────── *)
+
+(* The lexer steps over `#!` and emits no token for it, so it reaches
+   neither the parser nor the pieces the output is assembled from. The
+   formatter dropped it, and `wand f` writes in place: formatting a script
+   that runs itself stopped it running. The reference documents the form. *)
+let test_shebang_survives () =
+  let src = "#!/usr/bin/env wand\nuses {IO}\n\nimport IO\n\nIO.println \"hi\"\n" in
+  Alcotest.(check string) "the shebang is still the first line" src (fmt src)
+
+let test_shebang_without_a_manifest () =
+  let src = "#!/usr/bin/env wand\nlet x = 1\n" in
+  Alcotest.(check string) "kept with nothing else above the code" src (fmt src)
+
+let test_shebang_settles () =
+  let src = "#!/usr/bin/env wand\nlet x = 1\n" in
+  Alcotest.(check string) "a second pass changes nothing" (fmt src) (fmt (fmt src))
+
+(* A `#` anywhere but the first two bytes is not a shebang, and the lexer
+   refuses it. Nothing here should invent one. *)
+let test_no_shebang_gains_none () =
+  let out = fmt "let x = 1\n" in
+  if contains out "#!" then
+    Alcotest.failf "a file with no shebang gained one:\n%s" out
+
 (* ── The constructs that used to be copied verbatim ──────────────────────── *)
 
 (* $(), $?(), try, contracts, handle and regex literals were re-emitted as
@@ -1349,6 +1374,10 @@ let () =
       Alcotest.test_case "preserved"  `Quick test_comments_preserved;
       Alcotest.test_case "interior position" `Quick test_interior_comment_position;
       Alcotest.test_case "blank lines" `Quick test_blank_lines;
+      Alcotest.test_case "shebang survives" `Quick test_shebang_survives;
+      Alcotest.test_case "shebang, no manifest" `Quick test_shebang_without_a_manifest;
+      Alcotest.test_case "shebang settles" `Quick test_shebang_settles;
+      Alcotest.test_case "no shebang invented" `Quick test_no_shebang_gains_none;
       Alcotest.test_case "trailing stays on line" `Quick test_trailing_comment_stays_on_line;
       Alcotest.test_case "doc run kept together" `Quick test_doc_run_kept_together;
       Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;

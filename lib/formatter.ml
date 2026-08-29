@@ -2177,6 +2177,18 @@ let assemble pieces =
   if Buffer.length buf > 0 then Buffer.add_char buf '\n';
   Buffer.contents buf
 
+(* The `#!` line, which the lexer steps over and emits no token for. So it
+   reaches neither the parser nor the pieces, and a file assembled from
+   pieces alone came back without it -- `wand f` writes in place, so
+   formatting a script that runs itself stopped it running. The reference
+   documents the form, and nothing was keeping it. *)
+let shebang_of src =
+  if String.length src >= 2 && src.[0] = '#' && src.[1] = '!' then
+    match String.index_opt src '\n' with
+    | Some i -> Some (String.sub src 0 i)
+    | None -> Some src
+  else None
+
 let format_source src =
   let tokens = Lexer.tokenize src in
   let (prog, item_locs) = Parser.parse_program_with_locs tokens in
@@ -2314,4 +2326,7 @@ let format_source src =
          is_comment = false;
          blank_after = true }]
   in
-  assemble (manifest_pcs @ comment_pcs @ item_pcs)
+  let body = assemble (manifest_pcs @ comment_pcs @ item_pcs) in
+  match shebang_of src with
+  | None -> body
+  | Some line -> line ^ "\n" ^ body

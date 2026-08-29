@@ -1,0 +1,20 @@
+found:     by hand, 2026-08-28, while testing the manifest fix
+reported:  the formatter wrote the file back without its first line
+fixed in:  lib/formatter.ml, shebang_of and format_source
+
+The lexer steps over `#!` on line one and emits no token for it, so it
+reaches neither the parser nor the pieces the output is assembled from.
+The formatter wrote every other line and not that one.
+
+`wand f` writes in place, so formatting a script that runs itself stopped
+it running:
+
+  $ wand f script.wand
+  $ ./script.wand
+  script.wand: line 1: uses: command not found
+
+docs/reference.md documents the form, and nothing was holding it.
+
+The fuzzer would not have found this. Its corpus is the stdlib, the
+tests and the examples, and not one of them has a shebang. This fixture
+is here so `dune test` holds the line anyway.

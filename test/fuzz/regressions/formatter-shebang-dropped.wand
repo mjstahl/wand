@@ -1,0 +1,6 @@
+#!/usr/bin/env wand
+uses {IO}
+
+import IO
+
+IO.println "hi"
