@@ -108,7 +108,7 @@ let out_of seed = Path.join archive_dir (Path.of_string "seed%{seed}")
 -- Run one seed and answer with everything the caller needs to report it.
 -- Nothing is printed here: parallel seeds finish in any order, and lines
 -- from six of them interleaved are not a log anyone can read.
-let run_seed pinned seed =
+let run_seed pinned (seed: Int) =
   let out = out_of seed in
   let r =
     $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000 --seconds %{seconds} --timeout 20 --shrink 2000 --out %{Path.to_string out})
