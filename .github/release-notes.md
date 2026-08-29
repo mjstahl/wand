@@ -1,69 +1,52 @@
-## 0.55.0 - 2026-08-28
+## 0.55.1 - 2026-08-29
 
-One bug that corrupts a file, and one rule that catches a mistake the
-compiler cannot see. The command line is exactly 0.54.0's.
+One fix, in two halves. `wand f` dropped the quotes on a map key that needs
+them, and wrote source that does not parse.
 
-### `wand f` keeps a shebang
+### A map key keeps the quotes it needs
 
-**Take this release if you write scripts that run themselves.** The formatter
-deleted the `#!` line:
+A quoted key was written bare whenever it was spelled like an identifier.
+Two kinds of key are spelled that way and are not read that way.
 
-```
-$ cat script.wand
-#!/usr/bin/env wand
-uses {IO}
-...
-
-$ wand f script.wand
-$ ./script.wand
-script.wand: line 1: uses: command not found
-```
-
-The lexer steps over `#!` on line one and emits no token for it, so it
-reached neither the parser nor the pieces the output is assembled from. The
-formatter wrote every other line back and not that one. `wand f` writes in
-place, so formatting a self-running script stopped it running.
-
-Present in every 0.53.x and in 0.54.0. The reference documents the form, and
-nothing was holding it.
-
-### `V-SHELL2`: a command that runs on to a second line
-
-A newline inside `$()` starts a second command, exactly as it does in a shell
-script. So a command broken over two lines for width runs as two:
+**A keyword.**
 
 ```
-let out = $(echo one
-  two)
+$ cat m.wand
+let a = {"type" = 1}
+
+$ wand f m.wand
+$ cat m.wand
+let a = {type = 1}
+
+$ wand t m.wand
+Error: parse error: expected map key, got type
 ```
 
-That runs `echo one`, then runs `two` as a command of its own. The half above
-the break can do its work before the half below fails. Under `$()` the failure
-raises; under `$?()` it is an exit code nobody reads.
+`type` lexes as a keyword wherever it stands, so the map ends at the key.
+The formatter asks the lexer now, instead of keeping a keyword list of its
+own — a list that has to be updated with the language is a list that will
+not be.
 
-`\` is the shell's continuation and wand passes it through, so the correction
-is one character:
+**An uppercase name, in a map literal.** `{"Pod" = 1}` came back as
+`{Pod = 1}`, which the expression parser refuses.
 
-```
-$ wand t --fix script.wand
-V-SHELL2: 3 — appended "\"
-```
+That one was allowed on purpose. The same function prints an import pattern,
+and `let {TestOutcome, Pass} = import Test` names types and constructors,
+which the *pattern* parser does read bare. Two parsers, opposite rules, one
+function. The caller now says which parser will read the key.
 
-The rule fires on `$()`, on `$?()`, and on the literal parts of a command that
-carries `%{...}` holes. It says nothing about a command already continued with
-`\`, or one that fits on a line.
+`wand f` writes in place, so either shape turned a working file into one
+that does not parse. Present in 0.55.0 and earlier.
 
-It is a violation, so `--strict` fails on it. Nothing in wand's own tree trips
-it.
+### How it was found
 
-### Also
+The nightly fuzz run reported the keyword half. The uppercase half was
+standing behind it and turned up while the first was being fixed.
 
-- The manifest `wand t --fix` writes now stands off from the file below it.
-  It was written against the first import, which is correct and reads as
-  hand-patched: every file in the tree puts a blank line there, and so does
-  the formatter
-- `Diag.AppendToLine`, a fix that puts text at the end of the flagged line.
-  The editor offers it as a code action like any other
+This is the first finding the nightly filed on its own. The schedule had
+never fired before — three separate crons and a probe workflow produced no
+scheduled run at all — and it started working on 2026-08-28 without
+intervention.
 
-Nothing else changed. `wand t`, `wand d`, `wand -e` and the rest are exactly
-0.54.0's.
+Nothing else changed. The command line, the type checker and the lint rules
+are exactly 0.55.0's.

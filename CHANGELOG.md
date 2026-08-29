@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.55.1] - 2026-08-29
 
 ### Fixed
 
@@ -1654,6 +1654,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.55.1]: https://github.com/mjstahl/wand/compare/v0.55.0...v0.55.1
 [0.55.0]: https://github.com/mjstahl/wand/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/mjstahl/wand/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/mjstahl/wand/compare/v0.53.1...v0.53.2
