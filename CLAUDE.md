@@ -69,8 +69,10 @@ byte, and a `.json` beside it holding the seed, the iteration, the edits and
 the backtrace. JSON because the nightly job reads it to decide what to file.
 `--seed S --only I` replays a finding, and `--input FILE --path P` rechecks
 one. `tools/fuzz_sweep.wand` runs several seeds and keeps each seed's
-findings in `_fuzz-sweep/seedN/` -- `_fuzz-findings/` is keyed by signature,
-so a second seed that hits one overwrites the first. It pins the binary
+findings in `_fuzz-findings/sweep/seedN/` -- a finding is keyed by signature,
+so a second seed that hits one overwrites the first. The sweep clears
+`sweep/` before it starts and nothing above it, so a finding left in
+`_fuzz-findings/` by a plain run survives one. It pins the binary
 before it starts, because a rebuild part way through means the findings
 belong to no one build. When the bug is fixed, the input
 moves to `test/fuzz/regressions/` with a `.txt` beside it saying what it

@@ -25,10 +25,10 @@ import String
 -- and said nothing. The findings looked real and were not. So the copy here
 -- is compared against the original.
 --
--- It let two seeds write to one directory. `_fuzz-findings/` is keyed by
--- signature, so the second seed to hit a signature overwrote the first. One
--- reproducer was lost that way. So each seed is given its own `--out`, which
--- is also what makes the seeds safe to run together.
+-- It let two seeds write to one directory. A finding is keyed by signature,
+-- so the second seed to hit a signature overwrote the first. One reproducer
+-- was lost that way. So each seed is given its own `--out`, which is also
+-- what makes the seeds safe to run together.
 --
 -- It reported a quiet night when the fuzzer had not started. So a seed that
 -- exits with anything but 0 or 1 stops the sweep, and a seed that claims a
@@ -62,7 +62,13 @@ let seconds = int_env "SECONDS_PER_SEED" 300
 let workers = int_env "WORKERS" 4
 
 -- Every seed's findings, one directory per seed underneath.
-let archive_dir = Path.of_string "%{wand_root}/_fuzz-sweep"
+--
+-- Under `_fuzz-findings/` rather than beside it, so everything the fuzzer
+-- writes is in one place. Under a `sweep` of its own rather than directly
+-- in it, because a sweep clears this directory before it starts, and
+-- `_fuzz-findings/` is also where a plain `fuzz.exe` run leaves a finding
+-- that nobody has triaged yet.
+let archive_dir = Path.of_string "%{wand_root}/_fuzz-findings/sweep"
 
 -- The binary under test, copied so a rebuild during the sweep cannot change
 -- what is being tested half way through. The copy lives beside the findings
@@ -100,9 +106,9 @@ let pin! () =
   | true -> pinned
 
 -- Where one seed's findings go. `--out` gives each seed a directory of its
--- own, which is what lets them run together: the default `_fuzz-findings/`
--- is keyed by signature, so two seeds that hit one would overwrite each
--- other, and a sweep would report whichever finished last.
+-- own, which is what lets them run together: the fuzzer keys a finding by
+-- signature, so two seeds that hit one would overwrite each other, and a
+-- sweep would report whichever finished last.
 let out_of seed = Path.join archive_dir (Path.of_string "seed%{seed}")
 
 -- Run one seed and answer with everything the caller needs to report it.
