@@ -5,6 +5,7 @@ import FS
 import IO
 import List
 import Option
+import Par
 import Result
 import Path
 import Shell
@@ -13,21 +14,25 @@ import String
 
 -- Runs the fuzzer over several seeds and says what it found.
 --
--- The fuzzer is OCaml, in `test/fuzz`. This is the part around it: which
--- seeds to run, for how long, where the findings go, and what the exit code
--- says. That part was a shell script written fresh each time it was needed,
--- and it went wrong three ways in one day.
+-- The fuzzer itself is OCaml, in `test/fuzz`. This script decides which
+-- seeds to run, how long each one runs, where its findings go, and what the
+-- exit code means.
 --
--- The binary is copied before the sweep starts, and the copy is compared
--- against the original. `cp` onto a file another process is running fails
--- with ETXTBSY, and a shell script without `set -e` carries on: forty
--- minutes of a sweep ran against a binary from before the fix it was meant
--- to check, and nothing said so. The findings looked real and were not.
+-- A shell script did this before. It copied the binary and did not check
+-- the copy. `cp` onto a file that another process is running fails with
+-- ETXTBSY, and the script had no `set -e`, so it carried on. A forty-minute
+-- sweep then ran against a build from before the fix it was meant to test,
+-- and said nothing. The findings looked real and were not. So the copy here
+-- is compared against the original.
 --
--- Findings are moved to a directory of their own after every seed.
--- `_fuzz-findings/` is keyed by signature, so a second seed that hits the
--- same signature overwrites the first. One reproducer was lost that way and
--- had to be rebuilt from a printed page.
+-- It let two seeds write to one directory. `_fuzz-findings/` is keyed by
+-- signature, so the second seed to hit a signature overwrote the first. One
+-- reproducer was lost that way. So each seed is given its own `--out`, which
+-- is also what makes the seeds safe to run together.
+--
+-- It reported a quiet night when the fuzzer had not started. So a seed that
+-- exits with anything but 0 or 1 stops the sweep, and a seed that claims a
+-- finding and writes no file stops it too.
 
 let wand_root = Env.get "WAND_ROOT" |> Option.default "."
 
@@ -49,10 +54,14 @@ let seeds = int_env "SEEDS" 6
 
 let seconds = int_env "SECONDS_PER_SEED" 300
 
--- Where a finding lands while the fuzzer writes it, and where this moves it
--- to afterwards.
-let findings_dir = Path.of_string "%{wand_root}/_fuzz-findings"
+-- The seeds are independent, so they run together. Four at once is what the
+-- nightly job has always used, and it is a safe default for a laptop: the
+-- fuzzer is CPU-bound and each seed is given a wall-clock budget, so more
+-- workers than cores means every seed covers less ground in its own five
+-- minutes. Raise it where there are cores to spare.
+let workers = int_env "WORKERS" 4
 
+-- Every seed's findings, one directory per seed underneath.
 let archive_dir = Path.of_string "%{wand_root}/_fuzz-sweep"
 
 -- The binary under test, copied so a rebuild during the sweep cannot change
@@ -90,56 +99,49 @@ let pin! () =
   )
   | true -> pinned
 
--- What a seed left behind, moved somewhere it cannot be overwritten.
-let keep! seed =
-  match FS.exists? findings_dir with
-  | false -> []
-  | true -> (
-    let found = FS.glob_in **.wand findings_dir in
-    match found with
-    | [] -> []
-    | _ -> (
-      let seed_dir = Path.join archive_dir (Path.of_string "seed%{seed}") in
-      let () = FS.mkdir! seed_dir in
-      let () = FS.copy_tree! findings_dir seed_dir in
-      let () = FS.delete_tree! findings_dir in found
-    )
-  )
+-- Where one seed's findings go. `--out` gives each seed a directory of its
+-- own, which is what lets them run together: the default `_fuzz-findings/`
+-- is keyed by signature, so two seeds that hit one would overwrite each
+-- other, and a sweep would report whichever finished last.
+let out_of seed = Path.join archive_dir (Path.of_string "seed%{seed}")
 
-let run_seed! pinned seed =
-  let () = IO.println "--- seed %{seed}" in
-  -- The `\` is the shell's line continuation and wand passes it through. A
-  -- bare newline here would separate two commands, as it does in a shell
-  -- script: the flags below it would run as a command of their own.
+-- Run one seed and answer with everything the caller needs to report it.
+-- Nothing is printed here: parallel seeds finish in any order, and lines
+-- from six of them interleaved are not a log anyone can read.
+let run_seed pinned seed =
+  let out = out_of seed in
   let r =
-    $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000              --seconds %{seconds} --timeout 20 --shrink 2000)
+    $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000 --seconds %{seconds} --timeout 20 --shrink 2000 --out %{Path.to_string out})
   in
-  -- The fuzzer's own summary says how many inputs it got through, which is
-  -- the only way to see it slowing down. It goes to the log whatever the
-  -- verdict is.
-  let () = IO.println (String.trim "%{r.stdout}%{r.stderr}") in
+  let found =
+    match FS.exists? out with
+    | true -> FS.glob_in **.wand out
+    | false -> []
+  in
+  (seed, r.code, String.trim "%{r.stdout}%{r.stderr}", found)
+
+-- One seed's line in the log, in seed order, once every seed is done.
+let report_seed (seed, code, output, found) =
+  let () = IO.println "--- seed %{seed}" in
+  let () = IO.println output in
   -- The fuzzer exits 0 with nothing to say and 1 when it found something.
   -- Anything else means it did not run, and a sweep that could not start
   -- must not report a quiet night.
   let () =
-    match r.code > 1 with
-    | true -> (IO.println_err "seed %{seed} did not run (exit %{r.code})"; Proc.exit 2)
+    match code > 1 with
+    | true -> (IO.println_err "seed %{seed} did not run (exit %{code})"; Proc.exit 2)
     | false -> ()
   in
-  let kept = keep! seed in
   -- The fuzzer says it found something by exiting 1, and shows what by
   -- writing the input and its notes. If the two disagree, the sweep cannot
   -- say what happened, and saying "no new findings" would be the worst of
   -- the answers available.
-  let () =
-    match r.code == 1 && kept == [] with
-    | true -> (
-      IO.println_err "seed %{seed} reported a finding and wrote no file";
-      Proc.exit 2
-    )
-    | false -> ()
-  in
-  kept
+  match code == 1 && found == [] with
+  | true -> (
+    IO.println_err "seed %{seed} reported a finding and wrote no file";
+    Proc.exit 2
+  )
+  | false -> found
 
 let report kept =
   let n = kept |> List.map List.length |> List.fold_left (fn a b -> a + b) 0 in
@@ -158,9 +160,20 @@ let main! () =
   in
   let () = FS.mkdir! archive_dir in
   let pinned = pin! () in
-  let () = IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s" in
-  -- `List.range` includes both ends, so six seeds are 0 through 5.
-  let kept = List.range 0 (seeds - 1) |> List.map (fn s -> run_seed! pinned s) in
-  report kept
+  let () =
+    IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s, %{workers} at a time"
+  in
+  -- `Par.map` answers with a Result for each worker, because one that
+  -- raises must not take the others with it. A seed that could not run at
+  -- all is the sweep failing, not a quiet seed.
+  let results = Par.map workers (fn s -> run_seed pinned s) (List.range 0 (seeds - 1)) in
+  let ran =
+    results
+      |> List.map (fn r ->
+        match r with
+        | Ok v -> v
+        | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2))
+  in
+  report (ran |> List.map report_seed)
 
 main! ()
