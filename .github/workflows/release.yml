@@ -206,3 +206,58 @@ jobs:
               --title "$GITHUB_REF_NAME" \
               --notes-file .github/release-notes.md
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # The install script, against the release it is about to serve.
+  #
+  # install.sh proves the downloaded binary runs before it installs it, and
+  # that check has to be spelled the way the new binary answers. 0.55.0
+  # removed `wand e`, install.sh still asked for it, and every install of
+  # 0.55.0 failed with "the downloaded binary did not run". Nothing caught
+  # it: the script is not in the test suite, and a CI job on `main` can only
+  # install a release that already exists, which was still the old one.
+  #
+  # This runs after the archives are attached and before anyone publishes,
+  # so a broken installer stops a draft rather than reaching a user.
+  installs:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      # The two the runners can reach. macOS x86_64 is built by hand,
+      # because GitHub's Intel runner never leaves the queue, so no job here
+      # can install it -- the Makefile's own checks cover that one.
+      matrix:
+        runs-on: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the version just built, and run it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          dir="$RUNNER_TEMP/wand-install"
+          WAND_VERSION="$VERSION" WAND_INSTALL_DIR="$dir" sh install.sh
+
+          # The binary has to be the one that was asked for. An archive
+          # built from the wrong tree passes every other check in this file.
+          got=$("$dir/wand" version 2>/dev/null || "$dir/wand" V 2>/dev/null)
+          test "$got" = "wand $VERSION" || {
+            echo "::error::installed $got, asked for wand $VERSION" >&2
+            exit 1
+          }
+
+          # And it has to run something, from a directory that is not a wand
+          # tree, which is the whole claim the binary makes.
+          # `wand -e` from 0.55.0, `wand e` before it. This workflow can be
+          # re-run on an old tag, and an old spelling is not a failure.
+          cd "$RUNNER_TEMP"
+          out=$("$dir/wand" -e '1 + 1' 2>/dev/null || "$dir/wand" e '1 + 1')
+          test "$out" = "2 : Int" || {
+            echo "::error::wand -e '1 + 1' answered '$out'" >&2
+            exit 1
+          }
+          echo "installed and ran wand $VERSION on ${{ matrix.runs-on }}"

@@ -119,3 +119,45 @@ jobs:
           ln -sf "$WAND" "$(dirname "$WAND")/wand"
           cd .setup-wand
           EXPECTED_VERSION="$(cat ../VERSION)" wand s test
+
+  # The install script, against the release people get today.
+  #
+  # A job of its own, because it tests neither this build nor this
+  # repository's code: it downloads the current release and runs the script
+  # a new user runs. What it catches is drift the other way from the job in
+  # release.yml -- install.sh breaking against what is already published,
+  # with no new release involved.
+  #
+  # It is also the only place the version-resolution path runs. release.yml
+  # pins WAND_VERSION, so nothing there parses the /releases/latest
+  # redirect that a bare `sh install.sh` depends on.
+  #
+  # It downloads from GitHub, so an outage there turns this red for a reason
+  # that has nothing to do with the code. That is the cost of testing the
+  # path a user actually takes.
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The published install script installs the latest release
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/wand-latest"
+          WAND_INSTALL_DIR="$dir" sh install.sh
+
+          # Whatever `latest` resolved to, the binary has to say the same
+          # number the script said it installed.
+          got=$("$dir/wand" version 2>/dev/null || "$dir/wand" V 2>/dev/null)
+          case "$got" in
+            "wand "*) echo "installed $got" ;;
+            *) echo "::error::the installed binary reported '$got'" >&2; exit 1 ;;
+          esac
+
+          cd "$RUNNER_TEMP"
+          out=$("$dir/wand" -e '1 + 1' 2>/dev/null || "$dir/wand" e '1 + 1')
+          test "$out" = "2 : Int" || {
+            echo "::error::the installed binary answered '$out' to 1 + 1" >&2
+            exit 1
+          }
