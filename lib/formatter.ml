@@ -276,7 +276,15 @@ and emit_type_atom te = match te with
    the parser takes them quoted; printing one of those bare produces source
    that does not lex at all. Quoting is always correct, so the bare form is
    only an economy for the keys that can afford it. *)
-let map_key k =
+(* A key written bare, where the parser that will read it back allows one.
+   The two parsers differ. A destructured import names types and
+   constructors -- `let {TestOutcome, Pass} = import Test` -- and the
+   pattern parser reads those bare. The expression parser does not:
+   `{Pod = 1}` stops at the constructor, so a map literal's uppercase key
+   keeps its quotes. One function served both and wrote `{"Pod" = 1}` back
+   as source that does not parse. Found by the nightly fuzz run, standing
+   behind the keyword bug in the same function. *)
+let map_key ?(upper_is_bare = false) k =
   (* One trailing ? or ! is part of an identifier (predicate / bang
      convention), matching the lexer's rule exactly -- `deploy!` is a key
      that can afford the bare form. *)
@@ -287,10 +295,20 @@ let map_key k =
   in
   let plain =
     String.length core > 0
-    (* An uppercase key is how an import names a type or a constructor, and
-       the parser reads one bare. *)
-    && (match core.[0] with 'a' .. 'z' | 'A' .. 'Z' | '_' -> true | _ -> false)
+    && (match core.[0] with
+        | 'a' .. 'z' | '_' -> true
+        | 'A' .. 'Z' -> upper_is_bare
+        | _ -> false)
     && String.for_all (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false) core
+    (* Spelled like an identifier is not the same as read as one. `type`,
+       `let`, `true` and the rest lex as keywords wherever they appear, so
+       `{"type" = 1}` unquoted is `{type = 1}`, which stops at the keyword.
+       The lexer is asked rather than a second list kept here: a list that
+       has to be updated with the language is a list that will not be.
+       Found by the nightly fuzz run. *)
+    && (match Lexer.keyword_or_ident core with
+        | Token.Ident _ | Token.Upper _ -> true
+        | _ -> false)
   in
   if plain then k else "\"" ^ escape_string_body k ^ "\""
 
@@ -331,8 +349,8 @@ let rec emit_pat (p : pat) : string = match p with
        no identifier to pun into, so it always carries its pattern. *)
     let entry (k, p) =
       match p with
-      | PVar v when v = k && map_key k = k -> k
-      | _ -> map_key k ^ " = " ^ emit_pat p
+      | PVar v when v = k && map_key ~upper_is_bare:true k = k -> k
+      | _ -> map_key ~upper_is_bare:true k ^ " = " ^ emit_pat p
     in
     "{" ^ String.concat ", " (List.map entry kvs) ^ "}"
   (* The parentheses are the syntax, not decoration: `p : Pod` on its own

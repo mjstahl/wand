@@ -1,0 +1,4 @@
+let a = {"type" = 1}
+let b = {"Pod" = 2}
+let c = {"name" = 3}
+let {TestOutcome} = import Test

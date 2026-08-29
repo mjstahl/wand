@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **`wand f` keeps the quotes on a map key that needs them.** A quoted key
+  was written bare whenever it was spelled like an identifier. `{"type" = 1}`
+  came back as `{type = 1}`, and `type` lexes as a keyword wherever it
+  stands, so the map ended at the key. The lexer decides now, rather than a
+  second keyword list kept in the formatter
+- **An uppercase map key keeps its quotes too.** `{"Pod" = 1}` came back as
+  `{Pod = 1}`, which the expression parser refuses. The same function prints
+  an import pattern, where `let {TestOutcome, Pass} = import Test` does read
+  those bare, so the caller says which parser will read the key
+
 ## [0.55.0] - 2026-08-28
 
 ### Added

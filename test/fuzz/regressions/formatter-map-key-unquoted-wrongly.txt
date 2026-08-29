@@ -1,0 +1,22 @@
+found:     the nightly fuzz run, 2026-08-28, seed shard 1
+reported:  format:unparses -- expected map key, got type
+fixed in:  lib/formatter.ml, map_key
+
+A quoted map key was written bare whenever it was spelled like an
+identifier. Two kinds of key are spelled that way and are not read that
+way.
+
+A keyword. `{"type" = 1}` came back as `{type = 1}`, and `type` lexes as
+a keyword wherever it stands, so the map ended at the key. The lexer is
+asked now, rather than a second keyword list kept in the formatter: a
+list that has to be updated with the language is a list that will not be.
+
+An uppercase name, in a map literal. `{"Pod" = 1}` came back as
+`{Pod = 1}`, which the expression parser refuses. This one is not a
+keyword and was allowed on purpose, because the same function prints an
+import pattern -- `let {TestOutcome, Pass} = import Test` names types and
+constructors, and the pattern parser does read those bare. The two
+parsers differ, so the caller says which one will read the key.
+
+The second bug was standing behind the first: only the keyword case was
+reported, and the uppercase case turned up while testing the fix.
