@@ -114,6 +114,11 @@ let apply_fix lines (d : Diag.t) : (string list * applied) option =
       match is_import_text text, after with
       | true, next :: _ when String.trim next <> "" && not (is_import_text next) ->
         [text; ""]
+      (* A manifest stands off from the file below it. Every file in the
+         tree writes it that way and the formatter leaves it that way, so a
+         manifest inserted against the first import made a file that was
+         correct and looked hand-patched. *)
+      | false, next :: _ when String.trim next <> "" -> [text; ""]
       | _ -> [text]
     in
     at n ("inserted " ^ quote text) (before @ inserted @ after)

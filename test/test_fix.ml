@@ -16,11 +16,15 @@ let refuse src =
 
 let codes applied = List.map (fun a -> a.Fix.code) applied
 
+(* The blank line is part of the fix. Every file in the tree stands its
+   manifest off from what follows, and so does the formatter, so a manifest
+   written against the first import leaves a file that is correct and reads
+   as hand-patched. *)
 let test_manifest_created () =
   let (fixed, applied) =
     fix "import FS\nlet f p = FS.write_file p \"x\"\nf /tmp/y\n" in
-  Alcotest.(check string) "manifest inserted first"
-    "uses {FS.Write}\nimport FS\nlet f p = FS.write_file p \"x\"\nf /tmp/y\n"
+  Alcotest.(check string) "manifest inserted first, with a blank line under it"
+    "uses {FS.Write}\n\nimport FS\nlet f p = FS.write_file p \"x\"\nf /tmp/y\n"
     fixed;
   Alcotest.(check (list string)) "one V-USES2" ["V-USES2"] (codes applied)
 
@@ -28,7 +32,7 @@ let test_manifest_after_shebang () =
   let (fixed, _) =
     fix "#!/usr/bin/env wand\nimport FS\nFS.write_file /tmp/x.txt \"hi\"\n" in
   Alcotest.(check string) "shebang stays first"
-    "#!/usr/bin/env wand\nuses {FS.Write}\nimport FS\nFS.write_file /tmp/x.txt \"hi\"\n"
+    "#!/usr/bin/env wand\nuses {FS.Write}\n\nimport FS\nFS.write_file /tmp/x.txt \"hi\"\n"
     fixed
 
 let test_manifest_widened () =

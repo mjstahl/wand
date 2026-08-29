@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- The manifest `wand t --fix` writes stands off from the file below it. It
+  was written against the first import, which is correct and reads as
+  hand-patched: every file in the tree puts a blank line there, and so does
+  the formatter
+
 ## [0.54.0] - 2026-08-28
 
 ### Added
