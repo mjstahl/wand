@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.55.2] - 2026-08-29
+
+### Fixed
+
+- **A constructor's brackets hold a block.** `Ctor (a; b)` was a parse
+  error, though `(Ctor)(a; b)` -- the same node -- was not. Only a `,` makes
+  those brackets a field list, since a construction names its fields one per
+  comma. `wand f` writes an application head without its brackets, so it
+  turned the second spelling into the first and wrote source that would not
+  parse
+- **`wand f` writes a statement separator once.** An item that opens with an
+  operator continues the item above it, so the `;` that separated the two is
+  written back. Where the item above was copied verbatim it already ended in
+  that `;`, and a second one went on after it -- the line grew a `;` per
+  pass, for ever
+
 ## [0.55.1] - 2026-08-29
 
 ### Fixed

@@ -2163,6 +2163,7 @@ let assemble pieces =
   let prev_end = ref None in
   let prev_blank_after = ref false in
   let prev_is_comment = ref false in
+  let prev_text = ref None in
   List.iter (fun p ->
     (match !prev_end with
      | None -> ()
@@ -2180,7 +2181,20 @@ let assemble pieces =
             Nothing is owed above a comment anyway. A comment ends the line
             it is on, so the operator below it is not continuing anything.
             Found by test/fuzz, on eight seeds at once. *)
+         (* A verbatim slice runs to the next item's offset, so it already
+            holds the `;` that ended the item above it. Writing a second one
+            grew the line by a `;` per pass, for ever. Ask what the piece
+            above ends with rather than what kind of piece it is: a
+            pretty-printed item never ends in `;`, so this only ever
+            declines to repeat a separator that is already there. Found by
+            test/fuzz. *)
+         let already_separated =
+           match !prev_text with
+           | Some t -> t <> "" && t.[String.length t - 1] = ';'
+           | None -> false
+         in
          if (not p.is_comment) && (not !prev_is_comment)
+            && (not already_separated)
             && opens_with_an_operator p.text then
            Buffer.add_char buf ';';
          Buffer.add_char buf '\n';
@@ -2190,7 +2204,8 @@ let assemble pieces =
     Buffer.add_string buf p.text;
     prev_end := Some p.end_line;
     prev_blank_after := p.blank_after;
-    prev_is_comment := p.is_comment
+    prev_is_comment := p.is_comment;
+    prev_text := Some p.text
   ) sorted;
   if Buffer.length buf > 0 then Buffer.add_char buf '\n';
   Buffer.contents buf

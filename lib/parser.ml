@@ -1179,9 +1179,32 @@ and constr_body_ s name =
        where it does not. The declaration decides, as it does for a list of
        bare names. *)
     if peek s = Token.RParen then (ignore (advance s); ConstrBare (name, []))
+    else if peek s = Token.Let then begin
+      (* `Ctor (let x = 1; f x)` -- a block, as it is after any other `(`.
+         Reading it as an expression first would hand the binding to `let_`
+         with no way back to the statements after it, the same reason the
+         plain bracket asks this first. *)
+      let e = paren_seq s in
+      expect s Token.RParen;
+      App (constr, e)
+    end
     else begin
+      let arg_loc = peek_loc s in
       let first = expr_ 0 s in
-      if peek_field_after_comma s then begin
+      if peek s = Token.Semicolon then begin
+        (* `Ctor (e1; e2)` -- the constructor applied to a block, which is
+           what the bracket means everywhere else. Only `,` makes this
+           bracket a field list; a `;` never can, since a construction names
+           its fields one per comma. Without this the form was a parse
+           error, and `wand f` reached it by writing `(I)(a; b)` back as
+           `I (a; b)`. Found by test/fuzz. *)
+        ignore (advance s);
+        let first = Located (span_to_here s arg_loc, first) in
+        let e = if peek s = Token.RParen then first else Seq (first, paren_seq s) in
+        expect s Token.RParen;
+        App (constr, e)
+      end
+      else if peek_field_after_comma s then begin
         (* `T(r, b = 3)`: everything not named comes from `r`. *)
         let fields = ref [] in
         while peek s = Token.Comma do

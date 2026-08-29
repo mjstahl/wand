@@ -880,6 +880,15 @@ let test_no_shebang_gains_none () =
   if contains out "#!" then
     Alcotest.failf "a file with no shebang gained one:\n%s" out
 
+(* An item that opens with an operator continues the item above it, so
+   `assemble` writes back the `;` that separated the two. The item above was
+   a verbatim slice, and a slice runs to the next item's offset -- so it
+   already held that `;`. A second one went on after it, and the line grew a
+   `;` per pass, for ever. Found by test/fuzz. *)
+let test_a_separator_is_not_written_twice () =
+  assert_idempotent "an operator item after a verbatim slice"
+    "()--\n-let e=();-\n--\nlet k=()"
+
 (* ── The constructs that used to be copied verbatim ──────────────────────── *)
 
 (* $(), $?(), try, contracts, handle and regex literals were re-emitted as
@@ -1345,6 +1354,8 @@ let () =
       Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
+      Alcotest.test_case "separator not written twice" `Quick
+        test_a_separator_is_not_written_twice;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;

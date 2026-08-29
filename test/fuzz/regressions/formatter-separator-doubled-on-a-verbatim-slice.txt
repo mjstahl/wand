@@ -1,0 +1,18 @@
+found:     test/fuzz, seed 33254740181, iteration 718997, 2026-08-29
+reported:  format:unstable
+fixed in:  lib/formatter.ml, assemble
+
+An item that opens with an operator continues the item above it, so
+`assemble` writes back the `;` that separated the two in the source.
+The item above was a verbatim slice, and a slice runs to the next item's
+offset -- so it already held that `;`. A second one went on after it,
+and the line grew a `;` per pass, for ever.
+
+  ()--
+  -let e=();-      -->  -let e=();;   -->  -let e=();;;
+  --
+  let k=()
+
+`assemble` now asks what the piece above ends with rather than what kind
+of piece it is. A pretty-printed item never ends in `;`, so the guard
+only ever declines to repeat a separator that is already written.

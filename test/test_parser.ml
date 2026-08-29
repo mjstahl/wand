@@ -399,6 +399,30 @@ let test_constr_positional () =
     "Point(x, y = 1)"
     (ConstrUpdate ("Point", Var "x", [("y", Int 1)]))
 
+
+(* Only a `,` makes a constructor's bracket a field list -- a construction
+   names its fields one per comma, so a `;` in there can only be the
+   ordinary block. It used to be a parse error, which `wand f` reached by
+   writing an application head without its brackets: `(Some)(a; b)` parsed,
+   and came back as `Some (a; b)`, which did not. Found by test/fuzz. *)
+
+let test_constr_bracket_holds_a_block () =
+  e "a block is the payload"
+    "Some (1; 2)"
+    (App (Constr "Some", Seq (Int 1, Int 2)));
+  e "and reads the same as the head written out"
+    "(Some)(1; 2)"
+    (parse "Some (1; 2)");
+  e "a trailing `;` is allowed, as in any block"
+    "Some (1;)"
+    (App (Constr "Some", Int 1));
+  e "a binding opens one"
+    "Some (let x = 1; x)"
+    (parse "(Some)(let x = 1; x)");
+  runs "and it evaluates" "match Some (1; 2) with | Some n -> n | None -> 0" "2";
+  runs "a binding in it evaluates"
+    "match Some (let x = 1; x + 1) with | Some n -> n | None -> 0" "2"
+
 let test_constr_positional_patterns () =
   (* Bare names are the one list the parser leaves undecided, so the tuple
      under a constructor is written with something that is not one. *)
@@ -964,6 +988,8 @@ let () =
       Alcotest.test_case "brace import destructure" `Quick test_brace_import_destructure;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "constr positional" `Quick test_constr_positional;
+      Alcotest.test_case "constr bracket holds a block" `Quick
+        test_constr_bracket_holds_a_block;
       Alcotest.test_case "constr positional patterns" `Quick test_constr_positional_patterns;
       Alcotest.test_case "handler cases"  `Quick test_handler_arm_operations;
       Alcotest.test_case "field"        `Quick test_field;

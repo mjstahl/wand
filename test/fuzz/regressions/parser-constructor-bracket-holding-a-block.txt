@@ -1,0 +1,14 @@
+found:     test/fuzz, seed 33254740183, iteration 836854, 2026-08-29
+reported:  format:unparses -- expected ), got ;
+fixed in:  lib/parser.ml, constr_body_
+
+`(I)("";1)` is the constructor `I` applied to a block, and it parsed.
+The formatter writes an application head without its brackets, so it
+came back as `I (""; 1)` -- the same node, and a parse error.
+
+A bracket after a constructor is read as a field list, and the branch
+that reads it took an expression and then only `,` or `)`. A `;` can
+never be a field list, since a construction names its fields one per
+comma, so the bracket is the ordinary one: `Ctor (e1; e2)` and
+`Ctor (let x = 1; f x)` are now the constructor applied to that block,
+which is what `(Ctor)(e1; e2)` already meant.
