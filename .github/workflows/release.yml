@@ -60,6 +60,16 @@ jobs:
       # of it. So it is not something this repository can fix, only
       # something it can stop paying for. The step is a container build and
       # rebuilding it costs nothing but time.
+      # Pinned by digest, not by tag. `alpine-ocaml-5.4` moves: it is rebuilt
+      # with a newer opam repository snapshot whenever one lands, so two
+      # releases cut a day apart are built by two different toolchains and
+      # neither says so. This digest is the image that built 0.55.0.
+      #
+      # A build that fails here fails inside the container, compiling dune
+      # from source, before any wand code is reached. That is worth being
+      # able to hold still while the cause is found.
+      #
+      # To move it: read `Digest: sha256:...` from a run that worked.
       - name: Build (Linux, static musl)
         if: matrix.static
         run: |
@@ -67,7 +77,7 @@ jobs:
           attempt=1
           until docker run --rm -v "$PWD:/src" -w /src \
             -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-            ocaml/opam:alpine-ocaml-5.4 sh -c '
+            ocaml/opam:alpine-ocaml-5.4@sha256:8e26f87086ac85e521889b26b35709220bdd13b2019a1524157e6de5caf3cff4 sh -c '
               set -eu
               sudo chown -R opam:opam /src
               sudo apk add --no-cache musl-dev
