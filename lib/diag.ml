@@ -13,6 +13,10 @@ type fix =
   | ReplaceLine of string   (* the corrected form of the flagged line *)
   | DeleteLine              (* the flagged line should not exist (a dead import) *)
   | Replace     of { from_ : string; to_ : string }
+  (* Put this at the end of the flagged line. The correction is known
+     without reading the line, which is what separates it from
+     `ReplaceLine`: the rule that asks for it does not have the source. *)
+  | AppendToLine of string
 
 type t = {
   severity : severity;
@@ -94,6 +98,8 @@ let fix_json = function
   | InsertLine l  -> Printf.sprintf "{\"insert_line\":\"%s\"}" (escape_json l)
   | ReplaceLine l -> Printf.sprintf "{\"replace_line\":\"%s\"}" (escape_json l)
   | DeleteLine    -> "{\"delete_line\":true}"
+  | AppendToLine l ->
+    Printf.sprintf "{\"append_to_line\":\"%s\"}" (escape_json l)
   | Replace { from_; to_ } ->
     Printf.sprintf "{\"replace\":{\"from\":\"%s\",\"to\":\"%s\"}}"
       (escape_json from_) (escape_json to_)

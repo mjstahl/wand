@@ -297,6 +297,26 @@ let test_shell1 () =
   silent "single command" "uses {Shell}\nlet c = $(git status)\nc";
   silent "one pipe" "uses {Shell}\nlet c = $(ls | wc -l)\nc"
 
+(* ── V-SHELL2: a command that runs on to a second line ───────────────────── *)
+
+(* A newline inside `$()` separates two commands, as it does in a shell
+   script, so the text below the break runs on its own. A line broken for
+   width almost never means that, and the half above the break can have done
+   its work before the half below fails. *)
+let test_shell2 () =
+  fires "a bare newline inside $()"
+    "uses {Shell}\nlet a = $(echo one\n  two)\na" "V-SHELL2";
+  fires "the same in $?()"
+    "uses {Shell}\nlet a = $?(echo one\n  two)\na" "V-SHELL2";
+  (* The literal parts of an interpolated command are checked too. *)
+  fires "with a hole in it"
+    "uses {Shell}\nlet n = \"x\"\nlet a = $(echo %{n}\n  two)\na" "V-SHELL2";
+  (* `\` is the shell's continuation and wand passes it through, so this is
+     one command and says nothing. *)
+  silent "continued with a backslash"
+    "uses {Shell}\nlet a = $(echo one \\\n  two)\na";
+  silent "one line" "uses {Shell}\nlet a = $(echo one two)\na"
+
 (* ── Classification ──────────────────────────────────────────────────────── *)
 
 (* Only must-fix rules may fail a build. An advisory one that could fail it
@@ -586,6 +606,7 @@ let () =
         test_shadow1_leaves_imports_to_imp1;
     ];
     "catalog", [
+      Alcotest.test_case "V-SHELL2"     `Quick test_shell2;
       Alcotest.test_case "kinds"        `Quick test_kinds;
       Alcotest.test_case "unique codes" `Quick test_registry_codes_unique;
     ];

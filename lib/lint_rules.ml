@@ -20,6 +20,7 @@ type id =
   | V_USES2    (* the file reaches outside itself and does not say so *)
   | V_DROP1    (* a Result is thrown away, so nobody reads the failure *)
   | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
+  | V_SHELL2   (* a command literal runs on to a second line without a `\` *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
   | V_IMP2     (* an import binds a name the file never mentions *)
@@ -119,6 +120,14 @@ let all = [
      also insist every command word be readable from the text. *)
   { id = V_SHELL1; code = "V-SHELL1";
     summary = "the manifest narrows Shell, but this command word is decided at run time";
+    kind = Violation };
+  (* A newline inside `$()` is a command separator, exactly as it is in a
+     shell script, so what follows it runs as a command of its own. That is
+     rarely what a line broken for width means, and the first half can have
+     done its work before the second half fails. `\` is the continuation,
+     and wand passes it through. *)
+  { id = V_SHELL2; code = "V-SHELL2";
+    summary = "a command runs on to a second line, which starts a second command";
     kind = Violation };
   { id = V_SHADOW1; code = "V-SHADOW1";
     summary = "a top-level name is bound twice in one file";
@@ -271,6 +280,10 @@ let uses1_shell ~unused ~corrected =
 let shell1_dynamic =
   "this command's first word is decided at run time, so the Shell(...) \
    list is checked when it spawns rather than here"
+
+let shell2 =
+  "this command runs on to the next line, and a newline inside $() starts a \
+   second command -- end the line with \\ to continue it"
 
 let shell1 ~stages =
   Printf.sprintf

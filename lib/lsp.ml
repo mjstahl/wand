@@ -622,6 +622,12 @@ let action_edit lines text (d : Diag.t) : (string * J.t list) option =
        in
        Some (title, [json_of_line_edit lines (Autoedit.Replace_line (n, t))])
      | _ -> None)
+  | Some (Diag.AppendToLine t) ->
+    (match line_at lines (loc_line - 1) with
+     | Some old ->
+       Some ("Continue the line with `" ^ String.trim t ^ "`",
+             [json_of_line_edit lines (Autoedit.Replace_line (loc_line, old ^ t))])
+     | None -> None)
   | Some Diag.DeleteLine ->
     (match line_at lines (loc_line - 1) with
      | Some old ->

@@ -13,7 +13,8 @@ type fix = Diag.fix =
   | InsertLine  of string   (* a line the file lacks (the manifest) *)
   | ReplaceLine of string   (* the corrected form of the flagged line *)
   | DeleteLine              (* the flagged line should not exist *)
-  | Replace     of { from_ : string; to_ : string }  (* drift errors only *)
+  | Replace     of { from_ : string; to_ : string }
+  | AppendToLine of string  (* put this at the end of the flagged line *)  (* drift errors only *)
 
 type finding = {
   rule : Lint_rules.id;
@@ -122,12 +123,41 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
         | Ast.Var n -> List.mem n !readings
         | _ -> false)
   in
+  (* A newline this command did not ask for: one with no `\` in front of
+     it. The escape is what a shell reads as "the line continues", and it is
+     the only spelling that keeps one command one command. *)
+  let runs_on text =
+    let n = String.length text in
+    let rec look i =
+      if i >= n then false
+      else if text.[i] = '\n' && (i = 0 || text.[i - 1] <> '\\') then true
+      else look (i + 1)
+    in
+    look 0
+  in
   let rec go (e : Ast.expr) =
     match e with
     | Ast.Located (l, inner) ->
       let saved = !here in
       here := l; go inner; here := saved
     | Ast.RunCmd (inner, allow) | Ast.RunQuery (inner, allow) ->
+      (* A newline inside `$()` separates two commands, exactly as it does
+         in a shell script, so the text below it runs on its own. A line
+         broken for width almost never means that, and the half above the
+         break can have done its work before the half below fails. `\` is
+         the continuation and wand passes it through, so the correction is
+         one character at the end of the line. *)
+      (let literals = match strip_located inner with
+         | Ast.String cmd -> [cmd]
+         | Ast.CmdInterp (parts, tail) ->
+           List.map (fun (lit, _, _) -> lit) parts @ [tail]
+         | _ -> []
+       in
+       if List.exists runs_on literals then
+         acc := { rule = Lint_rules.V_SHELL2;
+                  loc = !here;
+                  text = Lint_rules.shell2;
+                  fix = Some (AppendToLine " \\") } :: !acc);
       (match strip_located inner with
        | Ast.String cmd ->
          let ops = shell_operators cmd in

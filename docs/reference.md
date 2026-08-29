@@ -1403,6 +1403,11 @@ What is checked, and when:
   does a `--dry-run` rehearsal. `V-SHELL1` reports each such site. It is a
   warning, and an error under `--strict`, for a repository that wants each
   command word readable from the text.
+- **A command runs to the end of its line.** A newline inside `$()` starts a
+  second command, as it does in a shell script, so a command broken over two
+  lines for width runs as two. End the line with `\` to continue it, which
+  is what a shell reads too. `V-SHELL2` reports the break, and `wand t --fix`
+  writes the `\`.
 - **You cannot narrow shell control flow.** A reserved word in command
   position is a type error under a narrowed manifest, as in
   `$(for f in *; do ...; done)`. Neither check can bound what the body runs.
@@ -4390,6 +4395,7 @@ punish the safer choice.
 | `V-CLOCK1` | a length of time is measured by subtracting two readings of `Clock.now`, which a clock step spoils — wrap the work in `Clock.timed` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
+| `V-SHELL2` | a command runs on to a second line, which starts a second command |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `V-USES2` | a file performs effects and declares no manifest |
 

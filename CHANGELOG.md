@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`V-SHELL2`.** A newline inside `$()` starts a second command, as it does
+  in a shell script, so a command broken over two lines for width runs as
+  two. The half above the break can do its work before the half below fails.
+  `\` is the shell's continuation and wand passes it through, so
+  `wand t --fix` writes one at the end of the line
+
 ### Fixed
 
 - **`wand f` keeps a shebang.** The lexer steps over `#!` on line one and
