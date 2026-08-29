@@ -1,52 +1,42 @@
-## 0.55.1 - 2026-08-29
+## 0.55.2 - 2026-08-29
 
-One fix, in two halves. `wand f` dropped the quotes on a map key that needs
-them, and wrote source that does not parse.
+Two fixes, both reached through `wand f`. Either one turned a working file
+into one that does not parse, and `wand f` writes in place.
 
-### A map key keeps the quotes it needs
+### A constructor's brackets hold a block
 
-A quoted key was written bare whenever it was spelled like an identifier.
-Two kinds of key are spelled that way and are not read that way.
-
-**A keyword.**
+`(a; b)` is a block anywhere a bracket opens — statements in sequence,
+valuing the last. After a constructor it was a parse error:
 
 ```
-$ cat m.wand
-let a = {"type" = 1}
-
-$ wand f m.wand
-$ cat m.wand
-let a = {type = 1}
-
-$ wand t m.wand
-Error: parse error: expected map key, got type
+$ wand t -e 'Some (let x = 1; x + 1)'
+Error: parse error: 1:16: expected ), got ;
 ```
 
-`type` lexes as a keyword wherever it stands, so the map ends at the key.
-The formatter asks the lexer now, instead of keeping a keyword list of its
-own — a list that has to be updated with the language is a list that will
-not be.
+A bracket after a constructor names fields, one per comma, and the branch
+that reads it took an expression and then only `,` or `)`. A `;` can never
+be a field list, so the bracket is now the ordinary one. `Ctor (a; b)` and
+`Ctor (let x = 1; f x)` are the constructor applied to that block.
 
-**An uppercase name, in a map literal.** `{"Pod" = 1}` came back as
-`{Pod = 1}`, which the expression parser refuses.
+`(Some)(a; b)` — the same node, with the head bracketed — always parsed.
+`wand f` writes an application head without its brackets, so it turned the
+spelling that worked into the spelling that did not.
 
-That one was allowed on purpose. The same function prints an import pattern,
-and `let {TestOutcome, Pass} = import Test` names types and constructors,
-which the *pattern* parser does read bare. Two parsers, opposite rules, one
-function. The caller now says which parser will read the key.
+### `wand f` writes a statement separator once
 
-`wand f` writes in place, so either shape turned a working file into one
-that does not parse. Present in 0.55.0 and earlier.
+An item that opens with an operator continues the item above it, so the `;`
+that separated the two is written back. Where the item above was copied
+verbatim it already ended in that `;`, and a second one went on after it:
 
-### How it was found
+```
+()--
+-let e = ();      -->  -let e = ();;   -->  -let e = ();;;
+--
+let k = ()
+```
 
-The nightly fuzz run reported the keyword half. The uppercase half was
-standing behind it and turned up while the first was being fixed.
+The line grew a `;` per pass, for ever. `wand f` now asks what the line
+above ends with rather than what kind of item it is.
 
-This is the first finding the nightly filed on its own. The schedule had
-never fired before — three separate crons and a probe workflow produced no
-scheduled run at all — and it started working on 2026-08-28 without
-intervention.
-
-Nothing else changed. The command line, the type checker and the lint rules
-are exactly 0.55.0's.
+Both were present in 0.55.1 and earlier. Nothing else changed: the command
+line, the type checker and the lint rules are exactly 0.55.1's.
