@@ -1,0 +1,85 @@
+name: Installs
+
+# The install script, against a release that is actually downloadable.
+#
+# install.sh proves the downloaded binary runs before it installs it, and
+# that check has to be spelled the way the binary answers. 0.55.0 removed
+# `wand e`, install.sh still asked for it, and every install failed with
+# "the downloaded binary did not run". A person reported it, hours later.
+#
+# This first lived in release.yml, running after the archives were attached
+# and before anyone published. It could never have worked there: a release
+# is a draft until it is published, a draft's assets are not served from
+# the public download URL, and install.sh downloads from that URL. Every run
+# 404'd. Testing the path a user takes means waiting until that path is open.
+#
+# So it fires on publication instead. It is a minute later than the draft,
+# and a minute is not the hours it took last time.
+on:
+  release:
+    types: [published]
+  # For a release that was published before this workflow existed, and to
+  # re-check one after a fix.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to install, without the leading v (blank: latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      # The two the runners can reach. macOS x86_64 is built by hand, because
+      # GitHub's Intel runner never leaves the queue, so no job here can
+      # install it -- the Makefile's own checks cover that one.
+      matrix:
+        runs-on: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the published release, and run it
+        run: |
+          set -euo pipefail
+          # The release that triggered this, or the one a dispatch named.
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          fi
+
+          dir="$RUNNER_TEMP/wand-install"
+          if [ -n "$VERSION" ]; then
+            WAND_VERSION="$VERSION" WAND_INSTALL_DIR="$dir" sh install.sh
+          else
+            # No version anywhere: a bare run, which is also the only path
+            # that parses the /releases/latest redirect.
+            WAND_INSTALL_DIR="$dir" sh install.sh
+          fi
+
+          # The binary has to be the one that was asked for. An archive built
+          # from the wrong tree passes every other check in this repository.
+          got=$("$dir/wand" version 2>/dev/null || "$dir/wand" V 2>/dev/null)
+          if [ -n "$VERSION" ] && [ "$got" != "wand $VERSION" ]; then
+            echo "::error::installed $got, asked for wand $VERSION" >&2
+            exit 1
+          fi
+
+          # And it has to run something, from a directory that is not a wand
+          # tree, which is the whole claim the binary makes. `wand -e` is the
+          # spelling from 0.55.0 on and `wand e` the one before it, so an
+          # older release is not a failure.
+          cd "$RUNNER_TEMP"
+          out=$("$dir/wand" -e '1 + 1' 2>/dev/null || "$dir/wand" e '1 + 1')
+          test "$out" = "2 : Int" || {
+            echo "::error::the installed binary answered '$out' to 1 + 1" >&2
+            exit 1
+          }
+          echo "installed and ran $got on ${{ matrix.runs-on }}"
