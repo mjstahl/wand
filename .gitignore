@@ -45,3 +45,4 @@ _opam/
 # Reproducers the fuzzer writes. Anything worth keeping is moved into
 # test/fuzz/regressions/ by hand.
 _fuzz-findings/
+_fuzz-sweep/

@@ -1,0 +1,166 @@
+uses {Env, FS.Read, FS.Write, IO, Proc, Shell}
+
+import Env
+import FS
+import IO
+import List
+import Option
+import Result
+import Path
+import Shell
+import Proc
+import String
+
+-- Runs the fuzzer over several seeds and says what it found.
+--
+-- The fuzzer is OCaml, in `test/fuzz`. This is the part around it: which
+-- seeds to run, for how long, where the findings go, and what the exit code
+-- says. That part was a shell script written fresh each time it was needed,
+-- and it went wrong three ways in one day.
+--
+-- The binary is copied before the sweep starts, and the copy is compared
+-- against the original. `cp` onto a file another process is running fails
+-- with ETXTBSY, and a shell script without `set -e` carries on: forty
+-- minutes of a sweep ran against a binary from before the fix it was meant
+-- to check, and nothing said so. The findings looked real and were not.
+--
+-- Findings are moved to a directory of their own after every seed.
+-- `_fuzz-findings/` is keyed by signature, so a second seed that hits the
+-- same signature overwrites the first. One reproducer was lost that way and
+-- had to be rebuilt from a printed page.
+
+let wand_root = Env.get "WAND_ROOT" |> Option.default "."
+
+let fuzz_exe =
+  Env.get "FUZZ_EXE" |> Option.default "%{wand_root}/_build/default/test/fuzz/fuzz.exe"
+
+-- A number from the environment, or the fallback. A value that is set and
+-- unreadable takes the fallback rather than stopping the sweep: the number
+-- is how long to run, and a sweep that runs is worth more than one that
+-- refuses over a typo.
+let int_env name fallback =
+  Env.get name
+    |> Option.and_then (fn s -> String.to_int s |> Result.to_option)
+    |> Option.default fallback
+
+-- Six seeds of five minutes each finds what one seed of thirty does not:
+-- the seeds are independent, so they walk different parts of the corpus.
+let seeds = int_env "SEEDS" 6
+
+let seconds = int_env "SECONDS_PER_SEED" 300
+
+-- Where a finding lands while the fuzzer writes it, and where this moves it
+-- to afterwards.
+let findings_dir = Path.of_string "%{wand_root}/_fuzz-findings"
+
+let archive_dir = Path.of_string "%{wand_root}/_fuzz-sweep"
+
+-- The binary under test, copied so a rebuild during the sweep cannot change
+-- what is being tested half way through. The copy lives beside the findings
+-- and not in a temp directory: a `with` bracket releases at the end of its
+-- body, so a pin made inside one is deleted before the first seed runs.
+let pin! () =
+  let src = Path.of_string fuzz_exe in
+  let () =
+    match FS.exists? src with
+    | false -> (
+      IO.println_err "no fuzzer at %{fuzz_exe} -- set FUZZ_EXE, or build it";
+      Proc.exit 2
+    )
+    | true -> ()
+  in
+  let pinned = Path.join archive_dir (Path.of_string "fuzz.exe") in
+  let () = FS.copy! src pinned in
+  -- Compared, not assumed. A copy that failed and was not checked is the
+  -- whole reason this file exists.
+  let same = FS.read_file! (Path.of_string fuzz_exe) == FS.read_file! pinned in
+  let () =
+    match same with
+    | false -> (IO.println_err "the pinned copy differs from %{fuzz_exe}"; Proc.exit 2)
+    | true -> ()
+  in
+  -- The copy has to be runnable, and a copy does not have to carry the
+  -- execute bit. Asked here, where the answer is one line, rather than as
+  -- "No such file or directory" once per seed.
+  let ok = $?(test -x %{Path.to_string pinned}) in
+  match Shell.ok? ok with
+  | false -> (
+    IO.println_err "the pinned copy is not executable: %{Path.to_string pinned}";
+    Proc.exit 2
+  )
+  | true -> pinned
+
+-- What a seed left behind, moved somewhere it cannot be overwritten.
+let keep! seed =
+  match FS.exists? findings_dir with
+  | false -> []
+  | true -> (
+    let found = FS.glob_in **.wand findings_dir in
+    match found with
+    | [] -> []
+    | _ -> (
+      let seed_dir = Path.join archive_dir (Path.of_string "seed%{seed}") in
+      let () = FS.mkdir! seed_dir in
+      let () = FS.copy_tree! findings_dir seed_dir in
+      let () = FS.delete_tree! findings_dir in found
+    )
+  )
+
+let run_seed! pinned seed =
+  let () = IO.println "--- seed %{seed}" in
+  -- The `\` is the shell's line continuation and wand passes it through. A
+  -- bare newline here would separate two commands, as it does in a shell
+  -- script: the flags below it would run as a command of their own.
+  let r =
+    $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000              --seconds %{seconds} --timeout 20 --shrink 2000)
+  in
+  -- The fuzzer's own summary says how many inputs it got through, which is
+  -- the only way to see it slowing down. It goes to the log whatever the
+  -- verdict is.
+  let () = IO.println (String.trim "%{r.stdout}%{r.stderr}") in
+  -- The fuzzer exits 0 with nothing to say and 1 when it found something.
+  -- Anything else means it did not run, and a sweep that could not start
+  -- must not report a quiet night.
+  let () =
+    match r.code > 1 with
+    | true -> (IO.println_err "seed %{seed} did not run (exit %{r.code})"; Proc.exit 2)
+    | false -> ()
+  in
+  let kept = keep! seed in
+  -- The fuzzer says it found something by exiting 1, and shows what by
+  -- writing the input and its notes. If the two disagree, the sweep cannot
+  -- say what happened, and saying "no new findings" would be the worst of
+  -- the answers available.
+  let () =
+    match r.code == 1 && kept == [] with
+    | true -> (
+      IO.println_err "seed %{seed} reported a finding and wrote no file";
+      Proc.exit 2
+    )
+    | false -> ()
+  in
+  kept
+
+let report kept =
+  let n = kept |> List.map List.length |> List.fold_left (fn a b -> a + b) 0 in
+  match n with
+  | 0 -> IO.println "no new findings in %{seeds} seed(s)"
+  | _ -> (
+    IO.println_err "%{n} finding(s), kept under %{Path.to_string archive_dir}";
+    Proc.exit 1
+  )
+
+let main! () =
+  let () =
+    match FS.exists? archive_dir with
+    | true -> FS.delete_tree! archive_dir
+    | false -> ()
+  in
+  let () = FS.mkdir! archive_dir in
+  let pinned = pin! () in
+  let () = IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s" in
+  -- `List.range` includes both ends, so six seeds are 0 through 5.
+  let kept = List.range 0 (seeds - 1) |> List.map (fn s -> run_seed! pinned s) in
+  report kept
+
+main! ()
