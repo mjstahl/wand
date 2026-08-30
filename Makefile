@@ -1,4 +1,5 @@
-.PHONY: build test repl run fmt clean install release release-archive
+.PHONY: build test repl run fmt clean install fuzz fuzz-eval fuzz-sweep \
+        release release-archive
 
 build:
 	dune build
@@ -20,6 +21,36 @@ clean:
 
 install:
 	dune build @install
+
+# ── Fuzzing ──────────────────────────────────────────────────────────────────
+#
+# `ITERATIONS=N` on any of these, or `SEED=N` on the first two. A run exits 0
+# when it finds nothing whose signature is not already in
+# `test/fuzz/known.txt`, so these are usable as a gate.
+
+ITERATIONS ?= 20000
+SEED ?= 0
+
+# The lexer, the parser, the typechecker and the formatter. About fifteen
+# seconds at the default count, and worth a run after a change to any of them.
+fuzz: build
+	_build/default/test/fuzz/fuzz.exe --seed $(SEED) --iterations $(ITERATIONS)
+
+# The same, and it runs the program on both sides of a format as well: a
+# formatting that keeps the type and changes the answer is a bug nothing else
+# here asks about. Only programs the typechecker says reach nothing outside
+# themselves are run, each in a process of its own with a budget of its own.
+#
+# Slower than `fuzz` by a little over half, so it covers less ground in the
+# same time. Which of the two is worth more depends on what changed.
+fuzz-eval: build
+	_build/default/test/fuzz/fuzz.exe --seed $(SEED) --iterations $(ITERATIONS) --eval
+
+# Several seeds, each with its own findings directory, before a release.
+# SEEDS and SECONDS_PER_SEED are read by the script.
+fuzz-sweep: build
+	WAND=$(PWD)/_build/default/bin/wand.exe \
+	  $(PWD)/_build/default/bin/wand.exe tools/fuzz_sweep.wand
 
 # ── Releasing ────────────────────────────────────────────────────────────────
 #

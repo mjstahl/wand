@@ -32,6 +32,7 @@ type verdict =
   | FmtUnstable                  (* a second pass changed it again *)
   | FmtLostComment               (* a comment did not survive the round trip *)
   | FmtRetyped   of string       (* it means something else afterwards *)
+  | FmtRevalued  of string       (* it *runs* to something else afterwards *)
   | FmtCrash     of string * string
   (* A verdict reached in another process, carried back whole. The child has
      already computed the signature and the description, so nothing here has
@@ -45,7 +46,8 @@ exception Timed_out
 let is_finding = function
   | Skipped | Typed _ | Rejected _ -> false
   | Internal _ | Crash _ | Overflow | Timeout | Died _ -> true
-  | FmtUnparses _ | FmtUnstable | FmtLostComment | FmtRetyped _ | FmtCrash _ -> true
+  | FmtUnparses _ | FmtUnstable | FmtLostComment | FmtRetyped _ | FmtRevalued _
+  | FmtCrash _ -> true
   (* A child reports whatever it reached, pass or finding. An empty
      signature is how it says "nothing wrong", so that is what decides. *)
   | Reported r -> r.sg <> ""
@@ -129,6 +131,10 @@ let signature = function
   | FmtUnstable -> Some "format:unstable"
   | FmtLostComment -> Some "format:lost-comment"
   | FmtRetyped what -> Some ("format:retyped:" ^ normalise what)
+  (* Not keyed on what the two answers were. A retype names a type, and the
+     types are few; two runs differ in whatever the program computed, and
+     keying on that would file one issue per arithmetic result. *)
+  | FmtRevalued _ -> Some "format:revalued"
   | FmtCrash (sg, _) -> Some ("format:crash:" ^ sg)
   | Reported r -> if r.sg = "" then None else Some r.sg
   | Internal msg -> Some ("internal:" ^ normalise msg)
@@ -145,6 +151,7 @@ let describe = function
   | FmtUnstable -> "wand f is not idempotent here"
   | FmtLostComment -> "wand f dropped or restyled a comment"
   | FmtRetyped what -> "wand f changed what the file means: " ^ what
+  | FmtRevalued what -> "wand f changed what the file does: " ^ what
   | FmtCrash (sg, _) -> "wand f raised: " ^ sg
   | Reported r -> r.desc
   | Internal msg -> "E-FAIL: " ^ normalise msg
@@ -248,7 +255,127 @@ let parses src =
   | _ -> true
   | exception _ -> false
 
-let check_format ?(timeout = 10.0) ~width ~path ~before src =
+(* ── Running the program, where running it is safe ────────────────────────── *)
+
+(* Whether the file just typechecked can reach outside itself.
+
+   Read from the typechecker's own inference, never from the `uses` line. A
+   manifest bounds a file that has one; a file with none is not sealed, it is
+   unbounded -- `lint.ml` answers a missing manifest with the V-USES2
+   *warning* that names what the file could declare. So "no manifest" means
+   "nobody said", which is the opposite of what it has to mean here.
+
+   That is not a hypothetical. Gated on the manifest, seed 0 iteration 3449
+   deleted the `uses` line from `examples/ports/disk-threshold.wand` with a
+   single `delete-line`, and the fuzzer ran `df` -- twice in five thousand
+   inputs.
+
+   `Raise` is allowed. Raising is not an interaction with the outside world,
+   and `test_interceptable.ml` leaves it out of the list for the same reason.
+   Everything else is refused, including `IO` and `Clock`: neither can damage
+   anything, but one writes over the run's own output and the other spends
+   the budget on waiting.
+
+   Called straight after the typecheck whose answer it is about.
+   `last_file_effects` is a global the next typecheck overwrites. *)
+let sealed_effects = Effect_set.EffSet.of_list [Effect_set.Raise]
+
+let reaches_outside () =
+  not (Effect_set.EffSet.subset !Typechecker.last_file_effects sealed_effects)
+
+(* What one run answered, as text, so two can be compared.
+
+   A failure counts. `Error` and `Error` with the same message are the same
+   answer, and a formatting that turns a working program into a failing one
+   is exactly what this is looking for. Normalised, because a message can
+   quote a path or a name the two spellings disagree on for reasons that are
+   not the bug. *)
+let outcome_of src =
+  match Runner.run_string src with
+  | Ok v -> "= " ^ v
+  | Error m -> "! " ^ normalise m
+  | exception e -> "raised " ^ Printexc.to_string e
+
+(* Both runs, in a process of its own, and never in this one.
+
+   Evaluating a wand program spawns a domain, and OCaml refuses `Unix.fork`
+   in a process that has spawned one. `check_in_child` is a fork, so a single
+   evaluation in the loop's own process disables the step that confirms every
+   finding -- the run dies with "Unix.fork may not be called after any domain
+   has been spawned". Found by running it that way.
+
+   One fork for the pair rather than one each: the two answers are only ever
+   wanted together, and the fork is the cost.
+
+   The gate is asked again in here, on each spelling, because this is the
+   process that would do the damage. The caller's check is a filter; this one
+   is the guard. *)
+(* A program that does not terminate is a program, not a bug. `fib (n - - 2)`
+   is two unary minuses away from counting upwards for ever, and the mutations
+   write that in one edit. The typechecker hanging is a finding; the program
+   looping is the input doing what it says. So evaluation gets a budget of its
+   own, and running out of it is a skip and never a verdict.
+
+   The deadline is the parent's, enforced by killing the child. The child
+   could hold its own alarm, but a mutant is free to use `Par`, and a signal
+   arriving in a process that has spawned domains is not something to stake
+   the run's honesty on. *)
+let eval_budget = 2.0
+
+let outcomes_in_child ~path src once =
+  flush stdout;
+  flush stderr;
+  let (r, w) = Unix.pipe ~cloexec:false () in
+  match Unix.fork () with
+  | 0 ->
+    Unix.close r;
+    let answer s =
+      match Runner.typecheck_source ~path s with
+      | Ok _ when not (reaches_outside ()) -> outcome_of s
+      | _ -> "<not run>"
+      | exception _ -> "<not run>"
+    in
+    let payload =
+      try answer src ^ "\x1e" ^ answer once
+      with e -> "<raised " ^ Printexc.to_string e ^ ">\x1e<raised>"
+    in
+    let b = Bytes.of_string payload in
+    (try ignore (Unix.write w b 0 (Bytes.length b)) with _ -> ());
+    Unix.close w;
+    Stdlib.exit 0
+  | child ->
+    Unix.close w;
+    let until = Unix.gettimeofday () +. eval_budget in
+    let buf = Buffer.create 1024 in
+    let chunk = Bytes.create 4096 in
+    let killed = ref false in
+    let rec drain () =
+      let left = until -. Unix.gettimeofday () in
+      if left <= 0. then begin
+        killed := true;
+        (try Unix.kill child Sys.sigkill with _ -> ())
+      end else
+        match Unix.select [r] [] [] left with
+        | ([], _, _) ->
+          killed := true;
+          (try Unix.kill child Sys.sigkill with _ -> ())
+        | _ ->
+          (match Unix.read r chunk 0 4096 with
+           | 0 -> ()
+           | n -> Buffer.add_subbytes buf chunk 0 n; drain ()
+           | exception Unix.Unix_error (Unix.EINTR, _, _) -> drain ())
+        | exception Unix.Unix_error (Unix.EINTR, _, _) -> drain ()
+    in
+    drain ();
+    Unix.close r;
+    ignore (try Unix.waitpid [] child with _ -> (0, Unix.WEXITED 0));
+    if !killed then None
+    else
+      match String.split_on_char '\x1e' (Buffer.contents buf) with
+      | [a; b] when a <> "<not run>" && b <> "<not run>" -> Some (a, b)
+      | _ -> None
+
+let check_format ?(timeout = 10.0) ?(eval = false) ~width ~path ~before src =
   (* Source that does not parse is the other oracle's business. *)
   if not (parses src) then Skipped
   else
@@ -273,6 +400,20 @@ let check_format ?(timeout = 10.0) ~width ~path ~before src =
             FmtRetyped (Printf.sprintf "was %s, now typechecks to %s" was sc.Runner.sc_type)
           | Rejected was, Error d when d.Diag.code <> was ->
             FmtRetyped (Printf.sprintf "was %s, now %s" was d.Diag.code)
+          (* Same type, both spellings safe to run: then run them. A type is
+             a coarse account of what a program does, and the formatter has
+             changed the program while keeping it -- `p.M N (9 [])` has one
+             argument where `p.M(N)(9 [])` had two, and both are the same
+             type. Only a second pass disagreeing caught that, which is luck
+             rather than coverage. Two runs answer it directly. *)
+          (* `reaches_outside` reads the typecheck directly above it, which
+             is `once`'s. It is the cheap filter; the child asks again, of
+             both spellings, before it runs either. *)
+          | Typed _, Ok _ when eval && not (reaches_outside ()) ->
+            (match outcomes_in_child ~path src once with
+             | Some (was_v, now_v) when was_v <> now_v ->
+               FmtRevalued (Printf.sprintf "was %s, now %s" was_v now_v)
+             | _ -> Skipped)
           | _ -> Skipped)
     with
     | Timed_out -> Timeout
@@ -285,7 +426,7 @@ let check_format ?(timeout = 10.0) ~width ~path ~before src =
 (* What the formatter did to one input, for a person reading a finding. A
    format finding says a property broke; it does not say what came out, and
    what came out is the whole of what a reader needs. *)
-let explain ~width ~path src =
+let explain ?(eval = false) ~width ~path src =
   let fmt s = Formatter.with_width width (fun () -> Formatter.format_source s) in
   let show label text =
     Printf.printf "── %s ──\n%s\n" label text
@@ -308,6 +449,12 @@ let explain ~width ~path src =
       Printf.printf "── comments after (%d) ──\n%s\n" (List.length after)
         (String.concat "\n" (List.map (Printf.sprintf "%S") after))
     end else Printf.printf "── comments: %d, unchanged ──\n" (List.length before);
+    (* What each spelling runs to, where running is allowed. A revalue
+       finding says the two differ; the two are what a reader needs. *)
+    (if eval then
+       match outcomes_in_child ~path src once with
+       | Some (a, b) -> Printf.printf "── runs: %s -> %s ──\n" a b
+       | None -> print_endline "── not run: it reaches outside itself ──");
     (match Runner.typecheck_source ~path src, Runner.typecheck_source ~path once with
      | Ok a, Ok b -> Printf.printf "── type: %s -> %s ──\n" a.Runner.sc_type b.Runner.sc_type
      | Ok a, Error d -> Printf.printf "── type: %s -> %s ──\n" a.Runner.sc_type d.Diag.code
@@ -318,11 +465,11 @@ let explain ~width ~path src =
    first, and the formatter only on input it did not already condemn. The
    first verdict is handed to the second, so an input is typechecked twice
    and not three times. *)
-let check_all ?(timeout = 10.0) ~width ~path src =
+let check_all ?(timeout = 10.0) ?(eval = false) ~width ~path src =
   let v = check ~timeout ~path src in
   if is_finding v then v
   else
-    match check_format ~timeout ~width ~path ~before:v src with
+    match check_format ~timeout ~eval ~width ~path ~before:v src with
     (* The formatter had nothing to say, so the input is still whatever the
        typecheck made of it. Returning `Skipped` here threw that away and
        reported every input in one bucket. *)
@@ -340,7 +487,7 @@ let check_all ?(timeout = 10.0) ~width ~path src =
 
    It also catches what an exception handler cannot: a segfault from the C
    stubs, or a hang the alarm does not interrupt. *)
-let check_in_child ?(timeout = 10.0) ~width ~path src =
+let check_in_child ?(timeout = 10.0) ?(eval = false) ~width ~path src =
   (* Whatever this process has buffered and not written belongs to it alone.
      A fork copies the buffer, and the child flushes its copy when it exits,
      so anything printed before this line would appear twice. *)
@@ -350,7 +497,7 @@ let check_in_child ?(timeout = 10.0) ~width ~path src =
   match Unix.fork () with
   | 0 ->
     Unix.close r;
-    let v = try check_all ~timeout ~width ~path src with e -> Died (Printexc.to_string e) in
+    let v = try check_all ~timeout ~eval ~width ~path src with e -> Died (Printexc.to_string e) in
     (* signature, description and backtrace, one per record, newlines in the
        backtrace escaped so the three can be split apart again. *)
     let payload =

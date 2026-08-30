@@ -68,14 +68,14 @@ let load_known path =
    that still hangs, so 400 calls at ten seconds is an hour on one input.
    That is not a hypothetical -- it is what a 20,000-input run did before
    this line existed. *)
-let shrink ~timeout ~width ~path ~target ~budget ~seconds src =
+let shrink ~timeout ~eval ~width ~path ~target ~budget ~seconds src =
   let calls = ref 0 in
   let until = Unix.gettimeofday () +. seconds in
   let still s =
     if !calls >= budget || Unix.gettimeofday () > until then false
     else begin
       incr calls;
-      Oracle.signature (Oracle.check_all ~timeout ~width ~path s) = Some target
+      Oracle.signature (Oracle.check_all ~timeout ~eval ~width ~path s) = Some target
     end
   in
   let by_lines s =
@@ -192,6 +192,7 @@ let usage = {|usage: fuzz [options]
   --only N          run just iteration N of this seed, and report it
   --timeout SECS    per-input budget before a hang is a finding (default 10)
   --width N         format at this margin rather than one drawn per input
+  --eval            also run each side of a format and compare the answers
   --shrink N        oracle calls a single shrink may spend (default 400)
   --shrink-seconds N  wall clock a single shrink may spend (default 45)
   --edits N         at most N mutations per input (default 6)
@@ -214,6 +215,11 @@ let () =
   let shrink_seconds = ref 45.0 in
   let edits = ref 6 and corpus = ref [] and out = ref "" and known_path = ref "" in
   let width = ref 0 in
+  (* Off by default. It runs the program on both sides of a format, which
+     answers a question nothing else asks -- and costs a little over twice
+     the throughput, which is a little under half the ground a shard covers
+     in its 45 minutes. Asked for, not assumed. *)
+  let eval = ref false in
   let input = ref "" and input_path = ref "" and quiet = ref false in
   let show = ref false in
   let args = Array.to_list Sys.argv in
@@ -225,6 +231,7 @@ let () =
     | "--only" :: v :: r -> only := int_of_string v; parse r
     | "--timeout" :: v :: r -> timeout := float_of_string v; parse r
     | "--width" :: v :: r -> width := int_of_string v; parse r
+    | "--eval" :: r -> eval := true; parse r
     | "--shrink" :: v :: r -> shrink_budget := int_of_string v; parse r
     | "--shrink-seconds" :: v :: r -> shrink_seconds := float_of_string v; parse r
     | "--edits" :: v :: r -> edits := int_of_string v; parse r
@@ -258,8 +265,8 @@ let () =
   if !input <> "" then begin
     let path = if !input_path = "" then !input else !input_path in
     let w = if !width > 0 then !width else 92 in
-    if !show then Oracle.explain ~width:w ~path (read_file !input);
-    let v = Oracle.check_in_child ~timeout:!timeout ~width:w ~path (read_file !input) in
+    if !show then Oracle.explain ~eval:!eval ~width:w ~path (read_file !input);
+    let v = Oracle.check_in_child ~timeout:!timeout ~eval:!eval ~width:w ~path (read_file !input) in
     print_endline (!input ^ ": " ^ Oracle.describe v);
     Stdlib.exit (if Oracle.is_finding v then 1 else 0)
   end;
@@ -298,7 +305,7 @@ let () =
        wrapping everywhere, wide enough that nothing wraps at all, and the
        default in between. *)
     let w = if !width > 0 then !width else 24 + Random.State.int st 96 in
-    let v = Oracle.check_all ~timeout:!timeout ~width:w ~path:origin mutant in
+    let v = Oracle.check_all ~timeout:!timeout ~eval:!eval ~width:w ~path:origin mutant in
     (match v with
      | Oracle.Skipped -> bump "checked"
      | Oracle.Typed _ -> bump "typed"
@@ -312,7 +319,7 @@ let () =
       else if not (Hashtbl.mem filed sg) then begin
         (* Confirm it in a process that has typechecked nothing before
            spending a shrink on it -- see Oracle.check_in_child. *)
-        match Oracle.check_in_child ~timeout:!timeout ~width:w ~path:origin mutant with
+        match Oracle.check_in_child ~timeout:!timeout ~eval:!eval ~width:w ~path:origin mutant with
         | v' when Oracle.signature v' <> Some sg ->
           incr unverified;
           if not !quiet then
@@ -321,7 +328,7 @@ let () =
         | v' ->
           Hashtbl.replace filed sg ();
           let small =
-            shrink ~timeout:!timeout ~width:w ~path:origin ~target:sg
+            shrink ~timeout:!timeout ~eval:!eval ~width:w ~path:origin ~target:sg
               ~budget:!shrink_budget ~seconds:!shrink_seconds mutant
           in
           let base =

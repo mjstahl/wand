@@ -41,8 +41,10 @@ let fixtures () =
 
 let check fixture () =
   let v =
-    Wand_fuzz.Oracle.check_all ~timeout:30.0 ~width:92 ~path:(path_for fixture)
-      (read fixture)
+    (* `~eval:true`: a fixture for a formatter bug that changed what a
+       program answered is only held in place by running it. *)
+    Wand_fuzz.Oracle.check_all ~timeout:30.0 ~eval:true ~width:92
+      ~path:(path_for fixture) (read fixture)
   in
   if Wand_fuzz.Oracle.is_finding v then
     Alcotest.failf "%s: %s\n\nsee %s for what this was"

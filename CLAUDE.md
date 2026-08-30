@@ -57,13 +57,38 @@ WAND=$PWD/_build/default/bin/wand.exe \
 WAND=$PWD/_build/default/bin/wand.exe \
   $PWD/_build/default/bin/wand.exe tools/check_docs.wand
 dune build @fmt                                       # dune files
-_build/default/test/fuzz/fuzz.exe --seed 0 --iterations 20000
-SEEDS=6 SECONDS_PER_SEED=300 wand tools/fuzz_sweep.wand   # before a release
+make fuzz                                             # 20,000 inputs
+make fuzz-eval                                        # and runs the programs
+SEEDS=6 SECONDS_PER_SEED=300 make fuzz-sweep          # before a release
 ```
+
+`make fuzz` and `make fuzz-eval` take `SEED=N` and `ITERATIONS=N`, and exit
+non-zero on a finding whose signature is not in `known.txt`, so either is
+usable as a gate.
 
 A fuzz run of 20,000 inputs takes about fifteen seconds and is worth doing
 after a change to the lexer, the parser or the typechecker -- those three
-are the whole of what it exercises. It exits 0 when it finds nothing new.
+are the whole of what it exercises, unless `--eval` is given. It exits 0 when
+it finds nothing new.
+
+`--eval` adds a third question, and `make fuzz-eval` is it: *run* the program
+on both sides of a format and compare the answers. A formatting that keeps
+the type and changes what the program does passes every other check here --
+`p.M(N)(9 [])` came back as `p.M N (9 [])`, one argument where there were
+two, and only a second pass disagreeing caught it. Two runs answer it
+directly.
+
+Only programs the typechecker says reach nothing outside themselves are run,
+each in a process of its own with two seconds of its own. The gate is the
+*inferred* effect set, never the `uses` line: a manifest bounds a file that
+has one, and a file with none is unbounded rather than sealed. Gated on the
+manifest, a single `delete-line` took the `uses` line off
+`examples/ports/disk-threshold.wand` and the fuzzer ran `df`.
+
+It costs a little over half the throughput -- 549 inputs a second becomes
+241 -- so it covers less ground in the same time. `Daily Fuzz` does not pass
+it.
+
 A finding is written to `_fuzz-findings/` as two files: the input, byte for
 byte, and a `.json` beside it holding the seed, the iteration, the edits and
 the backtrace. JSON because the daily job reads it to decide what to file.
