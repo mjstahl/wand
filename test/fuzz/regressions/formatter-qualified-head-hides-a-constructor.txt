@@ -1,0 +1,22 @@
+found:     test/fuzz, seed 33313634835, iteration 1449160, 2026-08-30
+reported:  format:unstable
+fixed in:  lib/formatter.ml, emit_app's flatten
+
+A constructor takes the bracket written after it, and `guard_constructors`
+brackets an argument that would take one it does not own. It reads the
+spine that `flatten` gives it, and `flatten` stopped at a module's name.
+
+The parser builds `p.M N` as `App (Qualified (p, M), N)` and `p.M(N)` as
+`Qualified (p, App (M, N))` -- the same program, spelled two ways. Only
+the first reached the guard as a head and an argument. In the second the
+constructor was inside the head, so nothing guarded it:
+
+  p.M(N)(9[])  -->  p.M N (9 [])  -->  (p.M) (N (9 []))
+
+`N` took the bracket that belonged to the spine, which is a different
+program, and one that still typechecks -- so only a second formatting pass
+disagreeing said anything.
+
+`flatten` now descends through `Qualified` when what it wraps is an
+application, and both spellings reach the guard as one head and two
+arguments.

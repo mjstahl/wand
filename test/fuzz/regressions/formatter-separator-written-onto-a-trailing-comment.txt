@@ -1,0 +1,23 @@
+found:     test/fuzz, seed 33313634834, iteration 311173, 2026-08-30
+reported:  format:lost-comment
+fixed in:  lib/formatter.ml, assemble and ends_in_a_comment
+
+An item that opens with an operator continues the item above it, so
+`assemble` writes back the `;` that separated the two. A comment runs to
+the end of its line and swallows whatever is written after it, so the `;`
+became part of the comment and the comment's own text changed:
+
+  e--
+  -"";--      -->  -"";--;
+  -
+  --
+  let h=t
+
+`prev_is_comment` already guarded a piece that *is* a comment. It cannot
+guard a verbatim slice, which runs to the next item and so ends in
+whatever the source had there -- a trailing comment among the rest. Asked
+by lexing now, because `--` inside a string is not a comment.
+
+The sibling of formatter-separator-doubled-on-a-verbatim-slice, which fixed
+the same `;` growing once per pass. That left this one behind: the `;` is
+written once, and once is enough to lose the comment.

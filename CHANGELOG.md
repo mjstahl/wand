@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.55.3] - 2026-08-30
+
+### Fixed
+
+- **`wand f` keeps a comment that ends a line it writes a separator on.** An
+  item that opens with an operator continues the item above it, so the `;`
+  that separated the two is written back. A comment runs to the end of its
+  line and swallows whatever follows, so where the line above ended in one
+  the `;` became part of the comment and its text changed. 0.55.2 stopped
+  that `;` growing once per pass; this stops it being written at all
+- **`wand f` guards a constructor hidden behind a module's name.** A
+  constructor takes the bracket written after it, and the guard that
+  brackets one which would take a bracket it does not own reads the flattened
+  spine. `p.M N` and `p.M(N)` are the same program built two ways, and only
+  the first reached the guard as a head and an argument; in the second the
+  constructor sat inside the head. `p.M(N)(9 [])` came back as
+  `p.M N (9 [])`, where `N` takes the bracket and the program is a different
+  one
+
 ## [0.55.2] - 2026-08-29
 
 ### Fixed

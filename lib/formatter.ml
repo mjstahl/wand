@@ -1087,8 +1087,20 @@ and emit_expr_inner ?col indent e =
 
 and emit_app ?col indent e =
   let col = match col with Some c -> c | None -> indent in
+  (* Through a module's name as well as through the applications. The parser
+     builds `p.M N` as `App (Qualified (p, M), N)` and `p.M(N)` as
+     `Qualified (p, App (M, N))` -- the same program, spelled two ways. Read
+     only the first way, the constructor at the end of the second was inside
+     the head, where the guard below cannot see it: `p.M(N)(9 [])` came back
+     as `p.M N (9 [])`, and `N` took the bracket that belonged to the spine.
+     Flattened the same way, both spellings reach the guard as one head and
+     two arguments. Found by test/fuzz. *)
   let rec flatten e = match strip_located e with
     | App (f, x) -> let (h, args) = flatten f in (h, args @ [x])
+    | Qualified (m, inner) ->
+      (match flatten inner with
+       | (h, (_ :: _ as args)) -> (Qualified (m, h), args)
+       | _ -> (Qualified (m, inner), []))
     | other -> (other, [])
   in
   let (head, args) = flatten e in
@@ -2148,6 +2160,28 @@ let item_pieces (src : string) (prog : program) (item_locs : (Token.loc * Token.
    than inventing brackets. `let b = import /p; -` re-read as
    `let b = import /p - ...` without it, which moved the `import` inside a
    binary expression. Found by test/fuzz. *)
+(* Whether a piece's text ends inside a comment. A comment runs to the end
+   of its line and swallows whatever is written after it, so a separator put
+   there stops being a separator and changes the comment's own text instead.
+
+   `prev_is_comment` answers this for a piece that *is* a comment. It cannot
+   answer it for a verbatim slice, which runs to the next item and so ends in
+   whatever the source had there -- a trailing comment among the rest. Asked
+   by lexing, because `--` inside a string is not a comment. Found by
+   test/fuzz. *)
+let ends_in_a_comment text =
+  match Lexer.tokenize text with
+  | tokens ->
+    (* Past the `Newline` and `EOF` the lexer ends every list with: they say
+       nothing about what the last line holds. *)
+    let rec last = function
+      | (Token.Newline, _) :: tl | (Token.EOF, _) :: tl -> last tl
+      | (Token.LineComment _, _) :: _ -> true
+      | _ -> false
+    in
+    last (List.rev tokens)
+  | exception _ -> false
+
 let opens_with_an_operator text =
   text <> ""
   && (match text.[0] with
@@ -2193,9 +2227,14 @@ let assemble pieces =
            | Some t -> t <> "" && t.[String.length t - 1] = ';'
            | None -> false
          in
+         (* `ends_in_a_comment` lexes, so it is asked last: only a piece
+            that opens with an operator can reach it. *)
          if (not p.is_comment) && (not !prev_is_comment)
             && (not already_separated)
-            && opens_with_an_operator p.text then
+            && opens_with_an_operator p.text
+            && not (match !prev_text with
+                    | Some t -> ends_in_a_comment t
+                    | None -> false) then
            Buffer.add_char buf ';';
          Buffer.add_char buf '\n';
          if !prev_blank_after || p.start_line - pel - 1 > 0 then

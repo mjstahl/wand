@@ -889,6 +889,33 @@ let test_a_separator_is_not_written_twice () =
   assert_idempotent "an operator item after a verbatim slice"
     "()--\n-let e=();-\n--\nlet k=()"
 
+(* A comment runs to the end of its line and swallows whatever is written
+   after it, so the separator above an operator item cannot go there: it
+   stopped being a separator and changed the comment's own text instead.
+   `prev_is_comment` guards a piece that *is* a comment; a verbatim slice
+   ends in whatever the source had, a trailing comment among the rest.
+   Found by test/fuzz. *)
+let comments_of src =
+  List.sort compare
+    (List.map (fun (c : Formatter.comment_tok) -> c.Formatter.c_text)
+       (Formatter.all_comments src (Lexer.tokenize src)))
+
+let test_a_separator_is_not_written_onto_a_trailing_comment () =
+  let src = "e--\n-\"\";--\n-\n--\nlet h=t" in
+  let before = comments_of src and after = comments_of (fmt src) in
+  Alcotest.(check (list string)) "every comment comes back as it was written"
+    before after
+
+(* A constructor takes the bracket written after it, and the guard that
+   brackets an argument which would take one it does not own reads the spine
+   `flatten` gives it. `p.M N` is `App (Qualified (p, M), N)` and `p.M(N)` is
+   `Qualified (p, App (M, N))` -- the same program -- so the second hid the
+   constructor inside the head, where nothing guarded it. Found by
+   test/fuzz. *)
+let test_a_qualified_head_does_not_hide_a_constructor () =
+  assert_idempotent "a qualified constructor before a bracket" "p.M(N)(9[])";
+  assert_idempotent "and spelled the other way" "p.M N (9 [])"
+
 (* ── The constructs that used to be copied verbatim ──────────────────────── *)
 
 (* $(), $?(), try, contracts, handle and regex literals were re-emitted as
@@ -1356,6 +1383,10 @@ let () =
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
       Alcotest.test_case "separator not written twice" `Quick
         test_a_separator_is_not_written_twice;
+      Alcotest.test_case "separator not written onto a trailing comment" `Quick
+        test_a_separator_is_not_written_onto_a_trailing_comment;
+      Alcotest.test_case "qualified head hides no constructor" `Quick
+        test_a_qualified_head_does_not_hide_a_constructor;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;
