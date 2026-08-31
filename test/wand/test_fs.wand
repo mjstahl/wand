@@ -103,7 +103,8 @@ test "glob ** recurses into subdirectories" (fn t ->
   let entries = FS.glob_in ** (Path.of_string base) in
   let strip p =
     let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s
-  in let names = List.sort (List.map strip entries) in
+  in
+  let names = List.sort (List.map strip entries) in
   let () = FS.delete! (Path.of_string "%{base}/a.txt") in
   let () = FS.delete! (Path.of_string "%{base}/sub/b.txt") in
   let () = FS.delete! (Path.of_string "%{base}/sub/plain") in

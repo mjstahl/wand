@@ -1,57 +1,62 @@
-## 0.55.3 - 2026-08-30
+## 0.55.4 - 2026-08-31
 
-Two `wand f` fixes, both found by the daily fuzzer. `wand f` writes in place,
-so each one changed a file it was asked to tidy.
+One `wand f` fix, found by the daily fuzzer. `wand f` writes in place, so it
+changed a file it was asked to tidy.
 
-### A comment survives a separator written above it
+### An `and` group stays under the `let` it belongs to
 
-An item that opens with an operator continues the item above it, so `wand f`
-writes back the `;` that separated the two. A comment runs to the end of its
-line and swallows whatever follows it, so where that line ended in a comment
-the `;` landed inside it:
+A binding's value runs onto the next line only where that line is indented
+past its `let`. That is what lets a file be read the way it looks: a line
+level with the keyword, or left of it, is the next thing rather than more of
+this one.
 
-```
-e--
--"";--     -->  -"";--;
--
---
-let h=t
-```
-
-The comment's own text changed, which is the one thing `wand f` promises not
-to do. 0.55.2 stopped that `;` growing once per pass; it is now not written
-at all, because a comment ends the line it is on and the operator below it is
-not continuing anything.
-
-### A constructor behind a module's name is guarded
-
-A constructor takes the bracket written after it, so `wand f` brackets an
-argument that would otherwise take one belonging to the call. That guard
-reads the flattened application spine, and the spine stopped at a module's
-name.
-
-`p.M N` and `p.M(N)` are the same program built two ways. Only the first
-reached the guard as a head and an argument; in the second the constructor
-sat inside the head, where nothing guarded it:
+A function binding writes its `in` on a line of its own and opened what
+follows on that same line, so a `let ... and ...` group written there started
+three columns right of the `in`. The group laid its own continuation out at
+the `in`'s indent instead. A value that wrapped, and the `and` line under it,
+landed left of the `let` they belong to:
 
 ```
-$ cat m.wand
-let x = p.M(N)(9 [])
+$ cat r.wand
+let describe t = t
+in
+let render row = String.join " | " (List.map describe (List.append row.header row.cells)) (List.length row.header)
+and width n = n
+in ()
 
-$ wand f m.wand
-$ cat m.wand
-let x = p.M N (9 [])
+$ wand f r.wand
+$ cat r.wand
+let describe t = t
+in let render row = String.join
+  " | "
+  (List.map describe (List.append row.header row.cells))
+  (List.length row.header)
+and width n = n
+in ()
+
+$ wand f r.wand
+Error: r.wand: parse error: 6:1: unexpected token: and
 ```
 
-`N` now takes the bracket, so the call has one argument where it had two.
-Both spellings reach the guard as one head and two arguments now, and each
-piece that could take a bracket it does not own is given its own:
+A chain of more than one line now takes the whole line, which is what a value
+binding's `in` already did:
 
 ```
-$ wand f m.wand
-$ cat m.wand
-let x = (p.M) (N) (9 [])
+$ wand f r.wand
+$ cat r.wand
+let describe t = t
+in
+let render row = String.join
+  " | "
+  (List.map describe (List.append row.header row.cells))
+  (List.length row.header)
+and width n = n
+in ()
 ```
 
-Both were present in 0.55.2 and earlier. Nothing else changed: the command
-line, the type checker and the lint rules are exactly 0.55.2's.
+The value has to wrap before the `and` moves out from under its `let`, so a
+group whose bindings each fit on a line was never touched. Two files in the
+test corpus move: an `in` that shared a line with a chain of more than one
+line now sits alone. The bug was present in 0.55.3 and earlier. Nothing else
+changed: the command line, the type checker and the lint rules are exactly
+0.55.3's.

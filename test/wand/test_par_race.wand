@@ -48,7 +48,8 @@ test "a cancelled loser releases" (fn t ->
   with FS.temp_dir "race_" as d ->
   let held = Path.join d (Path.of_string "held") in
   let spin n = if n == 0 then 0 else spin (n - 1)
-  in let holder =
+  in
+  let holder =
     Resource.make (fn () -> FS.write_file! held "yes") (fn _ -> FS.delete! held)
   in
   let loser = fn () -> with holder as _ -> spin 400000000 in
@@ -103,6 +104,7 @@ test "work stopped by a deadline releases" (fn t ->
   with FS.temp_dir "timeout_" as d ->
   let held = Path.join d (Path.of_string "held") in
   let spin n = if n == 0 then 0 else spin (n - 1)
-  in let holder = Resource.make (fn () -> FS.write_file! held "y") (fn _ -> FS.delete! held) in
+  in
+  let holder = Resource.make (fn () -> FS.write_file! held "y") (fn _ -> FS.delete! held) in
   let _ = Par.timeout 200ms (fn () -> with holder as _ -> spin 900000000) in
   t.eq false (FS.exists? held))

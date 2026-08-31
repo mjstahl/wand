@@ -1575,24 +1575,24 @@ and emit_let ?col indent p e1 e2 =
        the group from the keyword's own column, so the block reads as one
        shape rather than a stack of unrelated lines. *)
     let ind = String.make indent ' ' in
-    (* `in ` opens the tail three columns right of the keyword below it, and
+    let tail = bracket_if_wrapped_app e2 (emit_expr indent e2) in
+    (* `in ` opens the tail three columns right of the keyword below it, but
        a `let ... in` chain lays its own continuation out at the indent it
-       is handed. Handed `indent`, a value that wrapped and an `and` line
-       both landed left of the `let` they belong to, where the parser reads
-       them as something new -- so the formatter turned a working file into
-       one that does not parse. The commented form writes `in` alone and its
-       tail starts at `indent` already. Found by test/fuzz. *)
-    let tail_indent =
-      if commented then indent
-      else match strip_located e2 with
-        | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> indent + 3
-        | _ -> indent
-    in
-    let tail =
-      bracket_if_wrapped_app e2 (emit_expr ~col:tail_indent tail_indent e2)
+       was handed. So a value that wrapped, and the `and` line under it,
+       landed left of the `let` they belong to, where the parser reads them
+       as something new and the file no longer parses. A chain of more than
+       one line takes the whole line, as it does after a value binding's
+       `in` and after a commented one. Found by test/fuzz. *)
+    let tail_on_its_own_line =
+      String.contains tail '\n'
+      && (match strip_located e2 with
+          | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> true
+          | _ -> false)
     in
     emit_fn_clauses ~col indent p params fbody
-    ^ "\n" ^ ind ^ (if commented then "in\n" ^ above ^ ind ^ tail else "in " ^ tail)
+    ^ "\n" ^ ind
+    ^ (if commented || tail_on_its_own_line then "in\n" ^ above ^ ind ^ tail
+       else "in " ^ tail)
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
        be genuinely ambiguous: the parser's infix `:` in expression position

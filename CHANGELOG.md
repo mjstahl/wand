@@ -1,16 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [0.55.4] - 2026-08-31
 
 ### Fixed
 
 - **`wand f` keeps an `and` group under the `let` it belongs to.** A
   binding's value runs onto the next line only where that line is indented
-  past its `let`. Written after `in `, the group starts three columns right
-  of the keyword above it, but it laid its continuation out at that
-  keyword's indent -- so a value that wrapped, and the `and` line under it,
-  landed left of their own `let` and read as something new. A group written
-  after an `in` came back as source that would not parse
+  past its `let`. Written after `in `, a `let ... and ...` group starts
+  three columns right of the keyword above it, but it laid its own
+  continuation out at that keyword's indent -- so a value that wrapped, and
+  the `and` line under it, landed left of their own `let`, where the parser
+  reads them as something new. A `let ... in` chain of more than one line
+  takes the whole line now, as it already did after a value binding's `in`
 
 ## [0.55.3] - 2026-08-30
 
