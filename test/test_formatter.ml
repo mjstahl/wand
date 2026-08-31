@@ -116,6 +116,21 @@ let test_local_clauses_inside_a_call_parse () =
          "  let count log = 2";
          "  in t.eq 0 count)"; "" ])
 
+(* `in let f ... and g ... in e`. The `in ` opens the group three columns
+   right of the keyword above it, but the group laid its own continuation
+   out at that keyword's indent -- so a value that wrapped, and the `and`
+   line under it, both landed left of the `let` they belong to, where the
+   parser reads them as something new. Found by test/fuzz. *)
+let test_an_and_group_after_in_stays_under_its_let () =
+  formats_and_parses "and group after in" 40
+    (String.concat "\n"
+       [ "let g = h (fn ->";
+         "  let d t = t";
+         "  in";
+         "  let e () = println \"hello there this is a fairly long one\"";
+         "  and s n = n";
+         "  in ())"; "" ])
+
 (* `fn` binding nothing wrote two spaces before the arrow. *)
 let test_a_parameterless_fn_has_one_space () =
   let out = fmt "let f = fn -> ()\n" in
@@ -1340,6 +1355,8 @@ let () =
         test_an_armless_handle_settles;
       Alcotest.test_case "local clauses inside a call parse" `Quick
         test_local_clauses_inside_a_call_parse;
+      Alcotest.test_case "an and group after in stays under its let" `Quick
+        test_an_and_group_after_in_stays_under_its_let;
       Alcotest.test_case "parameterless fn spacing" `Quick
         test_a_parameterless_fn_has_one_space;
       Alcotest.test_case "a string is not a comment" `Quick
