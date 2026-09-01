@@ -131,6 +131,43 @@ let test_an_and_group_after_in_stays_under_its_let () =
          "  and s n = n";
          "  in ())"; "" ])
 
+(* A constructor facing a bracket that holds the whole of its argument needs
+   no bracket of its own, and `bracket_holds_all` answered that by scanning
+   characters -- knowing `"` and nothing else. A command literal holds both
+   quotes and brackets that mean neither, so `(e `")` read as an unclosed
+   string and `(e `)`)` as a bracket that closed early. Either way the
+   constructor took a bracket it did not need, which a qualified name spells
+   `t.(O)` -- and that does not parse at all. Found by test/fuzz. *)
+let test_a_command_literal_is_not_a_bracket () =
+  List.iter (fun src -> formats_and_parses "command in an argument" 92 src)
+    [ "let x = t.O (e `\"`)\n";
+      "let x = t.O (e `)`)\n";
+      "let x = O (e `\"`)\n" ];
+  (* And the brackets a constructor does need are still written: `O ()` is
+     the empty field list, not unit in brackets, and `O (d).n` is not
+     `(O d).n`. *)
+  let out = fmt "let x = O (d).n\n" in
+  if not (Lint.contains out "(O d).n") then
+    Alcotest.failf "a bracket that closes early still needs its own:\n%s" out
+
+(* A `|>` chain laid out a stage per line is read back as one
+   left-associative chain, so a stage that is itself an operator needs the
+   brackets `emit_binop` would have given it. `5 |> (f |> g)` came back as
+   `(5 |> f) |> g` -- a different program, and one whose reprint differed
+   again, which is how the fuzzer saw it. Found by test/fuzz. *)
+let test_a_nested_pipeline_keeps_its_brackets () =
+  let src = "let y = 5 |> (fxxxxxxxxxxxxxx |> gggggggggggggg)\n" in
+  formats_and_parses "nested pipeline" 27 src;
+  let out = Formatter.with_width 27 (fun () -> fmt src) in
+  if not (Lint.contains out "|> (fxxxxxxxxxxxxxx") then
+    Alcotest.failf "the nested pipeline lost its brackets:\n%s" out;
+  (* A stage whose operator binds tighter than `|>` needs none, and must not
+     gain any. *)
+  let plain = "let y = 5 |> fxxxxxxxxxxxxxx |> gggggggggggggg\n" in
+  let out = Formatter.with_width 27 (fun () -> fmt plain) in
+  if Lint.contains out "|> (" then
+    Alcotest.failf "an ordinary pipeline gained brackets:\n%s" out
+
 (* `fn` binding nothing wrote two spaces before the arrow. *)
 let test_a_parameterless_fn_has_one_space () =
   let out = fmt "let f = fn -> ()\n" in
@@ -1357,6 +1394,10 @@ let () =
         test_local_clauses_inside_a_call_parse;
       Alcotest.test_case "an and group after in stays under its let" `Quick
         test_an_and_group_after_in_stays_under_its_let;
+      Alcotest.test_case "a command literal is not a bracket" `Quick
+        test_a_command_literal_is_not_a_bracket;
+      Alcotest.test_case "a nested pipeline keeps its brackets" `Quick
+        test_a_nested_pipeline_keeps_its_brackets;
       Alcotest.test_case "parameterless fn spacing" `Quick
         test_a_parameterless_fn_has_one_space;
       Alcotest.test_case "a string is not a comment" `Quick

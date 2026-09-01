@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **A command literal is not a bracket.** A constructor takes the bracket
+  written after it, so `wand f` brackets one whose argument's bracket does
+  not hold the whole of it. That question was answered by scanning
+  characters, and the scan knew `"` and nothing else -- a command holds both
+  quotes and brackets that mean neither, so ``(e `"`)`` read as an unclosed
+  string and ``(e `)`)`` as a bracket that closed early. The constructor
+  then took a bracket it did not need: harmless as ``(O) (e `"`)``, and
+  unparseable as ``t.(O) (e `"`)``, which is what a qualified name makes of
+  it. The rendering is lexed now
+- **A nested pipeline keeps its brackets.** A `|>` chain too wide for one
+  line breaks into a stage per line, and is read back as one
+  left-associative chain -- so a stage that is itself an operator needs the
+  brackets `emit_binop` would have given it and was not getting them.
+  `5 |> (f |> g)` came back as `(5 |> f) |> g`, a different program, and the
+  reprint of that differed again
+
 ## [0.55.4] - 2026-08-31
 
 ### Fixed

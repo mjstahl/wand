@@ -625,20 +625,39 @@ let rec absorbs_a_bracket e =
    payload: `O (d).n` reads as `(O d).n`, a different program, and one that
    still typechecks. Found by test/fuzz, under three signatures. *)
 let bracket_holds_all s =
-  let n = String.length s in
-  n > 2 && s.[0] = '('
-  && (let rec go i depth in_string =
-        if i >= n then false
-        else
-          match s.[i] with
-          | '\\' when in_string -> go (i + 2) depth in_string
-          | '"' -> go (i + 1) depth (not in_string)
-          | ('(' | '[' | '{') when not in_string -> go (i + 1) (depth + 1) in_string
-          | (')' | ']' | '}') when not in_string ->
-            if depth <= 1 then i = n - 1 else go (i + 1) (depth - 1) in_string
-          | _ -> go (i + 1) depth in_string
-      in
-      go 0 0 false)
+  (* Asked of the tokens, not of the characters. A hand-rolled scan has to
+     know every form that can hold a bracket or a quote without meaning one,
+     and it knew about `"` alone: a `"` inside a command opened a string that
+     never closed, and a `)` inside one closed the bracket early. Either way
+     the answer came back "no" for a bracket that does hold everything, and
+     the constructor before it took a bracket it did not need -- harmless as
+     `(O) (e `)`)`, and unparseable as `t.(O) (e `)`)`, which is what a
+     qualified name makes of it. The lexer already knows the forms. Found by
+     test/fuzz.
+
+     A rendering that does not lex is not one this can answer for, so it
+     answers no, which is the side that only ever adds a bracket. *)
+  match Lexer.tokenize s with
+  | exception _ -> false
+  | (Token.LParen, _) :: rest ->
+    let rec go depth = function
+      | [] | [(Token.EOF, _)] -> false
+      | (t, _) :: tl ->
+        (match t with
+         | Token.LParen | Token.LBracket | Token.LBrace -> go (depth + 1) tl
+         | Token.RParen | Token.RBracket | Token.RBrace ->
+           if depth > 0 then go (depth - 1) tl
+           (* The opener closes here. It holds everything exactly when
+              nothing but the end of the string follows. *)
+           else (match tl with [] | [(Token.EOF, _)] -> true | _ -> false)
+         | _ -> go depth tl)
+    in
+    (* `()` is the empty field list rather than unit in brackets, so the
+       brackets have to hold something. *)
+    (match rest with
+     | (Token.RParen, _) :: _ -> false
+     | _ -> go 0 rest)
+  | _ -> false
 
 (* Absorption at the head of a spine is harmless while the name is bare:
    `S (x)` and `S x` both build `App (S, x)`, so there is nothing to guard
@@ -1324,19 +1343,34 @@ and emit_pipeline indent a b =
     | other -> [other]
   in
   let all = stages (BinOp ("|>", a, b)) in
-  let piece e =
+  let piece side e =
     match strip_located e with
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
       | Let _ | LetRec _ | With _) as inner -> bracket (emit_expr indent inner)
+    (* A stage that is an operator of its own keeps the brackets `emit_binop`
+       would have given it, and did not: the stages are read back as one
+       left-associative chain, so an operator on the right of a `|>` needs
+       them unless its precedence clears `|>`'s outright. `5 |> (f |> g)`,
+       laid out a stage per line, came back as `(5 |> f) |> g` -- a different
+       program, and the reprint of that was different again, which is how the
+       fuzzer saw it. Found by test/fuzz. *)
+    | BinOp (op2, _, _) as inner ->
+      let prec = bin_prec "|>" and cp = bin_prec op2 in
+      let rendered = emit_expr (indent + 2) inner in
+      if cp > prec || (cp = prec && side = `Left)
+      then bracket_if_wrapped_app e rendered
+      else bracket rendered
     (* A stage that wrapped ends at its first line; the `|>` leading the
        next stage says nothing about the argument left below this one. *)
     | _ -> bracket_if_wrapped_app e (emit_expr (indent + 2) e)
   in
-  match List.map piece all with
+  match all with
   | [] -> ""
   | first :: rest ->
     let inner = String.make (indent + 2) ' ' in
-    first ^ String.concat "" (List.map (fun s -> "\n" ^ inner ^ "|> " ^ s) rest)
+    piece `Left first
+    ^ String.concat ""
+        (List.map (fun e -> "\n" ^ inner ^ "|> " ^ piece `Right e) rest)
 
 and emit_binop ?col indent op a b =
   let col = match col with Some c -> c | None -> indent in
