@@ -43,7 +43,7 @@ jobs:
       matrix:
         runs-on: [ubuntu-latest, macos-15]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install the published release, and run it
         run: |

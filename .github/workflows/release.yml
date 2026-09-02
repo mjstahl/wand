@@ -40,7 +40,7 @@ jobs:
             static: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The Linux binaries are built inside Alpine and linked statically
       # against musl, so they run wherever they are copied. The image is
@@ -172,7 +172,7 @@ jobs:
           (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
           ls -la dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: ${{ matrix.target }}
@@ -186,9 +186,9 @@ jobs:
     # Downloads artifacts and attaches them; minutes of real work.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true

@@ -13,7 +13,7 @@ jobs:
     # and setup-ocaml has hung indefinitely (2026-08-19).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: ocaml/setup-ocaml@v3
         with:
@@ -104,7 +104,7 @@ jobs:
       # in that repository runs against an unreleased wand, so a change here
       # could break it and nobody would know until the next release. Run it
       # against this build.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: mjstahl/setup-wand
           path: .setup-wand
@@ -139,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: The published install script installs the latest release
         run: |
