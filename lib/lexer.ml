@@ -352,6 +352,58 @@ let read_path_body s prefix =
 
 (* ── URLs ───────────────────────────────────────────────────────────────── *)
 
+(* The characters a URL may hold, from RFC 3986: unreserved, the gen-delims
+   and sub-delims that separate its parts, and `%` for an escape. Everything
+   else -- a space, a control character, a quote, a backtick, and the
+   brackets and slashes RFC 3986 lists as unwise -- has to be percent-encoded
+   to appear in one, so a URL holding it raw is malformed and saying so is
+   better than carrying it.
+
+   Note `,` and `;` are on this list. They are legal in a URL and illegal in
+   a URL *literal*, which is not a contradiction: `read_url` stops at them
+   because they are the punctuation of the expression the literal sits in,
+   and that is a rule about writing one down. `String.to_url` is the way to
+   spell the ones the literal cannot, and it is the reason this predicate is
+   separate from the scanner that ends the token. *)
+let is_url_char c =
+  is_alpha c || is_digit c
+  || (match c with
+      | '-' | '.' | '_' | '~'                                (* unreserved *)
+      | ':' | '/' | '?' | '#' | '[' | ']' | '@'              (* gen-delims *)
+      | '!' | '$' | '&' | '\'' | '(' | ')'
+      | '*' | '+' | ',' | ';' | '='                          (* sub-delims *)
+      | '%' -> true                                          (* escape *)
+      | _ -> false)
+
+(* Whether text is a URL, and why not when it is not. The one place that
+   decides, so a literal, `String.to_url` and `Decode.url` cannot disagree
+   about the same text -- the same reason `read_port` holds the port range.
+
+   `String.to_url` used to decide by handing the string back to the lexer and
+   asking whether it came out as a single URL token. That made the literal's
+   punctuation rule into a rule about URLs themselves: `https://x/a?b=1,2` is
+   a perfectly good URL, and there was no way to build one, because the
+   literal stops at the `,` and the string went through the same scanner. It
+   also answered a lexer's complaint rather than its own -- `ftp://x` came
+   back "a comment is '-- ...' to the end of the line, not '//'". *)
+let url_error text =
+  let scheme_len =
+    if String.length text >= 7 && String.sub text 0 7 = "http://" then 7
+    else if String.length text >= 8 && String.sub text 0 8 = "https://" then 8
+    else 0
+  in
+  if scheme_len = 0 then
+    Some "a URL begins with http:// or https://"
+  else
+    let rec bad i =
+      if i >= String.length text then None
+      else if is_url_char text.[i] then bad (i + 1)
+      else Some (Printf.sprintf
+        "%C cannot appear in a URL: percent-encode it, or hold the text as a String"
+        text.[i])
+    in
+    bad scheme_len
+
 let read_url s scheme =
   (* s.pos is at ':' of "://" — consume all three *)
   ignore (advance s); ignore (advance s); ignore (advance s);
@@ -369,7 +421,14 @@ let read_url s scheme =
      && not (List.mem (peek s) [' '; '\t'; '\n'; '\r'; ')'; ']'; '}'; ','; ';']) do
     Buffer.add_char buf (advance s)
   done;
-  URL (Buffer.contents buf)
+  let text = Buffer.contents buf in
+  (* Checked here as well as in `String.to_url`, so the literal is not the
+     more permissive of the two. A literal cannot hold a space -- the loop
+     above ends at one -- but it can reach `|` and `^`, and a value the
+     checked constructor rejects should not be writable straight into the
+     source. *)
+  (match url_error text with Some why -> raise (Fail why) | None -> ());
+  URL text
 
 (* ── Size units ─────────────────────────────────────────────────────────── *)
 

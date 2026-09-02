@@ -2219,6 +2219,260 @@ let to_domain ?shown name build s =
   | Error (Some why) -> VConstr (Ctor.Builtin "Error", [VString why])
   | Error None -> cannot ()
 
+(* ── URL parts ───────────────────────────────────────────────────────────── *)
+
+(* The pieces of a URL, found once and shared by the accessors. Held as text
+   in the spellings the URL itself used, so rebuilding one that was not
+   changed gives the same string back. *)
+type url_authority = { au_userinfo : string option; au_host : string; au_port : int option }
+
+type url_parts = {
+  up_scheme    : string;
+  up_authority : string;
+  up_path      : string;
+  up_query     : string;
+  up_fragment  : string option;
+}
+
+let url_split_scheme u =
+  match String.index_opt u ':' with
+  | Some i when i + 2 < String.length u && u.[i+1] = '/' && u.[i+2] = '/' ->
+    (String.sub u 0 i, String.sub u (i + 3) (String.length u - i - 3))
+  (* Unreachable for a value that passed `Lexer.url_error`, which requires the
+     scheme. Kept total rather than raising: an accessor that can fail on a
+     value the type says is fine is worse than one that answers "". *)
+  | _ -> ("", u)
+
+(* The first `#` ends the query and the first `?` ends the path, so they are
+   taken off from the right-hand end inward. A `?` after a `#` is part of the
+   fragment, and this order is what gives that. *)
+let url_parts u =
+  let scheme, rest = url_split_scheme u in
+  let rest, fragment =
+    match String.index_opt rest '#' with
+    | Some i ->
+      (String.sub rest 0 i,
+       Some (String.sub rest (i + 1) (String.length rest - i - 1)))
+    | None -> (rest, None)
+  in
+  let rest, query =
+    match String.index_opt rest '?' with
+    | Some i ->
+      (String.sub rest 0 i, String.sub rest (i + 1) (String.length rest - i - 1))
+    | None -> (rest, "")
+  in
+  let authority, path =
+    match String.index_opt rest '/' with
+    | Some i -> (String.sub rest 0 i, String.sub rest i (String.length rest - i))
+    | None -> (rest, "")
+  in
+  { up_scheme = scheme; up_authority = authority; up_path = path;
+    up_query = query; up_fragment = fragment }
+
+(* Userinfo is split at the *last* `@`, because a password may hold one. The
+   port is split at the last `:` only when what follows is all digits: an
+   IPv6 literal is full of colons, and `[::1]:8080` has to keep them. *)
+let url_authority_of text =
+  let userinfo, hostport =
+    match String.rindex_opt text '@' with
+    | Some i ->
+      (Some (String.sub text 0 i),
+       String.sub text (i + 1) (String.length text - i - 1))
+    | None -> (None, text)
+  in
+  let host_end =
+    match String.rindex_opt hostport ']' with
+    | Some i -> i + 1                       (* an IPv6 literal: past the bracket *)
+    | None -> 0
+  in
+  let all_digits s =
+    s <> "" && String.for_all (fun c -> c >= '0' && c <= '9') s
+  in
+  match String.index_from_opt hostport host_end ':' with
+  | Some i ->
+    let after = String.sub hostport (i + 1) (String.length hostport - i - 1) in
+    if all_digits after then
+      match int_of_string_opt after with
+      | Some n when n >= 0 && n <= 65535 ->
+        { au_userinfo = userinfo; au_host = String.sub hostport 0 i; au_port = Some n }
+      (* Digits that are not a port. The text is not one, so it stays part of
+         the host rather than being reported as a port that is out of range --
+         nothing here is entitled to reject a URL that already exists. *)
+      | _ -> { au_userinfo = userinfo; au_host = hostport; au_port = None }
+    else { au_userinfo = userinfo; au_host = hostport; au_port = None }
+  | None -> { au_userinfo = userinfo; au_host = hostport; au_port = None }
+
+let url_authority u = url_authority_of (url_parts u).up_authority
+
+let url_rebuild p =
+  p.up_scheme ^ "://" ^ p.up_authority ^ p.up_path
+  ^ (if p.up_query = "" then "" else "?" ^ p.up_query)
+  ^ (match p.up_fragment with None -> "" | Some f -> "#" ^ f)
+
+(* ── Percent-encoding ────────────────────────────────────────────────────── *)
+
+let url_unreserved c =
+  (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+  || c = '-' || c = '.' || c = '_' || c = '~'
+
+let url_encode_text s =
+  let buf = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      if url_unreserved c then Buffer.add_char buf c
+      else Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c)))
+    s;
+  Buffer.contents buf
+
+let url_hex_value c =
+  if c >= '0' && c <= '9' then Some (Char.code c - Char.code '0')
+  else if c >= 'a' && c <= 'f' then Some (Char.code c - Char.code 'a' + 10)
+  else if c >= 'A' && c <= 'F' then Some (Char.code c - Char.code 'A' + 10)
+  else None
+
+(* Decoding for the accessors, which cannot fail: they read a URL that
+   exists, and text that is not a well-formed escape is text. `%zz` in a
+   query value comes back as `%zz` rather than sinking the whole read.
+   `URL.decode` is the checked one, for input a caller believes is encoded. *)
+let url_decode_text ~plus s =
+  let buf = Buffer.create (String.length s) in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n do
+    (match s.[!i] with
+     | '%' when !i + 2 < n ->
+       (match url_hex_value s.[!i + 1], url_hex_value s.[!i + 2] with
+        | Some hi, Some lo -> Buffer.add_char buf (Char.chr (hi * 16 + lo)); i := !i + 2
+        | _ -> Buffer.add_char buf '%')
+     | '+' when plus -> Buffer.add_char buf ' '
+     | c -> Buffer.add_char buf c);
+    incr i
+  done;
+  Buffer.contents buf
+
+let url_decode_checked s =
+  let n = String.length s in
+  let rec check i =
+    if i >= n then Ok (url_decode_text ~plus:false s)
+    else if s.[i] <> '%' then check (i + 1)
+    else if i + 2 >= n then
+      Error (Printf.sprintf "%S ends inside a percent-escape" s)
+    else
+      match url_hex_value s.[i + 1], url_hex_value s.[i + 2] with
+      | Some _, Some _ -> check (i + 3)
+      | _ ->
+        Error (Printf.sprintf "%S is not a percent-escape: %%%c%c is not two hex digits"
+                 s s.[i + 1] s.[i + 2])
+  in
+  check 0
+
+(* `&` separates pairs and the first `=` splits one. A pair with no `=` has
+   the empty string for its value -- `?debug` is a query that says so -- and
+   an empty pair, from `?a=1&&b=2`, is dropped rather than becoming a key of
+   "". *)
+let url_query_pairs u =
+  (url_parts u).up_query
+  |> String.split_on_char '&'
+  |> List.filter (fun pair -> pair <> "")
+  |> List.map (fun pair ->
+       let k, v =
+         match String.index_opt pair '=' with
+         | Some i ->
+           (String.sub pair 0 i,
+            String.sub pair (i + 1) (String.length pair - i - 1))
+         | None -> (pair, "")
+       in
+       (url_decode_text ~plus:true k, VString (url_decode_text ~plus:true v)))
+
+(* ── Resolving a reference ───────────────────────────────────────────────── *)
+
+(* RFC 3986 section 5.2.4: `.` and `..` are removed by walking the segments,
+   so `/a/b/../c` is `/a/c` and a `..` that would climb past the root is
+   dropped rather than escaping the authority. *)
+let url_remove_dot_segments path =
+  let trailing_slash =
+    String.length path > 0
+    && (let last = path.[String.length path - 1] in last = '/')
+  in
+  let segs = String.split_on_char '/' path in
+  let out =
+    List.fold_left
+      (fun acc seg ->
+        match seg with
+        | "" | "." -> acc
+        | ".." -> (match acc with [] -> [] | _ :: rest -> rest)
+        | s -> s :: acc)
+      [] segs
+  in
+  let body = String.concat "/" (List.rev out) in
+  let ends_dotty =
+    match List.rev segs with "." :: _ | ".." :: _ -> true | _ -> false
+  in
+  "/" ^ body ^ (if (trailing_slash || ends_dotty) && body <> "" then "/" else "")
+
+let url_resolve base reference =
+  let b = url_parts base in
+  let merge rel =
+    (* The base's directory, which is everything up to its last `/`. A base
+       with no path at all has `/` for one. *)
+    let dir =
+      match String.rindex_opt b.up_path '/' with
+      | Some i -> String.sub b.up_path 0 (i + 1)
+      | None -> "/"
+    in
+    url_remove_dot_segments (dir ^ rel)
+  in
+  let split_query_fragment rest =
+    let rest, frag =
+      match String.index_opt rest '#' with
+      | Some i ->
+        (String.sub rest 0 i, Some (String.sub rest (i + 1) (String.length rest - i - 1)))
+      | None -> (rest, None)
+    in
+    let path, query =
+      match String.index_opt rest '?' with
+      | Some i ->
+        (String.sub rest 0 i, String.sub rest (i + 1) (String.length rest - i - 1))
+      | None -> (rest, "")
+    in
+    (path, query, frag)
+  in
+  let starts p = String.length reference >= String.length p
+                 && String.sub reference 0 (String.length p) = p in
+  if reference = "" then Ok base
+  (* An absolute reference is a URL in its own right and is checked as one,
+     so `URL.join` cannot produce something `String.to_url` would refuse. *)
+  else if starts "http://" || starts "https://" then
+    (match Lexer.url_error reference with
+     | None -> Ok reference
+     | Some why -> Error (Printf.sprintf "cannot join %S: %s" reference why))
+  else if starts "//" then
+    let rest = String.sub reference 2 (String.length reference - 2) in
+    let authority, tail =
+      match String.index_opt rest '/' with
+      | Some i -> (String.sub rest 0 i, String.sub rest i (String.length rest - i))
+      | None -> (rest, "")
+    in
+    let path, query, frag = split_query_fragment tail in
+    Ok (url_rebuild { b with up_authority = authority;
+                             up_path = url_remove_dot_segments path;
+                             up_query = query; up_fragment = frag })
+  else if starts "#" then
+    Ok (url_rebuild
+          { b with up_fragment = Some (String.sub reference 1 (String.length reference - 1)) })
+  else if starts "?" then
+    let query, frag = match String.index_opt reference '#' with
+      | Some i ->
+        (String.sub reference 1 (i - 1),
+         Some (String.sub reference (i + 1) (String.length reference - i - 1)))
+      | None -> (String.sub reference 1 (String.length reference - 1), None)
+    in
+    Ok (url_rebuild { b with up_query = query; up_fragment = frag })
+  else
+    let path, query, frag = split_query_fragment reference in
+    let path = if starts "/" then url_remove_dot_segments path else merge path in
+    Ok (url_rebuild { b with up_path = path; up_query = query; up_fragment = frag })
+
 (* A port is `:8080` in wand's own notation; a document or an environment
    variable holds the bare number. Adding the colon is how the second is read
    as the first. *)
@@ -2854,8 +3108,18 @@ let stdlib_eval_env : env = [
   ("str_to_path", VBuiltin (function
     | VString s -> VPath s
     | _ -> raise (EvalError "str_to_path: expected String")));
+  (* Checked against the URL grammar rather than by re-lexing. The lexer ends
+     a URL literal at `,` and `;` because they are the punctuation around it,
+     and routing this through the scanner made that writing rule into a rule
+     about URLs: `https://x/a?b=1,2` is a legal URL that no expression could
+     produce. `Lexer.url_error` is what the literal is checked against too. *)
   ("str_to_url", VBuiltin (function
-    | VString s -> to_domain "URL" (function Token.URL v -> Some (VURL v) | _ -> None) s
+    | VString s ->
+      let text = String.trim s in
+      (match Lexer.url_error text with
+       | None -> VConstr (Ctor.Builtin "Ok", [VURL text])
+       | Some why -> VConstr (Ctor.Builtin "Error", [VString
+           (Printf.sprintf "cannot parse %S as URL: %s" s why)]))
     | _ -> raise (EvalError "str_to_url: expected String")));
   ("str_to_ipv4", VBuiltin (function
     | VString s -> to_domain "IPv4" (function Token.IPv4 v -> Some (VIPv4 v) | _ -> None) s
@@ -2891,6 +3155,125 @@ let stdlib_eval_env : env = [
   ("str_to_size", VBuiltin (function
     | VString s -> to_domain "Size" (function Token.Size v -> Some (VSize v) | _ -> None) s
     | _ -> raise (EvalError "str_to_size: expected String")));
+  (* ── Taking a URL apart ─────────────────────────────────────────────── *)
+
+  (* One parse, read by every accessor. A URL is
+     `scheme://[userinfo@]host[:port][/path][?query][#fragment]`, and the
+     boundaries are found in RFC 3986's order: the authority ends at the
+     first `/`, `?` or `#`, the path at the first `?` or `#`, the query at
+     the `#`. Doing it in that order is what keeps a `?` inside a fragment,
+     or a `/` inside a query, from being read as the start of something.
+
+     The value is already known to be a URL -- `Lexer.url_error` passed
+     before it could be built -- so this does not validate, and every
+     accessor is total. A part that is absent is "" or None, not an error:
+     `https://x` has no port and no fragment, and that is ordinary. *)
+  ("url_scheme", VBuiltin (function
+    | VURL u -> VString (fst (url_split_scheme u))
+    | _ -> raise (EvalError "url_scheme: expected URL")));
+  ("url_host", VBuiltin (function
+    | VURL u -> VString (let a = url_authority u in a.au_host)
+    | _ -> raise (EvalError "url_host: expected URL")));
+  (* An Option rather than a default, because the default depends on the
+     scheme and this module is not the place that knows it: 443 is right for
+     https and wrong for http, and a caller passing the port to something
+     else needs to know whether the URL said one at all. *)
+  ("url_port", VBuiltin (function
+    | VURL u ->
+      (match (url_authority u).au_port with
+       | Some n -> VConstr (Ctor.Builtin "Some", [VPort n])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "url_port: expected URL")));
+  (* A Path, so it composes with the module that already knows about
+     segments and extensions. `https://x` has no path and answers `/`, which
+     is what it addresses. *)
+  ("url_path", VBuiltin (function
+    | VURL u ->
+      let p = (url_parts u).up_path in
+      VPath (if p = "" then "/" else p)
+    | _ -> raise (EvalError "url_path: expected URL")));
+  (* The query as its pairs, percent-decoded. `+` reads as a space here and
+     nowhere else: a query string is form-encoded in practice, and a caller
+     asking for `q` wants what was typed rather than the wire spelling.
+     `URL.decode` is the one that leaves `+` alone.
+
+     A repeated key keeps its last value, which is what a Map can hold.
+     `URL.query_list` answers all of them in order. *)
+  ("url_query", VBuiltin (function
+    | VURL u -> VMap (map_of_pairs (url_query_pairs u))
+    | _ -> raise (EvalError "url_query: expected URL")));
+  ("url_query_list", VBuiltin (function
+    | VURL u ->
+      VList (List.map (fun (k, v) -> VTuple [VString k; v]) (url_query_pairs u))
+    | _ -> raise (EvalError "url_query_list: expected URL")));
+  ("url_fragment", VBuiltin (function
+    | VURL u ->
+      (match (url_parts u).up_fragment with
+       | Some f -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false f)])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "url_fragment: expected URL")));
+  ("url_to_str", VBuiltin (function
+    | VURL u -> VString u
+    | _ -> raise (EvalError "url_to_str: expected URL")));
+
+  (* ── Building one ───────────────────────────────────────────────────── *)
+
+  (* Replacing the query rather than adding to it, and encoding what it is
+     given. A caller holding a `Map String String` has the values as they
+     mean them; turning those into a query string is exactly where the
+     encoding has to happen, and doing it here is what stops a `&` in a
+     value from becoming a separator. *)
+  ("url_with_query", VBuiltin (function
+    | VMap kvs -> VBuiltin (function
+      | VURL u ->
+        let parts = url_parts u in
+        let q =
+          String.concat "&"
+            (List.map
+               (fun (k, v) ->
+                 let text =
+                   match v with
+                   | VString t -> t
+                   | _ -> raise (EvalError "url_with_query: expected Map String String")
+                 in
+                 url_encode_text k ^ "=" ^ url_encode_text text)
+               kvs)
+        in
+        VURL (url_rebuild { parts with up_query = q })
+      | _ -> raise (EvalError "url_with_query: expected URL"))
+    | _ -> raise (EvalError "url_with_query: expected Map")));
+
+  (* Resolving a reference against a base, RFC 3986 section 5. An absolute
+     reference replaces the base outright, `//host/x` keeps only the scheme,
+     `/x` keeps the authority, `?q` and `#f` keep everything to their left,
+     and a relative path is merged against the base's directory and then has
+     its `.` and `..` removed. Concatenating strings gets every one of those
+     wrong, which is why this is here rather than in a script. *)
+  ("url_join", VBuiltin (function
+    | VString r -> VBuiltin (function
+      | VURL base ->
+        (match url_resolve base r with
+         | Ok u -> VConstr (Ctor.Builtin "Ok", [VURL u])
+         | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
+      | _ -> raise (EvalError "url_join: expected URL"))
+    | _ -> raise (EvalError "url_join: expected String")));
+
+  (* Percent-encoding, and its inverse. Everything outside RFC 3986's
+     unreserved set is encoded, so the result is safe as one path segment or
+     one query value -- `/` and `&` included, since a caller encoding a value
+     does not want it read as structure. *)
+  ("url_encode", VBuiltin (function
+    | VString s -> VString (url_encode_text s)
+    | _ -> raise (EvalError "url_encode: expected String")));
+  (* A Result: `%zz` is not an escape, and text that claims to be encoded and
+     is not is a caller's mistake rather than something to pass along. *)
+  ("url_decode", VBuiltin (function
+    | VString s ->
+      (match url_decode_checked s with
+       | Ok t -> VConstr (Ctor.Builtin "Ok", [VString t])
+       | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
+    | _ -> raise (EvalError "url_decode: expected String")));
+
   (* ── Taking an instant apart ────────────────────────────────────────── *)
 
   (* Every one of these reads the value's own digits through
@@ -4258,8 +4641,18 @@ let decode_builtins : env = [
     match j with `String s -> Ok (VPath s) | _ -> expected "Path" path j));
   ("decode_duration", VDecoder (decode_lexed "Duration"
     (function Token.Duration v -> Some (VDuration v) | _ -> None)));
-  ("decode_url", VDecoder (decode_lexed "URL"
-    (function Token.URL v -> Some (VURL v) | _ -> None)));
+  (* Not `decode_lexed`: see `str_to_url`. A decoder reads text the program
+     did not write, so the punctuation rule for literals has even less
+     business here -- a `,` in a query string is ordinary in a document and
+     used to fail the decode. *)
+  ("decode_url", VDecoder (fun j path ->
+    match j with
+    | `String s ->
+      let text = String.trim s in
+      (match Lexer.url_error text with
+       | None -> Ok (VURL text)
+       | Some why -> decode_error path (Printf.sprintf "expected URL, got %S: %s" s why))
+    | _ -> expected "URL" path j));
   ("decode_size", VDecoder (decode_lexed "Size"
     (function Token.Size v -> Some (VSize v) | _ -> None)));
   ("decode_version", VDecoder (decode_lexed "Version"
