@@ -95,7 +95,12 @@ let test_urls () =
   check "a semicolon ends it" "http://x; y"
     [URL "http://x"; Semicolon; Ident "y"];
   check "as a bracket does"   "(http://x)"
-    [LParen; URL "http://x"; RParen]
+    [LParen; URL "http://x"; RParen];
+  (* The literal is checked against the same grammar `String.to_url` uses, so
+     it cannot be the more permissive of the two. `|` is not a URL character
+     and has to be percent-encoded; it used to lex straight through, which
+     left a value the checked constructor would have refused. *)
+  refuses "an illegal character" "http://a|b" "cannot appear in a URL"
 
 (* ── IPv4 ───────────────────────────────────────────────────────────────── *)
 

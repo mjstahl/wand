@@ -10,7 +10,7 @@ let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
-    "DateTime"; "Result" ]
+    "DateTime"; "Result"; "URL" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -3428,6 +3428,20 @@ let stdlib_type_env : env = [
   ("size_to_bytes", generalize [] ((TSize @-> TInt)));
   ("size_of_bytes", generalize [] ((TInt @-> TSize)));
   ("size_format",   generalize [] ((TSize @-> TString)));
+  (* URL primitives. Every accessor is total: the value is a URL already, and
+     a part it does not have is "" or None rather than a failure. *)
+  ("url_scheme",     generalize [] ((TURL @-> TString)));
+  ("url_host",       generalize [] ((TURL @-> TString)));
+  ("url_port",       generalize [] ((TURL @-> TApp (TName "Option", TPort))));
+  ("url_path",       generalize [] ((TURL @-> TPath)));
+  ("url_query",      generalize [] ((TURL @-> TMap TString)));
+  ("url_query_list", generalize [] ((TURL @-> TList (TTuple [TString; TString]))));
+  ("url_fragment",   generalize [] ((TURL @-> TApp (TName "Option", TString))));
+  ("url_to_str",     generalize [] ((TURL @-> TString)));
+  ("url_with_query", generalize [] ((TMap TString @-> (TURL @-> TURL))));
+  ("url_join",       generalize [] ((TString @-> (TURL @-> TResult (TString, TURL)))));
+  ("url_encode",     generalize [] ((TString @-> TString)));
+  ("url_decode",     generalize [] ((TString @-> TResult (TString, TString))));
   (* Path primitives *)
   ("path_join",           generalize [] ((TPath @-> (TPath @-> TPath))));
   ("path_parent",         generalize [] ((TPath @-> TPath)));

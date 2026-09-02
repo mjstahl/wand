@@ -1,0 +1,233 @@
+import Decode
+import JSON
+import Map
+import Option
+import Path
+import String
+import URL
+
+let {test} = import Test
+
+-- ── the parts ──────────────────────────────────────────────────────────
+
+test "scheme, without the ://" (fn t ->
+  t.eq ("https", "http") (URL.scheme https://a.com, URL.scheme http://a.com))
+
+test "host, without the port" (fn t -> t.eq "a.com" (URL.host https://a.com:8080/x))
+
+test "host, without the userinfo" (fn t -> t.eq "a.com" (URL.host https://user:pw@a.com/x))
+
+-- A password may hold an `@`, so the split is at the last one. A host taken
+-- from the first would be the tail of the password.
+test "the userinfo is split at the last @" (fn t ->
+  t.eq "a.com" (URL.host https://user:p@ss@a.com/x))
+
+-- An IPv6 literal is another URL a literal cannot spell: `]` ends one, the
+-- same way `,` and `;` do. The brackets stay in the host -- they are how it
+-- is written in a URL -- and the port is still found after them, which is
+-- the whole reason the split looks for the last `:` past the `]`.
+test "an IPv6 host keeps its brackets, and its port is still found" (fn t ->
+  match URL.of_string "http://[::1]:8080/x" with
+  | Ok u -> t.eq ("[::1]", Some :8080) (URL.host u, URL.port u)
+  | Error _ -> t.ok false)
+
+test "a port when there is one" (fn t -> t.eq (Some :8080) (URL.port https://a.com:8080))
+test "and None when there is not" (fn t -> t.eq (None) (URL.port https://a.com/x))
+
+test "the path, as a Path" (fn t ->
+  t.eq (Path.of_string "/api/v2/users") (URL.path https://a.com/api/v2/users))
+
+-- A URL with no path addresses the root, which is what `/` names. Answering
+-- "" would make `Path.components` of it disagree with what was fetched.
+test "no path is /" (fn t -> t.eq (Path.of_string "/") (URL.path https://a.com))
+
+test "the path stops at the query" (fn t ->
+  t.eq (Path.of_string "/s") (URL.path https://a.com/s?q=1))
+
+test "a fragment when there is one" (fn t ->
+  t.eq (Some "install") (URL.fragment https://a.com/d#install))
+test "and None when there is not" (fn t -> t.eq (None) (URL.fragment https://a.com/d))
+
+-- `page#` names the top of the page and `page` does not, so the empty
+-- fragment is Some "" rather than None.
+test "an empty fragment is not a missing one" (fn t ->
+  t.eq (Some "") (URL.fragment https://a.com/d#))
+
+-- ── the query ──────────────────────────────────────────────────────────
+
+test "pairs, by key" (fn t ->
+  t.eq (Some "1", Some "2") (
+    Map.get "b" (URL.query https://a.com/a?b=1&c=2),
+    Map.get "c" (URL.query https://a.com/a?b=1&c=2)
+  ))
+
+test "values are percent-decoded" (fn t ->
+  t.eq (Some "two words") (Map.get "q" (URL.query https://a.com/s?q=two%20words)))
+
+-- A query string is form-encoded in practice, so `+` is a space. `decode`
+-- is the one that leaves it alone.
+test "and + reads as a space" (fn t ->
+  t.eq (Some "two words") (Map.get "q" (URL.query https://a.com/s?q=two+words)))
+
+test "keys are decoded too" (fn t ->
+  t.eq (Some "1") (Map.get "a b" (URL.query https://a.com/s?a%20b=1)))
+
+test "a key with no value is present, and empty" (fn t ->
+  t.eq (Some "") (Map.get "debug" (URL.query https://a.com/s?debug)))
+
+test "no query at all is an empty map" (fn t ->
+  t.eq (None) (Map.get "b" (URL.query https://a.com/a)))
+
+-- A `?` inside a fragment is not the start of a query: the fragment is cut
+-- off first, so there is nothing left for it to open.
+test "a ? after the # belongs to the fragment" (fn t ->
+  t.eq (None, Some "x?y=1") (
+    Map.get "y" (URL.query https://a.com/d#x?y=1),
+    URL.fragment https://a.com/d#x?y=1
+  ))
+
+test "a repeated key keeps the last value" (fn t ->
+  t.eq (Some "2") (Map.get "x" (URL.query https://a.com/a?x=1&x=2)))
+test "and query_list keeps both, in order" (fn t ->
+  t.eq [("x", "1"), ("x", "2")] (URL.query_list https://a.com/a?x=1&x=2))
+
+-- `?a=1&&b=2` has an empty pair in the middle. It is dropped rather than
+-- becoming a key of "".
+test "an empty pair is dropped" (fn t ->
+  t.eq [("a", "1"), ("b", "2")] (URL.query_list https://a.com/s?a=1&&b=2))
+
+-- ── building one ───────────────────────────────────────────────────────
+
+test "with_query replaces what was there" (fn t ->
+  t.eq (Some "1", None) (
+    Map.get "new" (URL.query (URL.with_query {new = "1"} https://a.com/s?old=2)),
+    Map.get "old" (URL.query (URL.with_query {new = "1"} https://a.com/s?old=2))
+  ))
+
+-- The value is encoded on the way in, so it comes back out whole rather
+-- than as two pairs.
+test "a & in a value stays in the value" (fn t ->
+  t.eq (Some "a&b") (Map.get "q" (URL.query (URL.with_query {q = "a&b"} https://a.com/s))))
+
+test "with_query keeps the fragment" (fn t ->
+  t.eq (Some "top") (URL.fragment (URL.with_query {q = "1"} https://a.com/s#top)))
+
+-- ── join ───────────────────────────────────────────────────────────────
+
+test "a relative path is merged against the directory" (fn t ->
+  t.eq (Ok https://a.com/api/v1/users) (URL.join "users" https://a.com/api/v1/orders))
+
+test "and .. climbs one" (fn t ->
+  t.eq (Ok https://a.com/api/v2/users) (URL.join "../v2/users" https://a.com/api/v1/orders))
+
+test "an absolute path keeps only the host" (fn t ->
+  t.eq (Ok https://a.com/health) (URL.join "/health" https://a.com/api/v1/orders))
+
+test "an absolute reference replaces everything" (fn t ->
+  t.eq (Ok https://b.com/x) (URL.join "https://b.com/x" https://a.com/api))
+
+test "// keeps only the scheme" (fn t ->
+  t.eq (Ok https://b.com/x) (URL.join "//b.com/x" https://a.com/api))
+
+test "a fragment keeps everything to its left" (fn t ->
+  t.eq (Ok https://a.com/doc#top) (URL.join "#top" https://a.com/doc))
+
+test "a query keeps the path" (fn t ->
+  t.eq (Ok https://a.com/s?q=1) (URL.join "?q=1" https://a.com/s?old=2))
+
+-- A `..` that would climb past the root is dropped. Letting it through
+-- would address something outside the host the base named.
+test ".. cannot climb past the root" (fn t ->
+  t.eq (Ok https://a.com/x) (URL.join "../../../x" https://a.com/a/b))
+
+test "an empty reference is the base" (fn t ->
+  t.eq (Ok https://a.com/a?b=1) (URL.join "" https://a.com/a?b=1))
+
+-- join answers a Result because an absolute reference is a URL, and the
+-- text handed in may not be one.
+test "an absolute reference is checked" (fn t ->
+  match URL.join "https://a.com/x y" https://a.com/api with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "cannot appear in a URL" e))
+
+-- ── encoding ───────────────────────────────────────────────────────────
+
+test "encode covers the structure characters" (fn t ->
+  t.eq ("two%20words", "a%2Fb%26c") (URL.encode "two words", URL.encode "a/b&c"))
+
+test "the unreserved set is left alone" (fn t -> t.eq "aZ0-._~" (URL.encode "aZ0-._~"))
+
+test "decode is its inverse" (fn t ->
+  t.eq (Ok "a/b&c ?") (URL.decode (URL.encode "a/b&c ?")))
+
+-- decode is the checked one: text that claims to be encoded and is not is
+-- a mistake worth reporting, not something to pass along.
+test "a truncated escape is an error" (fn t ->
+  match URL.decode "100%" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "ends inside a percent-escape" e))
+
+test "and so are two characters that are not hex" (fn t ->
+  match URL.decode "a%zzb" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "not two hex digits" e))
+
+-- The accessors read a URL that exists, so they cannot fail the way decode
+-- does: `%zz` in a query value is text.
+test "but a query value survives a bad escape" (fn t ->
+  t.eq (Some "%zz") (Map.get "q" (URL.query https://a.com/s?q=%zz)))
+
+-- ── the string form ────────────────────────────────────────────────────
+
+test "to_string is the characters themselves" (fn t ->
+  t.eq "https://a.com/a?b=1#c" (URL.to_string https://a.com/a?b=1#c))
+
+test "and round-trips through of_string" (fn t ->
+  t.eq (Ok https://a.com/a?b=1) (URL.of_string (URL.to_string https://a.com/a?b=1)))
+
+-- The reason this module's constructor exists. Both are legal in a URL and
+-- both end a URL literal, so a URL holding one can only be built from text.
+test "a , or a ; can only come from a String" (fn t ->
+  let b_of =
+    fn text -> match URL.of_string text with
+      | Ok u -> Option.default "" (Map.get "b" (URL.query u))
+      | Error e -> e
+  in
+  t.eq ("1,2", "1;2") (b_of "https://a.com/a?b=1,2", b_of "https://a.com/a?b=1;2"))
+
+test "text that is not a URL says why" (fn t ->
+  match URL.of_string "example.com" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "begins with http:// or https://" e))
+
+-- ── the constructor, and the decoder ───────────────────────────────────
+
+-- `String.to_url` used to decide by handing the text back to the lexer and
+-- asking whether it came out as one URL token. That turned the literal's
+-- punctuation rule into a rule about URLs, so a legal URL had no way to be
+-- built, and it answered the lexer's complaint rather than its own.
+test "String.to_url and URL.of_string are the same function" (fn t ->
+  t.eq (String.to_url "https://a.com/a?b=1,2") (URL.of_string "https://a.com/a?b=1,2"))
+
+test "a scheme that is not http says so, in its own words" (fn t ->
+  match String.to_url "ftp://a.com" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "begins with http:// or https://" e))
+
+test "surrounding space is trimmed" (fn t ->
+  t.eq (Ok https://a.com) (URL.of_string "  https://a.com  "))
+
+-- A document holds text the program did not write, so the literal rule has
+-- even less business there: a `,` in a query string is ordinary.
+-- The expected value is written with `of_string` for the same reason the
+-- test exists: `Ok https://a.com/a?b=1,2` is not a URL in parentheses, it
+-- is a tuple, because the literal ends at the `,`.
+test "Decode.url reads a URL a literal cannot spell" (fn t ->
+  t.eq
+    (URL.of_string "https://a.com/a?b=1,2")
+    (JSON.decode Decode.url (JSON.parse! `"https://a.com/a?b=1,2"`)))
+
+test "and refuses text that is not a URL" (fn t ->
+  match JSON.decode Decode.url (JSON.parse! `"example.com"`) with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "expected URL" e))

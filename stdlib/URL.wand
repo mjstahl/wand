@@ -1,0 +1,153 @@
+-- Reading a URL, and building one from another.
+--
+-- A URL literal is a value of its own, not a string, so the parts of one are
+-- reached through here rather than through String.split. The type carries
+-- what it is; this module carries what it holds.
+--
+-- Every accessor is total. The value is a URL already -- a literal, or
+-- String.to_url having checked one -- so a part it does not have answers ""
+-- or None rather than an error. `https://example.com` has no port, no query
+-- and no fragment, and none of that is a failure.
+
+-- ── The parts ──────────────────────────────────────────────────────────
+
+-- The scheme, without the `://`.
+--
+-- >> URL.scheme https://example.com/a
+-- "https" : String
+let scheme u = url_scheme u
+
+-- The host, without the userinfo before it or the port after it. An IPv6
+-- literal keeps its brackets, which is how it is written in a URL.
+--
+-- >> URL.host https://example.com:8080/a
+-- "example.com" : String
+let host u = url_host u
+
+-- The port the URL states, or None when it states none.
+--
+-- The default is not filled in here. It follows from the scheme -- 443 for
+-- https, 80 for http -- and a caller passing a port on to something else
+-- needs to know whether the URL named one at all.
+--
+-- >> URL.port https://example.com:8080/a
+-- Some(:8080) : Option Port
+--
+-- >> URL.port https://example.com/a
+-- None : Option Port
+let port u = url_port u
+
+-- The path, as a Path, so it composes with the module that already knows
+-- about segments and extensions. A URL with no path addresses `/`.
+--
+-- >> URL.path https://example.com/api/v2/users
+-- /api/v2/users : Path
+--
+-- >> URL.path https://example.com
+-- / : Path
+let path u = url_path u
+
+-- The query as its pairs, percent-decoded, with `+` read as a space.
+--
+-- A repeated key keeps its last value, because that is what a Map holds.
+-- `query_list` answers every pair, in the order the URL wrote them.
+--
+-- >> Map.get "b" (URL.query https://example.com/a?b=1&c=2)
+-- Some("1") : Option String
+--
+-- >> Map.get "q" (URL.query https://example.com/s?q=two+words)
+-- Some("two words") : Option String
+let query u = url_query u
+
+-- Every pair the query holds, in order, including repeated keys.
+--
+-- >> URL.query_list https://example.com/a?x=1&x=2
+-- [("x", "1"), ("x", "2")] : List (String, String)
+let query_list u = url_query_list u
+
+-- What follows the `#`, or None when there is no `#`. An empty fragment is
+-- Some "": `page#` names the top of the page and `page` does not.
+--
+-- >> URL.fragment https://example.com/doc#install
+-- Some("install") : Option String
+--
+-- >> URL.fragment https://example.com/doc
+-- None : Option String
+let fragment u = url_fragment u
+
+-- ── Between URL and String ─────────────────────────────────────────────
+
+-- The URL as text. `"%{u}"` gives the same characters; this is for the
+-- places that want a String and not an interpolation.
+--
+-- >> URL.to_string https://example.com/a
+-- "https://example.com/a" : String
+let to_string u = url_to_str u
+
+-- The URL that text spells, or an error saying what is wrong with it.
+--
+-- The same function as String.to_url, named from this side. A URL holding a
+-- `,` or a `;` can only be built this way: both are legal in a URL and end a
+-- URL *literal*, because they are the punctuation of the expression around
+-- it.
+--
+-- >> URL.of_string "https://example.com/a?b=1,2"
+-- Ok(https://example.com/a?b=1,2) : Result String URL
+--
+-- >> URL.of_string "example.com"
+-- Error("cannot parse \"example.com\" as URL: a URL begins with http:// or https://") : Result String URL
+let of_string s = str_to_url s
+
+-- ── Building one from another ──────────────────────────────────────────
+
+-- The same URL with this query in place of whatever it had. The keys and
+-- values are encoded here, so a value holding a `&` stays a value.
+--
+-- >> URL.with_query {q = "two words"} https://example.com/s
+-- https://example.com/s?q=two%20words : URL
+--
+-- >> URL.with_query {q = "a&b"} https://example.com/s?old=1
+-- https://example.com/s?q=a%26b : URL
+let with_query q u = url_with_query q u
+
+-- A reference resolved against this URL, the way a browser resolves the
+-- href of a link. An absolute reference replaces it, `/x` keeps the host,
+-- `?q` and `#f` keep everything to their left, and a relative path is
+-- merged against the directory the URL is in and then has its `.` and `..`
+-- removed.
+--
+-- A Result because an absolute reference is a URL and may not be one.
+--
+-- >> URL.join "../v2/users" https://example.com/api/v1/orders
+-- Ok(https://example.com/api/v2/users) : Result String URL
+--
+-- >> URL.join "/health" https://example.com/api/v1/orders
+-- Ok(https://example.com/health) : Result String URL
+--
+-- >> URL.join "#top" https://example.com/doc
+-- Ok(https://example.com/doc#top) : Result String URL
+let join reference u = url_join reference u
+
+-- ── Percent-encoding ───────────────────────────────────────────────────
+
+-- Text as one path segment or one query value. Everything outside the
+-- unreserved set is encoded, `/` and `&` included: a caller encoding a
+-- value does not want it read as structure.
+--
+-- >> URL.encode "two words"
+-- "two%20words" : String
+--
+-- >> URL.encode "a/b&c"
+-- "a%2Fb%26c" : String
+let encode s = url_encode s
+
+-- The text a percent-encoded string spells, or an error when it is not one.
+-- `+` is left alone here; it means a space in a query string and nothing
+-- anywhere else, so `query` is where that reading happens.
+--
+-- >> URL.decode "two%20words"
+-- Ok("two words") : Result String String
+--
+-- >> URL.decode "100%"
+-- Error("\"100%\" ends inside a percent-escape") : Result String String
+let decode s = url_decode s

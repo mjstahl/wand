@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2644,7 +2644,7 @@ unbound-name error, although the module comes with wand. The REPL and the
 one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
 stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 `Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
-`Resource`, `Stream` and `Proc`.
+`Resource`, `Stream`, `URL` and `Proc`.
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
@@ -3488,6 +3488,66 @@ where a command wants the number as an argument of its own, as in
 `of_int` refuses a number that is not a port. A port is 0 to 65535, and
 70000 is a mistake rather than a maximum, so it answers an `Error` where
 [`Size.of_bytes`](#size) clamps.
+
+### `URL`
+
+```ocaml
+scheme     : URL -> String
+host       : URL -> String
+port       : URL -> Option Port
+path       : URL -> Path
+query      : URL -> Map String
+query_list : URL -> List (String, String)
+fragment   : URL -> Option String
+to_string  : URL -> String
+of_string  : String -> Result String URL
+with_query : Map String -> URL -> URL
+join       : String -> URL -> Result String URL
+encode     : String -> String
+decode     : String -> Result String String
+```
+
+Every accessor is total. The value is a URL already — a literal, or
+`URL.of_string` having checked one — so a part it does not hold answers `""`
+or `None` rather than an error. `https://example.com` states no port, no
+query and no fragment, and none of that is a failure.
+
+`port` answers an `Option` rather than filling in a default. The default
+follows from the scheme, 443 for https and 80 for http, and a caller passing
+the port on to something else needs to know whether the URL named one.
+
+`path` answers a [`Path`](#path), so it composes with the module that
+already knows about segments and extensions. A URL with no path addresses
+`/`.
+
+`query` percent-decodes the keys and values, and reads `+` as a space: a
+query string is form-encoded in practice, and a caller asking for `q` wants
+what was typed. A repeated key keeps its last value, because that is what a
+`Map` holds; `query_list` answers every pair in the order the URL wrote them.
+`decode` is the one that leaves `+` alone.
+
+`of_string` is `String.to_url` named from this side, and it is the only way
+to build some URLs. A `,` and a `;` are legal in a URL and both end a URL
+*literal*, because they are the punctuation of the expression around it — as
+do the brackets of an IPv6 host:
+
+```ocaml
+URL.of_string "https://example.com/s?tags=a,b"    -- Ok(...)
+URL.of_string "http://[::1]:8080/health"          -- Ok(...)
+```
+
+`join` resolves a reference the way a browser resolves the href of a link,
+following RFC 3986: an absolute reference replaces the base, `/x` keeps the
+host, `?q` and `#f` keep everything to their left, and a relative path is
+merged against the base's directory and then has its `.` and `..` removed. A
+`..` that would climb past the root is dropped rather than escaping the
+authority. It answers a `Result` because an absolute reference is itself a
+URL, and the text handed in may not be one.
+
+`encode` covers everything outside the unreserved set, `/` and `&` included,
+so its result is safe as one path segment or one query value. `with_query`
+encodes for you, which is what stops an `&` in a value from becoming a
+separator.
 
 ### `Par`
 
