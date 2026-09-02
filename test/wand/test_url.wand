@@ -13,14 +13,21 @@ let {test} = import Test
 test "scheme, without the ://" (fn t ->
   t.eq ("https", "http") (URL.scheme https://a.com, URL.scheme http://a.com))
 
-test "host, without the port" (fn t -> t.eq "a.com" (URL.host https://a.com:8080/x))
+test "hostname, without the port" (fn t -> t.eq "a.com" (URL.hostname https://a.com:8080/x))
+test "host, with it" (fn t -> t.eq "a.com:8080" (URL.host https://a.com:8080/x))
+test "and host is the domain alone when there is no port" (fn t ->
+  t.eq "a.com" (URL.host https://a.com/x))
 
-test "host, without the userinfo" (fn t -> t.eq "a.com" (URL.host https://user:pw@a.com/x))
+test "neither carries the userinfo" (fn t ->
+  t.eq ("a.com", "a.com") (
+    URL.hostname https://user:pw@a.com/x,
+    URL.host https://user:pw@a.com/x
+  ))
 
 -- A password may hold an `@`, so the split is at the last one. A host taken
 -- from the first would be the tail of the password.
 test "the userinfo is split at the last @" (fn t ->
-  t.eq "a.com" (URL.host https://user:p@ss@a.com/x))
+  t.eq "a.com" (URL.hostname https://user:p@ss@a.com/x))
 
 -- An IPv6 literal is another URL a literal cannot spell: `]` ends one, the
 -- same way `,` and `;` do. The brackets stay in the host -- they are how it
@@ -28,7 +35,7 @@ test "the userinfo is split at the last @" (fn t ->
 -- the whole reason the split looks for the last `:` past the `]`.
 test "an IPv6 host keeps its brackets, and its port is still found" (fn t ->
   match URL.of_string "http://[::1]:8080/x" with
-  | Ok u -> t.eq ("[::1]", Some :8080) (URL.host u, URL.port u)
+  | Ok u -> t.eq ("[::1]", Some :8080) (URL.hostname u, URL.port u)
   | Error _ -> t.ok false)
 
 test "a port when there is one" (fn t -> t.eq (Some :8080) (URL.port https://a.com:8080))
@@ -231,3 +238,125 @@ test "and refuses text that is not a URL" (fn t ->
   match JSON.decode Decode.url (JSON.parse! `"example.com"`) with
   | Ok _ -> t.ok false
   | Error e -> t.ok (String.contains? "expected URL" e))
+
+-- ── the credentials, and the origin ────────────────────────────────────
+
+test "username and password" (fn t ->
+  t.eq (Some "ann", Some "pw") (
+    URL.username https://ann:pw@a.com,
+    URL.password https://ann:pw@a.com
+  ))
+
+test "a username with no password" (fn t ->
+  t.eq (Some "ann", None) (URL.username https://ann@a.com, URL.password https://ann@a.com))
+
+-- Two Options rather than one pair, because a URL may carry either half.
+test "a password with no username" (fn t ->
+  t.eq (None, Some "pw") (URL.username https://:pw@a.com, URL.password https://:pw@a.com))
+
+test "and neither" (fn t ->
+  t.eq (None, None) (URL.username https://a.com, URL.password https://a.com))
+
+-- The `@` rule splits at the last one and the `:` rule at the first, so a
+-- password may hold both.
+test "a password holding a : and an @" (fn t ->
+  t.eq (Some "p:s@s") (URL.password https://ann:p:s@s@a.com))
+
+test "credentials are percent-decoded" (fn t ->
+  t.eq (Some "p@ss") (URL.password https://ann:p%40ss@a.com))
+
+test "the origin is scheme, host and port" (fn t ->
+  t.eq "https://a.com:8080" (URL.origin https://a.com:8080/x?y=1#z))
+
+-- Credentials do not change what is being addressed, so they are not part
+-- of it.
+test "and not the userinfo" (fn t ->
+  t.eq "https://a.com" (URL.origin https://ann:pw@a.com/x))
+
+-- ── setting a part ─────────────────────────────────────────────────────
+
+test "the scheme" (fn t ->
+  t.eq (Ok http://a.com/x) (URL.with_scheme "http" https://a.com/x))
+
+-- A scheme that is not http does not become one by being escaped, so this
+-- reports rather than producing a URL addressing something else.
+test "a scheme that is not one is refused" (fn t ->
+  match URL.with_scheme "ftp" https://a.com/x with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "begins with http:// or https://" e))
+
+test "the hostname, keeping the port" (fn t ->
+  t.eq (Ok https://b.com:8080/x) (URL.with_hostname "b.com" https://a.com:8080/x))
+
+test "and keeping the userinfo" (fn t ->
+  t.eq (Ok https://ann@b.com/x) (URL.with_hostname "b.com" https://ann@a.com/x))
+
+test "a hostname holding a space is refused" (fn t ->
+  match URL.with_hostname "a b.com" https://a.com/x with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "cannot appear in a URL" e))
+
+test "the port" (fn t ->
+  t.eq https://a.com:9000/x (URL.with_port (Some :9000) https://a.com/x))
+test "and taking it off" (fn t ->
+  t.eq https://a.com/x (URL.with_port None https://a.com:8080/x))
+
+test "the path keeps its separators" (fn t ->
+  t.eq https://a.com/v2/users (URL.with_path /v2/users https://a.com/v1/orders))
+
+-- A URL path is absolute, so one given without a leading slash gets one.
+test "a relative path is made absolute" (fn t ->
+  t.eq https://a.com/v2 (URL.with_path (Path.of_string "v2") https://a.com/v1))
+
+test "setting the path keeps the query and fragment" (fn t ->
+  t.eq https://a.com/b?q=1#f (URL.with_path /b https://a.com/a?q=1#f))
+
+test "the fragment" (fn t ->
+  t.eq https://a.com/d#top (URL.with_fragment (Some "top") https://a.com/d))
+test "and taking it off" (fn t ->
+  t.eq https://a.com/d (URL.with_fragment None https://a.com/d#top))
+
+-- A fragment may hold URL punctuation, so it is kept rather than escaped.
+test "a fragment keeps its own punctuation" (fn t ->
+  t.eq (Some "a/b?c") (URL.fragment (URL.with_fragment (Some "a/b?c") https://a.com/d)))
+
+-- But a character that cannot appear in a URL at all is escaped, so the
+-- result is still a URL.
+test "and escapes what cannot appear at all" (fn t ->
+  t.eq (Some "a b") (URL.fragment (URL.with_fragment (Some "a b") https://a.com/d)))
+
+test "the username" (fn t ->
+  t.eq https://ann@a.com/x (URL.with_username (Some "ann") https://a.com/x))
+
+-- `@` and `:` delimit the authority, so a password holding one is escaped
+-- rather than moving the host.
+test "a password holding a delimiter is escaped, and reads back whole" (fn t ->
+  let u = URL.with_password (Some "p@ss") https://ann@a.com/x in
+  t.eq ("a.com", Some "p@ss") (URL.hostname u, URL.password u))
+
+test "setting one leaves the other" (fn t ->
+  t.eq (Some "ann", Some "pw") (
+    URL.username (URL.with_password (Some "pw") https://ann@a.com),
+    URL.password (URL.with_username (Some "ann") https://:pw@a.com)
+  ))
+
+test "and taking the username off keeps the password" (fn t ->
+  t.eq (None, Some "pw") (
+    URL.username (URL.with_username None https://ann:pw@a.com),
+    URL.password (URL.with_username None https://ann:pw@a.com)
+  ))
+
+-- ── a repeated key can be written, not only read ───────────────────────
+
+test "with_query_list keeps every pair, in order" (fn t ->
+  t.eq
+    [("x", "1"), ("x", "2")]
+    (URL.query_list (URL.with_query_list [("x", "1"), ("x", "2")] https://a.com/s)))
+
+test "and encodes them" (fn t ->
+  t.eq
+    [("a b", "c&d")]
+    (URL.query_list (URL.with_query_list [("a b", "c&d")] https://a.com/s)))
+
+test "an empty list clears the query" (fn t ->
+  t.eq https://a.com/s (URL.with_query_list [] https://a.com/s?old=1))

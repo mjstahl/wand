@@ -2224,7 +2224,7 @@ let to_domain ?shown name build s =
 (* The pieces of a URL, found once and shared by the accessors. Held as text
    in the spellings the URL itself used, so rebuilding one that was not
    changed gives the same string back. *)
-type url_authority = { au_userinfo : string option; au_host : string; au_port : int option }
+type url_authority = { au_userinfo : string option; au_hostname : string; au_port : int option }
 
 type url_parts = {
   up_scheme    : string;
@@ -2294,20 +2294,55 @@ let url_authority_of text =
     if all_digits after then
       match int_of_string_opt after with
       | Some n when n >= 0 && n <= 65535 ->
-        { au_userinfo = userinfo; au_host = String.sub hostport 0 i; au_port = Some n }
+        { au_userinfo = userinfo; au_hostname = String.sub hostport 0 i; au_port = Some n }
       (* Digits that are not a port. The text is not one, so it stays part of
          the host rather than being reported as a port that is out of range --
          nothing here is entitled to reject a URL that already exists. *)
-      | _ -> { au_userinfo = userinfo; au_host = hostport; au_port = None }
-    else { au_userinfo = userinfo; au_host = hostport; au_port = None }
-  | None -> { au_userinfo = userinfo; au_host = hostport; au_port = None }
+      | _ -> { au_userinfo = userinfo; au_hostname = hostport; au_port = None }
+    else { au_userinfo = userinfo; au_hostname = hostport; au_port = None }
+  | None -> { au_userinfo = userinfo; au_hostname = hostport; au_port = None }
 
 let url_authority u = url_authority_of (url_parts u).up_authority
+
+(* The authority written back out. The pieces are held as they were read, so
+   a URL that was not changed rebuilds to the same string it came from. *)
+let url_authority_text au =
+  (match au.au_userinfo with None -> "" | Some ui -> ui ^ "@")
+  ^ au.au_hostname
+  ^ (match au.au_port with None -> "" | Some n -> ":" ^ string_of_int n)
+
+(* Userinfo is `username[:password]`, split at the *first* `:` -- the reverse
+   of the `@` rule above, because a password may hold a `:` and a username
+   may not. *)
+let url_userinfo_parts au =
+  (* An empty half is None, not Some "". `https://:pw@host` carries a
+     password and no username, and answering Some "" for the username would
+     make "has one" and "has a non-empty one" two different questions with
+     the same shape. *)
+  let some_unless_empty s = if s = "" then None else Some s in
+  match au.au_userinfo with
+  | None -> (None, None)
+  | Some ui ->
+    (match String.index_opt ui ':' with
+     | Some i ->
+       (some_unless_empty (String.sub ui 0 i),
+        some_unless_empty (String.sub ui (i + 1) (String.length ui - i - 1)))
+     | None -> (some_unless_empty ui, None))
 
 let url_rebuild p =
   p.up_scheme ^ "://" ^ p.up_authority ^ p.up_path
   ^ (if p.up_query = "" then "" else "?" ^ p.up_query)
   ^ (match p.up_fragment with None -> "" | Some f -> "#" ^ f)
+
+(* Every setter goes out through here: the new text is built and then put
+   through the same grammar a literal is checked against, so no part can be
+   set to something that makes the whole no longer a URL. A setter that
+   cannot fail runs the check too -- it just cannot see it fail, because it
+   encoded its argument first. *)
+let url_checked text =
+  match Lexer.url_error text with
+  | None -> Ok text
+  | Some why -> Error why
 
 (* ── Percent-encoding ────────────────────────────────────────────────────── *)
 
@@ -2320,6 +2355,20 @@ let url_encode_text s =
   String.iter
     (fun c ->
       if url_unreserved c then Buffer.add_char buf c
+      else Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c)))
+    s;
+  Buffer.contents buf
+
+(* For the parts where URL punctuation is legal and meant: a fragment may
+   hold a `/` or a `?` and a path is made of `/`. Only what cannot appear in
+   a URL at all is escaped, so setting a part does not mangle its structure.
+   Userinfo does not use this -- there `@` and `:` are the delimiters, so it
+   takes the strict encoder above. *)
+let url_encode_keep s =
+  let buf = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      if Lexer.is_url_char c then Buffer.add_char buf c
       else Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c)))
     s;
   Buffer.contents buf
@@ -2383,6 +2432,22 @@ let url_query_pairs u =
          | None -> (pair, "")
        in
        (url_decode_text ~plus:true k, VString (url_decode_text ~plus:true v)))
+
+(* Setting one half of the userinfo and keeping the other. Both empty means
+   there is no userinfo at all rather than a bare `@`, which addresses the
+   same host and is not what anyone wrote. *)
+let url_set_userinfo u f =
+  let parts = url_parts u in
+  let au = url_authority_of parts.up_authority in
+  let name, pass = f (url_userinfo_parts au) in
+  let ui =
+    match name, pass with
+    | (None | Some ""), None -> None
+    | Some n, None -> Some (url_encode_text n)
+    | None, Some p -> Some (":" ^ url_encode_text p)
+    | Some n, Some p -> Some (url_encode_text n ^ ":" ^ url_encode_text p)
+  in
+  url_rebuild { parts with up_authority = url_authority_text { au with au_userinfo = ui } }
 
 (* ── Resolving a reference ───────────────────────────────────────────────── *)
 
@@ -3171,9 +3236,51 @@ let stdlib_eval_env : env = [
   ("url_scheme", VBuiltin (function
     | VURL u -> VString (fst (url_split_scheme u))
     | _ -> raise (EvalError "url_scheme: expected URL")));
+  (* `hostname` is the domain alone and `host` is the domain with the port,
+     which is the split the web platform uses. Naming the bare one `host`
+     would read correctly to anyone who had not met the other spelling and
+     silently wrongly to everyone who had. *)
+  ("url_hostname", VBuiltin (function
+    | VURL u -> VString (url_authority u).au_hostname
+    | _ -> raise (EvalError "url_hostname: expected URL")));
   ("url_host", VBuiltin (function
-    | VURL u -> VString (let a = url_authority u in a.au_host)
+    | VURL u ->
+      let a = url_authority u in
+      VString (a.au_hostname
+               ^ (match a.au_port with None -> "" | Some n -> ":" ^ string_of_int n))
     | _ -> raise (EvalError "url_host: expected URL")));
+  (* The credentials before the `@`, percent-decoded, as every accessor here
+     decodes -- what they are for is being passed to something that wants the
+     password rather than its wire spelling. None when the URL carries none;
+     `https://:pw@host` has a password and no username, which is why these
+     are two Options and not one. *)
+  ("url_username", VBuiltin (function
+    | VURL u ->
+      (match fst (url_userinfo_parts (url_authority u)) with
+       | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "url_username: expected URL")));
+  ("url_password", VBuiltin (function
+    | VURL u ->
+      (match snd (url_userinfo_parts (url_authority u)) with
+       | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "url_password: expected URL")));
+  (* Scheme, host and port -- what two URLs have to share to be same-origin,
+     and the reason this is one function rather than three read together.
+     The userinfo is not part of it: credentials do not change what is being
+     addressed.
+
+     Written as the URL wrote it. A default port is not dropped and nothing
+     is lowercased, because this module keeps the text it was given -- so
+     this answers whether two URLs *say* the same origin, and normalizing
+     first is the caller's business. *)
+  ("url_origin", VBuiltin (function
+    | VURL u ->
+      let a = url_authority u in
+      VString (fst (url_split_scheme u) ^ "://" ^ a.au_hostname
+               ^ (match a.au_port with None -> "" | Some n -> ":" ^ string_of_int n))
+    | _ -> raise (EvalError "url_origin: expected URL")));
   (* An Option rather than a default, because the default depends on the
      scheme and this module is not the place that knows it: 443 is right for
      https and wrong for http, and a caller passing the port to something
@@ -3242,6 +3349,119 @@ let stdlib_eval_env : env = [
         VURL (url_rebuild { parts with up_query = q })
       | _ -> raise (EvalError "url_with_query: expected URL"))
     | _ -> raise (EvalError "url_with_query: expected Map")));
+
+  (* Every pair, in the order given, so a repeated key can be written as well
+     as read. `with_query` takes a Map and a Map holds one value per key, so
+     without this the module could read a `?x=1&x=2` it had no way to build. *)
+  ("url_with_query_list", VBuiltin (function
+    | VList pairs -> VBuiltin (function
+      | VURL u ->
+        let parts = url_parts u in
+        let q =
+          String.concat "&"
+            (List.map
+               (function
+                 | VTuple [VString k; VString v] ->
+                   url_encode_text k ^ "=" ^ url_encode_text v
+                 | _ -> raise (EvalError "url_with_query_list: expected List (String, String)"))
+               pairs)
+        in
+        VURL (url_rebuild { parts with up_query = q })
+      | _ -> raise (EvalError "url_with_query_list: expected URL"))
+    | _ -> raise (EvalError "url_with_query_list: expected List (String, String)")));
+
+  (* ── Setting a part ─────────────────────────────────────────────────── *)
+
+  (* A Result where the argument is text that has to be a URL part in its own
+     right -- a scheme that is not http, or a host holding a space, does not
+     become one by being encoded, and quietly escaping it would answer a URL
+     addressing something else. Where the argument can be encoded without
+     changing what it means, the setter is total instead. *)
+  ("url_with_scheme", VBuiltin (function
+    | VString sch -> VBuiltin (function
+      | VURL u ->
+        let parts = url_parts u in
+        (match url_checked (url_rebuild { parts with up_scheme = sch }) with
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL text])
+         | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
+      | _ -> raise (EvalError "url_with_scheme: expected URL"))
+    | _ -> raise (EvalError "url_with_scheme: expected String")));
+  ("url_with_hostname", VBuiltin (function
+    | VString h -> VBuiltin (function
+      | VURL u ->
+        let parts = url_parts u in
+        let au = url_authority_of parts.up_authority in
+        let text =
+          url_rebuild { parts with
+            up_authority = url_authority_text { au with au_hostname = h } }
+        in
+        (match url_checked text with
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL text])
+         | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
+      | _ -> raise (EvalError "url_with_hostname: expected URL"))
+    | _ -> raise (EvalError "url_with_hostname: expected String")));
+  (* An Option, so the port can be taken off as well as set. A Port is
+     already a port, so nothing here can fail. *)
+  ("url_with_port", VBuiltin (function
+    | port -> VBuiltin (function
+      | VURL u ->
+        let n = match port with
+          | VConstr (Ctor.Builtin "Some", [VPort n]) -> Some n
+          | VConstr (Ctor.Builtin "None", []) -> None
+          | _ -> raise (EvalError "url_with_port: expected Option Port")
+        in
+        let parts = url_parts u in
+        let au = url_authority_of parts.up_authority in
+        VURL (url_rebuild { parts with
+                up_authority = url_authority_text { au with au_port = n } })
+      | _ -> raise (EvalError "url_with_port: expected URL"))));
+  (* A Path is made of `/`, so its separators are kept and only what cannot
+     appear in a URL is escaped. A path that does not start with `/` gets
+     one: a URL path is absolute, and `with_path (Path.of_string "a/b")`
+     meaning `/a/b` is the only reading that addresses anything. *)
+  ("url_with_path", VBuiltin (function
+    | VPath p -> VBuiltin (function
+      | VURL u ->
+        let p = if p = "" then "/" else if p.[0] = '/' then p else "/" ^ p in
+        let parts = url_parts u in
+        VURL (url_rebuild { parts with up_path = url_encode_keep p })
+      | _ -> raise (EvalError "url_with_path: expected URL"))
+    | _ -> raise (EvalError "url_with_path: expected Path")));
+  (* An Option, because an empty fragment is not a missing one: `page#`
+     names the top of the page and `page` does not. *)
+  ("url_with_fragment", VBuiltin (function
+    | frag -> VBuiltin (function
+      | VURL u ->
+        let f = match frag with
+          | VConstr (Ctor.Builtin "Some", [VString f]) -> Some (url_encode_keep f)
+          | VConstr (Ctor.Builtin "None", []) -> None
+          | _ -> raise (EvalError "url_with_fragment: expected Option String")
+        in
+        VURL (url_rebuild { (url_parts u) with up_fragment = f })
+      | _ -> raise (EvalError "url_with_fragment: expected URL"))));
+  (* The credentials, strictly encoded: `@` and `:` are the delimiters of the
+     authority, so a password holding one has to be escaped or it moves the
+     host. Setting one leaves the other alone -- `https://:pw@host` is a URL
+     with a password and no username, and dropping the password because the
+     username went away would lose something the caller did not touch. *)
+  ("url_with_username", VBuiltin (fun name -> VBuiltin (function
+    | VURL u ->
+      let n = match name with
+        | VConstr (Ctor.Builtin "Some", [VString n]) -> Some n
+        | VConstr (Ctor.Builtin "None", []) -> None
+        | _ -> raise (EvalError "url_with_username: expected Option String")
+      in
+      VURL (url_set_userinfo u (fun (_, pw) -> (n, pw)))
+    | _ -> raise (EvalError "url_with_username: expected URL"))));
+  ("url_with_password", VBuiltin (fun pass -> VBuiltin (function
+    | VURL u ->
+      let p = match pass with
+        | VConstr (Ctor.Builtin "Some", [VString p]) -> Some p
+        | VConstr (Ctor.Builtin "None", []) -> None
+        | _ -> raise (EvalError "url_with_password: expected Option String")
+      in
+      VURL (url_set_userinfo u (fun (n, _) -> (n, p)))
+    | _ -> raise (EvalError "url_with_password: expected URL"))));
 
   (* Resolving a reference against a base, RFC 3986 section 5. An absolute
      reference replaces the base outright, `//host/x` keeps only the scheme,

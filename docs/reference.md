@@ -3492,19 +3492,31 @@ where a command wants the number as an argument of its own, as in
 ### `URL`
 
 ```ocaml
-scheme     : URL -> String
-host       : URL -> String
-port       : URL -> Option Port
-path       : URL -> Path
-query      : URL -> Map String
-query_list : URL -> List (String, String)
-fragment   : URL -> Option String
-to_string  : URL -> String
-of_string  : String -> Result String URL
-with_query : Map String -> URL -> URL
-join       : String -> URL -> Result String URL
-encode     : String -> String
-decode     : String -> Result String String
+scheme          : URL -> String
+hostname        : URL -> String
+host            : URL -> String
+port            : URL -> Option Port
+username        : URL -> Option String
+password        : URL -> Option String
+origin          : URL -> String
+path            : URL -> Path
+query           : URL -> Map String
+query_list      : URL -> List (String, String)
+fragment        : URL -> Option String
+to_string       : URL -> String
+of_string       : String -> Result String URL
+with_scheme     : String -> URL -> Result String URL
+with_hostname   : String -> URL -> Result String URL
+with_port       : Option Port -> URL -> URL
+with_username   : Option String -> URL -> URL
+with_password   : Option String -> URL -> URL
+with_path       : Path -> URL -> URL
+with_query      : Map String -> URL -> URL
+with_query_list : List (String, String) -> URL -> URL
+with_fragment   : Option String -> URL -> URL
+join            : String -> URL -> Result String URL
+encode          : String -> String
+decode          : String -> Result String String
 ```
 
 Every accessor is total. The value is a URL already — a literal, or
@@ -3512,9 +3524,25 @@ Every accessor is total. The value is a URL already — a literal, or
 or `None` rather than an error. `https://example.com` states no port, no
 query and no fragment, and none of that is a failure.
 
+`hostname` is the domain alone and `host` is the domain with the port, which
+is the split the web platform uses. Naming the bare one `host` would read
+correctly to anyone who had not met the other spelling and silently wrongly
+to everyone who had.
+
 `port` answers an `Option` rather than filling in a default. The default
 follows from the scheme, 443 for https and 80 for http, and a caller passing
 the port on to something else needs to know whether the URL named one.
+
+`username` and `password` are two `Option`s rather than one pair, because a
+URL may carry either: `https://:pw@host` has a password and no username. An
+empty half is `None`, so "has one" is not two questions. Both are
+percent-decoded, as every accessor here is.
+
+`origin` is scheme, host and port — what two URLs have to share to address
+the same server, and the reason it is one function rather than three read
+together. The userinfo is not part of it: credentials do not change what is
+addressed. It is written as the URL wrote it, so it says whether two URLs
+*state* the same origin; see the note on normalization below.
 
 `path` answers a [`Path`](#path), so it composes with the module that
 already knows about segments and extensions. A URL with no path addresses
@@ -3547,7 +3575,24 @@ URL, and the text handed in may not be one.
 `encode` covers everything outside the unreserved set, `/` and `&` included,
 so its result is safe as one path segment or one query value. `with_query`
 encodes for you, which is what stops an `&` in a value from becoming a
-separator.
+separator, and `with_query_list` is the one that can write the repeated key
+`query_list` can read — a `Map` holds one value per key.
+
+The `with_` functions each replace one part. Two answer a `Result`, because
+their argument has to be a URL part in its own right: a scheme that is not
+http, or a host holding a space, does not become one by being escaped, and
+escaping it quietly would answer a URL addressing something else. The rest
+encode what they are given and cannot fail. `with_path` keeps a path's `/`
+separators and only escapes what cannot appear in a URL at all, and gives a
+path a leading `/` if it has none, because a URL path is absolute.
+`with_username` and `with_password` escape strictly: `@` and `:` delimit the
+authority, so a password holding one would otherwise move the host.
+
+This module does not normalize. It keeps the scheme, host and escapes as
+they were written, where a browser's parser would lowercase the first two and
+drop a default port. That matches how `DateTime` keeps the offset it was
+written with. It also means `URL.host a == URL.host b` is a test of what two
+URLs say, not of where they point.
 
 ### `Par`
 

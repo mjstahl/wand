@@ -3431,7 +3431,11 @@ let stdlib_type_env : env = [
   (* URL primitives. Every accessor is total: the value is a URL already, and
      a part it does not have is "" or None rather than a failure. *)
   ("url_scheme",     generalize [] ((TURL @-> TString)));
+  ("url_hostname",   generalize [] ((TURL @-> TString)));
   ("url_host",       generalize [] ((TURL @-> TString)));
+  ("url_username",   generalize [] ((TURL @-> TApp (TName "Option", TString))));
+  ("url_password",   generalize [] ((TURL @-> TApp (TName "Option", TString))));
+  ("url_origin",     generalize [] ((TURL @-> TString)));
   ("url_port",       generalize [] ((TURL @-> TApp (TName "Option", TPort))));
   ("url_path",       generalize [] ((TURL @-> TPath)));
   ("url_query",      generalize [] ((TURL @-> TMap TString)));
@@ -3440,6 +3444,18 @@ let stdlib_type_env : env = [
   ("url_to_str",     generalize [] ((TURL @-> TString)));
   ("url_with_query", generalize [] ((TMap TString @-> (TURL @-> TURL))));
   ("url_join",       generalize [] ((TString @-> (TURL @-> TResult (TString, TURL)))));
+  ("url_with_query_list",
+     generalize [] ((TList (TTuple [TString; TString]) @-> (TURL @-> TURL))));
+  ("url_with_scheme",   generalize [] ((TString @-> (TURL @-> TResult (TString, TURL)))));
+  ("url_with_hostname", generalize [] ((TString @-> (TURL @-> TResult (TString, TURL)))));
+  ("url_with_port",     generalize [] ((TApp (TName "Option", TPort) @-> (TURL @-> TURL))));
+  ("url_with_path",     generalize [] ((TPath @-> (TURL @-> TURL))));
+  ("url_with_fragment",
+     generalize [] ((TApp (TName "Option", TString) @-> (TURL @-> TURL))));
+  ("url_with_username",
+     generalize [] ((TApp (TName "Option", TString) @-> (TURL @-> TURL))));
+  ("url_with_password",
+     generalize [] ((TApp (TName "Option", TString) @-> (TURL @-> TURL))));
   ("url_encode",     generalize [] ((TString @-> TString)));
   ("url_decode",     generalize [] ((TString @-> TResult (TString, TString))));
   (* Path primitives *)

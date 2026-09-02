@@ -17,12 +17,53 @@
 -- "https" : String
 let scheme u = url_scheme u
 
--- The host, without the userinfo before it or the port after it. An IPv6
+-- The domain alone: no userinfo before it, no port after it. An IPv6
 -- literal keeps its brackets, which is how it is written in a URL.
 --
+-- >> URL.hostname https://example.com:8080/a
+-- "example.com" : String
+let hostname u = url_hostname u
+
+-- The domain with the port, which is the pair that names a listener.
+--
+-- The split is the web platform's: `hostname` is the domain and `host` is
+-- the domain with the port. Calling the bare one `host` would read right to
+-- anyone who had not met the other spelling and silently wrong to everyone
+-- who had.
+--
 -- >> URL.host https://example.com:8080/a
+-- "example.com:8080" : String
+--
+-- >> URL.host https://example.com/a
 -- "example.com" : String
 let host u = url_host u
+
+-- The username before the `@`, percent-decoded, or None when there is none.
+--
+-- >> URL.username https://ann:pw@example.com
+-- Some("ann") : Option String
+let username u = url_username u
+
+-- The password after the `:` in the userinfo, percent-decoded.
+--
+-- Separate from `username` rather than one pair, because a URL may carry
+-- either: `https://:pw@host` has a password and no username.
+--
+-- >> URL.password https://ann:pw@example.com
+-- Some("pw") : Option String
+let password u = url_password u
+
+-- Scheme, host and port: what two URLs have to share to address the same
+-- server. The userinfo is not part of it -- credentials do not change what
+-- is being addressed.
+--
+-- Written as the URL wrote it. A default port is not dropped and nothing is
+-- lowercased, because this module keeps the text it was given. So this says
+-- whether two URLs *state* the same origin.
+--
+-- >> URL.origin https://user@example.com:8080/a?b=1#c
+-- "https://example.com:8080" : String
+let origin u = url_origin u
 
 -- The port the URL states, or None when it states none.
 --
@@ -109,6 +150,75 @@ let of_string s = str_to_url s
 -- >> URL.with_query {q = "a&b"} https://example.com/s?old=1
 -- https://example.com/s?q=a%26b : URL
 let with_query q u = url_with_query q u
+
+-- The same URL with these pairs as its query, in this order.
+--
+-- A Map holds one value per key, so `with_query` cannot write the repeated
+-- key that `query_list` can read. This is the one that can.
+--
+-- >> URL.with_query_list [("x", "1"), ("x", "2")] https://example.com/s
+-- https://example.com/s?x=1&x=2 : URL
+let with_query_list pairs u = url_with_query_list pairs u
+
+-- ── Setting a part ─────────────────────────────────────────────────────
+
+-- Each of these answers the same URL with one part replaced.
+--
+-- A Result where the argument has to be a URL part in its own right: a
+-- scheme that is not http, or a host holding a space, does not become one by
+-- being escaped, and escaping it quietly would answer a URL addressing
+-- something else. Where the argument can be encoded without changing what it
+-- means, the setter is total instead.
+
+-- >> URL.with_scheme "http" https://example.com/a
+-- Ok(http://example.com/a) : Result String URL
+--
+-- >> URL.with_scheme "ftp" https://example.com/a
+-- Error("a URL begins with http:// or https://") : Result String URL
+let with_scheme s u = url_with_scheme s u
+
+-- >> URL.with_hostname "other.com" https://example.com:8080/a
+-- Ok(https://other.com:8080/a) : Result String URL
+let with_hostname h u = url_with_hostname h u
+
+-- An Option, so the port can be taken off as well as set.
+--
+-- >> URL.with_port (Some :9000) https://example.com/a
+-- https://example.com:9000/a : URL
+--
+-- >> URL.with_port (None) https://example.com:8080/a
+-- https://example.com/a : URL
+let with_port p u = url_with_port p u
+
+-- A path is made of `/`, so its separators are kept and only what cannot
+-- appear in a URL at all is escaped. A path that does not begin with `/`
+-- gets one: a URL path is absolute.
+--
+-- >> URL.with_path /v2/users https://example.com/v1/orders
+-- https://example.com/v2/users : URL
+let with_path p u = url_with_path p u
+
+-- An Option, because an empty fragment is not a missing one: `page#` names
+-- the top of the page and `page` does not.
+--
+-- >> URL.with_fragment (Some "install") https://example.com/doc
+-- https://example.com/doc#install : URL
+--
+-- >> URL.with_fragment (None) https://example.com/doc#install
+-- https://example.com/doc : URL
+let with_fragment f u = url_with_fragment f u
+
+-- The credentials are strictly encoded: `@` and `:` are the delimiters of
+-- the authority, so a password holding one is escaped or it would move the
+-- host. Setting one leaves the other alone.
+--
+-- >> URL.with_username (Some "ann") https://example.com/a
+-- https://ann@example.com/a : URL
+let with_username n u = url_with_username n u
+
+-- >> URL.password (URL.with_password (Some "p@ss") https://ann@example.com/a)
+-- Some("p@ss") : Option String
+let with_password p u = url_with_password p u
 
 -- A reference resolved against this URL, the way a browser resolves the
 -- href of a link. An absolute reference replaces it, `/x` keeps the host,
