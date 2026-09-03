@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2644,7 +2644,7 @@ unbound-name error, although the module comes with wand. The REPL and the
 one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
 stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 `Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
-`Resource`, `Stream`, `URL` and `Proc`.
+`Resource`, `Stream`, `URL`, `Version` and `Proc`.
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
@@ -3488,6 +3488,59 @@ where a command wants the number as an argument of its own, as in
 `of_int` refuses a number that is not a port. A port is 0 to 65535, and
 70000 is a mistake rather than a maximum, so it answers an `Error` where
 [`Size.of_bytes`](#size) clamps.
+
+### `Version`
+
+```ocaml
+major           : Version -> Int
+minor           : Version -> Int
+patch           : Version -> Int
+core            : Version -> Version
+prerelease      : Version -> Option String
+build           : Version -> Option String
+stable?         : Version -> Bool
+to_string       : Version -> String
+of_string       : String -> Result String Version
+of_parts        : Int -> Int -> Int -> Result String Version
+bump_major      : Version -> Version
+bump_minor      : Version -> Version
+bump_patch      : Version -> Version
+with_prerelease : Option String -> Version -> Result String Version
+with_build      : Option String -> Version -> Result String Version
+```
+
+The type is [Semantic Versioning 2.0.0][semver], and the spec's grammar is
+what a literal and `of_string` are both checked against. So a value of this
+type is a semantic version: `01.2.3` and `1.2.3-01` are refused, because a
+numeric identifier with a leading zero is not one, and `1.2.3-alpha_1` is
+refused because `_` is not in the identifier set.
+
+There is no `compare`. Ordering is the language's — `<`, `>` and `List.sort`
+read a version by the spec's precedence rules, so
+`1.0.0-alpha < 1.0.0-alpha.1 < 1.0.0-alpha.beta < 1.0.0-beta < 1.0.0` is
+written the way it reads. Build metadata takes no part in precedence, as
+rule 10 requires, so two versions differing only in their build compare
+equal.
+
+`of_string` reads two spellings a literal cannot. Build metadata, because
+`+` is the addition operator and a literal reading `1.2.3+1` could not tell
+it from arithmetic. And a leading `v`, because a git tag and a release note
+write one: the `v` is dropped rather than kept, since the spec's FAQ calls
+it a prefix and not part of the version, and keeping it would make `v1.2.3`
+and `1.2.3` two values that order the same and print differently.
+
+Each `bump_` clears everything below it, prerelease and build included: a
+prerelease named a run-up to the version being stepped away from, and none
+of it survives the step. `bump_patch` has one exception, which is rule 9
+read forwards — a prerelease precedes the release it names, so
+`bump_patch 1.2.3-rc.1` is `1.2.3` rather than `1.2.4`. Going to `1.2.4`
+would step over the release the prerelease was for.
+
+`with_prerelease` answers a `Result` because a prerelease is grammar rather
+than text to escape: nothing turns `rc 1` into an identifier, so text that
+is not one is reported instead of being quietly rewritten.
+
+[semver]: https://semver.org/spec/v2.0.0.html
 
 ### `URL`
 

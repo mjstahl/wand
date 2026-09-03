@@ -10,7 +10,7 @@ let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
-    "DateTime"; "Result"; "URL" ]
+    "DateTime"; "Result"; "URL"; "Version" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -3320,6 +3320,25 @@ let stdlib_type_env : env = [
   ("port_of_int",      generalize [] ((TInt @-> TResult (TString, TPort))));
   ("str_to_port",      generalize [] ((TString @-> TResult (TString, TPort))));
   ("str_to_version",   generalize [] ((TString @-> TResult (TString, TVersion))));
+  (* Version primitives. The three numbers exist by the time a value does,
+     so reading them cannot fail. *)
+  ("version_major",      generalize [] ((TVersion @-> TInt)));
+  ("version_minor",      generalize [] ((TVersion @-> TInt)));
+  ("version_patch",      generalize [] ((TVersion @-> TInt)));
+  ("version_prerelease", generalize [] ((TVersion @-> TApp (TName "Option", TString))));
+  ("version_build",      generalize [] ((TVersion @-> TApp (TName "Option", TString))));
+  ("version_is_stable",  generalize [] ((TVersion @-> TBool)));
+  ("version_core",       generalize [] ((TVersion @-> TVersion)));
+  ("version_to_str",     generalize [] ((TVersion @-> TString)));
+  ("version_of_parts",
+     generalize [] ((TInt @-> (TInt @-> (TInt @-> TResult (TString, TVersion))))));
+  ("version_bump_major", generalize [] ((TVersion @-> TVersion)));
+  ("version_bump_minor", generalize [] ((TVersion @-> TVersion)));
+  ("version_bump_patch", generalize [] ((TVersion @-> TVersion)));
+  ("version_with_prerelease",
+     generalize [] ((TApp (TName "Option", TString) @-> (TVersion @-> TResult (TString, TVersion)))));
+  ("version_with_build",
+     generalize [] ((TApp (TName "Option", TString) @-> (TVersion @-> TResult (TString, TVersion)))));
   ("str_to_size",      generalize [] ((TString @-> TResult (TString, TSize))));
   ("dt_year",         generalize [] ((TDateTime @-> TInt)));
   ("dt_month",        generalize [] ((TDateTime @-> TInt)));

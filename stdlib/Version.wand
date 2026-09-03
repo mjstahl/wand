@@ -1,0 +1,152 @@
+-- Reading a version, and stepping to the next one.
+--
+-- The type is [Semantic Versioning 2.0.0][semver]: three numbers, an
+-- optional prerelease, an optional build. The spec's grammar is what a
+-- literal and `of_string` are both checked against, so a value of this type
+-- is a semantic version and nothing else -- `01.2.3` and `1.2.3-01` are
+-- refused, because a numeric identifier with a leading zero is not one.
+--
+-- Ordering is the language's, not this module's. `<`, `>` and `List.sort`
+-- read a version the way the spec's precedence rules do, so there is no
+-- `compare` here: `1.2.3-alpha.1 < 1.2.3-alpha.beta < 1.2.3` is written the
+-- way it reads. Build metadata takes no part in it, as the spec requires,
+-- so two versions differing only in their build compare equal.
+--
+-- [semver]: https://semver.org/spec/v2.0.0.html
+
+-- ── The numbers ────────────────────────────────────────────────────────
+
+-- >> Version.major 1.2.3
+-- 1 : Int
+let major v = version_major v
+
+-- >> Version.minor 1.2.3
+-- 2 : Int
+let minor v = version_minor v
+
+-- >> Version.patch 1.2.3
+-- 3 : Int
+let patch v = version_patch v
+
+-- The three numbers alone: what a prerelease is on the way to, and the
+-- value to compare when the prerelease is not the question.
+--
+-- >> Version.core 1.2.3-rc.1
+-- 1.2.3 : Version
+let core v = version_core v
+
+-- ── The tail ───────────────────────────────────────────────────────────
+
+-- What follows the `-`, or None. The identifiers are not split apart: they
+-- are compared as a whole by the spec's rules, and a caller that wants them
+-- separately has `String.split "."`.
+--
+-- >> Version.prerelease 1.2.3-rc.1
+-- Some("rc.1") : Option String
+--
+-- >> Version.prerelease 1.2.3
+-- None : Option String
+let prerelease v = version_prerelease v
+
+-- What follows the `+`, or None.
+--
+-- A `+` is the addition operator, so a version carrying build metadata
+-- cannot be written as a literal. `of_string` is where one comes from.
+--
+-- >> Version.build 1.2.3
+-- None : Option String
+let build v = version_build v
+
+-- A release, as against something on the way to one. The spec's rule 9: a
+-- prerelease version is unstable and precedes its associated release.
+--
+-- Build metadata does not make a version unstable. It names the build, not
+-- the state of the thing built.
+--
+-- >> Version.stable? 1.2.3
+-- true : Bool
+--
+-- >> Version.stable? 1.2.3-rc.1
+-- false : Bool
+let stable? v = version_is_stable v
+
+-- ── Between Version and String ─────────────────────────────────────────
+
+-- >> Version.to_string 1.2.3-rc.1
+-- "1.2.3-rc.1" : String
+let to_string v = version_to_str v
+
+-- The version that text spells, or an error saying what is wrong with it.
+--
+-- The same function as String.to_version, named from this side. It reads
+-- two spellings a literal cannot: build metadata, because `+` is the
+-- addition operator, and a leading `v`, because that is how a git tag and a
+-- release note write a version. The `v` is dropped -- the spec's FAQ calls
+-- it a prefix and not part of the version -- so `v1.2.3` and `1.2.3` are
+-- one value, not two that print differently.
+--
+-- >> Version.of_string "v1.2.3"
+-- Ok(1.2.3) : Result String Version
+--
+-- >> Version.of_string "1.2.3+build.5"
+-- Ok(1.2.3+build.5) : Result String Version
+--
+-- >> Version.of_string "1.2"
+-- Error("cannot parse \"1.2\" as Version: a version is three numbers: major.minor.patch") : Result String Version
+let of_string s = str_to_version s
+
+-- The version with these three numbers. A Result: the spec's rule 2 has
+-- them as non-negative integers, so a negative one is a mistake rather than
+-- a version.
+--
+-- >> Version.of_parts 1 2 3
+-- Ok(1.2.3) : Result String Version
+let of_parts major minor patch = version_of_parts major minor patch
+
+-- ── The next one ───────────────────────────────────────────────────────
+
+-- Each of these clears everything below it, prerelease and build included:
+-- `1.2.3-rc.1` bumped at the minor is `1.3.0`, because the prerelease named
+-- a run-up to 1.2.3 and none of it survives the step.
+--
+-- >> Version.bump_major 1.2.3
+-- 2.0.0 : Version
+let bump_major v = version_bump_major v
+
+-- >> Version.bump_minor 1.2.3
+-- 1.3.0 : Version
+let bump_minor v = version_bump_minor v
+
+-- With one exception, which is the spec's rule 9 read forwards: a
+-- prerelease precedes the release it names, so `1.2.3-rc.1` is already on
+-- the way to 1.2.3 and the next patch is 1.2.3 rather than 1.2.4. Going to
+-- 1.2.4 would step over the release the prerelease was for.
+--
+-- >> Version.bump_patch 1.2.3
+-- 1.2.4 : Version
+--
+-- >> Version.bump_patch 1.2.3-rc.1
+-- 1.2.3 : Version
+let bump_patch v = version_bump_patch v
+
+-- ── Setting the tail ───────────────────────────────────────────────────
+
+-- A Result, because a prerelease is grammar rather than text to escape:
+-- there is no encoding that turns `rc 1` into an identifier, so text that
+-- is not one is reported instead of being quietly rewritten.
+--
+-- The build is left alone.
+--
+-- >> Version.with_prerelease (Some "rc.1") 1.2.3
+-- Ok(1.2.3-rc.1) : Result String Version
+--
+-- >> Version.with_prerelease (None) 1.2.3-rc.1
+-- Ok(1.2.3) : Result String Version
+--
+-- >> Version.with_prerelease (Some "rc 1") 1.2.3
+-- Error("a prerelease is dot-separated identifiers of letters, digits and hyphens, none empty, and a numeric one has no leading zero") : Result String Version
+let with_prerelease pre v = version_with_prerelease pre v
+
+-- >> Version.with_build (Some "build.5") 1.2.3
+-- Ok(1.2.3+build.5) : Result String Version
+let with_build b v = version_with_build b v

@@ -104,6 +104,26 @@ let test_urls () =
 
 (* ── IPv4 ───────────────────────────────────────────────────────────────── *)
 
+(* Semantic Versioning 2.0.0's grammar, which the literal is checked against
+   as well as `String.to_version`, so the literal cannot write a value the
+   checked constructor would refuse. It used to admit `_` in a prerelease and
+   a leading zero in a number, and the spec admits neither. *)
+let test_versions () =
+  check "three numbers"  "1.2.3"          [Version "1.2.3"];
+  check "a prerelease"   "1.2.3-alpha.1"  [Version "1.2.3-alpha.1"];
+  (* Only a *numeric* identifier is barred from a leading zero; one that is
+     not all digits is compared as text and may start with one. *)
+  check "a digit-led identifier" "1.2.3-0a" [Version "1.2.3-0a"];
+  refuses "a leading zero"       "01.2.3"        "leading zero";
+  refuses "an underscore"        "1.2.3-alpha_1" "letters, digits and hyphens";
+  refuses "an empty identifier"  "1.2.3-"        "none empty";
+  refuses "a numeric identifier with a leading zero" "1.2.3-01" "leading zero";
+  (* `+` is the addition operator, so build metadata is not written as a
+     literal. `String.to_version` is where a version carrying one comes
+     from. *)
+  check "a + is not part of one" "1.2.3+1"
+    [Version "1.2.3"; Plus; Int 1]
+
 let test_ipv4 () =
   check "loopback"   "127.0.0.1"       [IPv4 "127.0.0.1"];
   check "private"    "192.168.1.1"     [IPv4 "192.168.1.1"];
@@ -252,6 +272,7 @@ let () =
     ];
     "network", [
       Alcotest.test_case "urls"               `Quick test_urls;
+      Alcotest.test_case "versions"           `Quick test_versions;
       Alcotest.test_case "ipv4"               `Quick test_ipv4;
       Alcotest.test_case "ipv4 vs float"      `Quick test_ipv4_vs_float;
       Alcotest.test_case "ipv4 invalid"       `Quick test_ipv4_invalid;

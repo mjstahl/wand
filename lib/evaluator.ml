@@ -877,15 +877,34 @@ let cidr_key s =
    against a number numerically, a number below a word, two words by their
    text, and if all of them match, the longer list wins.
 
-   wand's literal accepts two spellings semver does not, and both fall out
-   of the rule rather than needing an exception: a leading zero reads as
-   the number it is, and an empty prerelease is one empty identifier, below
-   every other. *)
+   `Lexer.version_error` holds the grammar, so both spellings that used to
+   reach here and are not semver -- a leading zero, and an empty prerelease
+   identifier -- no longer exist by the time anything is compared. *)
+(* Numbers, prerelease, build. Build metadata is taken off first: semver
+   says it is ignored when determining precedence, so nothing below this
+   point ever sees it -- and leaving it on would put a `+` in front of
+   `int_of_string`, which is how `1.2.3+b` used to raise rather than
+   compare. *)
+let version_build s =
+  match String.index_opt s '+' with
+  | None -> (s, None)
+  | Some i -> (String.sub s 0 i,
+               Some (String.sub s (i + 1) (String.length s - i - 1)))
+
 let version_parts s =
+  let s, _build = version_build s in
   match String.index_opt s '-' with
   | None -> (s, None)
   | Some i -> (String.sub s 0 i,
                Some (String.sub s (i + 1) (String.length s - i - 1)))
+
+(* One of the three numbers. Total: a value of this type has three, so the
+   segment is there and is digits. *)
+let version_number v i =
+  match String.split_on_char '.' (fst (version_parts v)) with
+  | segs -> (match List.nth_opt segs i with
+             | Some seg -> (match int_of_string_opt seg with Some n -> n | None -> 0)
+             | None -> 0)
 
 let compare_prerelease a b =
   let ids t = String.split_on_char '.' t in
@@ -3214,12 +3233,130 @@ let stdlib_eval_env : env = [
       to_domain ~shown:s "Port"
         (function Token.Port v -> Some (VPort v) | _ -> None) (port_text s)
     | _ -> raise (EvalError "str_to_port: expected String")));
+  (* Checked against the version grammar rather than by re-lexing, as
+     `str_to_url` is. The literal cannot spell build metadata -- `+` is the
+     addition operator -- and text holding a version usually holds the `v`
+     of a git tag as well. Both are read here; see `Lexer.version_error`. *)
   ("str_to_version", VBuiltin (function
-    | VString s -> to_domain "Version" (function Token.Version v -> Some (VVersion v) | _ -> None) s
+    | VString s ->
+      let text = Lexer.version_text s in
+      (match Lexer.version_error text with
+       | None -> VConstr (Ctor.Builtin "Ok", [VVersion text])
+       | Some why -> VConstr (Ctor.Builtin "Error", [VString
+           (Printf.sprintf "cannot parse %S as Version: %s" s why)]))
     | _ -> raise (EvalError "str_to_version: expected String")));
   ("str_to_size", VBuiltin (function
     | VString s -> to_domain "Size" (function Token.Size v -> Some (VSize v) | _ -> None) s
     | _ -> raise (EvalError "str_to_size: expected String")));
+  (* ── Taking a version apart ─────────────────────────────────────────── *)
+
+  (* The numbers are three by the time a value exists -- `Lexer.version_error`
+     and the literal both require it -- so these are total. *)
+  ("version_major", VBuiltin (function
+    | VVersion v -> VInt (version_number v 0)
+    | _ -> raise (EvalError "version_major: expected Version")));
+  ("version_minor", VBuiltin (function
+    | VVersion v -> VInt (version_number v 1)
+    | _ -> raise (EvalError "version_minor: expected Version")));
+  ("version_patch", VBuiltin (function
+    | VVersion v -> VInt (version_number v 2)
+    | _ -> raise (EvalError "version_patch: expected Version")));
+  ("version_prerelease", VBuiltin (function
+    | VVersion v ->
+      (match snd (version_parts v) with
+       | Some p -> VConstr (Ctor.Builtin "Some", [VString p])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "version_prerelease: expected Version")));
+  ("version_build", VBuiltin (function
+    | VVersion v ->
+      (match snd (version_build v) with
+       | Some b -> VConstr (Ctor.Builtin "Some", [VString b])
+       | None   -> VConstr (Ctor.Builtin "None", []))
+    | _ -> raise (EvalError "version_build: expected Version")));
+  (* A release, as opposed to something on the way to one. Build metadata
+     does not make a version unstable: it names the build, not the state. *)
+  ("version_is_stable", VBuiltin (function
+    | VVersion v -> VBool (snd (version_parts v) = None)
+    | _ -> raise (EvalError "version_is_stable: expected Version")));
+  (* The three numbers alone. What a prerelease is on the way to, and the
+     value to compare when the prerelease is not the question. *)
+  ("version_core", VBuiltin (function
+    | VVersion v -> VVersion (fst (version_parts v))
+    | _ -> raise (EvalError "version_core: expected Version")));
+  ("version_to_str", VBuiltin (function
+    | VVersion v -> VString v
+    | _ -> raise (EvalError "version_to_str: expected Version")));
+  (* A Result, because a negative number is not a version component and
+     `of_parts (0 - 1) 0 0` is a mistake rather than a version. *)
+  ("version_of_parts", VBuiltin (function
+    | VInt major -> VBuiltin (function
+      | VInt minor -> VBuiltin (function
+        | VInt patch ->
+          if major >= 0 && minor >= 0 && patch >= 0 then
+            VConstr (Ctor.Builtin "Ok",
+              [VVersion (Printf.sprintf "%d.%d.%d" major minor patch)])
+          else
+            VConstr (Ctor.Builtin "Error", [VString
+              (Printf.sprintf "invalid version %d.%d.%d: the numbers cannot be negative"
+                 major minor patch)])
+        | _ -> raise (EvalError "version_of_parts: expected Int"))
+      | _ -> raise (EvalError "version_of_parts: expected Int"))
+    | _ -> raise (EvalError "version_of_parts: expected Int")));
+
+  (* Each bump clears everything below it, including the prerelease and the
+     build: `1.2.3-rc.1` bumped at the minor is `1.3.0`, not `1.3.0-rc.1`,
+     because the prerelease named a run-up to 1.2.3 and there is nothing
+     left of it. *)
+  ("version_bump_major", VBuiltin (function
+    | VVersion v -> VVersion (Printf.sprintf "%d.0.0" (version_number v 0 + 1))
+    | _ -> raise (EvalError "version_bump_major: expected Version")));
+  ("version_bump_minor", VBuiltin (function
+    | VVersion v ->
+      VVersion (Printf.sprintf "%d.%d.0" (version_number v 0) (version_number v 1 + 1))
+    | _ -> raise (EvalError "version_bump_minor: expected Version")));
+  (* The one exception. A prerelease is below the release it names, so
+     `1.2.3-rc.1` is already on the way to 1.2.3 and bumping the patch
+     answers 1.2.3 rather than 1.2.4 -- skipping the release the prerelease
+     was for would step over it. *)
+  ("version_bump_patch", VBuiltin (function
+    | VVersion v ->
+      let core = fst (version_parts v) in
+      if snd (version_parts v) <> None then VVersion core
+      else
+        VVersion (Printf.sprintf "%d.%d.%d"
+                    (version_number v 0) (version_number v 1) (version_number v 2 + 1))
+    | _ -> raise (EvalError "version_bump_patch: expected Version")));
+
+  (* Setting the tail. A Result: a prerelease is part of the grammar rather
+     than text to escape -- there is no encoding that turns `rc 1` into an
+     identifier -- so text that is not one is reported. *)
+  ("version_with_prerelease", VBuiltin (fun pre -> VBuiltin (function
+    | VVersion v ->
+      let core, _ = version_parts v in
+      let _, build = version_build v in
+      let tail = match build with None -> "" | Some b -> "+" ^ b in
+      let text = match pre with
+        | VConstr (Ctor.Builtin "Some", [VString p]) -> core ^ "-" ^ p ^ tail
+        | VConstr (Ctor.Builtin "None", []) -> core ^ tail
+        | _ -> raise (EvalError "version_with_prerelease: expected Option String")
+      in
+      (match Lexer.version_error text with
+       | None -> VConstr (Ctor.Builtin "Ok", [VVersion text])
+       | Some why -> VConstr (Ctor.Builtin "Error", [VString why]))
+    | _ -> raise (EvalError "version_with_prerelease: expected Version"))));
+  ("version_with_build", VBuiltin (fun bld -> VBuiltin (function
+    | VVersion v ->
+      let head, _ = version_build v in
+      let text = match bld with
+        | VConstr (Ctor.Builtin "Some", [VString b]) -> head ^ "+" ^ b
+        | VConstr (Ctor.Builtin "None", []) -> head
+        | _ -> raise (EvalError "version_with_build: expected Option String")
+      in
+      (match Lexer.version_error text with
+       | None -> VConstr (Ctor.Builtin "Ok", [VVersion text])
+       | Some why -> VConstr (Ctor.Builtin "Error", [VString why]))
+    | _ -> raise (EvalError "version_with_build: expected Version"))));
+
   (* ── Taking a URL apart ─────────────────────────────────────────────── *)
 
   (* One parse, read by every accessor. A URL is
@@ -4875,8 +5012,16 @@ let decode_builtins : env = [
     | _ -> expected "URL" path j));
   ("decode_size", VDecoder (decode_lexed "Size"
     (function Token.Size v -> Some (VSize v) | _ -> None)));
-  ("decode_version", VDecoder (decode_lexed "Version"
-    (function Token.Version v -> Some (VVersion v) | _ -> None)));
+  (* Not `decode_lexed`: see `str_to_version`. A lock file or a tag list is
+     exactly where `v1.2.3` and build metadata turn up. *)
+  ("decode_version", VDecoder (fun j path ->
+    match j with
+    | `String s ->
+      let text = Lexer.version_text s in
+      (match Lexer.version_error text with
+       | None -> Ok (VVersion text)
+       | Some why -> decode_error path (Printf.sprintf "expected Version, got %S: %s" s why))
+    | _ -> expected "Version" path j));
   ("decode_datetime", VDecoder (decode_lexed "DateTime"
     (function Token.DateTime v -> Some (VDateTime v) | _ -> None)));
   ("decode_ipv4", VDecoder (decode_lexed "IPv4"

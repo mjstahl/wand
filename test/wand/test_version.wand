@@ -1,0 +1,228 @@
+import List
+import String
+import Version
+
+let {test} = import Test
+
+-- ── the numbers ────────────────────────────────────────────────────────
+
+test "major, minor, patch" (fn t ->
+  t.eq (1, 2, 3) (Version.major 1.2.3, Version.minor 1.2.3, Version.patch 1.2.3))
+
+test "read past the prerelease" (fn t ->
+  t.eq (1, 2, 3) (
+    Version.major 1.2.3-rc.1,
+    Version.minor 1.2.3-rc.1,
+    Version.patch 1.2.3-rc.1
+  ))
+
+test "core drops the tail" (fn t -> t.eq 1.2.3 (Version.core 1.2.3-rc.1))
+test "and is the value itself when there is no tail" (fn t ->
+  t.eq 1.2.3 (Version.core 1.2.3))
+
+-- ── the tail ───────────────────────────────────────────────────────────
+
+test "a prerelease when there is one" (fn t ->
+  t.eq (Some "rc.1") (Version.prerelease 1.2.3-rc.1))
+test "and None when there is not" (fn t -> t.eq (None) (Version.prerelease 1.2.3))
+
+test "build metadata comes from of_string" (fn t ->
+  match Version.of_string "1.2.3+build.5" with
+  | Ok v -> t.eq (Some "build.5") (Version.build v)
+  | Error _ -> t.ok false)
+
+test "a version with both keeps them apart" (fn t ->
+  match Version.of_string "1.2.3-rc.1+build.5" with
+  | Ok v -> t.eq (Some "rc.1", Some "build.5") (Version.prerelease v, Version.build v)
+  | Error _ -> t.ok false)
+
+-- Rule 9: a prerelease is unstable. Build metadata names the build, not the
+-- state of the thing built, so it does not make a version unstable.
+test "stable? is about the prerelease" (fn t ->
+  t.eq (true, false) (Version.stable? 1.2.3, Version.stable? 1.2.3-rc.1))
+
+test "and build metadata does not make it unstable" (fn t ->
+  match Version.of_string "1.2.3+build.5" with
+  | Ok v -> t.ok (Version.stable? v)
+  | Error _ -> t.ok false)
+
+-- ── precedence: the spec's own examples ────────────────────────────────
+
+-- Rule 11's worked example, in the order it gives.
+test "the spec's ordering example" (fn t ->
+  t.eq
+    [
+      1.0.0-alpha,
+      1.0.0-alpha.1,
+      1.0.0-alpha.beta,
+      1.0.0-beta,
+      1.0.0-beta.2,
+      1.0.0-beta.11,
+      1.0.0-rc.1,
+      1.0.0
+    ]
+    (List.sort [
+      1.0.0,
+      1.0.0-rc.1,
+      1.0.0-beta.11,
+      1.0.0-beta.2,
+      1.0.0-beta,
+      1.0.0-alpha.beta,
+      1.0.0-alpha.1,
+      1.0.0-alpha
+    ]))
+
+-- Rule 11: the numbers are compared numerically, not as text.
+test "1.10.0 is above 1.9.0" (fn t -> t.ok (1.9.0 < 1.10.0))
+
+-- Rule 11: a numeric identifier is below an alphanumeric one, and a smaller
+-- set of identifiers is below a larger one that starts the same.
+test "numeric identifiers sort below alphanumeric" (fn t ->
+  t.ok (1.0.0-alpha.1 < 1.0.0-alpha.beta))
+test "and fewer identifiers below more" (fn t -> t.ok (1.0.0-alpha < 1.0.0-alpha.1))
+
+-- Rule 10: build metadata is ignored when determining precedence, so two
+-- versions differing only in it have the same precedence.
+test "build metadata takes no part in precedence" (fn t ->
+  t.eq (Version.of_string "1.0.0+a") (Version.of_string "1.0.0+b"))
+
+test "and does not lift a version above its plain form" (fn t ->
+  match Version.of_string "1.0.0+a" with
+  | Ok v -> t.ok (v == 1.0.0)
+  | Error _ -> t.ok false)
+
+-- ── what the spec refuses ──────────────────────────────────────────────
+
+-- Rule 2: the numbers are non-negative integers without leading zeros.
+test "a leading zero is not a version" (fn t ->
+  match Version.of_string "01.2.3" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "leading zero" e))
+
+test "two numbers are not a version" (fn t ->
+  match Version.of_string "1.2" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "three numbers" e))
+
+-- Rule 9: identifiers are letters, digits and hyphens, and none may be
+-- empty. `_` is not in the set, though the literal used to admit it.
+test "an underscore is not in a prerelease" (fn t ->
+  match Version.of_string "1.2.3-alpha_1" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "letters, digits and hyphens" e))
+
+test "an empty prerelease identifier is refused" (fn t ->
+  match Version.of_string "1.2.3-" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "none empty" e))
+
+test "and a numeric one with a leading zero" (fn t ->
+  match Version.of_string "1.2.3-01" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "leading zero" e))
+
+-- But an identifier that is not all digits may begin with one: only
+-- *numeric* identifiers are barred from a leading zero.
+test "an alphanumeric identifier may start with a digit" (fn t ->
+  t.eq (Some "0a") (Version.prerelease 1.2.3-0a))
+
+-- Rule 10: build identifiers are the same set, except that a digit string
+-- may carry leading zeros -- nothing compares them, so there is no number
+-- for the zero to be in front of.
+test "build metadata allows a leading zero" (fn t ->
+  match Version.of_string "1.2.3+001" with
+  | Ok v -> t.eq (Some "001") (Version.build v)
+  | Error _ -> t.ok false)
+
+test "an empty build identifier is refused" (fn t ->
+  match Version.of_string "1.2.3+" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "none empty" e))
+
+-- ── of_string, and the v of a git tag ──────────────────────────────────
+
+-- The spec's FAQ calls the `v` a prefix and not part of the version, so it
+-- is dropped rather than kept: `v1.2.3` and `1.2.3` are one value, not two
+-- that order the same and print differently.
+test "a leading v is read and dropped" (fn t ->
+  t.eq (Ok 1.2.3) (Version.of_string "v1.2.3"))
+
+test "so a tag and a literal are the same value" (fn t ->
+  t.eq (Version.of_string "1.2.3") (Version.of_string "v1.2.3"))
+
+test "surrounding space is trimmed" (fn t -> t.eq (Ok 1.2.3) (Version.of_string " 1.2.3 "))
+
+test "String.to_version is the same function" (fn t ->
+  t.eq (String.to_version "v1.2.3") (Version.of_string "v1.2.3"))
+
+test "text that is not a version says why" (fn t ->
+  match Version.of_string "banana" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "three numbers" e))
+
+-- ── of_parts ───────────────────────────────────────────────────────────
+
+test "of_parts builds one" (fn t -> t.eq (Ok 1.2.3) (Version.of_parts 1 2 3))
+
+-- Rule 2 again: the numbers are non-negative.
+test "and refuses a negative number" (fn t ->
+  match Version.of_parts 1 (0 - 1) 3 with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "cannot be negative" e))
+
+-- ── stepping to the next one ───────────────────────────────────────────
+
+test "bump_major clears the minor and patch" (fn t -> t.eq 2.0.0 (Version.bump_major 1.2.3))
+test "bump_minor clears the patch" (fn t -> t.eq 1.3.0 (Version.bump_minor 1.2.3))
+test "bump_patch" (fn t -> t.eq 1.2.4 (Version.bump_patch 1.2.3))
+
+-- A bump clears the prerelease: it named a run-up to the version being
+-- stepped away from, and none of it survives the step.
+test "a bump clears the prerelease" (fn t ->
+  t.eq (2.0.0, 1.3.0) (Version.bump_major 1.2.3-rc.1, Version.bump_minor 1.2.3-rc.1))
+
+-- Rule 9 read forwards: a prerelease precedes the release it names, so
+-- 1.2.3-rc.1 is already on the way to 1.2.3 and that is the next patch.
+-- Going to 1.2.4 would step over the release the prerelease was for.
+test "bump_patch of a prerelease is the release it names" (fn t ->
+  t.eq 1.2.3 (Version.bump_patch 1.2.3-rc.1))
+
+test "every bump is above what it came from" (fn t ->
+  t.ok
+    (1.2.3 < Version.bump_patch 1.2.3 && Version.bump_patch 1.2.3 < Version.bump_minor 1.2.3 && Version.bump_minor 1.2.3 < Version.bump_major 1.2.3))
+
+-- ── setting the tail ───────────────────────────────────────────────────
+
+test "with_prerelease sets one" (fn t ->
+  t.eq (Ok 1.2.3-rc.1) (Version.with_prerelease (Some "rc.1") 1.2.3))
+
+test "and takes one off" (fn t -> t.eq (Ok 1.2.3) (Version.with_prerelease None 1.2.3-rc.1))
+
+-- There is no encoding that turns `rc 1` into an identifier, so this
+-- reports rather than quietly rewriting what it was given.
+test "text that is not a prerelease is refused" (fn t ->
+  match Version.with_prerelease (Some "rc 1") 1.2.3 with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "letters, digits and hyphens" e))
+
+test "with_build sets one, and leaves the prerelease" (fn t ->
+  match Version.with_build (Some "b.5") 1.2.3-rc.1 with
+  | Ok v -> t.eq (Some "rc.1", Some "b.5") (Version.prerelease v, Version.build v)
+  | Error _ -> t.ok false)
+
+test "and with_prerelease leaves the build" (fn t ->
+  match Version.of_string "1.2.3+b.5" with
+  | Ok v -> (
+    match Version.with_prerelease (Some "rc.1") v with
+    | Ok w -> t.eq (Some "rc.1", Some "b.5") (Version.prerelease w, Version.build w)
+    | Error _ -> t.ok false
+  )
+  | Error _ -> t.ok false)
+
+-- ── to_string ──────────────────────────────────────────────────────────
+
+test "to_string is the characters themselves" (fn t ->
+  t.eq "1.2.3-rc.1" (Version.to_string 1.2.3-rc.1))
+
+test "and round-trips through of_string" (fn t ->
+  t.eq (Ok 1.2.3-rc.1) (Version.of_string (Version.to_string 1.2.3-rc.1)))

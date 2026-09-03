@@ -430,6 +430,110 @@ let read_url s scheme =
   (match url_error text with Some why -> raise (Fail why) | None -> ());
   URL text
 
+(* ── Versions ───────────────────────────────────────────────────────────── *)
+
+(* The grammar `String.to_version` and `Decode.version` are checked against,
+   held here for the reason `url_error` and the port range are: one rule, so
+   three readers of the same text cannot disagree about it.
+
+   It accepts two spellings the literal cannot, and the reasons are the same
+   shape as the URL's `,`:
+
+   Build metadata. `1.2.3+build.5` is semver, and `+` is the addition
+   operator, so a literal reading it would have to decide what `1.2.3+1`
+   means -- and it looks exactly like arithmetic. The literal leaves `+`
+   alone and this is where a version carrying one is built.
+
+   A leading `v`. A git tag is `v0.55.5` and a release note says `v1.2.3`,
+   so text holding a version usually holds the `v` as well. `port_text`
+   already does this in the other direction, adding the `:` a bare number
+   from a config file lacks. The `v` is dropped rather than kept: it is a
+   way of writing the version, not part of it, and keeping it would make
+   `1.2.3` and `v1.2.3` two values that order the same and print
+   differently. *)
+let version_text s =
+  let s = String.trim s in
+  if String.length s > 1 && (s.[0] = 'v' || s.[0] = 'V') && is_digit s.[1] then
+    String.sub s 1 (String.length s - 1)
+  else s
+
+(* Semantic Versioning 2.0.0, https://semver.org/spec/v2.0.0.html, as its
+   grammar states it.
+
+   A numeric identifier is `0` or a digit string with no leading zero, which
+   rules 2 and 9 both require: `01.2.3` and `1.2.3-01` are not versions. An
+   alphanumeric identifier is `[0-9A-Za-z-]` with at least one character that
+   is not a digit -- no `_`, which the literal used to admit. No identifier
+   may be empty, so `1.2.3-` and `1.2.3+` are not versions either.
+
+   Build identifiers are the same set, except that a digit string may carry
+   leading zeros: build metadata is never compared, so there is no number
+   there for a zero to be in front of. *)
+let is_version_id_char c = is_alpha c || is_digit c || c = '-'
+
+let all_digits s = s <> "" && String.for_all is_digit s
+
+let numeric_identifier s =
+  all_digits s && (s = "0" || s.[0] <> '0') && int_of_string_opt s <> None
+
+(* Rule 9: an identifier that is all digits is compared as a number and so
+   must be one; anything else is compared as text and only has to be in the
+   character set. *)
+let prerelease_identifier s =
+  s <> ""
+  && String.for_all is_version_id_char s
+  && (if all_digits s then numeric_identifier s else true)
+
+let build_identifier s = s <> "" && String.for_all is_version_id_char s
+
+let split_on_dot s = String.split_on_char '.' s
+
+let version_error text =
+  let n = String.length text in
+  (* The core ends at the first `-` or `+`. A `-` after a `+` is inside the
+     build metadata, which is why this looks for the first of either rather
+     than for each in turn. *)
+  let core_end =
+    let rec find i =
+      if i >= n then n
+      else if text.[i] = '-' || text.[i] = '+' then i
+      else find (i + 1)
+    in
+    find 0
+  in
+  let rest = String.sub text core_end (n - core_end) in
+  let pre, build =
+    match String.index_opt rest '+' with
+    | Some i ->
+      (String.sub rest 0 i, Some (String.sub rest (i + 1) (String.length rest - i - 1)))
+    | None -> (rest, None)
+  in
+  let core = split_on_dot (String.sub text 0 core_end) in
+  if List.length core <> 3 then
+    Some "a version is three numbers: major.minor.patch"
+  else if not (List.for_all all_digits core) then
+    Some "a version's major, minor and patch are numbers"
+  else if not (List.for_all numeric_identifier core) then
+    Some "a version's numbers cannot have a leading zero"
+  else if pre <> "" && pre.[0] <> '-' then
+    Some (Printf.sprintf "%C cannot appear in a version" pre.[0])
+  else
+    let pre_ids =
+      if pre = "" then []
+      else split_on_dot (String.sub pre 1 (String.length pre - 1))
+    in
+    if not (List.for_all prerelease_identifier pre_ids) then
+      Some "a prerelease is dot-separated identifiers of letters, digits and \
+            hyphens, none empty, and a numeric one has no leading zero"
+    else
+      match build with
+      | None -> None
+      | Some b ->
+        if List.for_all build_identifier (split_on_dot b) then None
+        else
+          Some "build metadata is dot-separated identifiers of letters, \
+                digits and hyphens, none empty"
+
 (* ── Size units ─────────────────────────────────────────────────────────── *)
 
 let try_read_size_unit s =
@@ -561,9 +665,19 @@ let read_numeric s first_char =
                && (is_alnum_or_under (peek s) || peek s = '.' || peek s = '-') do
               Buffer.add_char pre (advance s)
             done;
-            Version (base ^ Buffer.contents pre)
+            let text = base ^ Buffer.contents pre in
+            (* Checked against the same grammar `String.to_version` uses, for
+               the reason the URL literal is: the literal must not be able to
+               write a value the checked constructor would refuse. It used to
+               admit `_` in a prerelease and a leading zero in a number, and
+               semver admits neither. *)
+            (match version_error text with
+             | Some why -> raise (Fail why)
+             | None -> Version text)
           end else
-            Version base)
+            (match version_error base with
+             | Some why -> raise (Fail why)
+             | None -> Version base))
      | c when is_upper c ->
        (* e.g. 1.5GB *)
        (match try_read_size_unit s with
