@@ -31,7 +31,7 @@ let required = ["VERSION", "LICENSE", "wand"]
 
 let missing staged =
   let names = staged |> List.map (fn p -> Path.to_string (Path.basename p)) in
-  required |> List.filter (fn want -> !(List.any (fn got -> got == want) names))
+  required |> List.filter (fn want -> !(List.any? (fn got -> got == want) names))
 
 let lock_at path =
   Resource.make (fn () -> FS.write_file! path "held") (fn _ -> FS.delete! path)

@@ -549,6 +549,9 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          if ends_with name '?' && res <> Typechecker.TBool then
            add Lint_rules.V_PRED1 loc
              (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));
+         (* And the other way, as `!` is checked both ways below. *)
+         if res = Typechecker.TBool && not (ends_with name '?') && is_function t then
+           add Lint_rules.V_PRED3 loc (Lint_rules.pred3 ~name);
          if informationless_error t then
            add Lint_rules.V_OR1 loc (Lint_rules.or1 ~name);
          (* The `!` convention, checked in both directions now that a

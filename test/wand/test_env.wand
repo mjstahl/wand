@@ -36,7 +36,7 @@ test "clear empties value" (fn t ->
 
 let () = Env.set "WAND_TEST_ALL" "present"
 test "all contains set var" (fn t ->
-  let pairs = Env.all () in t.ok (List.any (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
+  let pairs = Env.all () in t.ok (List.any? (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
 
 -- ── args ────────────────────────────────────────────────────────────────
 

@@ -2793,8 +2793,8 @@ head!      : List 'a -> 'a ! {Raise}
 tail       : List 'a -> Option (List 'a)
 tail!      : List 'a -> List 'a ! {Raise}
 empty?     : List 'a -> Bool
-any        : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
-all        : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
+any?       : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
+all?       : ('a -> Bool ! 'e) -> List 'a -> Bool ! 'e
 find       : ('a -> Bool ! 'e) -> List 'a -> Option 'a ! 'e
 zip        : List 'a -> List 'b -> List ('a, 'b) ! 'e
 take       : Int -> List 'a -> List 'a ! 'e
@@ -4576,6 +4576,7 @@ punish the safer choice.
 |---|---|
 | `V-PRED1` | a `?`-named function returns something other than `Bool` |
 | `V-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
+| `V-PRED3` | a function that returns `Bool` is not named with `?` |
 | `V-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
 | `V-BANG1` | a function that can raise is not named with `!` |
 | `V-BANG2` | a `!`-named function cannot raise |
@@ -4728,8 +4729,8 @@ does not leave the key out:
 names:
 
 ```json
-[{"name":"List.all","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"},
- {"name":"List.any","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"}]
+[{"name":"List.all?","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"},
+ {"name":"List.any?","type":"('a -> Bool ! 'e) -> List 'a -> Bool ! 'e"}]
 ```
 
 `wand s --json` prints one object for the whole run, after the run ends. A

@@ -64,7 +64,7 @@ let outcome (step: Step) (r: ShellResult) =
 -- all; here it is right for the package and the user, whose exit codes
 -- distinguish, and always true while the last two steps are told rather
 -- than asked.
-let changed? results = List.any (fn (_, o) -> o == Made) results
+let changed? results = List.any? (fn (_, o) -> o == Made) results
 
 -- The name and code of a step that failed, and nothing for one that did
 -- not. Taking the step and the outcome as two arguments rather than a pair

@@ -13,6 +13,7 @@ type id =
   | V_OR1      (* an error that carries no information is a misfiled Option *)
   | V_NAME1    (* keyword-collision escapes should not reach a caller *)
   | V_PRED2    (* `?` already says predicate; `is_` says it twice *)
+  | V_PRED3    (* it returns Bool, and the name does not say so *)
   | V_BANG1    (* it can raise, and the name does not say so *)
   | V_BANG2    (* the name says it raises, and it cannot *)
   | A_SHELL1   (* a shell blob hides work the type system could see *)
@@ -55,6 +56,9 @@ let all = [
     kind = Violation };
   { id = V_PRED2;  code = "V-PRED2";
     summary = "a `?`-named function also carries a redundant `is_` prefix";
+    kind = Violation };
+  { id = V_PRED3;  code = "V-PRED3";
+    summary = "a function that returns Bool is not named with `?`";
     kind = Violation };
   { id = V_BANG1;  code = "V-BANG1";
     summary = "a function that can raise is not named with `!`";
@@ -152,6 +156,19 @@ let pred1 ~name ~actual =
   Printf.sprintf
     "'%s' is named as a predicate but returns %s; a `?` name promises Bool"
     name actual
+
+(* The other half of the `?` convention. V-PRED1 has held one direction
+   since the beginning -- a `?` name must return Bool -- and nothing held
+   the other, so a predicate could go unmarked. `!` has had both directions
+   since a signature could say whether a function raises, and this is the
+   same rule for the same reason: a caller reading `List.all xs` cannot see
+   that it answers a question, and a convention that only fires when you
+   opt into it is a style note rather than a convention. *)
+let pred3 ~name =
+  Printf.sprintf
+    "'%s' returns Bool but is not named as a predicate; a Bool answer is a \
+     question answered, and the `?` is how a caller sees that at the call site"
+    name
 
 let or1 ~name =
   Printf.sprintf

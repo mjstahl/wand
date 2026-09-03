@@ -14,12 +14,12 @@ test "multi param" (fn t -> t.ok true)
 
 type Opt 'a = ONone | OSome 'a
 
-let is_some o =
+let some? o =
   match o with
   | OSome _ -> true
   | ONone -> false
-test "construct Some" (fn t -> t.eq true (is_some (OSome 3)))
-test "construct None" (fn t -> t.eq false (is_some ONone))
+test "construct Some" (fn t -> t.eq true (some? (OSome 3)))
+test "construct None" (fn t -> t.eq false (some? ONone))
 
 let get_or d o =
   match o with

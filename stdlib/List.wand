@@ -93,17 +93,17 @@ let empty? _ = false
 
 -- Return true if any element satisfies the predicate.
 --
--- >> List.any (fn x -> x > 2) [1, 2, 3]
+-- >> List.any? (fn x -> x > 2) [1, 2, 3]
 -- true : Bool
-let any _ [] = false
-let any p [h :: t] = if p h then true else any p t
+let any? _ [] = false
+let any? p [h :: t] = if p h then true else any? p t
 
 -- Return true if all elements satisfy the predicate.
 --
--- >> List.all (fn x -> x > 0) [1, 2, 3]
+-- >> List.all? (fn x -> x > 0) [1, 2, 3]
 -- true : Bool
-let all _ [] = true
-let all p [h :: t] = if p h then all p t else false
+let all? _ [] = true
+let all? p [h :: t] = if p h then all? p t else false
 
 -- Return the first element satisfying the predicate, or None.
 --

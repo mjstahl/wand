@@ -115,7 +115,7 @@ test "FS.glob answers exactly what matches? accepts" (fn t ->
     fn p -> (Path.of_string
       (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p)))
   in
-  let all_match = found |> List.all (fn p -> Glob.matches? **.wand (relative p)) in
+  let all_match = found |> List.all? (fn p -> Glob.matches? **.wand (relative p)) in
   -- And every file it did not answer is one the predicate rejects.
   let found_names = found |> List.map (fn p -> Path.to_string (relative p)) in
   let missed =

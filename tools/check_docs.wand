@@ -77,7 +77,7 @@ let has_example! name = String.contains? ">>" $(%{wand} d --json %{name})
 
 let undocumented_in! module =
   members_of! module
-    |> List.filter (fn n -> !(List.any (fn e -> e == n) exempt))
+    |> List.filter (fn n -> !(List.any? (fn e -> e == n) exempt))
     |> List.filter (fn n -> !(has_example! n))
 
 let report (r: ShellResult) = (IO.println_err r.stdout; IO.println_err r.stderr)

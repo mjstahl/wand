@@ -106,8 +106,16 @@ let test_clock1 () =
 let test_pred1 () =
   fires "non-Bool predicate" "let big? n = n * 2\nbig? 3" "V-PRED1";
   silent "Bool predicate" "let big? n = n > 2\nbig? 3";
-  (* The rule is one-directional: a Bool-returning function need not be `?`. *)
-  silent "Bool without ?" "let positive n = n > 0\npositive 1"
+  (* Both directions, as `!` has had both since a signature could say whether
+     a function raises. The rule was one-directional for a while, and the
+     asymmetry is what let `List.all` and `List.any` sit in the standard
+     library answering questions without saying so. *)
+  fires "Bool without ?" "let positive n = n > 0\npositive 1" "V-PRED3";
+  silent "Bool with ?" "let positive? n = n > 0\npositive? 1";
+  (* A Bool that is not a function is a value, not a question: `let ready =
+     False` is a fact the program holds, and naming it `ready?` would promise
+     a caller something to call. *)
+  silent "a Bool value is not a predicate" "let ready = 1 > 0\nready"
 
 (* A name takes one ending. `ok?!` and `ok!?` are both parse errors, so the
    advice for a predicate that raises cannot be to add the `!`, which is
@@ -137,8 +145,10 @@ let test_pred2 () =
   fires "is_ prefix on a ?-named function" "let is_ready? x = x > 1\nis_ready? 2"
     "V-PRED2";
   silent "the bare form" "let ready? x = x > 1\nready? 2";
-  (* `is_` on a name without `?` is not this rule's business. *)
-  silent "no ? suffix" "let is_ready x = x > 1\nis_ready 2"
+  (* `is_` on a name without `?` is not this rule's business -- V-PRED3 has
+     the missing `?`, and reporting one name twice would say the same thing
+     in two voices. *)
+  not_fired "no ? suffix" "let is_ready x = x > 1\nis_ready 2" "V-PRED2"
 
 let test_or1 () =
   fires "Result with a Unit error" "let f x : Result Unit Int = Ok x\nf 1" "V-OR1";
@@ -544,7 +554,10 @@ let test_every_documented_id_exists () =
    the first is not dead, which is the whole reason the rule exists -- and
    the message names the line the first is on so a reader can go and look. *)
 let test_shadow1 () =
-  let src = "let limit = 100\nlet check = fn n -> n < limit\nlet limit = 500" in
+  (* The middle binding answers an Int, not a Bool: V-PRED3 would fire on a
+     `check` that answered one, and a fixture about V-SHADOW1 should carry
+     one finding. *)
+  let src = "let limit = 100\nlet check = fn n -> n + limit\nlet limit = 500" in
   fires "a second binding of one name" src "V-SHADOW1";
   let f =
     List.find (fun (f : Lint.finding) -> f.Lint.rule = Lint_rules.V_SHADOW1)
@@ -555,7 +568,7 @@ let test_shadow1 () =
     Alcotest.failf "the message should name the first binding's line: %s" f.Lint.text;
   (* Renaming is the correction the message asks for, and it silences it. *)
   silent "renamed apart"
-    "let limit = 100\nlet check = fn n -> n < limit\nlet ceiling = 500\ncheck ceiling"
+    "let limit = 100\nlet check = fn n -> n + limit\nlet ceiling = 500\ncheck ceiling"
 
 (* An inner binding shadows freely. It is visible on one screen, which is
    exactly what two top-level bindings cannot be assumed to be. *)

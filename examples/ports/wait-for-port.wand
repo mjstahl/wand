@@ -28,9 +28,9 @@ let answering? host port = Shell.ok? $?(nc -z %{host} %{Port.to_int port})
 
 -- Never answers false: it either succeeds or is stopped by the deadline
 -- above it. That is the whole shape a poll has.
-let poll every probe = if probe () then true else (Clock.sleep every; poll every probe)
+let poll? every probe = if probe () then true else (Clock.sleep every; poll? every probe)
 
-let wait_for limit every probe = Par.timeout limit (fn () -> poll every probe)
+let wait_for limit every probe = Par.timeout limit (fn () -> poll? every probe)
 
 let report limit host port =
   match wait_for limit 1s (fn () -> answering? host port) with
