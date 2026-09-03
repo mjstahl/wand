@@ -2238,6 +2238,42 @@ let to_domain ?shown name build s =
   | Error (Some why) -> VConstr (Ctor.Builtin "Error", [VString why])
   | Error None -> cannot ()
 
+(* ── Globs ───────────────────────────────────────────────────────────────── *)
+
+(* `./` in front of a pattern or a path is a way of writing "here" and not
+   part of either, so it comes off both before they meet. Without it
+   `FS.glob_in ./*.wand` would compare a pattern that carries it against
+   entry names that do not. *)
+let glob_strip_dot s =
+  if String.length s > 2 && s.[0] = '.' && s.[1] = '/' then
+    String.sub s 2 (String.length s - 2)
+  else s
+
+(* One compile, shared by `FS.glob` and `Glob.matches?`. Two engines given
+   the same pattern would eventually answer differently, and the difference
+   would show up as a walk finding a file the predicate says it should not
+   have. *)
+let glob_compile pat =
+  match Re.compile (Re.Glob.glob ~anchored:true ~double_asterisk:true (glob_strip_dot pat)) with
+  | re -> Ok re
+  | exception _ ->
+    Error "a character class is not closed: every `[` needs a `]` after it"
+
+(* Everything before the first segment holding a wildcard. `./src/**/*.ts`
+   has `./src`, and a pattern whose first segment is already a wildcard has
+   `.`: there is no directory above it to start from. *)
+let glob_base_of g =
+  let segs = String.split_on_char '/' g in
+  let rec take acc = function
+    | [] -> List.rev acc                      (* no wildcard: all of it *)
+    | seg :: rest ->
+      if String.exists Lexer.is_glob_char seg then List.rev acc
+      else take (seg :: acc) rest
+  in
+  match take [] segs with
+  | [] | ["."] -> "."
+  | parts -> String.concat "/" parts
+
 (* ── URL parts ───────────────────────────────────────────────────────────── *)
 
 (* The pieces of a URL, found once and shared by the accessors. Held as text
@@ -3197,6 +3233,50 @@ let stdlib_eval_env : env = [
      and routing this through the scanner made that writing rule into a rule
      about URLs: `https://x/a?b=1,2` is a legal URL that no expression could
      produce. `Lexer.url_error` is what the literal is checked against too. *)
+  (* A glob from text, so a pattern out of argv, an environment variable or
+     a config file can be one. There was no way to build a Glob at all
+     before this: the literal was the only source, and it cannot spell a
+     pattern beginning with a bare name -- `src/**/*.ts` reads as a variable
+     called `src`, and only `./src/**/*.ts` lexes. *)
+  ("str_to_glob", VBuiltin (function
+    | VString s ->
+      let text = String.trim s in
+      (match Lexer.glob_error text with
+       | Some why ->
+         VConstr (Ctor.Builtin "Error", [VString
+           (Printf.sprintf "cannot parse %S as Glob: %s" s why)])
+       | None ->
+         (* Compiled here and thrown away, to learn whether it compiles. An
+            unclosed class is not a glob, and answering one that raises the
+            first time it is matched moves the failure away from the text
+            that caused it. *)
+         (match glob_compile text with
+          | Ok _ -> VConstr (Ctor.Builtin "Ok", [VGlob text])
+          | Error why ->
+            VConstr (Ctor.Builtin "Error", [VString
+              (Printf.sprintf "cannot parse %S as Glob: %s" s why)])))
+    | _ -> raise (EvalError "str_to_glob: expected String")));
+  (* Whether a path is one the pattern selects, without going to the disk to
+     find out. The matcher is the one `FS.glob` walks a directory with, so
+     the two cannot disagree about a pattern -- which is the whole reason
+     this is a builtin rather than the rules written again in wand. *)
+  ("glob_matches", VBuiltin (function
+    | VGlob pat -> VBuiltin (function
+      | VPath p | VString p ->
+        (match glob_compile pat with
+         | Ok re -> VBool (Re.execp re (glob_strip_dot p))
+         (* Unreachable: a Glob exists only if it compiled. *)
+         | Error _ -> VBool false)
+      | _ -> raise (EvalError "glob_matches: expected Path"))
+    | _ -> raise (EvalError "glob_matches: expected Glob")));
+  ("glob_to_str", VBuiltin (function
+    | VGlob g -> VString g
+    | _ -> raise (EvalError "glob_to_str: expected Glob")));
+  (* The directory part before the first wildcard: where a walk has to start,
+     and above which is ground the pattern cannot reach. *)
+  ("glob_base", VBuiltin (function
+    | VGlob g -> VPath (glob_base_of g)
+    | _ -> raise (EvalError "glob_base: expected Glob")));
   ("str_to_url", VBuiltin (function
     | VString s ->
       let text = String.trim s in
@@ -3745,12 +3825,13 @@ let stdlib_eval_env : env = [
     | VString pat | VGlob pat ->
       VBuiltin (function
         | VString base | VPath base ->
-          let norm_pat =
-            if String.length pat > 2 && pat.[0] = '.' && pat.[1] = '/' then
-              String.sub pat 2 (String.length pat - 2)
-            else pat
+          (* The same compile `Glob.matches?` uses, so a walk and the
+             predicate cannot disagree about one pattern. *)
+          let re =
+            match glob_compile pat with
+            | Ok re -> re
+            | Error why -> raise (EvalError ("fs_glob: " ^ why))
           in
-          let re = Re.compile (Re.Glob.glob ~anchored:true ~double_asterisk:true norm_pat) in
           let is_link p =
             match Unix.lstat p with
             | { Unix.st_kind = Unix.S_LNK; _ } -> true
@@ -4483,6 +4564,7 @@ let rec decoder_of_type_expr venv (te : type_expr) :
     | "String"   -> scalar_decoder "decode_string"
     | "Bool"     -> scalar_decoder "decode_bool"
     | "Path"     -> scalar_decoder "decode_path"
+    | "Glob"     -> scalar_decoder "decode_glob"
     | "Duration" -> scalar_decoder "decode_duration"
     | "URL"      -> scalar_decoder "decode_url"
     | "Size"     -> scalar_decoder "decode_size"
@@ -4996,6 +5078,19 @@ let decode_builtins : env = [
      rest of the program is written against. *)
   ("decode_path", VDecoder (fun j path ->
     match j with `String s -> Ok (VPath s) | _ -> expected "Path" path j));
+  (* A glob is checked, where a path is not: any text names a file, and not
+     any text is a pattern. *)
+  ("decode_glob", VDecoder (fun j path ->
+    match j with
+    | `String s ->
+      let text = String.trim s in
+      (match Lexer.glob_error text with
+       | Some why -> decode_error path (Printf.sprintf "expected Glob, got %S: %s" s why)
+       | None ->
+         (match glob_compile text with
+          | Ok _ -> Ok (VGlob text)
+          | Error why -> decode_error path (Printf.sprintf "expected Glob, got %S: %s" s why)))
+    | _ -> expected "Glob" path j));
   ("decode_duration", VDecoder (decode_lexed "Duration"
     (function Token.Duration v -> Some (VDuration v) | _ -> None)));
   (* Not `decode_lexed`: see `str_to_url`. A decoder reads text the program

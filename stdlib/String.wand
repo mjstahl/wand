@@ -136,6 +136,19 @@ let to_bool s = str_to_bool s
 -- /etc/hosts : Path
 let to_path s = str_to_path s
 
+-- The glob that text spells, or an error saying why it is not one.
+--
+-- A pattern out of argv or a config file comes through here. There is no
+-- other way to build one: a literal cannot begin with a bare name, since
+-- `src/**/*.ts` reads as a variable called `src`.
+--
+-- >> String.to_glob "src/**/*.ts"
+-- Ok(src/**/*.ts) : Result String Glob
+--
+-- >> String.to_glob "notes.txt"
+-- Error("cannot parse \"notes.txt\" as Glob: a glob has a `*`, a `?` or a `[`; text with none of them is a Path") : Result String Glob
+let to_glob s = str_to_glob s
+
 -- Parse a URL string. Returns Ok url or Error msg.
 --
 -- >> String.to_url "https://example.com"

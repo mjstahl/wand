@@ -1,0 +1,60 @@
+-- Matching a path against a pattern, without reading the disk to do it.
+--
+-- `FS.glob` answers which files a pattern selects, and needs the FsRead
+-- effect to say so. This module answers the other question -- whether a
+-- path is one the pattern would select -- and needs nothing, because the
+-- pattern and the path are both already in hand.
+--
+-- The matcher is the one `FS.glob` walks a directory with, so a walk and a
+-- predicate cannot disagree about the same pattern.
+
+-- Whether the pattern selects this path.
+--
+-- A leading `./` is not part of either: it is a way of writing "here", so
+-- it comes off both before they meet.
+--
+-- >> Glob.matches? *.wand /src/main.wand
+-- false : Bool
+--
+-- >> Glob.matches? **.wand /src/main.wand
+-- true : Bool
+--
+-- >> Glob.matches? *.wand (Path.of_string "main.wand")
+-- true : Bool
+let matches? g p = glob_matches g p
+
+-- The directory part before the first wildcard: where a walk over this
+-- pattern has to start, and above which is ground the pattern cannot reach.
+--
+-- A pattern whose first segment is already a wildcard answers `.`, because
+-- there is no directory above it to begin from.
+--
+-- >> Glob.base ./src/**/*.ts
+-- ./src : Path
+--
+-- >> Glob.base **.wand
+-- . : Path
+let base g = glob_base g
+
+-- ── Between Glob and String ────────────────────────────────────────────
+
+-- >> Glob.to_string *.wand
+-- "*.wand" : String
+let to_string g = glob_to_str g
+
+-- The glob that text spells, or an error saying why it is not one.
+--
+-- The same function as String.to_glob, named from this side. It is the only
+-- way to build a glob from text, and the only way to write one that begins
+-- with a bare name: `src/**/*.ts` as a literal reads as a variable called
+-- `src`, so a literal has to be written `./src/**/*.ts`.
+--
+-- Text with no `*`, `?` or `[` is refused. It names one file, which is what
+-- a Path is for.
+--
+-- >> Glob.of_string "src/**/*.ts"
+-- Ok(src/**/*.ts) : Result String Glob
+--
+-- >> Glob.of_string "notes.txt"
+-- Error("cannot parse \"notes.txt\" as Glob: a glob has a `*`, a `?` or a `[`; text with none of them is a Path") : Result String Glob
+let of_string s = str_to_glob s

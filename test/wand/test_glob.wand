@@ -1,83 +1,126 @@
 uses {FS.Read, FS.Write}
 
-let {test} = import Test
 import FS
-import Path
+import Glob
 import List
+import Path
+import String
 
--- Glob literal syntax (`*.wand`, `**`, `./**/*.ml`, ...) is a distinct
--- token/type from Path -- raw lexer-level assertions for that stay in
--- test_glob.ml (no wand-source equivalent). This file covers the type
--- and the real FS.glob/FS.glob_in behavior.
+let {test} = import Test
 
-test "glob literal type" (fn t -> let g = *.wand in t.ok true)
+-- ── matching ───────────────────────────────────────────────────────────
 
--- ── FS.glob ────────────────────────────────────────────────────────────
+test "a single star stays in one segment" (fn t ->
+  t.eq (true, false) (
+    Glob.matches? *.wand (Path.of_string "main.wand"),
+    Glob.matches? *.wand (Path.of_string "src/main.wand")
+  ))
 
--- A unique name, borrowed from a temp file that the bracket removes on
--- the way out -- so nothing is left behind and nothing has to remember.
-let scratch = with FS.temp_file "wand_glob_test_" "" as p -> Path.to_string p
-let () = FS.mkdir! (Path.of_string scratch)
+test "a double star crosses them" (fn t ->
+  t.ok (Glob.matches? **.wand (Path.of_string "src/deep/main.wand")))
 
-test "*.wand matches" (fn t ->
-  let dir = Path.of_string scratch in
-  let () = FS.write_file! (Path.of_string "%{scratch}/foo.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/bar.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/baz.ml") "" in
-  let names =
-    FS.glob_in *.wand dir
-      |> List.map (fn p -> Path.to_string (Path.basename p))
-      |> List.sort
+test "the extension has to match" (fn t ->
+  t.ok (!(Glob.matches? **.wand (Path.of_string "src/main.ml"))))
+
+test "a ? is one character" (fn t ->
+  match Glob.of_string "a?.txt" with
+  | Ok g -> t.eq (true, false) (
+    Glob.matches? g (Path.of_string "ab.txt"),
+    Glob.matches? g (Path.of_string "abc.txt")
+  )
+  | Error _ -> t.ok false)
+
+test "a class matches one of its members" (fn t ->
+  match Glob.of_string "*.[ch]" with
+  | Ok g -> t.eq (true, false) (
+    Glob.matches? g (Path.of_string "a.c"),
+    Glob.matches? g (Path.of_string "a.o")
+  )
+  | Error _ -> t.ok false)
+
+-- `./` is a way of writing "here" and not part of either side, so it comes
+-- off both before they meet.
+test "a leading ./ is not part of the path" (fn t ->
+  t.ok (Glob.matches? *.wand (Path.of_string "./main.wand")))
+
+test "nor of the pattern" (fn t ->
+  t.ok (Glob.matches? ./*.wand (Path.of_string "main.wand")))
+
+-- ── base ───────────────────────────────────────────────────────────────
+
+test "the base is what comes before the first wildcard" (fn t ->
+  t.eq (Path.of_string "./src") (Glob.base ./src/**/*.ts))
+
+-- A pattern that starts with a wildcard has no directory above it to begin
+-- from, so the base is the current one.
+test "a leading wildcard has no base" (fn t ->
+  t.eq (Path.of_string ".") (Glob.base **.wand))
+
+test "the wildcard segment itself is not in the base" (fn t ->
+  match Glob.of_string "a/b/c*/d" with
+  | Ok g -> t.eq (Path.of_string "a/b") (Glob.base g)
+  | Error _ -> t.ok false)
+
+-- ── of_string ──────────────────────────────────────────────────────────
+
+-- The only way to write a pattern beginning with a bare name: as a literal
+-- `src/**/*.ts` reads as a variable called `src`.
+test "a pattern that no literal can spell" (fn t ->
+  match Glob.of_string "src/**/*.ts" with
+  | Ok g -> t.eq "src/**/*.ts" (Glob.to_string g)
+  | Error _ -> t.ok false)
+
+-- Text with no wildcard names one file, which is what a Path is for.
+test "text with no wildcard is not a glob" (fn t ->
+  match Glob.of_string "notes.txt" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "text with none of them is a Path" e))
+
+test "and neither is empty text" (fn t ->
+  match Glob.of_string "" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "cannot be empty" e))
+
+-- An unclosed class is reported here rather than raising the first time the
+-- pattern is matched, which would move the failure away from the text that
+-- caused it.
+test "an unclosed class is refused" (fn t ->
+  match Glob.of_string "*.[ch" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "not closed" e))
+
+test "String.to_glob is the same function" (fn t ->
+  t.eq (String.to_glob "src/*.ts") (Glob.of_string "src/*.ts"))
+
+test "to_string round-trips" (fn t ->
+  t.eq (Ok **.wand) (Glob.of_string (Glob.to_string **.wand)))
+
+-- ── the walk and the predicate agree ───────────────────────────────────
+
+-- The reason `matches?` is a builtin rather than the rules written again in
+-- wand. Two matchers given one pattern would eventually answer differently,
+-- and the difference would show up as a walk finding a file the predicate
+-- says it should not have.
+test "FS.glob answers exactly what matches? accepts" (fn t ->
+  with FS.temp_dir "wand_glob_" as dir ->
+  let () = FS.mkdir! (Path.join dir (Path.of_string "src/deep")) in
+  let names = ["a.wand", "b.ml", "src/c.wand", "src/deep/d.wand", "src/deep/e.txt"] in
+  let () =
+    names |> List.each (fn n -> FS.write_file! (Path.join dir (Path.of_string n)) "x")
   in
-  let () = FS.delete! (Path.of_string "%{scratch}/foo.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/bar.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/baz.ml") in
-  t.eq ["bar.wand", "foo.wand"] names)
-
-test "*.ml matches" (fn t ->
-  let dir = Path.of_string scratch in
-  let () = FS.write_file! (Path.of_string "%{scratch}/foo.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/baz.ml") "" in
-  let names =
-    FS.glob_in *.ml dir |> List.map (fn p -> Path.to_string (Path.basename p)) |> List.sort
+  let found = FS.glob_in **.wand dir in
+  -- Every path the walk answered is one the predicate accepts, read
+  -- relative to the directory the walk was given.
+  let relative =
+    fn p -> (Path.of_string
+      (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p)))
   in
-  let () = FS.delete! (Path.of_string "%{scratch}/foo.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/baz.ml") in t.eq ["baz.ml"] names)
-
-test "no match" (fn t ->
-  let dir = Path.of_string scratch in
-  let () = FS.write_file! (Path.of_string "%{scratch}/foo.wand") "" in
-  let names =
-    FS.glob_in *.py dir |> List.map (fn p -> Path.to_string (Path.basename p)) |> List.sort
+  let all_match = found |> List.all (fn p -> Glob.matches? **.wand (relative p)) in
+  -- And every file it did not answer is one the predicate rejects.
+  let found_names = found |> List.map (fn p -> Path.to_string (relative p)) in
+  let missed =
+    names
+      |> List.filter (fn n -> List.find (fn f -> f == n) found_names == None)
+      |> List.filter (fn n -> Glob.matches? **.wand (Path.of_string n))
   in
-  let () = FS.delete! (Path.of_string "%{scratch}/foo.wand") in t.eq [] names)
-
-test "./* matches all" (fn t ->
-  let dir = Path.of_string scratch in
-  let () = FS.write_file! (Path.of_string "%{scratch}/foo.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/bar.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/baz.ml") "" in
-  let names =
-    FS.glob_in ./* dir |> List.map (fn p -> Path.to_string (Path.basename p)) |> List.sort
-  in
-  let () = FS.delete! (Path.of_string "%{scratch}/foo.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/bar.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/baz.ml") in
-  t.eq ["bar.wand", "baz.ml", "foo.wand"] names)
-
-test "** recursive" (fn t ->
-  let dir = Path.of_string scratch in
-  let () = FS.mkdir! (Path.of_string "%{scratch}/sub") in
-  let () = FS.write_file! (Path.of_string "%{scratch}/a.wand") "" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/sub/b.wand") "" in
-  let names =
-    FS.glob_in **.wand dir
-      |> List.map (fn p -> Path.to_string (Path.basename p))
-      |> List.sort
-  in
-  let () = FS.delete! (Path.of_string "%{scratch}/a.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/sub/b.wand") in
-  let () = FS.delete! (Path.of_string "%{scratch}/sub") in t.eq ["a.wand", "b.wand"] names)
-
-test "cleanup scratch directory" (fn t ->
-  let () = FS.delete! (Path.of_string scratch) in t.ok true)
+  t.eq (3, true, []) (List.length found, all_match, missed))

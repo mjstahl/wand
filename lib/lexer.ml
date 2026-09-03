@@ -350,6 +350,25 @@ let read_path_body s prefix =
   let contents = Buffer.contents buf in
   if !has_glob then Glob contents else Path contents
 
+(* ── Globs ──────────────────────────────────────────────────────────────── *)
+
+(* What separates a glob from a path, held here so `String.to_glob` and the
+   scanner answer the same question. `read_path_or_glob` decides between the
+   two by whether it saw a `*`, `?` or `[`, and this is that rule read from
+   the other side: text with none of them is a path, and calling it a glob
+   would give a pattern that matches one name -- a Path already says that,
+   in a type whose functions are about naming a file rather than selecting
+   several.
+
+   The brackets are not checked here. Whether a class is well formed is a
+   question for the matcher that compiles it, and it is the one that knows;
+   `str_to_glob` asks it. *)
+let glob_error text =
+  if text = "" then Some "a glob cannot be empty"
+  else if not (String.exists is_glob_char text) then
+    Some "a glob has a `*`, a `?` or a `[`; text with none of them is a Path"
+  else None
+
 (* ── URLs ───────────────────────────────────────────────────────────────── *)
 
 (* The characters a URL may hold, from RFC 3986: unreserved, the gen-delims

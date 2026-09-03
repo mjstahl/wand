@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2644,7 +2644,7 @@ unbound-name error, although the module comes with wand. The REPL and the
 one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
 stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 `Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
-`Resource`, `Stream`, `URL`, `Version` and `Proc`.
+`Resource`, `Stream`, `URL`, `Version`, `Glob` and `Proc`.
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
@@ -2850,6 +2850,7 @@ to_int       : String -> Result String Int
 to_float     : String -> Result String Float
 to_bool      : String -> Result String Bool
 to_path      : String -> Path
+to_glob      : String -> Result String Glob
 to_url       : String -> Result String URL
 to_ipv4      : String -> Result String IPv4
 to_cidr      : String -> Result String CIDR
@@ -3489,6 +3490,39 @@ where a command wants the number as an argument of its own, as in
 70000 is a mistake rather than a maximum, so it answers an `Error` where
 [`Size.of_bytes`](#size) clamps.
 
+### `Glob`
+
+```ocaml
+matches?  : Glob -> Path -> Bool
+base      : Glob -> Path
+to_string : Glob -> String
+of_string : String -> Result String Glob
+```
+
+[`FS.glob`](#fs) answers which files a pattern selects, and needs `FsRead`
+to say so. `matches?` answers the other question — whether a path is one the
+pattern would select — and needs no effect, because the pattern and the path
+are both already in hand. It is a builtin rather than the rules written
+again in wand: it compiles the pattern the way `FS.glob` walks a directory
+with it, so a walk and a predicate cannot disagree.
+
+A leading `./` is not part of either side. It is a way of writing "here", so
+it comes off the pattern and the path before they meet.
+
+`of_string` is the only way to build a glob from text, and the only way to
+write one that begins with a bare name — `src/**/*.ts` as a literal reads as
+a variable called `src`, so a literal has to be written `./src/**/*.ts`.
+Text with no `*`, `?` or `[` is refused: it names one file, which is what a
+[`Path`](#path) is for, in a type whose functions are about naming a file
+rather than selecting several. An unclosed character class is refused here
+too, rather than raising the first time the pattern is matched.
+
+`base` is the directory part before the first wildcard — where a walk over
+the pattern has to start, and above which is ground it cannot reach.
+`Glob.base ./src/**/*.ts` is `./src`. A pattern whose first segment is
+already a wildcard answers `.`, since there is no directory above it to
+begin from.
+
 ### `Version`
 
 ```ocaml
@@ -3830,6 +3864,7 @@ succeed  : 'a -> Decoder 'a
 fail     : String -> Decoder 'a
 one_of   : List Decoder 'a -> Decoder 'a
 path     : Decoder Path
+glob     : Decoder Glob
 duration : Decoder Duration
 url      : Decoder URL
 size     : Decoder Size

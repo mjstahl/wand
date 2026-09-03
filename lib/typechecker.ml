@@ -10,7 +10,7 @@ let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
-    "DateTime"; "Result"; "URL"; "Version" ]
+    "DateTime"; "Result"; "URL"; "Version"; "Glob" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -3313,6 +3313,12 @@ let stdlib_type_env : env = [
   ("str_to_float",     generalize [] ((TString @-> TResult (TString, TFloat))));
   ("str_to_bool",      generalize [] ((TString @-> TResult (TString, TBool))));
   ("str_to_path",      generalize [] ((TString @-> TPath)));
+  (* Glob primitives. `matches?` is pure: the pattern and the path are both
+     in hand, so nothing has to be read to answer. *)
+  ("str_to_glob",   generalize [] ((TString @-> TResult (TString, TGlob))));
+  ("glob_matches",  generalize [] ((TGlob @-> (TPath @-> TBool))));
+  ("glob_to_str",   generalize [] ((TGlob @-> TString)));
+  ("glob_base",     generalize [] ((TGlob @-> TPath)));
   ("str_to_url",       generalize [] ((TString @-> TResult (TString, TURL))));
   ("str_to_ipv4",      generalize [] ((TString @-> TResult (TString, TIPv4))));
   ("str_to_cidr",      generalize [] ((TString @-> TResult (TString, TCIDR))));
@@ -3572,6 +3578,7 @@ let stdlib_type_env : env = [
   ("decode_string",   Mono (TDecoder TString));
   ("decode_bool",     Mono (TDecoder TBool));
   ("decode_path",     Mono (TDecoder TPath));
+  ("decode_glob",     Mono (TDecoder TGlob));
   ("decode_duration", Mono (TDecoder TDuration));
   ("decode_url",      Mono (TDecoder TURL));
   ("decode_size",     Mono (TDecoder TSize));

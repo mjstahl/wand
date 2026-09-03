@@ -163,6 +163,10 @@ let one_of ds = decode_one_of ds
 -- Ok(/etc/hosts) : Result String Path
 let path = decode_path
 
+-- >> JSON.decode Decode.glob (JSON.parse! "\"*.wand\"")
+-- Ok(*.wand) : Result String Glob
+let glob = decode_glob
+
 --
 -- >> JSON.decode Decode.duration (JSON.parse! "\"30s\"")
 -- Ok(30s) : Result String Duration
