@@ -1,5 +1,92 @@
 # Changelog
 
+## [0.56.0] - 2026-09-02
+
+### Added
+
+- **A module for every built-in type.** Seven types had a literal, an order
+  and a place in the type checker, and nothing to read them with. `URL`,
+  `Version`, `Glob`, `IPv4` and `CIDR` now have one
+- **`URL`.** `scheme hostname host port username password origin path query
+  query_list fragment to_string of_string`, the `with_` setters for each
+  part, `join` for resolving a reference against a base, and `encode` /
+  `decode`. Every accessor is total: the value is a URL already, so a part
+  it does not hold answers `""` or `None`. `port` is an `Option` rather than
+  a filled-in default, which follows from the scheme and is not this
+  module's to know. The module does not normalize -- it keeps the scheme,
+  host and escapes as written, where a browser's parser would lowercase the
+  first two
+- **`Version`.** `major minor patch core prerelease build stable? to_string
+  of_string of_parts bump_major bump_minor bump_patch with_prerelease
+  with_build`, held to Semantic Versioning 2.0.0. No `compare`: the language
+  already orders versions by the spec's precedence rules, and a second
+  answer to a settled question is one too many
+- **`Glob`.** `matches? base to_string of_string`. `FS.glob` says which
+  files a pattern selects and needs `FsRead` to say it; whether a path is
+  one the pattern would select needs no effect, and could not be asked --
+  the matcher was welded inside the builtin, behind the effect. It is lifted
+  out and both go through it, so a walk and a predicate cannot disagree
+- **`IPv4` and `CIDR`.** `octets to_int of_int private? loopback?` and
+  `contains? network prefix first last count of_parts`. `first` and `last`
+  are the addresses the prefix bounds, not "first usable host" and
+  "broadcast" -- conventions of particular sizes, which a `/31` on a
+  point-to-point link does not have
+- **`String.to_glob` and `Decode.glob`.** A `Glob` could not be built from
+  text at all: the literal was the only source, and it cannot spell a
+  pattern beginning with a bare name, since `src/**/*.ts` reads as a
+  variable called `src`
+- **`V-PRED3`.** A function returning `Bool` and not named with a `?`. The
+  `!` convention has been checked in both directions since a signature could
+  say whether a function raises; `?` had only the one, so a predicate could
+  go unmarked
+
+### Fixed
+
+- **A constructor can build every value of its own type.** `String.to_url`
+  and `String.to_version` decided by handing the text back to the lexer and
+  asking whether it came out as one token, which made a rule about writing a
+  literal into a rule about the values. A URL literal ends at a `,` and a
+  `;` because they are the punctuation around it, and both are legal in a
+  URL -- so `https://x/s?tags=a,b` could not be built, nor an IPv6 host,
+  whose brackets end a literal too, nor a version carrying build metadata,
+  since `+` is the addition operator. `Decode.url` and `Decode.version` had
+  it as well, where a document the program did not write is exactly what
+  holds a `,` in a query string or a `v` on a git tag. Each grammar lives in
+  one place now, checked by the literal, the constructor and the decoder
+  alike, as the port range has always been
+- **A version with build metadata compares instead of raising.** The
+  prerelease was found by splitting on `-`, so `1.2.3+b` put a `+` in front
+  of `int_of_string`. Nothing had reached it, because no constructor could
+  build such a value. Build metadata is taken off first now, and takes no
+  part in precedence, which is rule 10
+- **`String.to_url` answers about the URL.** `ftp://x` came back "a comment
+  is `-- ...` to the end of the line, not `//`" -- true of the scanner, and
+  nothing to do with the URL
+- **A malformed glob reports rather than raising.** `FS.glob` compiled its
+  pattern with an engine that raises on an unclosed character class. A
+  literal cannot hold one, so nothing had reached it; `Glob.of_string`
+  refuses one, by compiling the pattern and discarding the result
+
+### Changed
+
+- **`List.all` and `List.any` are `List.all?` and `List.any?`.** They were
+  the only two of 354 exported signatures returning `Bool` without a `?`
+- **`--strict` fails on an unmarked predicate.** `V-PRED3` is a violation,
+  as every `V-` rule is; without `--strict` it is a warning
+- **`01.2.3` and `1.2.3-alpha_1` are not version literals.** A numeric
+  identifier has no leading zero and `_` is not in the identifier set;
+  semantic versioning admits neither, and the literal is checked against the
+  same grammar as `Version.of_string`. `1.2.3-0a` is still a version --
+  only a *numeric* identifier is barred from a leading zero
+- **A character that cannot appear in a URL is a lex error.** `|`, `^` and
+  the rest have to be percent-encoded, which was always true; the literal
+  admitted them and the checked constructor would not have. In both literals
+  the tightening is one decision: a literal must not be able to write a
+  value the checked constructor would refuse
+- **The CI workflows run their actions on Node 24.** The repository is OCaml
+  and sets up no Node of its own, so this is the runtime GitHub's bundled
+  actions run on
+
 ## [0.55.5] - 2026-09-01
 
 ### Fixed
@@ -1722,6 +1809,11 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[0.56.0]: https://github.com/mjstahl/wand/compare/v0.55.5...v0.56.0
+[0.55.5]: https://github.com/mjstahl/wand/compare/v0.55.4...v0.55.5
+[0.55.4]: https://github.com/mjstahl/wand/compare/v0.55.3...v0.55.4
+[0.55.3]: https://github.com/mjstahl/wand/compare/v0.55.2...v0.55.3
+[0.55.2]: https://github.com/mjstahl/wand/compare/v0.55.1...v0.55.2
 [0.55.1]: https://github.com/mjstahl/wand/compare/v0.55.0...v0.55.1
 [0.55.0]: https://github.com/mjstahl/wand/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/mjstahl/wand/compare/v0.53.2...v0.54.0
