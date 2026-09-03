@@ -1,0 +1,70 @@
+import IPv4
+import List
+import String
+
+let {test} = import Test
+
+-- ── an address ─────────────────────────────────────────────────────────
+
+test "the four octets" (fn t -> t.eq (192, 168, 1, 10) (IPv4.octets 192.168.1.10))
+test "and the ends of the range" (fn t ->
+  t.eq ((0, 0, 0, 0), (255, 255, 255, 255)) (
+    IPv4.octets 0.0.0.0,
+    IPv4.octets 255.255.255.255
+  ))
+
+test "as a number" (fn t -> t.eq 167772161 (IPv4.to_int 10.0.0.1))
+test "and back" (fn t -> t.eq (Ok 10.0.0.1) (IPv4.of_int 167772161))
+test "round-trips at both ends" (fn t ->
+  t.eq (Ok 0.0.0.0, Ok 255.255.255.255) (IPv4.of_int 0, IPv4.of_int 4294967295))
+
+test "a number that is not an address" (fn t ->
+  match IPv4.of_int 4294967296 with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "0 to 4294967295" e))
+
+-- The language orders these numerically, which is why the module has no
+-- compare: 10.0.0.2 is above 10.0.0.1, and 9.0.0.0 below 10.0.0.0 even
+-- though the text sorts the other way.
+test "addresses order as numbers, not as text" (fn t ->
+  t.eq [9.0.0.0, 10.0.0.1, 10.0.0.2] (List.sort [10.0.0.2, 9.0.0.0, 10.0.0.1]))
+
+-- ── the two questions ──────────────────────────────────────────────────
+
+-- RFC 1918: 10/8, 172.16/12 and 192.168/16.
+test "the three private ranges" (fn t ->
+  t.eq (true, true, true) (
+    IPv4.private? 10.1.2.3,
+    IPv4.private? 172.16.5.5,
+    IPv4.private? 192.168.1.1
+  ))
+
+-- The 172.16/12 boundary is the one worth pinning: the range ends at
+-- 172.31.255.255, and 172.32.0.0 is public.
+test "and the edges of 172.16/12" (fn t ->
+  t.eq (true, false) (IPv4.private? 172.31.255.255, IPv4.private? 172.32.0.1))
+
+test "a public address is not private" (fn t ->
+  t.eq (false, false) (IPv4.private? 8.8.8.8, IPv4.private? 1.1.1.1))
+
+test "loopback is 127/8, not just 127.0.0.1" (fn t ->
+  t.eq (true, true, false) (
+    IPv4.loopback? 127.0.0.1,
+    IPv4.loopback? 127.9.9.9,
+    IPv4.loopback? 128.0.0.1
+  ))
+
+-- ── text ───────────────────────────────────────────────────────────────
+
+test "to_string, and back" (fn t ->
+  t.eq ("10.0.0.1", Ok 10.0.0.1) (IPv4.to_string 10.0.0.1, IPv4.of_string "10.0.0.1"))
+
+-- The octet range is the lexer's rule, so a literal and this constructor
+-- cannot disagree about it.
+test "an octet above 255 is not an address" (fn t ->
+  match IPv4.of_string "256.0.0.1" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "each octet" e))
+
+test "String.to_ipv4 is the same function" (fn t ->
+  t.eq (String.to_ipv4 "10.0.0.1") (IPv4.of_string "10.0.0.1"))

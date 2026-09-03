@@ -10,7 +10,7 @@ let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
-    "DateTime"; "Result"; "URL"; "Version"; "Glob" ]
+    "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -3322,6 +3322,22 @@ let stdlib_type_env : env = [
   ("str_to_url",       generalize [] ((TString @-> TResult (TString, TURL))));
   ("str_to_ipv4",      generalize [] ((TString @-> TResult (TString, TIPv4))));
   ("str_to_cidr",      generalize [] ((TString @-> TResult (TString, TCIDR))));
+  (* IPv4 and CIDR primitives. Every accessor is total: the value is an
+     address or a network already, so its parts are there. *)
+  ("ipv4_octets",      generalize [] ((TIPv4 @-> TTuple [TInt; TInt; TInt; TInt])));
+  ("ipv4_to_int",      generalize [] ((TIPv4 @-> TInt)));
+  ("ipv4_of_int",      generalize [] ((TInt @-> TResult (TString, TIPv4))));
+  ("ipv4_to_str",      generalize [] ((TIPv4 @-> TString)));
+  ("ipv4_is_private",  generalize [] ((TIPv4 @-> TBool)));
+  ("ipv4_is_loopback", generalize [] ((TIPv4 @-> TBool)));
+  ("cidr_contains",    generalize [] ((TCIDR @-> (TIPv4 @-> TBool))));
+  ("cidr_network",     generalize [] ((TCIDR @-> TIPv4)));
+  ("cidr_prefix",      generalize [] ((TCIDR @-> TInt)));
+  ("cidr_first",       generalize [] ((TCIDR @-> TIPv4)));
+  ("cidr_last",        generalize [] ((TCIDR @-> TIPv4)));
+  ("cidr_count",       generalize [] ((TCIDR @-> TInt)));
+  ("cidr_to_str",      generalize [] ((TCIDR @-> TString)));
+  ("cidr_of_parts",    generalize [] ((TIPv4 @-> (TInt @-> TResult (TString, TCIDR)))));
   ("port_to_int",      generalize [] ((TPort @-> TInt)));
   ("port_of_int",      generalize [] ((TInt @-> TResult (TString, TPort))));
   ("str_to_port",      generalize [] ((TString @-> TResult (TString, TPort))));

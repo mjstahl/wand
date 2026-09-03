@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -2644,7 +2644,7 @@ unbound-name error, although the module comes with wand. The REPL and the
 one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
 stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
 `Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
-`Resource`, `Stream`, `URL`, `Version`, `Glob` and `Proc`.
+`Resource`, `Stream`, `URL`, `Version`, `Glob`, `IPv4`, `CIDR` and `Proc`.
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
@@ -3489,6 +3489,60 @@ where a command wants the number as an argument of its own, as in
 `of_int` refuses a number that is not a port. A port is 0 to 65535, and
 70000 is a mistake rather than a maximum, so it answers an `Error` where
 [`Size.of_bytes`](#size) clamps.
+
+### `IPv4`
+
+```ocaml
+octets    : IPv4 -> (Int, Int, Int, Int)
+to_int    : IPv4 -> Int
+of_int    : Int -> Result String IPv4
+private?  : IPv4 -> Bool
+loopback? : IPv4 -> Bool
+to_string : IPv4 -> String
+of_string : String -> Result String IPv4
+```
+
+The literal checks itself — each octet is 0 to 255, or it is a lex error
+naming the rule — and the language orders addresses numerically, so
+`10.0.0.2 > 10.0.0.1` and `List.sort` agrees where sorting the text would
+not. There is no `compare` here for that reason.
+
+`to_int` is the address as the number it is, and every question about a
+network is arithmetic on it. Doing that octet by octet is how an off-by-one
+gets in one octet at a time.
+
+`private?` is the three RFC 1918 ranges — `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16` — and nothing else. A caller asking about link-local or
+multicast is asking a different question, and [`CIDR.contains?`](#cidr)
+answers it against the range they name.
+
+### `CIDR`
+
+```ocaml
+contains? : CIDR -> IPv4 -> Bool
+network   : CIDR -> IPv4
+prefix    : CIDR -> Int
+first     : CIDR -> IPv4
+last      : CIDR -> IPv4
+count     : CIDR -> Int
+to_string : CIDR -> String
+of_string : String -> Result String CIDR
+of_parts  : IPv4 -> Int -> Result String CIDR
+```
+
+`contains?` is what the type was missing. A network may be written from an
+address inside it — `10.0.0.5/8` is how an `ip addr` line spells one — so
+the prefix is what decides the range and every function here reads through
+it. `CIDR.network 10.0.0.5/8` is `10.0.0.0`.
+
+`first` and `last` are the addresses the prefix bounds: host bits all clear,
+and all set. They are not "the first usable host" and "the broadcast
+address", which are conventions of particular network sizes — a `/31` on a
+point-to-point link has neither.
+
+Networks order by where they start and then by how far they reach, so
+`9.0.0.0/8 < 10.0.0.0/8 < 10.0.0.0/16`. As text the first two sort the other
+way round.
 
 ### `Glob`
 

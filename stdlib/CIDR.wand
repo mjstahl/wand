@@ -1,0 +1,90 @@
+-- Reading a network, and asking what is in it.
+--
+-- The type has been in the language since the beginning and the one
+-- question anyone asks of a network -- whether it holds an address -- could
+-- only be answered by taking the text apart. That is what `contains?` is
+-- for, and the rest is what a network is made of.
+--
+-- A network may be written from an address inside it: `10.0.0.5/8` is how
+-- an `ip addr` line spells one. The prefix is what decides the range, so
+-- every function here reads through it, and `network` is the base it names.
+
+-- Whether the network holds the address.
+--
+-- >> CIDR.contains? 10.0.0.0/8 10.1.2.3
+-- true : Bool
+--
+-- >> CIDR.contains? 10.0.0.0/8 11.1.2.3
+-- false : Bool
+--
+-- >> CIDR.contains? 10.0.0.5/8 10.9.9.9
+-- true : Bool
+let contains? net a = cidr_contains net a
+
+-- ── What the network is ────────────────────────────────────────────────
+
+-- The base address, with the host bits cleared.
+--
+-- >> CIDR.network 10.0.0.5/8
+-- 10.0.0.0 : IPv4
+let network net = cidr_network net
+
+-- The prefix length, without the slash.
+--
+-- >> CIDR.prefix 10.0.0.0/8
+-- 8 : Int
+let prefix net = cidr_prefix net
+
+-- The first and last addresses the prefix bounds: host bits all clear, and
+-- all set.
+--
+-- Not "the first usable host" and "the broadcast address". Those are
+-- conventions of particular network sizes, and a /31 on a point-to-point
+-- link has neither. These two are what the prefix actually bounds.
+--
+-- >> CIDR.first 192.168.1.0/24
+-- 192.168.1.0 : IPv4
+--
+-- >> CIDR.last 192.168.1.0/24
+-- 192.168.1.255 : IPv4
+let first net = cidr_first net
+
+-- >> CIDR.last 10.0.0.0/8
+-- 10.255.255.255 : IPv4
+let last net = cidr_last net
+
+-- How many addresses the network holds, counting both ends.
+--
+-- >> CIDR.count 192.168.1.0/24
+-- 256 : Int
+--
+-- >> CIDR.count 0.0.0.0/0
+-- 4294967296 : Int
+let count net = cidr_count net
+
+-- ── Between CIDR and String ────────────────────────────────────────────
+
+-- >> CIDR.to_string 10.0.0.0/8
+-- "10.0.0.0/8" : String
+let to_string net = cidr_to_str net
+
+-- The network that text spells, or an error saying why it is not one.
+--
+-- The same function as String.to_cidr, named from this side.
+--
+-- >> CIDR.of_string "10.0.0.0/8"
+-- Ok(10.0.0.0/8) : Result String CIDR
+--
+-- >> CIDR.of_string "10.0.0.0/33"
+-- Error("invalid CIDR prefix: must be 0–32") : Result String CIDR
+let of_string s = str_to_cidr s
+
+-- The network an address and a prefix name. A Result: a prefix is 0 to 32,
+-- and 33 is a mistake rather than a maximum.
+--
+-- >> CIDR.of_parts 10.0.0.0 8
+-- Ok(10.0.0.0/8) : Result String CIDR
+--
+-- >> CIDR.of_parts 10.0.0.0 33
+-- Error("invalid CIDR prefix 33: must be 0-32") : Result String CIDR
+let of_parts a bits = cidr_of_parts a bits

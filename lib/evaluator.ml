@@ -862,6 +862,16 @@ let ipv4_key s =
   List.fold_left (fun acc part -> acc * 256 + int_of_string part) 0
     (String.split_on_char '.' s)
 
+(* The four octets back out of the number. *)
+let ipv4_of_int n =
+  Printf.sprintf "%d.%d.%d.%d"
+    ((n lsr 24) land 0xFF) ((n lsr 16) land 0xFF) ((n lsr 8) land 0xFF) (n land 0xFF)
+
+(* The prefix as a mask. `/0` is every address, and `0xFFFFFFFF lsl 32` is
+   not 0 on a 63-bit int, so that case is written out rather than shifted. *)
+let cidr_mask bits =
+  if bits <= 0 then 0 else 0xFFFFFFFF land (0xFFFFFFFF lsl (32 - bits))
+
 (* A network, keyed by where it starts and then how far it reaches. Compared
    as text, `10.0.0.0/8` sorted below `9.0.0.0/8` -- the same two addresses
    the other way round from what `IPv4` answers, which reads them as
@@ -870,6 +880,11 @@ let cidr_key s =
   match String.split_on_char '/' s with
   | [addr; bits] -> (ipv4_key addr, int_of_string bits)
   | _ -> raise (EvalError (Printf.sprintf "invalid CIDR: %S" s))
+
+(* Whether a number is inside a network written as text. Used for the fixed
+   ranges an address is asked about -- RFC 1918, loopback -- which are known
+   here rather than passed in. *)
+let in_cidr base bits n = cidr_mask bits land n = cidr_mask bits land ipv4_key base
 
 (* Semver precedence. Numbers compare as numbers, so `1.10.0` is above
    `1.9.0`. A version with a prerelease is below the same version without
@@ -3328,6 +3343,102 @@ let stdlib_eval_env : env = [
   ("str_to_size", VBuiltin (function
     | VString s -> to_domain "Size" (function Token.Size v -> Some (VSize v) | _ -> None) s
     | _ -> raise (EvalError "str_to_size: expected String")));
+  (* ── Addresses and networks ─────────────────────────────────────────── *)
+
+  ("ipv4_octets", VBuiltin (function
+    | VIPv4 a ->
+      (match String.split_on_char '.' a with
+       | [w; x; y; z] ->
+         VTuple (List.map (fun p -> VInt (int_of_string p)) [w; x; y; z])
+       (* Unreachable: the literal and `String.to_ipv4` both require four. *)
+       | _ -> raise (EvalError ("ipv4_octets: not four octets: " ^ a)))
+    | _ -> raise (EvalError "ipv4_octets: expected IPv4")));
+  (* The address as the number it is. Every question about a network -- what
+     it contains, where it ends, how many it holds -- is arithmetic on this,
+     and doing it on the four octets separately is how off-by-one errors get
+     in one octet at a time. *)
+  ("ipv4_to_int", VBuiltin (function
+    | VIPv4 a -> VInt (ipv4_key a)
+    | _ -> raise (EvalError "ipv4_to_int: expected IPv4")));
+  ("ipv4_of_int", VBuiltin (function
+    | VInt n ->
+      if n >= 0 && n <= 4294967295 then
+        VConstr (Ctor.Builtin "Ok", [VIPv4 (ipv4_of_int n)])
+      else
+        VConstr (Ctor.Builtin "Error", [VString
+          (Printf.sprintf "invalid IPv4 %d: an address is 0 to 4294967295" n)])
+    | _ -> raise (EvalError "ipv4_of_int: expected Int")));
+  ("ipv4_to_str", VBuiltin (function
+    | VIPv4 a -> VString a
+    | _ -> raise (EvalError "ipv4_to_str: expected IPv4")));
+  (* The RFC 1918 ranges, and nothing else. `private?` is a question about
+     routability, and these three are what the RFC sets aside; a caller
+     asking a different question -- link-local, multicast -- is asking about
+     a range this does not claim to cover. *)
+  ("ipv4_is_private", VBuiltin (function
+    | VIPv4 a ->
+      let n = ipv4_key a in
+      VBool (in_cidr "10.0.0.0" 8 n || in_cidr "172.16.0.0" 12 n
+             || in_cidr "192.168.0.0" 16 n)
+    | _ -> raise (EvalError "ipv4_is_private: expected IPv4")));
+  ("ipv4_is_loopback", VBuiltin (function
+    | VIPv4 a -> VBool (in_cidr "127.0.0.0" 8 (ipv4_key a))
+    | _ -> raise (EvalError "ipv4_is_loopback: expected IPv4")));
+
+  (* Whether the network holds the address. The reason this module exists:
+     the type has been here since the beginning and the one question anyone
+     asks of a network could only be answered by taking the text apart. *)
+  ("cidr_contains", VBuiltin (function
+    | VCIDR net -> VBuiltin (function
+      | VIPv4 a ->
+        let base, bits = cidr_key net in
+        VBool (cidr_mask bits land ipv4_key a = cidr_mask bits land base)
+      | _ -> raise (EvalError "cidr_contains: expected IPv4"))
+    | _ -> raise (EvalError "cidr_contains: expected CIDR")));
+  (* The base address with the host bits cleared. `10.0.0.5/8` is a network
+     written from an address inside it -- which is how a `ip addr` line
+     spells one -- and this is the network it names. *)
+  ("cidr_network", VBuiltin (function
+    | VCIDR net ->
+      let base, bits = cidr_key net in
+      VIPv4 (ipv4_of_int (cidr_mask bits land base))
+    | _ -> raise (EvalError "cidr_network: expected CIDR")));
+  ("cidr_prefix", VBuiltin (function
+    | VCIDR net -> VInt (snd (cidr_key net))
+    | _ -> raise (EvalError "cidr_prefix: expected CIDR")));
+  (* The ends of the range, host bits all clear and all set. Not "the first
+     usable host" and "the broadcast address": those are conventions of
+     particular network sizes, and a /31 on a point-to-point link has
+     neither. These are the two addresses the prefix actually bounds. *)
+  ("cidr_first", VBuiltin (function
+    | VCIDR net ->
+      let base, bits = cidr_key net in
+      VIPv4 (ipv4_of_int (cidr_mask bits land base))
+    | _ -> raise (EvalError "cidr_first: expected CIDR")));
+  ("cidr_last", VBuiltin (function
+    | VCIDR net ->
+      let base, bits = cidr_key net in
+      VIPv4 (ipv4_of_int ((cidr_mask bits land base) lor (0xFFFFFFFF - cidr_mask bits)))
+    | _ -> raise (EvalError "cidr_last: expected CIDR")));
+  ("cidr_count", VBuiltin (function
+    | VCIDR net ->
+      let _, bits = cidr_key net in
+      VInt (1 lsl (32 - bits))
+    | _ -> raise (EvalError "cidr_count: expected CIDR")));
+  ("cidr_to_str", VBuiltin (function
+    | VCIDR net -> VString net
+    | _ -> raise (EvalError "cidr_to_str: expected CIDR")));
+  ("cidr_of_parts", VBuiltin (function
+    | VIPv4 a -> VBuiltin (function
+      | VInt bits ->
+        if bits >= 0 && bits <= 32 then
+          VConstr (Ctor.Builtin "Ok", [VCIDR (Printf.sprintf "%s/%d" a bits)])
+        else
+          VConstr (Ctor.Builtin "Error", [VString
+            (Printf.sprintf "invalid CIDR prefix %d: must be 0-32" bits)])
+      | _ -> raise (EvalError "cidr_of_parts: expected Int"))
+    | _ -> raise (EvalError "cidr_of_parts: expected IPv4")));
+
   (* ── Taking a version apart ─────────────────────────────────────────── *)
 
   (* The numbers are three by the time a value exists -- `Lexer.version_error`

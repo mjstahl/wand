@@ -1,0 +1,126 @@
+import CIDR
+import IPv4
+import List
+import String
+
+let {test} = import Test
+
+-- ── contains? ──────────────────────────────────────────────────────────
+
+test "an address inside, and one outside" (fn t ->
+  t.eq (true, false) (
+    CIDR.contains? 10.0.0.0/8 10.1.2.3,
+    CIDR.contains? 10.0.0.0/8 11.1.2.3
+  ))
+
+-- A network may be written from an address inside it, which is how an
+-- `ip addr` line spells one. The prefix decides the range, so the host
+-- bits of the written address take no part in the question.
+test "a network written from an address inside it" (fn t ->
+  t.eq (true, true) (CIDR.contains? 10.0.0.5/8 10.9.9.9, CIDR.contains? 10.0.0.5/8 10.0.0.1))
+
+test "both ends are inside" (fn t ->
+  t.eq (true, true) (
+    CIDR.contains? 192.168.1.0/24 192.168.1.0,
+    CIDR.contains? 192.168.1.0/24 192.168.1.255
+  ))
+
+test "and the addresses either side are not" (fn t ->
+  t.eq (false, false) (
+    CIDR.contains? 192.168.1.0/24 192.168.0.255,
+    CIDR.contains? 192.168.1.0/24 192.168.2.0
+  ))
+
+-- /0 is every address and /32 is one. Both are prefixes, and the mask has
+-- to be right at each end: shifting a 32-bit mask by 32 does not give 0 on
+-- a machine whose ints are wider.
+test "/0 holds everything" (fn t ->
+  t.eq (true, true) (
+    CIDR.contains? 0.0.0.0/0 0.0.0.0,
+    CIDR.contains? 0.0.0.0/0 255.255.255.255
+  ))
+
+test "/32 holds one address" (fn t ->
+  t.eq (true, false) (
+    CIDR.contains? 10.0.0.1/32 10.0.0.1,
+    CIDR.contains? 10.0.0.1/32 10.0.0.2
+  ))
+
+test "filtering a list is what it is for" (fn t ->
+  t.eq
+    [10.0.0.1, 10.5.5.5]
+    (List.filter (CIDR.contains? 10.0.0.0/8) [10.0.0.1, 8.8.8.8, 10.5.5.5, 192.168.1.1]))
+
+-- ── what the network is ────────────────────────────────────────────────
+
+test "the base address has the host bits cleared" (fn t ->
+  t.eq (10.0.0.0, 192.168.1.0) (CIDR.network 10.0.0.5/8, CIDR.network 192.168.1.77/24))
+
+test "the prefix, without the slash" (fn t ->
+  t.eq (8, 24, 0, 32) (
+    CIDR.prefix 10.0.0.0/8,
+    CIDR.prefix 192.168.1.0/24,
+    CIDR.prefix 0.0.0.0/0,
+    CIDR.prefix 10.0.0.1/32
+  ))
+
+test "the ends of the range" (fn t ->
+  t.eq (192.168.1.0, 192.168.1.255) (CIDR.first 192.168.1.0/24, CIDR.last 192.168.1.0/24))
+
+test "read through the prefix, not the written address" (fn t ->
+  t.eq (10.0.0.0, 10.255.255.255) (CIDR.first 10.0.0.5/8, CIDR.last 10.0.0.5/8))
+
+-- Not "the first usable host" and "the broadcast address": a /31 on a
+-- point-to-point link has neither, and these two are what the prefix
+-- actually bounds.
+test "a /31 has two addresses and both ends" (fn t ->
+  t.eq (10.0.0.0, 10.0.0.1, 2) (
+    CIDR.first 10.0.0.0/31,
+    CIDR.last 10.0.0.0/31,
+    CIDR.count 10.0.0.0/31
+  ))
+
+test "how many it holds" (fn t ->
+  t.eq (256, 16777216, 1) (
+    CIDR.count 192.168.1.0/24,
+    CIDR.count 10.0.0.0/8,
+    CIDR.count 10.0.0.1/32
+  ))
+
+test "and /0 is the whole space" (fn t -> t.eq 4294967296 (CIDR.count 0.0.0.0/0))
+
+-- The count and the ends are two readings of one range, so they agree.
+test "count is the distance between the ends" (fn t ->
+  t.eq
+    (CIDR.count 172.16.0.0/12)
+    (IPv4.to_int (CIDR.last 172.16.0.0/12) - IPv4.to_int (CIDR.first 172.16.0.0/12) + 1))
+
+-- ── text ───────────────────────────────────────────────────────────────
+
+test "to_string, and back" (fn t ->
+  t.eq ("10.0.0.0/8", Ok 10.0.0.0/8) (
+    CIDR.to_string 10.0.0.0/8,
+    CIDR.of_string "10.0.0.0/8"
+  ))
+
+-- The prefix range is the lexer's rule, so a literal and this constructor
+-- cannot disagree about it.
+test "a prefix above 32 is not a network" (fn t ->
+  match CIDR.of_string "10.0.0.0/33" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "0" e))
+
+test "of_parts builds one" (fn t -> t.eq (Ok 10.0.0.0/8) (CIDR.of_parts 10.0.0.0 8))
+
+test "and refuses a prefix that is not one" (fn t ->
+  match CIDR.of_parts 10.0.0.0 33 with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "must be 0-32" e))
+
+test "String.to_cidr is the same function" (fn t ->
+  t.eq (String.to_cidr "10.0.0.0/8") (CIDR.of_string "10.0.0.0/8"))
+
+-- Networks order by where they start, then by how far they reach. As text
+-- 10.0.0.0/8 sorts below 9.0.0.0/8, which is the wrong way round.
+test "networks order by their start, not their text" (fn t ->
+  t.eq [9.0.0.0/8, 10.0.0.0/8, 10.0.0.0/16] (List.sort [10.0.0.0/16, 10.0.0.0/8, 9.0.0.0/8]))
