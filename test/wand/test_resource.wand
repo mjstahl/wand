@@ -147,9 +147,8 @@ test "temp_dir cleans up when the body raises" (fn t -> (
   let dir = FS.read_file! note;
   FS.delete! note;
   let raised =
-    match r with
-    | Error _ -> true
-    | Ok _ -> false
-  in
+    (match r with
+     | Error _ -> true
+     | Ok _ -> false);
   t.eq (true, false) (raised, FS.exists? (Path.of_string dir))
 ))

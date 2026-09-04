@@ -83,7 +83,7 @@ test "raw! expands a glob" (fn t ->
   (
     FS.write_file! (Path.join d (Path.of_string "a.txt")) "";
     FS.write_file! (Path.join d (Path.of_string "b.txt")) "";
-    let pattern = "%{Path.to_string d}/*.txt" in
+    let pattern = "%{Path.to_string d}/*.txt";
     t.eq 2 (List.length (String.lines $(ls %!{pattern})))
   ))
 

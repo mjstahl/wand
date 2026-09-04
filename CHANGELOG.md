@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **V-PRED3 stays quiet on a function that can raise.** A name carries one
+  ending, and `has_example?!` does not parse. So a function that returns
+  `Bool` and can raise had no name that answered both conventions: `!` drew
+  V-PRED3 and `?` drew V-BANG1. The `!` wins, which is what V-BANG1 already
+  said in its own message -- "`?` is not the ending it takes; it is
+  'has_example!'". `tools/check_docs.wand` was the file reporting it
+- **A binding written `in` among a block's statements takes the `;`.** The
+  spelling follows where the binding stands, and this asked only whether the
+  body was itself a block. So a binding written `in` with statements above it
+  kept the `in` and stood beside their `;`, and one block held both
+  spellings. `tools/check_docs.wand` did. The first statement of a `( ... )`
+  is not one of those: `(let f = ... in f ())` is a parenthesis around one
+  expression, not a block
+
 ## [0.59.1] - 2026-09-04
 
 ### Fixed

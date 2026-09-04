@@ -109,8 +109,8 @@ let race thunks = par_race thunks
 -- Ok(2) : Result String Int
 let timeout d thunk = (
   par_deadline_guard ();
-  let work = fn () -> Ok (thunk ()) in
-  let sleeper = fn () -> (Clock.sleep d; Error "timed out after %{d}") in
+  let work = fn () -> Ok (thunk ());
+  let sleeper = fn () -> (Clock.sleep d; Error "timed out after %{d}");
   match race [work, sleeper] with
   | Ok answer -> answer
   | Error why -> Error why

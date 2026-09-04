@@ -1,0 +1,23 @@
+found:     test/fuzz, seed 0, iteration 11169, 2026-09-04
+reported:  format:unstable
+fixed in:  lib/parser.ml, let_'s as_block_tail
+
+A binding with statements above it in the same block takes their `;`. The
+retag reached the binding itself and not the bindings inside its body, which
+were read as one expression with it and kept their `in`. The next pass saw a
+`;` above them and wrote the `;`, so the two passes disagreed:
+
+  let () =            let () =
+    match a with  ->    (match a with
+    | O -> e             | O -> e);
+  in                  ()
+  ()
+
+The retag now follows the statement spine: down the last statement of a
+`Seq` and down a binding's body. Not into the first child of a `Seq`, which
+is where a binding written `in` narrows and keeps it.
+
+Unlike most fixtures here, this one does not fail on the binary before the
+commit that fixes it. The rule it tests arrived in that same commit, and the
+bug was in the first draft of it. v0.59.1 formats this input stably, because
+there it keeps every `in`.

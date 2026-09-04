@@ -93,7 +93,7 @@ let pin! () = (
   -- The copy has to be runnable, and a copy does not have to carry the
   -- execute bit. Asked here, where the answer is one line, rather than as
   -- "No such file or directory" once per seed.
-  let ok = $?(test -x %{Path.to_string pinned}) in
+  let ok = $?(test -x %{Path.to_string pinned});
   match Shell.ok? ok with
   | false -> (
     IO.println_err "the pinned copy is not executable: %{Path.to_string pinned}";
@@ -164,14 +164,13 @@ let main! () = (
   -- `Par.map` answers with a Result for each worker, because one that
   -- raises must not take the others with it. A seed that could not run at
   -- all is the sweep failing, not a quiet seed.
-  let results = Par.map workers (fn s -> run_seed pinned s) (List.range 0 (seeds - 1)) in
+  let results = Par.map workers (fn s -> run_seed pinned s) (List.range 0 (seeds - 1));
   let ran =
     results
       |> List.map (fn r ->
         match r with
         | Ok v -> v
-        | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2))
-  in
+        | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2));
   report (ran |> List.map report_seed)
 )
 

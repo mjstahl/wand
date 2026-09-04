@@ -115,7 +115,17 @@ let test_pred1 () =
   (* A Bool that is not a function is a value, not a question: `let ready =
      False` is a fact the program holds, and naming it `ready?` would promise
      a caller something to call. *)
-  silent "a Bool value is not a predicate" "let ready = 1 > 0\nready"
+  silent "a Bool value is not a predicate" "let ready = 1 > 0\nready";
+  (* A name carries one ending, and `has?!` does not parse. So a function
+     that returns Bool and can raise has no name that answers both rules,
+     and V-PRED3 asked for a `?` the author cannot write. `!` wins: V-BANG1
+     says as much in its own message, and the risk is what a caller has to
+     see. *)
+  silent "a raising Bool takes the ! and keeps it"
+    "import List\nlet empty! xs = List.head! xs > 0\nempty! [1]";
+  fires "and a ? on one that raises is still wrong"
+    "import List\nlet empty? xs = List.head! xs > 0\nempty? [1]"
+    "V-BANG1"
 
 (* A raise the caller may bring is not one the function performs. `try`
    discharges Raise across a function, so a wrapper asks for a thunk that

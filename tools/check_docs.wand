@@ -91,7 +91,7 @@ let report_undocumented names = (
 let main! () = (
   let missing = modules |> List.map undocumented_in! |> List.flatten;
   if List.empty? missing then () else report_undocumented missing;
-  let results = modules |> List.map check in
+  let results = modules |> List.map check;
   match List.filter Shell.failed? results with
   | [] -> IO.println "every function has an example, and every example holds"
   | bad -> (

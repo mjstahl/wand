@@ -162,15 +162,14 @@ test "read_file ok" (fn t ->
   (
     FS.write_file! p "[db]\nname = \"mydb\"\n";
     let outcome =
-      match TOML.read_file p with
-      | Ok tm -> (
-        let db = TOML.field! "db" tm in
-        match TOML.get_string (TOML.field! "name" db) with
-        | Ok s -> s
-        | Error _ -> ""
-      )
-      | Error _ -> ""
-    in
+      (match TOML.read_file p with
+       | Ok tm -> (
+         let db = TOML.field! "db" tm in
+         match TOML.get_string (TOML.field! "name" db) with
+         | Ok s -> s
+         | Error _ -> ""
+       )
+       | Error _ -> "");
     t.eq "mydb" outcome
   ))
 

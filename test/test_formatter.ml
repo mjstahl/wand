@@ -1365,6 +1365,33 @@ let test_a_newline_binding_takes_the_block_spelling () =
     "let f () = (\n  let x = 1\n  let y = 2\n  x + y\n)\nf ()"
     "3"
 
+(* Where the binding stands decides the spelling. A binding with statements
+   above it in the same block takes their `;`, whatever joined it to its
+   body. It used to keep an `in` written by hand, so one block held both
+   spellings -- tools/check_docs.wand did.
+
+   The first statement is not one of those. `(let f = ... in f ())` is a
+   parenthesis around one expression, and reading it as a block puts a
+   second pair of brackets around it. *)
+let test_an_in_among_statements_takes_the_semicolon () =
+  fmt_eq "a binding under a statement"
+    {|let f () = (g (); let x = 1 in x + 1)|}
+    {|let f () = (g (); let x = 1; x + 1)|};
+  fmt_eq "the first statement keeps its in"
+    {|let f () = (let x = 1 in x + 1)|}
+    {|let f () = let x = 1 in x + 1|};
+  (* Grouping brackets around one binding stay one pair. *)
+  fmt_eq "a parenthesised binding as an argument"
+    {|let a = t.eq 3 (let f = fn () -> let x = 1 in x + 1 in f ())|}
+    {|let a = t.eq 3 (let f = fn () -> let x = 1 in x + 1 in f ())|};
+  (* The `in` that narrows is still the exception, in either position. *)
+  fmt_eq "an in before a semicolon narrows and stays"
+    {|let f () = (let x = 1 in x + 1; 9)|}
+    {|let f () = (let x = 1 in x + 1; 9)|};
+  fmt_eq "and under a statement too"
+    {|let f () = (g (); let x = 1 in x + 1; 9)|}
+    {|let f () = (g (); let x = 1 in x + 1; 9)|}
+
 (* A binding written this way used to take everything under it into its
    body, however far left that was: `parse_body` looped on "another
    expression starts here" and the rest of the file always did. Every
@@ -1603,6 +1630,8 @@ let () =
         test_a_newline_binding_takes_the_block_spelling;
       Alcotest.test_case "a newline binding ends" `Quick
         test_a_newline_binding_stops_at_the_next_definition;
+      Alcotest.test_case "an in among statements" `Quick
+        test_an_in_among_statements_takes_the_semicolon;
       Alcotest.test_case "a pun reads back" `Quick
         test_a_pun_reads_back_as_the_field_it_came_from;
       Alcotest.test_case "an arm before a semicolon" `Quick

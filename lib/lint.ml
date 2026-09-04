@@ -561,6 +561,13 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
       (match Option.bind (List.assoc_opt name own_env) type_of_scheme with
        | Some t ->
          let res = result_type t in
+         (* A name carries one ending, and `has_example?!` does not parse. So
+            a function that returns Bool and can raise has no name that
+            answers both conventions, and V-PRED3 asking for the `?` asked
+            for something the author cannot write. `!` wins: the risk is
+            what a caller has to see, and V-BANG1 already says so in as many
+            words. *)
+         let raises = is_function t && type_raises t in
          if ends_with name '?' && String.length name > 4
             && String.sub name 0 3 = "is_" then
            add Lint_rules.V_PRED2 loc (Lint_rules.pred2 ~name);
@@ -568,14 +575,14 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
            add Lint_rules.V_PRED1 loc
              (Lint_rules.pred1 ~name ~actual:(Typechecker.string_of_typ res));
          (* And the other way, as `!` is checked both ways below. *)
-         if res = Typechecker.TBool && not (ends_with name '?') && is_function t then
+         if res = Typechecker.TBool && not (ends_with name '?') && is_function t
+            && not raises then
            add Lint_rules.V_PRED3 loc (Lint_rules.pred3 ~name);
          if informationless_error t then
            add Lint_rules.V_OR1 loc (Lint_rules.or1 ~name);
          (* The `!` convention, checked in both directions now that a
             signature says whether a function can raise. *)
          if is_function t then begin
-           let raises = type_raises t in
            if raises && not (ends_with name '!') then
              add Lint_rules.V_BANG1 loc (Lint_rules.bang1 ~name);
            if (not raises) && ends_with name '!' then

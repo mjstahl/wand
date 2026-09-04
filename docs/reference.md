@@ -4767,7 +4767,7 @@ punish the safer choice.
 |---|---|
 | `V-PRED1` | a `?`-named function returns something other than `Bool` |
 | `V-PRED2` | a `?`-named function also carries an `is_` prefix, which says predicate twice |
-| `V-PRED3` | a function that returns `Bool` is not named with `?` |
+| `V-PRED3` | a function that returns `Bool` is not named with `?`, and cannot raise |
 | `V-OR1` | a `Result`'s error side is `Unit`, so a failure reports no reason |
 | `V-BANG1` | a function that can raise is not named with `!` |
 | `V-BANG2` | a `!`-named function cannot raise |
@@ -4783,6 +4783,11 @@ punish the safer choice.
 | `V-SHELL2` | a command runs on to a second line, which starts a second command |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `V-USES2` | a file performs effects and declares no manifest |
+
+A name carries one ending. `has_example?!` does not parse, so a function that
+returns `Bool` and can raise has no name that answers both conventions. The
+`!` wins, and `V-PRED3` stays quiet: the risk is what a caller has to see, and
+`V-BANG1` says the same thing from the other side.
 
 `V-IMP2` reads the file and nothing else. An import binds names. Either the
 file mentions one of them below, or it mentions none.
