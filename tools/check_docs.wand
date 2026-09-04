@@ -88,9 +88,9 @@ let report_undocumented names = (
   Proc.exit 1
 )
 
-let main! () =
-  let missing = modules |> List.map undocumented_in! |> List.flatten in
-  let () = if List.empty? missing then () else report_undocumented missing in
+let main! () = (
+  let missing = modules |> List.map undocumented_in! |> List.flatten;
+  if List.empty? missing then () else report_undocumented missing;
   let results = modules |> List.map check in
   match List.filter Shell.failed? results with
   | [] -> IO.println "every function has an example, and every example holds"
@@ -99,5 +99,6 @@ let main! () =
     bad |> List.each report;
     Proc.exit 1
   )
+)
 
 main! ()

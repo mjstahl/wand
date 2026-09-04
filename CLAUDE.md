@@ -239,7 +239,11 @@ let deploy! target = (
 ```
 
 `let x = e in body` names a value for `body` — use it for naming, not
-sequencing. Prefer one `match` over multi-equation definitions. Pattern
+sequencing. A newline also joins a binding to its body, and `wand f` writes
+that back as whichever of the two the position calls for, so the separator is
+the formatter's business rather than yours. What it does not rewrite is
+`let () = e in body`, a binder standing in for a `;` — write the `;`.
+Prefer one `match` over multi-equation definitions. Pattern
 matching must be exhaustive or it is a type error.
 
 ### Domain literals

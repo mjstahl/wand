@@ -1298,6 +1298,112 @@ let test_a_block_binding_round_trips () =
 f ()|}
     "3"
 
+(* A binding may also be joined to its body by nothing but the newline that
+   ends its right-hand side, which is a third way to write what `;` and `in`
+   already write. It comes back as one of those two, chosen by where it
+   stands: the `;` of the block it is in, and `in` where there is no block.
+   It used to come back as a `let ... in` chain wearing the block's own
+   parentheses, so a function written one way was printed two ways. *)
+let test_a_newline_binding_takes_the_block_spelling () =
+  fmt_eq "in a block, with statements under it"
+    "let f () = (\n  let x = 1\n  IO.println \"a\"\n  x + 1\n)"
+    {|let f () = (let x = 1; IO.println "a"; x + 1)|};
+  fmt_eq "in a block, two bindings"
+    "let f () = (\n  let x = 1\n  let y = 2\n  x + y\n)"
+    {|let f () = (let x = 1; let y = 2; x + y)|};
+  (* The parentheses are the block. Without them the binding names a value
+     for one expression, which is what `in` says. *)
+  fmt_eq "no block, one expression under it"
+    "let f () =\n  let x = 1\n  x + 2"
+    {|let f () = let x = 1 in x + 2|};
+  (* Several statements are a block whether or not they were bracketed, so
+     the parentheses are supplied rather than the `in` chain that used to
+     be printed around a `(...)` of its own. *)
+  fmt_eq "no block, several statements under it"
+    "let f () =\n  let x = 1\n  IO.println \"a\"\n  x + 2"
+    {|let f () = (let x = 1; IO.println "a"; x + 2)|};
+  assert_idempotent "the printed form is a fixed point"
+    {|let f () = (let x = 1; IO.println "a"; x + 1)|};
+  ok_after_format "and it still runs"
+    "let f () = (\n  let x = 1\n  let y = 2\n  x + y\n)\nf ()"
+    "3"
+
+(* A binding written this way used to take everything under it into its
+   body, however far left that was: `parse_body` looped on "another
+   expression starts here" and the rest of the file always did. Every
+   definition below went inside the one above, and a `main! ()` that ends up
+   inside a function nobody calls is a script that prints nothing and exits
+   0 -- `wand f` then wrote that reading back over the source. A statement
+   starting left of the binding's own `let` is not part of its body. *)
+(* A field that already names its variable is punned, and the pun has to read
+   back as the field it came from. Two spellings do not: one identifier alone
+   inside the brackets is the payload under that name (`B(n)`), and on the
+   expression side a pun standing in front of a named field is the record
+   update `T(r, b = 3)`. Both used to be written, and `demos/07` stopped
+   typechecking after a `wand f` that nobody ran again. *)
+let test_a_pun_reads_back_as_the_field_it_came_from () =
+  (* Patterns: punned beside anything else, written out when alone. *)
+  fmt_eq "a lone pattern field keeps its name"
+    {|let f (M(a = a)) = a|}
+    {|let f (M(a = a)) = a|};
+  fmt_eq "two of them pun"
+    {|let f (M(a = a, b = b)) = a|}
+    {|let f (M(a, b)) = a|};
+  (* A pattern has no update form to collide with, so a pun may stand beside
+     a named field here. *)
+  fmt_eq "a pun beside a named field"
+    {|let f (M(a = a, b = z)) = a|}
+    {|let f (M(a, b = z)) = a|};
+  (* Constructions: all of them, or none. *)
+  fmt_eq "a lone construction field keeps its name"
+    {|let f n = B(n = n)|}
+    {|let f n = B(n = n)|};
+  fmt_eq "two of them pun"
+    {|let f a b = M(a = a, b = b)|}
+    {|let f a b = M(a, b)|};
+  fmt_eq "a pun beside a named field is written out"
+    {|let f a = M(a = a, b = "z")|}
+    {|let f a = M(a = a, b = "z")|};
+  fmt_eq "and so is one after a named field"
+    {|let f b = M(a = "z", b = b)|}
+    {|let f b = M(a = "z", b = b)|};
+  (* The update is the spelling being kept clear of, and it is untouched. *)
+  fmt_eq "an update is not a pun"
+    {|let f r = M(r, b = "z")|}
+    {|let f r = M(r, b = "z")|}
+
+(* A `;` after a `match` or `handle` arm lands hard against the arm, and a
+   reader has to know it closed the statement above rather than belonging to
+   the arm. The parse was never in doubt -- the arms are still owed when the
+   `;` arrives -- so the bracket is for the reader, and it goes on both the
+   statement and the binding value, which are the two places a `;` can
+   follow an arm. *)
+let test_an_arm_before_a_semicolon_is_bracketed () =
+  fmt_eq "a match as a statement"
+    "let f x = (\n  match x with\n  | true -> g ()\n  | false -> ();\n  h ()\n)"
+    "let f x = (\n  (match x with\n   | true -> g ()\n   | false -> ());\n  h ()\n)";
+  fmt_eq "a match as a binding's value"
+    "let f x = (\n  let y = match x with | true -> 1 | false -> 2;\n  g y\n)"
+    "let f x = (\n  let y =\n    (match x with\n     | true -> 1\n     | false -> 2);\n  g y\n)";
+  (* The arm may be under a lambda, or anything else that ends on one. *)
+  fmt_eq "a lambda whose body ends on an arm"
+    "let f x = (\n  let r = fn v -> match v with | Ok w -> w | Error _ -> 0;\n  g r\n)"
+    "let f x = (\n  let r =\n    (fn v -> match v with\n       | Ok w -> w\n       | Error _ -> 0);\n  g r\n)";
+  (* The last statement has no `;` after it and takes no bracket. *)
+  fmt_eq "the last statement is left alone"
+    "let f x = (\n  g ();\n  match x with\n  | true -> 1\n  | false -> 2\n)"
+    "let f x = (\n  g ();\n  match x with\n  | true -> 1\n  | false -> 2\n)";
+  assert_idempotent "the bracketed form is a fixed point"
+    "let f x = (\n  (match x with\n   | true -> g ()\n   | false -> ());\n  h ()\n)"
+
+let test_a_newline_binding_stops_at_the_next_definition () =
+  fmt_eq "the definition below stays its own"
+    "let f () =\n  let a = 1\n  a + 1\n\nlet g () = 2"
+    "let f () = let a = 1 in a + 1\n\nlet g () = 2";
+  ok_after_format "and the file below the binding still runs"
+    "let f () =\n  let a = 1\n  a + 1\n\nlet g () = 2\n\nf () + g ()"
+    "4"
+
 (* `$NAME` in a string is text, so the formatter has nothing to interpret:
    it comes back as written, and is not turned into an interpolation. An
    actual environment read is `%{$USER}`, and that round-trips as itself. *)
@@ -1454,6 +1560,14 @@ let () =
       Alcotest.test_case "env interpolation" `Quick test_env_var_interpolation;
       Alcotest.test_case "string openers" `Quick test_string_openers_come_back_escaped;
       Alcotest.test_case "a block binding" `Quick test_a_block_binding_round_trips;
+      Alcotest.test_case "a newline binding" `Quick
+        test_a_newline_binding_takes_the_block_spelling;
+      Alcotest.test_case "a newline binding ends" `Quick
+        test_a_newline_binding_stops_at_the_next_definition;
+      Alcotest.test_case "a pun reads back" `Quick
+        test_a_pun_reads_back_as_the_field_it_came_from;
+      Alcotest.test_case "an arm before a semicolon" `Quick
+        test_an_arm_before_a_semicolon_is_bracketed;
       Alcotest.test_case "a comment inside an item" `Quick test_a_comment_inside_an_item;
       Alcotest.test_case "a trailing comment pins its item" `Quick
         test_a_trailing_comment_pins_its_item;

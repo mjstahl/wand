@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.59.0] - 2026-09-04
+
+### Changed
+
+- **`wand f` writes one spelling for a binding, not the three that parse.**
+  A binding may be joined to its body by `in`, by the `;` of a block, or by
+  the newline that ends its right-hand side. All three parse, and the
+  formatter used to print each back as itself -- except the newline, which
+  it printed as a `let ... in` chain wearing the block's own parentheses. So
+  a block written one way came back holding two forms:
+  `(let a = e` and `IO.println a` below it became
+  `let a = e in (IO.println a; ...)`. The spelling is now chosen by where
+  the binding stands: the `;` of the block it is in, and `in` where it names
+  a value for a single expression. A body of several statements is a block
+  whether or not it was written with parentheses, so `let x = e in (a; b)`
+  comes back as `(let x = e; a; b)` -- the form the style guide asks for.
+  The one `in` the formatter leaves alone is the one that narrows:
+  `(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing below it,
+  which is meaning rather than spelling
+- A newline separates two statements inside a `( ... )` block, so `;` between
+  them is optional on the way in and written on the way out. It used to be
+  required for statements and optional only for bindings, which is two rules
+  for one bracket. Two plain expressions still need the `;` where the block
+  does not open with a binding: inside a bracket juxtaposition means
+  application, and a newline cannot tell the next statement from the next
+  argument
+- `stdlib`, `tools/` and `test/wand/` no longer sequence with
+  `let () = e in ...`. 109 of them are now the `;` the style guide keeps for
+  it. The five that stay are top-level statements, where `let () = e` asserts
+  that `e` is `Unit` rather than standing in for a separator
+- A `;` after a `match` or `handle` arm is kept off it by a bracket the
+  formatter writes. `| Error _ -> 0;` reads as part of the arm, and a reader
+  had to know the `;` closed the statement above. The parse was never in
+  doubt -- the arms are still owed when the `;` arrives -- so this is the
+  reading, and it applies to a statement and to a binding's value alike,
+  which are the two places a `;` can follow an arm
+
+### Fixed
+
+- **`wand f` no longer puns a field into a spelling that means something
+  else.** A field whose value already carries its name is written as the name
+  alone, and two shapes do not read back as the field they came from. One
+  identifier inside the brackets is the payload under that name -- `B(n)` is
+  `B` applied to `n` whichever way `B` is declared -- so `B(n = n)` came back
+  as a different node and stopped typechecking. And on the expression side a
+  pun standing in front of a named field is the record update `T(r, b = 3)`,
+  so `M(a = x, b = "z")` came back as an update of `x`; against a free
+  variable it even typechecked, and built something else. A construction now
+  puns all its fields or none of them, and neither side puns a lone field. A
+  pattern still puns beside a named field, having no update form to collide
+  with. `demos/07-jq-typed/crashlooping.wand` was the one this reached: its
+  `Meta(name = name)` became `Meta(name)`, and the demo went on passing
+  because nothing ran the formatter over it
+- **`check_fmt` covers `demos/` and `tools/`.** They were outside the gate,
+  which is why the above sat there unseen. 114 files checked becomes 132
+- **A binding written with a newline stops at the definition below it.** The
+  loop that took its body asked only whether another expression started, and
+  after the last one the next definition did. So every definition under it
+  went inside it: a file whose first function was written this way ended up
+  with its whole tail nested in that function, and a `main! ()` inside a
+  function nobody calls is a script that prints nothing and exits 0.
+  `wand f` then wrote that reading back over the source. A statement
+  starting left of the binding's own `let` is not part of its body
+
 ## [0.58.0] - 2026-09-04
 
 ### Changed

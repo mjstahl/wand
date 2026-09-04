@@ -137,17 +137,17 @@ type Boxed(n: Int)
 
 test "a payload carries its type" (fn t -> (
   let read =
-    fn r -> match r with
-      | Ok (b: Boxed) -> b.n
-      | Error _ -> 0;
+    (fn r -> match r with
+       | Ok (b: Boxed) -> b.n
+       | Error _ -> 0);
   t.eq 7 (read (Ok Boxed(n = 7)))
 ))
 
 test "and so does one inside a tuple payload" (fn t -> (
   let read =
-    fn r -> match r with
-      | Ok((b: Boxed), extra) -> b.n + extra
-      | Error _ -> 0;
+    (fn r -> match r with
+       | Ok((b: Boxed), extra) -> b.n + extra
+       | Error _ -> 0);
   t.eq 9 (read (Ok (Boxed(n = 7), 2)))
 ))
 
@@ -230,10 +230,10 @@ test "a construction puns from names in scope" (fn t -> (
   t.eq "web/5" "%{p.name}/%{p.restarts}"
 ))
 
-test "a pun follows a named field" (fn t -> (
-  let p = Pod(name = "api", restarts);
-  t.eq "api/5" "%{p.name}/%{p.restarts}"
-))
+-- A pun beside a named field parses, and `wand f` writes it out again: the
+-- pun form is all-or-nothing on this side, because a bare name in front of a
+-- named field is the update below. The spellings themselves are held in
+-- test/test_parser.ml, where the formatter does not reach.
 
 -- A bare name before a named field is the base of an update, which is what
 -- that spelling has always meant.

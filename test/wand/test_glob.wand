@@ -103,24 +103,24 @@ test "to_string round-trips" (fn t ->
 -- says it should not have.
 test "FS.glob answers exactly what matches? accepts" (fn t ->
   with FS.temp_dir "wand_glob_" as dir ->
-  let () = FS.mkdir! (Path.join dir (Path.of_string "src/deep")) in
-  let names = ["a.wand", "b.ml", "src/c.wand", "src/deep/d.wand", "src/deep/e.txt"] in
-  let () =
-    names |> List.each (fn n -> FS.write_file! (Path.join dir (Path.of_string n)) "x")
-  in
-  let found = FS.glob_in **.wand dir in
-  -- Every path the walk answered is one the predicate accepts, read
-  -- relative to the directory the walk was given.
-  let relative =
-    fn p -> (Path.of_string
-      (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p)))
-  in
-  let all_match = found |> List.all? (fn p -> Glob.matches? **.wand (relative p)) in
-  -- And every file it did not answer is one the predicate rejects.
-  let found_names = found |> List.map (fn p -> Path.to_string (relative p)) in
-  let missed =
-    names
-      |> List.filter (fn n -> List.find (fn f -> f == n) found_names == None)
-      |> List.filter (fn n -> Glob.matches? **.wand (Path.of_string n))
-  in
-  t.eq (3, true, []) (List.length found, all_match, missed))
+  (
+    FS.mkdir! (Path.join dir (Path.of_string "src/deep"));
+    let names = ["a.wand", "b.ml", "src/c.wand", "src/deep/d.wand", "src/deep/e.txt"];
+    names |> List.each (fn n -> FS.write_file! (Path.join dir (Path.of_string n)) "x");
+    let found = FS.glob_in **.wand dir in
+    -- Every path the walk answered is one the predicate accepts, read
+    -- relative to the directory the walk was given.
+    let relative =
+      fn p -> (Path.of_string
+        (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p)))
+    in
+    let all_match = found |> List.all? (fn p -> Glob.matches? **.wand (relative p)) in
+    -- And every file it did not answer is one the predicate rejects.
+    let found_names = found |> List.map (fn p -> Path.to_string (relative p)) in
+    let missed =
+      names
+        |> List.filter (fn n -> List.find (fn f -> f == n) found_names == None)
+        |> List.filter (fn n -> Glob.matches? **.wand (Path.of_string n))
+    in
+    t.eq (3, true, []) (List.length found, all_match, missed)
+  ))

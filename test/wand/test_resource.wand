@@ -18,7 +18,7 @@ import Path
 let marker name = Path.of_string "/tmp/wand_res_%{name}"
 
 let tracked name =
-  let acquire = fn () -> let () = FS.write_file! (marker name) "held" in name in
+  let acquire = fn () -> (FS.write_file! (marker name) "held"; name) in
   let release = fn n -> FS.delete! (marker n) in Resource.make acquire release
 
 let held? name = FS.exists? (marker name)
@@ -76,22 +76,24 @@ test "released when a handler does resume" (fn t ->
 -- region -- it used to reach the top level as a fatal error instead, since
 -- the raise doing the unwinding comes from inside the release, which runs
 -- as `Fun.protect`'s finally and has whatever it raises wrapped.
-test "a handler may decline to resume an operation performed in a release" (fn t ->
+test "a handler may decline to resume an operation performed in a release" (fn t -> (
   let out =
-    handle with tracked "n" as _ -> "body" with
-    | FS!delete _ _ -> "declined"
-  in
+    (handle with tracked "n" as _ -> "body" with
+     | FS!delete _ _ -> "declined");
   -- The delete never reached the disk, so the marker is still there.
-  let () = FS.delete! (marker "n") in t.eq "declined" out)
+  FS.delete! (marker "n");
+  t.eq "declined" out
+))
 
 -- Each bracket the unwinding passes through wraps the raise once more.
-test "and through two brackets" (fn t ->
+test "and through two brackets" (fn t -> (
   let out =
-    handle with tracked "o" as _ -> with tracked "p" as _ -> "body" with
-    | FS!delete _ _ -> "declined"
-  in
-  let () = FS.delete! (marker "o") in
-  let () = FS.delete! (marker "p") in t.eq "declined" out)
+    (handle with tracked "o" as _ -> with tracked "p" as _ -> "body" with
+     | FS!delete _ _ -> "declined");
+  FS.delete! (marker "o");
+  FS.delete! (marker "p");
+  t.eq "declined" out
+))
 
 -- A resource is a description, not something already open, so naming one
 -- acquires nothing and using it twice acquires twice.
@@ -111,10 +113,13 @@ test "one resource used twice" (fn t ->
 test "temp_dir removes a directory that is not empty" (fn t ->
   let kept =
     with FS.temp_dir "wand_td_" as d ->
-    let dir = Path.to_string d in
-    let () = FS.write_file! (Path.of_string "%{dir}/a.txt") "x" in
-    let () = FS.mkdir! (Path.of_string "%{dir}/sub") in
-    let () = FS.write_file! (Path.of_string "%{dir}/sub/b.txt") "y" in dir
+    (
+      let dir = Path.to_string d;
+      FS.write_file! (Path.of_string "%{dir}/a.txt") "x";
+      FS.mkdir! (Path.of_string "%{dir}/sub");
+      FS.write_file! (Path.of_string "%{dir}/sub/b.txt") "y";
+      dir
+    )
   in
   t.eq false (FS.exists? (Path.of_string kept)))
 
@@ -129,19 +134,22 @@ test "two temp_dirs do not collide" (fn t ->
 
 -- The tree goes even when the body leaves by raising. The directory's name
 -- is written outside it first, so the check survives the body it came from.
-test "temp_dir cleans up when the body raises" (fn t ->
-  let note = marker "raise_case" in
+test "temp_dir cleans up when the body raises" (fn t -> (
+  let note = marker "raise_case";
   let r =
     try with FS.temp_dir "wand_td_" as d ->
-    let dir = Path.to_string d in
-    let () = FS.write_file! note dir in
-    let () = FS.write_file! (Path.of_string "%{dir}/a.txt") "x" in List.get! 9 [1]
-  in
-  let dir = FS.read_file! note in
-  let () = FS.delete! note in
+    (
+      let dir = Path.to_string d;
+      FS.write_file! note dir;
+      FS.write_file! (Path.of_string "%{dir}/a.txt") "x";
+      List.get! 9 [1]
+    );
+  let dir = FS.read_file! note;
+  FS.delete! note;
   let raised =
     match r with
     | Error _ -> true
     | Ok _ -> false
   in
-  t.eq (true, false) (raised, FS.exists? (Path.of_string dir)))
+  t.eq (true, false) (raised, FS.exists? (Path.of_string dir))
+))

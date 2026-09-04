@@ -23,14 +23,18 @@ test "get! missing raises" (fn t ->
 
 -- ── set ─────────────────────────────────────────────────────────────────
 
-test "set then get" (fn t ->
-  let () = Env.set "WAND_TEST_SET" "value" in t.eq (Some "value") (Env.get "WAND_TEST_SET"))
+test "set then get" (fn t -> (
+  Env.set "WAND_TEST_SET" "value";
+  t.eq (Some "value") (Env.get "WAND_TEST_SET")
+))
 
 -- ── clear ───────────────────────────────────────────────────────────────
 
 let () = Env.set "WAND_TEST_CLEAR" "before"
-test "clear empties value" (fn t ->
-  let () = Env.clear "WAND_TEST_CLEAR" in t.eq (Some "") (Env.get "WAND_TEST_CLEAR"))
+test "clear empties value" (fn t -> (
+  Env.clear "WAND_TEST_CLEAR";
+  t.eq (Some "") (Env.get "WAND_TEST_CLEAR")
+))
 
 -- ── all ─────────────────────────────────────────────────────────────────
 
@@ -54,25 +58,32 @@ test "user returns non-empty string" (fn t -> t.ok (String.length (Env.user ()) 
 
 test "basic key=value" (fn t ->
   with FS.temp_file "wand_env_rd_" ".env" as p ->
-  let () = FS.write_file! p "FOO=bar\nBAZ=qux\n" in
-  let m = Env.read! p in t.eq "bar" (Map.get! "FOO" m))
+  (
+    FS.write_file! p "FOO=bar\nBAZ=qux\n";
+    let m = Env.read! p in t.eq "bar" (Map.get! "FOO" m)
+  ))
 
 let dotenv_fmt =
   "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n"
 
 test "dotenv formats" (fn t ->
   with FS.temp_file "wand_env_fmt_" ".env" as p ->
-  let () = FS.write_file! p dotenv_fmt in
-  let m = Env.read! p in
-  t.eq ("hello", "quoted", "single", "exported", "has=equals") (
-    Map.get! "KEY1" m,
-    Map.get! "KEY2" m,
-    Map.get! "KEY3" m,
-    Map.get! "KEY4" m,
-    Map.get! "KEY5" m
+  (
+    FS.write_file! p dotenv_fmt;
+    let m = Env.read! p in
+    t.eq ("hello", "quoted", "single", "exported", "has=equals") (
+      Map.get! "KEY1" m,
+      Map.get! "KEY2" m,
+      Map.get! "KEY3" m,
+      Map.get! "KEY4" m,
+      Map.get! "KEY5" m
+    )
   ))
 
 test "load sets env var" (fn t ->
   with FS.temp_file "wand_load_" ".env" as p ->
-  let () = FS.write_file! p "WAND_LOAD_TEST=loaded_value\n" in
-  let () = Env.load! p in t.eq (Some "loaded_value") (Env.get "WAND_LOAD_TEST"))
+  (
+    FS.write_file! p "WAND_LOAD_TEST=loaded_value\n";
+    Env.load! p;
+    t.eq (Some "loaded_value") (Env.get "WAND_LOAD_TEST")
+  ))

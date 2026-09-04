@@ -17,8 +17,7 @@ group "the virtual clock" (fn () -> [
     let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 1h) in t.eq 1h elapsed),
   test "several sleeps add up" (fn t ->
     let (elapsed, v) =
-      Test.with_clock (fn () ->
-        let () = Clock.sleep 30s in let () = Clock.sleep 90s in "done")
+      Test.with_clock (fn () -> (Clock.sleep 30s; Clock.sleep 90s; "done"))
     in
     t.eq (2min, "done") (elapsed, v)),
   test "a thunk that never sleeps waits no time" (fn t ->
@@ -32,9 +31,7 @@ group "the edges" (fn () -> [
   test "zero is still a sleep" (fn t ->
     let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 0ms) in t.eq 0ms elapsed),
   test "and it is counted" (fn t ->
-    let (elapsed, _) =
-      Test.with_clock (fn () -> let () = Clock.sleep 0ms in Clock.sleep 5s)
-    in
+    let (elapsed, _) = Test.with_clock (fn () -> (Clock.sleep 0ms; Clock.sleep 5s)) in
     t.eq 5s elapsed)
 ])
 
@@ -42,8 +39,11 @@ group "the edges" (fn () -> [
 let backoff attempts =
   let step d n =
     if n == 0 then 0ms
-    else let capped = if d > 30s then 30s else d in
-    let () = Clock.sleep capped in Duration.add capped (step (Duration.add d d) (n - 1))
+    else (
+      let capped = if d > 30s then 30s else d;
+      Clock.sleep capped;
+      Duration.add capped (step (Duration.add d d) (n - 1))
+    )
   in step 1s attempts
 
 group "a capped backoff" (fn () -> [

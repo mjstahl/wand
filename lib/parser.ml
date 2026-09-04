@@ -1036,6 +1036,15 @@ and atom_base_ s =
           if peek s = Token.RParen then first else Seq (first, paren_seq s)
         in
         expect s Token.RParen; e
+      end else if is_expr_start (peek s) then begin
+        (* A second statement with no `;` between: the newline separated
+           them, as it does at the top level and inside a block that opens
+           with a binding. Reached only from here, because the first
+           statement had to be read as an expression before anything could
+           say it was a statement. *)
+        let first = Located (span_to_here s e_loc, e) in
+        let e = Seq (first, paren_seq s) in
+        expect s Token.RParen; e
       end else (expect s Token.RParen; e)
       end
     end
@@ -1349,9 +1358,17 @@ and brace_map_ s =
     MapLit !entries
   end
 
+(* The statements a binding takes as its body when a newline joined them to
+   it, outside any block. `s.stmt_col` is that binding's own `let`, and a
+   line starting left of it belongs to whatever encloses the binding, not to
+   this body. Without the guard the loop ran to the end of the file: a
+   definition whose body was written this way took every definition below it
+   inside itself, `wand f` wrote that reading back, and a `main! ()` moved
+   into a function nobody calls is a script that prints nothing and exits
+   0. *)
 and parse_body s =
   let e = ref (locate s (fun () -> expr_ 0 s)) in
-  while is_expr_start (peek s) do
+  while is_expr_start (peek s) && peek_col s >= s.stmt_col do
     e := Seq (!e, locate s (fun () -> expr_ 0 s))
   done;
   !e
@@ -1415,7 +1432,14 @@ and parse_fn_binding s name =
 (* The statements of a `( ... )` block, up to the closing paren, which the
    caller takes. A `let` here binds for the rest of the block: `;` is what
    ends its right-hand side, exactly as a newline does at the top level of
-   a file. So a block and a file read the same way. *)
+   a file. So a block and a file read the same way.
+
+   A newline ends a statement here too, so `;` is optional between two of
+   them. It used to be required, and only for statements: a binding already
+   ended at a newline, which made `(let a = 1` and `a` below it legal while
+   `(1 + 1` and `2 + 2` below it was a parse error. One rule for the
+   bracket, and the separator becomes the formatter's business rather than
+   the author's -- `wand f` writes the `;`. *)
 and paren_seq s =
   let loc = peek_loc s in
   let e =
@@ -1427,11 +1451,12 @@ and paren_seq s =
       let_ ~block:true s
     end else Located (span_to_here s loc, expr_ 0 s)
   in
-  if peek s <> Token.Semicolon then e
-  else begin
+  if peek s = Token.Semicolon then begin
     ignore (advance s);
     if peek s = Token.RParen then e else Seq (e, paren_seq s)
   end
+  else if is_expr_start (peek s) then Seq (e, paren_seq s)
+  else e
 
 and let_ ?(block = false) s =
   (* let already consumed *)
@@ -1451,13 +1476,34 @@ and let_ ?(block = false) s =
     ~finally:(fun () -> s.stmt_col <- outer_col; s.stmt_depth <- outer_depth)
   @@ fun () ->
   let p = pat_ s in
-  (* The body, and the spelling that joined it: `in`, or the `;` of a block.
-     Both bind the name over everything that follows, and the difference
-     survives only so that `wand f` prints back the one that was written. *)
+  (* The body, and what joined it to the binding: `in`, the `;` of a block,
+     or the newline that ended the right-hand side. All three bind the name
+     over everything that follows, so what is recorded is not which was
+     written but which `wand f` writes -- the `;` where the binding is a
+     block's, `in` where it names a value for one expression. *)
+  (* A body of several statements is a block, whatever joined it to the
+     binding. Written `in` it used to come back as a `let ... in` wearing a
+     `( ... )`, which is both spellings in the one binding and the shape the
+     style guide keeps `;` for. The one `in` that stays is the one that
+     narrows: `(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing
+     below it, which is meaning rather than spelling, and a `;` waiting
+     after the body is how that reads here. *)
+  let body_is_a_block e =
+    let rec go e = match e with
+      | Located (_, e) -> go e
+      | Seq _ -> true
+      | Let (_, _, _, Ast.LetBlock) | LetRec (_, _, Ast.LetBlock) -> true
+      | _ -> false
+    in
+    go e
+  in
   let consume_rest () =
     if peek s = Token.In then begin
       ignore (advance s);
-      (locate s (fun () -> expr_ 0 s), Ast.LetIn)
+      let body = locate s (fun () -> expr_ 0 s) in
+      let narrows = peek s = Token.Semicolon in
+      (body, if body_is_a_block body && not narrows then Ast.LetBlock
+             else Ast.LetIn)
     end
     else if block && peek s = Token.Semicolon then begin
       (* The binding's body is everything after the `;`. *)
@@ -1472,7 +1518,19 @@ and let_ ?(block = false) s =
       fail_at (peek_loc s)
         "this binding has no body: a block cannot end with a `let`, \
          because nothing would read the name"
-    else if is_expr_start (peek s) then (parse_body s, Ast.LetIn)
+    else if is_expr_start (peek s) then begin
+      (* Neither `in` nor `;`: the newline ended the right-hand side, and
+         what follows is the body. That is a third way to write a binding,
+         and it is spelt back as one of the other two. Inside a block it is
+         the block's binding and comes back with the `;`. Outside one, a
+         body of several statements is a block whether or not it was written
+         with parentheses, and comes back with them; a body of one
+         expression is what `in` is for. *)
+      if block then (paren_seq s, Ast.LetBlock)
+      else
+        let body = parse_body s in
+        (body, if body_is_a_block body then Ast.LetBlock else Ast.LetIn)
+    end
     else (Unit, Ast.LetIn)
   in
   match p with

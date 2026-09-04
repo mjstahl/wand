@@ -74,26 +74,22 @@ let archive_dir = Path.of_string "%{wand_root}/_fuzz-findings/sweep"
 -- what is being tested half way through. The copy lives beside the findings
 -- and not in a temp directory: a `with` bracket releases at the end of its
 -- body, so a pin made inside one is deleted before the first seed runs.
-let pin! () =
-  let src = Path.of_string fuzz_exe in
-  let () =
-    match FS.exists? src with
-    | false -> (
-      IO.println_err "no fuzzer at %{fuzz_exe} -- set FUZZ_EXE, or build it";
-      Proc.exit 2
-    )
-    | true -> ()
-  in
-  let pinned = Path.join archive_dir (Path.of_string "fuzz.exe") in
-  let () = FS.copy! src pinned in
+let pin! () = (
+  let src = Path.of_string fuzz_exe;
+  (match FS.exists? src with
+   | false -> (
+     IO.println_err "no fuzzer at %{fuzz_exe} -- set FUZZ_EXE, or build it";
+     Proc.exit 2
+   )
+   | true -> ());
+  let pinned = Path.join archive_dir (Path.of_string "fuzz.exe");
+  FS.copy! src pinned;
   -- Compared, not assumed. A copy that failed and was not checked is the
   -- whole reason this file exists.
-  let same = FS.read_file! (Path.of_string fuzz_exe) == FS.read_file! pinned in
-  let () =
-    match same with
-    | false -> (IO.println_err "the pinned copy differs from %{fuzz_exe}"; Proc.exit 2)
-    | true -> ()
-  in
+  let same = FS.read_file! (Path.of_string fuzz_exe) == FS.read_file! pinned;
+  (match same with
+   | false -> (IO.println_err "the pinned copy differs from %{fuzz_exe}"; Proc.exit 2)
+   | true -> ());
   -- The copy has to be runnable, and a copy does not have to carry the
   -- execute bit. Asked here, where the answer is one line, rather than as
   -- "No such file or directory" once per seed.
@@ -104,6 +100,7 @@ let pin! () =
     Proc.exit 2
   )
   | true -> pinned
+)
 
 -- Where one seed's findings go. `--out` gives each seed a directory of its
 -- own, which is what lets them run together: the fuzzer keys a finding by
@@ -127,17 +124,15 @@ let run_seed pinned (seed: Int) =
   (seed, r.code, String.trim "%{r.stdout}%{r.stderr}", found)
 
 -- One seed's line in the log, in seed order, once every seed is done.
-let report_seed (seed, code, output, found) =
-  let () = IO.println "--- seed %{seed}" in
-  let () = IO.println output in
+let report_seed (seed, code, output, found) = (
+  IO.println "--- seed %{seed}";
+  IO.println output;
   -- The fuzzer exits 0 with nothing to say and 1 when it found something.
   -- Anything else means it did not run, and a sweep that could not start
   -- must not report a quiet night.
-  let () =
-    match code > 1 with
-    | true -> (IO.println_err "seed %{seed} did not run (exit %{code})"; Proc.exit 2)
-    | false -> ()
-  in
+  (match code > 1 with
+   | true -> (IO.println_err "seed %{seed} did not run (exit %{code})"; Proc.exit 2)
+   | false -> ());
   -- The fuzzer says it found something by exiting 1, and shows what by
   -- writing the input and its notes. If the two disagree, the sweep cannot
   -- say what happened, and saying "no new findings" would be the worst of
@@ -148,6 +143,7 @@ let report_seed (seed, code, output, found) =
     Proc.exit 2
   )
   | false -> found
+)
 
 let report kept =
   let n = kept |> List.map List.length |> List.fold_left (fn a b -> a + b) 0 in
@@ -158,17 +154,13 @@ let report kept =
     Proc.exit 1
   )
 
-let main! () =
-  let () =
-    match FS.exists? archive_dir with
-    | true -> FS.delete_tree! archive_dir
-    | false -> ()
-  in
-  let () = FS.mkdir! archive_dir in
-  let pinned = pin! () in
-  let () =
-    IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s, %{workers} at a time"
-  in
+let main! () = (
+  (match FS.exists? archive_dir with
+   | true -> FS.delete_tree! archive_dir
+   | false -> ());
+  FS.mkdir! archive_dir;
+  let pinned = pin! ();
+  IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s, %{workers} at a time";
   -- `Par.map` answers with a Result for each worker, because one that
   -- raises must not take the others with it. A seed that could not run at
   -- all is the sweep failing, not a quiet seed.
@@ -181,5 +173,6 @@ let main! () =
         | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2))
   in
   report (ran |> List.map report_seed)
+)
 
 main! ()

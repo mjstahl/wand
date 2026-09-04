@@ -337,11 +337,22 @@ let rec emit_pat (p : pat) : string = match p with
   | PConstr (c, ps) -> c ^ " " ^ String.concat " " (List.map emit_pat_atom ps)
   | PConstrNamed (c, kvs) ->
     (* Punned whenever the field already names its variable, the same rule a
-       map pattern is printed under. *)
+       map pattern is printed under -- except where the pun would be the
+       only thing inside the parentheses. `M(a)` is the payload under that
+       name, not the field `a`: one identifier is the one shape the
+       declaration does not get to settle, so `M(a = a)` written that way
+       came back as a pattern of another kind and stopped typechecking. A
+       pun beside anything else is safe, because the `=` on its neighbour is
+       what says these are fields. *)
     let entry (k, p) =
       match p with PVar v when v = k -> k | _ -> k ^ " = " ^ emit_pat p
     in
-    c ^ "(" ^ String.concat ", " (List.map entry kvs) ^ ")"
+    let entries =
+      match kvs with
+      | [(k, PVar v)] when v = k -> [k ^ " = " ^ k]
+      | _ -> List.map entry kvs
+    in
+    c ^ "(" ^ String.concat ", " entries ^ ")"
   | PConstrBare (c, ids) -> c ^ "(" ^ String.concat ", " ids ^ ")"
   | PQualified (m, p) -> m ^ "." ^ emit_pat p
   | PMap kvs ->
@@ -586,6 +597,23 @@ let rec wrapping_ends_it e =
   match strip_located e with
   | App _ -> true
   | Try inner -> wrapping_ends_it inner
+  | _ -> false
+
+(* Whether the last thing this expression writes is a `match` or `handle`
+   arm. A `;` after one of those lands hard against the arm -- `| Error _ ->
+   0;` reads as part of the arm, and the reader has to know the `;` closed
+   the statement above it. The parse is not in doubt: the arms are still owed
+   when the `;` arrives. Only the reading is, so the bracket goes on the
+   whole construct and the `;` follows a `)` like every other statement's. *)
+let rec ends_in_an_arm e =
+  match strip_located e with
+  | Match _ | Handle _ -> true
+  | Fn (_, body) -> ends_in_an_arm body
+  | If (_, _, els) -> ends_in_an_arm els
+  | Let (_, _, body, _) | LetRec (_, body, _) -> ends_in_an_arm body
+  | With (_, _, body) -> ends_in_an_arm body
+  | Annot (_, inner) -> ends_in_an_arm inner
+  | Seq (_, b) -> ends_in_an_arm b
   | _ -> false
 
 (* An opening bracket, kept off a star.
@@ -919,12 +947,24 @@ and emit_expr_inner ?col indent e =
   | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
   | Qualified (m, e) -> m ^ "." ^ emit_expr indent e
   | ConstrApp (name, kvs) ->
-    (* Punned whenever the field already names the value it takes, the rule
-       a map literal and a field pattern are printed under. *)
-    let field (k, v) =
+    (* Punned only where every field puns, and there are two or more of
+       them. That is the whole of what reads back as a construction: one
+       identifier alone is a payload (`B(n)`), and a pun standing in front
+       of a named field is the record update `T(r, b = 3)`, which took the
+       punned name as the record to update -- `M(a = x, b = "z")` came back
+       as `M(x, b = "z")` and stopped typechecking, or worse, typechecked
+       against a free variable and built something else. The pattern side
+       may pun beside a named field because it has no update form to collide
+       with. *)
+    let puns (k, v) =
       match k, strip_located v with
-      | Some n, Var x when x = n -> n
-      | _ ->
+      | Some n, Var x when x = n -> true
+      | _ -> false
+    in
+    let all_pun = List.length kvs >= 2 && List.for_all puns kvs in
+    let field (k, v) =
+      if all_pun then (match k with Some n -> n | None -> "")
+      else
         (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
     let oneline = name ^ "(" ^ String.concat ", " (List.map field kvs) ^ ")" in
     if fits col oneline then oneline
@@ -935,9 +975,8 @@ and emit_expr_inner ?col indent e =
       name ^ "(\n" ^ inner
       ^ String.concat (",\n" ^ inner)
           (List.map (fun (k, v) ->
-             match k, strip_located v with
-             | Some n, Var x when x = n -> n
-             | _ ->
+             if all_pun then (match k with Some n -> n | None -> "")
+             else
                let label = match k with Some n -> n ^ " = " | None -> "" in
                (* The value is written after its field name, so that is where
                   it starts. *)
@@ -1477,7 +1516,14 @@ and emit_block ?col indent e =
     match strip_located e with
     | Seq (a, b) ->
       let above = match starts_at (loc_of a) with Some hi -> lead hi | None -> [] in
-      let a_text = emit_expr ind a in
+      (* Every statement but the last is followed by a `;`, so one ending in
+         an arm gets the bracket that keeps the two apart. Laid out one
+         column further in, because the bracket takes that column and the
+         arms belong under the `match` rather than under its `(`. *)
+      let a_text =
+        if ends_in_an_arm a then bracket (emit_expr (ind + 1) a)
+        else emit_expr ind a
+      in
       advance_past (loc_of a);
       (above, a_text) :: items ind b
     | Let (p, e1, body, LetBlock) ->
@@ -1566,20 +1612,27 @@ and emit_fn_clauses ~col indent p params fbody =
 
 (* One binding of a block, with no body after it: the `;` that follows is
    the terminator, as a newline is at the top level of a file. *)
+(* A binding in a block. Its value is always followed by the block's `;` --
+   a block cannot end with a `let`, so there is always something after it --
+   which is why a value ending in an arm is bracketed here and not asked
+   about. *)
 and emit_binding ?col indent p e1 =
   let col = match col with Some c -> c | None -> indent in
+  (* One column further in inside the bracket, so the arms sit under the
+     `match` and not under its `(`. *)
+  let arm = ends_in_an_arm e1 in
+  let value ind e = if arm then bracket (emit_expr (ind + 1) e) else emit_expr ind e in
   match e1 with
   | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody
   | Annot (te, body) ->
-    "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = "
-    ^ emit_expr indent body
+    "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = " ^ value indent body
   | _ ->
-    let e1s = emit_expr indent e1 in
-    let oneline = "let " ^ emit_pat p ^ " = " ^ e1s in
+    let oneline = "let " ^ emit_pat p ^ " = " ^ value indent e1 in
     if fits col oneline then oneline
     else
       "let " ^ emit_pat p ^ " =\n" ^ String.make (indent + 2) ' '
-      ^ bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1)
+      ^ (if arm then value (indent + 2) e1
+         else bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1))
 
 and emit_let ?col indent p e1 e2 =
   let col = match col with Some c -> c | None -> indent in

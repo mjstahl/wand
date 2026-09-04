@@ -70,7 +70,7 @@ test "a handler inside each thunk stands" (fn t ->
     (Ok "mocked")
     (Par.race [
       fn () -> Test.with_shell [("git", "mocked")] (fn () -> $(git describe)),
-      fn () -> let () = Clock.sleep 5s in "slept"
+      fn () -> (Clock.sleep 5s; "slept")
     ]))
 
 -- ── A deadline on wand code ─────────────────────────────────────────────
@@ -81,9 +81,9 @@ test "a handler inside each thunk stands" (fn t ->
 
 group "Par.timeout" (fn () -> [
   test "work that finishes in time" (fn t ->
-    t.eq (Ok "done") (Par.timeout 5s (fn () -> let () = Clock.sleep 50ms in "done"))),
+    t.eq (Ok "done") (Par.timeout 5s (fn () -> (Clock.sleep 50ms; "done")))),
   test "work that does not" (fn t ->
-    match Par.timeout 200ms (fn () -> let () = Clock.sleep 10s in "done") with
+    match Par.timeout 200ms (fn () -> (Clock.sleep 10s; "done")) with
     | Ok v -> t.fail "expected a deadline, got %{v}"
     | Error why -> t.ok (String.contains? "200ms" why)),
   test "a thunk that raises comes back as Error" (fn t ->

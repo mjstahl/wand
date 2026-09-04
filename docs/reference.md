@@ -619,7 +619,9 @@ let deploy! target = (
 ```
 
 `;` still works, and so does `in`. All three say the same thing, and `wand f`
-prints back whichever was written.
+writes one of them: the `;` of the block the binding is in, and `in` where
+there is no block. So the newline is a way to write a binding, not a third
+form to read.
 
 Inside a bracket that a statement opened, a newline is formatting again and
 an application continues across it. That is what lets an argument list run
@@ -682,9 +684,16 @@ a `;` after that expression starts the next statement. In
 `let () = e1 in e2` still works and means the same thing. It also guarantees
 that `e1` is `Unit`.
 
-`wand f` writes back the spelling that was written. `(let x = 1; x + 2)` and
-`let x = 1 in x + 2` say the same thing, and the formatter keeps whichever
-one it reads rather than choosing for you.
+`wand f` writes back `;` or `in`, whichever the binding's position calls for.
+A binding inside a block gets the `;`; one that names a value for a single
+expression gets `in`. A binding written with neither — joined to its body by
+the newline alone — comes back as one of those two. So one function is never
+printed two ways, and `(let x = 1; x + 2)` and `let x = 1 in x + 2` each stay
+as they are: the first is in a block, the second is not.
+
+A binding written `in` ahead of a `;` is left alone, because there the `in` is
+what keeps the name off the statements below it — `(let x = 1 in x + 1; 9)`
+again. That is a difference in meaning, so the formatter does not remove it.
 
 ---
 
@@ -2322,6 +2331,15 @@ Point(x, y = 9)
 --   updated, not a field. Write 'Point(y = ..., x)' to pun it
 ```
 
+One field alone does not pun either. `B(n)` is the constructor applied to
+`n`, whichever way `B` is declared, so there is nothing for the declaration
+to settle. Write `B(n = n)`.
+
+`wand f` writes a construction's puns all or none: every field puns, or every
+field carries its name. Both spellings that a mixed one can be read as -- the
+update above, and the payload here -- are why. A pattern is not written under
+that rule, because it has no update form to be confused with.
+
 #### Update
 
 A record with the same values but for the fields you name. Put the record
@@ -2371,6 +2389,10 @@ A pun mixes with a field that carries a pattern, in any order. So
 `Pod(name, restarts = 0)` matches a pod that has never restarted. It also
 binds the name. A name that is not one of the constructor's fields is a type
 error. The error names the constructor and the field.
+
+One name alone is the exception, on this side as on the other: `Pod(name)` is
+the payload bound to `name`, not the field. Write `Pod(name = name)`, which is
+what `wand f` writes.
 
 The same spelling means the tuple on a constructor whose payload is a tuple.
 That reading has not changed:
@@ -4526,7 +4548,10 @@ writes it and reads it. A script does not have to.
   A `let` before a `;` binds for the rest of the block, so two names cost no
   indentation. Keep `let ... in` for naming a value that one expression
   uses. `let () = e1 in e2` still works and still typechecks; the `;` form
-  says the same thing without asking the reader what `()` binds.
+  says the same thing without asking the reader what `()` binds. `wand f`
+  makes the first half of this rule for you -- a binding whose body is a
+  block comes back with the `;` -- and leaves the second to you, because
+  `let () =` says something about `e1` that `;` does not.
 
 - **Prefer `match` to several equations.** Two definitions with different
   patterns are legal. The standard library uses that form, as in

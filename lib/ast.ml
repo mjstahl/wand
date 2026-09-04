@@ -87,10 +87,12 @@ type pat =
   | PAnnot        of pat * type_expr
   | PMap          of (string * pat) list
 
-(* How a binding was joined to what reads it. `let x = 1 in e` and the block
-   binding `(let x = 1; e)` bind the same name over the same body, so they
-   build the same node; the spelling is kept so the formatter prints back
-   what was written rather than choosing for the author. *)
+(* Which of the two spellings a binding comes back as. `let x = 1 in e` and
+   the block binding `(let x = 1; e)` bind the same name over the same body,
+   so they build the same node, and a third spelling -- the newline that ends
+   the right-hand side -- builds it too. The parser picks one of the two by
+   where the binding stands, rather than recording which was written, so a
+   block is never printed half in one form and half in the other. *)
 type let_style = LetIn | LetBlock
 
 type expr =

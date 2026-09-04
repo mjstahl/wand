@@ -24,10 +24,13 @@ import String
 let wand = Env.get "WAND" |> Option.default "wand"
 
 -- Everything the formatter is the authority on: the standard library, the
--- wand-level tests, and the examples. The tests and examples were outside
--- this gate and drifted -- nothing was checking them, so a formatter change
--- left them behind and only a reader noticed.
-let checked_dirs = ["stdlib", "test/wand", "examples"]
+-- wand-level tests, the examples, the demos, and this directory. Each was
+-- added after it drifted -- nothing was checking it, so a formatter change
+-- left it behind and only a reader noticed. `demos/` was the last: `wand f`
+-- rewrote a one-field pattern there into a spelling that no longer
+-- typechecked, and the demo went on passing until someone ran the
+-- formatter over it by hand.
+let checked_dirs = ["stdlib", "test/wand", "examples", "demos", "tools"]
 
 -- `**.wand` rather than `*.wand`: a directory of ports sits under
 -- `examples/`, and a file the gate cannot see is a file that drifts.
@@ -55,18 +58,21 @@ let format_in! dir = sources |> List.each (fn src -> $(%{wand} f %{copy_of dir s
 let rewritten! dir =
   sources |> List.filter (fn src -> FS.read_file! src != FS.read_file! (copy_of dir src))
 
-let report changed =
-  let () = IO.println_err "wand f would rewrite these files:" in
-  let () = changed |> List.each (fn p -> IO.println_err "  %{Path.to_string p}") in
+let report changed = (
+  IO.println_err "wand f would rewrite these files:";
+  changed |> List.each (fn p -> IO.println_err "  %{Path.to_string p}");
   Proc.exit 1
+)
 
 let main! () =
   with FS.temp_dir "wand_fmt_check_" as dir ->
-  let () = copy_into! dir in
-  let () = format_in! dir in
-  match rewritten! dir with
-  | [] -> (IO.println
-    "stdlib, tests and examples are a wand f fixed point (%{List.length sources} files)")
-  | changed -> report changed
+  (
+    copy_into! dir;
+    format_in! dir;
+    match rewritten! dir with
+    | [] -> (IO.println
+      "every checked directory is a wand f fixed point (%{List.length sources} files)")
+    | changed -> report changed
+  )
 
 main! ()

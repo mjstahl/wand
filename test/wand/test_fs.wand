@@ -30,104 +30,133 @@ test "temp_file removes the file when the bracket ends" (fn t ->
 
 -- A body may publish the file by renaming it; cleanup then has nothing to
 -- do and must not fail on the way out.
-test "temp_file tolerates the file being renamed away" (fn t ->
-  let dst = Path.of_string "%{scratch}/published.txt" in
-  let () = with FS.temp_file "wand_" ".txt" as p -> FS.rename! p dst in
-  let published = FS.exists? dst in let () = FS.delete! dst in t.eq true published)
+test "temp_file tolerates the file being renamed away" (fn t -> (
+  let dst = Path.of_string "%{scratch}/published.txt";
+  with FS.temp_file "wand_" ".txt" as p -> FS.rename! p dst;
+  let published = FS.exists? dst;
+  FS.delete! dst;
+  t.eq true published
+))
 
-test "mkdir creates nested directories" (fn t ->
-  let dir = Path.of_string "%{scratch}/mkdir_case/nested/deep" in
-  let () = FS.mkdir! dir in
-  let is_dir = FS.dir? dir in
-  let () = FS.delete! dir in
-  let () = FS.delete! (Path.of_string "%{scratch}/mkdir_case/nested") in
-  let () = FS.delete! (Path.of_string "%{scratch}/mkdir_case") in t.ok is_dir)
+test "mkdir creates nested directories" (fn t -> (
+  let dir = Path.of_string "%{scratch}/mkdir_case/nested/deep";
+  FS.mkdir! dir;
+  let is_dir = FS.dir? dir;
+  FS.delete! dir;
+  FS.delete! (Path.of_string "%{scratch}/mkdir_case/nested");
+  FS.delete! (Path.of_string "%{scratch}/mkdir_case");
+  t.ok is_dir
+))
 
-test "create_file makes an empty file" (fn t ->
-  let p = Path.of_string "%{scratch}/create_file_case.txt" in
-  let () = FS.create_file! p in
-  let contents = FS.read_file! p in let () = FS.delete! p in t.eq "" contents)
+test "create_file makes an empty file" (fn t -> (
+  let p = Path.of_string "%{scratch}/create_file_case.txt";
+  FS.create_file! p;
+  let contents = FS.read_file! p;
+  FS.delete! p;
+  t.eq "" contents
+))
 
-test "append writes to a real file on disk" (fn t ->
-  let p = Path.of_string "%{scratch}/append_case.txt" in
-  let () = FS.write_file! p "hello" in
-  let () = FS.append! p " world" in
-  let contents = FS.read_file! p in let () = FS.delete! p in t.eq "hello world" contents)
+test "append writes to a real file on disk" (fn t -> (
+  let p = Path.of_string "%{scratch}/append_case.txt";
+  FS.write_file! p "hello";
+  FS.append! p " world";
+  let contents = FS.read_file! p;
+  FS.delete! p;
+  t.eq "hello world" contents
+))
 
-test "rename moves a file" (fn t ->
-  let src = Path.of_string "%{scratch}/rename_src.txt" in
-  let dst = Path.of_string "%{scratch}/rename_dst.txt" in
-  let () = FS.write_file! src "data" in
-  let () = FS.rename! src dst in
-  let contents = FS.read_file! dst in let () = FS.delete! dst in t.eq "data" contents)
+test "rename moves a file" (fn t -> (
+  let src = Path.of_string "%{scratch}/rename_src.txt";
+  let dst = Path.of_string "%{scratch}/rename_dst.txt";
+  FS.write_file! src "data";
+  FS.rename! src dst;
+  let contents = FS.read_file! dst;
+  FS.delete! dst;
+  t.eq "data" contents
+))
 
-test "copy duplicates a file" (fn t ->
-  let src = Path.of_string "%{scratch}/copy_src.txt" in
-  let dst = Path.of_string "%{scratch}/copy_dst.txt" in
-  let () = FS.write_file! src "copied" in
-  let () = FS.copy! src dst in
-  let contents = FS.read_file! dst in
-  let () = FS.delete! src in let () = FS.delete! dst in t.eq "copied" contents)
+test "copy duplicates a file" (fn t -> (
+  let src = Path.of_string "%{scratch}/copy_src.txt";
+  let dst = Path.of_string "%{scratch}/copy_dst.txt";
+  FS.write_file! src "copied";
+  FS.copy! src dst;
+  let contents = FS.read_file! dst;
+  FS.delete! src;
+  FS.delete! dst;
+  t.eq "copied" contents
+))
 
-test "exists?/file?/dir?" (fn t ->
-  let p = Path.of_string "%{scratch}/exists_case.txt" in
-  let () = FS.write_file! p "x" in
-  let outcome = (FS.exists? p, FS.file? p, FS.dir? p) in
-  let () = FS.delete! p in t.eq (true, true, false) outcome)
+test "exists?/file?/dir?" (fn t -> (
+  let p = Path.of_string "%{scratch}/exists_case.txt";
+  FS.write_file! p "x";
+  let outcome = (FS.exists? p, FS.file? p, FS.dir? p);
+  FS.delete! p;
+  t.eq (true, true, false) outcome
+))
 
-test "size returns the size" (fn t ->
-  let p = Path.of_string "%{scratch}/size_case.txt" in
-  let () = FS.write_file! p "12345" in
-  let sz = FS.size! p in let () = FS.delete! p in t.eq 5B sz)
+test "size returns the size" (fn t -> (
+  let p = Path.of_string "%{scratch}/size_case.txt";
+  FS.write_file! p "12345";
+  let sz = FS.size! p;
+  FS.delete! p;
+  t.eq 5B sz
+))
 
-test "list_dir lists immediate children" (fn t ->
-  let dir = Path.of_string "%{scratch}/list_dir_case" in
-  let () = FS.mkdir! dir in
-  let () = FS.write_file! (Path.of_string "%{scratch}/list_dir_case/a.txt") "a" in
-  let () = FS.write_file! (Path.of_string "%{scratch}/list_dir_case/b.txt") "b" in
-  let entries = FS.list_dir! dir in
-  let names = List.sort (List.map (fn p -> Path.to_string (Path.basename p)) entries) in
-  let () = FS.delete! (Path.of_string "%{scratch}/list_dir_case/a.txt") in
-  let () = FS.delete! (Path.of_string "%{scratch}/list_dir_case/b.txt") in
-  let () = FS.delete! dir in t.eq ["a.txt", "b.txt"] names)
+test "list_dir lists immediate children" (fn t -> (
+  let dir = Path.of_string "%{scratch}/list_dir_case";
+  FS.mkdir! dir;
+  FS.write_file! (Path.of_string "%{scratch}/list_dir_case/a.txt") "a";
+  FS.write_file! (Path.of_string "%{scratch}/list_dir_case/b.txt") "b";
+  let entries = FS.list_dir! dir;
+  let names = List.sort (List.map (fn p -> Path.to_string (Path.basename p)) entries);
+  FS.delete! (Path.of_string "%{scratch}/list_dir_case/a.txt");
+  FS.delete! (Path.of_string "%{scratch}/list_dir_case/b.txt");
+  FS.delete! dir;
+  t.eq ["a.txt", "b.txt"] names
+))
 
 -- `**` is the replacement for the removed FS.walk: it crosses directory
 -- separators and matches names without a dot, so `plain` below is included.
 -- `**.*` would silently drop it -- that is why the migration uses `**`.
-test "glob ** recurses into subdirectories" (fn t ->
-  let base = "%{scratch}/walk_case" in
-  let () = FS.mkdir! (Path.of_string "%{base}/sub") in
-  let () = FS.write_file! (Path.of_string "%{base}/a.txt") "a" in
-  let () = FS.write_file! (Path.of_string "%{base}/sub/b.txt") "b" in
-  let () = FS.write_file! (Path.of_string "%{base}/sub/plain") "p" in
-  let entries = FS.glob_in ** (Path.of_string base) in
+test "glob ** recurses into subdirectories" (fn t -> (
+  let base = "%{scratch}/walk_case";
+  FS.mkdir! (Path.of_string "%{base}/sub");
+  FS.write_file! (Path.of_string "%{base}/a.txt") "a";
+  FS.write_file! (Path.of_string "%{base}/sub/b.txt") "b";
+  FS.write_file! (Path.of_string "%{base}/sub/plain") "p";
+  let entries = FS.glob_in ** (Path.of_string base);
   let strip p =
-    let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s
-  in
-  let names = List.sort (List.map strip entries) in
-  let () = FS.delete! (Path.of_string "%{base}/a.txt") in
-  let () = FS.delete! (Path.of_string "%{base}/sub/b.txt") in
-  let () = FS.delete! (Path.of_string "%{base}/sub/plain") in
-  let () = FS.delete! (Path.of_string "%{base}/sub") in
-  let () = FS.delete! (Path.of_string base) in
-  t.eq ["a.txt", "sub/b.txt", "sub/plain"] names)
+    let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s;
+  let names = List.sort (List.map strip entries);
+  FS.delete! (Path.of_string "%{base}/a.txt");
+  FS.delete! (Path.of_string "%{base}/sub/b.txt");
+  FS.delete! (Path.of_string "%{base}/sub/plain");
+  FS.delete! (Path.of_string "%{base}/sub");
+  FS.delete! (Path.of_string base);
+  t.eq ["a.txt", "sub/b.txt", "sub/plain"] names
+))
 
-test "delete removes a file" (fn t ->
-  let p = Path.of_string "%{scratch}/delete_case.txt" in
-  let () = FS.write_file! p "x" in let () = FS.delete! p in t.eq false (FS.exists? p))
+test "delete removes a file" (fn t -> (
+  let p = Path.of_string "%{scratch}/delete_case.txt";
+  FS.write_file! p "x";
+  FS.delete! p;
+  t.eq false (FS.exists? p)
+))
 
-test "read/write roundtrip" (fn t ->
-  let p = Path.of_string "%{scratch}/roundtrip_case.txt" in
-  let () = FS.write_file! p "round trip" in
-  let contents = FS.read_file! p in let () = FS.delete! p in t.eq "round trip" contents)
+test "read/write roundtrip" (fn t -> (
+  let p = Path.of_string "%{scratch}/roundtrip_case.txt";
+  FS.write_file! p "round trip";
+  let contents = FS.read_file! p;
+  FS.delete! p;
+  t.eq "round trip" contents
+))
 
 test "read nonexistent file raises" (fn t ->
   t.raises (fn () -> FS.read_file! (Path.of_string "/no/such/path/wand_test_xyz")))
 
 test "cwd returns an existing directory" (fn t -> t.ok (FS.dir? (FS.cwd ())))
 
-test "cleanup scratch directory" (fn t ->
-  let () = FS.delete! (Path.of_string scratch) in t.ok true)
+test "cleanup scratch directory" (fn t -> (FS.delete! (Path.of_string scratch); t.ok true))
 
 -- ── type errors ─────────────────────────────────────────────────────────
 
@@ -138,7 +167,7 @@ test "cleanup scratch directory" (fn t ->
 -- resumes without ever writing to disk.
 test "mock append does not touch real filesystem" (fn t ->
   let outcome =
-    handle let () = FS.append! (Path.of_string "/dev/null") "data" in "done" with
+    handle (FS.append! (Path.of_string "/dev/null") "data"; "done") with
     | FS!append _ k -> k ()
     | return s -> s
   in
@@ -158,7 +187,7 @@ test "mock read_file returns substituted content" (fn t ->
 
 test "mock write_file resumes without touching disk" (fn t ->
   let outcome =
-    handle let () = FS.write_file! (Path.of_string "/nonexistent") "data" in "done" with
+    handle (FS.write_file! (Path.of_string "/nonexistent") "data"; "done") with
     | FS!write_file _ k -> k ()
     | return s -> s
   in
@@ -166,7 +195,7 @@ test "mock write_file resumes without touching disk" (fn t ->
 
 test "mock write_file can capture the path/content argument" (fn t ->
   let outcome =
-    handle let () = FS.write_file! (Path.of_string "/tmp/foo.txt") "hello" in "wrote" with
+    handle (FS.write_file! (Path.of_string "/tmp/foo.txt") "hello"; "wrote") with
     | FS!write_file (path, _) k -> Path.to_string path ++ ": ok" ++ k ()
     | return s -> s
   in

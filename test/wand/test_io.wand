@@ -7,7 +7,7 @@ let {test} = import Test
 
 test "IO.print_err" (fn t ->
   let outcome =
-    handle let () = IO.print_err "error message" in "ok" with
+    handle (IO.print_err "error message"; "ok") with
     | IO!print_err _ k -> k ()
     | return s -> s
   in
@@ -15,7 +15,7 @@ test "IO.print_err" (fn t ->
 
 test "IO.println_err" (fn t ->
   let outcome =
-    handle let () = IO.println_err "error message" in "ok" with
+    handle (IO.println_err "error message"; "ok") with
     | IO!println_err _ k -> k ()
     | return s -> s
   in
@@ -37,7 +37,7 @@ test "IO.read_all mock" (fn t ->
 
 test "IO.flush mock" (fn t ->
   let outcome =
-    handle let () = IO.flush () in "flushed" with
+    handle (IO.flush (); "flushed") with
     | IO!flush _ k -> k ()
     | return s -> s
   in

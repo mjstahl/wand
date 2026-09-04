@@ -189,7 +189,7 @@ group "pod-restarts" (fn () -> [
 -- The retry is a function over a thunk, so a test drives it with answers
 -- of its own and never runs curl. `Test.with_clock` answers the sleeps at
 -- no cost, and reports what the waits added up to.
-let failure code = ShellResult(stdout = "", stderr = "curl: (%{code}) no", code)
+let failure code = ShellResult(stdout = "", stderr = "curl: (%{code}) no", code = code)
 
 group "http-retry" (fn () -> [
   test "the first answer is taken" (fn t ->
