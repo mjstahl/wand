@@ -4,26 +4,24 @@
 
 ### Fixed
 
-- **A version's prerelease no longer swallows the field access after it.**
-  `emit_field` brackets a literal that the following `.` would run into, and
-  it asked that of a version by its last character. A prerelease is
-  dot-separated, so `1.0.0` was bracketed and `1.0.0-a` was not:
-  `(1.0.0-a).f` came back as `1.0.0-a.f`, which is the one version
-  `1.0.0-a.f`. The field access became a literal and a file that was a type
-  error typechecked. A version is now bracketed whatever it ends in. Daily
-  Fuzz #20
-- **A qualified constructor keeps the bracket its payload sits in.** The
+- **A version keeps its brackets before a field access.** `emit_field`
+  brackets a literal that the `.` after it would run into. It asked that of
+  a version by the version's last character. A prerelease is dot-separated,
+  so `1.0.0` was bracketed and `1.0.0-a` was not. `(1.0.0-a).f` became
+  `1.0.0-a.f`, which is one version literal. The field access became a
+  literal, and a file that was a type error typechecked. A version is now
+  bracketed whatever it ends in. Daily Fuzz #20
+- **A qualified constructor keeps the bracket that holds its payload.** The
   parser builds `p.M N` as `App (Qualified (p, M), N)` and `p.M(N)` as
-  `Qualified (p, App (M, N))`. 0.55.3 called those one program spelled two
-  ways and flattened the second into the first. They are two programs: the
-  bracket is what puts the payload inside the module, so `foo.Boxed(Red)`
-  reads `Red` as `foo`'s constructor while `foo.Boxed Red` looks for it
-  outside and does not find it. Every hugged spelling was written as the
-  loose one, and the payload's scope went with it. It also failed to settle
-  -- `n d.M(N)(s [])` became `n d.M N (s [])` and then
-  `n (d.M) (N (s []))` -- which is what the fuzzer reported. The hug is
-  written back as a hug, and `emit_app` no longer flattens through a
-  module's name. Daily Fuzz #21
+  `Qualified (p, App (M, N))`. 0.55.3 called these one program with two
+  spellings and flattened the second into the first. They are two programs.
+  The bracket puts the payload inside the module: `foo.Boxed(Red)` reads
+  `Red` as `foo`'s constructor, and `foo.Boxed Red` looks for `Red` outside
+  `foo`. So every `p.M(N)` was written as `p.M N`, and the payload changed
+  scope. The formatter also did not settle: `n d.M(N)(s [])` became
+  `n d.M N (s [])`, then `n (d.M) (N (s []))`. That is what the fuzzer
+  reported. The bracket is kept now, and `emit_app` does not flatten through
+  a module's name. Daily Fuzz #21
 
 ## [0.59.0] - 2026-09-04
 

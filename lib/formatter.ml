@@ -327,11 +327,11 @@ let rec emit_pat (p : pat) : string = match p with
   | PList ps   -> "[" ^ String.concat ", " (List.map emit_pat ps) ^ "]"
   | PCons (h, t) -> emit_cons_chain h t
   | PConstr (c, []) -> c
-  (* A parenthesised list of arguments hugs the constructor, the way a field
-     list does. The two are told apart by the declaration and not by their
-     spelling -- `Pod(name, restarts)` is a field list where `Pod` names its
-     fields and a tuple payload where it does not -- so printing them alike
-     is what stops the space from looking like the thing that decides. *)
+  (* A parenthesised list of arguments is printed against the constructor,
+     with no space, as a field list is. The declaration tells the two apart,
+     not the spelling. `Pod(name, restarts)` is a field list where `Pod`
+     names its fields, and a tuple payload where it does not. Both are
+     printed alike, so the space cannot look like the thing that decides. *)
   | PConstr (c, [PTuple (_ :: _ :: _ as ps)]) ->
     c ^ "(" ^ String.concat ", " (List.map emit_pat ps) ^ ")"
   | PConstr (c, ps) -> c ^ " " ^ String.concat " " (List.map emit_pat_atom ps)
@@ -386,8 +386,8 @@ and emit_pat_atom (p : pat) : string = match p with
    the `=` between the parentheses. Three more change meaning instead of
    failing -- `let Some x = e` is read back as a one-clause definition of a
    function named `Some`, `let E = e` as a value named `E` rather than a
-   match against the constructor, and `let P(a, b) = e` loses the hug that
-   says the identifiers are the payload.
+   match against the constructor, and `let P(a, b) = e` loses the bracket
+   that says the identifiers are the payload.
 
    Only at the top level. A `let ... in` and a block binding parse their
    head as a pattern already, so the same brackets there are noise -- they
@@ -947,18 +947,19 @@ and emit_expr_inner ?col indent e =
   | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
   | Qualified (m, e) ->
     (* A constructor reached through its module takes the bracket written
-       after it, and the bracket is what puts the payload inside the module:
-       `d.M(N)` reads `N` in `d`, while `d.M N` applies `d.M` to an `N` read
-       out here. Two trees, and the payload's scope is the difference. The
-       payload was printed without the bracket, so each spelling came back
-       as the other -- and `n d.M(N) (s [])` came back as `n d.M N (s [])`,
-       where the loose `N` then took the bracket after it and the formatter
-       never settled. Found by test/fuzz. *)
+       after it. That bracket puts the payload inside the module. `d.M(N)`
+       reads `N` in `d`. `d.M N` applies `d.M` to an `N` read outside `d`.
+       The payload's scope is the difference.
+
+       The bracket was dropped, so each form was written as the other.
+       `n d.M(N) (s [])` became `n d.M N (s [])`. The loose `N` then took
+       the bracket after it, and the formatter did not settle. Found by
+       test/fuzz. *)
     (match strip_located e with
      | App (f, arg) when (match strip_located f with Constr _ -> true | _ -> false) ->
        let payload = match strip_located arg with
-         (* The tuple's own brackets are the constructor's here, the way
-            `M(a, b)` is written. *)
+         (* The tuple's own brackets serve as the constructor's, as in
+            `M(a, b)`. *)
          | Tuple es -> String.concat ", " (List.map (emit_expr indent) es)
          | _ -> emit_expr indent arg
        in
@@ -1164,19 +1165,17 @@ and emit_expr_inner ?col indent e =
 and emit_app ?col indent e =
   let col = match col with Some c -> c | None -> indent in
   (* Not through a module's name. The parser builds `p.M N` as
-     `App (Qualified (p, M), N)` and `p.M(N)` as `Qualified (p, App (M, N))`,
-     and those are two programs rather than one spelling of one: the bracket
-     is what puts the payload inside the module, so `foo.Boxed(Red)` reads
-     `Red` as `foo`'s constructor while `foo.Boxed Red` looks for it out
-     here and does not find it.
+     `App (Qualified (p, M), N)`. It builds `p.M(N)` as
+     `Qualified (p, App (M, N))`. These are two programs. The bracket puts
+     the payload inside the module: `foo.Boxed(Red)` reads `Red` as `foo`'s
+     constructor, and `foo.Boxed Red` looks for `Red` outside `foo`.
 
-     This did flatten through `Qualified`, to bring the constructor at the
-     end of the second spelling out where `guard_constructors` could see it.
-     That settled the instability by writing every hugged spelling as the
-     loose one, which is the wrong half to keep. The hug is written back as
-     a hug now (`emit_expr_inner`'s `Qualified`), so the bracket the payload
-     sits in is the constructor's own and no guard is owed. Found by
-     test/fuzz, twice: once as the instability, and once as this. *)
+     This did flatten through `Qualified`. That brought the constructor out
+     where `guard_constructors` could see it, and it wrote `p.M(N)` as
+     `p.M N`. The payload changed scope. `emit_expr_inner`'s `Qualified`
+     keeps the bracket now, so the payload stays in the constructor's own
+     bracket and the guard is owed nothing. Found by test/fuzz twice: as
+     the instability, then as this. *)
   let rec flatten e = match strip_located e with
     | App (f, x) -> let (h, args) = flatten f in (h, args @ [x])
     | other -> (other, [])

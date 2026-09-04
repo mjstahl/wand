@@ -959,27 +959,26 @@ let test_a_separator_is_not_written_onto_a_trailing_comment () =
     before after
 
 (* A constructor takes the bracket written after it. `p.M N` is
-   `App (Qualified (p, M), N)` and `p.M(N)` is `Qualified (p, App (M, N))`,
-   and these are two programs rather than two spellings of one: the bracket
-   is what puts the payload inside the module, so a payload written in the
-   hug is read there. Each comes back as itself. Found by test/fuzz, twice --
-   the second time because the first fix wrote every hug as the loose form
-   and settled the instability on the wrong half. *)
+   `App (Qualified (p, M), N)`. `p.M(N)` is `Qualified (p, App (M, N))`.
+   These are two programs. The bracket puts the payload inside the module,
+   so a payload written inside it is read there. Each form comes back as
+   itself. Found by test/fuzz twice. The first fix wrote every bracket form
+   as the loose form, which settled the instability and changed the scope. *)
 let test_a_qualified_head_does_not_hide_a_constructor () =
   assert_idempotent "a qualified constructor before a bracket" "p.M(N)(9[])";
   assert_idempotent "and spelled the other way" "p.M N (9 [])";
-  fmt_eq "the hug is the payload's scope and stays"
+  fmt_eq "the bracket holds the payload's scope and stays"
     {|let a = d.M(N)|}
     {|let a = d.M(N)|};
-  fmt_eq "and the loose form is a different program, also kept"
+  fmt_eq "the loose form is a different program and is kept"
     {|let a = d.M N|}
     {|let a = d.M N|};
-  fmt_eq "a hug before a second bracket keeps both apart"
+  fmt_eq "a bracket form before a second bracket keeps both apart"
     {|let a = n d.M(N)(s [])|}
     {|let a = n d.M(N) (s [])|};
-  (* A bracket written loose after a qualified constructor is absorbed by it
-     either way, so it comes back hugged, saying what it already meant. *)
-  fmt_eq "a loose bracket after a qualified name is a hug"
+  (* A qualified constructor absorbs the bracket after it with or without
+     the space, so the space goes and the text says what it already meant. *)
+  fmt_eq "a spaced bracket after a qualified name loses the space"
     {|let a = l.A (S) a|}
     {|let a = l.A(S) a|}
 
