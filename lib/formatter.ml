@@ -945,7 +945,25 @@ and emit_expr_inner ?col indent e =
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
   | List es  -> emit_list ~col indent es
   | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
-  | Qualified (m, e) -> m ^ "." ^ emit_expr indent e
+  | Qualified (m, e) ->
+    (* A constructor reached through its module takes the bracket written
+       after it, and the bracket is what puts the payload inside the module:
+       `d.M(N)` reads `N` in `d`, while `d.M N` applies `d.M` to an `N` read
+       out here. Two trees, and the payload's scope is the difference. The
+       payload was printed without the bracket, so each spelling came back
+       as the other -- and `n d.M(N) (s [])` came back as `n d.M N (s [])`,
+       where the loose `N` then took the bracket after it and the formatter
+       never settled. Found by test/fuzz. *)
+    (match strip_located e with
+     | App (f, arg) when (match strip_located f with Constr _ -> true | _ -> false) ->
+       let payload = match strip_located arg with
+         (* The tuple's own brackets are the constructor's here, the way
+            `M(a, b)` is written. *)
+         | Tuple es -> String.concat ", " (List.map (emit_expr indent) es)
+         | _ -> emit_expr indent arg
+       in
+       m ^ "." ^ emit_expr indent f ^ "(" ^ payload ^ ")"
+     | _ -> m ^ "." ^ emit_expr indent e)
   | ConstrApp (name, kvs) ->
     (* Punned only where every field puns, and there are two or more of
        them. That is the whole of what reads back as a construction: one
@@ -1145,20 +1163,22 @@ and emit_expr_inner ?col indent e =
 
 and emit_app ?col indent e =
   let col = match col with Some c -> c | None -> indent in
-  (* Through a module's name as well as through the applications. The parser
-     builds `p.M N` as `App (Qualified (p, M), N)` and `p.M(N)` as
-     `Qualified (p, App (M, N))` -- the same program, spelled two ways. Read
-     only the first way, the constructor at the end of the second was inside
-     the head, where the guard below cannot see it: `p.M(N)(9 [])` came back
-     as `p.M N (9 [])`, and `N` took the bracket that belonged to the spine.
-     Flattened the same way, both spellings reach the guard as one head and
-     two arguments. Found by test/fuzz. *)
+  (* Not through a module's name. The parser builds `p.M N` as
+     `App (Qualified (p, M), N)` and `p.M(N)` as `Qualified (p, App (M, N))`,
+     and those are two programs rather than one spelling of one: the bracket
+     is what puts the payload inside the module, so `foo.Boxed(Red)` reads
+     `Red` as `foo`'s constructor while `foo.Boxed Red` looks for it out
+     here and does not find it.
+
+     This did flatten through `Qualified`, to bring the constructor at the
+     end of the second spelling out where `guard_constructors` could see it.
+     That settled the instability by writing every hugged spelling as the
+     loose one, which is the wrong half to keep. The hug is written back as
+     a hug now (`emit_expr_inner`'s `Qualified`), so the bracket the payload
+     sits in is the constructor's own and no guard is owed. Found by
+     test/fuzz, twice: once as the instability, and once as this. *)
   let rec flatten e = match strip_located e with
     | App (f, x) -> let (h, args) = flatten f in (h, args @ [x])
-    | Qualified (m, inner) ->
-      (match flatten inner with
-       | (h, (_ :: _ as args)) -> (Qualified (m, h), args)
-       | _ -> (Qualified (m, inner), []))
     | other -> (other, [])
   in
   let (head, args) = flatten e in
@@ -1277,7 +1297,7 @@ and emit_field indent e l =
      this asks what the expression is as well as how it ends. Found by
      test/fuzz. *)
   let numeric_literal = match e' with
-    | Int _ | Float _ | Port _ | Version _ | IPv4 _ | CIDR _
+    | Int _ | Float _ | Port _ | IPv4 _ | CIDR _
     | DateTime _ | Duration _ | Size _ -> true
     | _ -> false
   in
@@ -1304,8 +1324,14 @@ and emit_field indent e l =
      a different program answering a different question. The hazard is the
      rendering's last token, not the node -- an `import` is the case where
      those differ. Found by test/fuzz. *)
+  (* A version runs into the `.` whatever it ends in, so it belongs here
+     rather than with the literals that only do it when they end in a digit.
+     `1.0.0` was caught by that rule and `1.0.0-a` was not: a prerelease is
+     dot-separated, so `(1.0.0-a).f` written as `1.0.0-a.f` is the single
+     version `1.0.0-a.f`. The field access became a version literal, and the
+     file went from a type error to typechecking. Found by test/fuzz. *)
   let lexeme_eats_the_dot = match e' with
-    | Path _ | Glob _ | URL _ | EnvVar _ | ImportExpr _ -> true
+    | Path _ | Glob _ | URL _ | EnvVar _ | ImportExpr _ | Version _ -> true
     | _ -> false
   in
   let target =

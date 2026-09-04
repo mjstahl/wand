@@ -1,0 +1,19 @@
+found:     Daily Fuzz, seed 33871796702, iteration 237446, 2026-09-04 (#20)
+reported:  format:retyped: was E-TYPE, now typechecks to TestOutcome
+fixed in:  lib/formatter.ml, emit_field's lexeme_eats_the_dot
+
+`emit_field` brackets a literal that the following `.` would run into. It
+asked two questions: a fixed list of literals that must not end in a digit,
+and a second list whose lexeme eats the dot whatever it ends in. A version
+was on the first list, and a version's prerelease is dot-separated, so
+`1.0.0` was bracketed and `1.0.0-a` was not:
+
+  (1.0.0-a).f  -->  1.0.0-a.f
+
+which is the single version `1.0.0-a.f`. The field access became a literal,
+and a file that was a type error typechecked.
+
+A version is on the second list now, where the answer does not depend on
+its last character. Nothing else moved: `30s.f`, `100MB.f` and
+`2024-01-15T14:30:00Z.f` are field accesses on those literals and were
+never at risk.

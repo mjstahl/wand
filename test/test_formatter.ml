@@ -958,15 +958,53 @@ let test_a_separator_is_not_written_onto_a_trailing_comment () =
   Alcotest.(check (list string)) "every comment comes back as it was written"
     before after
 
-(* A constructor takes the bracket written after it, and the guard that
-   brackets an argument which would take one it does not own reads the spine
-   `flatten` gives it. `p.M N` is `App (Qualified (p, M), N)` and `p.M(N)` is
-   `Qualified (p, App (M, N))` -- the same program -- so the second hid the
-   constructor inside the head, where nothing guarded it. Found by
-   test/fuzz. *)
+(* A constructor takes the bracket written after it. `p.M N` is
+   `App (Qualified (p, M), N)` and `p.M(N)` is `Qualified (p, App (M, N))`,
+   and these are two programs rather than two spellings of one: the bracket
+   is what puts the payload inside the module, so a payload written in the
+   hug is read there. Each comes back as itself. Found by test/fuzz, twice --
+   the second time because the first fix wrote every hug as the loose form
+   and settled the instability on the wrong half. *)
 let test_a_qualified_head_does_not_hide_a_constructor () =
   assert_idempotent "a qualified constructor before a bracket" "p.M(N)(9[])";
-  assert_idempotent "and spelled the other way" "p.M N (9 [])"
+  assert_idempotent "and spelled the other way" "p.M N (9 [])";
+  fmt_eq "the hug is the payload's scope and stays"
+    {|let a = d.M(N)|}
+    {|let a = d.M(N)|};
+  fmt_eq "and the loose form is a different program, also kept"
+    {|let a = d.M N|}
+    {|let a = d.M N|};
+  fmt_eq "a hug before a second bracket keeps both apart"
+    {|let a = n d.M(N)(s [])|}
+    {|let a = n d.M(N) (s [])|};
+  (* A bracket written loose after a qualified constructor is absorbed by it
+     either way, so it comes back hugged, saying what it already meant. *)
+  fmt_eq "a loose bracket after a qualified name is a hug"
+    {|let a = l.A (S) a|}
+    {|let a = l.A(S) a|}
+
+(* A literal whose lexeme runs into a following `.` keeps its brackets. A
+   version was asked that by its last character, and a prerelease is
+   dot-separated: `1.0.0` was bracketed and `1.0.0-a` was not, so
+   `(1.0.0-a).f` came back as the single version `1.0.0-a.f` and a file that
+   was a type error typechecked. Found by test/fuzz. *)
+let test_a_version_keeps_its_brackets_before_a_field () =
+  fmt_eq "a prerelease does not eat the dot"
+    {|let a = (1.0.0-a).f|}
+    {|let a = (1.0.0-a).f|};
+  fmt_eq "nor does a longer one"
+    {|let a = (1.0.0-alpha.1).f|}
+    {|let a = (1.0.0-alpha.1).f|};
+  fmt_eq "a plain version was already bracketed"
+    {|let a = (1.0.0).f|}
+    {|let a = (1.0.0).f|};
+  (* The literals beside it are field accesses and were never at risk. *)
+  fmt_eq "a duration is not bracketed"
+    {|let a = 30s.f|}
+    {|let a = 30s.f|};
+  fmt_eq "nor a size"
+    {|let a = 100MB.f|}
+    {|let a = 100MB.f|}
 
 (* ── The constructs that used to be copied verbatim ──────────────────────── *)
 
@@ -1551,6 +1589,8 @@ let () =
         test_a_separator_is_not_written_onto_a_trailing_comment;
       Alcotest.test_case "qualified head hides no constructor" `Quick
         test_a_qualified_head_does_not_hide_a_constructor;
+      Alcotest.test_case "a version before a field" `Quick
+        test_a_version_keeps_its_brackets_before_a_field;
     ];
     "formerly verbatim", [
       Alcotest.test_case "command text"     `Quick test_command_text_is_not_quoted;

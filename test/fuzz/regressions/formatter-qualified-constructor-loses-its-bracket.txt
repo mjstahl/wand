@@ -1,0 +1,26 @@
+found:     Daily Fuzz, seed 33871796703, iteration 1239335, 2026-09-04 (#21)
+reported:  format:unstable
+fixed in:  lib/formatter.ml, emit_expr_inner's Qualified and emit_app's flatten
+
+The recurrence of formatter-qualified-head-hides-a-constructor, whose fix
+kept the wrong half.
+
+The parser builds `p.M N` as `App (Qualified (p, M), N)` and `p.M(N)` as
+`Qualified (p, App (M, N))`. That fix called them one program spelled two
+ways and flattened the second into the first so `guard_constructors` could
+see the constructor. They are two programs: the bracket is what puts the
+payload inside the module.
+
+  let foo = import ./foo    -- type Wrap = Boxed Colour, Colour = Red | Green
+  foo.Boxed(Red)            -- typechecks: Red is read in foo
+  foo.Boxed Red             -- type error: unknown constructor 'Red'
+
+So every hugged spelling was written as the loose one, and the payload's
+scope went with it. Here it also failed to settle:
+
+  n d.M(N)(s[])  -->  n d.M N (s [])  -->  n (d.M) (N (s []))
+
+`Qualified` holding an application is written back with the bracket hugging
+the constructor, which is the spelling it was read from. `flatten` no longer
+descends through it: the payload sits in the constructor's own bracket, so
+there is no loose constructor for the guard to be owed.
