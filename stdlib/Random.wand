@@ -1,0 +1,134 @@
+uses {Random}
+
+import List
+import String
+
+-- Drawing.
+--
+-- Every draw here performs `Random`, which is the label for "will not
+-- answer the same twice". It is on the arrow for the same reason `Clock`
+-- is on `Clock.now`: nothing in the type tells a caller that two identical
+-- calls give two different answers, so the manifest has to.
+--
+-- A run is pinned with `Random.seed`, and a run that pins nothing draws
+-- its starting point from the environment. So a script is reproducible
+-- when it says it is, and not by accident:
+--
+-- Random.seed 42
+--
+-- Nothing here raises. A bound with nothing in it answers with the empty
+-- thing of its type -- `None`, `[]`, `""` -- rather than with an error,
+-- because a draw from an empty list is a question about the list, and the
+-- caller already has the list.
+
+-- Pin what this run draws.
+--
+-- Every draw after this one follows from `n`, so a run repeats. Call it
+-- once, at the top: a seed set in the middle pins the rest of the run and
+-- leaves what came before it unpinned, which is the shape that looks
+-- reproducible in a test and is not.
+--
+-- The sequence a seed produces is this machine's, not every machine's. It
+-- is stable for a build, which is what a test needs; it is not a format,
+-- and nothing should be stored expecting to draw it again later.
+--
+-- A seed makes a run repeat, which is the whole of what it is for:
+--
+-- >> let once = (Random.seed 5; Random.int 1 1000000)
+-- >> let again = (Random.seed 5; Random.int 1 1000000)
+-- >> once == again
+-- true : Bool
+let seed n = random_seed n
+
+-- A whole number from `lo` to `hi`, both included.
+--
+-- Both ends are in range, because a die has six faces and `Random.int 1 6`
+-- should be how you roll one. A range given backwards is read forwards --
+-- `Random.int 6 1` is the same six faces -- so a swapped pair is not a
+-- silent empty range.
+--
+-- >> Random.int 3 3
+-- 3 : Int
+--
+-- >> let roll = Random.int 1 6
+-- >> roll >= 1 && roll <= 6
+-- true : Bool
+let int lo hi = (
+  let low = if hi < lo then hi else lo;
+  let high = if hi < lo then lo else hi;
+  low + random_below (high - low + 1)
+)
+
+-- A fraction at least 0.0 and below 1.0.
+--
+-- The top is excluded, so it scales without a bound of its own: a jitter
+-- of up to thirty seconds is `Random.float () * 30.0`, and never thirty.
+--
+-- >> let x = Random.float ()
+-- >> x >= 0.0 && x < 1.0
+-- true : Bool
+let float () = random_float ()
+
+-- True this often, where `p` is a fraction from 0.0 to 1.0.
+--
+-- A fair coin is `Random.chance? 0.5`. Taking the odds rather than fixing
+-- them at a half is what the call sites want: a retry that jitters, a
+-- sample that keeps one row in a hundred, a fault injected rarely.
+--
+-- `0.0` is never and `1.0` is always, and both are worth being exact
+-- about -- a probability that is off by one draw at the ends is a test
+-- that fails once a week and passes when you look at it:
+--
+-- >> Random.chance? 1.0
+-- true : Bool
+--
+-- >> Random.chance? 0.0
+-- false : Bool
+let chance? p = random_float () < p
+
+-- One element of a list, or `None` if it has none.
+--
+-- Every element is equally likely. The answer is an `Option` because the
+-- empty list has nothing to give, and a caller that knows the list is not
+-- empty spends one `Option.get!` saying so:
+--
+-- >> Random.choose [7]
+-- Some(7) : Option Int
+let choose [] = None
+let choose xs = List.head (List.drop (random_below (List.length xs)) xs)
+
+-- The same elements, in an order drawn fresh.
+--
+-- Every ordering is equally likely. The list that comes back is a new one;
+-- nothing is moved in place, because nothing in wand is.
+--
+-- >> Random.shuffle [9]
+-- [9] : List Int
+--
+-- >> List.length (Random.shuffle [1, 2, 3, 4])
+-- 4 : Int
+let shuffle [] = []
+let shuffle xs = (
+  let i = random_below (List.length xs);
+  let taken = List.take 1 (List.drop i xs);
+  let rest = List.append (List.take i xs) (List.drop (i + 1) xs);
+  List.append taken (shuffle rest)
+)
+
+let _hex_digits = "0123456789abcdef"
+
+-- `n` hexadecimal characters, for a name that has to be unlike the last one.
+--
+-- This is for temporary paths, run identifiers and cache keys -- somewhere
+-- a collision is an inconvenience. It is not for anything a secret rests
+-- on: the generator behind it is fast and predictable from its own output,
+-- which is the opposite of what a token needs.
+--
+-- >> Random.hex 0
+-- "" : String
+--
+-- >> String.length (Random.hex 8)
+-- 8 : Int
+let hex n =
+  if n <= 0 then ""
+  else (let i = random_below 16; String.slice i (i + 1) _hex_digits ++ hex (n - 1))

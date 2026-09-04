@@ -1984,6 +1984,29 @@ let sleep_ms ms =
    platform uses and why. *)
 external elapsed_ms : unit -> int = "wand_elapsed_ms"
 
+(* The generator behind `Random`.
+
+   OCaml's default state is the same on every run, so a script that drew
+   without seeding would answer identically every time -- which is the one
+   thing the `Random` label promises it will not do. The first draw seeds
+   from the environment, and `Random.seed` pins the state instead and marks
+   it seeded, so a pin placed before the first draw is not overwritten by
+   one. *)
+let random_seeded = ref false
+
+let random_ready () =
+  if not !random_seeded then begin
+    Stdlib.Random.self_init ();
+    random_seeded := true
+  end
+
+(* `0 <= x < bound`. A bound below 1 answers 0 rather than raising: every
+   caller in `stdlib/Random.wand` has already established a non-empty range,
+   and clamping here is what keeps that module free of Raise. *)
+let random_below n =
+  random_ready ();
+  if n < 1 then 0 else Stdlib.Random.int n
+
 let performing name f =
   Hashtbl.replace direct_impl name f;
   VBuiltin (fun v -> Effect.perform (WandEffect (name, v)))
@@ -3109,6 +3132,18 @@ let stdlib_eval_env : env = [
   ("clock_now", performing "Clock!now" (function
     | VUnit -> VDateTime (datetime_of_epoch (int_of_float (Unix.gettimeofday ())))
     | _ -> raise (EvalError "Clock.now: expected Unit")));
+  (* Drawing is an effect for the same reason reading the clock is: what it
+     answers is not in the program, so a caller has to be told, and a
+     handler can answer it instead. *)
+  ("random_below", performing "Random!below" (function
+    | VInt n -> VInt (random_below n)
+    | _ -> raise (EvalError "Random: expected Int")));
+  ("random_float", performing "Random!float" (function
+    | VUnit -> random_ready (); VFloat (Stdlib.Random.float 1.0)
+    | _ -> raise (EvalError "Random.float: expected Unit")));
+  ("random_seed", performing "Random!seed" (function
+    | VInt n -> Stdlib.Random.init n; random_seeded := true; VUnit
+    | _ -> raise (EvalError "Random.seed: expected Int")));
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));

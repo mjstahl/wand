@@ -1,0 +1,87 @@
+uses {Random}
+
+let {test, group} = import Test
+import List
+import Random
+import String
+import Test
+
+-- Drawing is an effect, so a handler can answer it. That is what makes a
+-- shuffle testable rather than merely unlikely to differ: pinning every
+-- draw to the first thing offered fixes the answer exactly, and the
+-- properties that must hold for any draw are checked separately below.
+
+let first thunk =
+  handle thunk () with
+  | Random!below _ k -> k 0
+
+group "a pinned draw" (fn () -> [
+  test "shuffle keeps the order when every draw is the first" (fn t ->
+    t.eq [1, 2, 3, 4] (first (fn () -> Random.shuffle [1, 2, 3, 4]))),
+  test "int answers the low end" (fn t -> t.eq 10 (first (fn () -> Random.int 10 20))),
+  test "a backwards range answers the same low end" (fn t ->
+    t.eq 10 (first (fn () -> Random.int 20 10))),
+  test "choose answers the first element" (fn t ->
+    t.eq (Some "a") (first (fn () -> Random.choose ["a", "b", "c"]))),
+  test "hex takes the first digit every time" (fn t ->
+    t.eq "0000" (first (fn () -> Random.hex 4)))
+])
+
+-- What has to hold for every draw, not just a pinned one. Each of these
+-- runs enough times that a bound that is off by one would have to be
+-- unlucky many times over to pass.
+
+let draws n f = List.map (fn _ -> f ()) (List.range 1 n)
+
+group "any draw" (fn () -> [
+  test "int stays inside its range" (fn t ->
+    t.ok (List.all? (fn x -> x >= 1 && x <= 6) (draws 200 (fn () -> Random.int 1 6)))),
+  test "int reaches both ends" (fn t ->
+    let rolls = draws 200 (fn () -> Random.int 1 2) in
+    t.ok (List.any? (fn x -> x == 1) rolls && List.any? (fn x -> x == 2) rolls)),
+  test "a range of one is that one" (fn t ->
+    t.ok (List.all? (fn x -> x == 7) (draws 20 (fn () -> Random.int 7 7)))),
+  test "float stays under one" (fn t ->
+    t.ok (List.all? (fn x -> x >= 0.0 && x < 1.0) (draws 200 (fn () -> Random.float ())))),
+  test "hex answers the length asked for" (fn t ->
+    t.ok (List.all? (fn s -> String.length s == 12) (draws 20 (fn () -> Random.hex 12)))),
+  test "shuffle keeps every element" (fn t ->
+    t.ok
+      (List.all?
+        (fn xs -> List.sort xs == [1, 2, 3, 4, 5])
+        (draws 50 (fn () -> Random.shuffle [1, 2, 3, 4, 5]))
+      ))
+])
+
+-- The ends of `chance?`, which are the two a caller is entitled to be
+-- exact about: never and always.
+
+group "chance?" (fn () -> [
+  test "zero never happens" (fn t ->
+    t.ok (List.all? (fn b -> b == false) (draws 200 (fn () -> Random.chance? 0.0)))),
+  test "one always happens" (fn t ->
+    t.ok (List.all? (fn b -> b == true) (draws 200 (fn () -> Random.chance? 1.0))))
+])
+
+-- An empty range is a question about the argument, not an error.
+
+let no_ints : List Int = []
+
+group "nothing to draw from" (fn () -> [
+  test "choose an empty list" (fn t -> t.eq (None) (Random.choose no_ints)),
+  test "shuffle an empty list" (fn t -> t.eq no_ints (Random.shuffle no_ints)),
+  test "no hex digits" (fn t -> t.eq "" (Random.hex 0))
+])
+
+-- A pinned seed repeats. This is the whole reason `seed` exists, and the
+-- one property that a handler cannot stand in for.
+
+group "a pinned seed" (fn () -> [
+  test "the same seed draws the same run" (fn t ->
+    let once = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000)) in
+    let twice = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000)) in
+    t.eq once twice),
+  test "a different seed draws a different run" (fn t ->
+    let a = (Random.seed 1; draws 20 (fn () -> Random.int 0 1000000)) in
+    let b = (Random.seed 2; draws 20 (fn () -> Random.int 0 1000000)) in t.ok (a != b))
+])

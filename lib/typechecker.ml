@@ -10,7 +10,8 @@ let stdlib_module_names =
   [ "List"; "String"; "Path"; "FS"; "IO"; "Float"; "Duration"; "Env"; "Map";
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
-    "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR" ]
+    "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
+    "Random" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -376,6 +377,24 @@ let operations : operation list =
     { op_name = "Clock!elapsed"; op_effect = Clock;
       op_types = t TUnit TDuration;
       op_performers = ["Clock.timed"] };
+    (* Drawing. A handler that answers these decides what a run draws, which
+       is what makes a shuffle or a jittered backoff testable rather than
+       merely unlikely to differ. `Random!below` carries its exclusive
+       bound, so a handler can answer in range without knowing the caller. *)
+    { op_name = "Random!below"; op_effect = Random;
+      op_types = t TInt TInt;
+      op_performers = ["Random.int"; "Random.choose"; "Random.shuffle";
+                       "Random.hex"] };
+    { op_name = "Random!float"; op_effect = Random;
+      op_types = t TUnit TFloat;
+      op_performers = ["Random.float"; "Random.chance?"] };
+    (* Pinning the seed. It is an operation like the others so that a
+       handler can refuse it: a test that pins a seed and a handler that
+       answers every draw are two ways to the same place, and a handler
+       that has taken over the draws should not be stepped around. *)
+    { op_name = "Random!seed"; op_effect = Random;
+      op_types = t TInt TUnit;
+      op_performers = ["Random.seed"] };
   ]
 
 let operation_index : (string, operation) Hashtbl.t = Hashtbl.create 64
@@ -2838,9 +2857,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | ops -> List.for_all (fun o -> List.mem o.op_name handled) ops
     in
     let discharged =
-      List.fold_left (fun effects e ->
-        if fully_handled e then Effect_set.remove e effects else effects)
-        body_effects Effect_set.all
+      Effect_set.discharge (List.filter fully_handled Effect_set.all) body_effects
     in
     performs discharged;
     let result_t = fresh () in
@@ -3280,6 +3297,12 @@ let stdlib_type_env : env = [
   ("clock_sleep", generalize [] (effs [Effect_set.Clock] (TDuration) (TUnit)));
   ("clock_now", generalize [] (effs [Effect_set.Clock] (TUnit) (TDateTime)));
   ("clock_elapsed", generalize [] (effs [Effect_set.Clock] (TUnit) (TDuration)));
+  (* Drawing. `random_below` answers `0 <= x < bound`; a bound below 1 is
+     clamped to 1 rather than raising, so nothing in `Random` needs Raise
+     and the module's every export is total. *)
+  ("random_below", generalize [] (effs [Effect_set.Random] (TInt) (TInt)));
+  ("random_float", generalize [] (effs [Effect_set.Random] (TUnit) (TFloat)));
+  ("random_seed", generalize [] (effs [Effect_set.Random] (TInt) (TUnit)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TUnit) (a)));
   (* A file is named by a Path, like every other filesystem operation. These
      two took a String, so a script holding a Path had to convert away from
@@ -3796,21 +3819,43 @@ let eff_of_label = Effect_set.of_name
 (* Every effect anywhere in a type, including the arrows nested inside it: a
    function that returns a function still performs what the inner one does
    once it is called. *)
-let rec labels_of_typ t =
+(* The labels a type commits its file to.
+
+   An effect on an argument's arrow is a demand on the caller, not something
+   the file does. `pinned : (Unit -> 'a ! {Clock | 'e}) -> 'a ! 'e` asks for
+   a thunk that may read a clock and answers one that cannot -- a handler
+   doing exactly its job -- and counting that row put Clock in the manifest
+   of every file that mocked one away. A file could not say it had stopped
+   an effect without also declaring it.
+
+   So argument positions do not count, and positions flip through them the
+   way they do in any variance rule: a function the file is handed is one
+   the file calls, and a function handed to *that* one is one the file
+   supplies. Nothing the file performs is lost, because performing it puts
+   the label on an arrow the file returns, and those are all followed.
+
+   Only arrows flip. A resource or a stream carries its row wherever it
+   sits: it is a value with effects attached rather than a call, and reading
+   one the caller opened is still reading. *)
+let rec labels_of_typ ?(demanded = false) t =
+  let self ?(flip = false) t =
+    labels_of_typ ~demanded:(if flip then not demanded else demanded) t
+  in
   match repr t with
   | TFun (a, b, r) ->
-    Effect_set.EffSet.union (Effect_set.labels_of r)
-      (Effect_set.EffSet.union (labels_of_typ a) (labels_of_typ b))
+    let own = if demanded then Effect_set.EffSet.empty else Effect_set.labels_of r in
+    Effect_set.EffSet.union own
+      (Effect_set.EffSet.union (self ~flip:true a) (self b))
   | TTuple ts -> List.fold_left (fun acc t ->
-      Effect_set.EffSet.union acc (labels_of_typ t)) Effect_set.EffSet.empty ts
-  | TList t | TMap t -> labels_of_typ t
-  | TResult (e, t) -> Effect_set.EffSet.union (labels_of_typ e) (labels_of_typ t)
+      Effect_set.EffSet.union acc (self t)) Effect_set.EffSet.empty ts
+  | TList t | TMap t -> self t
+  | TResult (e, t) -> Effect_set.EffSet.union (self e) (self t)
   | TResource (r, t) ->
-    Effect_set.EffSet.union (Effect_set.labels_of r) (labels_of_typ t)
+    Effect_set.EffSet.union (Effect_set.labels_of r) (self t)
   | TStream (r, t) ->
-    Effect_set.EffSet.union (Effect_set.labels_of r) (labels_of_typ t)
-  | TDecoder t -> labels_of_typ t
-  | TApp (f, a) -> Effect_set.EffSet.union (labels_of_typ f) (labels_of_typ a)
+    Effect_set.EffSet.union (Effect_set.labels_of r) (self t)
+  | TDecoder t -> self t
+  | TApp (f, a) -> Effect_set.EffSet.union (self f) (self a)
   | _ -> Effect_set.EffSet.empty
 
 (* A manifest bounds what a file can do to the machine. Raise is control

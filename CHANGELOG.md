@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.57.0] - 2026-09-03
+
+### Added
+
+- **`Random`, and a ninth effect label.** `seed int float chance? choose
+  shuffle hex`. The vocabulary was eight labels and a promise that a reader
+  could hold all of them at once, so the ninth had to earn its place: a draw
+  is not visible in the type, two identical calls answer differently, and
+  the only other way to say so was to fold it under `Clock` -- which reads
+  as "waits" wherever a manifest is hovered, and would be wrong for the
+  whole module. `Random` is the fourth label that leaves the world alone and
+  still has to be declared, beside `Raise`, `Proc` and `Clock`
+- **`Random!below`, `Random!float` and `Random!seed`.** A handler answers
+  draws directly, so a shuffle can be fixed in a test rather than seeded and
+  hoped over: `handle thunk () with | Random!below _ k -> k 0` takes the
+  first thing offered every time
+- **A handler discharges what it answers, even across a function.** A
+  wrapper worth reusing takes the body as a parameter, and a parameter's
+  effects are an open set with nothing known in it -- so removing a label
+  removed nothing, and the wrapper came out as `(Unit -> 'a ! 'e) -> 'a !
+  'e`. One variable stood for what went in and what came out, and a caller's
+  effect passed straight through the handler that existed to stop it. The
+  tail is split instead: `(Unit -> 'a ! {Proc | 'e}) -> 'a ! 'e`, which is
+  the shape `Par.timeout` has been written by hand with all along. A thunk
+  that performs nothing still passes, since a generalized row instantiates
+  fresh
+- **A demand is not a deed.** An effect on an argument's arrow is something
+  the caller may bring, and the manifest counted it, so a file could not say
+  it had mocked an effect away without declaring the effect it had mocked.
+  Argument positions no longer count, and positions flip through them: a
+  thunk the file *builds* and hands over still counts, because the file is
+  what reads the clock
+- **Nothing in `Random` raises.** `choose []` is `None`, `shuffle []` is
+  `[]`, `hex 0` is `""`, and `int 6 1` is the same six faces as `int 1 6`.
+  An empty range is a question about the argument, and the caller already
+  has the argument. `int` includes both ends, because a die has six faces
+  and `Random.int 1 6` should roll one
+
 ## [0.56.0] - 2026-09-02
 
 ### Added
@@ -1808,7 +1846,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.50.0...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.57.0...HEAD
+[0.57.0]: https://github.com/mjstahl/wand/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/mjstahl/wand/compare/v0.55.5...v0.56.0
 [0.55.5]: https://github.com/mjstahl/wand/compare/v0.55.4...v0.55.5
 [0.55.4]: https://github.com/mjstahl/wand/compare/v0.55.3...v0.55.4

@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -1146,7 +1146,7 @@ Everywhere else, write no effects and let wand infer them.
 
 ### The labels
 
-Eight, and a script cannot define more:
+Nine, and a script cannot define more:
 
 | Label | Means |
 |---|---|
@@ -1157,10 +1157,11 @@ Eight, and a script cannot define more:
 | `Env` | reads or changes environment variables |
 | `IO` | reads or writes the program's own streams |
 | `Proc` | ends the process; nothing catches this |
+| `Random` | draws from entropy; will not answer the same twice unless the seed is pinned |
 | `Raise` | can raise instead of returning |
 
 A label answers one question: what can this touch? So a label is coarse. It
-must fit in a signature, and you must be able to hold all eight in your
+must fit in a signature, and you must be able to hold all nine in your
 head.
 
 ### They are inferred, however deep
@@ -1536,6 +1537,7 @@ appears in an effect set:
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
 | `Clock` | `sleep`, `now`, `elapsed` |
+| `Random` | `below`, `float`, `seed` |
 
 Type `FS!` in an editor, and it lists them. Each entry says what the
 operation carries and what performs it. The editor reads the table that the
@@ -1548,6 +1550,41 @@ It can only intercept a built-in one.
 Use `handle` at a boundary: to mock in a test, to audit what another module
 attempts, or to retry. `try` and `Result` handle errors. `handle` is not a
 control-flow form.
+
+### What a handler discharges
+
+An effect leaves the signature — and the manifest — only when **every**
+operation carrying it is handled. A case intercepts one operation, and a
+label covers several:
+
+```ocaml
+handle $(git push) with
+| Shell!run _ k -> k "ok"          -- Shell stays: capture and exit_code still run
+```
+
+Erring this way over-reports. Erring the other way is what let a file whose
+manifest was `uses {IO}` run any command it liked.
+
+Handle all of them and the effect is gone, including when the body arrives
+as a parameter — which is how a handler worth reusing is written:
+
+```ocaml
+let safely thunk =
+  handle thunk () with
+  | Proc!exit _ k -> k 0
+
+-- safely : (Unit -> 'a ! {Proc | 'e}) -> 'a ! 'e
+```
+
+The argument asks for a thunk that *may* exit and answers one that cannot,
+so the file needs no `Proc` in its manifest. Asking for the effect does not
+turn a thunk that never performs it away: `safely (fn () -> 42)` typechecks,
+for the same reason `Par.timeout 1s (fn () -> 42)` does.
+
+A demand is not a deed. An effect that appears only on an argument's arrow
+is something the caller may bring, so it does not reach the file's manifest.
+An effect the file performs lands on an arrow the file returns, and those
+always count.
 
 ---
 
@@ -3207,6 +3244,82 @@ microseconds:
 ```ocaml
 let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
 ```
+
+### `Random`
+
+```ocaml
+seed    : Int -> Unit ! {Random}
+int     : Int -> Int -> Int ! {Random}
+float   : Unit -> Float ! {Random}
+chance? : Float -> Bool ! {Random}
+choose  : List 'a -> Option 'a ! {Random}
+shuffle : List 'a -> List 'a ! {Random}
+hex     : Int -> String ! {Random}
+```
+
+Every draw performs `Random`, for the same reason `Clock.now` performs
+`Clock`: nothing in the type says that two identical calls give two
+different answers, so the manifest does.
+
+```ocaml
+uses {Random}
+
+import Duration
+import Random
+
+let roll = Random.int 1 6                  -- both ends included
+let host = Random.choose pool              -- Option, because a list can be empty
+let order = Random.shuffle tests
+let wait = Duration.add 1s (Duration.seconds (Random.int 0 30))
+```
+
+`seed` pins what the run draws, and a run that pins nothing starts from the
+environment. So a script is reproducible when it says it is:
+
+```ocaml
+Random.seed 42
+```
+
+Call it once, at the top. A seed set in the middle pins the rest of the run
+and leaves what came before it unpinned, which is the shape that looks
+reproducible in a test and is not. The sequence a seed produces is stable
+for a build, not across builds — it is what a test needs, not a format, so
+nothing should store a seed expecting to draw the same values from it a
+year later.
+
+`int` includes both ends, because a die has six faces and `Random.int 1 6`
+should roll one. A range given backwards is read forwards, so `Random.int 6
+1` is the same six faces rather than an empty range that silently answers
+the same number every time.
+
+`chance?` takes the odds rather than fixing them at a half, which is what
+the call sites want — a retry that jitters, a sample that keeps one row in
+a hundred, a fault injected rarely. `0.0` is never and `1.0` is always, and
+both are exact.
+
+Nothing here raises. A draw from an empty list answers `None`, `shuffle []`
+is `[]`, and `hex 0` is `""` — an empty range is a question about the
+argument, and the caller already has it.
+
+`hex` is for temporary paths, run identifiers and cache keys, where a
+collision is an inconvenience. It is not for anything a secret rests on:
+the generator behind it is fast and predictable from its own output, which
+is the opposite of what a token needs.
+
+A handler answers draws directly, which is how a test fixes what a shuffle
+does without pinning a seed and hoping:
+
+```ocaml
+handle thunk () with
+| Random!below _ k -> k 0        -- every draw takes the first thing offered
+| Random!float _ k -> k 0.5
+| Random!seed  _ k -> k ()
+```
+
+All three, because an effect is discharged only when every operation
+carrying it is handled — see [What a handler
+discharges](#what-a-handler-discharges). Answering `below` alone still fixes
+the draws it covers; it just leaves `Random` on the signature.
 
 ### `Proc`
 

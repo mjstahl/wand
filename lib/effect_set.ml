@@ -8,7 +8,7 @@
    it is given performs, so what it performs is a variable, not a fixed set.
 
    The effects are fixed and few on purpose. A script cannot define new
-   ones, so an effect set is always a subset of these eight, and a reader of
+   ones, so an effect set is always a subset of these nine, and a reader of
    a signature has a finite vocabulary to learn. One is added when something
    can actually perform it: network access reaches the outside world through
    a command today, and so reports as Shell. Waiting is not like that --
@@ -24,9 +24,11 @@
 
 type eff =
   (* An effect set says what a caller must know that the type otherwise
-     hides. Two of these do nothing to the world -- Raise is "can raise
-     instead of returning", Proc is "ends the process" -- and Clock is the
-     third: a call that may take unbounded wall-clock time. *)
+     hides. Four of these leave the world alone and still have to be
+     declared, because each is something a caller cannot see in the type:
+     Raise is "can raise instead of returning", Proc is "ends the process",
+     Clock is "may take unbounded wall-clock time", and Random is "will not
+     answer the same twice". *)
   | Clock     (* waits; its behavior depends on wall-clock time *)
   | Shell     (* runs a subprocess *)
   | FsRead    (* reads from the filesystem *)
@@ -34,6 +36,7 @@ type eff =
   | Env       (* reads or changes environment variables *)
   | IO        (* reads or writes the program's own streams *)
   | Proc      (* ends the process; nothing catches this *)
+  | Random    (* answers differently between runs; draws from entropy *)
   | Raise     (* can raise instead of returning *)
 
 (* Alphabetical by rendered name. This list is the one definition of
@@ -42,7 +45,7 @@ type eff =
    manifest is always already in canonical form and a reader can predict
    where a label sits without knowing any convention beyond the
    alphabet. *)
-let all = [Clock; Env; FsRead; FsWrite; IO; Proc; Raise; Shell]
+let all = [Clock; Env; FsRead; FsWrite; IO; Proc; Raise; Random; Shell]
 
 let name_of = function
   | Clock   -> "Clock"
@@ -52,6 +55,7 @@ let name_of = function
   | Env     -> "Env"
   | IO      -> "IO"
   | Proc    -> "Proc"
+  | Random  -> "Random"
   | Raise   -> "Raise"
 
 (* What a label admits, one sentence each, for a reader who hovers a
@@ -67,6 +71,8 @@ let description = function
   | Env     -> "Reads or changes environment variables."
   | IO      -> "Reads or writes the program's own streams."
   | Proc    -> "Ends the process. Nothing catches this."
+  | Random  -> "Draws from entropy: answers differently on two runs unless \
+                the seed is pinned."
   | Raise   -> "Can raise instead of returning."
 
 (* The inverse of `name_of`, derived from it rather than written out again:
@@ -176,6 +182,44 @@ let bind v r =
   if occurs v r then
     raise (Mismatch "an effect set cannot contain itself");
   v.def <- Some r
+
+(* What escapes a handler that answers every operation of `es`.
+
+   Taking the labels out of the known half is enough when the body's effects
+   are known: `handle Clock.now () with` is a closed set with Clock in it,
+   and removing it leaves nothing. It is not enough when the body's effects
+   arrive through a parameter, which is how a handler worth reusing is
+   written:
+
+     let pinned thunk =
+       handle thunk () with
+       | Clock!now _ k -> ..      (and every other Clock operation)
+
+   `thunk ()` performs whatever `thunk` performs, which is an open set with
+   nothing known in it. There was nothing to remove, so `pinned` came out as
+   `(Unit -> 'a ! 'e) -> 'a ! 'e`: one variable standing for both what went
+   in and what came out, and a caller's Clock passing straight through the
+   handler that existed to stop it.
+
+   So the tail is split rather than searched. Whatever the body turns out to
+   perform is `es` and a rest, and the rest is what escapes. `pinned` then
+   reads `(Unit -> 'a ! {Clock | 'e}) -> 'a ! 'e`, which is the shape
+   `Par.timeout` has been written by hand with all along.
+
+   Asking `es` of the argument does not turn a pure thunk away. A
+   generalized row instantiates to a fresh open variable, so
+   `pinned (fn () -> 42)` binds that variable to `es` and performs none of
+   it -- the same reason `Par.timeout 1s (fn () -> 42)` typechecks. *)
+let discharge es r =
+  let (Set (l, t)) = repr r in
+  let kept = List.fold_left (fun acc e -> EffSet.remove e acc) l es in
+  match t with
+  | None -> Set (kept, None)
+  | Some _ when es = [] -> Set (kept, t)
+  | Some v ->
+    let rest = fresh_var () in
+    bind v (Set (EffSet.of_list es, Some rest));
+    Set (kept, Some rest)
 
 let to_string r =
   let (Set (labels, tail)) = repr r in

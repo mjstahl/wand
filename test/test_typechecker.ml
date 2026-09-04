@@ -1449,6 +1449,44 @@ let test_handler_covering_every_operation_discharges_it () =
     (type_of "handled exit"
        "import Proc\nfn () -> handle (Proc.exit 1) with\n| Proc!exit _ k -> k 0")
 
+(* A handler is worth writing once and reusing, which means the body's
+   effects arrive through a parameter. Removing a label from the known half
+   of an open set removed nothing, so the wrapper came out as
+   `(Unit -> 'a ! 'e) -> 'a ! 'e` -- one variable for what went in and what
+   came out -- and a caller's effect passed straight through the handler
+   that existed to stop it. A test could not say it had mocked an effect
+   away without declaring the effect it had mocked. *)
+let test_a_handler_wrapper_discharges () =
+  Alcotest.(check string) "the thunk may exit, the wrapper may not"
+    "(Unit -> 'a ! {Proc | 'e}) -> 'a ! 'e"
+    (type_of "reusable proc handler"
+       "fn thunk -> handle thunk () with\n| Proc!exit _ k -> k 0");
+  (* Asking Proc of the argument does not turn a thunk that never exits
+     away: a generalized row instantiates fresh, so it takes the label and
+     performs none of it. *)
+  Alcotest.(check string) "a pure thunk still passes through it"
+    "Int"
+    (type_of "pure thunk through a handler"
+       "let pinned = fn thunk -> handle thunk () with\n        | Proc!exit _ k -> k 0 in\npinned (fn () -> 42)")
+
+(* The wrapper case must not discharge more than it answers. Shell carries
+   four operations, and a wrapper handling one of them leaves the other
+   three to run for real however the body arrived. *)
+let test_a_partial_wrapper_keeps_the_effect () =
+  (* Nothing is split, so the wrapper stays the one variable it was: what
+     the caller performs is what escapes. *)
+  Alcotest.(check string) "a partial wrapper splits nothing"
+    "(Unit -> 'a ! 'e) -> 'a ! 'e"
+    (type_of "partly handled wrapper"
+       "fn thunk -> handle thunk () with\n| Shell!run _ k -> k \"ok\"");
+  (* Which is what keeps it honest: a body that shells out through it still
+     reports Shell, because `Shell!capture` and the rest were never
+     answered. *)
+  Alcotest.(check string) "and a command through it still reports Shell"
+    "Unit -> String ! {Raise, Shell}"
+    (type_of "shell through a partial wrapper"
+       "let half = fn thunk -> handle thunk () with\n        | Shell!run _ k -> k \"ok\" in\nfn () -> half (fn () -> $(git push))")
+
 (* The security-critical half. A case intercepts one operation, but Shell
    carries four, and a signature is written in effects rather than
    operations. Handling `Shell!run` leaves `Shell!run_quiet`, `Shell!capture`
@@ -1519,6 +1557,25 @@ let test_manifest_too_narrow () =
   manifest_error "and it says what to write instead"
     "uses {FS.Write}\nlet publish () = $(rsync -a . host:/srv)\npublish"
     "uses {Shell(rsync)}"
+
+(* A file that answers an effect in full does not perform it, and its
+   manifest should not have to say it does. The label survived in the
+   argument's row -- a demand on the caller -- and the manifest counted
+   every row it could find, so a file that mocked an effect away had to
+   declare the effect it had mocked. *)
+let test_a_handled_effect_leaves_the_manifest () =
+  let ok label src =
+    match type_of_program_with_imports src with
+    | Ok () -> ()
+    | Error m -> Alcotest.failf "%s: rejected: %s" label m
+  in
+  ok "a wrapper answering every Proc operation needs no Proc"
+    "uses {}\nlet safely thunk =\n  handle thunk () with\n  | Proc!exit _ k -> k 0\nsafely";
+  (* And the demand is still real: what the wrapper does not answer still
+     reaches the manifest. *)
+  manifest_error "what it does not answer still counts"
+    "uses {}\nlet half thunk =\n  handle thunk () with\n  | Shell!run _ k -> k \"ok\"\nhalf (fn () -> $(git push))"
+    "which the manifest does not allow"
 
 let test_manifest_shell_binaries () =
   let ok label src =
@@ -1719,6 +1776,7 @@ let () =
     "manifests", [
       Alcotest.test_case "too narrow is an error"  `Quick test_manifest_too_narrow;
       Alcotest.test_case "shell binaries"          `Quick test_manifest_shell_binaries;
+      Alcotest.test_case "a handled effect leaves"  `Quick test_a_handled_effect_leaves_the_manifest;
       Alcotest.test_case "names the binding"       `Quick test_manifest_names_the_binding;
       Alcotest.test_case "exact passes"            `Quick test_manifest_accepts_an_exact_declaration;
       Alcotest.test_case "absent is unconstrained" `Quick test_no_manifest_is_unconstrained;
@@ -1738,6 +1796,8 @@ let () =
       Alcotest.test_case "constructing is pure"         `Quick test_constructing_performs_nothing;
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
       Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
+      Alcotest.test_case "a wrapper discharges too"     `Quick test_a_handler_wrapper_discharges;
+      Alcotest.test_case "a partial wrapper does not"   `Quick test_a_partial_wrapper_keeps_the_effect;
       Alcotest.test_case "a failable pattern raises" `Quick test_a_failable_pattern_raises;
       Alcotest.test_case "written type vars are checked" `Quick
         test_written_type_vars_are_checked;

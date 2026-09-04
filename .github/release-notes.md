@@ -1,148 +1,161 @@
-## 0.56.0 - 2026-09-02
+## 0.57.0 - 2026-09-03
 
-Every built-in type now has a module. Seven types had a literal, an order and
-a place in the type checker, and nothing to read them with: `URL`, `Version`,
-`Glob`, `IPv4` and `CIDR` had no module at all, and the two constructors that
-did exist could not build every value of their own type.
+wand can draw a random number. `Random` is the module, and `Random` is also a
+new effect label -- the ninth, and the first added since the set was fixed.
 
-This release closes both halves. It also changes what some literals mean, so
-read the last section before upgrading.
+A handler also discharges what it answers across a function boundary now.
+That was the change the module needed, and it applies to every effect.
 
-### The types that could not be read
+### Drawing
 
-`URL` is the clearest case. A URL was a value you could write, interpolate,
-compare and match on, and there was no way to reach its host. The module
-follows the web platform's split, so `hostname` is the domain and `host` is
-the domain with the port:
+The module is seven names:
 
 ```
-$ wand -e 'URL.hostname https://api.example.com:8080/v2/users'
-"api.example.com" : String
-
-$ wand -e 'URL.query https://example.com/s?q=two+words'
-{q = "two words"} : Map String
-
-$ wand -e 'URL.join "../v2/users" https://example.com/api/v1/orders'
-Ok(https://example.com/api/v2/users) : Result String URL
+$ wand d Random
+Random.chance? : Float -> Bool ! {Random}
+Random.choose : List 'a -> Option 'a ! {Random}
+Random.float : Unit -> Float ! {Random}
+Random.hex : Int -> String ! {Random}
+Random.int : Int -> Int -> Int ! {Random}
+Random.seed : Int -> Unit ! {Random}
+Random.shuffle : List 'a -> List 'a ! {Random}
 ```
 
-`Version` is held to [Semantic Versioning 2.0.0][semver] -- its grammar, its
-precedence rules and its FAQ. The language already ordered versions
-correctly, so the module has no `compare`; it has the parts, and the step to
-the next one.
+`int` includes both ends. A die has six faces, and `Random.int 1 6` rolls
+one. A range given backwards is read forwards, so `Random.int 6 1` is the
+same six faces. A backwards pair is a slip, not an empty range that answers
+the same number every time.
 
-`Glob` gained the question it was missing. `FS.glob` says which files a
-pattern selects and needs `FsRead` to say it; whether a path is one the
-pattern would select needs nothing, and could not be asked at all:
+```ocaml
+let roll = Random.int 1 6                  -- both ends included
+let host = Random.choose pool              -- Option, because a list can be empty
+let order = Random.shuffle tests
+let wait = Duration.add 1s (Duration.seconds (Random.int 0 30))
+```
+
+What holds for every draw holds here too:
 
 ```
-$ wand -e 'Glob.matches? **.wand ./src/deep/main.wand'
+$ wand -e 'Random.int 3 3'
+3 : Int
+
+$ wand -e 'let r = Random.int 1 6 in r >= 1 && r <= 6'
 true : Bool
+
+$ wand -e 'List.sort (Random.shuffle ["alpha", "beta", "gamma"])'
+["alpha", "beta", "gamma"] : List String
+
+$ wand -e 'String.length (Random.hex 8)'
+8 : Int
 ```
 
-`CIDR` is the same shape. The one question anyone asks of a network could
-only be answered by taking the text apart:
+`Random.seed` pins a run, and a run that pins nothing starts from the
+environment. A seed repeats within a build, which is what a test needs. It
+is not a format: do not store a seed and expect the same draws from a later
+binary.
 
-```
-$ wand -e 'CIDR.contains? 10.0.0.0/8 10.1.2.3'
-true : Bool
-```
+`chance?` takes the odds instead of fixing them at a half. A fair coin is
+`Random.chance? 0.5`. The call sites want the other values: a retry that
+jitters, a sample that keeps one row in a hundred, a fault injected rarely.
+`0.0` is never and `1.0` is always, and both are exact.
 
-[semver]: https://semver.org/spec/v2.0.0.html
+Nothing in the module raises. `choose` on an empty list is `None`, `shuffle
+[]` is `[]`, and `hex 0` is `""`. An empty range is a question about the
+argument, and the caller already holds the argument.
 
-### The constructors that could not build every value
+`hex` is for temporary paths, run identifiers and cache keys, where a
+collision is an inconvenience. Do not rest a secret on it. The generator is
+fast and predictable from its own output, which is the opposite of what a
+token needs.
 
-`String.to_url` and `String.to_version` decided whether text was a URL or a
-version by handing it back to the lexer and asking whether it came out as a
-single token. That made a rule about *writing a literal* into a rule about
-the values themselves.
+### Why it needed a label
 
-A URL literal ends at a `,` or a `;`, because they are the punctuation of the
-expression around it. Both are legal in a URL. So a perfectly good URL had no
-way to exist:
+The effect vocabulary was eight labels, and the reference promises you can
+hold all of them in your head. A ninth had to earn the room.
 
-```
-$ wand -e 'String.to_url "https://example.com/s?tags=a,b"'
-Error("cannot parse ... as URL")        # 0.55.5
-Ok(https://example.com/s?tags=a,b)      # 0.56.0
-```
+A draw earns it. Nothing in `Unit -> Int` says that two identical calls give
+two different answers, so a caller has to be told, and the manifest is where
+wand tells them. The alternative was to fold drawing under `Clock`. `Clock`
+reads as "waits" wherever a manifest is hovered, and that is wrong for every
+name in the module.
 
-The same held for an IPv6 host, whose brackets end a literal too, and for
-build metadata on a version, since `+` is the addition operator and
-`1.2.3+1` cannot be told from arithmetic. `Decode.url` and `Decode.version`
-had it as well, where it matters more: a decoder reads a document the program
-did not write, and a `,` in a query string or a `v` on a git tag is ordinary
-there.
+`Random` is the fourth label that leaves the world alone and still has to be
+declared, beside `Raise`, `Proc` and `Clock`.
 
-Each grammar now lives in one place, checked by the literal, the constructor
-and the decoder alike -- the arrangement the port range has always had, so
-three readers of one rule cannot disagree. The errors improved as a side
-effect. `String.to_url "ftp://x"` used to answer `"a comment is '-- ...' to
-the end of the line, not '//'"`, which is true of the scanner and says
-nothing about the URL.
+Three operations sit under it, and a handler can answer them:
 
-### One crash, and one that was waiting
-
-Comparing versions split the text on `-` to find the prerelease, so build
-metadata put a `+` in front of `int_of_string` and `1.2.3+b` raised instead
-of comparing. Nothing had reached it, because no constructor could build such
-a value. Adding the constructor would have made it reachable, so it is fixed:
-build metadata is ignored for precedence, which is what rule 10 requires.
-
-`FS.glob` compiled its pattern with an engine that raises on an unclosed
-character class. A literal cannot hold one, so nothing had reached that
-either. `Glob.of_string` refuses it now, and reports rather than raising.
-
-### The `?` convention, in both directions
-
-A name ending in `!` says the function can raise, and that has been checked
-both ways for some time: a function that raises without the `!`, and an `!`
-that promises a raise which cannot happen. A name ending in `?` says the
-function answers a question, and only one direction was checked -- a `?` name
-had to return `Bool`, and a `Bool` could go unmarked.
-
-`V-PRED3` closes it. It found two functions in the standard library, out of
-354 exported signatures:
-
-```
-List.all  ->  List.all?
-List.any  ->  List.any?
+```ocaml
+handle thunk () with
+| Random!below _ k -> k 0        -- every draw takes the first thing offered
+| Random!float _ k -> k 0.5
+| Random!seed  _ k -> k ()
 ```
 
-It fires on functions only. A `Bool` that is not one is a value rather than a
-question: `let ready = 1 > 0` is a fact the program holds, and `ready?` would
-promise a caller something to call.
+### A handler discharges across a function
+
+A handler worth reusing takes the body as a parameter. That did not work. A
+parameter's effects are an open set with nothing known in it, so removing a
+label removed nothing, and the wrapper came out with one effect variable for
+what went in and what came out:
+
+```ocaml
+-- before
+pinned : (Unit -> 'a ! 'e) -> 'a ! 'e
+
+-- after
+pinned : (Unit -> 'a ! {Clock | 'e}) -> 'a ! 'e
+```
+
+The caller's effect passed straight through the handler that existed to stop
+it. wand now splits the tail rather than searching it: what the body
+performs is the handled set and a rest, and the rest is what escapes. This
+is the shape `Par.timeout` has been written by hand with all along.
+
+Asking for the effect does not turn a thunk away that never performs it.
+`pinned (fn () -> 42)` still typechecks.
+
+A manifest also stopped counting demands as deeds. An effect on an
+argument's arrow is something the caller may bring, not something the file
+does, so it no longer reaches the manifest. A file can now say it has mocked
+an effect away without declaring the effect it mocked:
+
+```ocaml
+uses {}                          -- and it typechecks
+
+let safely thunk =
+  handle thunk () with
+  | Proc!exit _ k -> k 0
+```
+
+Positions flip through arrows, so nothing is lost. A thunk the file *builds*
+and hands to someone else still counts, because the file is what reads the
+clock.
+
+Two rules are unchanged, and both are in the reference now. An effect is
+discharged only when every operation carrying it is handled: answering
+`Shell!run` alone leaves `capture` and `exit_code` running for real.
+Answering an operation still fixes what that operation returns, whether or
+not the label goes away.
 
 ### What this breaks
 
-Five things, and the first two are the ones that will reach a working script.
+Two things, and neither reaches a script that runs today.
 
-**`List.all` and `List.any` are `List.all?` and `List.any?`.** Rename the
-call sites; nothing else about them changed.
+**A manifest can now be too wide.** A file that fully handles an effect no
+longer performs it, so a `uses` that names the effect is a `A-USES1`
+warning: "the manifest permits Clock, and this file reaches outside itself
+for nothing". Delete the label. Under `--strict` it fails. This can only
+reach a file that wraps a handler and declares what it handles.
 
-**`--strict` fails on an unmarked predicate.** A function of yours that
-returns `Bool` and is not named with a `?` is now a `V-PRED3` violation.
-Without `--strict` it is a warning, as every `V-` rule is.
-
-**Two version literals stopped lexing.** `01.2.3` has a leading zero on a
-numeric identifier and `1.2.3-alpha_1` has an `_`; semantic versioning admits
-neither, and the literal is checked against the same grammar as
-`Version.of_string`. `1.2.3-0a` is still a version -- only a *numeric*
-identifier is barred from a leading zero.
-
-**One URL literal shape stopped lexing.** A character that cannot appear in a
-URL at all, such as `|` or `^`, is a lex error naming the rule. It has to be
-percent-encoded, which is what it always had to be.
-
-**`URL.host` means something else** -- the domain with the port. The domain
-alone is `URL.hostname`. `URL` shipped in this release, so this can only
-reach a script written against a build from `main`.
-
-The tightening in both literals is the same decision: a literal must not be
-able to write a value the checked constructor would refuse.
+**`Random` is an effect name.** A manifest cannot use it for anything else,
+and neither can a handler case. Nothing could before, since a script cannot
+define an effect.
 
 ### Also
 
-The CI workflows run their actions on Node 24. The repository is OCaml and
-sets up no Node of its own, so this is the runtime GitHub's bundled actions
-run on, nothing more.
+`Test.at` and `Test.with_clock` still carry the effect they mock. Each
+answers one Clock operation on purpose, so neither discharges Clock. Their
+signatures are unchanged.
+
+`try` has the same open-set limit that handlers had. `Raise` never reaches a
+manifest, so nothing about it is visible in a `uses` line.
