@@ -2912,14 +2912,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
     ) ens;
     body_t
   | Try e ->
-    (* try turns a raise into a Result, so Raise does not escape it.
-       Subtracting from an open set can only remove what is already known:
-       if the body's effects are still undetermined here, a Raise that
-       surfaces later stays in the set. That over-reports rather than
-       hiding an effect, which is the direction that keeps a signature
-       trustworthy. *)
+    (* try turns a raise into a Result, so Raise does not escape it -- and
+       that holds however the body's effects arrived. Taking the label out
+       of the known half removed nothing when they came through a parameter,
+       so `let attempt f = try f ()` answered a Result and still said it
+       could raise. `discharge` splits the tail the way a handler does:
+       whatever the body performs is a raise and a rest, and the rest is
+       what escapes. *)
     let (t, effects) = scoped_eff (fun () -> infer tenv env e) in
-    performs (Effect_set.remove Effect_set.Raise effects);
+    performs (Effect_set.discharge [Effect_set.Raise] effects);
     TResult (TString, t)
   | With (resource, p, body) ->
     (* The resource says what acquiring and releasing perform; the bracket

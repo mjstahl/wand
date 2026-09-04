@@ -4171,8 +4171,8 @@ the front. bash has `$0` and C has `argv[0]`; wand has neither.
 ### `Test`
 
 ```ocaml
-test               : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
-group              : String -> (Unit -> List TestOutcome ! 'e) -> TestOutcome ! 'e
+test               : String -> (Testing 'b 'a -> TestOutcome ! {Raise | 'e}) -> TestOutcome ! 'e
+group              : String -> (Unit -> List TestOutcome ! {Raise | 'e}) -> TestOutcome ! 'e
 with_shell         : List (String, String) -> (Unit -> 'a ! 'e) -> 'a ! 'e
 with_shell_results : List (String, ShellResult) -> (Unit -> 'a ! 'e) -> 'a ! 'e
 shell_calls        : (Unit -> 'a ! 'e) -> List 'b ! 'e

@@ -1449,6 +1449,24 @@ let test_handler_covering_every_operation_discharges_it () =
     (type_of "handled exit"
        "import Proc\nfn () -> handle (Proc.exit 1) with\n| Proc!exit _ k -> k 0")
 
+(* `try` answers a raise with a Result, and it does so however the body
+   arrived. Taking Raise out of the known half of the row removed nothing
+   when the body came through a parameter, so a wrapper answered a Result
+   and still said it could raise -- the caught raise leaked to every caller
+   of the thing that caught it. *)
+let test_try_discharges_across_a_function () =
+  Alcotest.(check string) "the thunk may raise, the wrapper may not"
+    "(Unit -> 'a ! {Raise | 'e}) -> Result String 'a ! 'e"
+    (type_of "reusable try" "fn f -> try f ()");
+  Alcotest.(check string) "and a raise through it does not escape"
+    "Unit -> Result String 'a"
+    (type_of "a caught raise"
+       "import List\nlet attempt f = try f () in\n        fn () -> attempt (fn () -> List.head! [])");
+  (* Inline, where the body's effects were known all along, is unchanged. *)
+  Alcotest.(check string) "an inline try is what it always was"
+    "Unit -> Result String 'a"
+    (type_of "inline try" "import List\nfn () -> try List.head! []")
+
 (* A handler is worth writing once and reusing, which means the body's
    effects arrive through a parameter. Removing a label from the known half
    of an open set removed nothing, so the wrapper came out as
@@ -1796,6 +1814,7 @@ let () =
       Alcotest.test_case "constructing is pure"         `Quick test_constructing_performs_nothing;
       Alcotest.test_case "full coverage discharges"    `Quick test_handler_covering_every_operation_discharges_it;
       Alcotest.test_case "partial handler keeps effect" `Quick test_partial_handler_keeps_the_effect;
+      Alcotest.test_case "try discharges too"          `Quick test_try_discharges_across_a_function;
       Alcotest.test_case "a wrapper discharges too"     `Quick test_a_handler_wrapper_discharges;
       Alcotest.test_case "a partial wrapper does not"   `Quick test_a_partial_wrapper_keeps_the_effect;
       Alcotest.test_case "a failable pattern raises" `Quick test_a_failable_pattern_raises;

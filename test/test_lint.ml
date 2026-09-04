@@ -117,6 +117,18 @@ let test_pred1 () =
      a caller something to call. *)
   silent "a Bool value is not a predicate" "let ready = 1 > 0\nready"
 
+(* A raise the caller may bring is not one the function performs. `try`
+   discharges Raise across a function, so a wrapper asks for a thunk that
+   may raise and answers a Result -- and reading that argument row told
+   `attempt` to call itself `attempt!`, which is the opposite of what it is.
+   It is the version that returns a Result. *)
+let test_bang1_ignores_a_demanded_raise () =
+  not_fired "a try wrapper is not a raiser"
+    "let attempt f = try f ()\nattempt" "V-BANG1";
+  (* The rule still reads what the function itself performs. *)
+  fires "a real raiser is still named" 
+    "import List\nlet first xs = List.head! xs\nfirst [1]" "V-BANG1"
+
 (* A name takes one ending. `ok?!` and `ok!?` are both parse errors, so the
    advice for a predicate that raises cannot be to add the `!`, which is
    what it used to be -- a name the reader could not have written. *)
@@ -598,6 +610,8 @@ let () =
       Alcotest.test_case "V-PRED2"  `Quick test_pred2;
       Alcotest.test_case "V-BANG1 on a predicate" `Quick
         test_bang1_on_a_predicate;
+      Alcotest.test_case "V-BANG1 ignores a demanded raise" `Quick
+        test_bang1_ignores_a_demanded_raise;
       Alcotest.test_case "V-OR1"    `Quick test_or1;
       Alcotest.test_case "V-NAME1"  `Quick test_name1;
       Alcotest.test_case "V-DROP1"  `Quick test_drop1;

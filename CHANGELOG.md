@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.57.1] - 2026-09-04
+
+### Fixed
+
+- **`try` discharges a raise across a function.** `try` answers a raise with
+  a `Result`, and it did so only when the body's effects were already known.
+  A wrapper takes the body as a parameter, and a parameter's effects are an
+  open set with nothing known in it, so taking `Raise` out removed nothing:
+  `let attempt f = try f ()` answered a `Result` and still said it could
+  raise, and the caught raise leaked to every caller of the thing that
+  caught it. The same split `handle` got in 0.57.0 now applies here, so
+  `attempt : (Unit -> 'a ! {Raise | 'e}) -> Result String 'a ! 'e`
+- **V-BANG1 stops naming a function for a raise its caller brings.** With
+  the above, a `try` wrapper's argument carries `Raise` and its result does
+  not, and `type_raises` read both -- so it told `attempt` to call itself
+  `attempt!`, which is the opposite of what it is. Argument positions no
+  longer count, and positions flip through them, the same rule the manifest
+  took in 0.57.0
+- **`Test.test` and `Test.group` say what they always did.** Both wrap the
+  body in `try`, so both now report `{Raise | 'e}` on the body and nothing
+  on the result. No call site changes; the signature stopped understating
+  what these two do
+
 ## [0.57.0] - 2026-09-03
 
 ### Added
@@ -1846,7 +1869,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.57.0...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.57.1...HEAD
+[0.57.1]: https://github.com/mjstahl/wand/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/mjstahl/wand/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/mjstahl/wand/compare/v0.55.5...v0.56.0
 [0.55.5]: https://github.com/mjstahl/wand/compare/v0.55.4...v0.55.5

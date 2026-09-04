@@ -51,16 +51,34 @@ let rec informationless_error (t : Typechecker.typ) =
   | Typechecker.TTuple ts -> List.exists informationless_error ts
   | _ -> false
 
-(* Whether any arrow in the type can raise. A curried function's arrows share
-   one effect set, so it does not matter which is asked. *)
-let rec type_raises (t : Typechecker.typ) =
+(* Whether any arrow in the type can raise.
+
+   A raise the caller may bring is not one this function performs. `try`
+   discharges Raise across a function boundary, so
+   `attempt : (Unit -> 'a ! {Raise | 'e}) -> Result String 'a ! 'e` asks for
+   a thunk that may raise and answers a Result. Reading that argument row
+   made V-BANG1 tell `attempt` to call itself `attempt!` -- the opposite of
+   what it is, since it is the version that returns a Result.
+
+   So argument positions do not count, and positions flip through them: a
+   function this one is handed is one it calls, and a function handed to
+   *that* one is one this one supplies. It is the rule the manifest uses,
+   for the same reason.
+
+   The arrows of a single curried function still share one effect set, so it
+   still does not matter which of those is asked. *)
+let rec type_raises ?(demanded = false) (t : Typechecker.typ) =
+  let self ?(flip = false) t =
+    type_raises ~demanded:(if flip then not demanded else demanded) t
+  in
   match Typechecker.repr t with
   | Typechecker.TFun (a, b, r) ->
-    Effect_set.mem Effect_set.Raise r || type_raises a || type_raises b
-  | Typechecker.TTuple ts -> List.exists type_raises ts
-  | Typechecker.TList t | Typechecker.TMap t -> type_raises t
-  | Typechecker.TResult (e, t) -> type_raises e || type_raises t
-  | Typechecker.TApp (f, a) -> type_raises f || type_raises a
+    (not demanded && Effect_set.mem Effect_set.Raise r)
+    || self ~flip:true a || self b
+  | Typechecker.TTuple ts -> List.exists self ts
+  | Typechecker.TList t | Typechecker.TMap t -> self t
+  | Typechecker.TResult (e, t) -> self e || self t
+  | Typechecker.TApp (f, a) -> self f || self a
   | _ -> false
 
 let is_function (t : Typechecker.typ) =
