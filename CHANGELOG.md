@@ -11,9 +11,10 @@
 - **A binding written `in` among a block's statements takes the `;`.** The
   spelling follows where the binding stands. This asked only whether the body
   was a block, so a binding written `in` with statements above it kept the
-  `in`. One block then held both spellings. The first statement of a
-  `( ... )` is not one of those: `(let f = ... in f ())` is a parenthesis
-  around one expression
+  `in`, and one block held both spellings. Brackets of its own do not change
+  where it stands: `(t; (let f = e in ()))` loses them, and the binding is
+  the block's. The first statement of a `( ... )` is the exception.
+  `(let f = ... in f ())` is a parenthesis around one expression
 - **A `with` body opens its bracket on the `->` line**, as a binding's value
   does. The bracket used to take a line of its own. There it says nothing,
   because the items sit at the same column either way. Eleven files each get

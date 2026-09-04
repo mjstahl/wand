@@ -1,11 +1,16 @@
 found:     test/fuzz, seed 0, iteration 11169, 2026-09-04
 reported:  format:unstable
-fixed in:  lib/parser.ml, let_'s as_block_tail
+fixed in:  lib/formatter.ml, emit_block's items
 
-A binding with statements above it in the same block takes their `;`. The
-retag reached the binding itself and not the bindings inside its body, which
-were read as one expression with it and kept their `in`. The next pass saw a
-`;` above them and wrote the `;`, so the two passes disagreed:
+A binding among a block's statements takes the block's `;`. The first
+attempt decided that in the parser, from the position the binding was read
+at. The parser cannot decide it: the printer drops brackets, so where a
+binding ends up is not where it was read.
+
+Here a binding written `in` sat inside a body read as one expression. The
+parser retagged the outer binding and not the ones under it, so the first
+pass wrote them with `in` and the second, seeing the `;` above them, wrote
+the `;`:
 
   let () =            let () =
     match a with  ->    (match a with
@@ -13,11 +18,9 @@ were read as one expression with it and kept their `in`. The next pass saw a
   in                  ()
   ()
 
-The retag now follows the statement spine: down the last statement of a
-`Seq` and down a binding's body. Not into the first child of a `Seq`, which
-is where a binding written `in` narrows and keeps it.
+`items` decides it now. Every binding it reaches is one of the block's
+statements, so it takes the `;`. A binding that narrows is a `Seq`'s first
+child and is emitted as a statement, which keeps its `in`.
 
-Unlike most fixtures here, this one does not fail on the binary before the
-commit that fixes it. The rule it tests arrived in that same commit, and the
-bug was in the first draft of it. v0.59.1 formats this input stably, because
-there it keeps every `in`.
+This does not fail on v0.59.1. The rule arrived in 0.59.2, and so did the
+bug.

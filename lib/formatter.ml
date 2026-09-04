@@ -1560,12 +1560,25 @@ and emit_block ?col indent e =
       in
       advance_past (loc_of a);
       (above, a_text) :: items ind b
-    | Let (p, e1, body, LetBlock) ->
+    (* A binding reached here is one of the block's statements, so it takes
+       the block's `;` whatever joined it to its body in the source. The tag
+       cannot decide this on its own: `(t; (let f = e in ()))` loses the
+       brackets the binding wore, which puts it in the block, and a binding
+       written `in` with statements above it stands beside their `;`. Only
+       the printer knows what the brackets will be.
+
+       The `in` that narrows is not reached here. It is a `Seq`'s first
+       child, which the case above emits as a statement, so `(let x = 1 in
+       x + 1; 9)` keeps the `in` that holds `x` off the `9`. Nor is a
+       binding that is not in a block: `emit_block` is reached only for a
+       `Seq` or a block binding, so the first call here is never a bare
+       `let ... in`. *)
+    | Let (p, e1, body, _) ->
       let above = match starts_at (loc_of e1) with Some hi -> lead hi | None -> [] in
       let text = emit_binding ~col:ind ind p e1 in
       advance_past (loc_of e1);
       (above, text) :: items ind body
-    | LetRec (bindings, body, LetBlock) ->
+    | LetRec (bindings, body, _) ->
       let above =
         match bindings with
         | (_, _, first) :: _ ->

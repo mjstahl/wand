@@ -1,0 +1,22 @@
+found:     fuzz-sweep, seed 0 and seed 5, 2026-09-04
+reported:  format:unstable
+fixed in:  lib/formatter.ml, emit_block's items
+
+A binding written inside brackets of its own, as a statement of a block:
+
+  (fn -> t; (let f = fn () -> (let x = 1; 9) in ()))
+
+The brackets are a parenthesis around one expression, so the formatter drops
+them. That puts the binding in the block, and the next pass reads it as one
+of the block's own and writes the `;`. The two passes disagreed.
+
+This is why the rule cannot live in the parser. The parser sees the
+brackets; the printer decides whether to keep them. `items` decides it now:
+every binding it reaches is one of the block's statements. Two attempts to
+patch the parser's tags site by site left this case, and then left it again.
+
+A `Seq`'s first child is not reached there. That is where a binding written
+`in` narrows -- `(let x = 1 in x + 1; 9)` -- and it keeps its `in`.
+
+This does not fail on v0.59.1. The rule arrived in 0.59.2, and so did the
+bug.

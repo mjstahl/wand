@@ -43,10 +43,13 @@ let main! () = (
   finish results
 ```
 
-The first statement of a `( ... )` is not one of those.
-`(let f = ... in f ())` is a parenthesis around one expression, and it keeps
-its `in`. So does the `in` that narrows: in `(let x = 1 in x + 1; 9)` the
-`in` holds `x` off the statements below it.
+Brackets of its own do not change where a binding stands. `wand f` drops
+them, so `(t; (let f = e in ()))` comes back as `(t; let f = e; ())`.
+
+The first statement of a `( ... )` is the exception. `(let f = ... in f ())`
+is a parenthesis around one expression, and it keeps its `in`. So does the
+`in` that narrows: in `(let x = 1 in x + 1; 9)` the `in` holds `x` off the
+statements below it.
 
 ### A `with` body opens its bracket on the `->` line
 

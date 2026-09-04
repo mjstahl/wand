@@ -1033,7 +1033,7 @@ and atom_base_ s =
         ignore (advance s);
         let first = Located (span_to_here s e_loc, e) in
         let e =
-          if peek s = Token.RParen then first else Seq (first, paren_seq ~first:false s)
+          if peek s = Token.RParen then first else Seq (first, paren_seq s)
         in
         expect s Token.RParen; e
       end else if is_expr_start (peek s) then begin
@@ -1043,7 +1043,7 @@ and atom_base_ s =
            statement had to be read as an expression before anything could
            say it was a statement. *)
         let first = Located (span_to_here s e_loc, e) in
-        let e = Seq (first, paren_seq ~first:false s) in
+        let e = Seq (first, paren_seq s) in
         expect s Token.RParen; e
       end else (expect s Token.RParen; e)
       end
@@ -1209,7 +1209,7 @@ and constr_body_ s name =
            `I (a; b)`. Found by test/fuzz. *)
         ignore (advance s);
         let first = Located (span_to_here s arg_loc, first) in
-        let e = if peek s = Token.RParen then first else Seq (first, paren_seq ~first:false s) in
+        let e = if peek s = Token.RParen then first else Seq (first, paren_seq s) in
         expect s Token.RParen;
         App (constr, e)
       end
@@ -1440,25 +1440,25 @@ and parse_fn_binding s name =
    `(1 + 1` and `2 + 2` below it was a parse error. One rule for the
    bracket, and the separator becomes the formatter's business rather than
    the author's -- `wand f` writes the `;`. *)
-and paren_seq ?(first = true) s =
+and paren_seq s =
   let loc = peek_loc s in
   let e =
     if peek s = Token.Let then begin
       ignore (advance s);
-      (* `tail` is false for the first statement. There the brackets may be
-         a parenthesis around one expression rather than a block, and a
-         binding written `in` keeps its `in`. *)
-      let_ ~block:true ~tail:(not first) s
+      (* A binding written with `in` names a value for one expression and
+         is a statement like any other; one written with `;` has already
+         taken the rest of the block as its body. *)
+      let_ ~block:true s
     end else Located (span_to_here s loc, expr_ 0 s)
   in
   if peek s = Token.Semicolon then begin
     ignore (advance s);
-    if peek s = Token.RParen then e else Seq (e, paren_seq ~first:false s)
+    if peek s = Token.RParen then e else Seq (e, paren_seq s)
   end
-  else if is_expr_start (peek s) then Seq (e, paren_seq ~first:false s)
+  else if is_expr_start (peek s) then Seq (e, paren_seq s)
   else e
 
-and let_ ?(block = false) ?(tail = false) s =
+and let_ ?(block = false) s =
   (* let already consumed *)
   (* The `let` keyword's own column anchors this binding. Its value runs on
      to the next line only where that line is indented past the keyword, so
@@ -1481,23 +1481,13 @@ and let_ ?(block = false) ?(tail = false) s =
      over everything that follows, so what is recorded is not which was
      written but which `wand f` writes -- the `;` where the binding is a
      block's, `in` where it names a value for one expression. *)
-  (* Where the binding stands decides the spelling, not what was written.
-     A binding in a block takes the `;`, and a body of several statements is
-     a block with or without the brackets the author wrote.
-
-     The one `in` that stays is the one that narrows. In
-     `(let x = 1 in x + 1; 9)` the `in` keeps `x` off the statements below
-     it, which is meaning rather than spelling. A `;` waiting after the body
-     is what says so.
-
-     This asked only whether the body was itself a block, so a binding
-     written `in` with statements above it kept its `in` and stood beside
-     their `;`. tools/check_docs.wand held both spellings in the one block.
-
-     `tail` is what says there are statements above it. The first statement
-     of a `( ... )` is not one: `(let f = fn () -> ... in f ())` is a
-     parenthesis around one expression, and reading it as a block put a
-     second pair of brackets around it. *)
+  (* A body of several statements is a block, whatever joined it to the
+     binding. Written `in` it used to come back as a `let ... in` wearing a
+     `( ... )`, which is both spellings in the one binding and the shape the
+     style guide keeps `;` for. The one `in` that stays is the one that
+     narrows: `(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing
+     below it, which is meaning rather than spelling, and a `;` waiting
+     after the body is how that reads here. *)
   let body_is_a_block e =
     let rec go e = match e with
       | Located (_, e) -> go e
@@ -1507,32 +1497,13 @@ and let_ ?(block = false) ?(tail = false) s =
     in
     go e
   in
-  (* A body read as one expression holds its own bindings, and those were
-     read as one expression too, with no way to know a block encloses them.
-     Retagging the outer binding alone left the ones below it spelled `in`,
-     and the next pass -- which sees a `;` above them -- spelled them with
-     `;`. So the statement spine goes over together.
-
-     Down the last statement of a `Seq` and down a binding's body, which is
-     what "the rest of the block" is made of. Not into the first child of a
-     `Seq`: a binding written `in` there is the one that narrows, and it
-     keeps its `in`. A `;` cannot appear at depth zero in a body read this
-     way, so nothing on the spine narrows. *)
-  let rec as_block_tail e = match e with
-    | Located (l, inner) -> Located (l, as_block_tail inner)
-    | Seq (a, b) -> Seq (a, as_block_tail b)
-    | Let (p, v, b, Ast.LetIn) -> Let (p, v, as_block_tail b, Ast.LetBlock)
-    | LetRec (bs, b, Ast.LetIn) -> LetRec (bs, as_block_tail b, Ast.LetBlock)
-    | other -> other
-  in
   let consume_rest () =
     if peek s = Token.In then begin
       ignore (advance s);
       let body = locate s (fun () -> expr_ 0 s) in
       let narrows = peek s = Token.Semicolon in
-      if (tail || body_is_a_block body) && not narrows then
-        (as_block_tail body, Ast.LetBlock)
-      else (body, Ast.LetIn)
+      (body, if body_is_a_block body && not narrows then Ast.LetBlock
+             else Ast.LetIn)
     end
     else if block && peek s = Token.Semicolon then begin
       (* The binding's body is everything after the `;`. *)
@@ -1541,7 +1512,7 @@ and let_ ?(block = false) ?(tail = false) s =
         fail_at (peek_loc s)
           "this binding has no body: a block cannot end with a `let`, \
            because nothing would read the name"
-      else (paren_seq ~first:false s, Ast.LetBlock)
+      else (paren_seq s, Ast.LetBlock)
     end
     else if block && peek s = Token.RParen then
       fail_at (peek_loc s)
@@ -1555,16 +1526,12 @@ and let_ ?(block = false) ?(tail = false) s =
          body of several statements is a block whether or not it was written
          with parentheses, and comes back with them; a body of one
          expression is what `in` is for. *)
-      if block then (paren_seq ~first:false s, Ast.LetBlock)
+      if block then (paren_seq s, Ast.LetBlock)
       else
         let body = parse_body s in
-        if tail || body_is_a_block body then (as_block_tail body, Ast.LetBlock)
-        else (body, Ast.LetIn)
+        (body, if body_is_a_block body then Ast.LetBlock else Ast.LetIn)
     end
-    (* A binding with nothing after it. The block rules still apply: it takes
-       the `;` where a block encloses it, so a second pass reads it back the
-       way this one wrote it. *)
-    else (Unit, if tail then Ast.LetBlock else Ast.LetIn)
+    else (Unit, Ast.LetIn)
   in
   match p with
   | PVar "rec" when is_pat_atom_start (peek s) ->

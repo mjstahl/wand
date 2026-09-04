@@ -1365,14 +1365,6 @@ let test_a_newline_binding_takes_the_block_spelling () =
     "let f () = (\n  let x = 1\n  let y = 2\n  x + y\n)\nf ()"
     "3"
 
-(* Where the binding stands decides the spelling. A binding with statements
-   above it in the same block takes their `;`, whatever joined it to its
-   body. It used to keep an `in` written by hand, so one block held both
-   spellings -- tools/check_docs.wand did.
-
-   The first statement is not one of those. `(let f = ... in f ())` is a
-   parenthesis around one expression, and reading it as a block puts a
-   second pair of brackets around it. *)
 (* A `with` body that opens a bracket opens it on the `->` line, the way a
    binding's value does. It used to break after the `->` and put the bracket
    on a line of its own, where it says nothing: the items sit at the same
@@ -1411,11 +1403,25 @@ let test_a_with_body_opens_its_bracket_on_the_arrow_line () =
   )
 |}
 
+(* A binding among a block's statements takes the block's `;`, whatever
+   joined it to its body. It used to keep an `in` written by hand, so one
+   block held both spellings -- tools/check_docs.wand did.
+
+   `emit_block` decides this, not the parser. The parser sees the brackets a
+   binding was written in; the printer decides whether to keep them, so where
+   a binding ends up is not where it was read. `(t; (let f = e in ()))` loses
+   its brackets and joins the block. Two attempts to decide it from the parse
+   were unstable, both found by test/fuzz. *)
 let test_an_in_among_statements_takes_the_semicolon () =
   fmt_eq "a binding under a statement"
     {|let f () = (g (); let x = 1 in x + 1)|}
     {|let f () = (g (); let x = 1; x + 1)|};
-  fmt_eq "the first statement keeps its in"
+  fmt_eq "brackets of its own do not keep it out of the block"
+    {|let f () = (g (); (let x = 1 in x + 1))|}
+    {|let f () = (g (); let x = 1; x + 1)|};
+  (* A binding that is not in a block is not reached: `emit_block` runs for a
+     `Seq` or a block binding, so a bare `let ... in` never arrives there. *)
+  fmt_eq "a lone binding in brackets keeps its in"
     {|let f () = (let x = 1 in x + 1)|}
     {|let f () = let x = 1 in x + 1|};
   (* Grouping brackets around one binding stay one pair. *)
