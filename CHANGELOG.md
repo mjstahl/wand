@@ -1,27 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [0.59.2] - 2026-09-04
 
 ### Fixed
 
-- **V-PRED3 stays quiet on a function that can raise.** A name carries one
-  ending, and `has_example?!` does not parse. So a function that returns
-  `Bool` and can raise had no name that answered both conventions: `!` drew
-  V-PRED3 and `?` drew V-BANG1. The `!` wins, which is what V-BANG1 already
-  said in its own message -- "`?` is not the ending it takes; it is
-  'has_example!'". `tools/check_docs.wand` was the file reporting it
+- **V-PRED3 is quiet on a function that can raise.** A name carries one
+  ending. `has_example?!` does not parse. So a function that returns `Bool`
+  and can raise had no name that answered both rules: `!` drew V-PRED3, and
+  `?` drew V-BANG1. The `!` wins. V-BANG1 said so already in its own message
 - **A binding written `in` among a block's statements takes the `;`.** The
-  spelling follows where the binding stands, and this asked only whether the
-  body was itself a block. So a binding written `in` with statements above it
-  kept the `in` and stood beside their `;`, and one block held both
-  spellings. `tools/check_docs.wand` did. The first statement of a `( ... )`
-  is not one of those: `(let f = ... in f ())` is a parenthesis around one
-  expression, not a block
-- A `with` body that opens a bracket opens it on the `->` line, as a
-  binding's value does. It used to break after the `->` and give the bracket
-  a line of its own, where the bracket says nothing: the items sit at the
-  same column either way, so the line went on the `(` alone. Eleven files
-  each get a line back
+  spelling follows where the binding stands. This asked only whether the body
+  was a block, so a binding written `in` with statements above it kept the
+  `in`. One block then held both spellings. The first statement of a
+  `( ... )` is not one of those: `(let f = ... in f ())` is a parenthesis
+  around one expression
+- **A `with` body opens its bracket on the `->` line**, as a binding's value
+  does. The bracket used to take a line of its own. There it says nothing,
+  because the items sit at the same column either way. Eleven files each get
+  a line back
 
 ## [0.59.1] - 2026-09-04
 
