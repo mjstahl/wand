@@ -46,8 +46,13 @@ let test_whole_line_rebuilt () =
 let test_command_names () =
   let lines = Complete.line_completions [] ":e" in
   Alcotest.(check bool) ":edit" true (contains_str lines ":edit");
-  Alcotest.(check bool) ":env" true (contains_str lines ":env");
-  Alcotest.(check bool) "no unrelated command" false (contains_str lines ":load")
+  Alcotest.(check bool) "no unrelated command" false (contains_str lines ":load");
+  (* `:env` is retired. It still answers with a pointer to `:d`, and it is
+     not offered: completing to a command whose whole reply is "use the
+     other one" wastes the reader's keystroke. *)
+  let lines = Complete.line_completions [] ":" in
+  Alcotest.(check bool) ":env is not offered" false (contains_str lines ":env");
+  Alcotest.(check bool) ":v is not offered" false (contains_str lines ":v")
 
 let test_command_ident_arg () =
   let lines = Complete.line_completions (env ()) ":t Li" in

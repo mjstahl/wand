@@ -427,8 +427,91 @@ let test_prelude_names_every_module () =
       Alcotest.failf "the REPL prelude does not load %s" m)
     Typechecker.stdlib_module_names
 
+(* ── the REPL's :d ──────────────────────────────────────────────────────── *)
+
+(* `:d` prints rather than returning, and it is the only thing here that
+   does, so the capture lives beside the one test that needs it. The output
+   is a few dozen lines, well inside a pipe buffer. *)
+let captured f =
+  let (r, w) = Unix.pipe ~cloexec:true () in
+  flush stdout;
+  let saved = Unix.dup Unix.stdout in
+  Unix.dup2 w Unix.stdout;
+  Unix.close w;
+  let restore () =
+    flush stdout; Unix.dup2 saved Unix.stdout; Unix.close saved in
+  (try f () with e -> (restore (); Unix.close r; raise e));
+  restore ();
+  let buf = Buffer.create 1024 in
+  let chunk = Bytes.create 4096 in
+  let rec drain () =
+    match Unix.read r chunk 0 4096 with
+    | 0 -> ()
+    | n -> Buffer.add_subbytes buf chunk 0 n; drain ()
+  in
+  drain (); Unix.close r;
+  Buffer.contents buf
+
+(* A module is the one name whose documentation is the list of what it
+   holds. `:d Random` answered `Random : <namespace>` and `Random: no doc`,
+   which is two lines telling a reader nothing they can act on. *)
+let test_repl_doc_of_a_module () =
+  let sess = make_sess () in
+  let out = captured (fun () -> ignore (Repl.handle_command sess ":d Random")) in
+  List.iter (fun needle ->
+    if not (Lint.contains out needle) then
+      Alcotest.failf ":d Random did not name %s:\n%s" needle out)
+    ["Random.shuffle : List 'a -> List 'a ! {Random}";
+     "Random.hex : Int -> String ! {Random}"];
+  List.iter (fun stale ->
+    if Lint.contains out stale then
+      Alcotest.failf ":d Random still says %S:\n%s" stale out)
+    ["<namespace>"; "no doc"]
+
+(* With nothing after it, `:d` answers with the session: a module by name, a
+   binding with its type. That was `:v`, which is retired -- `:d` is the one
+   place to ask what a name is, and "no name" is the widest form of it. *)
+let test_repl_doc_with_no_argument () =
+  let sess = make_sess () in
+  let sess = match Runner.run_session sess "let answer = 42" with
+    | Ok (s, _) -> s
+    | Error m -> Alcotest.failf "could not bind: %s" m in
+  let out = captured (fun () -> ignore (Repl.handle_command sess ":d")) in
+  if not (Lint.contains out "answer : Int") then
+    Alcotest.failf ":d did not list the session's binding:\n%s" out;
+  if not (Lint.contains out "Random") then
+    Alcotest.failf ":d did not list the loaded modules:\n%s" out
+
+(* `:v` answered both of those. It still answers, with a line saying where
+   they went: "Unknown command" would not. *)
+let test_repl_env_is_retired () =
+  let sess = make_sess () in
+  List.iter (fun cmd ->
+    let out = captured (fun () -> ignore (Repl.handle_command sess cmd)) in
+    if not (Lint.contains out "retired") then
+      Alcotest.failf "%s did not say it is retired:\n%s" cmd out;
+    if not (Lint.contains out ":d") then
+      Alcotest.failf "%s did not point at :d:\n%s" cmd out)
+    [":v"; ":v List"; ":env"]
+
+(* And one member still answers with its own doc, which is what `:d` did for
+   a dotted name all along. *)
+let test_repl_doc_of_a_member () =
+  let sess = make_sess () in
+  let out = captured (fun () -> ignore (Repl.handle_command sess ":d Random.hex")) in
+  List.iter (fun needle ->
+    if not (Lint.contains out needle) then
+      Alcotest.failf ":d Random.hex did not carry %S:\n%s" needle out)
+    ["Random.hex : Int -> String ! {Random}"; "hexadecimal"]
+
 let () =
   Alcotest.run "CLI" [
+    "the REPL's :d", [
+      Alcotest.test_case "a module lists its members" `Quick test_repl_doc_of_a_module;
+      Alcotest.test_case "a member shows its doc"     `Quick test_repl_doc_of_a_member;
+      Alcotest.test_case "no argument lists the session" `Quick test_repl_doc_with_no_argument;
+      Alcotest.test_case ":v is retired"              `Quick test_repl_env_is_retired;
+    ];
     "typecheck a file", [
       Alcotest.test_case "reports the type"   `Quick test_typecheck_file;
       Alcotest.test_case "reports errors"     `Quick test_typecheck_file_reports_errors;

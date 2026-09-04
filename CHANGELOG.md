@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.58.0] - 2026-09-04
+
+### Changed
+
+- **`:d` is the one way to ask what a name is, and `:v` is retired.** `:d`
+  with no name lists the session's bindings and modules; `:d List` lists a
+  module's members and their signatures, as `wand d List` does; `:d
+  List.map` shows that function's doc, as it always did. `:d List` used to
+  answer `List : <namespace>` and `List: no doc` -- two lines telling a
+  reader nothing they could act on -- and the listing lived under `:v`,
+  which shared a letter with `wand v` and meant something else by it. `:v`
+  and `:env` still answer, with a line saying where their two jobs went, and
+  neither is offered by completion any more
+
 ## [0.57.1] - 2026-09-04
 
 ### Fixed
@@ -1869,7 +1883,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.57.1...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.58.0...HEAD
+[0.58.0]: https://github.com/mjstahl/wand/compare/v0.57.1...v0.58.0
 [0.57.1]: https://github.com/mjstahl/wand/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/mjstahl/wand/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/mjstahl/wand/compare/v0.55.5...v0.56.0

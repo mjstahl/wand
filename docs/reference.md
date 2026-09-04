@@ -4685,14 +4685,13 @@ Special commands:
 | Command | Long form | Description |
 |---|---|---|
 | `:c` | `:clear` | Clear the screen |
-| `:d <name>` | `:doc` | Show doc string |
+| `:d [name]` | `:doc` | With no name, list the session's bindings and modules. A module answers with its members and their signatures, as `wand d <Module>` does. A member answers with its doc string |
 | `:e [name]` | `:edit` | Open a definition in `$EDITOR` |
 | `:h` | `:help` | List these commands |
 | `:l <path>` | `:load` | Load a `.wand` file into the session |
 | `:r` | `:reload` | Reload the last loaded file |
 | `:s` | `:reset` | Clear the screen and all session bindings |
 | `:t <expr>` | `:type` | Show type without evaluating |
-| `:v [module]` | `:env` | List bindings and modules; `:v List` shows `List` members |
 | `:x` | `:exit` | Exit interactive mode |
 
 The REPL finds multi-line input for you. These keep an entry open: a bracket

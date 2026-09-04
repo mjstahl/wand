@@ -1,88 +1,47 @@
-## 0.57.1 - 2026-09-04
+## 0.58.0 - 2026-09-04
 
-`try` now discharges a raise across a function boundary. 0.57.0 gave `handle`
-that and left `try` with the limit it had. This is the other half.
+`:d` is the one way to ask the REPL what a name is. `:v` is retired.
 
-### The caught raise that leaked
+### One question, three forms
 
-`try` answers a raise with a `Result`. It did that only when the body's
-effects were already known:
-
-```ocaml
-fn () -> try List.head! []
--- Unit -> Result String 'a               correct: the raise is caught
+```
+:d              list the session: modules by name, bindings with their types
+:d List         the module's members and their signatures
+:d List.map     that function's doc string
 ```
 
-A wrapper takes the body as a parameter, and a parameter's effects are an
-open set with nothing known in it. Taking `Raise` out of the known half
-removed nothing, so the argument row and the result row stayed one variable:
+Only the last of those worked before. `:d List` answered
 
-```ocaml
-let attempt f = try f ()
-fn () -> attempt (fn () -> List.head! [])
--- Unit -> Result String 'a ! {Raise}     wrong: it answered a Result
+```
+List : <namespace>
+List: no doc
 ```
 
-That line is the bug entire. The result is a `Result`, so the raise *was*
-caught, and the signature still said the expression could raise. It leaked
-to every caller of the function that caught it.
+which is two lines telling a reader nothing they can act on. A module is the
+one name whose documentation *is* the list of what it holds, so that is what
+it answers with now. It is the same output as `wand d List`, so the REPL and
+the command agree.
 
-`try` splits the tail now, the way a handler has since 0.57.0:
+### `:v` is retired
 
-```ocaml
-attempt : (Unit -> 'a ! {Raise | 'e}) -> Result String 'a ! 'e
+`:v` listed the session, and `:v List` listed a module's members. `:d`
+answers both, so `:v` had nothing left of its own. It also shared a letter
+with `wand v`, which means `version` and always did.
+
+Typing `:v`, `:v List` or `:env` still answers:
+
+```
+:v is retired — :d lists the session, :d List lists a module
 ```
 
-The argument asks for a thunk that may raise and answers one that cannot. A
-thunk that never raises still passes, because a generalized row instantiates
-fresh.
-
-### V-BANG1 read the wrong half
-
-A `!` on a name says the function can raise, and `V-BANG1` finds a function
-that raises without one. It asked whether `Raise` appears anywhere in the
-type. That was the same question until now: a function's argument row and
-its result row could not disagree.
-
-They can now. A `try` wrapper carries `Raise` on its argument and not on its
-result, and `V-BANG1` read both -- so it told `attempt` to rename itself
-`attempt!`. That is the opposite of what `attempt` is. It is the version
-that returns a `Result`.
-
-A raise the caller may bring is not one the function performs. Argument
-positions no longer count, and positions flip through them: a function this
-one is handed is one it calls, and a function handed to *that* one is one
-this one supplies. It is the rule manifests took in 0.57.0, for the same
-reason.
-
-The rule still reads what a function itself does. `let first xs = List.head!
-xs` is still told to be `first!`.
-
-### Two signatures say what they always did
-
-`Test.test` and `Test.group` wrap the body in `try`. A test body that raises
-is a failure, not a crash. Neither signature said so:
-
-```ocaml
--- before
-test : String -> (Testing 'b 'a -> TestOutcome ! 'e) -> TestOutcome ! 'e
-
--- after
-test : String -> (Testing 'b 'a -> TestOutcome ! {Raise | 'e}) -> TestOutcome ! 'e
-```
-
-`group` changed the same way. No call site changes. The two stopped
-understating what they do.
+A pointer, rather than "Unknown command", because it was the way to ask for
+a long time. Completion no longer offers either spelling: completing to a
+command whose whole reply is "use the other one" wastes the keystroke.
 
 ### What this breaks
 
-Nothing. Every signature that changed became more precise in the direction
-that admits more, so a call that typechecked before typechecks now. The 1404
-tests in `test/wand` all call `Test.test`, and none of them moved.
+One thing, and only in the REPL. `:v` and `:env` no longer list anything.
+Use `:d`, which takes the same argument and takes none the same way.
 
-### Also
-
-`handle` and `try` agree now, and both go through `Effect_set.discharge`.
-Two rules are unchanged: an effect is discharged only when every operation
-carrying it is handled, and answering an operation fixes what it returns
-whether or not the label goes away.
+Nothing about the language, the standard library or a script's behaviour
+changed in this release.

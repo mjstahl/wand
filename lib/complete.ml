@@ -59,12 +59,14 @@ let ident_at ?(limit = 0) (env : Typechecker.env) (line : string) : completion =
 
 (* The REPL's `:` vocabulary, kept beside the logic that completes it so
    the whole dispatch is testable. *)
+(* `:env`/`:v` is not here. It still answers, with a line saying where its
+   two jobs went, but a retired command is not one to suggest. *)
 let special_commands =
   [":type"; ":t"; ":doc"; ":d"; ":edit"; ":e";
-   ":load"; ":l"; ":reload"; ":r"; ":env"; ":v"; ":clear"; ":c";
+   ":load"; ":l"; ":reload"; ":r"; ":clear"; ":c";
    ":reset"; ":s"; ":exit"; ":x"; ":help"; ":h"]
 
-let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "; ":env "; ":v "]
+let ident_arg_commands = [":type "; ":t "; ":doc "; ":d "]
 
 (* Whole-line replacements for the line being edited -- the shape linenoise
    consumes. A line starting with `:` completes the command name, or, past

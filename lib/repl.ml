@@ -244,6 +244,36 @@ let stdlib_prelude =
   String.concat "\n"
     (List.map (fun n -> "import " ^ n) Typechecker.stdlib_module_names)
 
+(* A module's members, each with its signature.
+
+   `:d` and `:v` both answer with this. A module is the one name whose
+   documentation *is* the list of what it holds -- there is no doc string on
+   a namespace, and printing "no doc" for one told a reader nothing they
+   could act on. `:v` has always listed members, so the two share a function
+   rather than a shape: the copy is what goes stale. This is what
+   `wand d <Module>` prints, so the REPL and the command agree. *)
+let print_members name members =
+  List.sort (fun (a, _) (b, _) -> String.compare a b) members
+  |> List.iter (fun (member, scheme) ->
+       Printf.printf "%s.%s : %s\n" name member
+         (Typechecker.string_of_scheme scheme));
+  flush stdout
+
+(* Everything the session holds: a module by name, a binding with its type.
+   `:d` with nothing after it answers with this, because "what is here?" is
+   the widest form of the question `:d` already answers. *)
+let print_env (sess : Runner.session) =
+  let entries =
+    List.sort (fun (a, _) (b, _) -> String.compare a b) sess.Runner.s_type_env in
+  if entries = [] then print_endline "(empty)"
+  else
+    List.iter (fun (name, scheme) ->
+      match scheme with
+      | Typechecker.Namespace _ -> print_endline name
+      | _ -> Printf.printf "%s : %s\n" name
+               (Typechecker.string_of_scheme scheme)) entries;
+  flush stdout
+
 let rec handle_command (sess : Runner.session) (line : string) : Runner.session =
   let parts = String.split_on_char ' ' (String.trim line) in
   let cmd   = List.nth parts 0 in
@@ -256,13 +286,12 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
   | ":h" | ":help" ->
     print_endline "Commands:";
     print_endline "  :c           (:clear)  — clear the screen";
-    print_endline "  :d <name>    (:doc)    — show doc string";
+    print_endline "  :d [name]    (:doc)    — list the session; :d List a module; :d List.map a doc";
     print_endline "  :e [name]    (:edit)   — open definition in $EDITOR";
     print_endline "  :l <path>    (:load)   — load a .wand file into session";
     print_endline "  :r           (:reload) — reload last loaded file";
     print_endline "  :s           (:reset)  — clear the screen and all session bindings";
     print_endline "  :t <expr>    (:type)   — show type without evaluating";
-    print_endline "  :v [module]  (:env)    — list bindings and modules; :v List shows List members";
     print_endline "  :x           (:exit)   — exit interactive mode";
     flush stdout;
     sess
@@ -275,8 +304,13 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
       sess
     end
   | ":d" | ":doc" ->
-    if rest = "" then (print_endline "Usage: :d <name>"; sess)
+    if rest = "" then (print_env sess; sess)
     else begin
+      match List.assoc_opt rest sess.s_type_env with
+      (* A module answers with what it holds. `:d List.map` asks the same
+         question of one member and gets its doc, below. *)
+      | Some (Typechecker.Namespace members) -> print_members rest members; sess
+      | _ ->
       (match Runner.lookup_type sess rest with
        | Some t -> Printf.printf "%s : %s\n" rest t
        | None   -> ());
@@ -324,29 +358,13 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
      | Error _   -> fresh)
   | ":c" | ":clear" ->
     LNoise.clear_screen (); sess
+  (* `:v` listed the session, and `:v List` listed a module's members. `:d`
+     answers both now -- one command for "tell me about this", whether the
+     name is a module, a member, or absent. Kept as a pointer rather than
+     dropped outright, because it was the way to ask for a long time and
+     "Unknown command" would not say where the answer moved to. *)
   | ":v" | ":env" ->
-    if rest <> "" then begin
-      (* :env ModuleName — show members of that namespace *)
-      match List.assoc_opt rest sess.s_type_env with
-      | Some (Typechecker.Namespace members) ->
-        let sorted = List.sort (fun (a, _) (b, _) -> String.compare a b) members in
-        List.iter (fun (name, scheme) ->
-          Printf.printf "%s.%s : %s\n" rest name (Typechecker.string_of_scheme scheme)
-        ) sorted
-      | Some _ ->
-        Printf.printf "%s is a binding, not a module\n" rest
-      | None ->
-        Printf.printf "Unknown module '%s'\n" rest
-    end else begin
-      (* :env — show loaded modules and user bindings *)
-      let entries = List.sort (fun (a, _) (b, _) -> String.compare a b) sess.s_type_env in
-      if entries = [] then print_endline "(empty)"
-      else List.iter (fun (name, s) ->
-        match s with
-        | Typechecker.Namespace _ -> print_endline name
-        | _ -> Printf.printf "%s : %s\n" name (Typechecker.string_of_scheme s)
-      ) entries
-    end;
+    print_endline "  :v is retired — :d lists the session, :d List lists a module";
     flush stdout;
     sess
   | _ ->
