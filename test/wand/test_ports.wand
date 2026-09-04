@@ -255,8 +255,7 @@ group "stage-release" (fn () -> [
   -- The lock exists for the body and not after it, which is the half of
   -- `trap ... EXIT` that a second trap used to take away.
   test "the lock is held for the body and released after" (fn t ->
-    with FS.temp_dir "lock_" as dir ->
-    (
+    with FS.temp_dir "lock_" as dir -> (
       let path = Path.join dir (Path.of_string "held.lock");
       let inside = with lock_at path as _ -> FS.exists? path;
       t.eq (true, false) (inside, FS.exists? path)
@@ -290,8 +289,7 @@ group "verify-archives" (fn () -> [
   -- The name in a `.sha256` is bare, so it is read against the directory
   -- the file sits in and not against wherever the script runs.
   test "the archive is found beside its checksum" (fn t ->
-    with FS.temp_dir "sha_" as dir ->
-    (
+    with FS.temp_dir "sha_" as dir -> (
       let sums = Path.join dir (Path.of_string "a.tar.gz.sha256");
       FS.write_file! sums "abc123  a.tar.gz\n";
       t.eq (Ok ("abc123", Path.join dir (Path.of_string "a.tar.gz"))) (stated sums)

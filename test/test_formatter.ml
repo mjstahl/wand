@@ -1373,6 +1373,44 @@ let test_a_newline_binding_takes_the_block_spelling () =
    The first statement is not one of those. `(let f = ... in f ())` is a
    parenthesis around one expression, and reading it as a block puts a
    second pair of brackets around it. *)
+(* A `with` body that opens a bracket opens it on the `->` line, the way a
+   binding's value does. It used to break after the `->` and put the bracket
+   on a line of its own, where it says nothing: the items sit at the same
+   column either way, so the line was spent on the `(` alone. The body is
+   laid out from where it lands, not from the indent, or it measures against
+   room it does not have and comes back on one long line. *)
+let test_a_with_body_opens_its_bracket_on_the_arrow_line () =
+  fmt_eq "a block body"
+    {|let a! () = with FS.temp_dir "wand_fmt_check_" as dir -> (copy_into! dir; format_in! dir; report_it dir)|}
+    {|let a! () =
+  with FS.temp_dir "wand_fmt_check_" as dir -> (
+    copy_into! dir;
+    format_in! dir;
+    report_it dir
+  )|};
+  fmt_eq "a list body"
+    {|let b! () = with FS.temp_dir "wand_fmt_check_" as dir -> [the_name_of dir, the_kind_of dir, the_size_of dir]|}
+    {|let b! () =
+  with FS.temp_dir "wand_fmt_check_" as dir -> [
+    the_name_of dir,
+    the_kind_of dir,
+    the_size_of dir
+  ]|};
+  (* A body with no bracket of its own still takes the line below. *)
+  fmt_eq "a body that opens no bracket"
+    {|let c! () = with FS.temp_dir "wand_fmt_check_" as dir -> report_the_whole_thing dir dir dir dir dir dir dir|}
+    {|let c! () =
+  with FS.temp_dir "wand_fmt_check_" as dir ->
+  report_the_whole_thing dir dir dir dir dir dir dir|};
+  assert_idempotent "the cuddled bracket is a fixed point"
+    {|let a! () =
+  with FS.temp_dir "wand_fmt_check_" as dir -> (
+    copy_into! dir;
+    format_in! dir;
+    report_it dir
+  )
+|}
+
 let test_an_in_among_statements_takes_the_semicolon () =
   fmt_eq "a binding under a statement"
     {|let f () = (g (); let x = 1 in x + 1)|}
@@ -1632,6 +1670,8 @@ let () =
         test_a_newline_binding_stops_at_the_next_definition;
       Alcotest.test_case "an in among statements" `Quick
         test_an_in_among_statements_takes_the_semicolon;
+      Alcotest.test_case "a with body cuddles its bracket" `Quick
+        test_a_with_body_opens_its_bracket_on_the_arrow_line;
       Alcotest.test_case "a pun reads back" `Quick
         test_a_pun_reads_back_as_the_field_it_came_from;
       Alcotest.test_case "an arm before a semicolon" `Quick

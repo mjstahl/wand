@@ -79,8 +79,7 @@ test "an interpolated value cannot perform effects of its own" (fn t ->
 test "raw! splits on spaces" (fn t -> t.eq "[a][b]" (raw! "a b"))
 
 test "raw! expands a glob" (fn t ->
-  with FS.temp_dir "shell_glob_" as d ->
-  (
+  with FS.temp_dir "shell_glob_" as d -> (
     FS.write_file! (Path.join d (Path.of_string "a.txt")) "";
     FS.write_file! (Path.join d (Path.of_string "b.txt")) "";
     let pattern = "%{Path.to_string d}/*.txt";

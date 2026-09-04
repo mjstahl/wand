@@ -57,8 +57,7 @@ test "user returns non-empty string" (fn t -> t.ok (String.length (Env.user ()) 
 -- ── Env.read / Env.load ────────────────────────────────────────────────
 
 test "basic key=value" (fn t ->
-  with FS.temp_file "wand_env_rd_" ".env" as p ->
-  (
+  with FS.temp_file "wand_env_rd_" ".env" as p -> (
     FS.write_file! p "FOO=bar\nBAZ=qux\n";
     let m = Env.read! p;
     t.eq "bar" (Map.get! "FOO" m)
@@ -68,8 +67,7 @@ let dotenv_fmt =
   "# comment\nKEY1=hello\nKEY2=\"quoted\"\nKEY3='single'\nexport KEY4=exported\n\nKEY5=has=equals\n"
 
 test "dotenv formats" (fn t ->
-  with FS.temp_file "wand_env_fmt_" ".env" as p ->
-  (
+  with FS.temp_file "wand_env_fmt_" ".env" as p -> (
     FS.write_file! p dotenv_fmt;
     let m = Env.read! p;
     t.eq ("hello", "quoted", "single", "exported", "has=equals") (
@@ -82,8 +80,7 @@ test "dotenv formats" (fn t ->
   ))
 
 test "load sets env var" (fn t ->
-  with FS.temp_file "wand_load_" ".env" as p ->
-  (
+  with FS.temp_file "wand_load_" ".env" as p -> (
     FS.write_file! p "WAND_LOAD_TEST=loaded_value\n";
     Env.load! p;
     t.eq (Some "loaded_value") (Env.get "WAND_LOAD_TEST")

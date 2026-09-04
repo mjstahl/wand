@@ -1151,9 +1151,18 @@ and emit_expr_inner ?col indent e =
     let head =
       Printf.sprintf "with %s as %s ->"
         (bracket_if_wrapped_app r (emit_expr indent r)) (emit_pat p) in
-    let one_line = head ^ " " ^ emit_expr indent body in
-    if fits col one_line then one_line
-    else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
+    (* A body that opens a bracket of its own opens it on the `->` line and
+       lets the items carry the break, as a binding's value does. Given a
+       line to itself the bracket says nothing: the items sit at the same
+       column either way, and the `(` costs a line at the top of every
+       `with` wide enough to wrap. It is laid out from where it lands, three
+       columns past the `->`, so it wraps against the room it really has. *)
+    if opens_a_bracket body then
+      head ^ " " ^ emit_expr ~col:(col + String.length head + 1) indent body
+    else
+      let one_line = head ^ " " ^ emit_expr indent body in
+      if fits col one_line then one_line
+      else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
     (* Measured from where the brace actually lands, as the other two

@@ -65,8 +65,7 @@ let report changed = (
 )
 
 let main! () =
-  with FS.temp_dir "wand_fmt_check_" as dir ->
-  (
+  with FS.temp_dir "wand_fmt_check_" as dir -> (
     copy_into! dir;
     format_in! dir;
     match rewritten! dir with

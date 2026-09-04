@@ -17,6 +17,11 @@
   spellings. `tools/check_docs.wand` did. The first statement of a `( ... )`
   is not one of those: `(let f = ... in f ())` is a parenthesis around one
   expression, not a block
+- A `with` body that opens a bracket opens it on the `->` line, as a
+  binding's value does. It used to break after the `->` and give the bracket
+  a line of its own, where the bracket says nothing: the items sit at the
+  same column either way, so the line went on the `(` alone. Eleven files
+  each get a line back
 
 ## [0.59.1] - 2026-09-04
 

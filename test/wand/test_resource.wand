@@ -112,8 +112,7 @@ test "one resource used twice" (fn t ->
 -- body wrote, which is every real use.
 test "temp_dir removes a directory that is not empty" (fn t ->
   let kept =
-    with FS.temp_dir "wand_td_" as d ->
-    (
+    with FS.temp_dir "wand_td_" as d -> (
       let dir = Path.to_string d;
       FS.write_file! (Path.of_string "%{dir}/a.txt") "x";
       FS.mkdir! (Path.of_string "%{dir}/sub");
@@ -137,8 +136,7 @@ test "two temp_dirs do not collide" (fn t ->
 test "temp_dir cleans up when the body raises" (fn t -> (
   let note = marker "raise_case";
   let r =
-    try with FS.temp_dir "wand_td_" as d ->
-    (
+    try with FS.temp_dir "wand_td_" as d -> (
       let dir = Path.to_string d;
       FS.write_file! note dir;
       FS.write_file! (Path.of_string "%{dir}/a.txt") "x";

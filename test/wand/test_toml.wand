@@ -158,8 +158,7 @@ test "get_table returns Map" (fn t ->
 -- ── read_file ───────────────────────────────────────────────────────────
 
 test "read_file ok" (fn t ->
-  with FS.temp_file "wand_toml_rd_" ".toml" as p ->
-  (
+  with FS.temp_file "wand_toml_rd_" ".toml" as p -> (
     FS.write_file! p "[db]\nname = \"mydb\"\n";
     let outcome =
       (match TOML.read_file p with

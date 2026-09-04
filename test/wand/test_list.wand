@@ -133,8 +133,7 @@ test "drop_while no match" (fn t -> t.eq [1, 2] (List.drop_while (fn x -> x < 0)
 -- opened with `fn (_, x) ->` -- and every one in the corpus discarded the
 -- index. Tested through a real side effect, which also pins the order.
 test "each sees every element, in order" (fn t ->
-  with FS.temp_dir "list_each_" as d ->
-  (
+  with FS.temp_dir "list_each_" as d -> (
     let log = Path.join d (Path.of_string "log");
     FS.write_file! log "";
     List.each (fn x -> FS.append! log "%{x}\n") ["a", "b", "c"];
@@ -142,8 +141,7 @@ test "each sees every element, in order" (fn t ->
   ))
 
 test "each on an empty list does nothing" (fn t ->
-  with FS.temp_dir "list_each_empty_" as d ->
-  (
+  with FS.temp_dir "list_each_empty_" as d -> (
     let log = Path.join d (Path.of_string "log");
     FS.write_file! log "";
     let empty : List String = [];
@@ -160,8 +158,7 @@ test "indexed empty" (fn t -> let empty : List Int = [] in t.eq [] (List.indexed
 -- The position, when it is wanted, is one call away rather than in every
 -- signature that never uses it.
 test "indexed pairs with each" (fn t ->
-  with FS.temp_dir "list_indexed_" as d ->
-  (
+  with FS.temp_dir "list_indexed_" as d -> (
     let log = Path.join d (Path.of_string "log");
     FS.write_file! log "";
     ["a", "b"] |> List.indexed |> List.each (fn (i, x) -> FS.append! log "%{i}:%{x} ");
