@@ -191,11 +191,66 @@ argument to anything streaming — by the time a function saw the value, the
 whole log would already be in memory. A streaming command has to be
 syntax, not a function over a command's result.
 
-`$*(...)` is the spelling proposed here: `$()` raises, `$?()` answers a
-`ShellResult`, `$*(...)` answers a `Stream`. The character is genuinely
-open — `$|(...)` argues for itself on the pipe association — and it is the
-one thing in this document that a reader will see every day, so it is worth
-choosing deliberately.
+`$*(...)` is the spelling, and the reason is a rule the existing two forms
+already follow: each modifier borrows the bash `$X` whose meaning is
+nearest.
+
+| wand | bash `$X` | means |
+|---|---|---|
+| `$(cmd)` | `$(...)` | command substitution |
+| `$?(cmd)` | `$?` | exit status |
+| `$*(cmd)` | `$*` | all of them |
+
+`$?()` is a pun — bash's `$?` *is* the exit code, and wand's `$?()` is the
+form that hands you one. `$*` is "all the arguments", and a streaming
+command is all the output.
+
+Two alternatives were weighed. `$|(...)` is the most immediately legible,
+since `|` is the streaming symbol for anyone coming from a shell and it
+rhymes with the `|>` that always follows it — but `|` is already the most
+loaded character in wand, carrying type alternation, `||` and `|>`, and it
+borrows no bash meaning. `$<(...)` has the best semantics of any option,
+because bash's `<(cmd)` means exactly "this command's output, as something
+you read from" — but the mnemonic only lands for people who use process
+substitution, and `$<` is not a bash form.
+
+`$!(...)` is rejected despite the lexer already half-knowing it: `!` means
+"raises" everywhere else in wand, and a streaming command is no more raising
+than `$()`.
+
+One implementation note whichever spelling wins. `lexer.ml:101` scans `$?(`
+and `$!(` when finding the extent of an interpolated expression. A new
+modifier has to be added there too, or a streaming command written inside a
+string will mis-scan.
+
+### The option that is not a character
+
+A structurally different answer would close three open questions at once,
+and is recorded here so it is chosen deliberately rather than by drift.
+
+Introduce a `Command` value with a literal of its own — a form that
+*denotes* a command without running it. The operations then become ordinary
+functions:
+
+```ocaml
+Shell.run    : Command -> String       -- what $() does
+Shell.query  : Command -> ShellResult  -- what $?() does
+Shell.stream : Command -> Stream ...   -- the new one
+```
+
+This survives the objection above, because a `Command` cannot be built from
+a `String` — only from the literal, which keeps the argument quoting
+syntactic. It also answers `Shell.exec`'s stdin question and the
+higher-order case, since `List.map Shell.run cmds` simply works.
+
+The costs are real. It is a new type and a new literal, and backticks are
+already raw strings. It splits writing a command from running one, so the
+common case is two concepts unless `$(...)` stays as sugar for `Shell.run`
+over a literal. And it is a far larger change than adding a character.
+
+If it is ever done it *replaces* the streaming form rather than extending
+it, which is the reason to decide it separately and before, rather than
+after.
 
 Four things have to be right for that to be true, and they are decisions
 rather than details.
