@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **An unreachable equation is quoted and located.** The message counted
+  equations and named nothing else, so `equation 2 for 'f' is unreachable`
+  left the reader counting lines to find the one it meant. It now quotes the
+  equation as written and carries the position every other diagnostic
+  carries: `2:7: equation 'f 1' is unreachable`. The fold into a `match`
+  had dropped each equation as a syntactic unit, so there was no location
+  left to report; the parser now keeps the location of an equation's first
+  pattern and the fold wraps it around that equation's body. The name is the
+  one the equation was written under, where a local function inside another
+  one used to report its host's name -- which, in a message that quotes the
+  source, would have been a quote of something nobody wrote
+- **Equations that do not cover every case report where the group starts.**
+  `the equations for 'f' do not cover every case, e.g. _` carried no
+  position at all, for the same reason: the fold left nothing to point at.
+  No one equation leaves the gap, so the message now points at the first --
+  `1:7: the equations for 'f' ...`. A hand-written `match` is unchanged; it
+  sits inside a `Located` of its own and already reported the `match`
+
 ## [0.59.2] - 2026-09-04
 
 ### Fixed

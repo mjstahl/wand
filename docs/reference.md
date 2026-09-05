@@ -381,7 +381,7 @@ them. If an earlier equation already covers a later one, that is an error:
 
 ```ocaml
 let f _ = 0
-let f 1 = 1     -- error: equation 2 for 'f' is unreachable
+let f 1 = 1     -- error: equation 'f 1' is unreachable
 ```
 
 Together, the equations must also cover every case. wand checks this as it

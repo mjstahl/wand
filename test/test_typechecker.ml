@@ -567,18 +567,43 @@ match Pod.decoder with
 let test_unreachable_equation_rejected () =
   err_contains "catch-all before a specific equation"
     "let f _ = 0\nlet f 1 = 1\nf 1"
-    "equation 2 for 'f' is unreachable";
+    "equation 'f 1' is unreachable";
   err_contains "duplicate equation"
     "let b n = 2\nlet b n = 99\nb 0"
     "unreachable";
   err_contains "unreachable across several parameters"
     "let g _ _ = 2\nlet g 0 0 = 1\ng 0 0"
-    "equation 2 for 'g' is unreachable"
+    "equation 'g 0 0' is unreachable"
+
+(* The message quotes the equation, so the name in it has to be the one the
+   equation was written under -- a local function inside another one reports
+   itself, not its host -- and the position has to be the equation's own. *)
+let test_unreachable_equation_located () =
+  err_contains "the dead equation's line and column"
+    "let f _ = 0\nlet f 1 = 1\nf 1"
+    "2:7:";
+  err_contains "a local definition names itself"
+    "let h x =\n  let k _ = 0\n  let k 1 = 1\n  k x\nh 2"
+    "3:9: equation 'k 1' is unreachable";
+  err_contains "a constructor pattern keeps its parentheses"
+    "let t None = 0\nlet t (Some x) = x\nlet t (Some 1) = 9\nt None"
+    "equation 't (Some 1)' is unreachable";
+  err_contains "an equation of an 'and'-bound function"
+    "let a x = b x\nand b _ = 0\nlet b 1 = 1\na 2"
+    "3:7: equation 'b 1' is unreachable"
 
 let test_equation_messages_speak_in_equations () =
   err_contains "non-exhaustive equations name the function"
     "let f 0 = 0\nlet f 1 = 1\nf 2"
     "the equations for 'f' do not cover every case";
+  (* No one equation leaves the gap, so the group is reported where it
+     starts. A hand-written match keeps the position of its own `match`. *)
+  err_contains "and point at the first equation"
+    "let f 0 = 0\nlet f 1 = 1\nf 2"
+    "1:7: the equations";
+  err_contains "a local group points at its own first equation"
+    "let h x =\n  let k 0 = 0\n  let k 1 = 1\n  k x\nh 2"
+    "2:9: the equations for 'k'";
   (* A match the author wrote keeps the match phrasing. *)
   err_contains "hand-written match keeps its own wording"
     "match 3 with\n| 0 -> \"z\""
@@ -1886,6 +1911,7 @@ let () =
     ];
     "multi-equation", [
       Alcotest.test_case "unreachable rejected"  `Quick test_unreachable_equation_rejected;
+      Alcotest.test_case "unreachable is located"  `Quick test_unreachable_equation_located;
       Alcotest.test_case "messages use equations" `Quick test_equation_messages_speak_in_equations;
       Alcotest.test_case "valid groups accepted" `Quick test_valid_equation_groups_accepted;
     ];

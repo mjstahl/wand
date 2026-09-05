@@ -124,10 +124,19 @@ let scoped_eff f =
   current_eff := saved;
   (result, inner)
 
-(* Name of the top-level function whose body is being inferred, so a match
-   that came from a multi-equation definition can report failures in terms
-   of that definition rather than the desugared match it became. *)
+(* Name of the function whose body is being inferred, so a match that came
+   from a multi-equation definition can report failures in terms of that
+   definition rather than the desugared match it became. *)
 let current_fn : string option ref = ref None
+
+(* Innermost wins: a local `let k` inside `h` reports as `k`, since the
+   message now quotes the equation as written and a name from an enclosing
+   definition would make that quote a fiction. Restored on the way out,
+   whether the body checked or raised. *)
+let with_current_fn name f =
+  let saved = !current_fn in
+  current_fn := Some name;
+  Fun.protect ~finally:(fun () -> current_fn := saved) f
 
 (* Local binders -- parameters, `let ... in` names, pattern variables --
    with the index of the top-level item that binds them. Expressions carry
@@ -2285,7 +2294,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
      | PVar name, Fn _ ->
        let placeholder = fresh () in
        let env_rec = (name, Mono placeholder) :: env in
-       let t1 = infer tenv env_rec e1 in
+       let t1 = with_current_fn name (fun () -> infer tenv env_rec e1) in
        unify placeholder t1;
        record_local name t1;
        infer tenv ((name, generalize env t1) :: env) e2
@@ -2301,7 +2310,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     let placeholders = List.map (fun (name, _, _) -> (name, fresh ())) bindings in
     let env_rec = List.map (fun (name, t) -> (name, Mono t)) placeholders @ env in
     let inferred = List.map (fun (name, params, body) ->
-      let t = infer tenv env_rec (Fn (params, body)) in
+      let t = with_current_fn name (fun () -> infer tenv env_rec (Fn (params, body))) in
       unify (List.assoc name placeholders) t;
       record_local name t;
       (name, t)
@@ -2334,8 +2343,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
        | Some g -> unify_expected ~expected:TBool ~got:(infer tenv env' g));
       unify_expected ~expected:result_t ~got:(infer tenv env' body)
     ) cases;
-    let unguarded_pats = List.filter_map (fun (p, guard, _) ->
-      match guard with None -> Some p | Some _ -> None) cases in
+    let unguarded = List.filter_map (fun (p, guard, body) ->
+      match guard with None -> Some (p, body) | Some _ -> None) cases in
+    let unguarded_pats = List.map fst unguarded in
     (* Phrase failures as equations when this match is a desugared
        multi-equation definition -- `_p0` means nothing to its author. *)
     let arity = match strip_located scrutinee with
@@ -2361,18 +2371,41 @@ let rec infer tenv (env : env) (e : expr) : typ =
       in
       (match find_dead 1 with
        | Some i ->
-         raise (TypeError (Printf.sprintf
-           "equation %d%s is unreachable — an earlier equation already \
-            matches every remaining case" (i + 1) fn_desc))
+         (* The equation as it was written -- `f 1`, not `equation 2`, which
+            leaves the reader counting lines. Its location comes from the
+            `Located` the parser wrapped the body in when it folded the
+            equations into this match. *)
+         let (dead_pat, dead_body) = List.nth unguarded i in
+         let params = match dead_pat with
+           | PTuple ps when arity > 1 -> ps
+           | p -> [p]
+         in
+         let written = String.concat " " (List.map Formatter.emit_pat_atom params) in
+         let named = match !current_fn with
+           | Some n -> Printf.sprintf "%s %s" n written
+           | None   -> written
+         in
+         fail_at_opt (loc_of_expr dead_body) (Printf.sprintf
+           "equation '%s' is unreachable — an earlier equation already \
+            matches every remaining case" named)
        | None -> ())
     end;
     (match check_exhaustive tenv ts unguarded_pats with
      | None -> ()
      | Some witness ->
-       raise (TypeError (
-         if as_equations then Printf.sprintf
-           "the equations%s do not cover every case, e.g. %s" fn_desc witness
-         else Printf.sprintf
+       if as_equations then
+         (* No one equation is at fault -- the gap is what they leave between
+            them -- so this points at the first, where the definition starts.
+            A hand-written match needs no help: it sits inside a `Located` of
+            its own, and the position of the `match` is already the answer. *)
+         let group_loc = match cases with
+           | (_, _, body) :: _ -> loc_of_expr body
+           | []               -> None
+         in
+         fail_at_opt group_loc (Printf.sprintf
+           "the equations%s do not cover every case, e.g. %s" fn_desc witness)
+       else
+         raise (TypeError (Printf.sprintf
            "non-exhaustive match: missing case, e.g. %s" witness)));
     result_t
   | Tuple es -> TTuple (List.map (infer tenv env) es)
@@ -4351,18 +4384,14 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
     | TLLet (name, params, body) ->
       let placeholder = fresh () in
       let env_rec = (name, Mono placeholder) :: env in
-      let saved_fn = !current_fn in
-      current_fn := Some name;
-      let t = (try infer tenv env_rec (Fn (params, body))
-               with e -> current_fn := saved_fn; raise e) in
-      current_fn := saved_fn;
+      let t = with_current_fn name (fun () -> infer tenv env_rec (Fn (params, body))) in
       unify placeholder t;
       ((name, generalize env t) :: env, last_t)
     | TLLetRec bindings ->
       let placeholders = List.map (fun (name, _, _) -> (name, fresh ())) bindings in
       let env_rec = List.map (fun (name, t) -> (name, Mono t)) placeholders @ env in
       let inferred = List.map (fun (name, params, body) ->
-        let t = infer tenv env_rec (Fn (params, body)) in
+        let t = with_current_fn name (fun () -> infer tenv env_rec (Fn (params, body))) in
         unify (List.assoc name placeholders) t;
         (name, t)
       ) bindings in

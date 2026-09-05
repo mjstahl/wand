@@ -471,19 +471,25 @@ let is_pat_atom_start = function
 
 (* A multi-equation definition folded into one binding: synthetic `_p0.._pN`
    parameters and a `Match` over them, one case per equation. Shared by the
-   local and top-level binding parsers. *)
+   local and top-level binding parsers.
+
+   Each equation arrives with the location of its first pattern. The fold
+   loses the equation as a syntactic unit, so that location is wrapped
+   around the body: it is the only thing left for the typechecker to blame
+   when it finds an equation no value can reach. An error raised inside the
+   body carries a Located of its own, further in, and innermost wins. *)
 let collapse_multi_equation arity eqs : Ast.pat list * Ast.expr =
   match eqs with
-  | [(p, b)] -> (p, b)
+  | [(_, p, b)] -> (p, b)
   | eqs ->
     let fresh = List.init arity (fun i -> Printf.sprintf "_p%d" i) in
     let scrutinee = match fresh with
       | [v] -> Ast.Var v
       | vs  -> Ast.Tuple (List.map (fun v -> Ast.Var v) vs)
     in
-    let cases = List.map (fun (pats, body) ->
+    let cases = List.map (fun (loc, pats, body) ->
       let pat = match pats with [p] -> p | ps -> Ast.PTuple ps in
-      (pat, None, body)
+      (pat, None, Ast.Located (loc, body))
     ) eqs in
     (List.map (fun v -> Ast.PVar v) fresh, Ast.Match (scrutinee, cases))
 
@@ -1407,7 +1413,7 @@ and parse_fn_binding s name =
     | None -> body
   in
   let arity = List.length !params in
-  let eqs = ref [(!params, body)] in
+  let eqs = ref [(loc, !params, body)] in
   let more = ref true in
   while !more do
     let saved = mark s in
@@ -1419,12 +1425,13 @@ and parse_fn_binding s name =
       (match peek s with
        | Token.Ident n when n = name -> ignore (advance s)
        | _ -> raise Exit);
+      let eq_loc = peek_loc s in
       let ps = ref [] in
       while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
       if List.length !ps <> arity then raise Exit;
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
       let b = locate s (fun () -> parse_contract_body s) in
-      eqs := !eqs @ [(!ps, b)]
+      eqs := !eqs @ [(eq_loc, !ps, b)]
     with Exit -> rewind s saved; more := false)
   done;
   collapse_multi_equation arity !eqs
@@ -1777,7 +1784,7 @@ let parse_top_fn_binding s name =
     | None -> body
   in
   let arity = List.length !params in
-  let eqs = ref [(!params, body)] in
+  let eqs = ref [(loc, !params, body)] in
   let more = ref true in
   while !more do
     let saved = mark s in
@@ -1786,12 +1793,13 @@ let parse_top_fn_binding s name =
       (match peek s with
        | Token.Ident n when n = name -> ignore (advance s)
        | _ -> raise Exit);
+      let eq_loc = peek_loc s in
       let ps = ref [] in
       while is_pat_atom_start (peek s) do ps := !ps @ [pat_atom_ s] done;
       if List.length !ps <> arity then raise Exit;
       (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
       let b = locate s (fun () -> parse_contract_body s) in
-      eqs := !eqs @ [(!ps, b)]
+      eqs := !eqs @ [(eq_loc, !ps, b)]
     with Exit -> rewind s saved; more := false)
   done;
   collapse_multi_equation arity !eqs
@@ -2177,6 +2185,7 @@ let parse_program_generic ~on_item tokens =
            fail_at name_loc
              "a let is already recursive -- drop the 'rec' (mutual \
               recursion is 'let f ... and g ...')";
+         let params_loc = peek_loc s in
          let params = ref [] in
          while is_pat_atom_start (peek s) do
            params := !params @ [pat_atom_ s]
@@ -2206,7 +2215,7 @@ let parse_program_generic ~on_item tokens =
              | Some te -> Ast.Located (span_to_here s loc, Ast.Annot (te, body))
              | None -> body
            in
-           let eqs = ref [(!params, body)] in
+           let eqs = ref [(params_loc, !params, body)] in
            let more = ref true in
            while !more do
              let saved2 = mark s in
@@ -2232,7 +2241,7 @@ let parse_program_generic ~on_item tokens =
                    arity);
                (match peek s with Token.Eq -> ignore (advance s) | _ -> raise Exit);
                let b = locate s (fun () -> parse_contract_body s) in
-               eqs := !eqs @ [(!ps, b)]
+               eqs := !eqs @ [(eq_loc, !ps, b)]
              with Exit -> rewind s saved2; more := false)
            done;
            if peek s = Token.And then begin
