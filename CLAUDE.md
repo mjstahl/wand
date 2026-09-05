@@ -59,7 +59,7 @@ WAND=$PWD/_build/default/bin/wand.exe \
 dune build @fmt                                       # dune files
 make fuzz                                             # 20,000 inputs
 make fuzz-eval                                        # and runs the programs
-SEEDS=6 SECONDS_PER_SEED=300 make fuzz-sweep          # before a release
+SEEDS=6 SECONDS_PER_SEED=300 make fuzz-sweep          # chasing a finding
 ```
 
 `make fuzz` and `make fuzz-eval` take `SEED=N` and `ITERATIONS=N`, and exit

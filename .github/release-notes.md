@@ -1,79 +1,86 @@
-## 0.59.3 - 2026-09-04
+## 0.59.4 - 2026-09-05
 
-One change, to the two messages a multi-equation definition can produce.
-Both now say where, and one of them quotes what you wrote.
+One formatter bug that changed what a program said, and two changes to how
+text is written down.
 
-### An unreachable equation is quoted, not counted
+### `wand f` no longer gives one arm's cases away to another
 
-wand tries equations in the order you wrote them, so an equation an earlier
-one already answers for can never fire:
-
-```ocaml
-let classify _ = "other"
-let classify 0 = "zero"
-```
-
-0.59.2 counted equations, and stopped there:
-
-```
-equation 2 for 'classify' is unreachable
-```
-
-0.59.3 quotes the equation and says where it is:
-
-```
-2:14: equation 'classify 0' is unreachable
-```
-
-The equation is already on the screen. Quoting it is what saves the reader
-counting lines back to the one the message means.
-
-### A local definition reports its own name
-
-The name in the message used to be the name of the top-level definition,
-whatever the equation was written under. So a function inside another one
-reported its host, and pointed at the host's line:
+A `match` or `handle` arm ends only where the next `|` begins. So a bare
+`match` printed at the end of an arm takes the arms below it, and the
+formatter writes a bracket to keep them apart. It found the end of an arm
+by following `let` tails alone. A `with` body prints just as unguarded:
 
 ```ocaml
-let outer x =
-  let step _ = 0
-  let step 1 = 1
-  step x
+let render x =
+  match x with
+  | 0 ->
+    (with Resource.make (fn () -> 1) (fn _ -> ()) as n ->
+      match n with
+      | 1 -> "one"
+      | _ -> "many")
+  | _ -> "rest"
 ```
 
-```
-2:3: equation 2 for 'outer' is unreachable        -- 0.59.2
-3:12: equation 'step 1' is unreachable            -- 0.59.3
-```
-
-`'outer 1'` is a quote of something nobody wrote, which is why the name had
-to follow the equation once the message began quoting it.
-
-### Equations that leave a gap say where the group starts
+0.59.3 dropped the brackets, and `| _ -> "rest"` became a case of the inner
+`match`:
 
 ```ocaml
-let name 0 = "zero"
-let name 1 = "one"
+  | 0 -> with Resource.make (fn () -> 1) (fn _ -> ()) as n ->
+  match n with
+  | 1 -> "one"
+  | _ -> "many"
+  | _ -> "rest"
 ```
 
-```
-the equations for 'name' do not cover every case, e.g. _        -- 0.59.2
-1:10: the equations for 'name' do not cover every case, e.g. _  -- 0.59.3
+The outer `match` is left with one case, so the file stops typechecking:
+`non-exhaustive match: missing case, e.g. _`. That is the loud ending. The
+same shape under a `handle` loses an operation instead, and a `fn` or an
+`if` tail loses whatever followed it.
+
+0.59.4 keeps the bracket. `fn` bodies and `if` branches print their tails
+the same way and had the same hole; an `if` with no `else` prints its *then*
+branch last, which is a fourth. All four are fixed.
+
+**Read the diff if `wand f` has run over a file with a nested `match`.** The
+output was a fixed point in three of the four shapes: the formatter printed
+a different program and then settled on it, so nothing said anything was
+wrong. Found by the daily fuzzer, which saw it only because one reparse also
+respelled an operation as a pattern.
+
+### A multi-line backtick string starts on the line of its `=`
+
+The opening backtick leaves that line as unfinished as a bare `[` does, so
+it now counts as a bracket:
+
+```ocaml
+let payload =            let payload = `
+  `                      {"name": "web-01", "restarts": 4}
+{"name": "web-01"...}    `
+`
 ```
 
-No single equation leaves the gap, so the position is the first of the
-group, where the definition starts. A `match` you wrote yourself is
-unchanged: it already reported its own `match`.
+The lines under it are the string's own content. The break that used to land
+there moved that text one line down the page and said nothing in its place.
+The text inside a backtick string was never altered by `wand f`, and is not
+now — only where the literal starts on the page.
 
-Both messages had no position for the same reason. wand folds a group of
-equations into one `match` over the parameters, and an equation stops being
-a syntactic unit there. It now carries the location of its first pattern
-through the fold.
+### The stdlib's doc examples write JSON and TOML between backticks
+
+`wand d` shows a function's examples to someone asking what it does, which
+is the worst place to spend a reader's attention on escapes:
+
+```
+>> let doc = JSON.parse! "{\"a\": 1, \"b\": 2}"     -- 0.59.3
+>> let doc = JSON.parse! `{"a": 1, "b": 2}`        -- 0.59.4
+```
+
+Twenty-one lines across `Decode`, `JSON` and `TOML`. The expected-output
+lines under them are unchanged: those are what wand prints, and it prints a
+`String` with escapes.
 
 ### What this breaks
 
-Nothing in the language, the standard library, or what a script does. A tool
-that matches the old text of either message needs its pattern updated. Under
-`wand t --json` both diagnostics keep their `E-TYPE` code and now carry the
-equation's own `line`/`col`, plus the `end_line`/`end_col` that a located
-diagnostic carries — where they used to fall back to `1`/`1` with no end.
+Nothing in the language or the standard library. `wand f` writes a different
+file than 0.59.3 did for the two shapes above — run it once and commit what
+it writes. The first of those is a correctness fix, so a file it rewrites
+was a file whose meaning the formatter had changed.
