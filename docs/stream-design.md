@@ -425,8 +425,13 @@ to reach each operation, and two of them are deliberately unreachable:
 { op_name = "Shell!exit_code"; op_performers = [] };
 ```
 
-`$*(...)` joins the first two as a performer. It does not get a function,
-for the same reason they do not.
+`$*(...)` joins the first two as a performer. Under the narrow design it
+gets no function either, for the same reason they do not. Under the
+structural design the table changes shape rather than gaining a row: the
+performer becomes the `Command` literal, and `Shell.run`, `Shell.query` and
+`Shell.stream` are the functions that consume it — safe because their
+argument was built by syntax, which is the distinction this whole section
+turns on.
 
 **What higher-order use looks like instead.** The one thing a function
 would genuinely buy is passing a command around — mapping over a list of
