@@ -23,15 +23,22 @@ it looks, and getting it wrong would distort everything below.
 
 Adding a `Net` effect label is **additive** — every manifest written today
 keeps parsing. Manifest glob patterns are near-additive, since a literal `*`
-in a binary name is something nobody has written. A `$*(...)` command form
-is additive. `List.sum` and an `Ord` module are additive.
+in a binary name is something nobody has written. `List.sum` and an `Ord`
+module are additive.
 
-Two items genuinely change the meaning of code that already exists:
+Three items genuinely change the meaning of code that already exists:
 
 - **`String.chars` → `String.bytes`**, three occurrences in this repository
 - **`Path` joining the ordered set**, which flips `/a/b == /a//b` to `true`
+- **the `Command` value**, which makes `$()` and `$?()` sugar over
+  `Shell.run!` and `Shell.query` rather than primitives
 
-Those two have the deadline. Nothing else does, and the ordering below is
+The third is the one that matters most, because it redefines the two forms
+every script already uses. Nothing about a script's text changes, but what
+those forms *are* does, and every doc and message that names them moves with
+it. That is work to do while the number of scripts is small.
+
+Those three have the deadline. Nothing else does, and the ordering below is
 driven by value rather than by fear of breaking things.
 
 ## The order
@@ -101,15 +108,20 @@ pick up in a week with less appetite than item 3 needs.
 
 > `hash-design.md`
 
-### 6. `$*(...)`, streaming commands
+### 6. The `Command` value
 
-The only item where no workaround exists at all. `$(tail -f app.log)` must
-read to EOF to return a `String`, so it accumulates forever and returns
-never; the only bound available is `Shell.timeout`, which kills the command
-and gives you an `Error` instead of the lines.
+`$*(cmd)` denotes a command without running it, and `Shell.run`,
+`Shell.query` and `Shell.stream` are ordinary functions over one. `$()` and
+`$?()` become sugar for the first two.
 
-It ranks here rather than higher because wanting it means having already
-adopted wand for something.
+It arrives here having grown. As a streaming form it was a small late item —
+the only one with no workaround, since `$(tail -f app.log)` reads to EOF and
+so accumulates forever and returns never. As a `Command` it also closes the
+higher-order case, deletes the `Shell.exec` proposal, and redefines the two
+command forms every script uses.
+
+That last part is why it is not later. The change is safe now and awkward
+once there are scripts to migrate, even though no script's text changes.
 
 > `stream-design.md`
 
@@ -146,31 +158,17 @@ longer they wait.
 the largest single piece of work on the list. Deciding it early lets it run
 in parallel with items 2 and 3.
 
-**What `$*(...)` answers.** The spelling is settled — `$*` because bash's
-`"$*"` joins the arguments into a single string where `"$@"` expands to a
-list, and a wand command is one quoted command line rather than an argument
-vector. What it evaluates to is not settled, and the two answers are
-different projects.
+**How a `Command` reconciles the word check with the effect check.**
+Constructing one performs nothing, so a file that builds a `Command` and
+never runs it needs no `Shell` label — yet `shell_scan` finds the command
+words at the literal, so a narrowed manifest would still demand them. The
+word check and the effect check would key off different sites, which `$()`
+does not suffer because there they are one site.
 
-Under the narrow design it is a `Stream`, and item 6 is as described.
-
-Under the structural design it is a `Command` — a value that denotes a
-command without running it:
-
-```ocaml
-let backup = $*(pg_dump -Fc %{db})     -- assigned. Nothing has run.
-let out    = Shell.run!   backup
-let s      = Shell.stream backup
-```
-
-Those functions stay injection-safe because a `Command` cannot be built from
-a `String`, so the quoting stays syntactic. It closes the streaming
-question, `Shell.exec` and the higher-order case together, and `$()` and
-`$?()` become sugar over it.
-
-It matters here because it *replaces* item 6 rather than extending it, and
-it removes `Shell.exec` from the list entirely. Decide it before that work
-rather than after.
+`stream-design.md` leans toward checking words where a `Command` is
+consumed rather than where it is written. That is the part of item 6 most
+likely to be discovered late, and it should be settled before the lexer work
+starts rather than after.
 
 ## The table
 
@@ -181,7 +179,7 @@ rather than after.
 | 3 | HTTP + Net + globs | no | claim is weak | no | weeks |
 | 4 | YAML | no | no | no | unknown |
 | 5 | Hash + Base64 | partly | no | no | days |
-| 6 | `$*(...)` | **yes** | no | no | days |
+| 6 | `Command` value | **yes** | no | **yes** | weeks |
 | 7 | write_atomic | no | latent | no | days |
 | 8 | Path ordering | no | **yes** | **yes** | days |
 | 9 | FS.lock | no | no | no | blocked |

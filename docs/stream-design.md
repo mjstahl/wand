@@ -4,8 +4,9 @@ Log processing is one of the four jobs wand names for itself. `List` has
 thirty-one functions. `Stream` has seven, and the streaming path is the one
 the big files use. This document is the design record for closing that gap:
 what to add, what each addition costs, and the two things missing that are
-not functions at all. It is a record of decisions and their reasons, written
-before the code. It is not a specification.
+not `Stream` functions at all — a sink in `FS`, and a `Command` value. It is
+a record of decisions and their reasons, written before the code. It is not
+a specification.
 
 - [Stream is not written in wand](#stream-is-not-written-in-wand)
 - [Four tiers of cost](#four-tiers-of-cost)
@@ -14,8 +15,7 @@ before the code. It is not a specification.
 - [count, not length](#count-not-length)
 - [The missing sink is in FS](#the-missing-sink-is-in-fs)
 - [Streaming a command, and commands that never end](#streaming-a-command-and-commands-that-never-end)
-- [Why the command forms are not functions](#why-the-command-forms-are-not-functions)
-- [Shell.exec, if a function is wanted](#shellexec-if-a-function-is-wanted)
+- [The Command value](#the-command-value)
 - [Left out on purpose](#left-out-on-purpose)
 - [Order](#order)
 
@@ -157,15 +157,10 @@ right place: they are about a file, and `FS` is where a file is opened once.
 The effect rows compose without new rules — the sink carries `FS.Write` and
 picks up the source's row by folding it, exactly as the tier 0 `any?`
 signature shows.
-
 ## Streaming a command, and commands that never end
 
 `FS.stream_lines` and `IO.stdin_lines` are the only two sources. For deploys,
-CI glue and log processing the conspicuous third is a subprocess:
-
-```ocaml
-$*(tail -f app.log)    -- Stream {Shell, Raise | ..} String
-```
+CI glue and log processing the conspicuous third is a subprocess.
 
 **This closes a hole that has no other answer today.** `$()` must read to
 EOF to return a `String`, so `$(tail -f /var/log/app.log)` accumulates
@@ -179,54 +174,17 @@ A stream inverts that. The driver pulls one line at a time, so the memory is
 one line, and `take` stops pulling:
 
 ```ocaml
-$*(tail -f /var/log/app.log)
+Shell.stream $*(tail -f /var/log/app.log)
 |> Stream.filter (fn l -> String.contains? "ERROR" l)
 |> Stream.take 10
 |> Stream.to_list
 ```
 
-**It needs a command form of its own, and that is a decision.** `$()` runs
-the command to completion and answers a `String`, so it cannot be the
-argument to anything streaming — by the time a function saw the value, the
-whole log would already be in memory. A streaming command has to be
-syntax, not a function over a command's result.
+`$*(...)` is a `Command`, which the next section is about. `Shell.stream`
+turns one into a stream of its output lines.
 
-`$*(...)` is the spelling, and the reason is a rule the existing two forms
-already follow: each modifier borrows the bash `$X` whose meaning is
-nearest.
-
-| wand | bash `$X` | means |
-|---|---|---|
-| `$(cmd)` | `$(...)` | command substitution |
-| `$?(cmd)` | `$?` | exit status |
-| `$*(cmd)` | `$*` | the arguments as one string |
-
-`$?()` is a pun — bash's `$?` *is* the exit code, and wand's `$?()` is the
-form that hands you one. `$*` and `$@` differ in exactly the way that
-matters here: `"$@"` expands to separate words, an argument vector, while
-`"$*"` joins them into a single string. A wand command is one quoted command
-line rather than a list of arguments, so `$*` is the form it rhymes with.
-
-Two alternatives were weighed. `$|(...)` is the most immediately legible,
-since `|` is the streaming symbol for anyone coming from a shell and it
-rhymes with the `|>` that always follows it — but `|` is already the most
-loaded character in wand, carrying type alternation, `||` and `|>`, and it
-borrows no bash meaning. `$<(...)` has the best semantics of any option,
-because bash's `<(cmd)` means exactly "this command's output, as something
-you read from" — but the mnemonic only lands for people who use process
-substitution, and `$<` is not a bash form.
-
-`$!(...)` is rejected despite the lexer already half-knowing it: `!` means
-"raises" everywhere else in wand, and a streaming command is no more raising
-than `$()`.
-
-One implementation note whichever spelling wins. `lexer.ml:101` scans `$?(`
-and `$!(` when finding the extent of an interpolated expression. A new
-modifier has to be added there too, or a streaming command written inside a
-string will mis-scan.
-
-Four things have to be right for that to be true, and they are decisions
-rather than details.
+Four things have to be right for that to work, and they are decisions rather
+than details.
 
 **Closing must kill the child.** `SFile` closes with `close_in_noerr`. A
 subprocess needs SIGTERM, then SIGKILL after the fixed five-second grace —
@@ -264,38 +222,30 @@ is the existing rule and not a new one. It is worth restating here because
 re-reading a file is cheap and idempotent while re-running a command is
 neither.
 
-The rules come free even though the syntax does not. `$()` and `$?()` are
-`RunCmd` and `RunQuery` in the AST, and `shell_sites` already collects both;
-a third constructor joins that enumeration and every existing check follows
-it. `shell_scan` finds the command words, so `Shell(tail)` narrows a stream
-exactly as it narrows a capture, `V-SHELL1` reports a word the run decides,
-and `--dry-run` holds it back because it is the same effect. The work is in
-the lexer, the parser and the formatter, not in the rules.
-
 One thing the type system cannot help with: an unbounded stream with no
-`take` never terminates. `$*(tail -f x) |> Stream.fold_left f init` hangs,
-and it should — it is `while true` written in another shape.
+`take` never terminates. `Shell.stream $*(tail -f x) |> Stream.fold_left f
+init` hangs, and it should — it is `while true` written in another shape.
 
-### What `$*(...)` answers is still open
+## The `Command` value
 
-The spelling is settled. What it evaluates to is not, and there are two
-designs. This is recorded here so it is chosen deliberately rather than by
-drift, because the second one *replaces* the streaming work rather than
-extending it.
-
-**The narrow design, assumed everywhere above:** `$*(cmd)` is a `Stream`.
-
-**The structural design:** `$*(cmd)` is a `Command` — a value that denotes a
-command without running it — and the three things you can do with one are
-ordinary functions.
+A command cannot be streamed by a function over `$()`, because `$()` has
+already run it and read it to EOF by the time any function sees the value.
+The obvious fix is a third command form that yields a stream. The better fix
+is one level back: a form that yields the *command*, and functions that do
+things with it.
 
 ```ocaml
-Shell.run    : Command -> String                        ! {Shell, Raise}
-Shell.query  : Command -> ShellResult                   ! {Shell}
+$*(git status)        -- a Command. Nothing runs.
+```
+
+```ocaml
+Shell.run    : Command -> String                            ! {Shell, Raise}
+Shell.query  : Command -> ShellResult                       ! {Shell}
 Shell.stream : Command -> Stream {Shell, Raise | ..} String
 ```
 
-It can be named, passed and mapped over, which is what nothing today can do:
+A `Command` can be named, passed and mapped over, which nothing today can
+be:
 
 ```ocaml
 let db     = "orders"
@@ -307,41 +257,32 @@ let s   = Shell.stream backup
 List.map Shell.query [$*(git fsck), $*(git gc --dry-run)]
 ```
 
-**The safety property survives.** `%{db}` still splices as one argument,
-because the literal is still syntax. A `Command` cannot be built from a
-`String`, so there is no path from user data to a command word — which is
-exactly the objection that sinks `Shell.run! "some string"` in the next
-section. Functions over a `Command` are safe for the reason functions over a
-`String` are not.
+### Why `$*`
 
-**It closes three open questions at once:** how a command streams, what
-`Shell.exec` should be and how stdin pipes into it, and how a command is
-passed to a higher-order function.
+Each modifier borrows the bash `$X` whose meaning is nearest.
 
-The costs are real.
+| wand | bash `$X` | means |
+|---|---|---|
+| `$(cmd)` | `$(...)` | command substitution |
+| `$?(cmd)` | `$?` | exit status |
+| `$*(cmd)` | `$*` | the arguments as one string |
 
-**`$(...)` and `$?(...)` become sugar,** defined as `Shell.run!` and
-`Shell.query` over a literal. That is what keeps the common case one token
-and stops there being two ways to write the same thing — but it does mean
-the two forms every script uses are no longer primitive.
+`$?()` is a pun — bash's `$?` *is* the exit code, and wand's `$?()` is the
+form that hands you one. `$*` and `$@` differ in exactly the way that
+matters: `"$@"` expands to separate words, an argument vector, while `"$*"`
+joins them into a single string. A wand command is one quoted command line
+rather than a list of arguments, so `$*` is the form it rhymes with.
 
-**A new type appears in signatures,** which is more machinery than a
-language this size may want.
+Two alternatives were weighed. `$|(...)` is the most immediately legible,
+since `|` is the streaming symbol for anyone coming from a shell — but `|`
+is already the most loaded character in wand, carrying type alternation,
+`||` and `|>`, and it borrows no bash meaning. `$<(...)` has good semantics,
+because bash's `<(cmd)` means "this command's output, as something you read
+from" — but the mnemonic needs process substitution, and `$<` is not a bash
+form. `$!(...)` is rejected despite the lexer already half-knowing it: `!`
+means "raises" everywhere else in wand.
 
-**One genuine wrinkle.** Constructing a `Command` performs nothing, so a
-file that builds one and never runs it needs no `Shell` label — yet
-`shell_scan` finds the command words at the literal, so a narrowed manifest
-would still demand `git` be listed. The word check and the effect check
-would key off different sites. `$()` does not have this problem, because
-there the two sites are one site. It is answerable, and it is the part of
-this design that needs the most care.
-
-**An open question inside the open question:** does a `Command` print?
-Showing the resolved command line is useful for logging and for `--dry-run`
-output, and it also puts the quoted form in front of people as a `String`,
-which invites them to try to build one.
-
-On the sigil: `@` is the only genuinely free character —
+A bare sigil was considered and refused. `@` is the only free character —
 
 ```console
 let x = #(a)  -> lex error: a comment is '-- ...', not '# ...'
@@ -350,23 +291,27 @@ let x = @(a)  -> lex error: unexpected character '@'
 let cmd = 1   -> cmd : Int
 ```
 
-— and it is still the wrong choice. A bare `@(` would hide from the `$(`
-grep that someone reviewing a script reaches for, and reviewability is the
-whole pitch. A `cmd(...)` keyword is out for a different reason: `cmd` is a
-valid variable name and is the one a shell script reaches for. So the form
-stays in the `$` family under either design, and `$*` is right under both.
+— and `@(` would hide from the `$(` grep someone reviewing a script reaches
+for, which is the whole pitch. A `cmd(...)` keyword is out for a different
+reason: `cmd` is a valid variable name and is the one a shell script uses.
 
-## Why the command forms are not functions
+### `$()` and `$?()` become sugar
 
-An obvious tidy-up suggests itself once there are three command forms: give
-each one a function, so `$()` is `Shell.run!`, `$?()` is `Shell.run`, and
-`$*()` is `Shell.stream!`. The names would be those — `run_command!` says
-`command` twice in a module already called `Shell`, and nothing else in the
-standard library repeats its module in a member name.
+```
+$(cmd)   is  Shell.run!  $*(cmd)
+$?(cmd)  is  Shell.query $*(cmd)
+```
 
-The functions should not exist, and the reason is not style. Note the scope:
-this rejects functions over a `String`. Functions over the `Command` value
-above are a different proposal and survive every objection here.
+This is what keeps the common case one token and stops there being two ways
+to write the same thing. It does mean the two forms every script already
+uses stop being primitive, which is the largest single risk in this design
+and the reason it should be done early or not at all.
+
+### A function over a `Command` is safe; one over a `String` is not
+
+The tidy-up that suggests itself — `Shell.run! "git status"`, taking a
+`String` — must not exist, and the reason is what makes the `Command`
+version work.
 
 **`%{}` means two different things.** Inside a command it splices a value as
 one argument. Inside a string it splices text.
@@ -386,101 +331,56 @@ echo a b; whoami
 
 The first arrived at `echo` as a single argument: the `;` is data and
 nothing after it ran. The second is a `String` holding that text. Give that
-String to a shell and `whoami` runs.
+String to a shell and `whoami` runs. So `Shell.run! "echo %{name}"` is an
+injection where `$(echo %{name})` is safe, and on the page the two are a
+bracket apart. That inverts the claim the README leads with — *a filename
+from the environment cannot become a second command*.
 
-So `Shell.run! "echo %{name}"` is an injection where `$(echo %{name})` is
-safe, and on the page the two are a bracket apart. That inverts the claim
-the README leads with — *a filename from the environment cannot become a
-second command*. The quoting lives in the syntax, and a function taking a
-`String` cannot have it, because by the time it is called the argument is
-one flat string with every boundary already lost.
+The quoting lives in the syntax. `Shell.run! backup` is safe for precisely
+that reason: `backup` was built by `$*(...)`, so its arguments were
+separated before any function saw it, and there is no constructor taking a
+`String` to a `Command`. The type is the guarantee.
 
-**Narrowing degrades as well.** `shell_sites` collects `RunCmd` and
-`RunQuery`; a function call is neither, so nothing is checked statically.
-The spawn check still fires —
+**Narrowing survives too.** `shell_sites` collects `RunCmd` and `RunQuery`
+today; the `Command` literal joins that enumeration, so `shell_scan` finds
+the command words where they are written, `Shell(tail)` narrows a streamed
+command exactly as it narrows a capture, `V-SHELL1` reports a word the run
+decides, and `--dry-run` holds it back because it is the same effect.
 
-```console
-$ wand t d.wand
-warning: 4:11: V-SHELL1: this command's first word is decided at run time, so
-the Shell(...) list is checked when it spawns rather than here
+### What it costs
 
-$ wand d.wand
-Error: eval error: this command runs 'whoami', which the manifest's
-Shell(echo) does not allow
-```
+**A new type appears in signatures**, which is more machinery than a
+language this size might want. It is the price of the three functions above
+being ordinary functions.
 
-— so this is a weakening rather than a hole. But every call site becomes the
-case `V-SHELL1` exists to warn about, and `Shell(git)` stops being readable
-from the text.
+**One genuine wrinkle.** Constructing a `Command` performs nothing, so a
+file that builds one and never runs it needs no `Shell` label — yet
+`shell_scan` finds the command words at the literal, so a narrowed manifest
+would still demand `git` be listed. The word check and the effect check key
+off different sites. `$()` does not have this problem, because there the two
+sites are one site. It is answerable — most plainly by checking words only
+where a `Command` is consumed — and it is the part of this design that needs
+the most care.
 
-**The operation table already says this.** It records what a script writes
-to reach each operation, and two of them are deliberately unreachable:
+**Does a `Command` print?** Showing the resolved command line is useful for
+logging and for `--dry-run` output. It also puts the quoted form in front of
+people as a `String`, which invites them to try to build one. Open.
+
+**The operation table changes shape rather than gaining a row.**
 
 ```ocaml
 { op_name = "Shell!run";     op_performers = ["$(...)"] };
 { op_name = "Shell!capture"; op_performers = ["$?(...)"] };
-(* nothing a script can write reaches them: the builtins are not bound in
-   a script's scope and no module exports them. *)
-{ op_name = "Shell!run_quiet"; op_performers = [] };
-{ op_name = "Shell!exit_code"; op_performers = [] };
 ```
 
-`$*(...)` joins the first two as a performer. Under the narrow design it
-gets no function either, for the same reason they do not. Under the
-structural design the table changes shape rather than gaining a row: the
-performer becomes the `Command` literal, and `Shell.run`, `Shell.query` and
-`Shell.stream` are the functions that consume it — safe because their
-argument was built by syntax, which is the distinction this whole section
-turns on.
+The performer of each becomes the `Command` literal together with the
+function that consumes it. That table is what an editor reads to answer
+"what can `Shell!` become", so it has to be updated rather than left to
+drift.
 
-**What higher-order use looks like instead.** The one thing a function
-would genuinely buy is passing a command around — mapping over a list of
-them. Write the lambda:
-
-```ocaml
-List.map (fn c -> $(%!{c})) cmds
-```
-
-That is the function form. It makes the dynamism visible where it happens,
-and it carries the `V-SHELL1` it has earned, instead of hiding both behind
-a name that reads as safely as `$()`.
-
-## `Shell.exec`, if a function is wanted
-
-There is a function worth having here, and it is not a copy of the syntax.
-It takes argv rather than a command line:
-
-```ocaml
-Shell.exec! : List String -> String       ! {Shell, Raise}
-Shell.exec  : List String -> ShellResult  ! {Shell}
-
-Shell.exec! ["git", "checkout", branch]
-```
-
-No shell is involved. Each element is one argument by construction, so
-there is no quoting to get wrong, no word splitting, and `;` in a value is
-a semicolon. This is `execve`, not `sh -c`, which makes it *stronger* than
-`$()` rather than a weaker copy of it — `$()` runs a shell and relies on
-wand's quoting to keep the arguments apart; `exec` never gives a shell the
-chance.
-
-It stays checkable. When the head of the list is a literal, the manifest
-word check applies exactly as it does to a command's first word. When it is
-not, `V-SHELL1` reports it honestly, and the spawn check bounds it.
-
-Three things it does not settle, and they belong to `Shell` rather than to
-this document:
-
-- **Piping stdin.** `report |> $?(mail ops@example.com)` has no `exec`
-  spelling yet. A second function, or a field, or nothing.
-- **A streaming variant.** `Shell.exec_lines` is the same question one level
-  along. If `$*(...)` answers a `Command`, `Shell.exec` is unnecessary —
-  that design already gives a safe function over a syntactically built
-  command, which is all `exec` was for.
-- **Whether it ships at all in a first version.** `$()` covers what scripts
-  write today. `exec` earns its place when a command has to be built from
-  values rather than written down, which is exactly when the shell is most
-  dangerous and least wanted.
+**One implementation note.** `lexer.ml:101` scans `$?(` and `$!(` when
+finding the extent of an interpolated expression. `$*(` has to be added
+there too, or a command written inside a string will mis-scan.
 
 ## Left out on purpose
 
@@ -495,6 +395,14 @@ to save a line.
 stream that fans out is a different subject with ordering questions of its
 own.
 
+**`Shell.exec`, taking argv.** An earlier draft proposed it as the safe
+function form — `Shell.exec! ["git", "checkout", branch]`, no shell, each
+element one argument by construction. `Command` subsumes it: it gives a safe
+function over a syntactically built command, which is all `exec` was for,
+and it does so without a second way to write a command. If a genuine
+`execve` path is ever wanted — no shell at all, rather than a shell wand
+quotes for — it should be a property of `Command`, not a parallel family.
+
 **A general `unfold` or `iterate`.** Both want a closure as the source,
 which is the thing the first-order representation deliberately does not
 have. `SPull` exists for the tests and is reachable only from OCaml, and it
@@ -505,8 +413,12 @@ should stay that way.
 Tier 0 first: it is free, it is the largest single gain, and it needs no
 decision from anyone.
 
-The streaming command form next, because it removes a hole with no
-workaround — `$(tail -f)` has no answer today — and because its four rules
-above are the only genuinely new semantics in this document.
+The `Command` value next, and this is a change of order from an earlier
+draft. It was going to be a streaming command form, scheduled after tier 1
+on the grounds that it only removes a hole for people who have already
+adopted wand. As a `Command` it is a bigger job and an earlier one, because
+`$()` and `$?()` become sugar over it — the two forms every script already
+uses stop being primitive, and that is a change to make while the number of
+scripts is small.
 
 Then tier 1, then the `FS` sinks, then `flat_map`. Tier 3 is not scheduled.
