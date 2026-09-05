@@ -146,15 +146,31 @@ longer they wait.
 the largest single piece of work on the list. Deciding it early lets it run
 in parallel with items 2 and 3.
 
-**Whether a `Command` value replaces the command forms.** `stream-design.md`
-records a structural alternative to `$*(...)`: a literal that denotes a
-command without running it, making `Shell.run`, `Shell.query` and
-`Shell.stream` ordinary functions that stay injection-safe because a
-`Command` cannot be built from a `String`. It would close the streaming
-question, `Shell.exec`'s stdin question and the higher-order case at once.
+**What `$*(...)` answers.** The spelling is settled — `$*` because bash's
+`"$*"` joins the arguments into a single string where `"$@"` expands to a
+list, and a wand command is one quoted command line rather than an argument
+vector. What it evaluates to is not settled, and the two answers are
+different projects.
 
-It matters here because it *replaces* item 6 rather than extending it. If it
-is going to happen it should be decided before that work, not after.
+Under the narrow design it is a `Stream`, and item 6 is as described.
+
+Under the structural design it is a `Command` — a value that denotes a
+command without running it:
+
+```ocaml
+let backup = $*(pg_dump -Fc %{db})     -- assigned. Nothing has run.
+let out    = Shell.run!   backup
+let s      = Shell.stream backup
+```
+
+Those functions stay injection-safe because a `Command` cannot be built from
+a `String`, so the quoting stays syntactic. It closes the streaming
+question, `Shell.exec` and the higher-order case together, and `$()` and
+`$?()` become sugar over it.
+
+It matters here because it *replaces* item 6 rather than extending it, and
+it removes `Shell.exec` from the list entirely. Decide it before that work
+rather than after.
 
 ## The table
 

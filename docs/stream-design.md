@@ -199,11 +199,13 @@ nearest.
 |---|---|---|
 | `$(cmd)` | `$(...)` | command substitution |
 | `$?(cmd)` | `$?` | exit status |
-| `$*(cmd)` | `$*` | all of them |
+| `$*(cmd)` | `$*` | the arguments as one string |
 
 `$?()` is a pun — bash's `$?` *is* the exit code, and wand's `$?()` is the
-form that hands you one. `$*` is "all the arguments", and a streaming
-command is all the output.
+form that hands you one. `$*` and `$@` differ in exactly the way that
+matters here: `"$@"` expands to separate words, an argument vector, while
+`"$*"` joins them into a single string. A wand command is one quoted command
+line rather than a list of arguments, so `$*` is the form it rhymes with.
 
 Two alternatives were weighed. `$|(...)` is the most immediately legible,
 since `|` is the streaming symbol for anyone coming from a shell and it
@@ -222,35 +224,6 @@ One implementation note whichever spelling wins. `lexer.ml:101` scans `$?(`
 and `$!(` when finding the extent of an interpolated expression. A new
 modifier has to be added there too, or a streaming command written inside a
 string will mis-scan.
-
-### The option that is not a character
-
-A structurally different answer would close three open questions at once,
-and is recorded here so it is chosen deliberately rather than by drift.
-
-Introduce a `Command` value with a literal of its own — a form that
-*denotes* a command without running it. The operations then become ordinary
-functions:
-
-```ocaml
-Shell.run    : Command -> String       -- what $() does
-Shell.query  : Command -> ShellResult  -- what $?() does
-Shell.stream : Command -> Stream ...   -- the new one
-```
-
-This survives the objection above, because a `Command` cannot be built from
-a `String` — only from the literal, which keeps the argument quoting
-syntactic. It also answers `Shell.exec`'s stdin question and the
-higher-order case, since `List.map Shell.run cmds` simply works.
-
-The costs are real. It is a new type and a new literal, and backticks are
-already raw strings. It splits writing a command from running one, so the
-common case is two concepts unless `$(...)` stays as sugar for `Shell.run`
-over a literal. And it is a far larger change than adding a character.
-
-If it is ever done it *replaces* the streaming form rather than extending
-it, which is the reason to decide it separately and before, rather than
-after.
 
 Four things have to be right for that to be true, and they are decisions
 rather than details.
@@ -303,6 +276,86 @@ One thing the type system cannot help with: an unbounded stream with no
 `take` never terminates. `$*(tail -f x) |> Stream.fold_left f init` hangs,
 and it should — it is `while true` written in another shape.
 
+### What `$*(...)` answers is still open
+
+The spelling is settled. What it evaluates to is not, and there are two
+designs. This is recorded here so it is chosen deliberately rather than by
+drift, because the second one *replaces* the streaming work rather than
+extending it.
+
+**The narrow design, assumed everywhere above:** `$*(cmd)` is a `Stream`.
+
+**The structural design:** `$*(cmd)` is a `Command` — a value that denotes a
+command without running it — and the three things you can do with one are
+ordinary functions.
+
+```ocaml
+Shell.run    : Command -> String                        ! {Shell, Raise}
+Shell.query  : Command -> ShellResult                   ! {Shell}
+Shell.stream : Command -> Stream {Shell, Raise | ..} String
+```
+
+It can be named, passed and mapped over, which is what nothing today can do:
+
+```ocaml
+let db     = "orders"
+let backup = $*(pg_dump -Fc %{db})     -- assigned. Nothing has run.
+
+let out = Shell.run!   backup
+let s   = Shell.stream backup
+
+List.map Shell.query [$*(git fsck), $*(git gc --dry-run)]
+```
+
+**The safety property survives.** `%{db}` still splices as one argument,
+because the literal is still syntax. A `Command` cannot be built from a
+`String`, so there is no path from user data to a command word — which is
+exactly the objection that sinks `Shell.run! "some string"` in the next
+section. Functions over a `Command` are safe for the reason functions over a
+`String` are not.
+
+**It closes three open questions at once:** how a command streams, what
+`Shell.exec` should be and how stdin pipes into it, and how a command is
+passed to a higher-order function.
+
+The costs are real.
+
+**`$(...)` and `$?(...)` become sugar,** defined as `Shell.run!` and
+`Shell.query` over a literal. That is what keeps the common case one token
+and stops there being two ways to write the same thing — but it does mean
+the two forms every script uses are no longer primitive.
+
+**A new type appears in signatures,** which is more machinery than a
+language this size may want.
+
+**One genuine wrinkle.** Constructing a `Command` performs nothing, so a
+file that builds one and never runs it needs no `Shell` label — yet
+`shell_scan` finds the command words at the literal, so a narrowed manifest
+would still demand `git` be listed. The word check and the effect check
+would key off different sites. `$()` does not have this problem, because
+there the two sites are one site. It is answerable, and it is the part of
+this design that needs the most care.
+
+**An open question inside the open question:** does a `Command` print?
+Showing the resolved command line is useful for logging and for `--dry-run`
+output, and it also puts the quoted form in front of people as a `String`,
+which invites them to try to build one.
+
+On the sigil: `@` is the only genuinely free character —
+
+```console
+let x = #(a)  -> lex error: a comment is '-- ...', not '# ...'
+let x = ^(a)  -> lex error: string concatenation is '++', not '^'
+let x = @(a)  -> lex error: unexpected character '@'
+let cmd = 1   -> cmd : Int
+```
+
+— and it is still the wrong choice. A bare `@(` would hide from the `$(`
+grep that someone reviewing a script reaches for, and reviewability is the
+whole pitch. A `cmd(...)` keyword is out for a different reason: `cmd` is a
+valid variable name and is the one a shell script reaches for. So the form
+stays in the `$` family under either design, and `$*` is right under both.
+
 ## Why the command forms are not functions
 
 An obvious tidy-up suggests itself once there are three command forms: give
@@ -311,7 +364,9 @@ each one a function, so `$()` is `Shell.run!`, `$?()` is `Shell.run`, and
 `command` twice in a module already called `Shell`, and nothing else in the
 standard library repeats its module in a member name.
 
-The functions should not exist, and the reason is not style.
+The functions should not exist, and the reason is not style. Note the scope:
+this rejects functions over a `String`. Functions over the `Command` value
+above are a different proposal and survive every objection here.
 
 **`%{}` means two different things.** Inside a command it splices a value as
 one argument. Inside a string it splices text.
@@ -414,7 +469,9 @@ this document:
 - **Piping stdin.** `report |> $?(mail ops@example.com)` has no `exec`
   spelling yet. A second function, or a field, or nothing.
 - **A streaming variant.** `Shell.exec_lines` is the same question one level
-  along, and the answer probably follows whatever `$*(...)` settles.
+  along. If `$*(...)` answers a `Command`, `Shell.exec` is unnecessary —
+  that design already gives a safe function over a syntactically built
+  command, which is all `exec` was for.
 - **Whether it ships at all in a first version.** `$()` covers what scripts
   write today. `exec` earns its place when a command has to be built from
   values rather than written down, which is exactly when the shell is most
