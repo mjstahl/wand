@@ -1,86 +1,72 @@
-## 0.59.4 - 2026-09-05
+## 0.60.0 - 2026-09-05
 
-One formatter bug that changed what a program said, and two changes to how
-text is written down.
+`Env.args` moves to `Proc.args` and stops carrying an effect. `Proc.pid` is
+new. The reference now states which of three things earns an effect label.
 
-### `wand f` no longer gives one arm's cases away to another
+### `Proc.args`, with no effect
 
-A `match` or `handle` arm ends only where the next `|` begins. So a bare
-`match` printed at the end of an arm takes the arms below it, and the
-formatter writes a bracket to keep them apart. It found the end of an arm
-by following `let` tails alone. A `with` body prints just as unguarded:
+```
+Env.args : Unit -> List String ! {Env}     -- 0.59.4
+Proc.args : Unit -> List String            -- 0.60.0
+```
+
+Two things were wrong. `Env` means "reads or changes environment
+variables". Argv is not one: the process is handed it at launch, from a
+different place.
+
+And the effect. `Env.get` needs one because `Env.set` exists, so two reads
+in one run can disagree. Argv has no such pair. It is fixed before the
+script starts and nothing in the language writes it. Reading it touches
+nothing and answers the same twice.
+
+So a script that only reads arguments now declares nothing for them:
+
+```
+$ wand t script.wand
+V-USES2: this file performs Env, IO ... "uses {Env, IO}"    -- 0.59.4
+V-USES2: this file performs IO ... "uses {IO}"              -- 0.60.0
+```
+
+There is no `Proc!args` operation. A handler cannot intercept argv, and
+nothing needed to: `Args.parse` takes the list, so a test passes
+`["--port", "9000"]` directly.
+
+### `Proc.pid`
 
 ```ocaml
-let render x =
-  match x with
-  | 0 ->
-    (with Resource.make (fn () -> 1) (fn _ -> ()) as n ->
-      match n with
-      | 1 -> "one"
-      | _ -> "many")
-  | _ -> "rest"
+Proc.pid : Unit -> Int
 ```
 
-0.59.3 dropped the brackets, and `| _ -> "rest"` became a case of the inner
-`match`:
+The process id the operating system assigned. No effect, for the same
+reason as `args`. A `Par` worker is a domain and not a second process, so
+every branch reads one pid.
 
-```ocaml
-  | 0 -> with Resource.make (fn () -> 1) (fn _ -> ()) as n ->
-  match n with
-  | 1 -> "one"
-  | _ -> "many"
-  | _ -> "rest"
-```
+### What earns a label
 
-The outer `match` is left with one case, so the file stops typechecking:
-`non-exhaustive match: missing case, e.g. _`. That is the loud ending. The
-same shape under a `handle` loses an operation instead, and a `fn` or an
-`if` tail loses whatever followed it.
+A new section of the reference. Three things justify an effect, and the
+nine labels divide between them:
 
-0.59.4 keeps the bracket. `fn` bodies and `if` branches print their tails
-the same way and had the same hole; an `if` with no `else` prints its *then*
-branch last, which is a fourth. All four are fixed.
+| Justification | Labels |
+|---|---|
+| Reach — the call touches something outside the program | `Shell`, `FS.Read`, `FS.Write`, `Env`, `IO`, `Proc` |
+| Non-determinism inside one run — two calls can disagree | `Clock`, `Random` |
+| Control flow | `Raise` |
 
-**Read the diff if `wand f` has run over a file with a nested `match`.** The
-output was a fixed point in three of the four shapes: the formatter printed
-a different program and then settled on it, so nothing said anything was
-wrong. Found by the daily fuzzer, which saw it only because one reparse also
-respelled an operation as a pattern.
+A call in none of the three carries no effect. `Proc.args` and `Proc.pid`
+are the two. The section also states the rule that `Raise` follows, which
+was written as a special case before.
 
-### A multi-line backtick string starts on the line of its `=`
+### Also
 
-The opening backtick leaves that line as unfinished as a bare `[` does, so
-it now counts as a bracket:
+- A `match` or `handle` arm whose body ends in a nested match keeps its
+  bracket. `wand f` used to give the arms below it to the inner match
+  through a `with`, `fn` or `if` tail. Read the diff if `wand f` has run
+  over a file with a nested `match`
+- A multi-line backtick string starts on the line of its `=`
+- The stdlib doc examples write JSON and TOML between backticks
 
-```ocaml
-let payload =            let payload = `
-  `                      {"name": "web-01", "restarts": 4}
-{"name": "web-01"...}    `
-`
-```
+### Renamed
 
-The lines under it are the string's own content. The break that used to land
-there moved that text one line down the page and said nothing in its place.
-The text inside a backtick string was never altered by `wand f`, and is not
-now — only where the literal starts on the page.
-
-### The stdlib's doc examples write JSON and TOML between backticks
-
-`wand d` shows a function's examples to someone asking what it does, which
-is the worst place to spend a reader's attention on escapes:
-
-```
->> let doc = JSON.parse! "{\"a\": 1, \"b\": 2}"     -- 0.59.3
->> let doc = JSON.parse! `{"a": 1, "b": 2}`        -- 0.59.4
-```
-
-Twenty-one lines across `Decode`, `JSON` and `TOML`. The expected-output
-lines under them are unchanged: those are what wand prints, and it prints a
-`String` with escapes.
-
-### What this breaks
-
-Nothing in the language or the standard library. `wand f` writes a different
-file than 0.59.3 did for the two shapes above — run it once and commit what
-it writes. The first of those is a correctness fix, so a file it rewrites
-was a file whose meaning the formatter had changed.
+`Env.args` is now `Proc.args`. Update the call and drop `Env` from the
+manifest if nothing else in the file needs it. `wand t --fix` writes the
+manifest for you.

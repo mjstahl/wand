@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.60.0] - 2026-09-05
 
 ### Changed
 
@@ -2081,7 +2081,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.59.4...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.60.0...HEAD
+[0.60.0]: https://github.com/mjstahl/wand/compare/v0.59.4...v0.60.0
 [0.59.4]: https://github.com/mjstahl/wand/compare/v0.59.3...v0.59.4
 [0.59.3]: https://github.com/mjstahl/wand/compare/v0.59.2...v0.59.3
 [0.59.2]: https://github.com/mjstahl/wand/compare/v0.59.1...v0.59.2
