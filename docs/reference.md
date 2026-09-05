@@ -130,7 +130,8 @@ floors there: `5s - 10s` is `0s`, the answer
 ### Comparison and `Ord`
 
 `==` and `!=` compare any two values of one type. `<`, `>`, `<=` and `>=`
-take an `Ord`: a type that wand orders. These ten are ordered:
+take an `Ord`, short for ordered: a type that wand orders. These ten are
+ordered:
 
 ```text
 Int   Float   String
