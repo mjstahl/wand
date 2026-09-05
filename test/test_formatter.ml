@@ -71,7 +71,7 @@ let formats_and_parses label width src =
    an `if` that was emitted with no guard on it. *)
 let test_a_wrapped_if_condition_keeps_its_then () =
   formats_and_parses "if condition" 25
-    "let () = if Args.help? (Env.args ()) then match () with | r -> \"\""
+    "let () = if Args.help? (Proc.args ()) then match () with | r -> \"\""
 
 (* `match try <application that wrapped> with` -- `try` is transparent to
    whether the tail is still owed something, and was not treated as such. *)

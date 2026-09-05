@@ -1,6 +1,6 @@
-uses {Env, FS.Read, IO}
+uses {FS.Read, IO}
 
-import Env
+import Proc
 import FS
 import IO
 import List
@@ -14,7 +14,7 @@ import String
 --   wand examples/first-match.wand ERROR /var/log/app.log
 
 let (needle, log) =
-  match Env.args () with
+  match Proc.args () with
   | [n, p] -> (n, Path.of_string p)
   | _ -> ("ERROR", /tmp/app.log)
 

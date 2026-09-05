@@ -42,10 +42,6 @@ let () = Env.set "WAND_TEST_ALL" "present"
 test "all contains set var" (fn t ->
   let pairs = Env.all () in t.ok (List.any? (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
 
--- ── args ────────────────────────────────────────────────────────────────
-
-test "args returns list" (fn t -> t.ok (List.empty? (Env.args ()) == false || true))
-
 -- ── home ────────────────────────────────────────────────────────────────
 
 test "home returns path" (fn t -> t.ok (Path.absolute? (Env.home ())))

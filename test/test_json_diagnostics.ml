@@ -478,7 +478,7 @@ let test_help_is_not_taken_from_a_script () =
   let path = Filename.temp_file "wand_argv" ".wand" in
   Out_channel.with_open_text path (fun oc ->
     Out_channel.output_string oc
-      "uses {Env, IO}\n\nimport Env\nimport IO\n\nIO.println \"%{Env.args ()}\"\n");
+      "uses {IO}\n\nimport IO\nimport Proc\n\nIO.println \"%{Proc.args ()}\"\n");
   Fun.protect ~finally:(fun () -> Sys.remove path) (fun () ->
     let (_, out) = run_all [path; "--help"] in
     says out "[\"--help\"]")

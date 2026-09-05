@@ -1,0 +1,12 @@
+let {test} = import Test
+import List
+import Proc
+
+-- ── args ────────────────────────────────────────────────────────────────
+
+-- argv is handed to the process before it runs, so reading it performs
+-- nothing: this file needs no manifest, and `Proc.args` needs no handler.
+test "args returns a list" (fn t -> t.ok (List.length (Proc.args ()) >= 0))
+
+-- `exit` is the module's other name, and a test cannot call it: it ends
+-- the process. `test/test_script_argv.ml` covers what a script sees.

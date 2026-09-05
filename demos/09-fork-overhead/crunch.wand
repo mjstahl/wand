@@ -1,17 +1,17 @@
-uses {Env, FS.Read, IO}
+uses {FS.Read, IO}
 
 import IO
 import List
 import String
 import Map
 import FS
-import Env
+import Proc
 import Path
 
 -- Idiomatic wand: one pass in-process, no subprocesses at all.
 
 let path =
-  match List.head (Env.args ()) with
+  match List.head (Proc.args ()) with
   | Some p -> Path.of_string p
   | None -> /tmp/wand-demo.log
 

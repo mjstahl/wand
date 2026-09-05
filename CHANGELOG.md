@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **`Env.args` is now `Proc.args`, and carries no effect.** Two things were
+  wrong. `Env` is documented as "reads or changes environment variables",
+  which argv is not -- it is handed to the process, from a different place.
+  And the effect itself: `Env.get` must carry one because `Env.set` exists
+  and two reads in a run can disagree, but argv is fixed before the program
+  starts and never changes. Reading it touches nothing. So `Proc.args` is
+  `Unit -> List String`, there is no `Proc!args` operation for a handler to
+  intercept, and a script that only read arguments now needs no manifest
+  label at all: `uses {Env, FS.Read, IO}` becomes `uses {FS.Read, IO}`
+
+### Added
+
+- **`Proc.pid`**, the process id the operating system assigned. `Unit ->
+  Int`, and no effect for the same reason as `Proc.args`. A `Par` worker is
+  a domain rather than a second process, so every branch reads one pid
+- **What earns a label**, a section of the reference that says which of
+  three things justifies an effect: reach outside the program,
+  non-determinism inside one run, or control flow. It is what the two
+  additions above are decided by, and what `Raise` being absent from a
+  manifest has always been decided by
+
 ## [0.59.4] - 2026-09-05
 
 ### Changed

@@ -1173,6 +1173,32 @@ A label answers one question: what can this touch? So a label is coarse. It
 must fit in a signature, and you must be able to hold all nine in your
 head.
 
+### What earns a label
+
+Three things justify one, and the nine divide between them:
+
+| Justification | Labels |
+|---|---|
+| Reach — the call touches something outside the program | `Shell`, `FS.Read`, `FS.Write`, `Env`, `IO`, `Proc` |
+| Non-determinism inside one run — two calls can disagree | `Clock`, `Random` |
+| Control flow | `Raise` |
+
+The third row is why `Raise` appears in a signature and never in a manifest.
+See [`Raise` is not part of a manifest](#raise-is-not-part-of-a-manifest).
+
+A call that fits none of the three carries no effect, however far outside the
+language the value came from. `Proc.args` and `Proc.pid` are the cases:
+argv and the pid are handed to the process before it starts and never
+change. Reading either touches nothing, and two reads in a run cannot
+disagree, so neither is an effect and neither belongs in a manifest — a
+manifest that named them would bound nothing.
+
+"Never changes" is the whole of it, and it is a claim about *this* run. The
+environment fails it because `Env.set` exists, so `Env.get` stays an effect
+even though a script may only ever read. A `Par` worker is a domain rather
+than a second process, so `Proc.pid` holds across branches; were wand to
+fork, it would not, and `pid` would earn a label under the second row.
+
 ### They are inferred, however deep
 
 ```ocaml
@@ -1542,7 +1568,7 @@ appears in an effect set:
 |---|---|
 | `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
 | `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
-| `Env` | `get`, `set`, `clear`, `all`, `args`, `home`, `user`, `parse_dotenv` |
+| `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `parse_dotenv` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
 | `Clock` | `sleep`, `now`, `elapsed` |
@@ -1950,7 +1976,7 @@ maps both fields onto the flat object that `Args` builds.
 type Flags(port : Port = :8080, verbose : Bool = false)
 type Opts(flags : Flags, host : String)
 
-Args.read Opts.parser (Env.args ())
+Args.read Opts.parser (Proc.args ())
 Opts.usage   -- "[--port :8080] [--verbose] <host>"
 ```
 
@@ -3347,19 +3373,27 @@ the draws it covers; it just leaves `Random` on the signature.
 
 ```ocaml
 exit : Int -> 'a ! {Proc}
+args : Unit -> List String
+pid  : Unit -> Int
 ```
 
-```ocaml
-Proc.exit : Int -> 'a ! {Proc}
-```
-
-Ends the program with the code you give. On the way out it runs the cleanup
-of each `with` that still holds something. Its result type is whatever the
-caller needs, because nothing follows it:
+`Proc.exit` ends the program with the code you give. On the way out it runs
+the cleanup of each `with` that still holds something. Its result type is
+whatever the caller needs, because nothing follows it:
 
 ```ocaml
 if broken? then Proc.exit 1 else continue! ()
 ```
+
+`args` gives the arguments of the script, without the program name.
+`wand deploy.wand --port 8080` gives `["--port", "8080"]`. See
+[`Args`](#args) to read them with a decoder. `pid` gives the process id the
+operating system assigned.
+
+Neither carries an effect. Both are handed to the process before it starts
+and never change, so reading either reaches nothing and answers the same
+twice — see [What earns a label](#what-earns-a-label). A `Par` worker is a
+domain rather than a second process, so every branch reads one pid.
 
 ### `Env`
 
@@ -3369,7 +3403,6 @@ get!  : String -> String ! {Env, Raise}
 set   : String -> String -> Unit ! {Env}
 clear : String -> Unit ! {Env}
 all   : Unit -> List (String, String) ! {Env}
-args  : Unit -> List String ! {Env}
 home  : Unit -> Path ! {Env}
 user  : Unit -> String ! {Env}
 read  : Path -> Result String (Map String) ! {Env, FS.Read}
@@ -3378,9 +3411,8 @@ load  : Path -> Result String Unit ! {Env, FS.Read}
 load! : Path -> Unit ! {Env, FS.Read, Raise}
 ```
 
-`args` gives the arguments of the script, without the program name.
-`wand deploy.wand --port 8080` gives `["--port", "8080"]`. See
-[`Args`](#args) to read them with a decoder.
+The arguments of the script are not here. They are handed to the process
+rather than read from the environment, so they are [`Proc.args`](#proc).
 
 ### `CSV`
 
@@ -4092,7 +4124,7 @@ domain readers and the error that names the field.
 ```ocaml
 type Opts (port : Port, timeout : Duration, config : Path)
 
-Args.parse Opts.decoder (Env.args ())
+Args.parse Opts.decoder (Proc.args ())
 -- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
 -- Error .port: expected Port, got "http"
 ```
@@ -4104,7 +4136,7 @@ list of strings cannot show this one fact. Without the assumption,
 shape. Name the flags that take no value:
 
 ```ocaml
-Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+Args.parse_with ["verbose"] Opts.decoder (Proc.args ())
 ```
 
 Each named flag is `true` when it is there and absent when it is not. A
@@ -4121,7 +4153,7 @@ type Opts(host : String, tag : List String, verbose : Bool = false)
 
 Opts.parser.spec   -- {tag = "repeated", verbose = "switch"}
 
-Args.read Opts.parser (Env.args ())
+Args.read Opts.parser (Proc.args ())
 ```
 
 `Args.read` is `parse_with` given the whole account. `parse_with` takes a
@@ -4163,7 +4195,7 @@ command line. It is not a value in the command line. The answer is a usage
 line, not a record. So ask it before you read the arguments:
 
 ```ocaml
-if Args.help? (Env.args ())
+if Args.help? (Proc.args ())
 then (IO.println "usage: probe %{Flags.usage} host"; Proc.exit 0)
 else ...
 ```
@@ -4184,10 +4216,10 @@ Only `--name` is a flag. One dash is not, which keeps `-5` an argument.
 There are no short flags. A positional argument arrives under `_`:
 
 ```ocaml
-Args.parse (Decode.field "_" (Decode.list Decode.string)) (Env.args ())
+Args.parse (Decode.field "_" (Decode.list Decode.string)) (Proc.args ())
 ```
 
-`Env.args ()` gives the arguments only. There is no program name to skip at
+`Proc.args ()` gives the arguments only. There is no program name to skip at
 the front. bash has `$0` and C has `argv[0]`; wand has neither.
 
 ### `Test`
@@ -4573,7 +4605,7 @@ writes it and reads it. A script does not have to.
 
 ```sh
 wand script.wand          # run a script
-wand script.wand arg1     # pass arguments (available via Env.args)
+wand script.wand arg1     # pass arguments (available via Proc.args)
 wand script.wand -- arg1  # everything after -- is the script's, whatever it looks like
 ```
 

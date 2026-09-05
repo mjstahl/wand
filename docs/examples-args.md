@@ -26,15 +26,15 @@ types do the reading — `Port`, `Duration` and `Path` are read from the
 strings on the command line exactly as they would be from a config file.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
-import Env
 import IO
+import Proc
 
 type Opts(port: Port, timeout: Duration, config: Path)
 
-match Args.parse Opts.decoder (Env.args ()) with
+match Args.parse Opts.decoder (Proc.args ()) with
 | Ok o -> IO.println "port=%{o.port} timeout=%{o.timeout} config=%{o.config}"
 | Error e -> IO.println_err "usage: %{e}"
 ```
@@ -64,18 +64,18 @@ An absent flag leaves its field missing rather than false, so the field is an
 `Option`.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
-import Env
 import IO
+import Proc
 import Option
 
 type Opts(verbose: Option Bool, force: Option Bool, target: String)
 
 let on flag = Option.default false flag
 
-match Args.parse_with ["verbose", "force"] Opts.decoder (Env.args ()) with
+match Args.parse_with ["verbose", "force"] Opts.decoder (Proc.args ()) with
 | Ok o -> IO.println "target=%{o.target} verbose=%{on o.verbose} force=%{on o.force}"
 | Error e -> IO.println_err "usage: %{e}"
 ```
@@ -102,13 +102,13 @@ shape is not what is wanted. Here every flag is optional with a fallback, and
 not in the type.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
 import Decode
-import Env
 import IO
 import Option
+import Proc
 
 type Server(host: String, port: Port)
 
@@ -120,7 +120,7 @@ let server = (Decode.map2
   (or_else "localhost" "host" Decode.string)
   (or_else :8080 "listen" Decode.port))
 
-match Args.parse server (Env.args ()) with
+match Args.parse server (Proc.args ()) with
 | Ok s -> IO.println "serving on %{s.host}%{s.port}"
 | Error e -> IO.println_err "usage: %{e}"
 ```
@@ -150,17 +150,17 @@ is not a name anyone writes, and `_` is already the language's word for the
 part with no name.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
 import Decode
-import Env
 import IO
 import List
+import Proc
 
 let files = Decode.field "_" (Decode.list Decode.path)
 
-match Args.parse files (Env.args ()) with
+match Args.parse files (Proc.args ()) with
 | Ok ps -> IO.println "%{List.length ps} file(s): %{ps}"
 | Error e -> IO.println_err "usage: %{e}"
 ```
@@ -189,12 +189,12 @@ nobody declared. Short flags do not exist.
 whose options differ per mode, refused by name when it is neither.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
 import Decode
-import Env
 import IO
+import Proc
 
 type Cmd = Serve Port | Fetch URL
 
@@ -205,7 +205,7 @@ let cmd = (Decode.and_then
   | other -> Decode.fail "unknown mode %{other}, expected serve or fetch")
   (Decode.field "mode" Decode.string))
 
-match Args.parse cmd (Env.args ()) with
+match Args.parse cmd (Proc.args ()) with
 | Ok (Serve p) -> IO.println "serving on %{p}"
 | Ok (Fetch u) -> IO.println "fetching %{u}"
 | Error e -> IO.println_err "usage: %{e}"
@@ -236,14 +236,14 @@ composes: the derived decoder reads the flags, and `map2` joins it to the
 positional list.
 
 ```
-uses {Env, IO}
+uses {IO}
 
 import Args
 import Decode
-import Env
 import IO
 import List
 import Option
+import Proc
 
 type Flags(out: Path, timeout: Duration, rehearse: Option Bool)
 
@@ -252,7 +252,7 @@ let job = (Decode.map2
   Flags.decoder
   (Decode.field "_" (Decode.list Decode.path)))
 
-match Args.parse_with ["rehearse"] job (Env.args ()) with
+match Args.parse_with ["rehearse"] job (Proc.args ()) with
 | Ok (f, ps) ->
   let mode = if Option.default false f.rehearse then "rehearsing" else "running" in
   IO.println "%{mode} %{List.length ps} file(s) -> %{f.out} within %{f.timeout}"
@@ -309,5 +309,5 @@ let rehearsing =
   Decode.map (fn v -> Option.default false v) (Decode.optional "dry-run" Decode.bool)
 ```
 
-**`Env.args ()` is the arguments alone.** There is no program name at the
+**`Proc.args ()` is the arguments alone.** There is no program name at the
 front to skip, as there would be with bash's `$0` or C's `argv[0]`.

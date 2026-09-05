@@ -1,7 +1,6 @@
-uses {Env, IO, Proc}
+uses {IO, Proc}
 
 import Args
-import Env
 import IO
 import Proc
 
@@ -49,8 +48,8 @@ let render (o: Opts) =
 let usage = "usage: probe-args %{Opts.usage}"
 
 let main () =
-  if Args.help? (Env.args ()) then IO.println usage
-  else match Args.read Opts.parser (Env.args ()) with
+  if Args.help? (Proc.args ()) then IO.println usage
+  else match Args.read Opts.parser (Proc.args ()) with
     | Ok o -> IO.println (render o)
     | Error why -> (IO.println_err "%{why}"; IO.println_err usage; Proc.exit 1)
 

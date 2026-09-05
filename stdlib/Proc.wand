@@ -1,10 +1,6 @@
 uses {Proc}
 
--- The running program itself.
---
--- One operation, because ending the program is the only thing a script
--- does to its own process that the rest of the standard library does not
--- already cover.
+-- The running program itself: what it was started with, and how it ends.
 
 -- End the program with the given exit code, running the cleanup of every
 -- `with` that is still holding something on the way out. The type is
@@ -13,3 +9,23 @@ uses {Proc}
 -- if broken? then Proc.exit 1 else continue! ()
 
 let exit code = proc_exit code
+
+-- Return the command-line arguments the process was started with.
+--
+-- The script's own arguments, not wand's: a script run with none has none.
+-- These are what the process was handed, which is why they are here and
+-- not in `Env` -- an environment variable is a different thing, read from
+-- a different place.
+--
+-- >> Proc.args ()
+-- [] : List String
+let args () = proc_args ()
+
+-- Return the process id the operating system gave this process.
+--
+-- Fixed for the life of the process, like `args`. A `Par` worker is a
+-- domain rather than a second process, so every branch reads the same one.
+--
+-- >> Proc.pid () > 0
+-- true : Bool
+let pid () = proc_pid ()

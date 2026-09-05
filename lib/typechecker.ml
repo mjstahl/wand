@@ -339,8 +339,6 @@ let operations : operation list =
       op_performers = ["Env.clear"] };
     { op_name = "Env!all"; op_effect = Env; op_types = t TUnit (TList (TTuple [str; str]));
       op_performers = ["Env.all"] };
-    { op_name = "Env!args"; op_effect = Env; op_types = t TUnit (TList str);
-      op_performers = ["Env.args"] };
     { op_name = "Env!home"; op_effect = Env; op_types = t TUnit path;
       op_performers = ["Env.home"] };
     { op_name = "Env!user"; op_effect = Env; op_types = t TUnit str;
@@ -365,7 +363,9 @@ let operations : operation list =
     { op_name = "Shell!exit_code"; op_effect = Shell; op_types = t str TInt;
       op_performers = [] };
     (* Ending the process. Nothing follows an exit, so a case that resumes
-       one may say it resumes with anything. *)
+       one may say it resumes with anything. `Proc.args` is not here: argv
+       is fixed before the program starts, so there is nothing to intercept
+       and nothing to bound. *)
     { op_name = "Proc!exit"; op_effect = Proc;
       op_types = (fun () -> Some (TInt, fresh ()));
       op_performers = ["Proc.exit"] };
@@ -3328,6 +3328,12 @@ let stdlib_type_env : env = [
   ("io_print",   let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("io_println", let a = fresh () in generalize [] (effs [Effect_set.IO] (a) (TUnit)));
   ("proc_exit",  let a = fresh () in generalize [] (effs [Effect_set.Proc] (TInt) (a)));
+  (* No effect. Both are handed to the process before it runs and never
+     change, so reading either reaches nothing and answers the same twice.
+     A `Par` worker is a domain rather than a second process, so it shares
+     the pid; a fork would not, and would make `proc_pid` an effect. *)
+  ("proc_args",  generalize [] ((TUnit @-> TList TString)));
+  ("proc_pid",   generalize [] ((TUnit @-> TInt)));
   ("clock_sleep", generalize [] (effs [Effect_set.Clock] (TDuration) (TUnit)));
   ("clock_now", generalize [] (effs [Effect_set.Clock] (TUnit) (TDateTime)));
   ("clock_elapsed", generalize [] (effs [Effect_set.Clock] (TUnit) (TDuration)));
@@ -3751,7 +3757,6 @@ let stdlib_type_env : env = [
   ("env_set",     generalize [] (effs [Effect_set.Env] (TString) ((TString @-> TUnit))));
   ("env_clear",   generalize [] (effs [Effect_set.Env] (TString) (TUnit)));
   ("env_all",     generalize [] (effs [Effect_set.Env] (TUnit) (TList (TTuple [TString; TString]))));
-  ("env_args",    generalize [] (effs [Effect_set.Env] (TUnit) (TList TString)));
   ("env_home",    generalize [] (effs [Effect_set.Env] (TUnit) (TPath)));
   ("env_user",    generalize [] (effs [Effect_set.Env] (TUnit) (TString)));
   (* List primitives *)

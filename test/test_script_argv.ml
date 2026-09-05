@@ -32,7 +32,7 @@ let argv_script = "wand_argv_probe.wand"
 let write_probe () =
   let oc = open_out argv_script in
   output_string oc
-    "uses {Env, IO}\n\nimport Env\nimport IO\n\nIO.println \"%{Env.args ()}\"\n";
+    "uses {IO}\n\nimport IO\nimport Proc\n\nIO.println \"%{Proc.args ()}\"\n";
   close_out oc
 
 let run args =

@@ -416,12 +416,6 @@ group "the environment" (fn () -> [
       (handle (fn () -> let _ = Env.all () in missed) () with
       | Env!all _ _ -> caught
       )),
-  test "Env!args" (fn t ->
-    t.eq
-      caught
-      (handle (fn () -> let _ = Env.args () in missed) () with
-      | Env!args _ _ -> caught
-      )),
   test "Env!home" (fn t ->
     t.eq
       caught

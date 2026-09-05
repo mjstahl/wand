@@ -1,6 +1,6 @@
-uses {Env, FS.Read, FS.Write, IO}
+uses {FS.Read, FS.Write, IO}
 
-import Env
+import Proc
 import FS
 import IO
 import List
@@ -42,7 +42,7 @@ let rename_all! moves =
 -- here would read it on import. In `main!` it does not.
 let main! () =
   let dir =
-    match List.head (Env.args ()) with
+    match List.head (Proc.args ()) with
     | Some d -> Path.of_string d
     | None -> ./.
   in

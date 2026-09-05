@@ -1,6 +1,6 @@
-uses {Env, FS.Read, IO}
+uses {FS.Read, IO}
 
-import Env
+import Proc
 import FS
 import IO
 import List
@@ -12,7 +12,7 @@ import Stream
 -- pipe on the other end writes forever.
 
 let source =
-  match List.head (Env.args ()) with
+  match List.head (Proc.args ()) with
   | Some p -> Path.of_string p
   | None -> /tmp/wand-demo-10.fifo
 

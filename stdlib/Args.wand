@@ -13,7 +13,7 @@ import String
 --
 --     type Opts (port : Port, timeout : Duration, config : Path)
 --
---     Args.parse Opts.decoder (Env.args ())
+--     Args.parse Opts.decoder (Proc.args ())
 --     -- Ok (Opts (port = :8080, timeout = 30s, config = ./app.toml))
 --     -- Error .port: expected Port, got "http"
 --
@@ -131,7 +131,7 @@ let _object_of flags args =
 -- document does not carry reads as `false`, so a switch needs nothing
 -- else said about it.
 --
--- Args.parse_with ["verbose"] Opts.decoder (Env.args ())
+-- Args.parse_with ["verbose"] Opts.decoder (Proc.args ())
 --
 -- Which flags are boolean is the only fact a list of strings cannot
 -- reveal: without it, `--message -5` and a flag followed by a positional
@@ -172,7 +172,7 @@ let parse decoder args = parse_with [] decoder args
 
 -- Read arguments against a type's own account of its command line.
 --
---     Args.read Opts.parser (Env.args ())
+--     Args.read Opts.parser (Proc.args ())
 --
 -- `Opts.parser` is derived from the fields, and holds the three things
 -- reading one takes: what the flags do that their own text cannot say, the
@@ -205,7 +205,7 @@ let read : CommandLine 'a -> List String -> Result String 'a =
 -- command line rather than a value in it, and the answer is a usage line
 -- rather than a record. So it is asked before the arguments are read:
 --
---     if Args.help? (Env.args ())
+--     if Args.help? (Proc.args ())
 --     then (IO.println "usage: probe %{Flags.usage} host"; Proc.exit 0)
 --     else ...
 --

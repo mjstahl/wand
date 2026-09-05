@@ -3091,6 +3091,14 @@ let stdlib_eval_env : env = [
   ("io_print",   VBuiltin (fun v -> Effect.perform (WandEffect ("IO!print",   v))));
   ("io_println", VBuiltin (fun v -> Effect.perform (WandEffect ("IO!println", v))));
   ("proc_exit",  performing "Proc!exit" (function VInt n -> raise (Interrupted n) | _ -> raise (EvalError "exit: expected Int")));
+  (* Not `performing`: argv and the pid are fixed before the program starts,
+     so there is no operation for a handler to intercept. *)
+  ("proc_args", VBuiltin (function
+    | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
+    | _ -> raise (EvalError "proc_args: expected Unit")));
+  ("proc_pid", VBuiltin (function
+    | VUnit -> VInt (Unix.getpid ())
+    | _ -> raise (EvalError "proc_pid: expected Unit")));
   (* A deadline on the commands a thunk runs. It is set for the extent of
      the call and taken off after, so a command outside the thunk waits as
      long as it takes.
@@ -4269,9 +4277,6 @@ let stdlib_eval_env : env = [
       in
       VList pairs
     | _ -> raise (EvalError "env_all: expected Unit")));
-  ("env_args", performing "Env!args" (function
-    | VUnit -> VList (List.map (fun s -> VString s) !exe_args_ref)
-    | _ -> raise (EvalError "env_args: expected Unit")));
   ("env_home", performing "Env!home" (function
     | VUnit ->
       (match Sys.getenv_opt "HOME" with
