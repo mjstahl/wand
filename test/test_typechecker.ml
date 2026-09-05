@@ -1188,6 +1188,27 @@ let test_written_effects_round_trip () =
   annotated "'a -> 'a ! 'e" "fn x -> x" "'a -> 'a";
   annotated "Int -> Int" "fn n -> n" "Int -> Int"
 
+(* The same promise for a type applied to another. The brackets were a list
+   of shapes copied at each printed application, and the copies had drifted:
+   `List (Map Int)` printed `List Map Int`, which reads as two arguments to
+   List and is now not a type at all. *)
+let test_applied_types_round_trip () =
+  let annotated ty =
+    Alcotest.(check string) ty (ty ^ " -> " ^ ty)
+      (type_of ty (Printf.sprintf "let f : %s -> %s = fn x -> x in f" ty ty))
+  in
+  annotated "List (Map Int)";
+  annotated "Map (Map Int)";
+  annotated "List (List Int)";
+  (* No copy of the list ever held Decoder. *)
+  annotated "List (Decoder Int)";
+  annotated "Map (Decoder Int)";
+  annotated "Result String (Decoder Int)";
+  (* An argument that is not an application still goes bare. *)
+  annotated "List Int";
+  annotated "Map String";
+  annotated "Result String Int"
+
 (* A pattern that can fail makes the binding raise, and the type has to say
    so -- nothing else records it, since the raise comes from the binding
    rather than from any call inside the body.
@@ -1874,6 +1895,7 @@ let () =
     ];
     "effects", [
       Alcotest.test_case "written effects round-trip"   `Quick test_written_effects_round_trip;
+      Alcotest.test_case "applied types round-trip"    `Quick test_applied_types_round_trip;
       Alcotest.test_case "signature binds params"        `Quick test_signature_binds_parameters;
       Alcotest.test_case "written effects are checked"   `Quick test_written_effects_are_checked;
       Alcotest.test_case "written effects relate a field"  `Quick test_written_effects_relate_a_field_across_a_module;

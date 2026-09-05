@@ -4083,7 +4083,7 @@ map3     : ('a -> 'b -> 'c -> 'd) -> Decoder 'a -> Decoder 'b -> Decoder 'c -> D
 and_then : ('a -> Decoder 'b) -> Decoder 'a -> Decoder 'b
 succeed  : 'a -> Decoder 'a
 fail     : String -> Decoder 'a
-one_of   : List Decoder 'a -> Decoder 'a
+one_of   : List (Decoder 'a) -> Decoder 'a
 path     : Decoder Path
 glob     : Decoder Glob
 duration : Decoder Duration

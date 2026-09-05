@@ -460,6 +460,22 @@ let rec collect_evars t =
   | TApp (f, a) -> collect_evars f @ collect_evars a
   | _           -> []
 
+(* Does this type need brackets where it stands as an argument? Anything
+   that prints as an application does: without them `List (Map Int)` comes
+   back as `List Map Int`, which reads as List given two arguments and is
+   not the type -- nor, since arity is checked, a type at all.
+
+   One predicate because there were six copies of the list and they had
+   drifted apart. `TList` had lost `TMap`, and none of them had ever held
+   `TDecoder`, `TStream` or `TResource`: `List (Decoder Int)` printed as
+   `List Decoder Int`, and a stream inside a list printed
+   `List Stream {FS.Read, Raise | ..} String`, where even the effect set
+   reads as an argument. A tuple brings its own brackets and needs none. *)
+let needs_brackets = function
+  | TFun _ | TList _ | TResult _ | TMap _ | TApp _
+  | TDecoder _ | TStream _ | TResource _ -> true
+  | _ -> false
+
 let string_of_typ t =
   let counter = ref 0 in
   let names : (int, string) Hashtbl.t = Hashtbl.create 4 in
@@ -571,46 +587,25 @@ let string_of_typ t =
     | TTuple ts ->
       "(" ^ String.concat ", " (List.map go ts) ^ ")"
     | TList t ->
-      let s = match repr t with
-        | TFun _ | TList _ | TResult _ | TApp _ -> "(" ^ go t ^ ")"
-        | _ -> go t
-      in
+      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "List " ^ s
     | TResult (e, t) ->
-      let wrap x = match repr x with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
-        | _ -> go x
-      in
+      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Result " ^ wrap e ^ " " ^ wrap t
     | TResource (r, t) ->
-      let wrap x = match repr x with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
-        | _ -> go x
-      in
+      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Resource " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TStream (r, t) ->
-      let wrap x = match repr x with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go x ^ ")"
-        | _ -> go x
-      in
+      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Stream " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TDecoder t ->
-      let s = match repr t with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
-        | _ -> go t
-      in
+      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "Decoder " ^ s
     | TMap t ->
-      let s = match repr t with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go t ^ ")"
-        | _ -> go t
-      in
+      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "Map " ^ s
     | TApp (f, a) ->
-      let sa = match repr a with
-        | TFun _ | TList _ | TResult _ | TMap _ | TApp _ -> "(" ^ go a ^ ")"
-        | _ -> go a
-      in
+      let sa = if needs_brackets (repr a) then "(" ^ go a ^ ")" else go a in
       go f ^ " " ^ sa
   in
   go t
