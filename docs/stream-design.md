@@ -14,6 +14,8 @@ before the code. It is not a specification.
 - [count, not length](#count-not-length)
 - [The missing sink is in FS](#the-missing-sink-is-in-fs)
 - [Streaming a command, and commands that never end](#streaming-a-command-and-commands-that-never-end)
+- [Why the command forms are not functions](#why-the-command-forms-are-not-functions)
+- [Shell.exec, if a function is wanted](#shellexec-if-a-function-is-wanted)
 - [Left out on purpose](#left-out-on-purpose)
 - [Order](#order)
 
@@ -245,6 +247,123 @@ the lexer, the parser and the formatter, not in the rules.
 One thing the type system cannot help with: an unbounded stream with no
 `take` never terminates. `$*(tail -f x) |> Stream.fold_left f init` hangs,
 and it should — it is `while true` written in another shape.
+
+## Why the command forms are not functions
+
+An obvious tidy-up suggests itself once there are three command forms: give
+each one a function, so `$()` is `Shell.run!`, `$?()` is `Shell.run`, and
+`$*()` is `Shell.stream!`. The names would be those — `run_command!` says
+`command` twice in a module already called `Shell`, and nothing else in the
+standard library repeats its module in a member name.
+
+The functions should not exist, and the reason is not style.
+
+**`%{}` means two different things.** Inside a command it splices a value as
+one argument. Inside a string it splices text.
+
+```console
+$ cat q.wand
+uses {IO, Shell(echo)}
+import IO
+let name = "a b; whoami"
+IO.println $(echo %{name})
+IO.println "echo %{name}"
+
+$ wand q.wand
+a b; whoami
+echo a b; whoami
+```
+
+The first arrived at `echo` as a single argument: the `;` is data and
+nothing after it ran. The second is a `String` holding that text. Give that
+String to a shell and `whoami` runs.
+
+So `Shell.run! "echo %{name}"` is an injection where `$(echo %{name})` is
+safe, and on the page the two are a bracket apart. That inverts the claim
+the README leads with — *a filename from the environment cannot become a
+second command*. The quoting lives in the syntax, and a function taking a
+`String` cannot have it, because by the time it is called the argument is
+one flat string with every boundary already lost.
+
+**Narrowing degrades as well.** `shell_sites` collects `RunCmd` and
+`RunQuery`; a function call is neither, so nothing is checked statically.
+The spawn check still fires —
+
+```console
+$ wand t d.wand
+warning: 4:11: V-SHELL1: this command's first word is decided at run time, so
+the Shell(...) list is checked when it spawns rather than here
+
+$ wand d.wand
+Error: eval error: this command runs 'whoami', which the manifest's
+Shell(echo) does not allow
+```
+
+— so this is a weakening rather than a hole. But every call site becomes the
+case `V-SHELL1` exists to warn about, and `Shell(git)` stops being readable
+from the text.
+
+**The operation table already says this.** It records what a script writes
+to reach each operation, and two of them are deliberately unreachable:
+
+```ocaml
+{ op_name = "Shell!run";     op_performers = ["$(...)"] };
+{ op_name = "Shell!capture"; op_performers = ["$?(...)"] };
+(* nothing a script can write reaches them: the builtins are not bound in
+   a script's scope and no module exports them. *)
+{ op_name = "Shell!run_quiet"; op_performers = [] };
+{ op_name = "Shell!exit_code"; op_performers = [] };
+```
+
+`$*(...)` joins the first two as a performer. It does not get a function,
+for the same reason they do not.
+
+**What higher-order use looks like instead.** The one thing a function
+would genuinely buy is passing a command around — mapping over a list of
+them. Write the lambda:
+
+```ocaml
+List.map (fn c -> $(%!{c})) cmds
+```
+
+That is the function form. It makes the dynamism visible where it happens,
+and it carries the `V-SHELL1` it has earned, instead of hiding both behind
+a name that reads as safely as `$()`.
+
+## `Shell.exec`, if a function is wanted
+
+There is a function worth having here, and it is not a copy of the syntax.
+It takes argv rather than a command line:
+
+```ocaml
+Shell.exec! : List String -> String       ! {Shell, Raise}
+Shell.exec  : List String -> ShellResult  ! {Shell}
+
+Shell.exec! ["git", "checkout", branch]
+```
+
+No shell is involved. Each element is one argument by construction, so
+there is no quoting to get wrong, no word splitting, and `;` in a value is
+a semicolon. This is `execve`, not `sh -c`, which makes it *stronger* than
+`$()` rather than a weaker copy of it — `$()` runs a shell and relies on
+wand's quoting to keep the arguments apart; `exec` never gives a shell the
+chance.
+
+It stays checkable. When the head of the list is a literal, the manifest
+word check applies exactly as it does to a command's first word. When it is
+not, `V-SHELL1` reports it honestly, and the spawn check bounds it.
+
+Three things it does not settle, and they belong to `Shell` rather than to
+this document:
+
+- **Piping stdin.** `report |> $?(mail ops@example.com)` has no `exec`
+  spelling yet. A second function, or a field, or nothing.
+- **A streaming variant.** `Shell.exec_lines` is the same question one level
+  along, and the answer probably follows whatever `$*(...)` settles.
+- **Whether it ships at all in a first version.** `$()` covers what scripts
+  write today. `exec` earns its place when a command has to be built from
+  values rather than written down, which is exactly when the shell is most
+  dangerous and least wanted.
 
 ## Left out on purpose
 
