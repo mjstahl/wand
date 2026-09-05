@@ -114,16 +114,9 @@ directory:
 curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 ```
 
-**A release binary, by hand.** Each
-[release](https://github.com/mjstahl/wand/releases) has static Linux builds
-(x86_64, aarch64) and macOS builds (aarch64, x86_64). Each build has a
-`.sha256` file beside it:
-
-```sh
-curl -fsSLO https://github.com/mjstahl/wand/releases/download/v0.22.0/wand-0.22.0-macos-aarch64.tar.gz
-tar xzf wand-0.22.0-macos-aarch64.tar.gz
-install wand-0.22.0-macos-aarch64/wand ~/.local/bin/
-```
+Each [release](https://github.com/mjstahl/wand/releases) has static Linux
+builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), and a `.sha256`
+file beside each one.
 
 The binary holds its own standard library. You install nothing else. Startup is
 short enough for CI glue and for an editing loop. The release binary runs

@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **The README drops "A release binary, by hand."** It held a `curl` line
+  pinned to v0.22.0, which stayed there through 37 releases. The assets are
+  still on that release, so the commands worked and installed a binary that
+  was 37 releases old, with nothing to say so. The install script and the
+  Actions step both resolve the release themselves, and `WAND_VERSION` pins
+  one where that is wanted. What the section said and the other two did not
+  -- which platforms have a build, and that a `.sha256` sits beside each --
+  moves up beside the one-line install
+
 ## [0.59.3] - 2026-09-04
 
 ### Changed
