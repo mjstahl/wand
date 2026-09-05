@@ -1087,6 +1087,13 @@ let known_type_names : string list option ref = ref None
    from, and an empty table there simply resolves nothing. *)
 let known_aliases : (string * (string list * Ast.type_expr)) list ref = ref []
 
+(* How many type arguments each declared type takes, keyed as the file
+   writes it. Aliases carry theirs in `known_aliases` and are checked where
+   they are applied; this is every other declared type. Empty where there is
+   no file, in which case a declared name's arity is simply not known and
+   only the builtins above are checked. *)
+let known_type_arities : (string * int) list ref = ref []
+
 (* The names `type_of_te_bound` resolves without consulting a file: the
    primitives, and the four that only ever appear applied to an argument. *)
 let builtin_type_names =
@@ -1096,6 +1103,17 @@ let builtin_type_names =
     "List"; "Map"; "Result"; "Option"; "Decoder" ]
 
 let builtin_type_name n = List.mem n builtin_type_names
+
+(* How many type arguments a builtin takes. A name that takes none is not a
+   type constructor at all, so `Int Int` is the same mistake as `Map String
+   String` and gets the same answer. `Num`, `Add` and `Ord` are written in
+   signatures without being declared anywhere, so they are named here too. *)
+let builtin_type_arity = function
+  | "List" | "Map" | "Option" | "Decoder" -> Some 1
+  | "Result"                              -> Some 2
+  | "Num" | "Add" | "Ord"                 -> Some 0
+  | n when builtin_type_name n            -> Some 0
+  | _                                     -> None
 
 (* What a type name written in a file means. A type declared in a module is
    keyed by the module as well as by its name, so two modules that each
@@ -1143,8 +1161,69 @@ let eff_of_written name =
    generalising it throws away what inference learned -- see `ctor_schemes`. *)
 let written_evars : int list ref = ref []
 
+(* A written type applied to the wrong number of arguments.
+
+   `Map String String` was built as an application of an already-saturated
+   `Map`, which is not a type at all. It was accepted, and then failed
+   wherever it was met -- a field default reported "expected Map String
+   String, got Map 'a", blaming the default, which was correct. `List Int
+   Int`, `Option Int Int`, a bare `Map`, and a declared `Box 'a` given two
+   arguments or none went the same way.
+
+   An alias is checked where it is applied, in `apply_alias`. This is that
+   check for the builtins and for declared types, run over the written type
+   before it is read, so the error names the type that is wrong rather than
+   the value that later met it. A name whose arity is unknown -- a type
+   variable in head position, or any name where there is no file to declare
+   it -- is left alone: this reports what it is sure of. *)
+let check_te_arity (te : type_expr) =
+  let arity_of name =
+    match List.assoc_opt name !known_aliases with
+    | Some (params, _) -> Some (List.length params)
+    | None ->
+      (match List.assoc_opt name !known_type_arities with
+       | Some n -> Some n
+       | None   -> builtin_type_arity name)
+  in
+  let check name got =
+    match arity_of name with
+    | Some want when want <> got ->
+      raise (TypeError (
+        if want = 0 then
+          Printf.sprintf "'%s' takes no type arguments, but is given %d"
+            name got
+        else
+          Printf.sprintf "'%s' takes %d type argument%s, not %d"
+            name want (if want = 1 then "" else "s") got))
+    | _ -> ()
+  in
+  let rec peel acc = function
+    | TEApp (f, a) -> peel (a :: acc) f
+    | h            -> (h, acc)
+  in
+  let rec go te =
+    match te with
+    (* Peeled whole. The spine of a partial application is not a type on its
+       own, so walking into it would ask `Result String` for its arity and
+       find it one short of what the reader wrote. *)
+    | TEApp _ ->
+      let (head, args) = peel [] te in
+      (match head with
+       | TEName n      -> check n (List.length args)
+       | TEQual (m, n) -> check (m ^ "." ^ n) (List.length args)
+       | _             -> ());
+      List.iter go args
+    | TEName n        -> check n 0
+    | TEQual (m, n)   -> check (m ^ "." ^ n) 0
+    | TEFun (a, b, _) -> go a; go b
+    | TETuple ts      -> List.iter go ts
+    | TEVar _         -> ()
+  in
+  go te
+
 let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
   : typ * (string * typ) list =
+  check_te_arity te;
   let vars : (string, typ) Hashtbl.t = Hashtbl.create 4 in
   List.iter (fun (n, t) -> Hashtbl.replace vars n t) bound;
   (* One table per written type, so `'e` twice in one signature is one
@@ -1362,10 +1441,10 @@ let ctor_schemes ?key (tdef : type_def) : (string * scheme) list =
         List.fold_left (fun acc name -> Effect_set.add (eff_of_written name) acc)
           base te_labels
     in
-    let rec conv = function
+    let rec conv_ = function
       (* The module says which type this is; the canonical name is what the
          rest of the checker knows it by. *)
-      | TEQual (m, n) -> conv (TEName (canonical_type_name (m ^ "." ^ n)))
+      | TEQual (m, n) -> conv_ (TEName (canonical_type_name (m ^ "." ^ n)))
       | TEVar name ->
         (match List.assoc_opt name var_table with
          | Some v -> v
@@ -1373,20 +1452,32 @@ let ctor_schemes ?key (tdef : type_def) : (string * scheme) list =
              "type variable ''%s' is not declared as a parameter of type '%s'"
              name tname)))
       | TEName _ as te -> type_of_te te
-      | TEFun (a, b, eff) -> TFun (conv a, conv b, effects_of eff)
-      | TETuple ts -> TTuple (List.map conv ts)
-      | TEApp (TEName "List", arg)   -> TList   (conv arg)
+      | TEFun (a, b, eff) -> TFun (conv_ a, conv_ b, effects_of eff)
+      | TETuple ts -> TTuple (List.map conv_ ts)
+      | TEApp (TEName "List", arg)   -> TList   (conv_ arg)
       (* A field may hold a decoder. Without this the field's type is a plain
          application, which prints as `Decoder Pod` and unifies with nothing:
          `type D(decoder: Decoder Pod)` could not be built from
          `Pod.decoder`. *)
-      | TEApp (TEName "Decoder", arg) -> TDecoder (conv arg)
-      | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv e, conv a)
+      | TEApp (TEName "Decoder", arg) -> TDecoder (conv_ arg)
+      | TEApp (TEApp (TEName "Result", e), a) -> TResult (conv_ e, conv_ a)
       | TEApp (TEName "Result", _) ->
         raise (TypeError "Result now takes two type arguments: Result <ErrorType> <ValueType>")
-      | TEApp (TEName "Map", arg)    -> TMap    (conv arg)
-      | TEApp (f, arg) -> TApp (conv f, conv arg)
+      | TEApp (TEName "Map", arg)    -> TMap    (conv_ arg)
+      | TEApp (f, arg) -> TApp (head f, conv_ arg)
+    (* The spine of an application is not a written type on its own, so the
+       head is resolved here rather than through `type_of_te`, which checks
+       arity and would find `Option` in `Option String` a whole argument
+       short. The written type is checked once, below, as a whole. *)
+    and head = function
+      | TEApp (f, arg) -> TApp (head f, conv_ arg)
+      | TEName n       -> TName (canonical_type_name n)
+      | TEQual (m, n)  -> TName (canonical_type_name (m ^ "." ^ n))
+      | te             -> conv_ te
     in
+    (* Once per field, over the whole of what was written. `conv_` recurses
+       without repeating it, since the walk covers the arguments too. *)
+    let conv te = check_te_arity te; conv_ te in
     (* A field's effects are not written down -- the grammar has no place to
        put them -- so `conv` gives each arrow an effect variable and lets
        construction say what it is. Generalising that variable is what made
@@ -4344,6 +4435,10 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   known_aliases :=
     List.filter_map (function
       | (n, Alias (_, params, te)) -> Some (n, (params, te))
+      | _ -> None) tenv;
+  known_type_arities :=
+    List.filter_map (function
+      | (n, Variants (_, params, _)) -> Some (n, List.length params)
       | _ -> None) tenv;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in

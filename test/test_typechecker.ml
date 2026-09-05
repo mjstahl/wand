@@ -142,6 +142,48 @@ type W = W(o: Option String)
     {|type Option 'a = None | Some 'a
 1|}
     "built-in type";
+  (* A type applied to the wrong number of arguments used to be built anyway
+     -- `Map String String` as an application of an already-saturated `Map`,
+     which is not a type. It was taken, and then failed wherever it was met:
+     a field default reported "expected Map String String, got Map 'a",
+     blaming a default that was correct. *)
+  err_contains "a builtin given too many type arguments"
+    {|type R(h: Map String String)
+1|}
+    "'Map' takes 1 type argument, not 2";
+  err_contains "in an annotation as well as a field"
+    "let f (x: List Int Int) = x
+1"
+    "'List' takes 1 type argument, not 2";
+  err_contains "Result counts to two"
+    "let f (x: Result String Int Int) = x
+1"
+    "'Result' takes 2 type arguments, not 3";
+  err_contains "and too few is the same mistake"
+    "let f (x: Map) = x
+1"
+    "'Map' takes 1 type argument, not 0";
+  err_contains "a type that takes none says so"
+    "let f (x: Int Int) = x
+1"
+    "'Int' takes no type arguments";
+  err_contains "a declared type is counted too"
+    {|type Box 'a = Box 'a
+let f (x: Box Int Int) = x
+1|}
+    "'Box' takes 1 type argument, not 2";
+  (* The head of an application is one argument short by construction, so a
+     check that walked into the spine reported every correct type as wrong.
+     These are the shapes that caught it. *)
+  ok "an applied builtin is not read as a bare one"
+    {|type Job(name: String, owner: Option String)
+(Job(name = "a", owner = None)).name|}
+    "a";
+  ok "nor a declared type applied to its parameter"
+    {|type Box 'a = Box 'a
+type W = W(b: Box Int)
+let w = W(b = Box 1) in 1|}
+    "1";
   (* A value cannot take the name either. The two used to sit together and be
      read by position, which left the value unreachable and said nothing. *)
   err_contains "a value with a type's name"
