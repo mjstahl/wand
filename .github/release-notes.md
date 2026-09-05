@@ -1,82 +1,79 @@
-## 0.59.2 - 2026-09-04
+## 0.59.3 - 2026-09-04
 
-Three fixes, all found by reading what 0.59.1 wrote.
+One change, to the two messages a multi-equation definition can produce.
+Both now say where, and one of them quotes what you wrote.
 
-### A function that returns Bool and can raise now has a name
+### An unreachable equation is quoted, not counted
 
-A name carries one ending. `has_example?!` does not parse. So this function
-had no name that answered both rules:
-
-```ocaml
-let has_example! p = String.contains? ">>" (FS.read_file! p)
-```
-
-0.59.1 asked for a `?`:
-
-```
-V-PRED3: 'has_example!' returns Bool but is not named as a predicate
-```
-
-Rename it to `has_example?` and V-BANG1 asks for the `!` back. The `!` wins.
-V-BANG1 said so already, in its own words: *"`?` is not the ending it takes;
-it is 'has_example!'"*. V-PRED3 is quiet now when a function can raise, and
-still fires on one that cannot.
-
-### One block, one binding spelling
-
-The spelling follows where the binding stands. 0.59.1 asked only whether the
-body was a block, so a binding written `in` with statements above it kept
-the `in` and stood beside their `;`:
+wand tries equations in the order you wrote them, so an equation an earlier
+one already answers for can never fire:
 
 ```ocaml
-let main! () = (
-  let missing = collect ();
-  if List.empty? missing then () else report missing;
-  let results = modules |> List.map check in finish results
-)
+let classify _ = "other"
+let classify 0 = "zero"
 ```
 
-0.59.2 writes the `;`:
+0.59.2 counted equations, and stopped there:
+
+```
+equation 2 for 'classify' is unreachable
+```
+
+0.59.3 quotes the equation and says where it is:
+
+```
+2:14: equation 'classify 0' is unreachable
+```
+
+The equation is already on the screen. Quoting it is what saves the reader
+counting lines back to the one the message means.
+
+### A local definition reports its own name
+
+The name in the message used to be the name of the top-level definition,
+whatever the equation was written under. So a function inside another one
+reported its host, and pointed at the host's line:
 
 ```ocaml
-  let results = modules |> List.map check;
-  finish results
+let outer x =
+  let step _ = 0
+  let step 1 = 1
+  step x
 ```
 
-Brackets of its own do not change where a binding stands. `wand f` drops
-them, so `(t; (let f = e in ()))` comes back as `(t; let f = e; ())`.
+```
+2:3: equation 2 for 'outer' is unreachable        -- 0.59.2
+3:12: equation 'step 1' is unreachable            -- 0.59.3
+```
 
-The first statement of a `( ... )` is the exception. `(let f = ... in f ())`
-is a parenthesis around one expression, and it keeps its `in`. So does the
-`in` that narrows: in `(let x = 1 in x + 1; 9)` the `in` holds `x` off the
-statements below it.
+`'outer 1'` is a quote of something nobody wrote, which is why the name had
+to follow the equation once the message began quoting it.
 
-### A `with` body opens its bracket on the `->` line
-
-0.59.1 broke after the `->` and gave the bracket a line of its own:
+### Equations that leave a gap say where the group starts
 
 ```ocaml
-let main! () =
-  with FS.temp_dir "wand_fmt_check_" as dir ->
-  (copy_into! dir; format_in! dir; report_on! dir)
+let name 0 = "zero"
+let name 1 = "one"
 ```
 
-0.59.2 writes what a binding's value has written since 0.45.0:
-
-```ocaml
-let main! () =
-  with FS.temp_dir "wand_fmt_check_" as dir -> (
-    copy_into! dir;
-    format_in! dir;
-    report_on! dir
-  )
+```
+the equations for 'name' do not cover every case, e.g. _        -- 0.59.2
+1:10: the equations for 'name' do not cover every case, e.g. _  -- 0.59.3
 ```
 
-A bracket on a line of its own says nothing. The items sit at the same
-column either way. Eleven files in the tree each get a line back.
+No single equation leaves the gap, so the position is the first of the
+group, where the definition starts. A `match` you wrote yourself is
+unchanged: it already reported its own `match`.
+
+Both messages had no position for the same reason. wand folds a group of
+equations into one `match` over the parameters, and an equation stops being
+a syntactic unit there. It now carries the location of its first pattern
+through the fold.
 
 ### What this breaks
 
-`wand f` rewrites files that hold the older spellings. Run it once and
-commit what it writes. The language, the standard library and every script's
-behaviour are unchanged.
+Nothing in the language, the standard library, or what a script does. A tool
+that matches the old text of either message needs its pattern updated. Under
+`wand t --json` both diagnostics keep their `E-TYPE` code and now carry the
+equation's own `line`/`col`, plus the `end_line`/`end_col` that a located
+diagnostic carries — where they used to fall back to `1`/`1` with no end.
