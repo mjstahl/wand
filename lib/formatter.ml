@@ -477,10 +477,26 @@ let is_binop_or_unop e = match strip_located e with
    shapes, not one: a bare sequence, and a sequence whose first statement is
    a binding. All three belong here, or a block that opens with a `let`
    spends the line the other two are spared. *)
+(* A backtick string that spans lines. The lines under its opening backtick
+   are the string's own content, laid out by whoever wrote it -- the one
+   text in a wand file the formatter must not touch, and the one it cannot
+   move without moving what the program says. *)
+let is_multiline_raw_string e = match strip_located e with
+  | RawString s -> String.contains s '\n'
+  | RawInterp (parts, tail) ->
+    List.exists (fun (chunk, _) -> String.contains chunk '\n') parts
+    || String.contains tail '\n'
+  | _ -> false
+
 let opens_a_bracket e = match strip_located e with
   | Seq _ | List _ | Tuple _ | MapLit _ -> true
   | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> true
-  | _ -> false
+  (* One of these opens a bracket in the sense that matters here: the
+     opening backtick leaves its line as unfinished as a bare `[` does, and
+     the text carries the break. Given a line of its own it says nothing,
+     and it pushes the author's layout down the page to say it. *)
+  | e' -> is_multiline_raw_string e'
+
 
 (* Where a bracket carries the break, the value can start on the line that
    introduces it rather than taking a line of its own. That is a bracket of
@@ -1673,6 +1689,13 @@ and emit_binding ?col indent p e1 =
   | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody
   | Annot (te, body) ->
     "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = " ^ value indent body
+  | _ when is_multiline_raw_string e1 ->
+    (* Cuddled here as at the top level. A block binding gives every other
+       wrapped value a line of its own, and that is the shape the corpus is
+       written in -- but a line of its own is exactly what this one cannot
+       have without indenting text that is content. *)
+    let head = "let " ^ emit_pat p ^ " = " in
+    head ^ emit_expr ~col:(col + String.length head) indent e1
   | _ ->
     let oneline = "let " ^ emit_pat p ^ " = " ^ value indent e1 in
     if fits col oneline then oneline

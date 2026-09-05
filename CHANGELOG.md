@@ -12,6 +12,15 @@
   one where that is wanted. What the section said and the other two did not
   -- which platforms have a build, and that a `.sha256` sits beside each --
   moves up beside the one-line install
+- **A multi-line backtick string starts on the line of its `=`.** The
+  opening backtick leaves that line as unfinished as a bare `[` does, so it
+  now counts as a bracket, and a bracket is written where the value begins:
+  `let doc = \`` rather than a `let doc =` with a lone backtick on the line
+  below. The lines under it are the string's own content, so the break that
+  used to land there moved that text one line down the page and said nothing
+  in its place. The text inside a backtick string was never altered -- only
+  the position of the literal on the page. Three files in the corpus each
+  get a line back
 
 ### Fixed
 

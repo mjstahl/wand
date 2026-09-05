@@ -8,8 +8,10 @@ import JSON
 --
 -- There are two answers, and the first is usually the better one.
 
-let document =
-  "{\"metadata\": {\"name\": \"web-01\", \"namespace\": \"default\"},\n    \"status\": {\"phase\": \"Running\", \"restarts\": 4}}"
+let document = `
+{"metadata": {"name": "web-01", "namespace": "default"},
+ "status": {"phase": "Running", "restarts": 4}}
+`
 
 -- 1. Mirror the shape. Each level is a type, every decoder is derived, and
 --    nothing is written by hand. A failure names the whole path it walked,
@@ -23,8 +25,9 @@ type Pod(metadata: Meta, status: Status)
 
 IO.println (JSON.decode Pod.decoder (JSON.parse! document))
 
-let wrong_type =
-  "{\"metadata\": {\"name\": 1, \"namespace\": \"d\"},\n    \"status\": {\"phase\": \"R\", \"restarts\": 0}}"
+let wrong_type = `
+{"metadata": {"name": 1, "namespace": "d"},
+  "status": {"phase": "R", "restarts": 0}}`
 
 IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
 

@@ -151,8 +151,7 @@ group "release-check" (fn () -> [
 
 -- A document with two containers in one pod, the first of them healthy --
 -- the shape `jq '.status.containerStatuses[0].restartCount'` reads wrong.
-let doc =
-  `
+let doc = `
 {"items":[
      {"metadata":{"name":"web-01","namespace":"default"},
       "status":{"phase":"Running","containerStatuses":[

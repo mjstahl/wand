@@ -38,24 +38,18 @@ test "it is an ordinary String" (fn t -> t.eq "abc" (`ab` ++ `c`))
 -- Nothing else is trimmed -- the indent and the last newline are kept.
 
 test "the opening newline is dropped" (fn t ->
-  t.eq
-    "one\ntwo\n"
-    `
+  t.eq "one\ntwo\n" `
 one
 two
 `)
 
 test "an indent inside is text" (fn t ->
-  t.eq
-    "  indented\n"
-    `
+  t.eq "  indented\n" `
   indented
 `)
 
 test "a blank first line survives" (fn t ->
-  t.eq
-    "\nafter a blank line\n"
-    `
+  t.eq "\nafter a blank line\n" `
 
 after a blank line
 `)

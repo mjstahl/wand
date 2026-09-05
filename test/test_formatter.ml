@@ -389,6 +389,28 @@ let ok_after_format label src expected =
 let fmt_eq label src expected =
   Alcotest.(check string) label (expected ^ "\n") (fmt src)
 
+(* The lines under a backtick are the string's own content. A value given a
+   line of its own moves them one line down the page, and the backtick left
+   above them says nothing the `=` did not. So a multi-line backtick string
+   starts on the line of its `=`, as a bracket does -- which is what it is
+   here. *)
+let test_a_multiline_backtick_string_cuddles () =
+  fmt_eq "a top-level binding"
+    "let a =\n  `\none\n  two`\na"
+    "let a = `\none\n  two`\na";
+  fmt_eq "a binding in a block, where every other wrapped value takes a line"
+    "let f! () = (\n  let a =\n    `\none\n  two`;\n  a\n)\nf! ()"
+    "let f! () = (\n  let a = `\none\n  two`;\n  a\n)\nf! ()";
+  fmt_eq "a trailing argument"
+    "t.eq \"x\"\n  `\none\n  two`"
+    "(t.eq \"x\" `\none\n  two`)";
+  assert_idempotent "the shape settles" "let a =\n  `\none\n  two`\na";
+  (* The content is what must not move. A single-line backtick string is not
+     a bracket and keeps the ordinary shape. *)
+  ok_after_format "the text survives, indent and all"
+    "import String\nlet a = `\n  one\n  two`\nString.length a"
+    "11"
+
 let test_escaped_quotes_prefer_backticks () =
   fmt_eq "plain string converts"
     {|let a = "say \"hi\""|} "let a = `say \"hi\"`";
@@ -1671,6 +1693,7 @@ let () =
         test_an_item_opening_with_an_operator_is_bracketed;
     ];
     "canonicalization", [
+      Alcotest.test_case "multi-line backticks cuddle" `Quick test_a_multiline_backtick_string_cuddles;
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
       Alcotest.test_case "single-constructor shorthand" `Quick test_single_ctor_shorthand;
       Alcotest.test_case "maps canonicalize to braces" `Quick test_maps_canonicalize_to_braces;
