@@ -2,7 +2,7 @@ uses {FS.Read}
 
 -- Parse a JSON string.  Returns Ok JSON or Error message.
 --
--- >> JSON.parse "{\"a\": 1}"
+-- >> JSON.parse `{"a": 1}`
 -- Ok({"a":1}) : Result String JSON
 let parse src = json_parse src
 
@@ -133,28 +133,28 @@ let get_string j = json_get_string j
 -- Ok([1, 2]) : Result String (List JSON)
 let get_array j = json_get_array j
 --
--- >> JSON.get_object (JSON.parse! "{\"a\": 1}")
+-- >> JSON.get_object (JSON.parse! `{"a": 1}`)
 -- Ok({a = 1}) : Result String (Map JSON)
 let get_object j = json_get_object j
 
 -- Look up a field in a JSON object.  Returns Ok JSON or Error message.
 --
--- >> JSON.field "a" (JSON.parse! "{\"a\": 1}")
+-- >> JSON.field "a" (JSON.parse! `{"a": 1}`)
 -- Ok(1) : Result String JSON
 --
--- >> JSON.field "z" (JSON.parse! "{\"a\": 1}")
+-- >> JSON.field "z" (JSON.parse! `{"a": 1}`)
 -- Error("no field: z") : Result String JSON
 let field key j = json_field key j
 
 -- Look up a field, raising if absent or not an object.
 --
--- >> JSON.field! "a" (JSON.parse! "{\"a\": 1}")
+-- >> JSON.field! "a" (JSON.parse! `{"a": 1}`)
 -- 1 : JSON
 let field! key j = json_field_exn key j
 
 -- Read a typed value out of a JSON document. Failure names the field that
 -- failed and the path to it. See `Decode`.
 --
--- >> JSON.decode (Decode.field "a" Decode.int) (JSON.parse! "{\"a\": 1}")
+-- >> JSON.decode (Decode.field "a" Decode.int) (JSON.parse! `{"a": 1}`)
 -- Ok(1) : Result String Int
 let decode d j = json_decode d j

@@ -92,7 +92,7 @@ let get_int t = toml_get_int t
 -- Ok(1.5) : Result String Float
 let get_float t = toml_get_float t
 --
--- >> TOML.get_string (TOML.field! "s" (TOML.parse! "s = \"hi\""))
+-- >> TOML.get_string (TOML.field! "s" (TOML.parse! `s = "hi"`))
 -- Ok("hi") : Result String String
 let get_string t = toml_get_string t
 --

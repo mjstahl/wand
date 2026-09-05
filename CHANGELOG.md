@@ -21,6 +21,13 @@
   in its place. The text inside a backtick string was never altered -- only
   the position of the literal on the page. Three files in the corpus each
   get a line back
+- **The stdlib's doc examples write JSON and TOML between backticks.**
+  Twenty-one `>>` lines held a document as an escaped string --
+  `JSON.parse! "{\"a\": 1}"` -- where the backslashes are wand's syntax and
+  the reader has to take them back out to see the JSON. They read
+  ``JSON.parse! `{"a": 1}` `` now. The expected-output lines below them are
+  unchanged: those are what wand prints, and it prints a `String` with
+  escapes
 
 ### Fixed
 
