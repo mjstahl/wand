@@ -525,6 +525,47 @@ f (Ok 1)|}
   | Error _ -> "err"
 f (Ok 1)|}
     "one";
+  (* The same "bare match at the end" shape, reached through the three other
+     forms that print their tail unguarded. Each one gave the outer match's
+     remaining arms away to the nested match, which is why every case below
+     asks for the answer of an arm that comes *after* the one at fault.
+     Found by the daily fuzzer, under a `handle` (#22). *)
+  ok_after_format "match at the end of a with body, inside another match's case"
+    {|import Resource
+let f x =
+  match x with
+  | 0 ->
+    (with Resource.make (fn () -> 1) (fn _ -> ()) as n ->
+      match n with
+      | 1 -> "one"
+      | _ -> "many")
+  | _ -> "rest"
+f 9|}
+    "rest";
+  ok_after_format "match at the end of an if's else, inside another match's case"
+    {|let f x =
+  match x with
+  | 0 -> (if false then "no" else match x with | 0 -> "zero" | _ -> "other")
+  | _ -> "rest"
+f 9|}
+    "rest";
+  ok_after_format "match at the end of a fn body, inside another match's case"
+    {|let g x =
+  match x with
+  | 0 -> fn _ -> (match x with | _ -> "inner")
+  | _ -> fn _ -> "rest"
+g 9 ()|}
+    "rest";
+  (* An `if` with no `else` prints its *then* branch last, so that is the
+     branch the nested match sits at the end of. *)
+  ok_after_format "match at the end of a one-armed if, inside another match's case"
+    {|let f x =
+  match x with
+  | 0 -> (if false then match x with | _ -> ())
+  | _ -> ()
+f 9
+"done"|}
+    "done";
   (* A constructor pattern used as a function parameter (`let f (Some n) = ..`)
      needs its parens kept -- printed bare, `Some n` reads as two separate
      parameters instead of one destructured one. *)

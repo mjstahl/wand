@@ -13,6 +13,21 @@
   -- which platforms have a build, and that a `.sha256` sits beside each --
   moves up beside the one-line install
 
+### Fixed
+
+- **A `match`/`handle` arm whose body ends in a nested match keeps its
+  bracket.** An arm ends only where the next `|` begins, so a bare match
+  printed at the end of one takes the arms below it. `emit_case_body` asked
+  whether the body ends in a match by following `Let` and `LetRec` tails
+  only. `With`, `Fn` and `If` print their tails just as unguarded, so
+  `| S!n d k -> with k as _ -> match ... with | e -> ""` gave the handler's
+  next operation to the nested match. The result is a different program that
+  the formatter prints as a fixed point, so a check that only asks whether
+  formatting settles could not see it -- the daily fuzzer reported it as
+  `format:unstable` because the reparse also respelled `S!e` as `S! e`
+  (#22). An `if` with no `else` prints its *then* branch last, which is a
+  fourth shape, and all four are now followed
+
 ## [0.59.3] - 2026-09-04
 
 ### Changed

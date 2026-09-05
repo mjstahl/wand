@@ -1,0 +1,27 @@
+found:     Daily Fuzz, seed 33963161806, iteration 1238806, 2026-09-05
+reported:  format:unstable -- wand f is not idempotent here
+fixed in:  lib/formatter.ml, case_body_tail
+
+A `match`/`handle` arm body ends only where the next `|` begins, so a bare
+`match` printed at the end of one takes the arms below it. `emit_case_body`
+writes the bracket that keeps them apart, and it asked whether the body
+*ends* in a match by following Let and LetRec tails only. A `with` body is
+printed just as unguarded, and this arm was `with k as _ -> match ...`:
+
+    | S!n d k -> with k as _ ->
+    match fn () -> d with
+    | e -> ""
+    | S!e d k -> ()          <- now an arm of the inner match
+
+The handler lost its second operation to the nested match. `If` and `Fn`
+print their tails the same way and had the same hole; an `if` with no
+`else` carries a bare `Unit` and prints its *then* branch last, which is a
+fourth. All four are now followed.
+
+Instability is the symptom, not the bug. The output above is a fixed point
+of the formatter in three of the four shapes -- it is simply a different
+program, printed without complaint. What made this one report is the
+reparse respelling `S!e` as `S! e` once it was read as a pattern rather
+than an operation, so a second pass finally disagreed with the first. The
+readable shapes are held by `ok_after_format` cases in test_formatter.ml,
+each asking for the answer of an arm that comes after the one at fault.

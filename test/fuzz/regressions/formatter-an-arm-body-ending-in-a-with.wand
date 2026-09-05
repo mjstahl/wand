@@ -1,0 +1,1 @@
+handle()with|S!n d k->(with k as _->match(fn()->d)with|e->"")|S!e d k->()

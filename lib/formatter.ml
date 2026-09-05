@@ -1854,10 +1854,26 @@ and emit_if ?col indent c t el =
    (see emit_let's fallback), so `let db = ... in match ... with | ... `
    as an case body has the exact same "bare match at the end" shape once
    rendered, even though the immediate AST node is a Let. Follow the chain
-   of Let/LetRec tails to find what actually ends up printed last. *)
+   to find what actually ends up printed last.
+
+   Every form below prints its tail unguarded, and each one hid the same
+   bug. `with r as _ -> match ...` as an arm body silently gave its `|`
+   arms away to the nested match, and the arm above lost them -- a
+   different program, printed as a fixed point, so a check that only asks
+   whether formatting settles could not see it. Found by the daily fuzzer
+   under a `handle`, where the reparse also respelled a pattern and made
+   the output finally disagree with itself (#22).
+
+   An `if` with no `else` carries a bare `Unit` the parser wrote, and its
+   *then* branch is what prints last. One that was written carries a
+   location, so it does not match here. *)
 and case_body_tail e = match strip_located e with
-  | Let (_, _, e2, _)    -> case_body_tail e2
+  | Let (_, _, e2, _)     -> case_body_tail e2
   | LetRec (_, e2, _)     -> case_body_tail e2
+  | With (_, _, body)     -> case_body_tail body
+  | Fn (_, body)          -> case_body_tail body
+  | If (_, then_, Unit)   -> case_body_tail then_
+  | If (_, _, els)        -> case_body_tail els
   | e -> e
 
 and emit_case_body ?col indent body =
