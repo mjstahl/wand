@@ -260,11 +260,19 @@ spends a paragraph apologising for curl:
 
 A `Response` with a `status` field deletes that paragraph.
 
-**A body is a `String`, assumed UTF-8, never transcoded by charset.** wand
-has no `Bytes` type, and a gzip response held as a `String` is corruption
-waiting to happen. Binary goes to disk through `HTTP.download`, which makes
-`download` load-bearing rather than a convenience — its doc should say so.
-It also streams, so a 2GB artifact never becomes a value.
+**A body is a `String`, never transcoded by charset.** A wand `String` is a
+byte string — `String.length` is `String.length` on an OCaml `string`, and
+there is no UTF-8 layer in `lib/` — so the bytes of a gzip response survive
+being held in one. What does not survive is describing them: `String.length`
+counts bytes and calls them characters, `String.chars` cuts a multi-byte
+character in half, and printing the value writes rubbish to a terminal.
+
+So the reason binary goes to disk through `HTTP.download` is not that a
+`String` would corrupt it. It is that a 2GB artifact should never become a
+value at all, and that every `String` operation a caller reaches for
+afterwards would be answering about bytes while sounding like it answers
+about text. `download` streams, and is load-bearing rather than a
+convenience — its doc should say so.
 
 **Reading a body is a decoder.** No `get_json`. `HTTP.decode d response`
 mirrors `Shell.decode d out`, for the reason `Shell` already gives: the
