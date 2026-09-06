@@ -1716,7 +1716,7 @@ there is nothing extra to remember.
 | Family | Operations |
 |---|---|
 | `Shell` | `command`, `run`, `stream`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
+| `FS` | `read_file`, `stream_lines`, `write_file`, `write_lines`, `append_lines`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
 | `Hash` | `file` |
 | `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `read` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
@@ -3202,6 +3202,9 @@ list_dir     : Path -> Result String (List Path) ! {FS.Read}
 mtime        : Path -> Result String DateTime ! {FS.Read}
 size         : Path -> Result String Size ! {FS.Read}
 stream_lines : Path -> Stream {FS.Read, Raise | ..} String
+stream_lines_all : List Path -> Stream {FS.Read, Raise | ..} String
+write_lines  : Path -> Stream {Raise | ..} String -> Result String Unit ! {FS.Write | 'e}
+append_lines : Path -> Stream {Raise | ..} String -> Result String Unit ! {FS.Write | 'e}
 ```
 
 The `!` siblings return the value and carry `Raise`:
@@ -3220,6 +3223,31 @@ delete_tree! : Path -> Unit ! {FS.Write, Raise}
 list_dir!    : Path -> List Path ! {FS.Read, Raise}
 mtime!       : Path -> DateTime ! {FS.Read, Raise}
 size!        : Path -> Size ! {FS.Read, Raise}
+write_lines!  : Path -> Stream {..} String -> Unit ! {FS.Write, Raise | 'e}
+append_lines! : Path -> Stream {..} String -> Unit ! {FS.Write, Raise | 'e}
+```
+
+`stream_lines` reads and `write_lines` writes, so a read-transform-write
+loop is two calls and holds one line at a time:
+
+```ocaml
+FS.stream_lines /var/log/app.log
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> FS.write_lines! ./errors.log
+```
+
+Each sink opens the file once and writes each element on its own line.
+`write_lines` replaces what is there. `append_lines` adds to the end and
+makes the file if it is not there. Both are terminal operations: they run
+the stream, so they perform what reading the source performs as well as
+`FS.Write`. Writing a filtered log with `Stream.each` and `FS.append!`
+opens and closes the file once per line.
+
+`stream_lines_all` reads several files as one stream, and opens each one
+when the file before it runs out:
+
+```ocaml
+FS.glob *.log |> FS.stream_lines_all |> Stream.count
 ```
 
 Questions and lookups cannot fail, so they have no pair:
@@ -3322,10 +3350,19 @@ stdin_lines : Unit -> Stream {IO, Raise | ..} String
 ### `Stream`
 
 ```ocaml
-of_list   : List 'a -> Stream {..} 'a
-map       : ('a -> 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
-filter    : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
-take      : Int -> Stream {..} 'a -> Stream {..} 'a
+of_list    : List 'a -> Stream {..} 'a
+map        : ('a -> 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+filter     : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+filter_map : ('a -> Option 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+flat_map   : ('a -> List 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+take       : Int -> Stream {..} 'a -> Stream {..} 'a
+take_while : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+drop       : Int -> Stream {..} 'a -> Stream {..} 'a
+drop_while : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+indexed    : Stream {..} 'a -> Stream {..} (Int, 'a)
+scan       : ('a -> 'b -> 'a ! 'e) -> 'a -> Stream {..} 'b -> Stream {..} 'a
+chunks     : Int -> Stream {..} 'a -> Stream {..} (List 'a)
+unique     : Stream {..} 'a -> Stream {..} 'a
 fold_left : ('a -> 'b -> 'a ! 'e) -> 'a -> Stream {..} 'b -> 'a ! 'e
 each      : ('a -> 'b ! 'e) -> Stream {..} 'a -> Unit ! 'e
 to_list   : Stream {..} 'a -> List 'a ! 'e
@@ -3355,6 +3392,37 @@ FS.stream_lines /var/log/app.log
 
 `take n` stops the read after n elements. The memory and the reading are
 both bounded. `to_list` reads everything. Its name says so.
+
+`take_while` is the same gate with a predicate: it stops at the first
+element the predicate refuses. `drop` and `drop_while` skip from the front,
+and the skipped elements are still read — a stream cannot arrive at the
+tenth line without passing the nine before it.
+
+`filter_map` maps and filters in one step. A line that does not parse
+answers `None` and does not reach the fold, which is how a stream handles a
+bad line. There is no `Stream.map_ok` family: this and a `Result` in the
+accumulator cover it.
+
+`flat_map` is the one stage that emits more than it is given. A line that
+holds several records is ordinary in a log.
+
+`indexed` pairs each element with its position from zero. `scan` is a
+running `fold_left`: each element answers with the accumulator after it, and
+the starting value is not emitted, because a stage answers about an element
+and there is none before the first.
+
+`chunks n` groups elements into lists of n, and the last group holds what is
+left. Batching a write is the case for it: a thousand rows per request
+rather than one, without holding the file.
+
+**`unique` holds every distinct element it has seen.** On a source without
+an end that is memory without an end. Its cost is the number of different
+elements, not the number of elements. It is here for the same reason
+`to_list` is, and the cost is said out loud for the same reason.
+
+There is no `zip` and no `concat`. Two streams advanced in step is array
+code rather than log reading, and the concatenation people want is several
+files read as one, which `FS.stream_lines_all` does at the source.
 
 Everything below `to_list` in that list is a terminal operation too, so each
 one runs the stream. They divide by how much of the source they need.
@@ -3397,9 +3465,9 @@ with `lines`. Any other path streams as empty.
 
 #### Streaming a command
 
-`Shell.stream` is the third source. `FS.stream_lines` reads a file,
-`IO.stdin_lines` reads the program's own input, and this one reads a
-subprocess as it writes:
+`Shell.stream` is the fourth source. `FS.stream_lines` reads a file,
+`FS.stream_lines_all` reads several as one, `IO.stdin_lines` reads the
+program's own input, and this one reads a subprocess as it writes:
 
 ```ocaml
 Shell.stream $*(tail -f /var/log/app.log)
@@ -5138,6 +5206,48 @@ that has drifted.
 appear before a `--`, so `wand deploy.wand --dry-run` rehearses. A script
 that takes an argument of the same name needs the terminator:
 `wand deploy.wand -- --dry-run` runs for real and hands the flag on.
+
+### What a rehearsal does
+
+`--dry-run` withholds every change and reports it. It runs every read, so
+the script takes the path it would really take.
+
+**It remembers what it withheld.** A script that writes a file and reads it
+back reads what it wrote:
+
+```console
+$ wand --dry-run publish.wand
+would create temp directory: build_ -> /tmp/wand-dry-run-8b792a8-dir
+would write: /tmp/wand-dry-run-8b792a8-dir/manifest.json (214 bytes)
+read: /tmp/wand-dry-run-8b792a8-dir/manifest.json
+would delete recursively: /tmp/wand-dry-run-8b792a8-dir
+```
+
+The write went nowhere. The read after it answered from what the write would
+have put there, so the script ran to the end and the whole plan was
+reported. Writes, appends, deletes, renames, copies, directories, the stream
+sinks, and `Env.set` all work this way, and every read consults them:
+`read_file`, `stream_lines`, `exists?`, `file?`, `dir?`, `size`, `mtime`,
+`list_dir`, `glob`, `Hash.file`, `Env.get`. A path the rehearsal did not
+touch is read from the disk as it is.
+
+Nothing is written. The memory is the program's, and it goes when the
+program does.
+
+Four things stay different from a real run, and no rehearsal can close them:
+
+- **A withheld command changes nothing a read can see.** `$(cp a b)` is
+  reported and not run, so no read finds `b`. wand cannot model what a
+  subprocess would have done.
+- **Only the script's own changes are remembered.** The disk is read as it
+  is now, so a rehearsal beside something else writing is not a prediction.
+- **`mtime` of a file the rehearsal wrote is when it wrote it.** Nothing
+  else could be true.
+- **Permissions and ownership are not modelled.** A rehearsal answers about
+  contents and existence.
+
+`--trace` is a real run that reports. It withholds nothing and remembers
+nothing.
 
 A script can also run itself, with a shebang line and the executable bit:
 

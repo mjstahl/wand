@@ -1,109 +1,102 @@
-## 0.62.0 - 2026-09-06
+## 0.62.1 - 2026-09-06
 
-A command is a value now. `$*(cmd)` makes one and runs nothing. `Shell.run!`,
-`Shell.run` and `Shell.query` run it. `Shell.stream` reads its output one
-line at a time, which `$()` cannot do. `$()` and `$?()` are short forms for
-the functions above.
+`Stream` gets the stages between the source and the fold. `FS` gets the
+write end it never had. And `--dry-run` answers a read from what it
+withheld, so a script that writes a file and reads it back no longer fails
+in a rehearsal.
 
-### A command is a value
+### The stages
 
 ```ocaml
-uses {Shell(pg_dump, git)}
-import Shell
-
-let backup = $*(pg_dump -Fc %{db})     -- nothing has run
-
-let out = Shell.run!  backup
-let r   = Shell.query backup
-
-List.map Shell.query [$*(git fsck), $*(git gc --dry-run)]
+filter_map : ('a -> Option 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+flat_map   : ('a -> List 'b ! 'e) -> Stream {..} 'a -> Stream {..} 'b
+take_while : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+drop       : Int -> Stream {..} 'a -> Stream {..} 'a
+drop_while : ('a -> Bool ! 'e) -> Stream {..} 'a -> Stream {..} 'a
+indexed    : Stream {..} 'a -> Stream {..} (Int, 'a)
+scan       : ('a -> 'b -> 'a ! 'e) -> 'a -> Stream {..} 'b -> Stream {..} 'a
+chunks     : Int -> Stream {..} 'a -> Stream {..} (List 'a)
+unique     : Stream {..} 'a -> Stream {..} 'a
 ```
 
-```ocaml
-Shell.run!  : Command -> String               ! {Raise, Shell}
-Shell.run   : Command -> Result String String ! {Shell}
-Shell.query : Command -> ShellResult          ! {Shell}
-```
+`filter_map` maps and filters in one step. A line that does not parse
+answers `None` and never reaches the fold, which is how a stream handles a
+bad line.
 
-You can name a command, pass it to a function, and put it in a list. `$()`
-cannot do any of that. It runs the command and reads all of the output before
-a function sees a value.
+`flat_map` is the one stage that emits more than it is given. A log line
+that holds several records needs it.
 
-**No `String` becomes a `Command`.** `Shell.run! "echo %{name}"` is a type
-error. Inside a command, `%{...}` quotes the value as one argument. Inside a
-string, `%{...}` puts the text in. The two forms look almost the same on the
-page, and only the command form is safe. The quoting belongs to the syntax.
-So a command can only be built where its words are written.
+`scan` is a running `fold_left`. Each element answers with the total after
+it, so a running sum is a stream rather than a fold that keeps a list.
 
-**A command performs `Shell` when it is made.** A function that only builds
-commands carries the label. This keeps two checks on one site. `wand t` reads
-the command words where they are written, so a file that names `git` and
-never runs it still declares `Shell(git)`. The bound travels with the value:
-a command built in a `Shell(echo)` file is checked against that list wherever
-it is run.
+`chunks n` groups elements into lists of n, and the last group holds what is
+left. Batching a write is the case for it: a thousand rows per request
+rather than one, without holding the file.
 
-### Reading a command as it runs
+`unique` holds every distinct element it has seen. On a source without an
+end that is memory without an end, and the doc says so.
+
+There is no `zip` and no `concat`. Two streams advanced in step is array
+code rather than log reading, and the concatenation people want is several
+files read as one.
+
+### The write end
 
 ```ocaml
-Shell.stream $*(tail -f /var/log/app.log)
+FS.stream_lines /var/log/app.log
 |> Stream.filter (fn l -> String.contains? "ERROR" l)
-|> Stream.take 10
-|> Stream.to_list
+|> FS.write_lines! ./errors.log
 ```
 
-`$()` reads to the end of the output before it answers. So
-`$(tail -f app.log)` never returns. `kubectl logs -f` and `journalctl -f`
-behave the same way. `Shell.timeout` was the only bound on this. It kills the
-command and gives back an `Error`, and you get none of the lines.
+`FS.stream_lines` read and nothing wrote. So a filtered log was
+`Stream.each` with `FS.append!`, which opens and closes the file once per
+line. `FS.write_lines` and `FS.append_lines` open the file once and write
+each element on its own line. Both have `!` siblings.
 
-A stream pulls one line at a time. It holds one line in memory. `Stream.take`
-stops the read. `Shell.stream` is the third stream source, beside
-`FS.stream_lines` and `IO.stdin_lines`, and it follows the same rules: it
-runs nothing until a terminal operation, and folding it twice runs the
-command twice.
-
-**A stopped read stops the command.** wand sends SIGTERM. It sends SIGKILL
-five seconds later. wand signals the command it started. It does not signal
-that command's own children, so `sh -c "tail -f x"` leaves the `tail`
-running.
-
-**An early stop is not a failure.** A stream that reads to the end raises on
-a non-zero exit, as `$()` does. A stream that stops early ignores the exit
-code, because wand ended the command.
-
-**Lines can arrive in gulps.** Many commands write in 4KB blocks when the
-output is a pipe rather than a terminal, and `grep` is the common one. Ask
-the command for line buffering (`grep --line-buffered`), or wrap it:
-`$*(stdbuf -oL some-command)`.
-
-`Shell.timeout` does not bound a stream. Its deadline is for a command that
-runs to the end and hands back its output. `Stream.take` is the bound that
-fits a stream.
-
-### Handlers
-
-`Shell` carries two new operations.
+`FS.stream_lines_all` reads several files as one stream:
 
 ```ocaml
-| Shell!command c k -> k c              -- a command is made
-| Shell!stream  _ k -> k ["a", "b"]     -- a command is read as it runs
+FS.glob *.log |> FS.stream_lines_all |> Stream.count
 ```
 
-`Shell!command` carries the command line and resumes with the command line to
-use. A test can read every command a body names, including one the body never
-runs. A test can also put a different command in its place.
+It opens each file when the file before it runs out, so it holds one file
+open however many are named.
 
-A handler takes `Shell` out of a signature only when it answers every
-operation. That is six now: `command`, `run`, `stream`, `run_quiet`,
-`capture` and `exit_code`. A handler that answered the old four still works;
-it no longer removes the label.
+### A rehearsal remembers
 
-### Also
+```console
+$ wand --dry-run publish.wand
+would create temp directory: build_ -> /tmp/wand-dry-run-8b792a8-dir
+would write: /tmp/wand-dry-run-8b792a8-dir/manifest.json (214 bytes)
+read: /tmp/wand-dry-run-8b792a8-dir/manifest.json
+would delete recursively: /tmp/wand-dry-run-8b792a8-dir
+```
 
-- `$(cmd)` is `Shell.run! $*(cmd)` and `$?(cmd)` is `Shell.query $*(cmd)`.
-  No script's text changes. Each form performs two operations now, where it
-  performed one
-- A `Command` shows as it would run, with its values quoted:
-  `$*(echo 'two words')`
-- `--dry-run` reports a streamed command and gives back no lines. Making a
-  command is never held back, because the plan is printed from the value
+`--dry-run` withholds every change and runs every read. Those two contradict
+each other as soon as a script reads back what it wrote: the write was
+withheld, so the read found nothing. The rehearsal failed on a line the real
+run never fails on, and it failed after reporting two steps as though they
+had happened.
+
+A rehearsal now remembers what it withheld. Writes, appends, deletes,
+renames, copies, directories, the stream sinks and `Env.set` are all written
+down, and every read consults them: `read_file`, `stream_lines`, `exists?`,
+`file?`, `dir?`, `size`, `mtime`, `list_dir`, `glob`, `Hash.file`,
+`Env.get`, `Env.all`. A path the rehearsal did not touch is read from the
+disk as it is.
+
+Nothing is written to disk. The memory is the program's and goes when the
+program does.
+
+Four things stay different from a real run:
+
+- A withheld command changes nothing a read can see. `$(cp a b)` is
+  reported and not run, so no read finds `b`. wand cannot model what a
+  subprocess would have done.
+- Only the script's own changes are remembered.
+- `mtime` of a file the rehearsal wrote is when it wrote it.
+- Permissions and ownership are not modelled.
+
+A second report was missing for the same reason. `FS.temp_dir`'s release
+asks `exists?` first, which was false in a rehearsal, so the plan ended
+without the `would delete recursively` line that a real run performs.

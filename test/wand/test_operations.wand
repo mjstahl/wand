@@ -94,6 +94,12 @@ group "FS reads" (fn () -> [
       (handle (fn () -> (Stream.fold_left (fn a _ -> a) 0 (FS.stream_lines absent); missed)) () with
       | FS!stream_lines _ _ -> caught
       )),
+  test "FS!stream_lines via FS.stream_lines_all" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> (Stream.to_list (FS.stream_lines_all [absent]); missed)) () with
+      | FS!stream_lines _ _ -> caught
+      )),
   test "FS!list_dir" (fn t ->
     t.eq
       caught
@@ -169,6 +175,18 @@ group "FS reads" (fn () -> [
 ])
 
 group "FS writes" (fn () -> [
+  test "FS!write_lines" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.write_lines! absent (Stream.of_list ["a"]) in missed) () with
+      | FS!write_lines _ _ -> caught
+      )),
+  test "FS!append_lines" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = FS.append_lines! absent (Stream.of_list ["a"]) in missed) () with
+      | FS!append_lines _ _ -> caught
+      )),
   test "FS!write_file" (fn t ->
     t.eq
       caught

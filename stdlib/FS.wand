@@ -325,3 +325,54 @@ let glob_in pattern dir = fs_glob pattern dir
 -- ..    FS.stream_lines f |> Stream.fold_left (fn n _ -> n + 1) 0)
 -- 2 : Int
 let stream_lines p = fs_stream_lines p
+
+-- A stream of several files' lines, read as one. Each file is opened when
+-- the one before it runs out, so this holds one file open at a time
+-- however many are named.
+--
+-- `FS.glob *.log |> FS.stream_lines_all` is the case this exists for: a
+-- day of logs is one stream, not a list of streams.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let a = Path.join d ./a; let b = Path.join d ./b;
+-- ..    FS.write_file! a "1\n2"; FS.write_file! b "3";
+-- ..    FS.stream_lines_all [a, b] |> Stream.to_list)
+-- ["1", "2", "3"] : List String
+let stream_lines_all ps = fs_stream_lines_all ps
+
+-- Write a stream's elements to a file, one per line, replacing what is
+-- there. Raises on failure.
+--
+-- `FS.stream_lines` reads and this writes, so a filtered log is a read and
+-- a write rather than one `FS.append!` per line -- the file is opened once
+-- and the lines arrive as the stream produces them.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x;
+-- ..    FS.write_lines! f (Stream.of_list ["a", "b"]); FS.read_file! f)
+-- "a\nb\n" : String
+let write_lines! path s = fs_write_lines path s
+
+-- Write a stream's elements to a file, one per line, replacing what is
+-- there.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.write_lines (Path.join d ./x) (Stream.of_list ["a"])
+-- Ok(()) : Result String Unit
+let write_lines path s = try write_lines! path s
+
+-- Add a stream's elements to the end of a file, one per line. Makes the
+-- file if it is not there. Raises on failure.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "a\n";
+-- ..    FS.append_lines! f (Stream.of_list ["b"]); FS.read_file! f)
+-- "a\nb\n" : String
+let append_lines! path s = fs_append_lines path s
+
+-- Add a stream's elements to the end of a file, one per line.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.append_lines (Path.join d ./x) (Stream.of_list ["a"])
+-- Ok(()) : Result String Unit
+let append_lines path s = try append_lines! path s

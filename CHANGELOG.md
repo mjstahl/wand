@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.62.1] - 2026-09-06
+
+### Added
+
+- **`Stream` gains the stages between the source and the fold.**
+  `filter_map`, `flat_map`, `take_while`, `drop`, `drop_while`, `indexed`,
+  `scan`, `chunks` and `unique`. `filter_map` maps and filters in one step,
+  so a line that does not parse answers `None` and never reaches the fold.
+  `flat_map` is the one stage that emits more than it is given, which a log
+  line holding several records needs. `scan` is a running `fold_left`: each
+  element answers with the total after it. `chunks` groups elements into
+  lists of n, and the last group holds what is left
+- **`FS.write_lines` and `FS.append_lines`.** `FS.stream_lines` read and
+  nothing wrote, so a filtered log was one `FS.append!` per line, which
+  opens and closes the file each time. These open the file once and write
+  each element on its own line. Both have `!` siblings
+
+```
+FS.stream_lines /var/log/app.log
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> FS.write_lines! ./errors.log
+```
+
+- **`FS.stream_lines_all` reads several files as one stream.**
+  `FS.glob *.log |> FS.stream_lines_all` is the case it exists for. It opens
+  each file when the one before it runs out, so it holds one file open
+  however many are named
+
+### Fixed
+
+- **`--dry-run` answers a read from what it withheld.** A rehearsal withholds
+  changes and runs reads. So a script that wrote a file and read it back
+  failed on the read, after reporting two steps as though they had happened.
+  The rehearsal now remembers what it withheld: writes, appends, deletes,
+  renames, copies, directories, the stream sinks and `Env.set`, with every
+  read consulting them. Nothing is written to disk. A withheld command still
+  changes nothing a read can see, because wand cannot model what a
+  subprocess would have done
+- **A rehearsal reports releasing a temp directory.** The release asks
+  `exists?` first. In a rehearsal that was false, so the plan ended without
+  the `would delete recursively` line that a real run performs
+
+### Changed
+
+- **A stream stage can emit more than one element.** The driver carried at
+  most one value per item and now carries a list. The cost is under this
+  machine's noise on a fold over 200,000 lines
+
 ## [0.62.0] - 2026-09-06
 
 ### Added
@@ -2330,7 +2378,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.62.0...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.62.1...HEAD
+[0.62.1]: https://github.com/mjstahl/wand/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/mjstahl/wand/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/mjstahl/wand/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/mjstahl/wand/compare/v0.59.4...v0.60.0

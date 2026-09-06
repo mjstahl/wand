@@ -284,6 +284,11 @@ let attempt f =
   | EvalError _ as e -> Error e
   | Evaluator.Interrupted _ as e -> Error e
 
+(* A sink over an open file: one line, then a newline, and close at the end. *)
+let channel_sink oc =
+  VLineSink ((fun line -> output_string oc line; output_char oc '\n'),
+             (fun () -> close_out_noerr oc))
+
 let strip_trailing_newline s =
   let n = String.length s in
   let i = ref n in
@@ -505,6 +510,8 @@ let describe_operation name (v : value) =
   | "Shell!stream" -> Some ("read the output of", first v)
   | "FS!write_file"   -> Some ("write", with_size v)
   | "FS!append"    -> Some ("append to", with_size v)
+  | "FS!write_lines"  -> Some ("write lines to", text v)
+  | "FS!append_lines" -> Some ("append lines to", text v)
   | "FS!create_file"    -> Some ("create", text v)
   | "FS!delete"    -> Some ("delete", text v)
   | "FS!mkdir"   -> Some ("create directory", text v)
@@ -553,7 +560,7 @@ let copy_file src dst =
    and sleeps for real. *)
 let is_mutation = function
   | "Clock!sleep"
-  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_lines" | "FS!append_lines" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -758,6 +765,23 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | Error e -> Effect.Deep.discontinue k e
               | Ok (stdout, stderr, code) ->
                 Effect.Deep.continue k (shell_result stdout stderr code))
+          (* 0644, the mode the rest of `FS` writes with. The channel is
+             answered rather than the content taken, so the file is opened
+             once and the lines arrive as the stream produces them. *)
+          | WandEffect ("FS!write_lines", (VString path | VPath path)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (Out_channel.open_gen
+                              [Open_wronly; Open_creat; Open_trunc] 0o644 path)
+                     with Sys_error m -> Error ("write_lines: " ^ m)) with
+              | Ok oc   -> Effect.Deep.continue    k (channel_sink oc)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("FS!append_lines", (VString path | VPath path)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (Out_channel.open_gen
+                              [Open_wronly; Open_creat; Open_append] 0o644 path)
+                     with Sys_error m -> Error ("append_lines: " ^ m)) with
+              | Ok oc   -> Effect.Deep.continue    k (channel_sink oc)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!read_file", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (In_channel.with_open_text path In_channel.input_all)
@@ -1596,6 +1620,363 @@ let stdlib_module_source_and_defs name :
 
 (* ── Run a parsed program ─────────────────────────────────────────────────── *)
 
+(* ── What a rehearsal remembers ───────────────────────────────────────────── *)
+
+(* A rehearsal withholds a change and reports it, and it runs reads for real
+   so the script takes the path it would really take. Those two together are
+   a contradiction the moment a script reads back what it wrote: the write
+   was withheld, so the read finds nothing, and the rehearsal fails on a line
+   the real run never fails on -- after reporting two steps as though they
+   had happened.
+
+   So a rehearsal remembers what it withheld, and answers later reads from
+   that memory before it looks at the disk. A path this does not name is not
+   known to it and the read goes to the disk, which is what keeps the rest of
+   the tree honest.
+
+   It is not a sandbox and must not become one. Nothing is intercepted here
+   that was not intercepted before; this only decides what a withheld
+   operation answers with. It lives beside the rehearsal rather than in the
+   default handler, because the default handler is the one implementation of
+   each operation and a rehearsal must not own a second one.
+
+   The contents are in memory. A rehearsal of a script that writes a large
+   file holds that file, which is the cost of answering the read after it.
+   The alternative is a scratch tree on disk, and writing to disk is the one
+   thing a rehearsal promises not to do. *)
+type remembered =
+  | RFile of string * float     (* contents, and when the rehearsal wrote it *)
+  | RDir
+  | RGone
+
+type overlay = {
+  paths : (string, remembered) Hashtbl.t;
+  vars  : (string, string option) Hashtbl.t;   (* None: cleared *)
+}
+
+let new_overlay () = { paths = Hashtbl.create 16; vars = Hashtbl.create 8 }
+
+(* The rehearsal in progress, or None during a real run. One per run, and
+   the rehearsal's handler is the only reader and writer. *)
+let rehearsal : overlay option ref = ref None
+
+let with_overlay f = match !rehearsal with None -> () | Some o -> f o
+
+(* Trailing slashes make two spellings of one directory, and a path built by
+   `Path.join` and one written as a literal have to agree. *)
+let normal p =
+  let n = String.length p in
+  if n > 1 && p.[n - 1] = '/' then String.sub p 0 (n - 1) else p
+
+let under ~dir p =
+  let dir = normal dir and p = normal p in
+  String.length p > String.length dir + 1
+  && String.sub p 0 (String.length dir + 1) = dir ^ "/"
+
+let remember_file o p contents =
+  Hashtbl.replace o.paths (normal p) (RFile (contents, Unix.gettimeofday ()))
+
+let rec remember_dir o p =
+  let p = normal p in
+  if p <> "" && p <> "/" && not (Hashtbl.mem o.paths p) then begin
+    Hashtbl.replace o.paths p RDir;
+    remember_dir o (Filename.dirname p)
+  end
+
+let forget_path o p = Hashtbl.replace o.paths (normal p) RGone
+
+(* What a path holds now: the overlay's answer, or the disk's, or nothing.
+   A rehearsal reads the disk through the same calls a real run makes. *)
+let contents_of o p =
+  match Hashtbl.find_opt o.paths (normal p) with
+  | Some (RFile (c, _)) -> Some c
+  | Some RDir -> None
+  | Some RGone -> None
+  | None ->
+    (try Some (In_channel.with_open_text p In_channel.input_all)
+     with Sys_error _ -> None)
+
+let remember_delete_tree o p =
+  let p = normal p in
+  Hashtbl.iter (fun k _ -> if under ~dir:p k then Hashtbl.replace o.paths k RGone)
+    (Hashtbl.copy o.paths);
+  Hashtbl.replace o.paths p RGone
+
+(* Every file under a real directory, so a copied tree can be read back. A
+   rehearsal walks it once; a real copy would have read the same files. *)
+let rec real_files dir =
+  match Sys.readdir dir with
+  | entries ->
+    Array.to_list entries
+    |> List.concat_map (fun e ->
+         let p = Filename.concat dir e in
+         if (try Sys.is_directory p with Sys_error _ -> false)
+         then real_files p else [p])
+  | exception Sys_error _ -> []
+
+(* One withheld operation, written into the overlay. Every case here is a
+   case `is_mutation` withholds; anything it does not withhold really
+   happens and needs no memory of its own. *)
+let remember_change name (v : value) =
+  with_overlay (fun o ->
+    let path = function
+      | VPath p | VString p -> Some p
+      | _ -> None
+    in
+    match name, v with
+    | "FS!write_file", VTuple [p; VString content] ->
+      (match path p with Some p -> remember_file o p content | None -> ())
+    | "FS!append", VTuple [p; VString content] ->
+      (match path p with
+       | Some p ->
+         let before = match contents_of o p with Some c -> c | None -> "" in
+         remember_file o p (before ^ content)
+       | None -> ())
+    | "FS!create_file", p ->
+      (match path p with
+       | Some p -> if contents_of o p = None then remember_file o p ""
+       | None -> ())
+    | "FS!delete", p ->
+      (match path p with Some p -> forget_path o p | None -> ())
+    | "FS!delete_tree", p ->
+      (match path p with Some p -> remember_delete_tree o p | None -> ())
+    | "FS!mkdir", p ->
+      (match path p with Some p -> remember_dir o p | None -> ())
+    | "FS!rename", VTuple [a; b] ->
+      (match path a, path b with
+       | Some a, Some b ->
+         (match contents_of o a with
+          | Some c -> remember_file o b c
+          | None -> remember_dir o b);
+         forget_path o a
+       | _ -> ())
+    | "FS!copy", VTuple [a; b] ->
+      (match path a, path b with
+       | Some a, Some b ->
+         (match contents_of o a with Some c -> remember_file o b c | None -> ())
+       | _ -> ())
+    | "FS!copy_tree", VTuple [a; b] ->
+      (match path a, path b with
+       | Some a, Some b ->
+         remember_dir o b;
+         List.iter (fun f ->
+           let rest =
+             String.sub f (String.length (normal a) + 1)
+               (String.length f - String.length (normal a) - 1) in
+           match contents_of o f with
+           | Some c -> remember_file o (Filename.concat b rest) c
+           | None -> ()) (real_files a)
+       | _ -> ())
+    | "Env!set", VTuple [VString name; VString value] ->
+      Hashtbl.replace o.vars name (Some value)
+    | "Env!clear", VString name -> Hashtbl.replace o.vars name None
+    | _ -> ())
+
+(* What a read answers during a rehearsal, when the overlay knows about the
+   path. `None` means it does not, and the operation goes to the default
+   handler and reads the disk.
+
+   Every read is answered here, whether or not it was withheld -- reads are
+   never withheld, so this is the only place a rehearsal's own writes can
+   become visible. *)
+let overlay_read name (v : value) : (value, string) result option =
+  match !rehearsal with
+  | None -> None
+  | Some o ->
+    let path = function
+      | VPath p | VString p -> Some (normal p)
+      | _ -> None
+    in
+    let known p = Hashtbl.find_opt o.paths p in
+    (* A directory the overlay made, or one holding a file it made. *)
+    let is_dir p =
+      match known p with
+      | Some RDir -> Some true
+      | Some (RFile _) -> Some false
+      | Some RGone -> Some false
+      | None ->
+        if Hashtbl.fold (fun k e found ->
+             found || (e <> RGone && under ~dir:p k)) o.paths false
+        then Some true else None
+    in
+    let missing p = Error (Printf.sprintf "%s: No such file or directory" p) in
+    let bool_answer b = Some (Ok (VBool b)) in
+    match name, path v, v with
+    | ("FS!read_file" | "FS!stream_lines"), Some p, _ ->
+      (match known p with
+       | Some (RFile (c, _)) ->
+         Some (Ok (if name = "FS!read_file" then VString c
+                   else VList (List.map (fun l -> VString l)
+                                 (String.split_on_char '\n'
+                                    (if c <> "" && c.[String.length c - 1] = '\n'
+                                     then String.sub c 0 (String.length c - 1)
+                                     else c)
+                                  |> fun ls -> if c = "" then [] else ls))))
+       | Some RGone -> Some (missing p)
+       | Some RDir -> Some (Error (Printf.sprintf "%s: Is a directory" p))
+       | None -> None)
+    | "Hash!file", _, VTuple [VString algo; p] ->
+      (match path p with
+       | Some p ->
+         (match known p with
+          | Some (RFile (c, _)) -> Some (Ok (VString (hash_string_hex algo c)))
+          | Some RGone -> Some (missing p)
+          | _ -> None)
+       | None -> None)
+    | "FS!exists?", Some p, _ ->
+      (match known p with
+       | Some RGone -> bool_answer false
+       | Some _ -> bool_answer true
+       | None -> (match is_dir p with Some true -> bool_answer true | _ -> None))
+    | "FS!file?", Some p, _ ->
+      (match known p with
+       | Some (RFile _) -> bool_answer true
+       | Some (RDir | RGone) -> bool_answer false
+       | None -> None)
+    | "FS!dir?", Some p, _ ->
+      (match known p with
+       | Some RGone | Some (RFile _) -> bool_answer false
+       | Some RDir -> bool_answer true
+       | None -> (match is_dir p with Some d -> bool_answer d | None -> None))
+    | "FS!size", Some p, _ ->
+      (match known p with
+       | Some (RFile (c, _)) ->
+         Some (Ok (VSize (Printf.sprintf "%dB" (String.length c))))
+       | Some RGone -> Some (missing p)
+       | _ -> None)
+    (* The moment the rehearsal wrote it. Nothing else could be true: the
+       real run has not happened. *)
+    | "FS!mtime", Some p, _ ->
+      (match known p with
+       | Some (RFile (_, at)) ->
+         let tm = Unix.gmtime at in
+         Some (Ok (VDateTime (Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+           (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1) tm.Unix.tm_mday
+           tm.Unix.tm_hour tm.Unix.tm_min tm.Unix.tm_sec)))
+       | Some RGone -> Some (missing p)
+       | _ -> None)
+    (* The disk's entries and the overlay's together, minus what it says is
+       gone. A rehearsal that writes three files and lists the directory
+       sees three more entries than the disk has, which is what the real run
+       would see. *)
+    | "FS!list_dir", Some p, _ ->
+      (match known p with
+       | Some RGone -> Some (missing p)
+       | _ ->
+         let real =
+           match Sys.readdir p with
+           | entries -> Array.to_list entries |> List.map (Filename.concat p)
+           | exception Sys_error _ -> []
+         in
+         let added =
+           Hashtbl.fold (fun k e acc ->
+             if e <> RGone && Filename.dirname k = p then k :: acc else acc)
+             o.paths []
+         in
+         let gone k = Hashtbl.find_opt o.paths (normal k) = Some RGone in
+         let all =
+           List.sort_uniq compare
+             (List.filter (fun k -> not (gone k)) real @ added) in
+         if real = [] && added = [] && is_dir p = None then None
+         else Some (Ok (VList (List.map (fun p -> VPath p) all))))
+    (* A glob is a read of a directory, so it answers with the disk's matches
+       and the overlay's together. Matching is the same compile the walk
+       uses, against the path relative to the base, so a pattern cannot mean
+       one thing on disk and another here. *)
+    | "FS!glob", _, VTuple [pattern; dir] ->
+      let pat = match pattern with
+        | VGlob g | VString g -> Some g | _ -> None in
+      let base = match dir with
+        | VPath d | VString d -> Some (normal d) | _ -> None in
+      (match pat, base with
+       | Some pat, Some base when Hashtbl.length o.paths > 0 ->
+         (match Evaluator.glob_compile pat with
+          | Error _ -> None
+          | Ok re ->
+            let real =
+              match List.assoc "fs_glob_impl" Evaluator.stdlib_eval_env with
+              | VBuiltin f ->
+                (match f pattern with
+                 | VBuiltin g -> (match g dir with VList vs -> vs | _ -> [])
+                 | _ -> [])
+              | _ -> []
+            in
+            let gone p = Hashtbl.find_opt o.paths (normal p) = Some RGone in
+            let kept =
+              List.filter (function VPath p -> not (gone p) | _ -> true) real in
+            let added =
+              Hashtbl.fold (fun k e acc ->
+                match e with
+                | RFile _ when under ~dir:base k ->
+                  let rel =
+                    String.sub k (String.length base + 1)
+                      (String.length k - String.length base - 1) in
+                  if Re.execp re rel then VPath k :: acc else acc
+                | _ -> acc) o.paths []
+            in
+            let seen = List.filter_map
+                         (function VPath p -> Some p | _ -> None) kept in
+            let fresh =
+              List.filter (function VPath p -> not (List.mem p seen) | _ -> true)
+                added in
+            Some (Ok (VList (kept @ List.sort compare fresh))))
+       | _ -> None)
+    (* The environment has the same hole: `Env!set` is withheld, so a script
+       that sets a variable and reads it back was told what the shell had.
+       Same overlay, same rule. *)
+    | "Env!get", _, VString name ->
+      (match Hashtbl.find_opt o.vars name with
+       | Some (Some v) -> Some (Ok (VString v))
+       | Some None -> Some (Error ("env: variable not set: " ^ name))
+       | None -> None)
+    | "Env!all", _, VUnit ->
+      if Hashtbl.length o.vars = 0 then None
+      else
+        let real =
+          Array.to_list (Unix.environment ())
+          |> List.filter_map (fun s ->
+               match String.index_opt s '=' with
+               | Some i -> Some (String.sub s 0 i,
+                                 String.sub s (i + 1) (String.length s - i - 1))
+               | None -> None)
+        in
+        let changed = Hashtbl.fold (fun k v acc -> (k, v) :: acc) o.vars [] in
+        let kept =
+          List.filter (fun (k, _) -> not (List.mem_assoc k changed)) real
+          @ List.filter_map (fun (k, v) ->
+              match v with Some v -> Some (k, v) | None -> None) changed
+        in
+        Some (Ok (VList (List.map (fun (k, v) ->
+          VTuple [VString k; VString v]) (List.sort compare kept))))
+    | _ -> None
+
+(* A rehearsal answers a request for a temp file or directory with a name
+   rather than a file, so the overlay learns the name it handed out. Without
+   this a script that makes a scratch directory and asks whether it is there
+   is told no. *)
+let remember_substitute name (sub : (value * string) option) =
+  with_overlay (fun o ->
+    match name, sub with
+    | "FS!temp_dir", Some (VPath p, _) -> remember_dir o p
+    | "FS!temp_file", Some (VPath p, _) -> remember_file o p ""
+    | _ -> ())
+
+(* What a withheld sink answers with: a sink that collects the lines and
+   writes them into the overlay when the stream ends. The stream is still
+   run, so the source is still read and the stages still perform what they
+   perform -- a rehearsal reports the reads under a write, as it always
+   has. *)
+let substitute_sink name (v : value) : value option =
+  match !rehearsal, name, v with
+  | Some o, ("FS!write_lines" | "FS!append_lines"), (VPath p | VString p) ->
+    let buf = Buffer.create 256 in
+    if name = "FS!append_lines" then
+      (match contents_of o p with Some c -> Buffer.add_string buf c | None -> ());
+    Some (VLineSink
+            ((fun line -> Buffer.add_string buf line; Buffer.add_char buf '\n'),
+             (fun () -> remember_file o p (Buffer.contents buf))))
+  | _ -> None
+
 (* Wraps a program in the chosen mode. The mode handler sits inside the
    default one, so an operation it decides to allow is simply performed
    again and carried out as usual -- there is one implementation of each
@@ -1603,6 +1984,7 @@ let stdlib_module_source_and_defs name :
    them. *)
 let run_in_mode mode (thunk : unit -> value) : value =
   current_mode := mode;
+  rehearsal := (if mode = DryRun then Some (new_overlay ()) else None);
   match mode with
   | Normal -> run_with_default_handler thunk
   | Trace | DryRun ->
@@ -1633,13 +2015,27 @@ let run_in_mode mode (thunk : unit -> value) : value =
                         | None -> report "would %s: %s\n" verb what)
                      else report "%s: %s\n" verb what
                    | None -> ());
-                  if withhold then
-                    match substitute with
-                    | Some (v, _) -> Effect.Deep.continue k v
-                    | None        -> Effect.Deep.continue k VUnit
+                  if withhold then begin
+                    (* Withheld, so nothing outside the program changed --
+                       and the rehearsal writes down what it would have
+                       been, so the reads after it answer as the real run
+                       would. *)
+                    remember_change name v;
+                    remember_substitute name substitute;
+                    match substitute_sink name v, substitute with
+                    | Some sink, _ -> Effect.Deep.continue k sink
+                    | None, Some (v, _) -> Effect.Deep.continue k v
+                    | None, None        -> Effect.Deep.continue k VUnit
+                  end
                   else
-                    (* Hand it to the default handler, which owns the real
-                       behaviour. *)
+                    (* A read of something the rehearsal already changed is
+                       answered from what it remembers. Anything it does not
+                       know goes to the default handler, which owns the real
+                       behaviour and reads the real disk. *)
+                    match overlay_read name v with
+                    | Some (Ok result) -> Effect.Deep.continue k result
+                    | Some (Error m) -> Effect.Deep.discontinue k (EvalError m)
+                    | None ->
                     match (try Ok (Effect.perform (WandEffect (name, v)))
                            with EvalError m -> Error m) with
                     | Ok result -> Effect.Deep.continue    k result

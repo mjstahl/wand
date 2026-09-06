@@ -164,3 +164,88 @@ let max s = _reduce (fn a b -> if b > a then b else a) s
 -- >> Stream.of_list [3, 1, 2] |> Stream.min
 -- Some(1) : Option Int
 let min s = _reduce (fn a b -> if b < a then b else a) s
+
+-- Transform each element and keep the answers that are there. One step
+-- where a `map` and a `filter` are two.
+--
+-- A line that does not parse is `None` and does not reach the fold, which
+-- is how a stream handles a bad line: there is no Result-aware family
+-- here, because this and a `Result` in the accumulator cover it.
+--
+-- >> Stream.of_list [1, 2, 3, 4]
+-- ..   |> Stream.filter_map (fn x -> if x % 2 == 0 then Some(x * 10) else None)
+-- ..   |> Stream.to_list
+-- [20, 40] : List Int
+let filter_map f s = stream_filter_map f s
+
+-- Transform each element into several, and pass each of them on. The one
+-- stage that can emit more than it is given.
+--
+-- >> Stream.of_list ["a b", "c"]
+-- ..   |> Stream.flat_map (fn l -> String.split " " l)
+-- ..   |> Stream.to_list
+-- ["a", "b", "c"] : List String
+let flat_map f s = stream_flat_map f s
+
+-- Pass elements while the predicate holds, and stop at the first one it
+-- refuses. The source stops being read there, as it does for `take`.
+--
+-- >> Stream.of_list [1, 2, 9, 3] |> Stream.take_while (fn x -> x < 5)
+-- ..   |> Stream.to_list
+-- [1, 2] : List Int
+let take_while f s = stream_take_while f s
+
+-- Skip the first n elements. They are read and thrown away: a stream has
+-- no way to arrive at the n+1th without passing the ones before it.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.drop 2 |> Stream.to_list
+-- [3] : List Int
+let drop n s = stream_drop n s
+
+-- Skip elements while the predicate holds, then pass every one after.
+-- Once it has stopped dropping it does not start again.
+--
+-- The header of a file is the case: drop while a line is a comment.
+--
+-- >> Stream.of_list [1, 2, 9, 1] |> Stream.drop_while (fn x -> x < 5)
+-- ..   |> Stream.to_list
+-- [9, 1] : List Int
+let drop_while f s = stream_drop_while f s
+
+-- Pair each element with its position, counting from zero.
+--
+-- >> Stream.of_list ["a", "b"] |> Stream.indexed |> Stream.to_list
+-- [(0, "a"), (1, "b")] : List (Int, String)
+let indexed s = stream_indexed s
+
+-- A running total: each element answers with the accumulator after it.
+--
+-- `fold_left` gives the last answer and this gives all of them, so a
+-- running sum is a stream rather than a fold that keeps a list. The
+-- starting value is not emitted: a stage answers about an element, and
+-- before the first element there is none.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.scan (fn a x -> a + x) 0
+-- ..   |> Stream.to_list
+-- [1, 3, 6] : List Int
+let scan f init s = stream_scan f init s
+
+-- Group elements into lists of n. The last group is what is left, so it
+-- can hold fewer than n.
+--
+-- Batching is the case: a thousand rows written per request rather than
+-- one, without holding the whole file.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.chunks 2 |> Stream.to_list
+-- [[1, 2], [3]] : List (List Int)
+let chunks n s = stream_chunks n s
+
+-- Pass an element the first time it is seen, and never again.
+--
+-- **This holds every distinct element it has seen.** On a source without
+-- an end that is memory without an end. It is bounded by how many
+-- different elements arrive, not by how many arrive.
+--
+-- >> Stream.of_list [1, 2, 1, 3] |> Stream.unique |> Stream.to_list
+-- [1, 2, 3] : List Int
+let unique s = stream_unique s

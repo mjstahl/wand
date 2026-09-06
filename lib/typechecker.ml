@@ -261,7 +261,7 @@ let operations : operation list =
                        "JSON.read_file!"; "CSV.read_file"; "CSV.read_file!";
                        "TOML.read_file"; "TOML.read_file!"; "Env.read!"] };
     { op_name = "FS!stream_lines"; op_effect = FsRead; op_types = t path (TList str);
-      op_performers = ["FS.stream_lines"] };
+      op_performers = ["FS.stream_lines"; "FS.stream_lines_all"] };
     (* The algorithm rides along with the path, so a handler that mocks this
        answers per file rather than per file and algorithm. *)
     { op_name = "Hash!file"; op_effect = FsRead;
@@ -285,6 +285,14 @@ let operations : operation list =
     { op_name = "FS!cwd"; op_effect = FsRead; op_types = t TUnit path;
       op_performers = ["FS.cwd"] };
     (* Writing. *)
+    (* Opening a file to write a stream into it. One operation per open, as
+       reading has: the lines go through the channel it answers with, so a
+       trace shows the file once rather than once per line. A handler that
+       answers `k ()` sends them nowhere. *)
+    { op_name = "FS!write_lines"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.write_lines"; "FS.write_lines!"] };
+    { op_name = "FS!append_lines"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.append_lines"; "FS.append_lines!"] };
     { op_name = "FS!write_file"; op_effect = FsWrite;
       op_types = t (TTuple [path; str]) TUnit;
       op_performers = ["FS.write_file"; "FS.write_file!"] };
@@ -3660,6 +3668,29 @@ let stdlib_type_env : env = [
        (Effect_set.EffSet.of_list [Effect_set.Shell; Effect_set.Raise],
         Some (Effect_set.fresh_var ())) in
    generalize [] (TFun (TCommand, TStream (r, TString), Effect_set.pure)));
+  (* Several files as one stream. The row is the single-file one: it opens
+     the same way, once per file. *)
+  ("fs_stream_lines_all",
+   let r = Effect_set.Set
+       (Effect_set.EffSet.of_list [Effect_set.FsRead; Effect_set.Raise],
+        Some (Effect_set.fresh_var ())) in
+   generalize [] (TFun (TList TPath, TStream (r, TString), Effect_set.pure)));
+  (* The sinks. A terminal operation, so the stream's own effects join what
+     writing performs: reading the source happens inside the write. *)
+  ("fs_write_lines",
+   let e = Effect_set.unknown () in
+   let with_write = Effect_set.add Effect_set.Raise
+                      (Effect_set.add Effect_set.FsWrite e) in
+   generalize []
+     (TFun (TPath, TFun (TStream (e, TString), TUnit, with_write),
+            Effect_set.pure)));
+  ("fs_append_lines",
+   let e = Effect_set.unknown () in
+   let with_write = Effect_set.add Effect_set.Raise
+                      (Effect_set.add Effect_set.FsWrite e) in
+   generalize []
+     (TFun (TPath, TFun (TStream (e, TString), TUnit, with_write),
+            Effect_set.pure)));
   ("fs_stream_lines",
    let r = Effect_set.Set
        (Effect_set.EffSet.of_list [Effect_set.FsRead; Effect_set.Raise],
@@ -3688,6 +3719,66 @@ let stdlib_type_env : env = [
      (TFun (TFun (a, TBool, e),
             TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
             Effect_set.pure)));
+  ("stream_filter_map",
+   let a = fresh () and b = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TFun (a, TApp (TName "Option", b), e),
+            TFun (TStream (e, a), TStream (e, b), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_flat_map",
+   let a = fresh () and b = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TFun (a, TList b, e),
+            TFun (TStream (e, a), TStream (e, b), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_take_while",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TFun (a, TBool, e),
+            TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_drop_while",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TFun (a, TBool, e),
+            TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_drop",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TInt,
+            TFun (TStream (e, a), TStream (e, a), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_indexed",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TStream (e, a), TStream (e, TTuple [TInt; a]), Effect_set.pure)));
+  ("stream_scan",
+   let acc = fresh () and a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TFun (acc, TFun (a, acc, e), e),
+            TFun (acc, TFun (TStream (e, a), TStream (e, acc), Effect_set.pure),
+                  Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_chunks",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TInt,
+            TFun (TStream (e, a), TStream (e, TList a), Effect_set.pure),
+            Effect_set.pure)));
+  ("stream_unique",
+   let a = fresh () in
+   let e = Effect_set.unknown () in
+   generalize []
+     (TFun (TStream (e, a), TStream (e, a), Effect_set.pure)));
   ("stream_take",
    let a = fresh () in
    let e = Effect_set.unknown () in

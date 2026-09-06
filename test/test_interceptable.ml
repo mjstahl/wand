@@ -30,42 +30,57 @@ let scheme_type (s : Typechecker.scheme) =
 
 (* A builtin is interceptable when evaluating it performs an effect. A
    wrong-typed argument is usually enough to find out, since performing
-   mostly happens before any argument is inspected -- but not always:
-   `shell_run` reads the bound out of the `Command` it is handed to decide
-   what the spawn is checked against, so it has to be given one. Each
-   stand-in is tried in turn, and a builtin that performs under any of them
-   is interceptable. *)
+   mostly happens before any argument is inspected -- but not always.
+   `shell_run` reads the bound out of the `Command` it is handed, to decide
+   what the spawn is checked against. `fs_write_lines` reads its path and
+   its stream before it opens anything.
+
+   So each argument is tried as each stand-in, in every combination, and a
+   builtin that performs under any of them is interceptable. The lists are
+   short and the arities are small, so the whole sweep is a few thousand
+   applications. *)
 let stand_ins =
-  [Evaluator.VString ""; Evaluator.VCommand ("", None)]
+  [ Evaluator.VString "";
+    Evaluator.VCommand ("", None);
+    Evaluator.VStream { Evaluator.s_source = Evaluator.SVals []; s_stages = [] } ]
+
+(* Every list of `n` stand-ins. *)
+let rec argument_lists n =
+  if n = 0 then [[]]
+  else List.concat_map (fun rest -> List.map (fun a -> a :: rest) stand_ins)
+         (argument_lists (n - 1))
 
 let performs_an_effect name arity =
   let v = List.assoc_opt name Evaluator.stdlib_eval_env in
   match v with
   | None -> None
   | Some v ->
-    let rec apply ?(arg = Evaluator.VString "") v n =
-      if n = 0 then v
-      else match v with
-        | Evaluator.VBuiltin f -> apply ~arg (f arg) (n - 1)
-        | other -> other
+    let rec apply v args =
+      match args with
+      | [] -> v
+      | a :: rest ->
+        (match v with
+         | Evaluator.VBuiltin f -> apply (f a) rest
+         | other -> other)
     in
     (* Run under a handler that answers any effect, so a builtin that
        performs is detected rather than crashing the test. *)
     let performed = ref false in
-    List.iter (fun arg ->
-    (try
-       ignore (Effect.Deep.match_with (fun () -> apply ~arg v arity) ()
-         { Effect.Deep.
-             retc = (fun x -> x);
-             exnc = (fun _ -> Evaluator.VUnit);
-             effc = (fun (type a) (eff : a Effect.t) ->
-               match eff with
-               | Evaluator.WandEffect _ ->
-                 performed := true;
-                 Some (fun (_ : (a, Evaluator.value) Effect.Deep.continuation) ->
-                   Evaluator.VUnit)
-               | _ -> None) })
-     with _ -> ())) stand_ins;
+    List.iter (fun args ->
+      if not !performed then
+      (try
+         ignore (Effect.Deep.match_with (fun () -> apply v args) ()
+           { Effect.Deep.
+               retc = (fun x -> x);
+               exnc = (fun _ -> Evaluator.VUnit);
+               effc = (fun (type a) (eff : a Effect.t) ->
+                 match eff with
+                 | Evaluator.WandEffect _ ->
+                   performed := true;
+                   Some (fun (_ : (a, Evaluator.value) Effect.Deep.continuation) ->
+                     Evaluator.VUnit)
+                 | _ -> None) })
+       with _ -> ())) (argument_lists arity);
     Some !performed
 
 let test_effectful_builtins_are_interceptable () =

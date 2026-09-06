@@ -158,6 +158,11 @@ wand --dry-run script.wand  # report what it would change, without doing it
 wand script.wand            # the real run
 ```
 
+A rehearsal (`--dry-run`) withholds every change, reports it, and remembers
+it: reads after a write answer from what the write would have put there, so
+the script follows the path a real run would take. A withheld command
+changes nothing a read can see.
+
 Never write effect annotations by hand. `wand t` tells you the manifest line
 to add, and `wand t --fix` applies it (with any other carried fixes) in
 place. `--dry-run` comes before any real run of a script that writes or
@@ -309,7 +314,9 @@ Big files stream instead of loading (and `Shell.stream` reads a command the
 same way): `FS.stream_lines log |>
 Stream.filter p |> Stream.fold_left f init` — a stream reads nothing
 until the fold runs it (folding again re-reads), and a missing file
-raises at the fold, caught with `try`.
+raises at the fold, caught with `try`. `FS.stream_lines_all` reads several
+files as one; `FS.write_lines!` and `FS.append_lines!` are the write end,
+and open the file once.
 
 Tests are wand files named `test_*.wand`:
 

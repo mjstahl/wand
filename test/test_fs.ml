@@ -210,16 +210,140 @@ let test_a_rehearsal_names_a_fresh_directory () =
     if contains out "/tmp/wand-dry-run-dir" then
       Alcotest.failf "the rehearsal still names a fixed path:\n%s" out;
     (* The report says what it substituted, and the script printed what it
-       was given: the same name has to appear twice. *)
+       was given: the same name has to appear twice. The third line is the
+       bracket releasing it -- the rehearsal remembers the directory it
+       said it would create, so `exists?` is true and the release runs, as
+       it would in a real run. *)
     match String.split_on_char '\n' (String.trim out) with
-    | [reported; printed] ->
+    | [reported; printed; released] ->
       if not (contains reported printed) then
         Alcotest.failf "the report and the value disagree:\n%s" out;
+      if not (contains released printed) then
+        Alcotest.failf "the release names a different directory:\n%s" out;
+      if not (contains released "would delete recursively") then
+        Alcotest.failf "the release was not reported:\n%s" out;
       if Sys.file_exists printed then
         Alcotest.failf "the rehearsal created %s" printed
     | _ -> Alcotest.failf "unexpected rehearsal output:\n%s" out) [first; second];
   if first = second then
     Alcotest.failf "two rehearsals were handed the same name:\n%s" first
+
+(* A rehearsal answers a read from what it withheld, so a script that reads
+   back what it wrote takes the path it would really take. Before this it
+   failed on the read -- late, after reporting two steps as though they had
+   happened, which is the one thing a rehearsal is for. *)
+
+let rehearsal_answers label script expected =
+  let out = rehearse script in
+  if not (contains out expected) then
+    Alcotest.failf "%s: expected %S in the rehearsal:\n%s" label expected out
+
+let test_a_rehearsal_reads_back_what_it_wrote () =
+  rehearsal_answers "a file written and read"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+with FS.temp_dir "ex_" as d -> (
+  let f = Path.join d ./x;
+  FS.write_file! f "hi";
+  IO.println (FS.read_file! f))|}
+    "hi";
+  rehearsal_answers "an append onto it"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+with FS.temp_dir "ex_" as d -> (
+  let f = Path.join d ./x;
+  FS.write_file! f "a";
+  FS.append! f "b";
+  IO.println (FS.read_file! f))|}
+    "ab";
+  rehearsal_answers "a question about it"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+with FS.temp_dir "ex_" as d -> (
+  let f = Path.join d ./x;
+  FS.write_file! f "hi";
+  IO.println "%{FS.exists? f} %{FS.size! f}")|}
+    "true 2B";
+  rehearsal_answers "a deleted file is gone"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+with FS.temp_dir "ex_" as d -> (
+  let f = Path.join d ./x;
+  FS.write_file! f "hi";
+  FS.delete! f;
+  IO.println "%{FS.exists? f}")|}
+    "false";
+  rehearsal_answers "a listing shows what was written"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import List
+import Path
+with FS.temp_dir "ex_" as d -> (
+  FS.write_file! (Path.join d ./a) "1";
+  FS.write_file! (Path.join d ./b) "2";
+  IO.println "%{List.length (FS.list_dir! d)}")|}
+    "2";
+  rehearsal_answers "a stream reads it back"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+import Stream
+with FS.temp_dir "ex_" as d -> (
+  let f = Path.join d ./x;
+  FS.write_lines! f (Stream.of_list ["a", "b"]);
+  IO.println "%{Stream.to_list (FS.stream_lines f)}")|}
+    {|["a", "b"]|};
+  rehearsal_answers "a glob sees what was written"
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import List
+import Path
+with FS.temp_dir "ex_" as d -> (
+  FS.write_file! (Path.join d ./a.log) "1";
+  FS.write_file! (Path.join d ./b.log) "2";
+  FS.write_file! (Path.join d ./c.txt) "3";
+  IO.println "%{List.length (FS.glob_in *.log d)}")|}
+    "2";
+  rehearsal_answers "a variable set and read"
+    {|uses {Env, IO}
+import Env
+import IO
+import Option
+Env.set "WAND_REHEARSAL_TEST" "x"
+IO.println (Option.default "unset" (Env.get "WAND_REHEARSAL_TEST"))|}
+    "x"
+
+(* And nothing it remembers reaches the disk. *)
+let test_a_rehearsal_writes_nothing () =
+  let dir = Filename.temp_file "wand_rehearsal" "" in
+  Sys.remove dir;
+  let target = Filename.concat dir "x" in
+  let out =
+    rehearse (Printf.sprintf
+      {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+FS.mkdir! %s
+FS.write_file! %s "hi"
+IO.println (FS.read_file! %s)|} dir target target)
+  in
+  if not (contains out "hi") then
+    Alcotest.failf "the rehearsal did not answer the read:\n%s" out;
+  if Sys.file_exists dir then
+    Alcotest.failf "the rehearsal created %s" dir;
+  if Sys.file_exists target then
+    Alcotest.failf "the rehearsal created %s" target
 
 (* ── Suite ─────────────────────────────────────────────────────────────── *)
 
@@ -239,6 +363,10 @@ let () =
     "a rehearsal", [
       Alcotest.test_case "names a fresh directory" `Quick
         test_a_rehearsal_names_a_fresh_directory;
+      Alcotest.test_case "reads back what it wrote" `Quick
+        test_a_rehearsal_reads_back_what_it_wrote;
+      Alcotest.test_case "writes nothing" `Quick
+        test_a_rehearsal_writes_nothing;
     ];
     "how a file is created", [
       Alcotest.test_case "write_file asks for 0644" `Quick

@@ -163,6 +163,16 @@ type value =
      was satisfied did not fail, so its exit status is wand's own signal
      coming back and is not reported. Runtime-internal, like VLineSource. *)
   | VProcSource    of (unit -> value option) * (bool -> unit)
+  (* Where a stream's lines go: write one, and close when they stop. The
+     answer a `FS!write_lines`-family effect resumes with, the way
+     `VLineSource` is the answer for reading; a mock resumes with `()` and
+     the lines go nowhere.
+
+     Closures rather than a channel, because a sink is a place lines go and
+     not necessarily a file: a rehearsal answers with one that collects
+     them, so the reads after the write see what would have been written.
+     Runtime-internal -- no wand code holds one. *)
+  | VLineSink      of (string -> unit) * (unit -> unit)
   (* A decoder: how to read a value out of data that arrived untyped. It is
      handed the data and the path it stands at, so a failure can name the
      field that failed rather than only the type that did not fit. Every
@@ -194,15 +204,34 @@ and stream_source =
      until a terminal operation runs it, and folding twice runs the command
      twice -- which re-reading a file does too, and costs more here. *)
   | SCommand of string * string list option
+  (* Several files read as one. Still a single puller: it moves to the next
+     file when one runs out, so the driver's shape does not change. This is
+     the concatenation people actually have -- `FS.glob *.log` read as one
+     log -- and it costs a source rather than a second stream. *)
+  | SFiles of string list
   (* An injected puller, reachable only from OCaml -- how the tests prove
      that `take` stops pulling, which no wand-level mock can observe under
      open-granularity effects. *)
   | SPull  of (unit -> value option)
 
 and stream_stage =
-  | StMap    of value
-  | StFilter of value
-  | StTake   of int
+  | StMap       of value
+  | StFilter    of value
+  | StTake      of int
+  | StFilterMap of value
+  | StTakeWhile of value
+  | StDrop      of int
+  | StDropWhile of value
+  | StIndexed
+  (* The step and what to start from. Each item answers with the running
+     total after it, so one item in is one item out and the starting value
+     is not emitted -- a stage cannot emit before it is given anything. *)
+  | StScan      of value * value
+  | StChunks    of int
+  | StUnique
+  (* The one stage that emits several per item, which is why the driver
+     carries a list rather than an option. *)
+  | StFlatMap   of value
 
 (* The key an index entry is filed under. Not a legal identifier, so no
    program can name it and no lookup can collide with it. *)
@@ -424,6 +453,7 @@ let rec render ~quote v =
   | VStream _ -> "<stream>"
   | VLineSource _ -> "<line source>"
   | VProcSource _ -> "<command source>"
+  | VLineSink _ -> "<line sink>"
   | VDecoder _  -> "<decoder>"
   | VEnvIndex _ -> "<env index>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" (Ctor.name n)
@@ -3219,7 +3249,7 @@ let stdin_streamed = Atomic.make false
    that raised -- and `~early:false` for one read to exhaustion. Only a
    subprocess source has anything to do with the answer, and it is the whole
    of its exit-status rule; a file closes the same way either way. *)
-let stream_provider (src : stream_source)
+let rec stream_provider (src : stream_source)
   : (unit -> value option) * (early:bool -> unit) =
   let of_vals vs =
     let rest = ref vs in
@@ -3237,6 +3267,31 @@ let stream_provider (src : stream_source)
   match src with
   | SVals vs -> of_vals vs
   | SPull f -> (f, fun ~early:_ -> ())
+  | SFiles paths ->
+    (* One open per file, each through the same operation a single file
+       goes through, so a trace shows every file and a mock answers per
+       file. A file is opened only when the one before it runs out. *)
+    let rest = ref paths in
+    let current = ref None in
+    let rec next () =
+      match !current with
+      | Some (pull, close) ->
+        (match pull () with
+         | Some v -> Some v
+         | None -> close ~early:false; current := None; next ())
+      | None ->
+        (match !rest with
+         | [] -> None
+         | p :: tl ->
+           rest := tl;
+           current := Some (stream_provider (SFile p));
+           next ())
+    in
+    (next,
+     fun ~early ->
+       match !current with
+       | Some (_, close) -> current := None; close ~early
+       | None -> ())
   | SCommand (cmd, allow) ->
     (match perform_shell "Shell!stream" allow (VString cmd) with
      | VProcSource (pull, finish) -> (pull, fun ~early -> finish early)
@@ -3262,12 +3317,104 @@ let stream_provider (src : stream_source)
      | _ -> raise (EvalError
          "stdin_lines: the handler must answer with a list of lines"))
 
+(* A stage while a stream is running: the description plus whatever it has
+   to remember. `take` counts down, `chunks` fills a buffer, `unique` keeps
+   what it has seen. The description is reusable and this is not, so it is
+   built per run -- which is what lets one stream be folded twice. *)
+type live_stage =
+  | LMap       of value
+  | LFilter    of value
+  | LFilterMap of value
+  | LFlatMap   of value
+  | LTake      of int ref
+  | LTakeWhile of value
+  | LDrop      of int ref
+  | LDropWhile of value * bool ref      (* still dropping? *)
+  | LIndexed   of int ref
+  | LScan      of value * value ref
+  | LChunks    of int * value list ref  (* held in reverse *)
+  | LUnique    of value list ref
+
 let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
   let (pull, close) = stream_provider desc.s_source in
   let stages = List.map (function
-    | StMap f    -> `Map f
-    | StFilter f -> `Filter f
-    | StTake n   -> `Take (ref n)) desc.s_stages in
+    | StMap f       -> LMap f
+    | StFilter f    -> LFilter f
+    | StFilterMap f -> LFilterMap f
+    | StFlatMap f   -> LFlatMap f
+    | StTake n      -> LTake (ref n)
+    | StTakeWhile f -> LTakeWhile f
+    | StDrop n      -> LDrop (ref n)
+    | StDropWhile f -> LDropWhile (f, ref true)
+    | StIndexed     -> LIndexed (ref 0)
+    | StScan (f, init) -> LScan (f, ref init)
+    | StChunks n    -> LChunks (n, ref [])
+    | StUnique      -> LUnique (ref [])) desc.s_stages
+  in
+  (* A gate that closes ends the read: nothing later can pass it, so there is
+     nothing left to pull for. `take 100` of a 10GB file reads 100 lines. *)
+  let stop = ref false in
+  let bool_of what v =
+    match v with
+    | VBool b -> b
+    | _ -> raise (EvalError
+        (Printf.sprintf "Stream.%s: the predicate must return Bool" what))
+  in
+  (* One item into one stage, and out comes what that stage passes on. *)
+  let step st x =
+    match st with
+    | LMap f -> [apply f x]
+    | LFilter f -> if bool_of "filter" (apply f x) then [x] else []
+    | LFilterMap f ->
+      (match apply f x with
+       | VConstr (c, [v]) when Ctor.name c = "Some" -> [v]
+       | VConstr (c, []) when Ctor.name c = "None" -> []
+       | _ -> raise (EvalError "Stream.filter_map: the function must return an Option"))
+    | LFlatMap f ->
+      (match apply f x with
+       | VList vs -> vs
+       | _ -> raise (EvalError "Stream.flat_map: the function must return a List"))
+    | LTake r -> if !r <= 0 then (stop := true; []) else (decr r;
+                   if !r <= 0 then stop := true; [x])
+    | LTakeWhile f -> if bool_of "take_while" (apply f x) then [x]
+                      else (stop := true; [])
+    | LDrop r -> if !r > 0 then (decr r; []) else [x]
+    | LDropWhile (f, dropping) ->
+      if not !dropping then [x]
+      else if bool_of "drop_while" (apply f x) then []
+      else (dropping := false; [x])
+    | LIndexed i -> let n = !i in incr i; [VTuple [VInt n; x]]
+    | LScan (f, acc) -> acc := apply (apply f !acc) x; [!acc]
+    | LChunks (n, held) ->
+      held := x :: !held;
+      if List.length !held >= n then
+        (let full = List.rev !held in held := []; [VList full])
+      else []
+    | LUnique seen ->
+      if List.exists (fun v -> wand_equal v x) !seen then []
+      else (seen := x :: !seen; [x])
+  in
+  (* What a stage still holds when the source runs out. Only `chunks` holds
+     anything: a last group of fewer than n is a group, and dropping it would
+     lose the tail of every file whose length is not a multiple of n. *)
+  let flush st =
+    match st with
+    | LChunks (_, held) ->
+      if !held = [] then [] else (let last = List.rev !held in held := []; [VList last])
+    | _ -> []
+  in
+  let rec push stages vs =
+    match stages with
+    | [] -> List.iter on_item vs
+    | st :: rest -> push rest (List.concat_map (step st) vs)
+  in
+  (* Innermost first: what one stage lets go still has the stages after it to
+     pass through, and they may be holding something of their own. *)
+  let rec flush_from stages =
+    match stages with
+    | [] -> ()
+    | st :: rest -> push rest (flush st); flush_from rest
+  in
   (* Closed twice would be wrong and closed not at all would leak, so the
      read closes itself and the bracket covers only the paths that did not
      get there. Closing inside the body rather than in the `finally` is what
@@ -3279,31 +3426,32 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
   let closed = ref false in
   let finish ~early = if not !closed then (closed := true; close ~early) in
   Fun.protect ~finally:(fun () -> finish ~early:true) (fun () ->
-    let stop = ref false in
     while not !stop do
       match pull () with
       | None -> stop := true; exhausted := true
-      | Some v0 ->
-        let v = ref (Some v0) in
-        List.iter (fun st ->
-          match !v, st with
-          | None, _ -> ()
-          | Some x, `Map f -> v := Some (apply f x)
-          | Some x, `Filter f ->
-            (match apply f x with
-             | VBool true -> ()
-             | VBool false -> v := None
-             | _ -> raise (EvalError
-                 "Stream.filter: the predicate must return Bool"))
-          | Some _, `Take r ->
-            if !r <= 0 then v := None else decr r) stages;
-        (match !v with Some x -> on_item x | None -> ());
-        (* An exhausted take is a closed gate nothing later can pass, so
-           stop pulling -- `take 100` of a 10GB file reads 100 lines. *)
-        if List.exists (function `Take r -> !r <= 0 | _ -> false) stages
-        then stop := true
+      | Some v -> push stages [v]
     done;
+    (* A stream that stopped early is not owed its buffers: `take 3` asked
+       for three items, not for three and a part-filled chunk. *)
+    if !exhausted then flush_from stages;
     finish ~early:(not !exhausted))
+
+(* Open once, write each line, close on the way out. The lines are the
+   stream's own, so a source that fails or a stage that raises arrives here
+   as an ordinary raise and the file still closes. *)
+let write_stream_to op path desc =
+  let target = match path with
+    | VPath p | VString p -> VPath p
+    | _ -> raise (EvalError "expected a Path")
+  in
+  match Effect.perform (WandEffect (op, target)) with
+  | VLineSink (write_line, close) ->
+    Fun.protect ~finally:close (fun () ->
+      run_stream_terminal desc ~on_item:(fun v -> write_line (to_text v));
+      VUnit)
+  (* A mock, or a rehearsal: the lines are still pulled, so the source is
+     still read and the stages still run, and nothing is written. *)
+  | _ -> run_stream_terminal desc ~on_item:(fun _ -> ()); VUnit
 
 let stream_builtins : env = [
   ("fs_stream_lines", VBuiltin (function
@@ -3311,6 +3459,14 @@ let stream_builtins : env = [
     | _ -> raise (EvalError "stream_lines: expected Path")));
   ("io_stdin_lines", VBuiltin (fun _ ->
     VStream { s_source = SStdin; s_stages = [] }));
+  ("fs_stream_lines_all", VBuiltin (function
+    | VList ps ->
+      let path = function
+        | VPath p | VString p -> p
+        | _ -> raise (EvalError "stream_lines_all: expected a list of Paths")
+      in
+      VStream { s_source = SFiles (List.map path ps); s_stages = [] }
+    | _ -> raise (EvalError "stream_lines_all: expected a list of Paths")));
   ("shell_stream", VBuiltin (function
     | VCommand (cmd, allow) ->
       VStream { s_source = SCommand (cmd, allow); s_stages = [] }
@@ -3324,6 +3480,38 @@ let stream_builtins : env = [
   ("stream_filter", VBuiltin (fun f -> VBuiltin (function
     | VStream d -> VStream { d with s_stages = d.s_stages @ [StFilter f] }
     | _ -> raise (EvalError "Stream.filter: expected Stream"))));
+  ("stream_filter_map", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StFilterMap f] }
+    | _ -> raise (EvalError "Stream.filter_map: expected Stream"))));
+  ("stream_flat_map", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StFlatMap f] }
+    | _ -> raise (EvalError "Stream.flat_map: expected Stream"))));
+  ("stream_take_while", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StTakeWhile f] }
+    | _ -> raise (EvalError "Stream.take_while: expected Stream"))));
+  ("stream_drop_while", VBuiltin (fun f -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StDropWhile f] }
+    | _ -> raise (EvalError "Stream.drop_while: expected Stream"))));
+  ("stream_drop", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VStream d -> VStream { d with s_stages = d.s_stages @ [StDrop n] }
+      | _ -> raise (EvalError "Stream.drop: expected Stream"))
+    | _ -> raise (EvalError "Stream.drop: expected Int")));
+  ("stream_indexed", VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StIndexed] }
+    | _ -> raise (EvalError "Stream.indexed: expected Stream")));
+  ("stream_scan", VBuiltin (fun f -> VBuiltin (fun init -> VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StScan (f, init)] }
+    | _ -> raise (EvalError "Stream.scan: expected Stream")))));
+  ("stream_chunks", VBuiltin (function
+    | VInt n when n > 0 -> VBuiltin (function
+      | VStream d -> VStream { d with s_stages = d.s_stages @ [StChunks n] }
+      | _ -> raise (EvalError "Stream.chunks: expected Stream"))
+    | VInt _ -> raise (EvalError "Stream.chunks: a chunk holds at least one element")
+    | _ -> raise (EvalError "Stream.chunks: expected Int")));
+  ("stream_unique", VBuiltin (function
+    | VStream d -> VStream { d with s_stages = d.s_stages @ [StUnique] }
+    | _ -> raise (EvalError "Stream.unique: expected Stream")));
   ("stream_take", VBuiltin (function
     | VInt n -> VBuiltin (function
       | VStream d -> VStream { d with s_stages = d.s_stages @ [StTake n] }
@@ -3335,6 +3523,20 @@ let stream_builtins : env = [
       run_stream_terminal d ~on_item:(fun x -> acc := apply (apply f !acc) x);
       !acc
     | _ -> raise (EvalError "Stream.fold_left: expected Stream")))));
+  (* The write half of a stream, and a terminal operation: it opens the file
+     once, pulls the source through the stages, writes each line, and closes
+     however the run ends. In `FS` rather than in `Stream` because it is
+     about a file, and `FS` is where a file is opened.
+
+     One operation per open, like the read side. A handler that answers it
+     without a channel -- `| FS!write_lines _ k -> k ()` -- sends the lines
+     nowhere, which is what a test wants and what `--dry-run` does. *)
+  ("fs_write_lines", VBuiltin (fun path -> VBuiltin (function
+    | VStream d -> write_stream_to "FS!write_lines" path d
+    | _ -> raise (EvalError "FS.write_lines: expected a Stream"))));
+  ("fs_append_lines", VBuiltin (fun path -> VBuiltin (function
+    | VStream d -> write_stream_to "FS!append_lines" path d
+    | _ -> raise (EvalError "FS.append_lines: expected a Stream"))));
   ("stream_each", VBuiltin (fun f -> VBuiltin (function
     | VStream d ->
       run_stream_terminal d ~on_item:(fun x -> ignore (apply f x));
