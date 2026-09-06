@@ -1,5 +1,6 @@
 let {test, group} = import Test
 import List
+import Path
 
 -- What wand orders, and on what.
 --
@@ -45,12 +46,35 @@ group "DateTime is an instant" (fn () -> [
   test "no offset is UTC" (fn t -> t.ok (2024-01-15T14:30:00 == 2024-01-15T14:30:00Z))
 ])
 
+-- One file has several spellings, so a comparison reads the path rather
+-- than the text. Only the rewrites that hold whatever the disk contains:
+-- `..` is left alone, because `/a/c/../b` is `/a/b` only while `c` is not a
+-- symlink.
+group "paths" (fn () -> [
+  test "repeated separators are one" (fn t -> t.ok (/a/b == /a//b)),
+  test "a dot segment is nothing" (fn t -> t.ok (/a/b == /a/./b)),
+  test "a trailing separator is nothing" (fn t -> t.ok (/a/b == /a/b/)),
+  test "a leading dot segment is nothing" (fn t ->
+    t.ok (Path.of_string "./b" == Path.of_string "b")),
+  test "and the order follows" (fn t -> t.ok (/a//a < /a/b)),
+  test "which sorts them" (fn t ->
+    t.eq [/a/a, /a/b, /a/c] (List.sort [/a/c, /a//a, /a/./b])),
+  -- The three that would claim more than a comparison can know.
+  test "'..' is not resolved" (fn t -> t.ok (/a/c/../b != /a/b)),
+  test "case is not folded" (fn t -> t.ok (/A/b != /a/b)),
+  test "a relative path is not made absolute" (fn t -> t.ok (./b != /b)),
+  -- The value keeps the spelling it was written with.
+  test "the text is unchanged" (fn t -> t.eq "/a//b" (Path.to_string /a//b))
+])
+
 group "equality agrees with ordering" (fn () -> [
   test "a duration written two ways" (fn t ->
     let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b))),
   test "an instant written two ways" (fn t ->
     let a = 2024-01-15T14:30:00Z in
-    let b = 2024-01-15T20:00:00+05:30 in t.ok (a == b && !(a < b) && !(a > b)))
+    let b = 2024-01-15T20:00:00+05:30 in t.ok (a == b && !(a < b) && !(a > b))),
+  test "a path written two ways" (fn t ->
+    let a = /a/b in let b = /a//b in t.ok (a == b && !(a < b) && !(a > b)))
 ])
 
 -- `Ord` composes like `Num`: a function that only compares stays

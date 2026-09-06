@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.63.0] - 2026-09-06
+
+### Changed
+
+- **`Path` is ordered, and two spellings of one file are equal.** `/a/b ==
+  /a//b` was `false` and is now `true`. Repeated separators, `.` segments and
+  a trailing separator do not change which file a path names, so a comparison
+  reads the path rather than the text. `./b` and `b` are one path for the
+  same reason. Any script that compares a path it built against one it read
+  back -- from `FS.list_dir`, from a glob, from a command -- could be wrong
+  about this before
+- **`<`, `>`, `<=` and `>=` take a `Path`.** The ordered set is eleven types
+  now, and `Ord.max`, `Ord.min`, `Ord.clamp` and `Ord.between?` serve it
+  without a new definition. `List.sort` already sorted paths and now sorts
+  them by the same form the operators use
+- **Three things a comparison will not do.** It does not resolve `..`,
+  because `/a/c/../b` is `/a/b` only while `c` is not a symlink, and saying
+  two paths are equal when they may be different files is worse than saying
+  nothing. It does not fold case, because whether `/A/b` and `/a/b` are one
+  file is a property of the filesystem. It does not make a relative path
+  absolute, because that needs the working directory, and a comparison must
+  not perform an effect to answer. So `/a/c/../b`, `/A/b` and `./b` are each
+  unequal to `/a/b`. `Path.normalize` still resolves `..`, and still says in
+  its own doc that it is text only
+- **A path keeps the spelling it was written with.** `Path.to_string /a//b`
+  is `"/a//b"`. The comparison computes the form; nothing rewrites a literal,
+  which is how `DateTime` already works
+
 ## [0.62.1] - 2026-09-06
 
 ### Added
@@ -2378,7 +2406,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.62.1...HEAD
+[unreleased]: https://github.com/mjstahl/wand/compare/v0.63.0...HEAD
+[0.63.0]: https://github.com/mjstahl/wand/compare/v0.62.1...v0.63.0
 [0.62.1]: https://github.com/mjstahl/wand/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/mjstahl/wand/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/mjstahl/wand/compare/v0.60.0...v0.61.0

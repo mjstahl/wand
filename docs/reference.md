@@ -130,13 +130,14 @@ floors there: `5s - 10s` is `0s`, the answer
 ### Comparison and `Ord`
 
 `==` and `!=` compare any two values of one type. `<`, `>`, `<=` and `>=`
-take an `Ord`, short for ordered: a type that wand orders. These ten are
+take an `Ord`, short for ordered: a type that wand orders. These eleven are
 ordered:
 
 ```text
 Int   Float   String
 Duration   DateTime
 Size   Version   Port   IPv4   CIDR
+Path
 ```
 
 A type outside that set is a type error where it is written, not a failure
@@ -156,7 +157,7 @@ let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
 
 That one is already written, and [`Ord`](#ord) is where it lives: `Ord.max`,
 `Ord.min`, `Ord.clamp` and `Ord.between?` are one definition each, serving
-all ten types.
+all eleven types.
 
 The constraints nest: every `Num` is an `Add`, and every `Add` is an `Ord`.
 A variable that is more than one of them is the narrowest.
@@ -169,7 +170,7 @@ List.sort [(2, "a"), (1, "b")]      -- [(1, "b"), (2, "a")]
 (1, "b") < (2, "a")                 -- type error: not ordered
 ```
 
-Where a type is one of the ten, sorting reads the value, exactly as `<`
+Where a type is one of the eleven, sorting reads the value, exactly as `<`
 does. Everything else sorts by its shape: a tuple and a list read left to
 right, and **a variant sorts by its declaration** — a constructor sorts
 where it was written, not where its name falls in the alphabet.
@@ -197,6 +198,45 @@ value has more than one spelling. Equality reads it the same way:
 ```
 
 A `DateTime` with no offset is read as UTC.
+
+A `Path` is read the same way, and one file has several spellings:
+
+```ocaml
+/a/b == /a//b          -- true
+/a/b == /a/./b         -- true
+/a/b == /a/b/          -- true
+```
+
+Repeated separators, `.` segments and a trailing separator do not change
+which file a path names, so two paths that differ only there are one path.
+`./b` and `b` are one path for the same reason.
+
+Three things a comparison will not do, because each would make it claim more
+than it knows:
+
+- **It does not resolve `..`.** `/a/c/../b` is `/a/b` only while `c` is not a
+  symlink. Saying two paths are equal when they may be different files is
+  worse than saying nothing. `Path.normalize` resolves `..` and says in its
+  own doc that it is text only; it answers a different question.
+- **It does not fold case.** Whether `/A/b` and `/a/b` are one file is a
+  property of the filesystem, not of the text.
+- **It does not make a relative path absolute.** That needs the working
+  directory, and a comparison that performs an effect to answer is not one
+  wand should have.
+
+So `/a/c/../b`, `/A/b` and `./b` are each unequal to `/a/b`.
+
+`Path.to_string` gives back the text that was written. Nothing rewrites a
+literal; the comparison computes the form and the value keeps its spelling,
+as a `DateTime` does.
+
+`Glob`, `URL` and `Regex` are not ordered, and each for its own reason. A
+glob has no normal form worth the word: `*.wand` and `./*.wand` mean
+different things by wand's own rule. A URL's normal form is a specification
+of its own — default ports, percent-encoding, host case against path case —
+and `URL` already has an accessor for every part, so a script that wants to
+compare origins can compare origins. Two regexes that match the same strings
+can be written a dozen ways, so text order across them means nothing.
 
 The other three read the same way, and each is a case where the text order
 is wrong:
@@ -4001,9 +4041,9 @@ constraint that appears in the signature, as `Option` and `Result` are, so a
 reader who sees `Ord -> Ord -> Ord` and reaches for `Ord.max` finds it where
 they looked.
 
-One definition serves all ten [ordered types](#comparison-and-ord). There is
-no `Int.max` beside a `Duration.max` beside eight more, which is the point of
-having a constraint at all:
+One definition serves all eleven [ordered types](#comparison-and-ord). There
+is no `Int.max` beside a `Duration.max` beside nine more, which is the point
+of having a constraint at all:
 
 ```ocaml
 Ord.max 3 7                     -- 7

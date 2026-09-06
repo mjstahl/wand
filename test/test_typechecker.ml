@@ -1372,6 +1372,20 @@ let test_ordering_is_a_constraint () =
   ok "a network, by where it starts" "9.0.0.0/8 < 10.0.0.0/8" "true";
   ok "then by how far it reaches" "10.0.0.0/8 < 10.0.0.0/16" "true";
   ok "a port" ":80 < :443" "true";
+  (* A path compares in the form that holds whatever the disk contains, so
+     two spellings of one file are one path. What it does not do is resolve
+     `..`, fold case, or make a relative path absolute -- each of those
+     would claim more than a comparison can know. *)
+  ok "a path" "/a < /b" "true";
+  ok "two spellings of one file" "/a/b == /a//b" "true";
+  ok "a dot segment is nothing" "/a/b == /a/./b" "true";
+  ok "a trailing separator is nothing" "/a/b == /a/b/" "true";
+  ok "'..' is not resolved" "/a/c/../b == /a/b" "false";
+  ok "case is not folded" "/A/b == /a/b" "false";
+  ok "a relative path is not made absolute" "./b == /b" "false";
+  ok "and the text is kept"
+    "import Path
+Path.to_string /a//b" "/a//b";
   (* `List.sort` takes a list of anything, so a type outside the set still
      sorts. What it sorts by is the declaration, not the constructor's name:
      `S` below used to come back `[Alpha, Zulu]`, and renaming a constructor

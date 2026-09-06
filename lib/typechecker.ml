@@ -178,7 +178,12 @@ let fresh_ord () = fresh_as Ord
 let is_ordered = function
   | TInt | TFloat | TString
   | TDuration | TDateTime
-  | TSize | TVersion | TPort | TIPv4 | TCIDR -> true
+  | TSize | TVersion | TPort | TIPv4 | TCIDR
+  (* Compared in the form that holds whatever the disk contains: repeated
+     separators, `.` segments and a trailing separator do not change which
+     file a path names. `..` is left alone, because resolving it needs to
+     know whether a component is a symlink. *)
+  | TPath -> true
   | _ -> false
 
 (* The types `+` and `-` take. A `Size` and a `Duration` add to their own

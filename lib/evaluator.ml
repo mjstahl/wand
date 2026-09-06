@@ -1007,6 +1007,61 @@ let compare_versions a b =
     | None,   Some _ -> 1
     | Some x, Some y -> compare_prerelease x y
 
+(* The form two paths are compared in: only the rewrites that hold whatever
+   the disk contains. Repeated separators collapse, `.` segments go, and a
+   trailing separator goes -- so `/a//b`, `/a/./b` and `/a/b/` are one path,
+   and `./b` and `b` are one path, because they name one file against any
+   working directory.
+
+   What it does not do is what `Path.normalize` does: resolve `..`.
+   `/a/c/../b` is `/a/b` only while `c` is not a symlink, and a comparison
+   that answers "equal" about two files that may be different is worse than
+   one that answers nothing. Case is not folded either -- whether `/A/b` and
+   /a/b` are one file is a property of the filesystem, not of the text -- and
+   a relative path is not made absolute, because that needs the working
+   directory and a comparison operator must not perform an effect to answer.
+
+   So `Path.normalize` keeps its own job and its own name. This is weaker on
+   purpose. *)
+let path_key s =
+  let n = String.length s in
+  (* Almost every path is already in this form, and a comparison is not the
+     place to allocate for the ones that are. The scan answers without
+     building anything; only a path that really has a `//`, a `.` segment or
+     a trailing separator takes the second half. Sorting 20,000 paths cost
+     two and a half times as much when every comparison rebuilt both. *)
+  let already =
+    n > 0
+    && (n = 1 || s.[n - 1] <> '/')
+    && (let ok = ref true in
+        let i = ref 0 in
+        while !ok && !i < n do
+          let start = !i in
+          while !i < n && s.[!i] <> '/' do incr i done;
+          let len = !i - start in
+          (* An empty segment is a repeated separator, except the one that
+             opens an absolute path. A `.` segment is nothing, except when
+             it is the whole path. *)
+          if len = 0 && start <> 0 then ok := false
+          else if len = 1 && s.[start] = '.' && n > 1 then ok := false;
+          if !i < n then incr i
+        done;
+        !ok)
+  in
+  if already then s
+  else
+    let is_abs = n > 0 && s.[0] = '/' in
+    let parts =
+      String.split_on_char '/' s
+      |> List.filter (fun p -> p <> "" && p <> ".")
+    in
+    let joined = String.concat "/" parts in
+    if is_abs then "/" ^ joined
+    (* A relative path that is all `.` segments is the directory it started
+       in, and that is what `.` names. *)
+    else if joined = "" then "."
+    else joined
+
 (* Comparing normalized values is the whole point: `90s` against `1min`, or
    one instant written two ways. `Date` and `Time` are fixed-width and
    zero-padded, so for those two the text order is already the right order.
@@ -1025,6 +1080,7 @@ let wand_order a b =
   | VPort x,     VPort y     -> compare x y
   | VIPv4 x,     VIPv4 y     -> compare (ipv4_key x) (ipv4_key y)
   | VCIDR x,     VCIDR y     -> compare (cidr_key x) (cidr_key y)
+  | VPath x,     VPath y     -> compare (path_key x) (path_key y)
   | _ -> raise (EvalError "these values have no order")
 
 (* Equality normalizes wherever ordering does, so the three relations agree.
@@ -1035,7 +1091,8 @@ let wand_order a b =
    read them rather than compare their spelling. `Port` is not here: it
    holds the number already. *)
 let normalized = function
-  | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ | VCIDR _ -> true
+  | VDuration _ | VDateTime _ | VSize _ | VVersion _ | VIPv4 _ | VCIDR _
+  | VPath _ -> true
   | _ -> false
 
 (* A value that holds code. Two of these cannot be compared, and the walk
@@ -1091,6 +1148,7 @@ let rec eq_key v =
   | VDateTime s -> VInt (datetime_epoch s)
   | VIPv4 s     -> VInt (ipv4_key s)
   | VSize s     -> VInt (size_bytes s)
+  | VPath s     -> VString (path_key s)
   (* The numbers only. Two equal versions have equal numbers, so this is a
      sound key; the prerelease is left for `wand_equal` to settle. *)
   | VVersion s ->

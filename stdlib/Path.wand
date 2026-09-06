@@ -62,6 +62,11 @@ let relative? p = path_is_relative p
 -- Text only: nothing is asked of the file system, so a `..` is dropped
 -- whether or not the directory above it exists.
 --
+-- `==` and `<` do not use this. They compare in a weaker form that leaves
+-- `..` alone, because `/a/c/../b` is `/a/b` only while `c` is not a
+-- symlink. Two paths that differ only in separators, `.` segments or a
+-- trailing separator are already equal without this function.
+--
 -- >> Path.normalize /etc/../var/./log
 -- /var/log : Path
 let normalize p = path_normalize p
