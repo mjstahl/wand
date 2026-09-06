@@ -158,7 +158,8 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.Located (l, inner) ->
       let saved = !here in
       here := l; go inner; here := saved
-    | Ast.RunCmd (inner, allow) | Ast.RunQuery (inner, allow) ->
+    | Ast.RunCmd (inner, allow) | Ast.RunQuery (inner, allow)
+    | Ast.MkCommand (inner, allow) ->
       (* A newline inside `$()` separates two commands, exactly as it does
          in a shell script, so the text below it runs on its own. A line
          broken for width almost never means that, and the half above the
@@ -263,7 +264,8 @@ let rec names_of_expr (e : Ast.expr) : string list =
   | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) ->
     names_of_expr a @ names_of_expr b
   | Ast.UnOp (_, a) | Ast.Located (_, a) | Ast.Try a
-  | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) -> names_of_expr a
+  | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) | Ast.MkCommand (a, _) ->
+    names_of_expr a
   | Ast.Annot (te, a) -> names_of_type_expr te @ names_of_expr a
   | Ast.Fn (ps, a) -> List.concat_map names_of_pat ps @ names_of_expr a
   | Ast.Let (p, a, b, _) ->
@@ -348,7 +350,8 @@ let names_of_item_types (item : Ast.top_item) : string list =
     match e with
     | Ast.Annot (te, a) -> names_of_type_expr te @ te_of_expr a
     | Ast.Located (_, a) | Ast.UnOp (_, a) | Ast.Try a
-    | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) -> te_of_expr a
+    | Ast.RunCmd (a, _) | Ast.RunQuery (a, _) | Ast.MkCommand (a, _) ->
+      te_of_expr a
     | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> te_of_expr a @ te_of_expr b
     | Ast.Fn (ps, a) -> List.concat_map te_of_pat ps @ te_of_expr a
     | Ast.Let (p, a, b, _) -> te_of_pat p @ te_of_expr a @ te_of_expr b

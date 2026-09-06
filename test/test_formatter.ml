@@ -272,7 +272,11 @@ let test_a_command_keeps_the_space_that_gives_it_meaning () =
      body is always the text and is always written tight. *)
   let query_form = fmt "let g = $?(ls)\ng\n" in
   if not (Lint.contains query_form "$?(ls)") then
-    Alcotest.failf "a query gained a space:\n%s" query_form
+    Alcotest.failf "a query gained a space:\n%s" query_form;
+  (* Nor does `$*`, for the same reason. *)
+  let command_form = fmt "let c = $*(ls)\nc\n" in
+  if not (Lint.contains command_form "$*(ls)") then
+    Alcotest.failf "a command value gained a space:\n%s" command_form
 
 (* A float comes back as the number that was written. `%g` carries six
    significant digits and switches to an exponent past them, so `2222222.5`

@@ -453,6 +453,7 @@ let is_atom_start = function
   | Token.Ident _ | Token.Upper _ | Token.Hole
   | Token.LParen | Token.LBracket | Token.LBrace
   | Token.Dollar | Token.InterpStr _ | Token.RunCmdRaw _ | Token.RunQueryRaw _
+  | Token.CommandRaw _
   | Token.RawStr _ | Token.RawInterpStr _
   | Token.Regex _ | Token.EnvVar _ | Token.Import
   | Token.Handle | Token.Try -> true
@@ -1088,6 +1089,14 @@ and atom_base_ s =
     ) parts in
     if parse_parts = [] then RunQuery (String tail, s.shell_allow)
     else RunQuery (CmdInterp (parse_parts, tail), s.shell_allow)
+  | Token.CommandRaw (parts, tail) ->
+    let parse_parts = List.map (fun (lit, src, hole) ->
+      let toks = Lexer.tokenize src in
+      let s2 = make toks in
+      (lit, expr_ 0 s2, hole)
+    ) parts in
+    if parse_parts = [] then MkCommand (String tail, s.shell_allow)
+    else MkCommand (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.Regex (pat, flags) -> RegexLit (pat, flags)
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src) ->

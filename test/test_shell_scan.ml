@@ -227,11 +227,13 @@ let test_direct_words () =
   check_direct "empty" "" None;
   check_direct "spaces only" "   " None
 
-(* The manifest checks cover $() and $?(), and those are the only spawn
-   forms a script can write: the raw process builtins are not in a
-   script's scope, and the Shell module only parses output. If this test
-   fails because a spawn-by-string function was added, decide which
-   file's Shell(...) bound governs its commands before shipping it. *)
+(* Nothing spawns from a String. `$()`, `$?()` and `$*()` are the forms a
+   script can write, and each does its quoting where the words were
+   written; `Shell.run!` and its kin take the `Command` one of those built,
+   which is a type no String can become. The raw process builtins are not in
+   a script's scope. If this test fails because a spawn-by-string function
+   was added, decide which file's Shell(...) bound governs its commands
+   before shipping it -- and note that a String has no bound to carry. *)
 let test_no_spawn_by_string () =
   let rejected label src needle =
     match Runner.run_string src with
@@ -242,7 +244,7 @@ let test_no_spawn_by_string () =
   rejected "raw builtin" "process_run \"curl x\""
     "unbound variable 'process_run'";
   rejected "Shell module" "import Shell\nShell.run! \"curl x\""
-    "no member 'run!'";
+    "expected Command, got String";
   rejected "Proc module" "import Proc\nProc.run \"curl x\""
     "no member 'run'"
 

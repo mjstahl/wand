@@ -144,11 +144,25 @@ type value =
      is never the open thing, which is what lets one be named, passed,
      and folded twice (each fold reads the source afresh). *)
   | VStream        of stream_desc
+  (* A command: what would be run, and the bound of the file whose text
+     named it. Nothing is running -- like a Resource and a Stream this
+     describes, which is what lets one be named, passed and run twice. The
+     bound travels with the value rather than with the call site, because it
+     is the site that wrote the words that a manifest answers for. *)
+  | VCommand       of string * string list option
   (* The answer a `FS!stream_lines`-family effect resumes with: the default
      handler wraps the real channel; a mock answers with a plain list and
      never sees this constructor. Runtime-internal -- it goes straight back
      to the terminal loop and no wand code ever holds one. *)
   | VLineSource    of in_channel
+  (* A running subprocess, as a stream reads it: a puller over its stdout,
+     and a stop that ends it. Both are closures because ending a child is
+     signals, a grace period and a wait -- which belong to the default
+     handler, beside the rest of the process machinery. The stop is told
+     whether the stream ended early: a command wand killed because a `take`
+     was satisfied did not fail, so its exit status is wand's own signal
+     coming back and is not reported. Runtime-internal, like VLineSource. *)
+  | VProcSource    of (unit -> value option) * (bool -> unit)
   (* A decoder: how to read a value out of data that arrived untyped. It is
      handed the data and the path it stands at, so a failure can name the
      field that failed rather than only the type that did not fit. Every
@@ -175,6 +189,11 @@ and stream_source =
   | SFile  of string
   | SStdin
   | SVals  of value list
+  (* A command's output, line by line, and the bound of the file that wrote
+     the command. The stream is still a description: nothing is spawned
+     until a terminal operation runs it, and folding twice runs the command
+     twice -- which re-reading a file does too, and costs more here. *)
+  | SCommand of string * string list option
   (* An injected puller, reachable only from OCaml -- how the tests prove
      that `take` stops pulling, which no wand-level mock can observe under
      open-granularity effects. *)
@@ -386,6 +405,10 @@ let rec render ~quote v =
   | VVersion s  -> s
   | VSize s     -> s
   | VRegex _    -> "<regex>"
+  (* Shown as it would be written. The resolved command line is the useful
+     half -- it is what a log or a plan wants -- and the `$*(...)` around it
+     says this is a command rather than the text of one. *)
+  | VCommand (cmd, _) -> "$*(" ^ cmd ^ ")"
   | VJson j     -> Yojson.Basic.to_string j
   (* A TOML value shows the way the rest of the language shows the same
      shapes: a table like a map, an array like a list. What it does not show
@@ -400,6 +423,7 @@ let rec render ~quote v =
   | VResource _ -> "<resource>"
   | VStream _ -> "<stream>"
   | VLineSource _ -> "<line source>"
+  | VProcSource _ -> "<command source>"
   | VDecoder _  -> "<decoder>"
   | VEnvIndex _ -> "<env index>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" (Ctor.name n)
@@ -1603,17 +1627,16 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
      with Re.Pcre.Parse_error ->
        raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags)))
+  (* `$*(c)` builds the command and stops there. `$(c)` and `$?(c)` build
+     the same command and run it -- they are `Shell.run!` and `Shell.query`
+     over one, spelled short. *)
+  | MkCommand (e, allow) ->
+    VCommand (command_line env e allow "$*(…)", allow)
   | RunCmd (e, allow) ->
-    let cmd = match eval env e with
-      | VString s -> s
-      | _ -> raise (EvalError "$(…) requires a string")
-    in
+    let cmd = command_line env e allow "$(…)" in
     perform_shell "Shell!run" allow (VString cmd)
   | RunQuery (e, allow) ->
-    let cmd = match eval env e with
-      | VString s -> s
-      | _ -> raise (EvalError "$?(…) requires a string")
-    in
+    let cmd = command_line env e allow "$?(…)" in
     perform_shell "Shell!capture" allow (VString cmd)
   | Handle (body_expr, cases) ->
     let effect_cases = List.filter_map (function
@@ -1786,6 +1809,24 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
 (* Build a record constructor's value from the fields a construction names.
    Takes the identity rather than the name, so a qualified construction can
    say which module's constructor it means. *)
+(* The command line a command form names, resolved and checked. Every one of
+   the three forms comes through here, so the word check and the effect are
+   keyed off the literal wherever it stands -- `$*(git ...)` in a file that
+   never runs it is the same site to a manifest as `$(git ...)`.
+
+   The operation answers with the line to use, so a handler may substitute
+   one; what it may not do is make a `Command` out of thin air, because
+   wrapping the answer happens here rather than in wand. *)
+and command_line env e allow form : string =
+  let cmd = match eval env e with
+    | VString s -> s
+    | _ -> raise (EvalError (form ^ " requires a string"))
+  in
+  match perform_shell "Shell!command" allow (VString cmd) with
+  | VString resolved -> resolved
+  | v -> raise (EvalError (Printf.sprintf
+      "a handler for Shell!command answered with %s, and a command is a        String" (show_value v)))
+
 and eval_constr_app env c fields =
   let name = Ctor.name c in
   let provided = List.filter_map (fun (fname_opt, e) ->
@@ -1974,17 +2015,11 @@ and eval_binop (env : env) op a b : value =
     let va = eval env a in
     (match b with
      | RunCmd (e, allow) ->
-       let cmd = match eval env e with
-         | VString s -> s
-         | _ -> raise (EvalError "$(…) requires a string")
-       in
+       let cmd = command_line env e allow "$(…)" in
        let stdin = to_text va in
        perform_shell "Shell!run" allow (VTuple [VString cmd; VString stdin])
      | RunQuery (e, allow) ->
-       let cmd = match eval env e with
-         | VString s -> s
-         | _ -> raise (EvalError "$?(…) requires a string")
-       in
+       let cmd = command_line env e allow "$?(…)" in
        let stdin = to_text va in
        perform_shell "Shell!capture" allow (VTuple [VString cmd; VString stdin])
      | _ ->
@@ -3179,23 +3214,35 @@ let par_race thunks =
 
 let stdin_streamed = Atomic.make false
 
+(* The close half takes what the read ended as: `~early:true` for a stream
+   that stopped before its source ran out -- a satisfied `take`, or a stage
+   that raised -- and `~early:false` for one read to exhaustion. Only a
+   subprocess source has anything to do with the answer, and it is the whole
+   of its exit-status rule; a file closes the same way either way. *)
 let stream_provider (src : stream_source)
-  : (unit -> value option) * (unit -> unit) =
+  : (unit -> value option) * (early:bool -> unit) =
   let of_vals vs =
     let rest = ref vs in
     ((fun () -> match !rest with [] -> None | v :: tl -> rest := tl; Some v),
-     fun () -> ())
+     fun ~early:_ -> ())
   in
   let of_channel ~close ic =
     ((fun () ->
         match In_channel.input_line ic with
         | Some l -> Some (VString l)
         | None -> None),
-     if close then (fun () -> close_in_noerr ic) else (fun () -> ()))
+     if close then (fun ~early:_ -> close_in_noerr ic)
+     else (fun ~early:_ -> ()))
   in
   match src with
   | SVals vs -> of_vals vs
-  | SPull f -> (f, fun () -> ())
+  | SPull f -> (f, fun ~early:_ -> ())
+  | SCommand (cmd, allow) ->
+    (match perform_shell "Shell!stream" allow (VString cmd) with
+     | VProcSource (pull, finish) -> (pull, fun ~early -> finish early)
+     | VList vs -> of_vals vs
+     | _ -> raise (EvalError
+         "Shell.stream: the handler must answer with a list of lines"))
   | SFile p ->
     (match Effect.perform (WandEffect ("FS!stream_lines", VPath p)) with
      | VLineSource ic -> of_channel ~close:true ic
@@ -3221,11 +3268,21 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
     | StMap f    -> `Map f
     | StFilter f -> `Filter f
     | StTake n   -> `Take (ref n)) desc.s_stages in
-  Fun.protect ~finally:close (fun () ->
+  (* Closed twice would be wrong and closed not at all would leak, so the
+     read closes itself and the bracket covers only the paths that did not
+     get there. Closing inside the body rather than in the `finally` is what
+     lets a source report a failure of its own -- a command that exited
+     non-zero -- as an ordinary raise: an exception out of a `finally`
+     arrives wrapped as `Fun.Finally_raised`, which `try` does not
+     recognise. *)
+  let exhausted = ref false in
+  let closed = ref false in
+  let finish ~early = if not !closed then (closed := true; close ~early) in
+  Fun.protect ~finally:(fun () -> finish ~early:true) (fun () ->
     let stop = ref false in
     while not !stop do
       match pull () with
-      | None -> stop := true
+      | None -> stop := true; exhausted := true
       | Some v0 ->
         let v = ref (Some v0) in
         List.iter (fun st ->
@@ -3245,7 +3302,8 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
            stop pulling -- `take 100` of a 10GB file reads 100 lines. *)
         if List.exists (function `Take r -> !r <= 0 | _ -> false) stages
         then stop := true
-    done)
+    done;
+    finish ~early:(not !exhausted))
 
 let stream_builtins : env = [
   ("fs_stream_lines", VBuiltin (function
@@ -3253,6 +3311,10 @@ let stream_builtins : env = [
     | _ -> raise (EvalError "stream_lines: expected Path")));
   ("io_stdin_lines", VBuiltin (fun _ ->
     VStream { s_source = SStdin; s_stages = [] }));
+  ("shell_stream", VBuiltin (function
+    | VCommand (cmd, allow) ->
+      VStream { s_source = SCommand (cmd, allow); s_stages = [] }
+    | _ -> raise (EvalError "Shell.stream: expected a Command")));
   ("stream_of_list", VBuiltin (function
     | VList vs -> VStream { s_source = SVals vs; s_stages = [] }
     | _ -> raise (EvalError "Stream.of_list: expected List")));
@@ -4486,6 +4548,17 @@ let stdlib_eval_env : env = [
         match limit, xs with
         | VInt n, VList items -> par_run n f items ~collect:false
         | _ -> raise (EvalError "par_each: expected a limit and a list")))));
+  (* Running a command that was already built. The bound travels with the
+     value: what a spawn is checked against is the manifest of the file
+     whose text named the words, not the one that happened to call `run!`.
+     A command built in a `Shell(git)` file stays a git command wherever it
+     is passed. *)
+  ("shell_run", VBuiltin (function
+    | VCommand (cmd, allow) -> perform_shell "Shell!run" allow (VString cmd)
+    | _ -> raise (EvalError "shell_run: expected a Command")));
+  ("shell_query", VBuiltin (function
+    | VCommand (cmd, allow) -> perform_shell "Shell!capture" allow (VString cmd)
+    | _ -> raise (EvalError "shell_query: expected a Command")));
   (* Process primitives *)
   ("process_run", VBuiltin (fun v ->
     Effect.perform (WandEffect ("Shell!run", v))));

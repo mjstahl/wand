@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.62.0] - 2026-09-06
+
+### Added
+
+- **A command is a value.** `$*(git status)` makes a command. It does not
+  run it. `Shell.run!` runs one and gives back its output. `Shell.run` gives
+  back a `Result` instead of raising. `Shell.query` gives back a
+  `ShellResult`. You can name a command, pass it to a function, and put it
+  in a list. `$()` cannot do any of that. It runs the command and reads all
+  of the output before a function sees a value
+
+```
+let backup = $*(pg_dump -Fc %{db})     -- nothing has run
+List.map Shell.query [$*(git fsck), $*(git gc --dry-run)]
+```
+
+- **`Shell.stream` reads a command line by line.** `$()` reads to the end of
+  the output before it answers. So `$(tail -f app.log)` never returns.
+  `kubectl logs -f` and `journalctl -f` behave the same way. `Shell.timeout`
+  was the only bound on this. It kills the command and gives back an
+  `Error`, and you get none of the lines. A stream pulls one line at a time.
+  It holds one line in memory. `Stream.take` stops the read
+
+```
+Shell.stream $*(tail -f /var/log/app.log)
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> Stream.take 10
+|> Stream.to_list
+```
+
+- **A stopped read stops the command.** wand sends SIGTERM. It sends SIGKILL
+  five seconds later. `Shell.timeout` uses the same grace period. wand
+  signals the command it started. It does not signal that command's own
+  children, so `sh -c "tail -f x"` leaves the `tail` running. A stream that
+  reads to the end raises on a non-zero exit, as `$()` does. A stream that
+  stops early ignores the exit code, because wand ended the command
+- **Two new handler cases: `Shell!command` and `Shell!stream`.**
+  `Shell!command` fires when a command is made. It carries the command line,
+  and it resumes with the command line to use. A test can read every command
+  a body names, including a command the body never runs. A test can also put
+  a different command in its place
+
+### Changed
+
+- **`$()` and `$?()` are short forms.** `$(cmd)` is `Shell.run! $*(cmd)`.
+  `$?(cmd)` is `Shell.query $*(cmd)`. No script's text changes. Two other
+  things do. A handler that takes `Shell` out of a signature now needs a
+  `Shell!command` case and a `Shell!stream` case, as well as the other four.
+  And each command form performs two operations, where it performed one
+- **A command performs `Shell` when it is made.** A function that only
+  builds commands carries the label. `Shell` now means "runs a command, or
+  names one". This keeps two checks on one site. `wand t` reads the command
+  words where they are written, so a file that names `git` and never runs it
+  still declares `Shell(git)`. The bound travels with the value. A command
+  built in a `Shell(echo)` file is checked against that list wherever it is
+  run
+- **No `String` becomes a `Command`.** `Shell.run! "echo %{name}"` is a type
+  error. Inside a command, `%{...}` quotes the value as one argument. Inside
+  a string, `%{...}` puts the text in. The two forms look almost the same on
+  the page, and only the command form is safe. The quoting belongs to the
+  syntax. So a command can only be built where its words are written
+
 ## [0.61.0] - 2026-09-05
 
 ### Added

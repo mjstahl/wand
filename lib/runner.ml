@@ -336,6 +336,76 @@ let exec_command cmd =
   | Unix.WSIGNALED n -> command_signalled cmd n
   | Unix.WSTOPPED  n -> raise (EvalError (Printf.sprintf "command stopped by signal %d: %s" n cmd))
 
+(* A command read as it goes, for `Shell.stream`. What the caller gets back
+   is a puller over the child's stdout and a stop; the child outlives
+   neither.
+
+   Stopping it is the pattern `Shell.timeout` already uses: SIGTERM, then
+   SIGKILL after the fixed five-second grace. The read end is closed first,
+   so a command that is still writing takes EPIPE and usually goes on its
+   own -- which is how `head` stops `yes`. wand signals the command it
+   started and nothing below it: `sh -c "tail -f x"` leaves the `tail`
+   behind, exactly as `Shell.timeout` does.
+
+   The exit status is read only when the stream ran out on its own. A
+   command wand killed because a `take` was satisfied did not fail -- wand
+   ended it -- so its status is wand's own signal coming back, and reporting
+   it would turn the ordinary early stop into an error. *)
+let stream_command cmd =
+  let (pid, out_r) = spawn_in cmd in
+  let ic = Unix.in_channel_of_descr out_r in
+  let pull () =
+    match In_channel.input_line ic with
+    | Some line -> Some (Evaluator.VString line)
+    | None -> None
+    (* The child was killed and the pipe went with it. That is the early
+       stop arriving from the other end, not a line. *)
+    | exception Sys_error _ -> None
+  in
+  let waited = ref false in
+  let wait_for_it () =
+    match Unix.waitpid [] pid with
+    | (_, status) -> forget pid; Some status
+    | exception Unix.Unix_error (Unix.EINTR, _, _) -> None
+    | exception Unix.Unix_error _ -> forget pid; None
+  in
+  let rec wait_until deadline =
+    match Unix.waitpid [Unix.WNOHANG] pid with
+    | (0, _) ->
+      if Unix.gettimeofday () < deadline then begin
+        (* Nothing to read and nothing to write: this is a sleep spelled
+           with what is already imported. *)
+        (try ignore (Unix.select [] [] [] 0.02) with Unix.Unix_error _ -> ());
+        wait_until deadline
+      end else begin
+        (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+        ignore (wait_for_it ())
+      end
+    | (_, _) -> forget pid
+    | exception Unix.Unix_error (Unix.EINTR, _, _) -> wait_until deadline
+    | exception Unix.Unix_error _ -> forget pid
+  in
+  let finish early =
+    if not !waited then begin
+      waited := true;
+      close_in_noerr ic;
+      if early then begin
+        (try Unix.kill pid Sys.sigterm with Unix.Unix_error _ -> ());
+        wait_until (Unix.gettimeofday () +. timeout_grace)
+      end else
+        match wait_for_it () with
+        | Some (Unix.WEXITED 0) | None -> ()
+        | Some (Unix.WEXITED n) ->
+          raise (EvalError
+            (Printf.sprintf "command exited with code %d: %s" n cmd))
+        | Some (Unix.WSIGNALED n) -> command_signalled cmd n
+        | Some (Unix.WSTOPPED n) ->
+          raise (EvalError
+            (Printf.sprintf "command stopped by signal %d: %s" n cmd))
+    end
+  in
+  (pull, finish)
+
 let exec_command_quiet cmd =
   match reap (spawn_quiet cmd) with
   | Unix.WEXITED 0   -> ()
@@ -432,6 +502,7 @@ let describe_operation name (v : value) =
   match name with
   | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code"->
     Some ("run", first v)
+  | "Shell!stream" -> Some ("read the output of", first v)
   | "FS!write_file"   -> Some ("write", with_size v)
   | "FS!append"    -> Some ("append to", with_size v)
   | "FS!create_file"    -> Some ("create", text v)
@@ -482,7 +553,7 @@ let copy_file src dst =
    and sleeps for real. *)
 let is_mutation = function
   | "Clock!sleep"
-  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -522,6 +593,9 @@ let substitute_for name =
   | "Shell!capture"->
     Some (shell_result "" "" 0, "exit 0, no output")
   | "Shell!exit_code" -> Some (VInt 0, "0")
+  (* A stream of nothing. The lines a rehearsal cannot have are no lines,
+     which is the same answer `Shell!run`'s empty String gives. *)
+  | "Shell!stream" -> Some (VList [], "no output")
   | "FS!temp_file"      -> let p = dry_run_path ""     in Some (VPath p, p)
   | "FS!temp_dir"       -> let p = dry_run_path "-dir" in Some (VPath p, p)
   | _ -> None
@@ -631,6 +705,21 @@ let run_with_default_handler (thunk : unit -> value) : value =
                  indistinguishable from a blank one. `IO.read_line` wraps
                  this into a Result. *)
               | None -> Effect.Deep.discontinue k (EvalError "end of input"))
+          (* Building a command runs nothing, so there is nothing to guard
+             and nothing to report: the answer is the line it was given.
+             The check that matters for a literal is the typechecker's, at
+             the site where the words are written. *)
+          | WandEffect ("Shell!command", VString cmd) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              Effect.Deep.continue k (VString cmd))
+          | WandEffect ("Shell!stream", VString cmd) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match attempt (fun () ->
+                guard_shell cmd;
+                let (pull, finish) = stream_command cmd in
+                VProcSource (pull, finish)) with
+              | Ok v    -> Effect.Deep.continue    k v
+              | Error e -> Effect.Deep.discontinue k e)
           | WandEffect ("Shell!run", VString cmd) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match attempt (fun () -> guard_shell cmd; exec_command cmd) with

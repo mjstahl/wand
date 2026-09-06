@@ -1,0 +1,128 @@
+uses {Shell}
+
+import Shell
+import List
+import Stream
+import String
+
+let {test} = import Test
+
+-- ── A command is a value ────────────────────────────────────────────────
+
+test "$*() runs nothing" (fn t -> let _ = $*(exit 1) in t.ok true)
+
+test "run! gives the output" (fn t -> t.eq "hi" (Shell.run! $*(echo hi)))
+
+test "run! raises on a non-zero exit" (fn t -> t.raises (fn () -> Shell.run! $*(exit 1)))
+
+test "run answers with an Error instead" (fn t ->
+  match Shell.run $*(exit 3) with
+  | Ok _ -> t.ok false
+  | Error m -> t.ok (String.contains? "3" m))
+
+test "query reports the code" (fn t -> t.eq 3 (Shell.query $*(exit 3)).code)
+
+test "query never raises" (fn t -> t.eq "hi" (Shell.query $*(echo hi)).stdout)
+
+-- ── What the short forms are ────────────────────────────────────────────
+
+test "$(c) is Shell.run! $*(c)" (fn t -> t.eq $(echo hi) (Shell.run! $*(echo hi)))
+
+test "$?(c) is Shell.query $*(c)" (fn t ->
+  t.eq $?(exit 3).code (Shell.query $*(exit 3)).code)
+
+-- ── Named, passed and held ──────────────────────────────────────────────
+
+-- The case the short forms cannot express: the command is decided in one
+-- place and run in another.
+
+test "a command can be named and run twice" (fn t ->
+  let c = $*(echo hi) in t.eq "hihi" (Shell.run! c ++ Shell.run! c))
+
+test "a command can be passed to a function" (fn t ->
+  let twice = fn c -> Shell.run! c ++ Shell.run! c in t.eq "hihi" (twice $*(echo hi)))
+
+test "a function can build one" (fn t ->
+  let greet = fn who -> $*(echo %{who}) in t.eq "world" (Shell.run! (greet "world")))
+
+test "a list of commands" (fn t ->
+  t.eq [0, 3] (List.map (fn c -> (Shell.query c).code) [$*(true), $*(exit 3)]))
+
+-- ── Quoting is the literal's, wherever it is run ────────────────────────
+
+test "an interpolated value is one argument" (fn t ->
+  let name = "a b; whoami" in t.eq name (Shell.run! $*(echo %{name})))
+
+-- ── Showing one ─────────────────────────────────────────────────────────
+
+-- The line as it would be run, quoting and all, wrapped in the form that
+-- says it is a command rather than the text of one.
+test "a command shows as it would run" (fn t ->
+  let who = "world" in t.eq "$*(echo 'world')" "%{$*(echo %{who})}")
+
+-- ── Handlers ────────────────────────────────────────────────────────────
+
+test "Shell!command intercepts the making of one" (fn t ->
+  let outcome =
+    handle (fn () -> Shell.run! $*(echo hi)) () with
+    | Shell!command _ k -> k "echo mocked"
+    | Shell!run cmd k -> k cmd
+  in
+  t.eq "echo mocked" outcome)
+
+test "a command that is built and never run still performs Shell!command" (fn t ->
+  let outcome =
+    handle (fn () -> let _ = $*(echo hi) in "built") () with
+    | Shell!command _ _ -> "intercepted"
+  in
+  t.eq "intercepted" outcome)
+
+test "the short form performs both operations" (fn t ->
+  let seen =
+    handle (fn () -> let _ = $(echo hi) in []) () with
+    | Shell!command c k -> "command" :: k c
+    | Shell!run _ k -> "run" :: k ""
+  in
+  t.eq ["command", "run"] seen)
+
+-- ── Streaming a command ─────────────────────────────────────────────────
+
+test "reads the lines a command wrote" (fn t ->
+  t.eq ["a", "b"] (Shell.stream $*(printf "a\nb\n") |> Stream.to_list))
+
+test "a stream is a description: nothing runs until the fold" (fn t ->
+  let _ = Shell.stream $*(exit 3) in t.ok true)
+
+test "take stops the command" (fn t ->
+  t.eq ["1", "2", "3"] (Shell.stream $*(seq 1 100000) |> Stream.take 3 |> Stream.to_list))
+
+-- Read to the end, the ordinary non-zero rule applies.
+test "a non-zero exit raises when the stream ran out" (fn t ->
+  t.raises (fn () -> Shell.stream $*(sh -c "echo x; exit 3") |> Stream.to_list))
+
+-- Stopped early, the status is wand's own signal coming back.
+test "an early stop ignores the exit code" (fn t ->
+  t.eq
+    ["x"]
+    (Shell.stream $*(sh -c "echo x; sleep 30; exit 3") |> Stream.take 1 |> Stream.to_list))
+
+test "the stages run over the lines" (fn t ->
+  t.eq
+    ["B"]
+    (Shell.stream $*(printf "a\nb\n")
+      |> Stream.filter (fn l -> l == "b")
+      |> Stream.map String.upper
+      |> Stream.to_list
+    ))
+
+test "folding twice runs the command twice" (fn t ->
+  let s = Shell.stream $*(printf "a\n") in
+  t.eq ["a", "a"] (List.concat (Stream.to_list s) (Stream.to_list s)))
+
+test "Shell!stream answers with lines" (fn t ->
+  let out =
+    handle (fn () -> Shell.stream $*(seq 1 5) |> Stream.to_list) () with
+    | Shell!command c k -> k c
+    | Shell!stream _ k -> k ["mocked"]
+  in
+  t.eq ["mocked"] out)

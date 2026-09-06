@@ -1,4 +1,4 @@
-uses {Clock}
+uses {Clock, Shell}
 
 -- Reading what a command wrote.
 --
@@ -59,3 +59,72 @@ let lines d out = shell_lines d out
 -- >> Shell.timeout 5s (fn () -> 1 + 1)
 -- Ok(2) : Result String Int
 let timeout d thunk = shell_timeout d thunk
+
+-- Run a command and give back what it wrote, with the surrounding
+-- whitespace trimmed. Raises if it exits non-zero.
+--
+-- This is what `$(cmd)` is: `$(git status)` is `Shell.run! $*(git status)`,
+-- spelled short. The long form is for a command that was built somewhere
+-- else -- named, passed in, or picked out of a list -- which the short form
+-- cannot express, since its command is its text.
+--
+-- >> Shell.run! $*(echo hi)
+-- "hi" : String
+let run! (c: Command) = shell_run c
+
+-- Run a command, giving back an `Error` where `run!` raises.
+--
+-- >> Shell.run $*(exit 3)
+-- Error("command exited with code 3: exit 3") : Result String String
+let run (c: Command) = try run! c
+
+-- Run a command and report how it went instead of raising: a `ShellResult`
+-- with its output, its error output and its exit code.
+--
+-- This is what `$?(cmd)` is, over a command built elsewhere.
+--
+-- >> Shell.query $*(exit 3) |> Shell.failed?
+-- true : Bool
+let query (c: Command) = shell_query c
+
+-- Read a command's output as it arrives, one line at a time.
+--
+-- `$()` reads to the end before it answers, so a command that watches
+-- rather than reports -- `tail -f`, `kubectl logs -f`, `journalctl -f` --
+-- accumulates forever and never returns. A stream pulls one line at a
+-- time, so the memory is one line, and `Stream.take` stops pulling:
+--
+--     Shell.stream $*(tail -f /var/log/app.log)
+--     |> Stream.filter (fn l -> String.contains? "ERROR" l)
+--     |> Stream.take 10
+--     |> Stream.to_list
+--
+-- Four things to know.
+--
+-- **Stopping the read stops the command.** It is sent SIGTERM, and SIGKILL
+-- five seconds later. wand signals the command it started and nothing
+-- below it, so `sh -c "tail -f x"` leaves the `tail` behind.
+--
+-- **An early stop is not a failure.** A stream read to the end raises on a
+-- non-zero exit, as `$()` does. One that stopped early -- a satisfied
+-- `take` -- ignores the exit code, because the command ended when wand
+-- ended it.
+--
+-- **Lines may arrive in gulps.** Many commands write in 4KB blocks when
+-- their output is a pipe rather than a terminal, `grep` among them. Ask
+-- for line buffering where the command has a flag for it
+-- (`grep --line-buffered`), or wrap it: `$*(stdbuf -oL some-command)`.
+--
+-- **Folding twice runs the command twice.** A stream is a description, as
+-- it is for a file. Re-reading a file is cheap and repeatable; re-running
+-- a command is neither.
+--
+-- `Shell.timeout` does not bound a stream: its deadline is on a command
+-- that runs to completion. `Stream.take` is the bound that fits this shape.
+--
+-- A stream with no `take` over a command that never ends never finishes.
+-- That is `while true` written another way, and no type says so.
+--
+-- >> Shell.stream $*(printf "a\nb\n") |> Stream.to_list
+-- ["a", "b"] : List String
+let stream (c: Command) = shell_stream c

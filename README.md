@@ -72,6 +72,11 @@ let dirty  = $(git status --porcelain) |> String.lines |> List.length
 examine. Work that moves out of `$()` and into wand gets a type. It also runs
 faster, because wand does not fork a process for each stage.
 
+`$*()` is the command itself, unrun — a `Command` you can name, pass and run
+where you like, with `Shell.run!` or `Shell.query`. The quoting happens where
+the words are written, and no `String` becomes a `Command`, so a command
+built in one place cannot grow an argument on its way to another.
+
 ## Ask the type system what fits
 
 Write `?` where you do not know what belongs, then typecheck. wand answers with

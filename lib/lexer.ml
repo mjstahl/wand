@@ -85,7 +85,8 @@ let keyword_or_ident word = match word with
 let read_interp_body s ~unterminated =
   let expr_buf = Buffer.create 16 in
   let depth = ref 1 in
-  (* Inside `$(`/`$?(`/`$!(`, copying verbatim until the parens balance. *)
+  (* Inside `$(`/`$?(`/`$*(`/`$!(`, copying verbatim until the parens
+     balance. *)
   let cmd_parens = ref 0 in
   while !depth > 0 do
     if is_at_end s then raise (Fail unterminated);
@@ -98,7 +99,8 @@ let read_interp_body s ~unterminated =
       cmd_parens := 1;
       Buffer.add_char expr_buf c;
       Buffer.add_char expr_buf (advance s)
-    end else if c = '$' && (peek s = '?' || peek s = '!') && peek2 s = '(' then begin
+    end else if c = '$' && (peek s = '?' || peek s = '*' || peek s = '!')
+                && peek2 s = '(' then begin
       cmd_parens := 1;
       Buffer.add_char expr_buf c;
       Buffer.add_char expr_buf (advance s);
@@ -220,7 +222,7 @@ let read_raw_string s =
 
 (* ── Run-command literals: $(cmd %{var}) ────────────────────────────────── *)
 
-let read_run_cmd s =
+let read_run_cmd ?(form = "$()") s =
   let parts = ref [] in
   let buf = Buffer.create 16 in
   let depth = ref 1 in
@@ -233,10 +235,11 @@ let read_run_cmd s =
   let quote = ref ' ' in
   let rec loop () =
     if is_at_end s then
-      raise (Fail (if !quote = ' ' then "unterminated $() command"
+      raise (Fail (if !quote = ' ' then
+                     Printf.sprintf "unterminated %s command" form
                    else Printf.sprintf
-                     "unterminated $() command: a %c quote is still open"
-                     !quote));
+                     "unterminated %s command: a %c quote is still open"
+                     form !quote));
     match advance s with
     | '(' when !quote = ' ' ->
       incr depth; Buffer.add_char buf '('; loop ()
@@ -945,9 +948,18 @@ let next_token s =
     | '$'  ->
       if peek s = '?' && peek2 s = '(' then (
         ignore (advance s); ignore (advance s);
-        let raw = read_run_cmd s in
+        let raw = read_run_cmd ~form:"$?()" s in
         ret (match raw with
           | RunCmdRaw (parts, tail) -> RunQueryRaw (parts, tail)
+          | t -> t))
+      (* `$*(cmd)` is the command itself, unrun. It reads exactly as `$(cmd)`
+         does -- same quoting, same interpolation -- and differs only in
+         which token carries it. *)
+      else if peek s = '*' && peek2 s = '(' then (
+        ignore (advance s); ignore (advance s);
+        let raw = read_run_cmd ~form:"$*()" s in
+        ret (match raw with
+          | RunCmdRaw (parts, tail) -> CommandRaw (parts, tail)
           | t -> t))
       else if peek s = '(' then (ignore (advance s); ret (read_run_cmd s))
       else if is_upper (peek s) then

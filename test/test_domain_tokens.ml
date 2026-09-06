@@ -252,6 +252,13 @@ let test_envvars () =
     [RunCmdRaw ([("echo 'hi ", "x", Token.Inside '\'')], "'")];
   check "a raw hole is shell source" "$(echo %!{x})"
     [RunCmdRaw ([("echo ", "x", Token.Source)], "")];
+  (* `$*(` is the command itself. It reads exactly as `$(` does -- same
+     quoting, same holes -- and differs only in the token it comes back as. *)
+  check "cmd value raw" "$*(x)" [CommandRaw ([], "x")];
+  check "a quoted paren is text in one too" {|$*(echo "a)b")|}
+    [CommandRaw ([], {|echo "a)b"|})];
+  check "and a hole is quoted the same way" "$*(echo %{x})"
+    [CommandRaw ([("echo ", "x", Token.Arg)], "")];
   (* $ followed by lowercase is not an env var *)
   check "lowercase not env" "$home"     [Dollar; Ident "home"]
 

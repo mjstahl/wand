@@ -173,7 +173,8 @@ uses {Env, FS.Read, FS.Write, IO, Shell(curl, git)}
 
 Those are five of the nine effect labels: `Shell` (subprocesses),
 `FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`,
-`Clock` (waits), `Random` (draws from entropy).
+`Clock` (waits), `Random` (draws from entropy). `Shell` covers naming a
+command as well as running one.
 `Shell` may name the binaries the file runs — written as they are in
 `$()`: `Shell(./probe.sh, docker-compose, git)` — and bare `Shell` means
 any. A literal command word the list omits is a type error; a word decided
@@ -279,8 +280,10 @@ today at midnight is `Clock.now () |> DateTime.day_start`.
 
 - `$(git status)` runs a command, raises on failure, yields the trimmed stdout `String`.
 - `$?(cmd)` yields a `ShellResult` for inspecting exit code/stderr instead of raising.
+- `$*(cmd)` is the command itself, unrun: a `Command`, which `Shell.run!`, `Shell.run` and `Shell.query` take. `$()` and `$?()` are the first and third of those over one. Use it for a command that is named, passed or listed; nothing turns a `String` into one. Building one performs `Shell`, so the manifest answers for the words wherever they are run.
 - Inside a command, `%{x}` splices a value quoted as one argument — use it for data. `%!{x}` splices text to be read *as shell source* — only for text that is deliberately shell (a flag string, a pipeline fragment).
 - `report |> $?(mail ops@example.com)` pipes the left value to the command's stdin.
+- `Shell.stream cmd` reads a command's output line by line — the answer for `tail -f` and friends, which `$()` cannot bound. Stopping the read kills the command; an early stop ignores its exit code.
 - Parse captures with `Shell.lines`, `Shell.decode` — not by hand.
 
 ### Names and errors
@@ -302,7 +305,8 @@ Float, Int, Ord, Proc, Env, CSV, JSON, TOML, Duration, Clock, Par, Shell,
 Decode, Args, Test, Option, Result, DateTime, Hash, Digest, Base64. Every function comes from a module: printing is
 `IO.println`, and a file that prints writes `import IO`.
 
-Big files stream instead of loading: `FS.stream_lines log |>
+Big files stream instead of loading (and `Shell.stream` reads a command the
+same way): `FS.stream_lines log |>
 Stream.filter p |> Stream.fold_left f init` — a stream reads nothing
 until the fold runs it (folding again re-reads), and a missing file
 raises at the fold, caught with `try`.

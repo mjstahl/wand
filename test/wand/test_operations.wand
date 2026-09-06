@@ -7,6 +7,7 @@ import IO
 import JSON
 import Path
 import Proc
+import Shell
 import Stream
 import TOML
 
@@ -438,6 +439,30 @@ group "the environment" (fn () -> [
 ])
 
 group "subprocesses and exit" (fn () -> [
+  test "Shell!command is performed by $*(...)" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = $*(echo hi) in missed) () with
+      | Shell!command _ _ -> caught
+      )),
+  test "Shell!stream is performed by Shell.stream" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Stream.to_list (Shell.stream $*(echo hi)) in missed) () with
+      | Shell!stream _ _ -> caught
+      )),
+  test "Shell!run is performed by Shell.run!" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Shell.run! $*(echo hi) in missed) () with
+      | Shell!run _ _ -> caught
+      )),
+  test "Shell!capture is performed by Shell.query" (fn t ->
+    t.eq
+      caught
+      (handle (fn () -> let _ = Shell.query $*(echo hi) in missed) () with
+      | Shell!capture _ _ -> caught
+      )),
   test "Shell!run is performed by $(...)" (fn t ->
     t.eq
       caught

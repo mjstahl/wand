@@ -35,6 +35,12 @@ type typ =
      two aliases of one type cannot argue over which name to print. *)
   | TAlias  of string * typ list * typ
   | TRegex
+  (* A command, and never what it did: a description of one subprocess, made
+     by `$*(cmd)` and run by `Shell.run!`, `Shell.query` and their kin. The
+     quoting is done by the literal, so a `Command` can only be built where
+     its words were written -- there is no function from a String to one,
+     which is what makes a function taking one safe. *)
+  | TCommand
   (* A resource: how to acquire an 'a and give it back, and what doing
      either performs. The effects are carried rather than hidden -- a bracket
      that concealed its own effects would let a file take a lock and
@@ -355,10 +361,23 @@ let operations : operation list =
        payload type to give them. Declaring one would be worse than declaring
        none -- a handler would be told the shape was a String and handed a
        tuple whenever someone piped into the command. *)
+    (* Making one. It carries the resolved command line and answers with the
+       line to build the `Command` from, so a handler can read every command
+       a file names -- including one it never runs -- and substitute it.
+       Wrapping the answer is the literal's own job, in OCaml: there is no
+       way in wand to turn a String into a `Command`, and that is what makes
+       `Shell.run!` safe where a function over a String would not be. *)
+    { op_name = "Shell!command"; op_effect = Shell; op_types = t str str;
+      op_performers = ["$*(...)"] };
+    (* Reading one as it goes. The payload is the command line and the
+       answer is its output lines, so a mock supplies a list exactly as it
+       does for `FS!stream_lines`. *)
+    { op_name = "Shell!stream"; op_effect = Shell; op_types = t str (TList str);
+      op_performers = ["Shell.stream"] };
     { op_name = "Shell!run"; op_effect = Shell; op_types = (fun () -> None);
-      op_performers = ["$(...)"] };
+      op_performers = ["$(...)"; "Shell.run"; "Shell.run!"] };
     { op_name = "Shell!capture"; op_effect = Shell; op_types = (fun () -> None);
-      op_performers = ["$?(...)"] };
+      op_performers = ["$?(...)"; "Shell.query"] };
     (* These two have builtins behind them and are answered by `--dry-run`
        and `--trace`, but nothing a script can write reaches them: the
        builtins are not bound in a script's scope and no module exports
@@ -547,6 +566,7 @@ let string_of_typ t =
     | TURL      -> "URL"      | TIPv4     -> "IPv4"     | TCIDR     -> "CIDR"
     | TPort     -> "Port"     | TVersion  -> "Version"  | TSize     -> "Size"
     | TRegex    -> "Regex"
+    | TCommand  -> "Command"
     | TJson     -> "JSON"
     | TToml     -> "TOML"
     (* A type carries the module that declares it. A reader wrote the short
@@ -696,6 +716,7 @@ let rec unify_ t1 t2 =
   | TRegex,    TRegex    -> ()
   | TJson,     TJson     -> ()
   | TToml,     TToml     -> ()
+  | TCommand,  TCommand  -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
   (* Two variables: link so that the narrower constraint survives on
@@ -1110,7 +1131,7 @@ let known_type_arities : (string * int) list ref = ref []
 let builtin_type_names =
   [ "Int"; "Float"; "String"; "Bool"; "Unit"; "Path"; "Glob";
     "DateTime"; "Duration"; "URL"; "IPv4"; "CIDR";
-    "Port"; "Version"; "Size"; "JSON"; "TOML";
+    "Port"; "Version"; "Size"; "JSON"; "TOML"; "Command";
     "List"; "Map"; "Result"; "Option"; "Decoder" ]
 
 let builtin_type_name n = List.mem n builtin_type_names
@@ -1324,6 +1345,7 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | "Version"  -> TVersion  | "Size"     -> TSize
        | "JSON"     -> TJson
        | "TOML"     -> TToml
+       | "Command"  -> TCommand
        (* A canonical name resolves to itself: it is not something a file
           writes, it is what a declaration that travelled says. *)
        | n when String.contains n '#' -> TName n
@@ -2037,7 +2059,7 @@ let rec ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TResource _ | TStream _
+  | TRegex | TJson | TToml | TCommand | TFun _ | TResource _ | TStream _
   | TDecoder _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
@@ -2047,8 +2069,8 @@ let is_infinite_domain t =
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TFun _ | TApp _ | TResource _ | TStream _
-  | TDecoder _ -> true
+  | TRegex | TJson | TToml | TCommand | TFun _ | TApp _ | TResource _
+  | TStream _ | TDecoder _ -> true
   | _ -> false
 
 (* Does pattern p match constructor `name` (of the given arity)? Returns
@@ -2956,9 +2978,20 @@ let rec infer tenv (env : env) (e : expr) : typ =
     List.iter (fun (_, e) ->
       unify_expected ~expected:t ~got:(infer tenv env e)) rest;
     TMap t
+  (* A command literal runs nothing. It performs `Shell!command` all the
+     same, so that the words it names and the effect it carries are read off
+     one site: the manifest that has to list `git` is the manifest of the
+     file that wrote `$*(git ...)`, whether or not that file ever runs it.
+     `Shell` is therefore the one label that means does or describes. *)
+  | MkCommand (e, _)  ->
+    unify_expected ~expected:TString ~got:(infer tenv env e);
+    performs (Effect_set.single Effect_set.Shell);
+    TCommand
   (* Shell execution is its own form rather than a call to a builtin, so it
      records its effects here. $() raises on a non-zero exit; $?() hands back
-     a ShellResult instead, so it cannot. *)
+     a ShellResult instead, so it cannot. Each is sugar over a literal and a
+     function -- `$(c)` is `Shell.run! $*(c)` -- and so performs what both
+     of those perform. *)
   | RunCmd    (e, _)  ->
     unify_expected ~expected:TString ~got:(infer tenv env e);
     performs (Effect_set.of_list [Effect_set.Shell; Effect_set.Raise]);
@@ -3619,6 +3652,14 @@ let stdlib_type_env : env = [
      it; the terminals share one set with the stream and the closure, the
      same sharing resource_make uses. Construction itself is pure:
      nothing is read until a terminal operation. *)
+  (* Streaming a command. Like the other two sources this is inert until a
+     terminal operation runs it, so building one performs nothing and the
+     `Shell` is in the stream's own set, paid at the fold. *)
+  ("shell_stream",
+   let r = Effect_set.Set
+       (Effect_set.EffSet.of_list [Effect_set.Shell; Effect_set.Raise],
+        Some (Effect_set.fresh_var ())) in
+   generalize [] (TFun (TCommand, TStream (r, TString), Effect_set.pure)));
   ("fs_stream_lines",
    let r = Effect_set.Set
        (Effect_set.EffSet.of_list [Effect_set.FsRead; Effect_set.Raise],
@@ -3756,7 +3797,13 @@ let stdlib_type_env : env = [
   ("io_read_line",   generalize [] (effs [Effect_set.IO; Effect_set.Raise] (TUnit) (TString)));
   ("io_read_all",    generalize [] (effs [Effect_set.IO; Effect_set.Raise] (TUnit) (TString)));
   ("io_flush",       generalize [] (effs [Effect_set.IO] (TUnit) (TUnit)));
-  (* Process primitives *)
+  (* Process primitives. `shell_run` and `shell_query` take a `Command`
+     rather than a String on purpose: the quoting a command needs is done by
+     the literal that wrote it, so a function that took text would be an
+     injection where `$(...)` is safe. There is no way to make a `Command`
+     out of a String, which is what makes these two safe. *)
+  ("shell_run",   generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TCommand) (TString)));
+  ("shell_query", generalize [] (effs [Effect_set.Shell] (TCommand) (TName "ShellResult")));
   ("process_run",       generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TString) (TString)));
   ("process_run_quiet", generalize [] (effs [Effect_set.Shell] (TString) (TUnit)));
   ("process_exit_code", generalize [] (effs [Effect_set.Shell] (TString) (TInt)));
@@ -4087,7 +4134,7 @@ let render_manifest ?shell labels =
 
 (* ── Shell command words ─────────────────────────────────────────────────── *)
 
-(* What the file's own $()/$?() sites say, syntactically: the literal
+(* What the file's own $()/$?()/$*() sites say, syntactically: the literal
    command words (for suggesting a narrowed manifest), whether every
    position was literal, and the declared allowlist. The linter reads
    these; `check_shell_words` fills them. *)
@@ -4095,7 +4142,7 @@ let last_shell_words  : string list ref = ref []
 let last_shell_static : bool ref = ref true
 let last_shell_allow  : string list option ref = ref None
 
-(* Every $()/$?() payload in the file, with the nearest enclosing location.
+(* Every $()/$?()/$*() payload in the file, with the nearest enclosing location.
    Only this file's text: an imported helper's sites are that file's
    manifest's business, which is what keeps the audit story compositional. *)
 let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
@@ -4104,7 +4151,7 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
   let rec go loc (e : Ast.expr) =
     match e with
     | Located (l, inner) -> go l inner
-    | RunCmd (payload, _) | RunQuery (payload, _) ->
+    | RunCmd (payload, _) | RunQuery (payload, _) | MkCommand (payload, _) ->
       sites := (loc, payload) :: !sites;
       go loc payload                    (* nested $() inside interpolations *)
     | App (a, b) | BinOp (_, a, b) | Seq (a, b) -> go loc a; go loc b

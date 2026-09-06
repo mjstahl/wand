@@ -1723,7 +1723,20 @@ let test_manifest_shell_binaries () =
     "uses {Shell(git)}\nlet b c = $(%!{c} status)\nb";
   manifest_error "a dynamic site makes the suggestion fall back to bare Shell"
     "uses {}\nlet b c = $(%!{c} status)\nb \"git\""
-    "uses {Shell}"
+    "uses {Shell}";
+  (* A command literal is a site whether or not it is ever run: the words
+     are in this file's text, so they are this file's manifest to answer
+     for. Checking them where they are written is what keeps the check
+     syntactic -- the alternative is tracing a value to the call that runs
+     it, which a list or a parameter defeats. *)
+  ok "a command that is only built is checked against the list"
+    "uses {Shell(git)}\nlet c = $*(git status)\nc";
+  manifest_error "a word the list omits, in a command that never runs"
+    "uses {Shell(git)}\nlet c = $*(curl x)\nc"
+    "runs 'curl', which Shell(git) does not allow";
+  manifest_error "building one performs Shell"
+    "uses {}\nlet c = $*(git status)\nc"
+    "uses {Shell(git)}"
 
 let test_manifest_names_the_binding () =
   manifest_error "the binding that introduced the effect"

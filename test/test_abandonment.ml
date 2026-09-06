@@ -51,6 +51,7 @@ let test_resuming_releases () =
   let answer =
     eval_wand
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
+        | Shell!command c k -> k c
         | Shell!run _ k -> k "mocked"|}
   in
   Alcotest.(check string) "the body's own value" "mocked" answer;
@@ -62,6 +63,7 @@ let test_abandoning_releases () =
   let answer =
     eval_wand
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
+        | Shell!command c k -> k c
         | Shell!run _ _ -> "answered without resuming"|}
   in
   Alcotest.(check string) "the case's value, not the body's"
@@ -74,7 +76,9 @@ let test_nested_release_order () =
     (eval_wand
        {|handle (holding "outer" (fn () ->
            holding "inner" (fn () -> $(echo hi)))) with
-         | Shell!run _ _ -> "answered"|});
+         | Shell!command c k -> k c
+         | Shell!command c k -> k c
+        | Shell!run _ _ -> "answered"|});
   check_released "innermost first" ["inner"; "outer"]
 
 (* Cleanup that performs an effect of its own reaches the handlers that were
@@ -85,6 +89,7 @@ let test_release_can_perform () =
     eval_wand
       {|let log = handle (holding "r" (fn () ->
            let x = $(echo body) in x)) with
+         | Shell!command c k -> k c
          | Shell!run cmd k -> k "mocked"
          | return v -> v
          in log|}
@@ -99,6 +104,7 @@ let test_conditional_resume () =
   let answer =
     eval_wand
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
+        | Shell!command c k -> k c
         | Shell!run cmd k -> if cmd == "echo hi" then k "resumed" else "not"|}
   in
   Alcotest.(check string) "resumed branch" "resumed" answer;
@@ -106,6 +112,7 @@ let test_conditional_resume () =
   let answer =
     eval_wand
       {|handle (holding "r" (fn () -> let x = $(echo hi) in x)) with
+        | Shell!command c k -> k c
         | Shell!run cmd k -> if cmd == "nope" then k "resumed" else "not"|}
   in
   Alcotest.(check string) "abandoning branch" "not" answer;
@@ -119,6 +126,7 @@ let test_try_cannot_catch_the_unwind () =
       {|handle (holding "r" (fn () ->
           let attempt = try $(echo hi) in
           "body continued")) with
+        | Shell!command c k -> k c
         | Shell!run _ _ -> "answered"|}
   in
   Alcotest.(check string) "the case's value" "answered" answer;

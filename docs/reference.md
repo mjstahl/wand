@@ -986,6 +986,54 @@ r.stderr   -- String
 r.code     -- Int
 ```
 
+### A command as a value: `$*(...)`
+
+`$*(cmd)` is the command itself. Nothing runs:
+
+```ocaml
+let db     = "orders"
+let backup = $*(pg_dump -Fc %{db})      -- Command. Nothing has run.
+
+let out = Shell.run!   backup           -- String, raises on non-zero
+let r   = Shell.query  backup           -- ShellResult
+```
+
+`$()` and `$?()` are this form run:
+
+```ocaml
+$(cmd)   is  Shell.run!  $*(cmd)
+$?(cmd)  is  Shell.query $*(cmd)
+```
+
+Write the short form for a command you run where you write it, which is
+almost always. Write `$*(...)` for one that is named, passed to a function,
+or held in a list — which the short forms cannot express, since their
+command is their text:
+
+```ocaml
+List.map Shell.query [$*(git fsck), $*(git gc --dry-run)]
+```
+
+**There is no function from a `String` to a `Command`.** That is what makes
+`Shell.run!` safe. `%{...}` quotes a value as one argument inside a command;
+inside a string it splices text. So `"echo %{name}"` is a `String` holding
+whatever `name` says, and handing that to a shell would run it, where
+`$(echo %{name})` passes it as one argument. The quoting lives in the
+syntax, so a `Command` can only be built where its words were written.
+
+**Building one performs `Shell`.** A `Command` is where the words are, so it
+is where the manifest answers for them: a file that writes `$*(git ...)` and
+never runs it still declares `Shell` — narrowed to `Shell(git)` — and
+`wand t` says so. `Shell` is the one label that means *does or describes*.
+A handler intercepts the making of one as `Shell!command`.
+
+```ocaml
+let backup_cmd db = $*(pg_dump -Fc %{db})     -- Command ! {Shell}
+```
+
+A `Command` shows as it was written, with its interpolations resolved:
+`$*(pg_dump -Fc orders)`.
+
 ### Interpolation: `%{...}` quotes, `%!{...}` splices
 
 A command line is a sequence of arguments. A value that goes into one must
@@ -1242,7 +1290,7 @@ Nine, and a script cannot define more:
 | Label | Means |
 |---|---|
 | `Clock` | waits; how long the call takes depends on wall-clock time |
-| `Shell` | runs a subprocess — including anything reaching the network, since it does so through a command |
+| `Shell` | runs a subprocess, or names one with `$*(...)` — including anything reaching the network, since it does so through a command |
 | `FS.Read` | reads from the filesystem |
 | `FS.Write` | creates, changes or removes something on disk |
 | `Env` | reads or changes environment variables |
@@ -1341,9 +1389,9 @@ fn () -> handle $(git push) with
          | Shell!run _ k -> k "ok"     -- Unit -> String ! {Raise, Shell}
 ```
 
-`Shell` stays. It carries four operations: `run`, `run_quiet`, `capture` and
-`exit_code`. The three that this handler does not name still reach the real
-shell. A signature without `Shell` would describe a program that does not
+`Shell` stays. It carries six operations: `command`, `run`, `stream`,
+`run_quiet`, `capture` and `exit_code`. The five that this handler does not
+name still reach the real shell. A signature without `Shell` would describe a program that does not
 exist.
 
 [Effect handlers](#effect-handlers) lists each operation. That list groups
@@ -1504,7 +1552,7 @@ that runs nothing drops the label.
 What is checked, and when:
 
 - **`wand t` checks each literal command word.** A command word is the first
-  word of a `$()` or a `$?()`. It is also the first word after a top-level
+  word of a `$()`, a `$?()` or a `$*()`. It is also the first word after a top-level
   `|`, `&&`, `||` or `;`. A word that the list omits is a type error. The
   error names the word and the manifest line that admits it. wand skips a prefix
   assignment, so `$(FOO=1 git status)` checks `git`. It skips a redirection
@@ -1553,10 +1601,13 @@ an `A-USES1` warning, with the trimmed line. wand judges that only in a file
 where every position is literal. An interpolated site may be the place where
 the unused binary runs.
 
-The two checks cover every command that a script can express. `$()` and
-`$?()` are the only spawn forms in the scope of a script. The raw process
-builtins are reachable only from the module bodies of the standard library.
-The `Shell` module parses output. It runs nothing.
+The two checks cover every command that a script can express. `$()`, `$?()`
+and `$*()` are the only command forms in the scope of a script, and the
+first two are the last one run. `Shell.run!`, `Shell.run` and `Shell.query`
+spawn, and each takes a `Command` that one of those forms built — no String
+becomes one, so a command reaches a spawn only through the site that wrote
+its words. The raw process builtins are reachable only from the module
+bodies of the standard library.
 
 ---
 
@@ -1598,9 +1649,9 @@ suggested. A mistyped case would otherwise intercept nothing, and the effect
 it was written to hold back would run for real.
 
 To intercept an operation is not to remove its effect from the signature.
-The mock above still reports `Shell`. It does not cover `Shell!run_quiet`,
-`Shell!capture` or `Shell!exit_code`, and those three would reach the real
-shell. [`try` and `handle` take effects away](#try-and-handle-take-effects-away)
+The mock above still reports `Shell`. It does not cover `Shell!command`,
+`Shell!stream`, `Shell!run_quiet`, `Shell!capture` or `Shell!exit_code`, and
+those five would reach the real shell. [`try` and `handle` take effects away](#try-and-handle-take-effects-away)
 says what a handler must cover to drop an effect.
 
 A case binds two things: the argument of the operation, and a continuation
@@ -1619,6 +1670,19 @@ and it cannot resume a read with an `Int`:
 `Shell!run` and `Shell!capture` are the exception. Each one carries a
 command, or a command and the stdin for it. There is no single payload type to
 check a case against, so wand leaves these two open.
+
+`Shell!command` is the making of a command rather than the running of one.
+It carries the resolved command line and resumes with the line to use, so a
+case reads every command a body names — including one it never runs — and
+may substitute another:
+
+```ocaml
+| Shell!command c k -> k c            -- what the default handler does
+```
+
+It resumes with a `String`, not a `Command`: wrapping the answer is the
+literal's own job, which is what keeps a `Command` something only a command
+form can build.
 
 A `return` case transforms the result when the body finishes normally:
 
@@ -1651,7 +1715,7 @@ there is nothing extra to remember.
 
 | Family | Operations |
 |---|---|
-| `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
+| `Shell` | `command`, `run`, `stream`, `run_quiet`, `capture`, `exit_code` |
 | `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
 | `Hash` | `file` |
 | `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `read` |
@@ -1690,7 +1754,7 @@ label covers several:
 
 ```ocaml
 handle $(git push) with
-| Shell!run _ k -> k "ok"          -- Shell stays: capture and exit_code still run
+| Shell!run _ k -> k "ok"          -- Shell stays: command, stream and capture still run
 ```
 
 Erring this way over-reports. Erring the other way is what let a file whose
@@ -3331,6 +3395,52 @@ level. So a fold traces as one line, and a test mocks the whole file.
 `Test.with_lines path lines thunk` answers each `FS.stream_lines` for `path`
 with `lines`. Any other path streams as empty.
 
+#### Streaming a command
+
+`Shell.stream` is the third source. `FS.stream_lines` reads a file,
+`IO.stdin_lines` reads the program's own input, and this one reads a
+subprocess as it writes:
+
+```ocaml
+Shell.stream $*(tail -f /var/log/app.log)
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> Stream.take 10
+|> Stream.to_list
+```
+
+`$()` cannot do that. It reads to the end before it answers, so
+`$(tail -f app.log)` accumulates forever and returns never — and the same is
+true of `kubectl logs -f`, of `journalctl -f`, and of any command that
+watches rather than reports. The only bound before this was
+`Shell.timeout`, which kills the command and hands back an `Error`: it stops
+the hang, and it does not give you the lines. A stream pulls one line at a
+time, so the memory is one line and a `take` stops the pulling.
+
+Four things to know:
+
+- **Stopping the read stops the command.** It is sent SIGTERM, then SIGKILL
+  five seconds later. wand signals the command it started and nothing below
+  it, so `sh -c "tail -f x"` leaves the `tail` behind — the same caveat
+  `Shell.timeout` carries.
+- **An early stop is not a failure.** A stream read to the end raises on a
+  non-zero exit, as `$()` does. A stream that stopped early ignores the exit
+  status, because the command ended when wand ended it.
+- **Lines may arrive in gulps.** Many commands write in 4KB blocks when
+  stdout is a pipe rather than a terminal, and `grep` is the one everybody
+  hits. Nothing in wand is wrong when that happens. Ask the command for line
+  buffering where it has a flag (`grep --line-buffered`), or wrap it:
+  `$*(stdbuf -oL some-command)`.
+- **Folding twice runs the command twice.** This is the rule for every
+  stream, restated because re-reading a file is cheap and repeatable while
+  re-running a command is neither.
+- **`Shell.timeout` does not bound a stream.** Its deadline is on a command
+  that runs to completion and hands back its output; a stream hands back
+  lines as they come and ends when the reading ends. Bound a stream with
+  `Stream.take`, which is the bound that fits the shape.
+
+A stream with no `take` over a command that never ends never finishes. That
+is `while true` written in another shape, and no type says so.
+
 ### `DateTime`
 
 ```ocaml
@@ -4257,12 +4367,22 @@ nothing rehearses for speed.
 ### `Shell`
 
 ```ocaml
+run!    : Command -> String ! {Raise, Shell}
+run     : Command -> Result String String ! {Shell}
+query   : Command -> ShellResult ! {Shell}
+stream  : Command -> Stream {Raise, Shell | ..} String
 ok?     : ShellResult -> Bool
 failed? : ShellResult -> Bool
 decode  : Decoder 'a -> String -> Result String 'a
 lines   : Decoder 'a -> String -> Result String (List 'a)
 timeout : Duration -> (Unit -> 'a ! 'e) -> Result String 'a ! {Clock | 'e}
 ```
+
+`run!` and `query` are what `$(cmd)` and `$?(cmd)` are, over a command built
+somewhere else. See [A command as a value](#a-command-as-a-value-cmd).
+
+`stream` reads a command's output as it arrives. See
+[Streaming a command](#streaming-a-command).
 
 Reading what a command wrote. See [Decoders](#decoders).
 

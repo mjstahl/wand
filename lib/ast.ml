@@ -152,6 +152,10 @@ type expr =
      site is unbounded (bare `Shell`, or no manifest). *)
   | RunCmd    of expr * string list option
   | RunQuery  of expr * string list option
+  (* `$*(cmd)`: the command itself, not its output. `$()` and `$?()` are
+     this one run and this one queried, so all three carry the same payload
+     and the same bound. *)
+  | MkCommand of expr * string list option
   | RegexLit  of string * string
   | ImportExpr of import_kind
   | Interp   of (string * expr) list * string
@@ -296,6 +300,7 @@ let rec show : expr -> string = function
   | Located (_, e)  -> show e
   | RunCmd   (e, _)   -> Printf.sprintf "$(%s)" (show e)
   | RunQuery (e, _)   -> Printf.sprintf "$?(%s)" (show e)
+  | MkCommand (e, _)  -> Printf.sprintf "$*(%s)" (show e)
   | RegexLit (p, f)   -> Printf.sprintf "r/%s/%s" p f
   | ImportExpr (StdlibModule n) -> Printf.sprintf "import %s" n
   | ImportExpr (UserPath p)     -> Printf.sprintf "import %s" p

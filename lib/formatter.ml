@@ -1065,6 +1065,9 @@ and emit_expr_inner ?col indent e =
      all, and the parser builds a `RunQuery` only from the tight form. So
      its body is always the text, and always written tight. *)
   | RunQuery (e, _) -> "$?(" ^ emit_command indent e ^ ")"
+  (* `$*` is the same: only the tight form lexes, so the body is always the
+     command text. *)
+  | MkCommand (e, _) -> "$*(" ^ emit_command indent e ^ ")"
   | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
   | ImportExpr (StdlibModule n) -> "import " ^ n
   | ImportExpr (UserPath p)     -> "import " ^ p
