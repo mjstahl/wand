@@ -1,0 +1,94 @@
+import Digest
+
+-- Digests, without a subprocess.
+--
+-- A checksum written by `Shell(shasum)` tells a reviewer that a binary
+-- ran and nothing about what was verified, and it does not run
+-- everywhere: the tool is not the same tool on macOS and Linux. A digest
+-- is arithmetic, and it should not depend on which machine the script
+-- woke up on.
+--
+-- Hashing an in-memory value performs nothing and declares nothing. Only
+-- `file` reaches outside the program, and what it carries is `FS.Read`
+-- for the read rather than anything for the arithmetic.
+--
+--     uses {FS.Read}
+--     import Digest
+--     import Hash
+--     let {Sha256} = import Digest
+--
+--     Hash.file! Sha256 ./dist/wand.tar.gz |> Digest.hex
+--
+-- The answer is a `Digest`, which carries the algorithm that made it; see
+-- that module for the two renderings.
+
+-- The digest of a String.
+--
+-- A String holds bytes, so this takes any of them -- a request body, a
+-- file already in memory, text.
+--
+-- >> Hash.string Digest.Sha256 "abc" |> Digest.hex
+-- "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" : String
+--
+-- >> Hash.string Digest.Md5 "abc" |> Digest.hex
+-- "900150983cd24fb0d6963f7d28e17f72" : String
+let string algorithm text =
+  Digest.Digest(algorithm = algorithm, hex = hash_hex (Digest.name algorithm) text)
+
+-- The digest of a file. Raises if it cannot be read.
+--
+-- The file is read in blocks and never held, so a release archive costs
+-- one block of memory rather than its own size. That is the whole reason
+-- this is a function of its own instead of `Hash.string` over
+-- `FS.read_file!`.
+--
+-- >> with FS.temp_dir "hash_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_file! f "abc"; Digest.hex (Hash.file! Digest.Sha256 f))
+-- "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" : String
+let file! algorithm path =
+  Digest.Digest(algorithm = algorithm, hex = hash_file (Digest.name algorithm) path)
+
+-- The digest of a file, or an Error naming why it could not be read.
+--
+-- A computed path pipes into it, which is also how to sidestep the rule
+-- that `Sha256 (x)` reads as applying the constructor to `x`.
+--
+-- >> with FS.temp_dir "hash_" as d ->
+-- ..   (match Path.join d ./missing |> Hash.file Digest.Sha256 with
+-- ..    | Ok _ -> "hashed" | Error _ -> "not there")
+-- "not there" : String
+let file algorithm path = try file! algorithm path
+
+-- A keyed digest: HMAC, as RFC 2104 defines it.
+--
+-- The key comes first and the message second, because a key is bound once
+-- and a message is what varies. So a partial application reads as the
+-- thing being built:
+--
+--     let sign = Hash.hmac Sha256 secret
+--     let a = sign body
+--
+-- >> Hash.hmac Digest.Sha256 "key" "The quick brown fox jumps over the lazy dog" |> Digest.hex
+-- "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8" : String
+let hmac algorithm key message =
+  Digest.Digest(algorithm = algorithm, hex = hmac_hex (Digest.name algorithm) key message)
+
+-- True when two digests are the same, compared in constant time.
+--
+-- `==` compares digests too and is not constant time. Use this one when
+-- the digest on one side came from somebody else -- a webhook signature,
+-- a token -- because a comparison that stops at the first wrong byte
+-- tells an attacker who can measure replies how much of the value they
+-- have guessed. A deploy script checking a published checksum is not that
+-- case, and `==` is fine there.
+--
+-- Digests of different algorithms are never equal, and the lengths are
+-- compared before the bytes: a digest's length is public.
+--
+-- >> Hash.equal? (Hash.string Digest.Sha256 "abc") (Hash.string Digest.Sha256 "abc")
+-- true : Bool
+--
+-- >> Hash.equal? (Hash.string Digest.Sha256 "abc") (Hash.string Digest.Sha256 "abd")
+-- false : Bool
+let equal? (a: Digest.Digest) (b: Digest.Digest) =
+  a.algorithm == b.algorithm && ct_equal a.hex b.hex

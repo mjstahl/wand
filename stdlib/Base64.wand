@@ -1,0 +1,80 @@
+-- Base64, both alphabets.
+--
+-- RFC 4648 defines two, and both are load-bearing. The standard alphabet
+-- is section 4 and is what a basic-auth header and a kubeconfig secret
+-- use. The URL-safe alphabet is section 5, with `-` and `_` where the
+-- standard one has `+` and `/`, and is what a JWT and a query parameter
+-- use. They are not interchangeable, so each gets a name rather than the
+-- choice going into a flag that reads as a detail.
+--
+-- `encode` pads, because the standard requires it. `decode` accepts
+-- input with or without padding, because most JWT producers omit it and
+-- a decoder that insisted would reject the input people actually have.
+-- Strict out, lenient in, is the only pairing that round-trips against
+-- the rest of the world.
+--
+-- A String holds bytes, so decoding answers a String without lying about
+-- what is in it. Printing one writes rubbish if it is not text.
+
+-- Encode, with padding, in the standard alphabet.
+--
+-- >> Base64.encode "hello"
+-- "aGVsbG8=" : String
+--
+-- >> Base64.encode ""
+-- "" : String
+let encode text = base64_encode text
+
+-- Decode the standard alphabet. Raises on input that is not base64.
+--
+-- >> Base64.decode! "aGVsbG8="
+-- "hello" : String
+--
+-- Padding is optional on the way in.
+--
+-- >> Base64.decode! "aGVsbG8"
+-- "hello" : String
+let decode! text =
+  match base64_decode text with
+  | Ok bytes -> bytes
+  | Error why -> fail_exn why
+
+-- Decode the standard alphabet, or an Error naming what was wrong.
+--
+-- >> Base64.decode "aGVsbG8="
+-- Ok("hello") : Result String String
+--
+-- >> Base64.decode "not base64"
+-- Error("not a base64 character:  ") : Result String String
+let decode text = try decode! text
+
+-- Encode, with padding, in the URL-safe alphabet.
+--
+-- The two alphabets differ only in the last two characters, so text that
+-- needs neither encodes the same either way.
+--
+-- >> Base64.encode_url "hello"
+-- "aGVsbG8=" : String
+--
+-- Bytes that do need them come back as `-` and `_` rather than `+` and `/`.
+--
+-- >> Base64.encode_url (Base64.decode! "+/8=")
+-- "-_8=" : String
+let encode_url text = base64_encode_url text
+
+-- Decode the URL-safe alphabet. Raises on input that is not base64.
+--
+-- >> Base64.decode_url! "aGVsbG8="
+-- "hello" : String
+let decode_url! text =
+  match base64_decode_url text with
+  | Ok bytes -> bytes
+  | Error why -> fail_exn why
+
+-- Decode the URL-safe alphabet, or an Error naming what was wrong.
+--
+-- The standard alphabet's characters are not in this one.
+--
+-- >> Base64.decode_url "+/8="
+-- Error("not a base64 character: +") : Result String String
+let decode_url text = try decode_url! text

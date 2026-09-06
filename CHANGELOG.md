@@ -4,6 +4,37 @@
 
 ### Added
 
+- **`Hash`, `Digest` and `Base64`.** A checksum written by `Shell(shasum)`
+  tells a reviewer that a binary ran and nothing about what was verified,
+  and it does not run everywhere -- the tool is `shasum` on macOS and
+  `sha256sum` on most Linux images. `Hash.string`, `Hash.file`, `Hash.hmac`
+  and `Hash.equal?` over `Sha256`, `Sha512`, `Sha1` and `Md5`. The weak two
+  are here for interop and named as such: leaving them out would not stop
+  anyone using them, it would send them to `Shell(md5sum)`. Every value in
+  the tests and the doc examples is a published vector -- NIST for the
+  digests, RFC 2202 for HMAC, RFC 4648 for base64 -- so the suite is a check
+  rather than a snapshot
+- **Hashing performs nothing, and the reference says why.** `Hash.string`,
+  `Hash.hmac` and every `Base64` function reach nothing outside the program
+  and answer the same twice, so they earn no label and a script that uses
+  them declares nothing. Only `Hash.file` reaches outside, and what it
+  carries is `FS.Read` for the read rather than anything for the
+  arithmetic. It goes through a new `FS!hash_file` operation, so
+  `--dry-run`, `--trace` and a test's mock see it the way they see
+  `FS!read_file`, and it reads the file in blocks rather than turning a
+  release archive into a `String`
+- **A digest is a type, not a hex `String`.** `Digest` carries the
+  algorithm that made it, so comparing a sha256 against a sha512 is a
+  question the checker answers rather than a `false` that reads like a
+  failed verification, and one value renders two ways -- `Digest.hex` for a
+  checksum file, `Digest.base64` for an S3 ETag. `Hash.equal?` is
+  constant-time and `==` is not; the doc says which case is which rather
+  than carving `==` out for one built-in type
+- **`Base64` has both alphabets**, because both are load-bearing: RFC 4648
+  section 4 for a basic-auth header and a kubeconfig secret, section 5 for a
+  JWT and a query parameter. `encode` pads and `decode` accepts input either
+  way, which is the only pairing that round-trips against the rest of the
+  world -- most JWT producers omit the padding the standard requires
 - **`Ord`, a module for the four functions people write out of `<` and
   `>`.** `Ord.max`, `Ord.min`, `Ord.clamp` and `Ord.between?`. One
   definition serves all ten ordered types, so `Ord.max 30s 2min` and
@@ -67,6 +98,12 @@
 
 ### Changed
 
+- **The release pipeline checksums with wand instead of `shasum`.**
+  `tools/checksum.wand` writes the `.sha256` beside a release archive, and
+  the `Makefile` and `release.yml` both call it with the binary they just
+  built. The output is `shasum -a 256` format byte for byte, so `shasum -c`
+  next to the download still reads it. `install.sh` keeps its own shell
+  fallback and has to: it runs before there is a wand to run
 - **`String.chars` is now `String.bytes`.** It returned one string per
   *byte* and called them characters, so `String.chars "café"` came back with
   five elements and the last two were the halves of the é. The name was the
@@ -88,6 +125,18 @@
 
 ### Fixed
 
+- **A session lost the types an import brought in.** A REPL or `-e` step
+  that named a constructor of an imported module -- `Digest.Sha256`,
+  `Test.Pass` -- failed with "declares no types" unless the same step also
+  wrote the import, which the auto-import preamble never does because it
+  runs as a step of its own. Sessions now carry imported type names the way
+  they already carried values, so every stdlib module that declares a type
+  is usable from the REPL. `Test` had the defect since it gained
+  `TestOutcome` and nothing reached for it
+- **`Base64.decode` reported a length error for a bad character.**
+  `Base64.decode "Zm9v!"` is both five characters long and not base64, and
+  it answered about the length. The character scan runs first now: both
+  things are true of that input and only one tells the caller what to fix
 - **The reference listed `CIDR` as unordered while also listing it among the
   ten ordered types.** `10.0.0.0/8 < 192.168.0.0/16` typechecks and always
   has; only the sentence was wrong. `Path`, `Glob`, `URL`, `Regex`, `Bool`

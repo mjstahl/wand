@@ -1,0 +1,92 @@
+let {test} = import Test
+import Base64
+import List
+import String
+
+-- The vectors are RFC 4648 section 10, which gives the encoding of the
+-- first n characters of "foobar" for n from zero to six. They cover every
+-- padding case there is.
+
+let vectors = [
+  ("", ""),
+  ("f", "Zg=="),
+  ("fo", "Zm8="),
+  ("foo", "Zm9v"),
+  ("foob", "Zm9vYg=="),
+  ("fooba", "Zm9vYmE="),
+  ("foobar", "Zm9vYmFy")
+]
+
+test "encode, RFC 4648 section 10" (fn t ->
+  t.eq
+    (List.map (fn (_, encoded) -> encoded) vectors)
+    (List.map (fn (plain, _) -> Base64.encode plain) vectors))
+
+test "decode, RFC 4648 section 10" (fn t ->
+  t.eq
+    (List.map (fn (plain, _) -> Ok plain) vectors)
+    (List.map (fn (_, encoded) -> Base64.decode encoded) vectors))
+
+-- ── padding ─────────────────────────────────────────────────────────────
+
+-- Strict out, lenient in: encode always pads, and decode takes input
+-- either way, because most JWT producers omit it.
+test "encode pads" (fn t -> t.eq "Zg==" (Base64.encode "f"))
+test "decode accepts unpadded input" (fn t -> t.eq (Ok "f") (Base64.decode "Zg"))
+test "decode accepts padded input" (fn t -> t.eq (Ok "f") (Base64.decode "Zg=="))
+test "decode of unpadded and padded agree" (fn t ->
+  t.eq (Base64.decode "Zm9vYmE") (Base64.decode "Zm9vYmE="))
+
+-- ── the two alphabets ───────────────────────────────────────────────────
+
+-- They differ in the last two characters and nowhere else, so text needing
+-- neither encodes the same either way.
+test "the alphabets agree on text that needs neither" (fn t ->
+  t.eq (Base64.encode "foobar") (Base64.encode_url "foobar"))
+
+-- The bytes that do need them: 0xfb 0xff is "+/8=" standard, "-_8=" URL.
+let high = Base64.decode! "+/8="
+
+test "url-safe uses - and _" (fn t -> t.eq "-_8=" (Base64.encode_url high))
+test "standard uses + and /" (fn t -> t.eq "+/8=" (Base64.encode high))
+test "each alphabet decodes its own" (fn t ->
+  t.eq (Ok high, Ok high) (Base64.decode "+/8=", Base64.decode_url "-_8="))
+test "neither alphabet decodes the other's characters" (fn t ->
+  t.eq (true, true) (
+    match Base64.decode "-_8=" with
+    | Ok _ -> false
+    | Error _ -> true,
+    match Base64.decode_url "+/8=" with
+    | Ok _ -> false
+    | Error _ -> true
+  ))
+
+-- ── round trips ─────────────────────────────────────────────────────────
+
+test "encode then decode is the original" (fn t ->
+  let text = "the quick brown fox\n\tand a tab" in
+  t.eq (Ok text) (Base64.decode (Base64.encode text)))
+
+test "a String holds bytes, so binary round-trips" (fn t ->
+  let raw = Base64.decode! "+/8AAQID" in t.eq (Ok raw) (Base64.decode (Base64.encode raw)))
+
+test "url round trip" (fn t -> t.eq (Ok high) (Base64.decode_url (Base64.encode_url high)))
+
+test "a long value round-trips through every padding phase" (fn t ->
+  t.eq
+    true
+    (List.all?
+      (fn n -> let s = String.slice 0 n (String.repeat 40 "abcdefghij") in
+        Base64.decode (Base64.encode s) == Ok s
+      )
+      (List.range 0 64)
+    ))
+
+-- ── what is refused ─────────────────────────────────────────────────────
+
+test "a character outside the alphabet" (fn t ->
+  t.eq (Error "not a base64 character: !") (Base64.decode "Zm9v!"))
+test "a length that cannot be base64" (fn t ->
+  t.eq (Error "base64 input has a trailing character") (Base64.decode "Zm9vY"))
+test "decode! raises" (fn t -> t.raises (fn () -> Base64.decode! "Zm9v!"))
+test "decode_url! raises" (fn t -> t.raises (fn () -> Base64.decode_url! "Zm9v!"))

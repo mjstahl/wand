@@ -70,20 +70,7 @@ downstream of which one it is.
 
 > `yaml-design.md`
 
-### 3. `Hash` and `Base64`
-
-Bounded, published test vectors, and it lets wand's own release pipeline
-stop shelling out to `shasum` — the `Makefile` writes a checksum and
-`install.sh` carries a branch for the machine where neither `shasum` nor
-`sha256sum` exists.
-
-Not an adoption driver; nobody adopts a language for sha256. It has the
-highest certainty per hour on the list, which makes it the right thing to
-pick up in a week with less appetite than item 1 needs.
-
-> `hash-design.md`
-
-### 4. The `Command` value
+### 3. The `Command` value
 
 `$*(cmd)` denotes a command without running it, and `Shell.run`,
 `Shell.query` and `Shell.stream` are ordinary functions over one. `$()` and
@@ -100,7 +87,7 @@ once there are scripts to migrate, even though no script's text changes.
 
 > `stream-design.md`
 
-### 5. `FS.write_atomic`
+### 4. `FS.write_atomic`
 
 Small, and the version people compose by hand is wrong three ways — the
 temp file lands on another filesystem, the published file changes mode, and
@@ -109,14 +96,14 @@ urgent, because nobody has written the broken version yet.
 
 > `fs-primitives-design.md`
 
-### 6. `Path` into the ordered set
+### 5. `Path` into the ordered set
 
 Self-contained, breaking, and it can land any time before a release. The
 valuable half is `==` answering about files instead of about text.
 
 > `int-design.md`
 
-### 7. `FS.lock`
+### 6. `FS.lock`
 
 Genuinely blocked. Q8 — `flock` against `Unix.lockf` — and Q12 — how a
 caller tells "already held" from "permission denied" — decide what the
@@ -140,7 +127,7 @@ word check and the effect check would key off different sites, which `$()`
 does not suffer because there they are one site.
 
 `stream-design.md` leans toward checking words where a `Command` is
-consumed rather than where it is written. That is the part of item 4 most
+consumed rather than where it is written. That is the part of item 3 most
 likely to be discovered late, and it should be settled before the lexer work
 starts rather than after.
 
@@ -150,11 +137,10 @@ starts rather than after.
 |---|---|---|---|---|---|
 | 1 | HTTP + Net + globs | no | claim is weak | no | weeks |
 | 2 | YAML | no | no | no | unknown |
-| 3 | Hash + Base64 | partly | no | no | days |
-| 4 | `Command` value | **yes** | no | **yes** | weeks |
-| 5 | write_atomic | no | latent | no | days |
-| 6 | Path ordering | no | **yes** | **yes** | days |
-| 7 | FS.lock | no | no | no | blocked |
+| 3 | `Command` value | **yes** | no | **yes** | weeks |
+| 4 | write_atomic | no | latent | no | days |
+| 5 | Path ordering | no | **yes** | **yes** | days |
+| 6 | FS.lock | no | no | no | blocked |
 
 The short version: put real time into 1 and 2, because those two are what
 stand between wand and someone using it for the job it describes. Everything

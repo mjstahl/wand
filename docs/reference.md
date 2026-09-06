@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -4291,6 +4291,143 @@ Three things to know:
 ```ocaml
 let ahead = Shell.decode Decode.int $(git rev-list --count HEAD)
 ```
+
+### `Hash`
+
+```ocaml
+string : Algorithm -> String -> Digest
+file   : Algorithm -> Path -> Result String Digest  ! {FS.Read}
+file!  : Algorithm -> Path -> Digest                ! {FS.Read, Raise}
+hmac   : Algorithm -> String -> String -> Digest
+equal? : Digest -> Digest -> Bool
+```
+
+Digests without a subprocess. A checksum written by `Shell(shasum)` tells a
+reviewer that a binary ran and nothing about what was verified, and it does
+not run everywhere: the tool is `shasum` on macOS and `sha256sum` on most
+Linux images. A digest is arithmetic, and it should not depend on which
+machine the script woke up on.
+
+```ocaml
+uses {FS.Read}
+import Digest
+import Hash
+let {Sha256} = import Digest
+
+Hash.string Sha256 body |> Digest.hex
+Hash.file!  Sha256 ./dist/wand.tar.gz |> Digest.hex
+```
+
+**Hashing performs nothing.** `string`, `hmac` and every `Base64` function
+reach nothing outside the program and answer the same twice, so they fit
+none of the three things that [earn a label](#what-earns-a-label) and carry
+none. Only `file` reaches outside, and what it carries is `FS.Read` for the
+*read* — through an `FS!hash_file` operation, so `--dry-run`, `--trace` and
+a test's mock see it the way they see `FS!read_file`. It reads the file in
+blocks and never holds it, which is what makes a checksum of a release
+archive possible at all.
+
+`hmac` takes the key first and the message second, because a key is bound
+once and a message is what varies, so a partial application reads as the
+thing being built:
+
+```ocaml
+let sign = Hash.hmac Sha256 secret
+let a = sign body
+```
+
+**`equal?` is constant-time and `==` is not.** Both compare digests. Use
+`equal?` when the digest on one side came from somebody else — a webhook
+signature, a token — because a comparison that stops at the first wrong byte
+tells an attacker who can measure replies how much of the value they have
+guessed. A deploy script checking a published checksum is not that case, and
+`==` is right there. The lengths are compared before the bytes, and a
+digest's length is public.
+
+A nullary constructor followed by `(` reads as applying it, so
+`Hash.string Sha256 (body ++ "\n")` is an error that names the fix. Pipe
+instead, which is the ordinary spelling anyway:
+
+```ocaml
+body ++ "\n" |> Hash.string Sha256
+```
+
+### `Digest`
+
+```ocaml
+type Algorithm = Sha256 | Sha512 | Sha1 | Md5
+type Digest(algorithm: Algorithm, hex: String)
+
+name      : Algorithm -> String
+hex       : Digest -> String
+base64    : Digest -> String
+algorithm : Digest -> Algorithm
+of_hex    : Algorithm -> String -> Result String Digest
+of_hex!   : Algorithm -> String -> Digest ! {Raise}
+```
+
+`Hash` computes; this module holds the answer and renders it. A digest is a
+type rather than a hex `String`, which buys two things.
+
+**It carries which algorithm made it**, so comparing a sha256 against a
+sha512 is a question the checker answers rather than a `false` that reads
+like a failed verification. `of_hex` takes the algorithm for the same
+reason: 64 hex digits are a sha256 or half a sha512, and which one they are
+comes from whoever read them out of a file.
+
+**One value has two renderings.** Checksum files are hex; S3 ETags and
+subresource integrity are base64. Two accessors say that, where a `String`
+return would need two families of function:
+
+```ocaml
+Hash.string Sha256 "abc" |> Digest.hex
+-- "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+Hash.string Sha256 "abc" |> Digest.base64
+-- "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0="
+```
+
+`hex` and `algorithm` answer the same as the fields `d.hex` and
+`d.algorithm`. The functions are the spelling that pipes.
+
+`Sha256` and `Sha512` are for new work. `Sha1` and `Md5` are here for
+interop and nothing else: git names objects with sha1 and S3 ETags are md5,
+so a script matching one is not making a mistake. Leaving them out would not
+stop anyone using them — it would send them to `Shell(md5sum)`, where the
+manifest names a binary again.
+
+### `Base64`
+
+```ocaml
+encode      : String -> String
+decode      : String -> Result String String
+decode!     : String -> String ! {Raise}
+encode_url  : String -> String
+decode_url  : String -> Result String String
+decode_url! : String -> String ! {Raise}
+```
+
+Two alphabets, because both are load-bearing. The standard one is
+RFC 4648 §4 and is what a basic-auth header and a kubeconfig secret use. The
+URL-safe one is §5, with `-` and `_` where the standard has `+` and `/`, and
+is what a JWT and a query parameter use. They are not interchangeable, so
+each gets a name rather than the choice going into a flag that reads as a
+detail.
+
+**`encode` pads. `decode` accepts padded and unpadded input.** Padding is
+required by the standard and omitted by most JWT producers, so a decoder
+that insisted on it would reject the input people actually have. Strict out
+and lenient in is the only pairing that round-trips against the rest of the
+world.
+
+```ocaml
+Base64.encode "f"        -- "Zg=="
+Base64.decode "Zg"       -- Ok "f"
+Base64.decode "Zg=="     -- Ok "f"
+```
+
+A `String` [holds bytes](#a-string-is-bytes), so decoding answers a `String`
+without lying about what is in it. Printing one writes rubbish if it is not
+text.
 
 ### `Decode`
 

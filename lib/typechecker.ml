@@ -11,7 +11,7 @@ let stdlib_module_names =
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
     "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
-    "Random"; "Int"; "Ord" ]
+    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -256,6 +256,11 @@ let operations : operation list =
                        "TOML.read_file"; "TOML.read_file!"; "Env.read!"] };
     { op_name = "FS!stream_lines"; op_effect = FsRead; op_types = t path (TList str);
       op_performers = ["FS.stream_lines"] };
+    (* The algorithm rides along with the path, so a handler that mocks this
+       answers per file rather than per file and algorithm. *)
+    { op_name = "FS!hash_file"; op_effect = FsRead;
+      op_types = t (TTuple [str; path]) str;
+      op_performers = ["Hash.file"; "Hash.file!"] };
     { op_name = "FS!list_dir"; op_effect = FsRead; op_types = t path (TList path);
       op_performers = ["FS.list_dir"; "FS.list_dir!"] };
     { op_name = "FS!glob"; op_effect = FsRead;
@@ -3430,10 +3435,14 @@ let stdlib_type_env : env = [
   ("random_float", generalize [] (effs [Effect_set.Random] (TUnit) (TFloat)));
   ("random_seed", generalize [] (effs [Effect_set.Random] (TInt) (TUnit)));
   ("option_get_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TUnit) (a)));
+  ("fail_exn", let a = fresh () in generalize [] (effs [Effect_set.Raise] (TString) (a)));
   (* A file is named by a Path, like every other filesystem operation. These
      two took a String, so a script holding a Path had to convert away from
      the domain type at the one boundary the domain type is for. *)
   ("read_file",  generalize [] (effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TString)));
+  (* The algorithm arrives first and performs nothing; the read happens when
+     the path does, so the labels sit on the last arrow. *)
+  ("hash_file",  generalize [] ((TString @-> effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TString))));
   ("write_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TString @-> TUnit))));
   (* String primitives *)
   ("str_length",     generalize [] ((TString @-> TInt)));
@@ -3451,6 +3460,15 @@ let stdlib_type_env : env = [
   ("str_repeat",     generalize [] ((TInt @-> (TString @-> TString))));
   ("str_reverse",    generalize [] ((TString @-> TString)));
   ("str_truncate",   generalize [] ((TInt @-> (TString @-> TString))));
+  ("hash_hex",       generalize [] ((TString @-> (TString @-> TString))));
+  ("hmac_hex",       generalize [] ((TString @-> (TString @-> (TString @-> TString)))));
+  ("hex_encode",     generalize [] ((TString @-> TString)));
+  ("hex_decode",     generalize [] ((TString @-> TResult (TString, TString))));
+  ("base64_encode",     generalize [] ((TString @-> TString)));
+  ("base64_encode_url", generalize [] ((TString @-> TString)));
+  ("base64_decode",     generalize [] ((TString @-> TResult (TString, TString))));
+  ("base64_decode_url", generalize [] ((TString @-> TResult (TString, TString))));
+  ("ct_equal",       generalize [] ((TString @-> (TString @-> TBool))));
   ("str_bytes",      generalize [] ((TString @-> TList TString)));
   ("int_to_str",       generalize [] ((TInt @-> TString)));
   ("float_of_int",     generalize [] ((TInt @-> TFloat)));

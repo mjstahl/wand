@@ -116,7 +116,12 @@ release-archive:
 	chmod 755 dist/$(NAME)/wand
 	cp LICENSE README.md dist/$(NAME)/
 	tar -czf dist/$(NAME).tar.gz -C dist $(NAME)
-	cd dist && shasum -a 256 $(NAME).tar.gz > $(NAME).tar.gz.sha256
+# Written by wand, over the binary this target just built. `shasum` was
+# two problems: the manifest said a binary ran rather than what was
+# verified, and the binary is `shasum` on macOS and `sha256sum` on most
+# Linux images. The format is unchanged, so `shasum -c` still reads it.
+	cd dist && $(CURDIR)/_build/default/bin/wand.exe $(CURDIR)/tools/checksum.wand \
+	  $(NAME).tar.gz > $(NAME).tar.gz.sha256
 	gh release view v$(VERSION) >/dev/null 2>&1 || \
 	  gh release create v$(VERSION) --draft --title v$(VERSION) --notes-file .github/release-notes.md
 	gh release upload v$(VERSION) dist/$(NAME).tar.gz dist/$(NAME).tar.gz.sha256 --clobber

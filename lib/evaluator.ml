@@ -2143,6 +2143,139 @@ let str_truncate n s =
     String.sub s 0 (if is_continuation cut then n else cut)
   end
 
+(* ── Digests, hex and base64 ─────────────────────────────────────────────
+
+   The algorithm arrives as the string a `Hash.Algorithm` constructor maps
+   to, so the closed set in the standard library is what decides which of
+   these can be reached. An unknown name is unreachable from wand and is a
+   raise rather than a default, because defaulting would hash with an
+   algorithm nobody asked for. *)
+
+let hash_module = function
+  | "sha256" -> (module Digestif.SHA256 : Digestif.S)
+  | "sha512" -> (module Digestif.SHA512 : Digestif.S)
+  | "sha1"   -> (module Digestif.SHA1   : Digestif.S)
+  | "md5"    -> (module Digestif.MD5    : Digestif.S)
+  | a -> raise (EvalError (Printf.sprintf "unknown hash algorithm: %s" a))
+
+let hash_string_hex algo s =
+  let module H = (val hash_module algo) in
+  H.to_hex (H.digest_string s)
+
+let hash_hmac_hex algo key msg =
+  let module H = (val hash_module algo) in
+  H.to_hex (H.hmac_string ~key msg)
+
+(* Hashing a file reads it in blocks and never holds it. A release archive
+   is the case this exists for, and turning one into a String first would
+   defeat the point of the function. *)
+let hash_file_hex algo path =
+  let module H = (val hash_module algo) in
+  let ic = open_in_bin path in
+  Fun.protect ~finally:(fun () -> close_in_noerr ic) (fun () ->
+    let buf = Bytes.create 65536 in
+    let rec go ctx =
+      let n = input ic buf 0 (Bytes.length buf) in
+      if n = 0 then ctx
+      else go (H.feed_string ctx ~off:0 ~len:n (Bytes.unsafe_to_string buf))
+    in
+    H.to_hex (H.get (go H.empty)))
+
+let hex_digits = "0123456789abcdef"
+
+let hex_encode s =
+  String.concat "" (List.init (String.length s) (fun i ->
+    let c = Char.code s.[i] in
+    Printf.sprintf "%c%c" hex_digits.[c lsr 4] hex_digits.[c land 0xf]))
+
+let hex_value c =
+  match c with
+  | '0'..'9' -> Char.code c - Char.code '0'
+  | 'a'..'f' -> Char.code c - Char.code 'a' + 10
+  | 'A'..'F' -> Char.code c - Char.code 'A' + 10
+  | _ -> -1
+
+let hex_decode s =
+  let n = String.length s in
+  if n mod 2 <> 0 then Error "hex string has an odd number of digits"
+  else begin
+    let bad = ref None in
+    let out = String.init (n / 2) (fun i ->
+      let hi = hex_value s.[2 * i] and lo = hex_value s.[2 * i + 1] in
+      if hi < 0 || lo < 0 then begin
+        if !bad = None then
+          bad := Some (Printf.sprintf "not a hex digit: %c"
+                         (if hi < 0 then s.[2 * i] else s.[2 * i + 1]));
+        '\000'
+      end else Char.chr ((hi lsl 4) lor lo))
+    in
+    match !bad with Some m -> Error m | None -> Ok out
+  end
+
+(* RFC 4648. The standard alphabet is section 4 and the URL-safe one is
+   section 5; they differ in the last two characters and nowhere else.
+   `encode` pads, because the standard requires it. `decode` accepts input
+   with or without padding, because most JWT producers omit it and a
+   decoder that refused would reject the input people actually have. *)
+let b64_std = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+let b64_url = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+let base64_encode alphabet s =
+  let n = String.length s in
+  let buf = Buffer.create ((n + 2) / 3 * 4) in
+  let byte i = if i < n then Char.code s.[i] else 0 in
+  let rec go i =
+    if i < n then begin
+      let b = (byte i lsl 16) lor (byte (i + 1) lsl 8) lor byte (i + 2) in
+      let left = n - i in
+      Buffer.add_char buf alphabet.[(b lsr 18) land 0x3f];
+      Buffer.add_char buf alphabet.[(b lsr 12) land 0x3f];
+      Buffer.add_char buf (if left > 1 then alphabet.[(b lsr 6) land 0x3f] else '=');
+      Buffer.add_char buf (if left > 2 then alphabet.[b land 0x3f] else '=');
+      go (i + 3)
+    end
+  in
+  go 0;
+  Buffer.contents buf
+
+let base64_decode alphabet s =
+  let value c =
+    let rec find i = if i >= 64 then -1 else if alphabet.[i] = c then i else find (i + 1) in
+    find 0
+  in
+  let s =
+    (* Padding is optional on the way in, so it is dropped before decoding
+       rather than counted. *)
+    let n = ref (String.length s) in
+    while !n > 0 && s.[!n - 1] = '=' do decr n done;
+    String.sub s 0 !n
+  in
+  let n = String.length s in
+  let err = ref None in
+  let buf = Buffer.create (n / 4 * 3) in
+  let acc = ref 0 and bits = ref 0 in
+  String.iter (fun c ->
+    if !err = None then begin
+      let v = value c in
+      if v < 0 then err := Some (Printf.sprintf "not a base64 character: %c" c)
+      else begin
+        acc := (!acc lsl 6) lor v;
+        bits := !bits + 6;
+        if !bits >= 8 then begin
+          bits := !bits - 8;
+          Buffer.add_char buf (Char.chr ((!acc lsr !bits) land 0xff))
+        end
+      end
+    end) s;
+  (* The character scan runs first, so `Zm9v!` is reported as the `!` it
+     is rather than as a length that cannot be base64. Both are true of it;
+     only one tells the caller what to fix. *)
+  match !err with
+  | Some m -> Error m
+  | None ->
+    if n mod 4 = 1 then Error "base64 input has a trailing character"
+    else Ok (Buffer.contents buf)
+
 let path_normalize s =
   let is_abs = String.length s > 0 && s.[0] = '/' in
   let is_cur = (String.length s >= 2 && s.[0] = '.' && s.[1] = '/') || s = "." in
@@ -3178,7 +3311,19 @@ let stdlib_eval_env : env = [
   ("option_get_exn", VBuiltin (function
     | VUnit -> raise (EvalError "Option.get!: called on None")
     | _ -> raise (EvalError "option_get_exn: expected Unit")));
+  (* The one primitive that raises a message the standard library composed
+     rather than one this file wrote. Reachable only from `stdlib/`, which
+     is why wand still has no user-facing `raise`: a `!` sibling whose
+     Result version does the checking has no other way to report what the
+     check found. *)
+  ("fail_exn", VBuiltin (function
+    | VString why -> raise (EvalError why)
+    | _ -> raise (EvalError "fail_exn: expected String")));
   ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("FS!read_file",  v))));
+  ("hash_file", VBuiltin (function
+    | VString algo -> VBuiltin (fun path ->
+        Effect.perform (WandEffect ("FS!hash_file", VTuple [VString algo; path])))
+    | _ -> raise (EvalError "hash_file: expected String")));
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
       Effect.perform (WandEffect ("FS!write_file", VTuple [path; content])))));
@@ -3259,6 +3404,53 @@ let stdlib_eval_env : env = [
       | VString s -> VString (str_truncate n s)
       | _ -> raise (EvalError "str_truncate: expected String"))
     | _ -> raise (EvalError "str_truncate: expected Int")));
+  ("hash_hex", VBuiltin (function
+    | VString algo -> VBuiltin (function
+      | VString data -> VString (hash_string_hex algo data)
+      | _ -> raise (EvalError "hash_hex: expected String"))
+    | _ -> raise (EvalError "hash_hex: expected String")));
+  ("hmac_hex", VBuiltin (function
+    | VString algo -> VBuiltin (function
+      | VString key -> VBuiltin (function
+        | VString msg -> VString (hash_hmac_hex algo key msg)
+        | _ -> raise (EvalError "hmac_hex: expected String"))
+      | _ -> raise (EvalError "hmac_hex: expected String"))
+    | _ -> raise (EvalError "hmac_hex: expected String")));
+  ("hex_decode", VBuiltin (function
+    | VString s ->
+      (match hex_decode s with
+       | Ok b    -> VConstr (Ctor.Builtin "Ok", [VString b])
+       | Error m -> VConstr (Ctor.Builtin "Error", [VString m]))
+    | _ -> raise (EvalError "hex_decode: expected String")));
+  ("hex_encode", VBuiltin (function
+    | VString s -> VString (hex_encode s)
+    | _ -> raise (EvalError "hex_encode: expected String")));
+  ("base64_encode", VBuiltin (function
+    | VString s -> VString (base64_encode b64_std s)
+    | _ -> raise (EvalError "base64_encode: expected String")));
+  ("base64_encode_url", VBuiltin (function
+    | VString s -> VString (base64_encode b64_url s)
+    | _ -> raise (EvalError "base64_encode_url: expected String")));
+  ("base64_decode", VBuiltin (function
+    | VString s ->
+      (match base64_decode b64_std s with
+       | Ok b    -> VConstr (Ctor.Builtin "Ok", [VString b])
+       | Error m -> VConstr (Ctor.Builtin "Error", [VString m]))
+    | _ -> raise (EvalError "base64_decode: expected String")));
+  ("base64_decode_url", VBuiltin (function
+    | VString s ->
+      (match base64_decode b64_url s with
+       | Ok b    -> VConstr (Ctor.Builtin "Ok", [VString b])
+       | Error m -> VConstr (Ctor.Builtin "Error", [VString m]))
+    | _ -> raise (EvalError "base64_decode_url: expected String")));
+  (* Constant time in the length it compares, which is what an HMAC check
+     needs. The lengths themselves are compared first and leak, and a digest
+     length is public. *)
+  ("ct_equal", VBuiltin (function
+    | VString a -> VBuiltin (function
+      | VString b -> VBool (String.length a = String.length b && Eqaf.equal a b)
+      | _ -> raise (EvalError "ct_equal: expected String"))
+    | _ -> raise (EvalError "ct_equal: expected String")));
   ("str_bytes", VBuiltin (function
     | VString s ->
       VList (List.init (String.length s) (fun i -> VString (String.make 1 s.[i])))

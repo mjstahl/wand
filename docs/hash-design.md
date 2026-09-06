@@ -234,6 +234,23 @@ the fallback rather than the ambition. wand's whole distribution story is
 one file that carries its own standard library, and a dependency that
 breaks the musl build costs more than four hundred lines that never move.
 
+**Priced, and taken.** `digestif` needs one runtime package beyond itself —
+`eqaf`, which is pure OCaml and needs nothing but the compiler and dune. No
+system library, and `musl-dev` is already installed in that build for
+wand's own `ext/clock.c`.
+
+It ships two backends, and the numbers decide between them. Over 64 MB on
+one machine, both answering the same digest:
+
+```text
+digestif.c        0.236s    271 MB/s
+digestif.ocaml    2.712s     24 MB/s
+```
+
+Eleven times, which is seven seconds against eighty-five on a 2GB archive.
+`digestif.c` is the one, and its stubs are self-contained C99 with nothing
+to find on the system.
+
 ## What the tests get for free
 
 Every algorithm here has published vectors: NIST for the digests, RFC 2202

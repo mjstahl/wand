@@ -24,6 +24,8 @@
   yojson
   toml
   re
+  digestif
+  eqaf
   (alcotest :with-test))
  (tags
   ("scripting-language" "type-inference" "ml" "interpreter")))

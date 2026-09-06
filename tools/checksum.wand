@@ -1,0 +1,36 @@
+uses {FS.Read, IO, Proc}
+
+import Digest
+import Hash
+import IO
+import Path
+import Proc
+
+let {Sha256} = import Digest
+
+-- The checksum line that ships beside a release archive, written by wand
+-- rather than by `shasum`.
+--
+-- Two things were wrong with the subprocess. A script that checksums a
+-- file declared `Shell(shasum)`, which tells a reviewer that a binary ran
+-- and nothing about what was verified. And the binary is not the same
+-- binary everywhere -- macOS has `shasum`, most Linux images have
+-- `sha256sum`, and the release pipeline ran on both.
+--
+-- The output is `shasum -a 256` format exactly: the hex, two spaces, then
+-- the file's own name. `install.sh` runs `shasum -c` against it next to
+-- the download, so the name has to be the archive's rather than a path
+-- that only existed on the machine that built it.
+--
+-- `install.sh` still carries its own shell fallback, and has to: it runs
+-- before there is a wand to run.
+
+let line! path =
+  "%{Digest.hex (Hash.file! Sha256 path)}  %{Path.to_string (Path.basename path)}"
+
+let main! () =
+  match Proc.args () with
+  | [] -> (IO.println_err "usage: checksum.wand <file>"; Proc.exit 1)
+  | [path :: _] -> IO.println (line! (Path.of_string path))
+
+main! ()

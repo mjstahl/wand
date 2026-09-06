@@ -9,7 +9,7 @@
  (foreign_stubs
   (language c)
   (names clock))
- (libraries unix re re.pcre yojson toml linenoise))
+ (libraries unix re re.pcre yojson toml linenoise digestif.c eqaf))
 
 ; The standard library, compiled into the binary as source text. The glob is
 ; what makes an edit to a `.wand` file rebuild the table -- get it wrong and

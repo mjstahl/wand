@@ -16,6 +16,8 @@ depends: [
   "yojson"
   "toml"
   "re"
+  "digestif"
+  "eqaf"
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

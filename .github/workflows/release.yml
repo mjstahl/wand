@@ -168,8 +168,11 @@ jobs:
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
           # Recorded from inside dist/, so the file names the archive rather
           # than a path that only existed on the runner -- `shasum -c` is run
-          # next to the download, not here.
-          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          # next to the download, not here. Written by the binary this job
+          # just built, which is the same arithmetic on every runner;
+          # `shasum` and `sha256sum` are not the same binary.
+          (cd dist && "$GITHUB_WORKSPACE/_build/default/bin/wand.exe" \
+            "$GITHUB_WORKSPACE/tools/checksum.wand" "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
           ls -la dist
 
       - uses: actions/upload-artifact@v6

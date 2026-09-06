@@ -446,6 +446,7 @@ let describe_operation name (v : value) =
   | "Env!set"      -> Some ("set", pair v)
   | "Env!clear"    -> Some ("clear", text v)
   | "FS!read_file"    -> Some ("read", text v)
+  | "FS!hash_file"    -> Some ("hash", pair v)
   | "FS!list_dir"        -> Some ("list", text v)
   | "FS!glob"      -> Some ("glob", first v)
   | "Proc!exit"         -> Some ("exit", text v)
@@ -607,6 +608,12 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
+          | WandEffect ("FS!hash_file", VTuple [VString algo; (VString p | VPath p)]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (hash_file_hex algo p)
+                     with Sys_error m -> Error ("hash_file: " ^ m)) with
+              | Ok hex  -> Effect.Deep.continue    k (VString hex)
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!stream_lines", (VString p | VPath p)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (open_in p)
@@ -1907,6 +1914,13 @@ type session = {
   s_last_load : string option;
   s_sources   : (string * string) list;  (* name -> source text *)
   s_docs      : (string * string) list;  (* name -> doc string *)
+  (* The types an import brought in, kept across steps. A session declares
+     its imports a line at a time, so a step that names `Digest.Sha256`
+     usually is not the step that wrote `import Digest`. Without this the
+     constructors of an imported module were reachable only within the one
+     step that imported it, which is why every stdlib module that declares
+     a type was unusable from the REPL and from `-e`. *)
+  s_type_names : (string * string) list;
 }
 
 let make_session ?(base_dir = Sys.getcwd ()) () = {
@@ -1918,6 +1932,7 @@ let make_session ?(base_dir = Sys.getcwd ()) () = {
   s_last_load = None;
   s_sources   = [];
   s_docs      = [];
+  s_type_names = [];
 }
 
 let lookup_type (sess : session) (name : string) : string option =
@@ -2058,9 +2073,10 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
       Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
+    let merged_type_names = imp.type_names @ sess.s_type_names in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:imp.type_names prog with
+            ~type_names:merged_type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
@@ -2081,6 +2097,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_type_env = dedup (own_type_env @ imp.type_env @ sess.s_type_env);
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
+          s_type_names = dedup merged_type_names;
         } in
         let hole_strs = List.map Typechecker.string_of_typ hole_types in
         Ok (new_sess, RHoles hole_strs)
@@ -2146,6 +2163,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_eval_env = dedup (own_eval_env @ imp.eval_env @ sess.s_eval_env);
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
+          s_type_names = dedup merged_type_names;
         } in
         (* The REPL edits definitions; files declare them. A new clause for an
            existing function merges into it here (merge_clause above), which
@@ -2349,9 +2367,10 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
+    let merged_type_names = imp.type_names @ sess.s_type_names in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:imp.type_names prog with
+            ~type_names:merged_type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (_, own_type_env, _, _) ->
       Ok (Lint.check prog item_locs own_type_env)
@@ -2369,9 +2388,10 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
+    let merged_type_names = imp.type_names @ sess.s_type_names in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:imp.type_names prog with
+            ~type_names:merged_type_names prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, _, last_t, hole_types) ->
       if hole_types <> [] then
