@@ -101,7 +101,7 @@ urgent, because nobody has written the broken version yet.
 Self-contained, breaking, and it can land any time before a release. The
 valuable half is `==` answering about files instead of about text.
 
-> `int-design.md`
+> `path-ordering-design.md`
 
 ### 6. `FS.lock`
 

@@ -1,18 +1,17 @@
 # Stream
 
-Log processing is one of the four jobs wand names for itself. `List` has
-thirty-one functions. `Stream` has seven, and the streaming path is the one
-the big files use. This document is the design record for closing that gap:
-what to add, what each addition costs, and the two things missing that are
-not `Stream` functions at all — a sink in `FS`, and a `Command` value. It is
-a record of decisions and their reasons, written before the code. It is not
-a specification.
+Log processing is one of the four jobs wand names for itself, and the
+streaming path is the one the big files use. `Stream` has its terminal
+operations; what it lacks are the stages between the source and them. This
+document is the design record for the rest: what to add, what each addition
+costs, and the two things missing that are not `Stream` functions at all — a
+sink in `FS`, and a `Command` value. It is a record of decisions and their
+reasons, written before the code. It is not a specification.
 
 - [Stream is not written in wand](#stream-is-not-written-in-wand)
-- [Four tiers of cost](#four-tiers-of-cost)
+- [Three tiers of cost](#three-tiers-of-cost)
 - [What to build](#what-to-build)
 - [Concatenation is a source, not a combinator](#concatenation-is-a-source-not-a-combinator)
-- [count, not length](#count-not-length)
 - [The missing sink is in FS](#the-missing-sink-is-in-fs)
 - [Streaming a command, and commands that never end](#streaming-a-command-and-commands-that-never-end)
 - [The Command value](#the-command-value)
@@ -53,24 +52,7 @@ The design is a good one and this is not an argument against it. Being
 first-order is what lets a stream be named, passed and folded twice, and
 what lets `Test.with_lines` mock a source that a general closure could not.
 
-## Four tiers of cost
-
-**Tier 0 — free.** Every terminal operation is a fold, and `fold_left` is
-already there. Nothing in the evaluator changes:
-
-```console
-$ wand t -e 'let any? p s =
-    !(List.empty? (s |> Stream.filter p |> Stream.take 1 |> Stream.to_list))'
-any? : ('a -> Bool ! 'e) -> Stream {..} 'a -> Bool ! 'e
-```
-
-That signature is the whole argument. The stream's effect row flows through
-to the caller, and it early-exits for real: the driver stops pulling once a
-`take` is exhausted, which is the same reason `take 100` of a 10GB file
-reads a hundred lines.
-
-`count`, `last`, `any?`, `all?`, `find`, `empty?`, `sum`, `max` and `min`
-are all tier 0.
+## Three tiers of cost
 
 **Tier 1 — one stage variant each.** `filter_map`, `take_while`, `drop`,
 `drop_while`, `indexed`, `scan`, `chunks`, `unique`. Each fits one item in,
@@ -88,12 +70,11 @@ from two places in step. This is the real structural change.
 
 ## What to build
 
-Tiers 0, 1 and 2. Not tier 3.
+Tiers 1 and 2. Not tier 3.
 
-Tier 0 is the largest gain in the set and carries no risk to the runtime, so
-it goes first regardless of what follows. Tier 1 is where the log-processing
-verbs actually live. Tier 2 is one function, and `flat_map` earns it: a line
-that yields several records is ordinary in a log.
+Tier 1 is where the log-processing verbs actually live. Tier 2 is one
+function, and `flat_map` earns it: a line that yields several records is
+ordinary in a log.
 
 Tier 3 buys `zip`, and log processing does not want `zip`. Two streams
 advanced in lockstep is a shape that comes up in array code, not in reading
@@ -122,18 +103,6 @@ to the next file when one runs out.
 General `Stream.concat` of two arbitrary streams costs the tier 3 rework and
 serves a rarer case. Solve the common one where it is cheap, at the source.
 
-## `count`, not `length`
-
-`List.length` sounds free. Counting a stream reads the whole source, and
-counting twice reads it twice.
-
-This is the one place to break naming parity with `List` on purpose. The
-different word is the warning, and a reader who sees `Stream.count` has been
-told something that `Stream.length` would have hidden. Every other name that
-matches a `List` function keeps the `List` spelling, including `any?`,
-`all?`, `find`, `indexed`, `take_while` and `drop_while`, because there the
-semantics really are the same.
-
 ## The missing sink is in FS
 
 `FS.stream_lines` reads. Nothing writes.
@@ -155,8 +124,9 @@ FS.append_lines : Path -> Stream 'e String -> Result String Unit ! {FS.Write}
 These are terminal operations that happen to live in `FS`, which is the
 right place: they are about a file, and `FS` is where a file is opened once.
 The effect rows compose without new rules — the sink carries `FS.Write` and
-picks up the source's row by folding it, exactly as the tier 0 `any?`
-signature shows.
+picks up the source's row by folding it, exactly as the terminal operations
+already do.
+
 ## Streaming a command, and commands that never end
 
 `FS.stream_lines` and `IO.stdin_lines` are the only two sources. For deploys,
@@ -410,10 +380,7 @@ should stay that way.
 
 ## Order
 
-Tier 0 first: it is free, it is the largest single gain, and it needs no
-decision from anyone.
-
-The `Command` value next, and this is a change of order from an earlier
+The `Command` value first, and this is a change of order from an earlier
 draft. It was going to be a streaming command form, scheduled after tier 1
 on the grounds that it only removes a hole for people who have already
 adopted wand. As a `Command` it is a bigger job and an earlier one, because
