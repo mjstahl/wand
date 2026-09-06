@@ -3333,7 +3333,7 @@ let stdlib_eval_env : env = [
      module export on purpose: two readings of a monotonic clock subtract
      soundly, and there is nothing else to do with one, so the only shape
      wand offers is the bracket. See `lib/ext/clock.c`. *)
-  ("clock_elapsed", performing "Clock!elapsed" (function
+  ("clock_elapsed", performing "Clock!timed" (function
     | VUnit -> VDuration (format_dur_ms (elapsed_ms ()))
     | _ -> raise (EvalError "Clock.timed: expected Unit")));
   ("clock_now", performing "Clock!now" (function
@@ -3342,7 +3342,7 @@ let stdlib_eval_env : env = [
   (* Drawing is an effect for the same reason reading the clock is: what it
      answers is not in the program, so a caller has to be told, and a
      handler can answer it instead. *)
-  ("random_below", performing "Random!below" (function
+  ("random_below", performing "Random!int" (function
     | VInt n -> VInt (random_below n)
     | _ -> raise (EvalError "Random: expected Int")));
   ("random_float", performing "Random!float" (function
@@ -3365,7 +3365,7 @@ let stdlib_eval_env : env = [
   ("read_file",  VBuiltin (fun v -> Effect.perform (WandEffect ("FS!read_file",  v))));
   ("hash_file", VBuiltin (function
     | VString algo -> VBuiltin (fun path ->
-        Effect.perform (WandEffect ("FS!hash_file", VTuple [VString algo; path])))
+        Effect.perform (WandEffect ("Hash!file", VTuple [VString algo; path])))
     | _ -> raise (EvalError "hash_file: expected String")));
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
@@ -4200,13 +4200,13 @@ let stdlib_eval_env : env = [
     | VString s -> to_domain "Duration" (function Token.Duration v -> Some (VDuration v) | _ -> None) s
     | _ -> raise (EvalError "str_to_duration: expected String")));
   (* FS primitives *)
-  ("fs_exists",  performing "FS!exists" (function
+  ("fs_exists",  performing "FS!exists?" (function
     | VPath p -> VBool (Sys.file_exists p)
     | _ -> raise (EvalError "fs_exists: expected Path")));
-  ("fs_is_file", performing "FS!file" (function
+  ("fs_is_file", performing "FS!file?" (function
     | VPath p -> VBool (Sys.file_exists p && not (Sys.is_directory p))
     | _ -> raise (EvalError "fs_is_file: expected Path")));
-  ("fs_is_dir",  performing "FS!dir" (function
+  ("fs_is_dir",  performing "FS!dir?" (function
     | VPath p -> VBool (Sys.file_exists p && Sys.is_directory p)
     | _ -> raise (EvalError "fs_is_dir: expected Path")));
   ("fs_mkdir",   VBuiltin (fun v -> Effect.perform (WandEffect ("FS!mkdir", v))));
@@ -4494,7 +4494,7 @@ let stdlib_eval_env : env = [
   ("process_exit_code", VBuiltin (fun v ->
     Effect.perform (WandEffect ("Shell!exit_code", v))));
   (* Env primitives *)
-  ("env_read_dotenv", performing "Env!parse_dotenv" (function
+  ("env_read_dotenv", performing "Env!read" (function
     | VString src | VPath src ->
       VList (List.map (fun (k, v) -> VTuple [VString k; VString v])
                (dotenv_pairs src))

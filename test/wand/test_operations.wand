@@ -117,23 +117,23 @@ group "FS reads" (fn () -> [
       (handle (fn () -> let _ = FS.glob_in *.nothing absent in missed) () with
       | FS!glob _ _ -> caught
       )),
-  test "FS!exists" (fn t ->
+  test "FS!exists?" (fn t ->
     t.eq
       caught
       (handle (fn () -> let _ = FS.exists? absent in missed) () with
-      | FS!exists _ _ -> caught
+      | FS!exists? _ _ -> caught
       )),
-  test "FS!file" (fn t ->
+  test "FS!file?" (fn t ->
     t.eq
       caught
       (handle (fn () -> let _ = FS.file? absent in missed) () with
-      | FS!file _ _ -> caught
+      | FS!file? _ _ -> caught
       )),
-  test "FS!dir" (fn t ->
+  test "FS!dir?" (fn t ->
     t.eq
       caught
       (handle (fn () -> let _ = FS.dir? absent in missed) () with
-      | FS!dir _ _ -> caught
+      | FS!dir? _ _ -> caught
       )),
   test "FS!mtime" (fn t ->
     t.eq
@@ -298,7 +298,7 @@ group "FS writes" (fn () -> [
       caught
       (handle (fn () -> with FS.temp_dir "w" as _ -> missed) () with
       | FS!temp_dir _ k -> k absent
-      | FS!exists _ k -> k true
+      | FS!exists? _ k -> k true
       | FS!delete_tree _ _ -> caught
       ))
 ])
@@ -428,12 +428,12 @@ group "the environment" (fn () -> [
       (handle (fn () -> let _ = Env.user () in missed) () with
       | Env!user _ _ -> caught
       )),
-  test "Env!parse_dotenv via Env.read!" (fn t ->
+  test "Env!read via Env.read!" (fn t ->
     t.eq
       caught
       (handle (fn () -> let _ = Env.read! absent in missed) () with
       | FS!read_file _ k -> k "WAND_TEST_OPS=1\n"
-      | Env!parse_dotenv _ _ -> caught
+      | Env!read _ _ -> caught
       ))
 ])
 

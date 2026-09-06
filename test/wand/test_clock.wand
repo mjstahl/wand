@@ -110,7 +110,7 @@ group "measuring" (fn () -> [
   test "a handler answers the reading" (fn t ->
     let (took, _) =
       handle Clock.timed (fn () -> "work") with
-      | Clock!elapsed _ k -> k 5min
+      | Clock!timed _ k -> k 5min
     in
     t.eq 0ms took)
 ])

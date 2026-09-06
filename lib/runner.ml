@@ -446,7 +446,7 @@ let describe_operation name (v : value) =
   | "Env!set"      -> Some ("set", pair v)
   | "Env!clear"    -> Some ("clear", text v)
   | "FS!read_file"    -> Some ("read", text v)
-  | "FS!hash_file"    -> Some ("hash", pair v)
+  | "Hash!file"    -> Some ("hash", pair v)
   | "FS!list_dir"        -> Some ("list", text v)
   | "FS!glob"      -> Some ("glob", first v)
   | "Proc!exit"         -> Some ("exit", text v)
@@ -608,7 +608,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | () -> Effect.Deep.continue k VUnit
               | exception Sys_error m when broken_pipe m ->
                 Effect.Deep.discontinue k pipe_closed)
-          | WandEffect ("FS!hash_file", VTuple [VString algo; (VString p | VPath p)]) ->
+          | WandEffect ("Hash!file", VTuple [VString algo; (VString p | VPath p)]) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (hash_file_hex algo p)
                      with Sys_error m -> Error ("hash_file: " ^ m)) with

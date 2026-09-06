@@ -211,7 +211,7 @@ let documented_operations () =
          (match unquote family with
           | Some fam
             when List.mem fam
-                   ["Shell"; "FS"; "Env"; "IO"; "Proc"; "Clock"; "Random"] ->
+                   ["Shell"; "FS"; "Hash"; "Env"; "IO"; "Proc"; "Clock"; "Random"] ->
             List.iter (fun cell ->
               List.iter (fun verb ->
                 match unquote verb with

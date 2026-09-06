@@ -1643,18 +1643,32 @@ inside it releases on the way out. So a mock cannot leak the resources of the
 code that it replaces.
 
 The operations you can intercept are the builtins that touch the world
-outside. Each name has the form `Family!verb`. The family is the one that
-appears in an effect set:
+outside. **Each name is the function you call, with a `!` where its dot
+would be**: you call `FS.read_file`, you intercept `FS!read_file`. A `!`
+sibling performs the same operation as its plain form, so `FS.read_file!`
+is `FS!read_file` too. That is the whole naming rule, and it is there so
+there is nothing extra to remember.
 
 | Family | Operations |
 |---|---|
 | `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `stream_lines`, `hash_file`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
-| `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `parse_dotenv` |
+| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
+| `Hash` | `file` |
+| `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `read` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
-| `Clock` | `sleep`, `now`, `elapsed` |
-| `Random` | `below`, `float`, `seed` |
+| `Clock` | `sleep`, `now`, `timed` |
+| `Random` | `int`, `float`, `seed` |
+
+The family is usually the effect's own name, and `Hash` is the exception:
+`Hash.file` reads a file, so it carries `FS.Read` and is intercepted as
+`Hash!file`. The family names where the function lives; the effect it
+carries is in the signature.
+
+One operation can serve several functions where they do the same thing:
+`JSON.read_file` performs `FS!read_file`, so a test that mocks reading a
+file mocks it once rather than once per format. `Random!int` is the draw
+behind `Random.choose`, `Random.shuffle` and `Random.hex`.
 
 Type `FS!` in an editor, and it lists them. Each entry says what the
 operation carries and what performs it. The editor reads the table that the
@@ -3505,7 +3519,7 @@ does without pinning a seed and hoping:
 
 ```ocaml
 handle thunk () with
-| Random!below _ k -> k 0        -- every draw takes the first thing offered
+| Random!int _ k -> k 0        -- every draw takes the first thing offered
 | Random!float _ k -> k 0.5
 | Random!seed  _ k -> k ()
 ```
@@ -4322,7 +4336,7 @@ Hash.file!  Sha256 ./dist/wand.tar.gz |> Digest.hex
 reach nothing outside the program and answer the same twice, so they fit
 none of the three things that [earn a label](#what-earns-a-label) and carry
 none. Only `file` reaches outside, and what it carries is `FS.Read` for the
-*read* — through an `FS!hash_file` operation, so `--dry-run`, `--trace` and
+*read* — through an `Hash!file` operation, so `--dry-run`, `--trace` and
 a test's mock see it the way they see `FS!read_file`. It reads the file in
 blocks and never holds it, which is what makes a checksum of a release
 archive possible at all.
@@ -4875,6 +4889,23 @@ under it are what it produces:
 let filter _ [] = []
 let filter p [h :: t] = if p h then h :: filter p t else filter p t
 ```
+
+`wand d <name>` prints the signature, then what the function performs, then
+the doc:
+
+```console
+$ wand d JSON.read_file
+JSON.read_file : Path -> Result String JSON ! {FS.Read}
+performs FS!read_file
+Read and parse a JSON file.  Returns Ok JSON or Error message.
+```
+
+The `performs` line is the one a handler case needs. A signature carries the
+*label* — `{FS.Read}` — and a label covers a dozen operations, so the type
+alone does not say what to intercept or what a test should mock. It is also
+where the naming rule stops holding: `JSON.read_file` performs
+`FS!read_file`, not `JSON!read_file`. A function that performs nothing has
+no such line.
 
 `wand d -x <name>` prints the doc with its examples run where they stand, so
 what each one produces now sits where the file says it should. `wand d -t`

@@ -735,6 +735,13 @@ let main () =
               (match Wand.Runner.lookup_type sess name with
                | Some t -> Printf.printf "%s : %s\n" name t
                | None   -> ());
+              (* What a handler intercepts. The signature carries the label
+                 and a label covers several operations, so without this the
+                 only way from `! {FS.Read}` to `FS!read_file` was the
+                 reference. *)
+              (match Wand.Typechecker.operations_performed_by name with
+               | []  -> ()
+               | ops -> Printf.printf "performs %s\n" (String.concat ", " ops));
               (match List.assoc_opt name sess.Wand.Runner.s_docs with
                | Some doc -> print_endline doc
                | None     -> Printf.printf "%s: no doc\n" name)

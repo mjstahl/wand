@@ -13,7 +13,7 @@ import Test
 
 let first thunk =
   handle thunk () with
-  | Random!below _ k -> k 0
+  | Random!int _ k -> k 0
 
 group "a pinned draw" (fn () -> [
   test "shuffle keeps the order when every draw is the first" (fn t ->

@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`wand d` says what a function performs.** A signature carries the effect
+  *label* -- `! {FS.Read}` -- and a label covers a dozen operations, so the
+  type alone never said what a handler case should name or what a test
+  should mock. That answer was only in the reference's table, a document
+  away from the question. It is now a line under the signature, and it is
+  also where the naming rule stops holding: `JSON.read_file` performs
+  `FS!read_file`, not `JSON!read_file`
+
+```
+JSON.read_file : Path -> Result String JSON ! {FS.Read}
+performs FS!read_file
+```
+
 - **`Hash`, `Digest` and `Base64`.** A checksum written by `Shell(shasum)`
   tells a reviewer that a binary ran and nothing about what was verified,
   and it does not run everywhere -- the tool is `shasum` on macOS and
@@ -98,6 +111,18 @@
 
 ### Changed
 
+- **Seven operations are renamed to match the functions that perform
+  them.** The rule is that an operation is the function you call with a `!`
+  where its dot would be, so there is nothing extra to remember; these
+  seven had drifted off it. `FS!exists`, `FS!file` and `FS!dir` dropped the
+  `?` their functions carry and are now `FS!exists?`, `FS!file?` and
+  `FS!dir?`. `Env!parse_dotenv` and `Clock!elapsed` were named for what the
+  code did rather than for `Env.read!` and `Clock.timed`, and are now
+  `Env!read` and `Clock!timed`. `Random!below` is `Random!int`, after the
+  function it is the draw behind. `FS!hash_file` is `Hash!file`, which
+  makes `Hash` the one family that is not an effect's own name -- the
+  family says where the function lives, and the effect it carries is in the
+  signature
 - **The release pipeline checksums with wand instead of `shasum`.**
   `tools/checksum.wand` writes the `.sha256` beside a release archive, and
   the `Makefile` and `release.yml` both call it with the binary they just

@@ -258,7 +258,7 @@ let operations : operation list =
       op_performers = ["FS.stream_lines"] };
     (* The algorithm rides along with the path, so a handler that mocks this
        answers per file rather than per file and algorithm. *)
-    { op_name = "FS!hash_file"; op_effect = FsRead;
+    { op_name = "Hash!file"; op_effect = FsRead;
       op_types = t (TTuple [str; path]) str;
       op_performers = ["Hash.file"; "Hash.file!"] };
     { op_name = "FS!list_dir"; op_effect = FsRead; op_types = t path (TList path);
@@ -266,11 +266,11 @@ let operations : operation list =
     { op_name = "FS!glob"; op_effect = FsRead;
       op_types = t (TTuple [TGlob; path]) (TList path);
       op_performers = ["FS.glob"; "FS.glob_in"] };
-    { op_name = "FS!exists"; op_effect = FsRead; op_types = t path TBool;
+    { op_name = "FS!exists?"; op_effect = FsRead; op_types = t path TBool;
       op_performers = ["FS.exists?"] };
-    { op_name = "FS!file"; op_effect = FsRead; op_types = t path TBool;
+    { op_name = "FS!file?"; op_effect = FsRead; op_types = t path TBool;
       op_performers = ["FS.file?"] };
-    { op_name = "FS!dir"; op_effect = FsRead; op_types = t path TBool;
+    { op_name = "FS!dir?"; op_effect = FsRead; op_types = t path TBool;
       op_performers = ["FS.dir?"] };
     { op_name = "FS!mtime"; op_effect = FsRead; op_types = t path TDateTime;
       op_performers = ["FS.mtime"; "FS.mtime!"] };
@@ -348,7 +348,7 @@ let operations : operation list =
       op_performers = ["Env.home"] };
     { op_name = "Env!user"; op_effect = Env; op_types = t TUnit str;
       op_performers = ["Env.user"] };
-    { op_name = "Env!parse_dotenv"; op_effect = Env; op_types = t str (TList (TTuple [str; str]));
+    { op_name = "Env!read"; op_effect = Env; op_types = t str (TList (TTuple [str; str]));
       op_performers = ["Env.read!"] };
     (* Subprocesses. `Shell!run` and `Shell!capture` carry either a command,
        or a command and the stdin threaded into it, so there is no single
@@ -388,14 +388,14 @@ let operations : operation list =
       op_performers = ["Clock.now"] };
     (* The reading `Clock.timed` brackets work with. A handler that answers
        it decides what the work appears to have taken. *)
-    { op_name = "Clock!elapsed"; op_effect = Clock;
+    { op_name = "Clock!timed"; op_effect = Clock;
       op_types = t TUnit TDuration;
       op_performers = ["Clock.timed"] };
     (* Drawing. A handler that answers these decides what a run draws, which
        is what makes a shuffle or a jittered backoff testable rather than
-       merely unlikely to differ. `Random!below` carries its exclusive
+       merely unlikely to differ. `Random!int` carries its exclusive
        bound, so a handler can answer in range without knowing the caller. *)
-    { op_name = "Random!below"; op_effect = Random;
+    { op_name = "Random!int"; op_effect = Random;
       op_types = t TInt TInt;
       op_performers = ["Random.int"; "Random.choose"; "Random.shuffle";
                        "Random.hex"] };
@@ -419,6 +419,17 @@ let find_operation name = Hashtbl.find_opt operation_index name
 (* Every operation, in table order: FS reads, FS writes, streams, the
    environment, subprocesses, exit. What an editor offers after `FS!`. *)
 let operation_names () = List.map (fun o -> o.op_name) operations
+
+(* The operations a named function performs, which is what a handler case
+   over it would say. An effect set names the label -- `{FS.Read}` -- and a
+   label covers several operations, so the signature alone does not tell you
+   what to intercept. `wand d` prints this beside the type for that reason:
+   the answer was only in the reference's table before, which is a document
+   away from the question. *)
+let operations_performed_by name =
+  List.filter_map
+    (fun o -> if List.mem name o.op_performers then Some o.op_name else None)
+    operations
 
 (* Which effect an intercepted operation accounts for. A handler case names
    the builtin operation it catches, and catching it is what removes the
