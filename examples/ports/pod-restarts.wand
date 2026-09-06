@@ -3,6 +3,7 @@ uses {IO, Proc, Shell(kubectl)}
 import IO
 import JSON
 import List
+import Option
 import Proc
 
 -- Which pods are restarting, and how much.
@@ -35,7 +36,9 @@ type PodList(items: List Pod)
 -- Every container, not the first.
 let restarts (p: Pod) =
   p.status.containerStatuses
-    |> List.fold_left (fn total (c: Container) -> total + c.restartCount) 0
+    |> List.map (fn (c: Container) -> c.restartCount)
+    |> List.sum
+    |> Option.default 0
 
 let flapping limit pods = pods |> List.filter (fn p -> restarts p > limit)
 

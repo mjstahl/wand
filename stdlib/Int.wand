@@ -1,0 +1,68 @@
+-- The Int operations that are not operators.
+--
+-- Arithmetic is written with `+ - * / %`, so what is left here is the
+-- handful of things an operator does not spell: distance from zero,
+-- repeated multiplication, the two halves of a division at once, and the
+-- ends of the range.
+--
+-- Conversions are not here. wand puts a conversion on the type it
+-- produces, so `String.of_int` writes an Int as text and `Float.of_int`
+-- widens one, each under the module that owns the answer.
+--
+-- An Int is a machine word holding `Int.min_value` to `Int.max_value`.
+-- Arithmetic outside that range is a runtime error rather than a wrap,
+-- and it is not the Raise effect -- tracking it would put Raise on every
+-- function that adds two numbers.
+
+-- The distance from zero.
+--
+-- Float has its own, because arithmetic never crosses between the two on
+-- its own: `Float.abs` is the one for a Float.
+--
+-- >> Int.abs (-7)
+-- 7 : Int
+--
+-- >> Int.abs 7
+-- 7 : Int
+let abs n = if n < 0 then 0 - n else n
+
+-- The base raised to the exponent.
+--
+-- A negative exponent divides, and Int division truncates toward zero, so
+-- `Int.pow 2 (-1)` is 0 rather than a half. A base of zero with a negative
+-- exponent divides by zero, exactly as writing that division would.
+--
+-- >> Int.pow 2 10
+-- 1024 : Int
+--
+-- >> Int.pow 10 0
+-- 1 : Int
+let pow _ 0 = 1
+let pow b e = if e < 0 then 1 / pow b (0 - e) else b * pow b (e - 1)
+
+-- The quotient and the remainder of a division, in one pass.
+--
+-- Both truncate toward zero, as `/` and `%` do on their own, so the
+-- remainder takes the sign of the dividend.
+--
+-- >> Int.divmod 17 5
+-- (3, 2) : (Int, Int)
+--
+-- >> Int.divmod (-17) 5
+-- (-3, -2) : (Int, Int)
+let divmod a b = (a / b, a % b)
+
+-- The largest Int.
+--
+-- >> Int.max_value
+-- 4611686018427387903 : Int
+let max_value = 4611686018427387903
+
+-- The smallest Int.
+--
+-- It is written as a subtraction because the magnitude is one past the
+-- largest literal wand accepts.
+--
+-- >> Int.min_value
+-- -4611686018427387904 : Int
+let min_value = 0 - max_value - 1

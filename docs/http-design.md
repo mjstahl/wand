@@ -264,7 +264,7 @@ A `Response` with a `status` field deletes that paragraph.
 byte string — `String.length` is `String.length` on an OCaml `string`, and
 there is no UTF-8 layer in `lib/` — so the bytes of a gzip response survive
 being held in one. What does not survive is describing them: `String.length`
-counts bytes and calls them characters, `String.chars` cuts a multi-byte
+counts bytes rather than characters, `String.slice` cuts a multi-byte
 character in half, and printing the value writes rubbish to a terminal.
 
 So the reason binary goes to disk through `HTTP.download` is not that a

@@ -23,52 +23,25 @@ it looks, and getting it wrong would distort everything below.
 
 Adding a `Net` effect label is **additive** — every manifest written today
 keeps parsing. Manifest glob patterns are near-additive, since a literal `*`
-in a binary name is something nobody has written. `List.sum` and an `Ord`
-module are additive.
+in a binary name is something nobody has written.
 
-Three items genuinely change the meaning of code that already exists:
+Two items genuinely change the meaning of code that already exists:
 
-- **`String.chars` → `String.bytes`**, three occurrences in this repository
 - **`Path` joining the ordered set**, which flips `/a/b == /a//b` to `true`
 - **the `Command` value**, which makes `$()` and `$?()` sugar over
   `Shell.run!` and `Shell.query` rather than primitives
 
-The third is the one that matters most, because it redefines the two forms
+The second is the one that matters most, because it redefines the two forms
 every script already uses. Nothing about a script's text changes, but what
 those forms *are* does, and every doc and message that names them moves with
 it. That is work to do while the number of scripts is small.
 
-Those three have the deadline. Nothing else does, and the ordering below is
+Those two have the deadline. Nothing else does, and the ordering below is
 driven by value rather than by fear of breaking things.
 
 ## The order
 
-### 1. The free tier — a day, no decisions left
-
-`List.sum`, `List.max`, `List.min`, the `Ord` module, the five `Int`
-functions, and every tier-0 `Stream` terminal — `count`, `last`, `any?`,
-`all?`, `find`, `empty?`, `sum`, `max`, `min`.
-
-All of it is written in wand. None of it needs a decision from anyone. It
-deletes hand-rolled folds from `examples/ports/dir-budget.wand` and
-`examples/ports/pod-restarts.wand`, and it closes a third of the outstanding
-design records.
-
-Do this first because it costs nothing and clears the board.
-
-> `int-design.md`, `stream-design.md`
-
-### 2. The two renames, and the byte-model reference section
-
-`String.chars` becomes `String.bytes`. The reference gains a short section
-saying a `String` is bytes: what is byte-safe, what is ASCII-only, that
-`Regex` matches bytes.
-
-Small, and the only work here with a real deadline.
-
-> `strings-design.md`
-
-### 3. `HTTP`, `Net`, and manifest globs
+### 1. `HTTP`, `Net`, and manifest globs
 
 The adoption item. A first outside user writes a deploy script, and the
 first thing they cannot do is call an API without `Shell(curl)` — which is
@@ -82,20 +55,20 @@ redirect rule.
 
 > `http-design.md`
 
-### 4. `YAML`
+### 2. `YAML`
 
 The other adoption blocker. CI glue is one of the four jobs wand names for
 itself, and wand cannot read a workflow file, a compose file, or a
 Kubernetes manifest.
 
-It is fourth rather than third only because Q5 has to be answered before
+It is second rather than first only because Q5 has to be answered before
 anything starts: a hand-written subset and a libyaml binding are different
 projects with different schedules, and everything else in that document is
 downstream of which one it is.
 
 > `yaml-design.md`
 
-### 5. `Hash` and `Base64`
+### 3. `Hash` and `Base64`
 
 Bounded, published test vectors, and it lets wand's own release pipeline
 stop shelling out to `shasum` — the `Makefile` writes a checksum and
@@ -104,11 +77,11 @@ stop shelling out to `shasum` — the `Makefile` writes a checksum and
 
 Not an adoption driver; nobody adopts a language for sha256. It has the
 highest certainty per hour on the list, which makes it the right thing to
-pick up in a week with less appetite than item 3 needs.
+pick up in a week with less appetite than item 1 needs.
 
 > `hash-design.md`
 
-### 6. The `Command` value
+### 4. The `Command` value
 
 `$*(cmd)` denotes a command without running it, and `Shell.run`,
 `Shell.query` and `Shell.stream` are ordinary functions over one. `$()` and
@@ -125,7 +98,7 @@ once there are scripts to migrate, even though no script's text changes.
 
 > `stream-design.md`
 
-### 7. `FS.write_atomic`
+### 5. `FS.write_atomic`
 
 Small, and the version people compose by hand is wrong three ways — the
 temp file lands on another filesystem, the published file changes mode, and
@@ -134,14 +107,14 @@ urgent, because nobody has written the broken version yet.
 
 > `fs-primitives-design.md`
 
-### 8. `Path` into the ordered set
+### 6. `Path` into the ordered set
 
 Self-contained, breaking, and it can land any time before a release. The
 valuable half is `==` answering about files instead of about text.
 
 > `int-design.md`
 
-### 9. `FS.lock`
+### 7. `FS.lock`
 
 Genuinely blocked. Q8 — `flock` against `Unix.lockf` — and Q12 — how a
 caller tells "already held" from "permission denied" — decide what the
@@ -151,12 +124,11 @@ function *is*, not merely how it behaves.
 
 ## Two questions to settle first
 
-Neither is on the critical path for item 1, and both get more expensive the
-longer they wait.
+Both get more expensive the longer they wait.
 
-**The YAML parser's provenance.** Item 4 cannot start without it, and it is
+**The YAML parser's provenance.** Item 2 cannot start without it, and it is
 the largest single piece of work on the list. Deciding it early lets it run
-in parallel with items 2 and 3.
+in parallel with item 1.
 
 **How a `Command` reconciles the word check with the effect check.**
 Constructing one performs nothing, so a file that builds a `Command` and
@@ -166,7 +138,7 @@ word check and the effect check would key off different sites, which `$()`
 does not suffer because there they are one site.
 
 `stream-design.md` leans toward checking words where a `Command` is
-consumed rather than where it is written. That is the part of item 6 most
+consumed rather than where it is written. That is the part of item 4 most
 likely to be discovered late, and it should be settled before the lexer work
 starts rather than after.
 
@@ -174,17 +146,14 @@ starts rather than after.
 
 | | item | no workaround | wrong today | deadline | cost |
 |---|---|---|---|---|---|
-| 1 | free tier | no | no | no | a day |
-| 2 | renames + docs | no | yes | **yes** | hours |
-| 3 | HTTP + Net + globs | no | claim is weak | no | weeks |
-| 4 | YAML | no | no | no | unknown |
-| 5 | Hash + Base64 | partly | no | no | days |
-| 6 | `Command` value | **yes** | no | **yes** | weeks |
-| 7 | write_atomic | no | latent | no | days |
-| 8 | Path ordering | no | **yes** | **yes** | days |
-| 9 | FS.lock | no | no | no | blocked |
+| 1 | HTTP + Net + globs | no | claim is weak | no | weeks |
+| 2 | YAML | no | no | no | unknown |
+| 3 | Hash + Base64 | partly | no | no | days |
+| 4 | `Command` value | **yes** | no | **yes** | weeks |
+| 5 | write_atomic | no | latent | no | days |
+| 6 | Path ordering | no | **yes** | **yes** | days |
+| 7 | FS.lock | no | no | no | blocked |
 
-The short version: spend a day on 1 and 2 to clear the board, then put real
-time into 3 and 4, because those two are what stand between wand and someone
-using it for the job it describes. Everything below that is polish on a
-language that already works.
+The short version: put real time into 1 and 2, because those two are what
+stand between wand and someone using it for the job it describes. Everything
+below them is polish on a language that already works.

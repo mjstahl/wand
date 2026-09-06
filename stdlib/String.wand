@@ -97,11 +97,39 @@ let repeat n s = str_repeat n s
 -- "dnaw" : String
 let reverse s = str_reverse s
 
--- Return a list of single-character strings.
+-- At most n bytes, cut so a multi-byte character is never split.
 --
--- >> String.chars "wand"
+-- The budget is bytes, as every other Int in this module is, so
+-- `String.length (String.truncate n s)` is never above n. What it buys
+-- over `String.slice 0 n` is that the answer is still valid text: slicing
+-- "café" at four bytes leaves half of the é behind.
+--
+-- It is not a display width. A CJK character occupies two terminal
+-- columns and a combining mark occupies none, so a budget in bytes and a
+-- budget in columns are different questions and wand answers the first.
+--
+-- Bytes that are not UTF-8 are cut at n, because there is no character
+-- there to keep whole.
+--
+-- >> String.truncate 4 "café"
+-- "caf" : String
+--
+-- >> String.truncate 5 "café"
+-- "café" : String
+--
+-- >> String.truncate 9 "café"
+-- "café" : String
+let truncate n s = str_truncate n s
+
+-- Split into one string per byte.
+--
+-- A String is bytes, so this is a byte split rather than a character
+-- split: `String.bytes "café"` has five elements, and the last two are
+-- the halves of the é.
+--
+-- >> String.bytes "wand"
 -- ["w", "a", "n", "d"] : List String
-let chars s = str_chars s
+let bytes s = str_bytes s
 
 -- Convert an integer to its string representation.
 --

@@ -3,6 +3,7 @@ uses {FS.Read, FS.Write}
 let {test} = import Test
 import FS
 import List
+import Option
 import Path
 import String
 
@@ -164,3 +165,33 @@ test "indexed pairs with each" (fn t ->
     ["a", "b"] |> List.indexed |> List.each (fn (i, x) -> FS.append! log "%{i}:%{x} ");
     t.eq "0:a 1:b " (FS.read_file! log)
   ))
+
+-- ── sum, max, min ───────────────────────────────────────────────────────
+
+-- The total starts from the first element rather than from a literal
+-- zero, which is what keeps these Add- and Ord-polymorphic. The Option is
+-- the price: an empty list has no unit to answer with.
+
+test "sum totals Ints" (fn t -> t.eq (Some 6) (List.sum [1, 2, 3]))
+test "sum of one element" (fn t -> t.eq (Some 5) (List.sum [5]))
+test "sum totals Sizes" (fn t -> t.eq (Some 1500B) (List.sum [1KB, 500B]))
+test "sum totals Durations" (fn t -> t.eq (Some 1h30m) (List.sum [1h, 30min]))
+test "sum totals Floats" (fn t -> t.eq (Some 3.5) (List.sum [1.5, 2.0]))
+test "sum of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.sum empty))
+
+test "max of Ints" (fn t -> t.eq (Some 3) (List.max [3, 1, 2]))
+test "min of Ints" (fn t -> t.eq (Some 1) (List.min [3, 1, 2]))
+test "max of Versions reads the numbers" (fn t ->
+  t.eq (Some 1.10.0) (List.max [1.9.0, 1.10.0]))
+test "min of Durations" (fn t -> t.eq (Some 30s) (List.min [2min, 30s, 1h]))
+test "max of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.max empty))
+test "min of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.min empty))
+
+-- The aggregates agree with the sort they stand in for.
+test "max agrees with sort" (fn t ->
+  t.eq (List.get 2 (List.sort [3, 1, 2])) (List.max [3, 1, 2]))
+
+-- An empty total is supplied at the call site, which is where the unit is
+-- known.
+test "an empty sum takes its zero from the caller" (fn t ->
+  let empty : List Size = [] in t.eq 0B (List.sum empty |> Option.default 0B))

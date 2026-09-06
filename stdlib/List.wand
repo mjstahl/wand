@@ -225,3 +225,51 @@ let flatten xs = list_flatten xs
 -- >> List.concat [1, 2] [3]
 -- [1, 2, 3] : List Int
 let concat xs ys = list_concat xs ys
+
+-- Total the elements, or None when there are none.
+--
+-- The total starts from the first element rather than from a literal
+-- zero, which is what keeps the function Add-polymorphic: a zero would be
+-- an Int and would pin the list to Int. So a list of sizes totals to a
+-- Size and a list of durations to a Duration.
+--
+-- An empty list has no total to give, because the unit to answer with is
+-- the very thing the type does not fix. Supply one with
+-- `Option.default`: `List.sum sizes |> Option.default 0B`.
+--
+-- >> List.sum [1, 2, 3]
+-- Some(6) : Option Int
+--
+-- >> List.sum [1KB, 500B]
+-- Some(1500B) : Option Size
+--
+-- >> List.sum []
+-- None : Option Add
+let sum [] = None
+let sum [h :: t] = Some (fold_left (fn a x -> a + x) h t)
+
+-- The largest element, or None when there are none.
+--
+-- Comparison reads the value, so `60s` and `1min` are one element and a
+-- list of versions answers by precedence rather than by text.
+--
+-- >> List.max [3, 1, 2]
+-- Some(3) : Option Int
+--
+-- >> List.max [1.9.0, 1.10.0]
+-- Some(1.10.0) : Option Version
+--
+-- >> List.max []
+-- None : Option Ord
+let max [] = None
+let max [h :: t] = Some (fold_left (fn a x -> if x > a then x else a) h t)
+
+-- The smallest element, or None when there are none.
+--
+-- >> List.min [3, 1, 2]
+-- Some(1) : Option Int
+--
+-- >> List.min []
+-- None : Option Ord
+let min [] = None
+let min [h :: t] = Some (fold_left (fn a x -> if x < a then x else a) h t)

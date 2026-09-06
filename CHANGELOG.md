@@ -1,5 +1,98 @@
 # Changelog
 
+## [0.61.0] - 2026-09-05
+
+### Added
+
+- **`Ord`, a module for the four functions people write out of `<` and
+  `>`.** `Ord.max`, `Ord.min`, `Ord.clamp` and `Ord.between?`. One
+  definition serves all ten ordered types, so `Ord.max 30s 2min` and
+  `Ord.max 1.9.0 1.10.0` are the same function rather than nine copies of
+  it. The module takes the name of the constraint that appears in the
+  signature, as `Option` and `Result` do, so a reader who sees `Ord -> Ord
+  -> Ord` and reaches for `Ord.max` finds it where they looked. `clamp` and
+  `between?` take the low bound, then the high, then the value, so the value
+  can arrive from a pipeline; both bounds are included
+- **`Int`, ending an asymmetry with `Float`.** `Int.abs`, `Int.pow`,
+  `Int.divmod`, `Int.max_value` and `Int.min_value`. A script wanting the
+  absolute value of a `Float` had `Float.abs`, and one wanting it for an
+  `Int` wrote the conditional. `pow` with a negative exponent divides, and
+  `Int` division truncates toward zero, so `Int.pow 2 (-1)` is `0`. There is
+  no `Int.to_string` and no `Int.of_string`: wand puts a conversion on the
+  type it produces, so those stay `String.of_int` and `String.to_int`
+- **`List.sum`, `List.max` and `List.min`.** Each starts from the first
+  element rather than from a literal zero, which is what keeps them
+  polymorphic -- a `0` would be an `Int` and would pin the list to `Int`, and
+  `Add` covers `Size` and `Duration` too. So `List.sum [1KB, 500B]` is
+  `Some(1500B)`. The `Option` is the price of that and it is honest: a sum
+  of nothing has no unit to answer with, and the unit is the very thing the
+  type does not fix. Supply one where it is known, with `Option.default 0B`
+- **Nine `Stream` terminal operations**: `count`, `last`, `empty?`, `any?`,
+  `all?`, `find`, `sum`, `max` and `min`. `List` had thirty-one functions
+  and `Stream` had seven, on the path the big files use. `empty?`, `any?`,
+  `all?` and `find` stop reading as soon as the answer is settled, so a
+  match near the head of a 10GB log costs the head of that log. It is
+  `count` rather than `length`, because `List.length` sounds free and this
+  is not: counting reads the whole source, and counting twice reads it
+  twice. The different word is the warning. Every other name that `List`
+  also has keeps the `List` spelling, because the answer really is the same
+- **A `String` is bytes**, a section of the reference that says so. There is
+  no encoding layer, and that is the right model for a language that reads
+  log files, shell output, filenames and configuration: a `String` that
+  validated UTF-8 would refuse to open a file with one badly-encoded line in
+  it. The section names what is safe on any input -- comparison, `split`,
+  `lines`, `words`, `join`, `contains?`, `trim`, `repeat`, and `replace`
+  with an ASCII needle, all byte-safe by construction, because a UTF-8
+  continuation byte can never be mistaken for an ASCII character -- and what
+  is not: `length` and `bytes` count bytes, `upper` and `lower` convert
+  ASCII only, and `slice` and `reverse` can cut a multi-byte character in
+  half. `Regex` matches bytes on the same terms, so `.` is one byte and
+  `r/^.$/` does not match `"é"`
+- **Why `String.length` keeps its name**, in the same section. Renaming it
+  would fix nothing: the question people reach for it with is a width or an
+  alignment check, and a character count does not answer that either -- a
+  CJK character occupies two terminal columns and a combining mark occupies
+  none. Display width is a third quantity, and counting characters would
+  swap one wrong answer for a different wrong answer while implying the
+  question had been settled
+- **`String.truncate`**, the one function in `String` that knows about
+  UTF-8. `String.slice 0 4 "café"` leaves half of the é behind, and cutting
+  text down for display is the case where that matters -- a commit message
+  in a summary, a log line in a report. `truncate` takes at most n bytes and
+  never ends inside a character, so `String.truncate 4 "café"` is `"caf"`.
+  The budget is bytes, as every other `Int` in the module is, so
+  `String.length (String.truncate n s)` is never above n. It is not a
+  display width, for the same reason `length` is not. Bytes that are not
+  UTF-8 are cut at n, because there is no character there to keep whole
+
+### Changed
+
+- **`String.chars` is now `String.bytes`.** It returned one string per
+  *byte* and called them characters, so `String.chars "café"` came back with
+  five elements and the last two were the halves of the é. The name was the
+  defect: a caller reading it had no reason to look. Nothing about the
+  behaviour changes, and the builtin behind it is `str_bytes` to match.
+  Three occurrences in this repository, and this is a breaking change the
+  moment anyone outside it writes a script, which is why it lands now rather
+  than after a first release
+- **Two shipped examples stop folding a total by hand.**
+  `examples/ports/dir-budget.wand` summed file sizes with `List.fold_left
+  (fn total size -> total + size) 0B` and `examples/ports/pod-restarts.wand`
+  summed restart counts the same way. Both read `List.sum |> Option.default`
+  now
+- **The reference no longer enumerates what the REPL preloads.** It said
+  "they load every stdlib module for you" and then named twenty-two of
+  thirty-five, a list that had gone stale silently. The preload is exactly
+  the modules under Current standard library, and it now says so, so a
+  module added there is covered the day it is added
+
+### Fixed
+
+- **The reference listed `CIDR` as unordered while also listing it among the
+  ten ordered types.** `10.0.0.0/8 < 192.168.0.0/16` typechecks and always
+  has; only the sentence was wrong. `Path`, `Glob`, `URL`, `Regex`, `Bool`
+  and the containers stay out
+
 ## [0.60.0] - 2026-09-05
 
 ### Changed
@@ -2082,6 +2175,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.60.0...HEAD
+[0.61.0]: https://github.com/mjstahl/wand/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/mjstahl/wand/compare/v0.59.4...v0.60.0
 [0.59.4]: https://github.com/mjstahl/wand/compare/v0.59.3...v0.59.4
 [0.59.3]: https://github.com/mjstahl/wand/compare/v0.59.2...v0.59.3

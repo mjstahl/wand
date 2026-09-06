@@ -1,0 +1,40 @@
+let {test} = import Test
+import Ord
+
+-- One definition serves every ordered type. These tests are here to hold
+-- that: the same four functions are called on six of the ten.
+
+-- ── max and min ─────────────────────────────────────────────────────────
+
+test "max of two Ints" (fn t -> t.eq 7 (Ord.max 3 7))
+test "min of two Ints" (fn t -> t.eq 3 (Ord.min 3 7))
+test "max of equals is that value" (fn t -> t.eq 4 (Ord.max 4 4))
+
+test "max of Durations" (fn t -> t.eq 2min (Ord.max 30s 2min))
+test "min of Sizes" (fn t -> t.eq 4KB (Ord.min 4KB 100MB))
+test "max of Strings" (fn t -> t.eq "b" (Ord.max "a" "b"))
+test "max of Versions reads the numbers" (fn t -> t.eq 1.10.0 (Ord.max 1.9.0 1.10.0))
+test "max of IPv4 reads the address" (fn t -> t.eq 10.0.0.10 (Ord.max 10.0.0.9 10.0.0.10))
+test "min of DateTimes" (fn t -> t.eq 2024-01-15 (Ord.min 2024-06-01 2024-01-15))
+
+-- A comparison reads the value, not the text it was written as, so two
+-- spellings of one Duration are one value and either may come back.
+test "max of two spellings of one value" (fn t -> t.eq 60s (Ord.max 60s 1min))
+
+-- ── clamp ───────────────────────────────────────────────────────────────
+
+test "clamp holds at the high bound" (fn t -> t.eq 10 (Ord.clamp 0 10 42))
+test "clamp holds at the low bound" (fn t -> t.eq 0 (Ord.clamp 0 10 (-5)))
+test "clamp passes a value inside" (fn t -> t.eq 5 (Ord.clamp 0 10 5))
+test "clamp includes its bounds" (fn t -> t.eq 10 (Ord.clamp 0 10 10))
+test "clamp on Durations" (fn t -> t.eq 30s (Ord.clamp 1s 30s 5min))
+
+-- ── between? ────────────────────────────────────────────────────────────
+
+test "between? inside" (fn t -> t.eq true (Ord.between? 1 10 5))
+test "between? at the low bound" (fn t -> t.eq true (Ord.between? 1 10 1))
+test "between? at the high bound" (fn t -> t.eq true (Ord.between? 1 10 10))
+test "between? below" (fn t -> t.eq false (Ord.between? 1 10 0))
+test "between? above" (fn t -> t.eq false (Ord.between? 1 10 11))
+test "between? on DateTimes" (fn t ->
+  t.eq false (Ord.between? 2024-01-01 2024-12-31 2025-06-15))

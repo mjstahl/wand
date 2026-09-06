@@ -2120,6 +2120,29 @@ let str_reverse s =
   let n = String.length s in
   String.init n (fun i -> s.[n - 1 - i])
 
+(* At most [n] bytes, never ending inside a UTF-8 character. A cut lands
+   badly only when the byte at [n] is a continuation byte (0b10xxxxxx),
+   which means the character that began before [n] runs past it; backing up
+   to that character's first byte drops it whole.
+
+   The walk back is bounded at three, because no UTF-8 character is longer
+   than four bytes. Four continuation bytes in a row is not UTF-8 at all,
+   and a String is allowed to hold that -- a log line in an unknown encoding
+   is the case the byte model exists for. There is no character to preserve
+   there, so the plain byte cut is the answer. *)
+let str_truncate n s =
+  let len = String.length s in
+  if n <= 0 then ""
+  else if n >= len then s
+  else begin
+    let is_continuation i = Char.code s.[i] land 0xC0 = 0x80 in
+    let rec back i steps =
+      if steps = 0 || i = 0 || not (is_continuation i) then i else back (i - 1) (steps - 1)
+    in
+    let cut = back n 3 in
+    String.sub s 0 (if is_continuation cut then n else cut)
+  end
+
 let path_normalize s =
   let is_abs = String.length s > 0 && s.[0] = '/' in
   let is_cur = (String.length s >= 2 && s.[0] = '.' && s.[1] = '/') || s = "." in
@@ -3231,10 +3254,15 @@ let stdlib_eval_env : env = [
   ("str_reverse", VBuiltin (function
     | VString s -> VString (str_reverse s)
     | _ -> raise (EvalError "str_reverse: expected String")));
-  ("str_chars", VBuiltin (function
+  ("str_truncate", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VString s -> VString (str_truncate n s)
+      | _ -> raise (EvalError "str_truncate: expected String"))
+    | _ -> raise (EvalError "str_truncate: expected Int")));
+  ("str_bytes", VBuiltin (function
     | VString s ->
       VList (List.init (String.length s) (fun i -> VString (String.make 1 s.[i])))
-    | _ -> raise (EvalError "str_chars: expected String")));
+    | _ -> raise (EvalError "str_bytes: expected String")));
   ("int_to_str", VBuiltin (function
     | VInt n -> VString (string_of_int n)
     | _ -> raise (EvalError "int_to_str: expected Int")));

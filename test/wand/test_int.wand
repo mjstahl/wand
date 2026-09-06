@@ -1,0 +1,36 @@
+let {test} = import Test
+import Int
+
+-- ── abs ─────────────────────────────────────────────────────────────────
+
+test "abs of a negative" (fn t -> t.eq 7 (Int.abs (-7)))
+test "abs of a positive" (fn t -> t.eq 7 (Int.abs 7))
+test "abs of zero" (fn t -> t.eq 0 (Int.abs 0))
+
+-- ── pow ─────────────────────────────────────────────────────────────────
+
+test "pow raises the base" (fn t -> t.eq 1024 (Int.pow 2 10))
+test "pow to zero is one" (fn t -> t.eq 1 (Int.pow 10 0))
+test "pow to one is the base" (fn t -> t.eq 10 (Int.pow 10 1))
+test "pow of a negative base alternates" (fn t ->
+  t.eq (-8, 16) (Int.pow (-2) 3, Int.pow (-2) 4))
+
+-- A negative exponent divides, and Int division truncates toward zero.
+test "a negative exponent truncates to zero" (fn t -> t.eq 0 (Int.pow 2 (-1)))
+test "a negative exponent of one divides by one" (fn t -> t.eq 1 (Int.pow 1 (-5)))
+
+-- ── divmod ──────────────────────────────────────────────────────────────
+
+test "divmod splits a division" (fn t -> t.eq (3, 2) (Int.divmod 17 5))
+test "divmod divides exactly" (fn t -> t.eq (4, 0) (Int.divmod 20 5))
+test "divmod truncates toward zero" (fn t -> t.eq (-3, -2) (Int.divmod (-17) 5))
+
+-- The two halves agree with the operators they stand for.
+test "divmod agrees with / and %" (fn t -> t.eq (17 / 5, 17 % 5) (Int.divmod 17 5))
+
+-- ── the ends of the range ───────────────────────────────────────────────
+
+test "max_value is the largest literal" (fn t -> t.eq 4611686018427387903 Int.max_value)
+test "min_value is one below the negated largest" (fn t ->
+  t.eq (0 - 4611686018427387903 - 1) Int.min_value)
+test "the range is 63 bits" (fn t -> t.eq 0 (Int.max_value + Int.min_value + 1))

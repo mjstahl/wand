@@ -1,4 +1,5 @@
 let {test} = import Test
+import List
 import String
 
 -- ── length / empty? ─────────────────────────────────────────────────
@@ -59,10 +60,57 @@ test "repeat 1" (fn t -> t.eq "x" (String.repeat 1 "x"))
 test "reverse" (fn t -> t.eq "olleh" (String.reverse "hello"))
 test "reverse empty" (fn t -> t.eq "" (String.reverse ""))
 
--- ── chars ───────────────────────────────────────────────────────────────
+-- ── truncate ────────────────────────────────────────────────────────────
 
-test "chars" (fn t -> t.eq ["a", "b", "c"] (String.chars "abc"))
-test "chars empty" (fn t -> t.eq [] (String.chars ""))
+test "truncate cuts to the budget" (fn t -> t.eq "hel" (String.truncate 3 "hello"))
+test "truncate leaves a short string alone" (fn t -> t.eq "hi" (String.truncate 9 "hi"))
+test "truncate at exactly the length" (fn t -> t.eq "hello" (String.truncate 5 "hello"))
+test "truncate to zero" (fn t -> t.eq "" (String.truncate 0 "hello"))
+test "truncate to a negative budget" (fn t -> t.eq "" (String.truncate (-1) "hello"))
+test "truncate an empty string" (fn t -> t.eq "" (String.truncate 3 ""))
+
+-- The whole point: a cut inside a character drops the character rather
+-- than half of it. "café" is five bytes, and the é is the last two.
+test "truncate does not split a character" (fn t -> t.eq "caf" (String.truncate 4 "café"))
+test "truncate keeps a character that fits" (fn t ->
+  t.eq "café" (String.truncate 5 "café"))
+test "truncate is byte-exact where slice is not" (fn t ->
+  t.eq (4, 3) (
+    String.length (String.slice 0 4 "café"),
+    String.length (String.truncate 4 "café")
+  ))
+
+-- A three-byte character exercises the walk back by more than one.
+test "truncate backs off a three-byte character" (fn t ->
+  t.eq "ab" (String.truncate 3 "ab€"))
+test "truncate keeps a three-byte character that fits" (fn t ->
+  t.eq "ab€" (String.truncate 5 "ab€"))
+
+-- Bytes that are not UTF-8 are cut at the budget, because there is no
+-- character to keep whole. `String.slice 4 5 "café"` is the second byte of
+-- the é on its own, which is a continuation byte with no lead in front of
+-- it, and four of those are not a character in any encoding.
+test "truncate cuts bytes that are not UTF-8 at the budget" (fn t ->
+  let stray = String.repeat 4 (String.slice 4 5 "café") in
+  t.eq 3 (String.length (String.truncate 3 stray)))
+
+-- The budget is never exceeded, whatever the input.
+test "truncate never returns more than the budget" (fn t ->
+  t.eq
+    true
+    (List.all? (fn n -> String.length (String.truncate n "a€bcé") <= n) (List.range 0 9)))
+
+-- ── bytes ───────────────────────────────────────────────────────────────
+
+test "bytes" (fn t -> t.eq ["a", "b", "c"] (String.bytes "abc"))
+test "bytes empty" (fn t -> t.eq [] (String.bytes ""))
+
+-- The name is the whole point of the rename: a multi-byte character comes
+-- back as its bytes, not as itself.
+test "bytes splits a multi-byte character" (fn t ->
+  t.eq 2 (List.length (String.bytes "é")))
+test "bytes counts what length counts" (fn t ->
+  t.eq (String.length "café") (List.length (String.bytes "café")))
 
 -- ── of_int / to_int / to_float ─────────────────────────────────────────
 

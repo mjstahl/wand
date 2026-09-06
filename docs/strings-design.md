@@ -178,5 +178,6 @@ here reversible.
 The `String.chars` rename second, and soon. It is the only item in this
 document with a deadline, and the deadline is the first outside user.
 
-`String.truncate` when something wants it. Everything else is deliberate and
-stays as it is.
+`String.truncate` with them, since the rename is what makes the byte model
+explicit and truncation is the one place the domain wants UTF-8. Everything
+else is deliberate and stays as it is.

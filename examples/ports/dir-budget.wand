@@ -3,6 +3,7 @@ uses {FS.Read, IO, Proc}
 import FS
 import IO
 import List
+import Option
 import Path
 import Proc
 import Size
@@ -29,7 +30,8 @@ let used dir =
       match FS.size p with
       | Ok size -> Some size
       | Error _ -> None)
-    |> List.fold_left (fn total size -> total + size) 0B
+    |> List.sum
+    |> Option.default 0B
 
 let check budget dir = (
   let total = used dir;

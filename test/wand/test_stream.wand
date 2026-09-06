@@ -1,5 +1,6 @@
 uses {FS.Read}
 
+import List
 import Test
 let {test} = import Test
 import FS
@@ -63,3 +64,75 @@ test "a missing file raises at the fold, catchably" (fn t ->
     | Ok _ -> false
     | Error why -> String.contains? "does-not-exist" why
     )))
+
+-- ── the terminals that fold ─────────────────────────────────────────────
+
+-- Each of these reads the whole source. `count` is not called `length`
+-- for that reason: counting twice reads twice.
+
+test "count counts the elements" (fn t -> t.eq 3 (Stream.of_list [1, 2, 3] |> Stream.count))
+test "count of an empty source" (fn t ->
+  let empty : List Int = [] in t.eq 0 (Stream.of_list empty |> Stream.count))
+test "count sees the stages above it" (fn t ->
+  t.eq 2 (Stream.of_list [1, 2, 3, 4] |> Stream.filter (fn x -> x % 2 == 0) |> Stream.count))
+
+test "last is the final element" (fn t ->
+  t.eq (Some 3) (Stream.of_list [1, 2, 3] |> Stream.last))
+test "last of an empty source" (fn t ->
+  let empty : List Int = [] in t.eq (None) (Stream.of_list empty |> Stream.last))
+
+test "sum totals the elements" (fn t ->
+  t.eq (Some 6) (Stream.of_list [1, 2, 3] |> Stream.sum))
+test "sum totals Sizes" (fn t ->
+  t.eq (Some 1500B) (Stream.of_list [1KB, 500B] |> Stream.sum))
+test "sum of an empty source" (fn t ->
+  let empty : List Int = [] in t.eq (None) (Stream.of_list empty |> Stream.sum))
+
+test "max of the elements" (fn t -> t.eq (Some 3) (Stream.of_list [3, 1, 2] |> Stream.max))
+test "min of the elements" (fn t -> t.eq (Some 1) (Stream.of_list [3, 1, 2] |> Stream.min))
+test "max of an empty source" (fn t ->
+  let empty : List Int = [] in t.eq (None) (Stream.of_list empty |> Stream.max))
+
+-- ── the terminals that stop early ───────────────────────────────────────
+
+test "empty? on an empty source" (fn t ->
+  let empty : List Int = [] in t.eq true (Stream.of_list empty |> Stream.empty?))
+test "empty? on a source with one element" (fn t ->
+  t.eq false (Stream.of_list [1] |> Stream.empty?))
+
+test "any? finds a match" (fn t ->
+  t.eq true (Stream.of_list [1, 2, 3] |> Stream.any? (fn x -> x > 2)))
+test "any? with no match" (fn t ->
+  t.eq false (Stream.of_list [1, 2, 3] |> Stream.any? (fn x -> x > 9)))
+test "all? holds" (fn t ->
+  t.eq true (Stream.of_list [1, 2, 3] |> Stream.all? (fn x -> x > 0)))
+test "all? fails on one miss" (fn t ->
+  t.eq false (Stream.of_list [1, 2, 3] |> Stream.all? (fn x -> x > 1)))
+test "all? of an empty source holds" (fn t ->
+  let empty : List Int = [] in
+  t.eq true (Stream.of_list empty |> Stream.all? (fn x -> x > 9)))
+
+test "find answers the first match" (fn t ->
+  t.eq (Some 2) (Stream.of_list [1, 2, 3] |> Stream.find (fn x -> x > 1)))
+test "find with no match" (fn t ->
+  t.eq (None) (Stream.of_list [1, 2, 3] |> Stream.find (fn x -> x > 9)))
+
+-- Stopping early is the point of these four, and a stage that raises on
+-- every element after the first is how to see that the source stopped
+-- being read. If it were read to the end, each of these would raise.
+let explode_after_one = Stream.map (fn x -> if x == 1 then x else List.head! [])
+
+test "any? stops at the first match" (fn t ->
+  t.eq true (Stream.of_list [1, 2, 3] |> explode_after_one |> Stream.any? (fn x -> x == 1)))
+test "all? stops at the first miss" (fn t ->
+  t.eq false (Stream.of_list [1, 2, 3] |> explode_after_one |> Stream.all? (fn x -> x > 1)))
+test "find stops at the match" (fn t ->
+  t.eq
+    (Some 1)
+    (Stream.of_list [1, 2, 3] |> explode_after_one |> Stream.find (fn x -> x == 1)))
+test "empty? reads one element and stops" (fn t ->
+  t.eq false (Stream.of_list [1, 2, 3] |> explode_after_one |> Stream.empty?))
+
+-- And the counterpart: a terminal that reads everything does raise.
+test "a terminal that reads on meets the raise" (fn t ->
+  t.raises (fn () -> Stream.of_list [1, 2, 3] |> explode_after_one |> Stream.count))

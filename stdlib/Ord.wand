@@ -1,0 +1,51 @@
+-- What comes with being ordered.
+--
+-- `<`, `>`, `<=` and `>=` take an Ord: Int, Float, String, Duration,
+-- DateTime, Size, Version, Port, IPv4 or CIDR. These four functions are
+-- the ones people write out of those operators, and one definition
+-- serves every ordered type -- `Ord.max 30s 2min` and `Ord.max 1.2.3
+-- 1.10.0` are the same function, not two copies of it.
+--
+-- The module is named for the constraint that appears in the signatures,
+-- so a reader who sees `Ord -> Ord -> Ord` and reaches for `Ord.max`
+-- finds it where they looked. Comparison reads the value rather than the
+-- text it was written as, so these answer about instants, byte counts and
+-- version precedence rather than about spelling.
+
+-- The larger of two values.
+--
+-- >> Ord.max 3 7
+-- 7 : Int
+--
+-- >> Ord.max 1.2.3 1.10.0
+-- 1.10.0 : Version
+let max a b = if a > b then a else b
+
+-- The smaller of two values.
+--
+-- >> Ord.min 3 7
+-- 3 : Int
+--
+-- >> Ord.min 30s 2min
+-- 30s : Duration
+let min a b = if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> Ord.clamp 0 10 42
+-- 10 : Int
+--
+-- >> Ord.clamp 1s 30s 5min
+-- 30s : Duration
+let clamp lo hi v = if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> Ord.between? 1 10 5
+-- true : Bool
+--
+-- >> Ord.between? 2024-01-01 2024-12-31 2025-06-15
+-- false : Bool
+let between? lo hi v = v >= lo && v <= hi

@@ -1,3 +1,5 @@
+import List
+
 -- Reading through, without reading in.
 --
 -- A stream is a description of a source and its stages; nothing is read
@@ -65,3 +67,100 @@ let each f s = stream_each f s
 -- >> Stream.of_list [1, 2, 3] |> Stream.to_list
 -- [1, 2, 3] : List Int
 let to_list s = stream_to_list s
+
+-- The number of elements the source yields.
+--
+-- Not `length`, because it is not free: counting reads the whole source,
+-- and counting twice reads it twice. The different word is the warning.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.count
+-- 3 : Int
+let count s = fold_left (fn n _ -> n + 1) 0 s
+
+-- The final element, or None when the source is empty.
+--
+-- The whole source is read to reach it. There is no way to arrive at the
+-- last of a stream without passing every one before it.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.last
+-- Some(3) : Option Int
+--
+-- >> Stream.of_list [] |> Stream.last
+-- None : Option 'a
+let last s = fold_left (fn _ x -> Some x) None s
+
+-- True when the source yields nothing.
+--
+-- One element is enough to answer, so the source is read no further.
+--
+-- >> Stream.of_list [] |> Stream.empty?
+-- true : Bool
+--
+-- >> Stream.of_list [1] |> Stream.empty?
+-- false : Bool
+let empty? s = List.empty? (s |> take 1 |> to_list)
+
+-- True when any element satisfies the predicate.
+--
+-- Reading stops at the first element that does, so a match near the head
+-- of a large file costs the head of that file and nothing more.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.any? (fn x -> x > 2)
+-- true : Bool
+let any? p s = !(empty? (filter p s))
+
+-- True when every element satisfies the predicate.
+--
+-- Reading stops at the first element that does not.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.all? (fn x -> x > 0)
+-- true : Bool
+let all? p s = empty? (filter (fn x -> !(p x)) s)
+
+-- The first element satisfying the predicate, or None.
+--
+-- Reading stops there.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.find (fn x -> x > 1)
+-- Some(2) : Option Int
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.find (fn x -> x > 9)
+-- None : Option Int
+let find p s = List.head (s |> filter p |> take 1 |> to_list)
+
+-- Combine the elements with f, seeding the accumulator from the first
+-- one. Private: it exists so sum, max and min are one line each, and the
+-- public spelling of "fold from the head" is not yet decided.
+let _reduce f s =
+  (fold_left
+    (fn a x -> match a with
+      | None -> Some x
+      | Some v -> Some (f v x)
+    )
+    None
+    s)
+
+-- Total the elements, or None when the source is empty.
+--
+-- Add-polymorphic for the same reason `List.sum` is: the total starts
+-- from the first element, because a literal zero would pin the type to
+-- Int. So a stream of sizes totals to a Size.
+--
+-- >> Stream.of_list [1, 2, 3] |> Stream.sum
+-- Some(6) : Option Int
+--
+-- >> Stream.of_list [] |> Stream.sum
+-- None : Option Add
+let sum s = _reduce (fn a b -> a + b) s
+
+-- The largest element, or None when the source is empty.
+--
+-- >> Stream.of_list [3, 1, 2] |> Stream.max
+-- Some(3) : Option Int
+let max s = _reduce (fn a b -> if b > a then b else a) s
+
+-- The smallest element, or None when the source is empty.
+--
+-- >> Stream.of_list [3, 1, 2] |> Stream.min
+-- Some(1) : Option Int
+let min s = _reduce (fn a b -> if b < a then b else a) s

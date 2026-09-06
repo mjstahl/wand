@@ -11,7 +11,7 @@ let stdlib_module_names =
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
     "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
-    "Random" ]
+    "Random"; "Int"; "Ord" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -3450,7 +3450,8 @@ let stdlib_type_env : env = [
   ("str_trim_right", generalize [] ((TString @-> TString)));
   ("str_repeat",     generalize [] ((TInt @-> (TString @-> TString))));
   ("str_reverse",    generalize [] ((TString @-> TString)));
-  ("str_chars",      generalize [] ((TString @-> TList TString)));
+  ("str_truncate",   generalize [] ((TInt @-> (TString @-> TString))));
+  ("str_bytes",      generalize [] ((TString @-> TList TString)));
   ("int_to_str",       generalize [] ((TInt @-> TString)));
   ("float_of_int",     generalize [] ((TInt @-> TFloat)));
   ("float_round",      generalize [] ((TFloat @-> TInt)));

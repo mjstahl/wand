@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -154,6 +154,10 @@ polymorphic:
 let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
 ```
 
+That one is already written, and [`Ord`](#ord) is where it lives: `Ord.max`,
+`Ord.min`, `Ord.clamp` and `Ord.between?` are one definition each, serving
+all ten types.
+
 The constraints nest: every `Num` is an `Add`, and every `Add` is an `Ord`.
 A variable that is more than one of them is the narrowest.
 
@@ -214,8 +218,8 @@ number below a word. So
 the order above rather than with the order of their text.
 
 Not ordered: `Path` and `Glob`, because text order reads as tree order and
-is not; `URL`, which has no natural one; `CIDR`, because two networks that
-overlap are neither above nor below; `Regex`; `Bool`; and the containers.
+is not; `URL`, which has no natural one; `Regex`; `Bool`; and the
+containers.
 
 [semver]: https://semver.org/spec/v2.0.0.html
 
@@ -293,6 +297,83 @@ string:
 match answer with
 | `yes` -> 1
 | _     -> 0
+```
+
+### A `String` is bytes
+
+There is no encoding layer. A `String` holds bytes, `String.length` counts
+them, and nothing validates that they are UTF-8.
+
+That is the right model for what wand does. It reads log files, shell
+output, filenames and configuration, and all of those are bytes. A log with
+one badly-encoded line is an ordinary thing to have to summarise, and a
+`String` that validated UTF-8 would refuse to open the file. Paths are
+byte-oriented for the same reason: the operating system takes bytes, and
+inventing an encoding on the way through would break the one job the value
+has.
+
+Most of the module is correct on any input without knowing about encodings,
+because a UTF-8 continuation byte can never be mistaken for an ASCII
+character. Splitting on an ASCII delimiter is safe by construction:
+
+```text
+==  !=  <  >          split   lines   words   join
+contains?   starts_with?   ends_with?   empty?
+trim   trim_left   trim_right   repeat   replace (ASCII needles)
+```
+
+These read bytes where a reader might expect characters. The answers are
+for `"café"`, which is five bytes and four characters:
+
+| written | answers | reads |
+|---|---|---|
+| `String.length "café"` | `5` | bytes, not characters |
+| `String.bytes "café"` | five strings | the é comes back as its two bytes |
+| `String.upper "café"` | `"CAFé"` | ASCII only; the é is untouched |
+| `String.slice 0 4 "café"` | `caf` and half the é | a cut can land inside a character |
+| `String.reverse "café"` | mojibake | the é is reversed byte by byte |
+
+`upper` and `lower` are the ones to watch, precisely because they *work* for
+the ASCII cases that make up almost every use — a header name, an
+environment variable, a command word. The failure only shows when user data
+is case-folded, by which time the code has shipped and looks fine.
+
+`Regex` matches bytes on the same terms. `.` is one byte:
+
+```ocaml
+Regex.match? r/^.$/ "é"      -- false
+Regex.match? r/^..$/ "é"     -- true
+```
+
+Cutting text down for display is the case where that matters, and
+`String.truncate` is the one function here that knows about UTF-8. It takes
+at most n bytes and never ends inside a character:
+
+```ocaml
+String.slice 0 4 "café"       -- four bytes, the last one half of the é
+String.truncate 4 "café"      -- "caf"
+String.truncate 5 "café"      -- "café"
+```
+
+The budget is bytes, as every other `Int` in the module is, so
+`String.length (String.truncate n s)` is never above `n`. It is not a
+display width, for the reason below. Bytes that are not UTF-8 are cut at
+`n`, because there is no character there to keep whole.
+
+**`length` counts bytes and keeps the name on purpose.** The question people
+reach for it with is a width or an alignment check, and a character count
+would not answer that either: a CJK character occupies two terminal columns
+and a combining mark occupies none. Display width is a third quantity.
+Counting characters instead would swap one wrong answer for a different
+wrong answer while implying the question had been settled.
+
+The boundary is not a problem. `JSON`, `TOML` and `Decode` turn a document's
+escapes into UTF-8 bytes, so text read from a manifest compares and matches
+against a literal in the source:
+
+```ocaml
+let doc = JSON.parse! `{"who": "caf\u00e9"}`
+JSON.decode (Decode.field "who" Decode.string) doc == Ok "café"    -- true
 ```
 
 ---
@@ -2728,9 +2809,9 @@ A script that you run with `wand file.wand` must `import` a stdlib module
 before it uses one. `List.map` without `import List` fails with an
 unbound-name error, although the module comes with wand. The REPL and the
 one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
-stdlib module for you: `List`, `String`, `Path`, `FS`, `IO`, `Float`,
-`Duration`, `Env`, `Map`, `Regex`, `JSON`, `TOML`, `CSV`, `Option`, `Par`,
-`Resource`, `Stream`, `URL`, `Version`, `Glob`, `IPv4`, `CIDR` and `Proc`.
+stdlib module for you — every one listed under
+[Current standard library](#current-standard-library), and a module added
+there is loaded the day it is added.
 
 Every function a file calls comes from a module it imported, with no
 exceptions. Printing is `IO.println`, so a file that prints writes
@@ -2897,7 +2978,29 @@ flatten    : List (List 'a) -> List 'a
 concat     : List 'a -> List 'a -> List 'a
 get        : Int -> List 'a -> Option 'a
 get!       : Int -> List 'a -> 'a ! {Raise}
+sum        : List Add -> Option Add
+max        : List Ord -> Option Ord
+min        : List Ord -> Option Ord
 ```
+
+`sum`, `max` and `min` start from the first element rather than from a
+literal zero. That is what keeps them polymorphic: a `0` would be an `Int`
+and would pin the list to `Int`, and [`Add`](#adding-and-add) covers `Size`
+and `Duration` too. So a list of file sizes totals to a `Size`.
+
+The `Option` is the price of that, and it is honest. A sum of nothing has no
+unit to answer with, and the unit is the very thing the type does not fix.
+Supply one where it is known:
+
+```ocaml
+List.sum [1KB, 500B]                        -- Some(1500B)
+List.sum sizes |> Option.default 0B         -- a Size either way
+List.max [1.9.0, 1.10.0]                    -- Some(1.10.0), by precedence
+```
+
+`max` and `min` read the value, not the text it was written as, exactly as
+[`<`](#comparison-and-ord) does. For the larger of two values rather than of
+a list, [`Ord`](#ord) has the same pair.
 
 `each` takes the element, as `map` and `filter` do, and returns `Unit`. Use
 it for effects. wand drops what the function returns. So a command that you run
@@ -2927,7 +3030,8 @@ ends_with?   : String -> String -> Bool
 replace      : String -> String -> String -> String
 repeat       : Int -> String -> String
 reverse      : String -> String
-chars        : String -> List String
+truncate     : Int -> String -> String
+bytes        : String -> List String
 join         : String -> List String -> String
 lines        : String -> List String
 words        : String -> List String
@@ -2947,8 +3051,14 @@ to_datetime  : String -> Result String DateTime
 to_duration  : String -> Result String Duration
 ```
 
-Each one reads the value as a script writes it. Each one returns a `Result`
-that names the rule the text broke:
+A `String` holds bytes, so `length` and `bytes` count bytes, `upper` and
+`lower` convert ASCII only, and `slice` and `reverse` can cut a multi-byte
+character in half. `truncate` is the one that will not:
+[A `String` is bytes](#a-string-is-bytes) says which functions are safe on
+any input and why the model is the right one.
+
+The `to_*` family reads a value as a script writes it. Each one returns a
+`Result` that names the rule the text broke:
 
 ```ocaml
 String.to_duration "30s"      -- Ok 30s
@@ -2971,6 +3081,9 @@ replace_all : Regex -> String -> String -> String
 split       : Regex -> String -> List String
 match_all   : Regex -> String -> List String
 ```
+
+A pattern matches bytes, not characters, so `.` is one byte and `r/^.$/`
+does not match `"é"`. See [A `String` is bytes](#a-string-is-bytes).
 
 ### `Map`
 
@@ -3138,6 +3251,15 @@ take      : Int -> Stream {..} 'a -> Stream {..} 'a
 fold_left : ('a -> 'b -> 'a ! 'e) -> 'a -> Stream {..} 'b -> 'a ! 'e
 each      : ('a -> 'b ! 'e) -> Stream {..} 'a -> Unit ! 'e
 to_list   : Stream {..} 'a -> List 'a ! 'e
+count     : Stream {..} 'a -> Int ! 'e
+last      : Stream {..} 'a -> Option 'a ! 'e
+empty?    : Stream {..} 'a -> Bool ! 'e
+any?      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Bool ! 'e
+all?      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Bool ! 'e
+find      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Option 'a ! 'e
+sum       : Stream {..} Add -> Option Add ! 'e
+max       : Stream {..} Ord -> Option Ord ! 'e
+min       : Stream {..} Ord -> Option Ord ! 'e
 ```
 
 Read through a file, and do not read it into memory. A stream describes a
@@ -3155,6 +3277,29 @@ FS.stream_lines /var/log/app.log
 
 `take n` stops the read after n elements. The memory and the reading are
 both bounded. `to_list` reads everything. Its name says so.
+
+Everything below `to_list` in that list is a terminal operation too, so each
+one runs the stream. They divide by how much of the source they need.
+
+`count`, `last`, `sum`, `max` and `min` read all of it. **`count` is not
+called `length`.** `List.length` sounds free and this is not: counting reads
+the whole source, and counting twice reads it twice. The different word is
+the warning. `sum`, `max` and `min` answer an `Option` and start from the
+first element, for the same reason [`List.sum`](#list) does.
+
+`empty?`, `any?`, `all?` and `find` stop as soon as the answer is settled.
+`any?` reads to the first element that matches, `all?` to the first that does
+not, and `empty?` reads one element. So a match near the head of a 10GB log
+costs the head of that log:
+
+```ocaml
+FS.stream_lines /var/log/app.log
+|> Stream.any? (fn l -> String.contains? "PANIC" l)
+```
+
+Every name here that `List` also has keeps the `List` spelling, because the
+answer really is the same one. Only `count` differs, and only because the
+cost does.
 
 **Each terminal operation reads the source again.** Fold a stream twice, and
 wand opens and reads the file twice. Each read sees the file as it is then.
@@ -3607,6 +3752,87 @@ Float.abs (- 2.5)       -- 2.5
 
 `String.to_float` parses text. `JSON`, `TOML` and `Decode` read a float out
 of a document.
+
+### `Int`
+
+```ocaml
+abs       : Int -> Int
+pow       : Int -> Int -> Int ! 'e
+divmod    : Int -> Int -> (Int, Int)
+max_value : Int
+min_value : Int
+```
+
+What an operator does not spell. Arithmetic is `+ - * / %`, so this module
+is the remainder: distance from zero, repeated multiplication, both halves
+of a division at once, and the ends of the range.
+
+```ocaml
+Int.abs (-7)            -- 7
+Int.pow 2 10            -- 1024
+Int.divmod 17 5         -- (3, 2)
+Int.max_value           -- 4611686018427387903
+```
+
+`abs` is `Int`-only rather than `Num`-polymorphic, because `Float.abs`
+already answers on the other side and arithmetic never crosses between the
+two for you.
+
+`pow` with a negative exponent divides, and `Int` division truncates toward
+zero, so `Int.pow 2 (-1)` is `0`. A base of zero with a negative exponent
+divides by zero, exactly as writing that division would.
+
+`divmod` truncates toward zero in both halves, as `/` and `%` do on their
+own, so the remainder takes the sign of the dividend: `Int.divmod (-17) 5`
+is `(-3, -2)`.
+
+`max_value` and `min_value` name the range that
+[`Int`](#primitives) already documents. Arithmetic outside it is a runtime
+error rather than a wrap, and it is not the `Raise` effect.
+
+There is no `Int.to_string` and no `Int.to_float`. wand puts a conversion on
+the type it produces, so those are `String.of_int` and `Float.of_int`.
+`Int.of_string` is `String.to_int` under the same rule, and drawing a number
+is `Random.int`, which carries the effect that belongs with it.
+
+### `Ord`
+
+```ocaml
+max      : Ord -> Ord -> Ord
+min      : Ord -> Ord -> Ord
+clamp    : Ord -> Ord -> Ord -> Ord
+between? : Ord -> Ord -> Ord -> Bool
+```
+
+The functions people write out of `<` and `>`. The module is named for the
+constraint that appears in the signature, as `Option` and `Result` are, so a
+reader who sees `Ord -> Ord -> Ord` and reaches for `Ord.max` finds it where
+they looked.
+
+One definition serves all ten [ordered types](#comparison-and-ord). There is
+no `Int.max` beside a `Duration.max` beside eight more, which is the point of
+having a constraint at all:
+
+```ocaml
+Ord.max 3 7                     -- 7
+Ord.max 30s 2min                -- 2min
+Ord.max 1.9.0 1.10.0            -- 1.10.0, by precedence
+Ord.min 4KB 100MB               -- 4KB
+```
+
+`clamp` and `between?` take the low bound, then the high, then the value, so
+the value can arrive from a pipeline. Both bounds are included:
+
+```ocaml
+Ord.clamp 0 10 42               -- 10
+Ord.clamp 1s 30s 5min           -- 30s
+Ord.between? 1 10 10            -- true
+```
+
+Comparison reads the value rather than the text it was written as, so these
+answer about instants, byte counts and version precedence rather than about
+spelling. For the largest of a list rather than of two values,
+[`List.max`](#list) is the same idea folded.
 
 ### `Duration`
 

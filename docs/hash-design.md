@@ -56,7 +56,7 @@ A wand `String` is an OCaml `string`. There is no UTF-8 layer anywhere in
 return one without lying, and `Hash.string` can take one.
 
 What a byte string does not give is a safe *description*. `String.length`
-counts bytes and calls them characters. `String.chars` cuts a multi-byte
+counts bytes rather than characters. `String.slice` cuts a multi-byte
 character in half. Printing binary writes rubbish.
 
 Two consequences run through the rest of this document. Hashing an
