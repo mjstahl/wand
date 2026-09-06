@@ -1,7 +1,8 @@
 # Roadmap
 
-Seven design records sit beside this one. This is the order to work them in
-and why, ranked on four things that can be checked rather than felt:
+The design records beside this one propose the work. This is the order to
+take it in and why, ranked on four things that can be checked rather than
+felt:
 
 - **No workaround** — can a script do this today by other means?
 - **Wrong today** — does something already ship that gives a wrong answer?
@@ -9,7 +10,8 @@ and why, ranked on four things that can be checked rather than felt:
   writes a script?
 - **Cost** — hours, days, or unknown.
 
-It is a record of a decision and its reasons. It is not a schedule.
+It is a record of a decision and its reasons. It is not a schedule. A record
+whose work is not scheduled has no row here, and `tour-design.md` is one.
 
 - [What the deadline actually covers](#what-the-deadline-actually-covers)
 - [The order](#the-order)
