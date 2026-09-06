@@ -323,30 +323,82 @@ decides, and `--dry-run` holds it back because it is the same effect.
 language this size might want. It is the price of the three functions above
 being ordinary functions.
 
-**One genuine wrinkle.** Constructing a `Command` performs nothing, so a
-file that builds one and never runs it needs no `Shell` label — yet
-`shell_scan` finds the command words at the literal, so a narrowed manifest
-would still demand `git` be listed. The word check and the effect check key
-off different sites. `$()` does not have this problem, because there the two
-sites are one site. It is answerable — most plainly by checking words only
-where a `Command` is consumed — and it is the part of this design that needs
-the most care.
+**Constructing a `Command` performs `Shell!command`.** This is the decision
+the rest of the design waited on, and it is the one place `Command` costs
+something that `$()` does not.
+
+The problem it answers: the word check and the effect check would otherwise
+key off different sites. `shell_scan` finds command words at the literal,
+while nothing is performed until the `Command` is consumed. So a file that
+builds one and never runs it would be told by a narrowed manifest to list
+`git`, and told by `A-USES1` to drop the `Shell` it does not use. Take the
+second piece of advice and the literal stops being covered by the narrowing
+at all. `$()` never had this, because there the two sites are one site.
+
+Two answers were weighed.
+
+*Check words where the `Command` is consumed*, leaving construction pure.
+The word check then has to find the literal from the consumer, and the
+consumer usually holds a variable — `Shell.run! backup` — or a list, or a
+parameter. Where the value cannot be traced the words are unknown, so the
+site falls to `V-SHELL1` and the run-time guard. Safe, because `guard_shell`
+still refuses a disallowed word at spawn, but it moves the answer from
+`wand t` to the run for exactly the files this feature is for, and it puts
+the design's hardest analysis on its critical path.
+
+*Perform an operation at construction*, which is the answer. The word check
+does not move: it stays syntactic, at the literal, with no dataflow to get
+wrong, and it covers every command literal whether it is run, passed, stored
+or never used. That is more static coverage than there is today, and it is
+bought without inventing an analysis.
+
+What it costs is real and is accepted here rather than argued away.
+Constructing a value performs, so a function that only builds commands
+carries `Shell`:
+
+```ocaml
+let backup_cmd db = $*(pg_dump -Fc %{db})     -- Command ! {Shell}
+```
+
+`Shell` becomes the one label that means *does or describes* rather than
+*does*. Every `$()` performs two operations where it performed one, since it
+is sugar for `Shell.run! $*(...)`. And a handler stops discharging `Shell`
+until it adds a case:
+
+```ocaml
+handle $(git push) with
+| Shell!command _ k -> k ()
+| Shell!run _ k -> k "ok"
+| Shell!run_quiet _ k -> k ()
+| Shell!capture _ k -> k "ok"
+| Shell!exit_code _ k -> k 0
+```
+
+That is a change to every handler written so far and to the reference's own
+example, which is cheap now and would not be later. It is the same argument
+that puts this whole item early.
+
+Two consequences to carry into the implementation. `Shell!command` must
+never be withheld by `--dry-run`: the value is what the plan is printed
+from, so it is the one operation that is always carried out, and
+`is_mutation` has to say so. And it is a perform per command construction,
+which is a startup-path change and takes before-and-after numbers.
 
 **Does a `Command` print?** Showing the resolved command line is useful for
 logging and for `--dry-run` output. It also puts the quoted form in front of
 people as a `String`, which invites them to try to build one. Open.
 
-**The operation table changes shape rather than gaining a row.**
+**The operation table gains a row and the existing ones change performer.**
 
 ```ocaml
-{ op_name = "Shell!run";     op_performers = ["$(...)"] };
-{ op_name = "Shell!capture"; op_performers = ["$?(...)"] };
+{ op_name = "Shell!command"; op_performers = ["$*(...)"] };
+{ op_name = "Shell!run";     op_performers = ["$(...)"; "Shell.run"; "Shell.run!"] };
+{ op_name = "Shell!capture"; op_performers = ["$?(...)"; "Shell.query"] };
 ```
 
-The performer of each becomes the `Command` literal together with the
-function that consumes it. That table is what an editor reads to answer
-"what can `Shell!` become", so it has to be updated rather than left to
-drift.
+That table is what an editor reads to answer "what can `Shell!` become", and
+it is what `test_reference_signatures` checks the reference against, so both
+move together.
 
 **One implementation note.** `lexer.ml:101` scans `$?(` and `$!(` when
 finding the extent of an interpolated expression. `$*(` has to be added

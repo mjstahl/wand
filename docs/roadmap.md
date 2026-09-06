@@ -15,7 +15,7 @@ whose work is not scheduled has no row here, and `tour-design.md` is one.
 
 - [What the deadline actually covers](#what-the-deadline-actually-covers)
 - [The order](#the-order)
-- [Two open questions, one of them urgent](#two-open-questions-one-of-them-urgent)
+- [One open question](#one-open-question)
 - [The table](#the-table)
 
 ## What the deadline actually covers
@@ -118,19 +118,7 @@ which one it is. Answering it early is what would let it move.
 
 > `yaml-design.md`
 
-## Two open questions, one of them urgent
-
-**How a `Command` reconciles the word check with the effect check.**
-Constructing one performs nothing, so a file that builds a `Command` and
-never runs it needs no `Shell` label — yet `shell_scan` finds the command
-words at the literal, so a narrowed manifest would still demand them. The
-word check and the effect check would key off different sites, which `$()`
-does not suffer because there they are one site.
-
-`stream-design.md` leans toward checking words where a `Command` is
-consumed rather than where it is written. That is the part of item 1 most
-likely to be discovered late, and item 1 is next, so it should be settled
-before the lexer work starts rather than after.
+## One open question
 
 **The YAML parser's provenance.** Item 6 cannot start without it, and it is
 the largest single piece of work on the list — a hand-written subset and a
@@ -138,6 +126,11 @@ libyaml binding are different projects with different schedules. Nothing
 waits on the answer while YAML is last, so this one can be left open. It is
 here because it is the question that decides whether item 6 is one release
 or three.
+
+The question that stood beside it — how a `Command` reconciles the word
+check with the effect check — is answered in `stream-design.md`:
+constructing one performs `Shell!command`, so the two checks key off one
+site as they do today. Item 1 can start.
 
 ## The table
 
