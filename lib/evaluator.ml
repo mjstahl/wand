@@ -1370,6 +1370,39 @@ let rec eval (env : env) (e : expr) : value = eval_at false env e
    called us, so no frame here has any work left to do. *)
 and eval_tail (env : env) (e : expr) : value = eval_at true env e
 
+(* An argument that is a nullary constructor holding a bracket it cannot
+   own -- `Sha256 (x)` where the call meant `Sha256` and `x`. Answers the
+   constructor and the argument it swallowed, keeping the qualifier, so the
+   rebuilt call resolves the constructor exactly as the original would
+   have. Nullary-ness is read off the value the name resolves to, which is
+   how `Constr` is evaluated a few lines below. *)
+and nullary_payload env x =
+  (* A qualified constructor is looked up through its module's record, the
+     way the `Qualified` case below looks it up. Reading the bare name out
+     of the calling scope answers "not a constructor" and leaves the
+     evaluator disagreeing with the checker. *)
+  let is_nullary qual e =
+    let found =
+      match qual, strip_located e with
+      | None, Constr name -> lookup_var name env
+      | Some m, Constr name ->
+        (match lookup_var m env with
+         | Some (VRecord kvs) -> List.assoc_opt name kvs
+         | _ -> None)
+      | _ -> None
+    in
+    match found with Some (VConstr (_, [])) -> true | _ -> false
+  in
+  let rec unpack qual wrap e =
+    match e with
+    | Located (_, inner) -> unpack qual wrap inner
+    | Qualified (m, inner) ->
+      unpack (Some m) (fun c -> wrap (Qualified (m, c))) inner
+    | App (f, arg) when is_nullary qual f -> Some (wrap f, arg)
+    | _ -> None
+  in
+  unpack None (fun c -> c) x
+
 and eval_at (tail : bool) (env : env) (e : expr) : value =
   check_interrupt ();
   match e with
@@ -1420,6 +1453,16 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     raise (EvalError (Printf.sprintf "unknown operator '%s'" op))
   | BinOp (op, a, b) -> eval_binop env op a b
   | Fn (params, body) -> VFun (env, params, body)
+  | App (f, x) when nullary_payload env x <> None ->
+    (* The other half of the typechecker's rule: a bracket after a
+       constructor is its payload, and one that takes no payload hands the
+       bracket back to the call around it. Both sides have to agree, or a
+       file typechecks and then fails at run time -- which is what happened
+       when only the checker knew. `test_typechecker` runs what it checks,
+       so the two are pinned together there. *)
+    (match nullary_payload env x with
+     | Some (ctor, arg) -> eval_at tail env (App (App (f, ctor), arg))
+     | None -> assert false)
   | App (f, x) ->
     let vf = eval env f in
     let vx = eval env x in

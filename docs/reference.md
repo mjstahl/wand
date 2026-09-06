@@ -1649,7 +1649,7 @@ appears in an effect set:
 | Family | Operations |
 |---|---|
 | `Shell` | `run`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `stream_lines`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
+| `FS` | `read_file`, `stream_lines`, `hash_file`, `write_file`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists`, `file`, `dir`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
 | `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `parse_dotenv` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
 | `Proc` | `exit` |
@@ -4344,14 +4344,6 @@ guessed. A deploy script checking a published checksum is not that case, and
 `==` is right there. The lengths are compared before the bytes, and a
 digest's length is public.
 
-A nullary constructor followed by `(` reads as applying it, so
-`Hash.string Sha256 (body ++ "\n")` is an error that names the fix. Pipe
-instead, which is the ordinary spelling anyway:
-
-```ocaml
-body ++ "\n" |> Hash.string Sha256
-```
-
 ### `Digest`
 
 ```ocaml
@@ -4371,9 +4363,9 @@ type rather than a hex `String`, which buys two things.
 
 **It carries which algorithm made it**, so comparing a sha256 against a
 sha512 is a question the checker answers rather than a `false` that reads
-like a failed verification. `of_hex` takes the algorithm for the same
-reason: 64 hex digits are a sha256 or half a sha512, and which one they are
-comes from whoever read them out of a file.
+like a failed verification. `of_hex` takes the algorithm because the text
+cannot supply it: 64 hex digits are a sha256 or half a sha512, and which one
+they are comes from whoever read them out of a file.
 
 **One value has two renderings.** Checksum files are hex; S3 ETags and
 subresource integrity are base64. Two accessors say that, where a `String`

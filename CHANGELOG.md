@@ -125,6 +125,26 @@
 
 ### Fixed
 
+- **A constructor that takes no payload hands the bracket back to the
+  call.** `Hash.string Sha256 (body ++ "\n")` was an error: a bracket after
+  a constructor is its payload, and the parser attaches one without reading
+  arity so that `Ctor (a, b)` means the same thing in every file. A nullary
+  constructor cannot own it, so it belongs to the call around it, and both
+  the checker and the evaluator now read it that way. Nothing that compiled
+  before changes meaning, because a nullary constructor is not a function
+  and applying it was always an error. Where there is no call to hand the
+  argument to -- `let r = Red (1)` -- it is still an error, and the message
+  is the one thing there is to say: write `Red`, with nothing after it. The
+  correction that bracketed the constructor is gone with it, because
+  `(Red) (1)` applies it just the same
+- **`wand t --fix` offered a correction that did not parse.** The one above
+  replaced the constructor's own name, so on the qualified spelling it would
+  have written `Digest.(Sha256)`. `--fix` checks that what it writes parses
+  and refused, so nothing was ever corrupted -- but the correction was dead
+  for every qualified constructor, which is the spelling a stdlib type gets
+- **`stdlib/Hash.wand` and `test/wand/test_hash.wand` had no manifest**, and
+  both perform. The lint suite says so; it was reported as passing off a
+  truncated run
 - **A session lost the types an import brought in.** A REPL or `-e` step
   that named a constructor of an imported module -- `Digest.Sha256`,
   `Test.Pass` -- failed with "declares no types" unless the same step also

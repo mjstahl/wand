@@ -1,3 +1,5 @@
+uses {FS.Read}
+
 import Digest
 
 -- Digests, without a subprocess.
@@ -50,11 +52,8 @@ let file! algorithm path =
 
 -- The digest of a file, or an Error naming why it could not be read.
 --
--- A computed path pipes into it, which is also how to sidestep the rule
--- that `Sha256 (x)` reads as applying the constructor to `x`.
---
 -- >> with FS.temp_dir "hash_" as d ->
--- ..   (match Path.join d ./missing |> Hash.file Digest.Sha256 with
+-- ..   (match Hash.file Digest.Sha256 (Path.join d ./missing) with
 -- ..    | Ok _ -> "hashed" | Error _ -> "not there")
 -- "not there" : String
 let file algorithm path = try file! algorithm path

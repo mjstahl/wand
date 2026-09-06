@@ -2310,6 +2310,20 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | t :: tl -> TFun (t, build tl, Effect_set.unknown ())
     in
     build param_ts
+  | App (f, x) when nullary_payload tenv x <> None ->
+    (* `Hash.string Sha256 (body ++ "b")`. A bracket after a constructor is
+       its payload, and the parser attaches one without reading arity so
+       that `Ctor (a, b)` means the same thing in every file. A constructor
+       that takes no payload does not take the bracket, so it belongs to the
+       call around it: this hands it back and infers what was written.
+
+       Nothing that compiles today changes meaning, because a nullary
+       constructor is not a function and applying it is always an error.
+       Where there is no call around it -- `let x = Red (1)` -- there is
+       nowhere to hand the argument, and `check_app_shape` still reports it. *)
+    (match nullary_payload tenv x with
+     | Some (ctor, arg) -> infer tenv env (App (App (f, ctor), arg))
+     | None -> assert false)
   | App (f, x) ->
     check_app_shape tenv env f x;
     (* `f (fn p -> p.host) xs` reads the lambda before `xs` has said what
@@ -3122,6 +3136,42 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (try infer tenv env e
      with TypeError msg -> raise (TypeErrorAt (loc, msg)))
 
+(* An argument that is a nullary constructor holding a bracket it cannot
+   own: `Sha256 (x)` as the argument of a call. Answers the constructor and
+   the argument it swallowed, keeping the qualifier where there is one, so
+   `Digest.Sha256 (x)` hands back `Digest.Sha256` rather than `Sha256`. *)
+and nullary_ctor tenv e =
+  match strip_located e with
+  | Constr name ->
+    (match find_ctor_in_tenv tenv name with
+     | Some (_, ctor) -> ctor.fields = []
+     | None -> false)
+  | _ -> false
+
+and nullary_payload tenv x =
+  (* A qualified constructor's arity is declared in its own module, so the
+     walk through `Qualified` moves to that module's types the way the
+     `Qualified` case of `infer` does. Looking it up in the tenv here would
+     answer "not a constructor" and leave `Digest.Sha256 (x)` erroring where
+     the bare spelling was corrected. *)
+  let rec unpack tenv wrap e =
+    match e with
+    | Located (_, inner) -> unpack tenv wrap inner
+    | Qualified (m, inner) ->
+      (match module_first tenv m with
+       | (own, tenv') when own <> [] ->
+         (* The module's types have to be visible for the lookup, as they
+            are inside the `Qualified` case; without this the arity comes
+            back unknown and the correction never fires. *)
+         with_visible (List.map fst own)
+           (fun () -> unpack tenv' (fun c -> wrap (Qualified (m, c))) inner)
+       | _ -> None
+       | exception _ -> None)
+    | App (f, arg) when nullary_ctor tenv f -> Some (wrap f, arg)
+    | _ -> None
+  in
+  unpack tenv (fun c -> c) x
+
 (* The shapes that are a parse away from what was meant, checked before the
    application itself. Each fires only when the head of the spine is a bare
    name or constructor, so one call at the head covers a spine of any
@@ -3139,33 +3189,24 @@ and check_app_shape tenv (env : env) f x =
         same thing in every file -- but the arity is known here, so say what
         to write. `wand f` already brackets a bare constructor that is not
         the last argument. *)
-     | Constr name, arg when
+     | Constr name, _ when
          (match find_ctor_in_tenv tenv name with
           | Some (_, ctor) -> ctor.fields = []
           | None -> false) ->
-       (* `Red ()` is the same parse, from someone calling a constructor
-          the way a function is called. The answer there is shorter. *)
-       if arg = Unit then
-         raise (TypeError (Printf.sprintf
-           "'%s' takes no arguments -- write `%s`, with nothing after it"
-           name name))
-       else
-         let msg = Printf.sprintf
-           "'%s' takes no arguments. Parentheses after a constructor are its \
-            payload, so `%s (x)` applies it -- write `(%s)` to pass the \
-            constructor on its own" name name name
-         in
-         (* Reported at the constructor rather than at the head of the spine,
-            because the correction goes over the constructor: both consumers
-            of a fix check that the flagged extent holds exactly the text
-            being replaced, so the span has to be the name's own. Without one
-            the message stands alone, as it did before. *)
-         (match f with
-          | Located (l, _) ->
-            pending_fix :=
-              Some (Diag.Replace { from_ = name; to_ = "(" ^ name ^ ")" });
-            raise (TypeErrorAt (l, msg))
-          | _ -> raise (TypeError msg))
+       (* What is left after `nullary_payload` has handed the bracket back to
+          the call around it: a payload with no call to give it to, as in
+          `let r = Red (1)`. Bracketing the constructor does not help there
+          -- `(Red) (1)` applies it just the same -- so there is no
+          correction to carry, only the one thing to say. Reported at the
+          constructor rather than at the head of the spine, which is where
+          the reader has to look. *)
+       let msg = Printf.sprintf
+         "'%s' takes no arguments -- write `%s`, with nothing after it"
+         name name
+       in
+       (match f with
+        | Located (l, _) -> raise (TypeErrorAt (l, msg))
+        | _ -> raise (TypeError msg))
      | Constr name, Tuple es when List.length es > 1 ->
        (match find_ctor_in_tenv tenv name with
         | Some (_, ctor)

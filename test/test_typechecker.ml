@@ -1083,16 +1083,21 @@ let test_a_nullary_constructor_swallows_the_next_argument () =
   (match type_of_program_with_imports "import Option
 let f a b = a
 f None (f 1 2)" with
-   | Ok () -> Alcotest.fail "the stdlib one: expected an error"
+   | Ok () -> ()
    | Error m ->
-     if not (contains m "write `(None)` to pass the constructor on its own") then
-       Alcotest.failf "the stdlib one: got: %s" m);
-  says "and one declared here"
+     Alcotest.failf "the stdlib one: expected the bracket to be handed \
+                     back to the call, got: %s" m);
+  ok "and one declared here"
     "type Color = Red | Green
 let f a b = a
-f Red (f 1 2)"
-    "'Red' takes no arguments";
-  (* Called the way a function is called, which has a shorter answer. *)
+f Red (f 1 2)" "Red";
+  (* No call to hand the argument to, so it stays an error -- and bracketing
+     the constructor would not answer it either. *)
+  says "a payload with no call to take it"
+    "type Color = Red | Green
+let r = Red (1)
+r"
+    "write `Red`, with nothing after it";
   says "a nullary constructor applied to unit"
     "type Color = Red | Green
 let r = Red ()
