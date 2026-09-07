@@ -284,10 +284,17 @@ let attempt f =
   | EvalError _ as e -> Error e
   | Evaluator.Interrupted _ as e -> Error e
 
-(* A sink over an open file: one line, then a newline, and close at the end. *)
+(* A sink over an open file: one line, then a newline, and close at the end.
+
+   Committing and aborting are the same call here, and that is not an
+   oversight. These lines go straight into the target, so a stream that
+   raised half way through has already left a half-written file on the disk;
+   there is nothing to take back, and closing is all either ending has to
+   do. The two endings differ only for a sink that publishes at the end. *)
 let channel_sink oc =
+  let close () = close_out_noerr oc in
   VLineSink ((fun line -> output_string oc line; output_char oc '\n'),
-             (fun () -> close_out_noerr oc))
+             close, close)
 
 let strip_trailing_newline s =
   let n = String.length s in
@@ -509,8 +516,10 @@ let describe_operation name (v : value) =
     Some ("run", first v)
   | "Shell!stream" -> Some ("read the output of", first v)
   | "FS!write_file"   -> Some ("write", with_size v)
+  | "FS!write_atomic" -> Some ("write atomically", with_size v)
   | "FS!append"    -> Some ("append to", with_size v)
   | "FS!write_lines"  -> Some ("write lines to", text v)
+  | "FS!write_lines_atomic" -> Some ("write lines atomically to", text v)
   | "FS!append_lines" -> Some ("append lines to", text v)
   | "FS!create_file"    -> Some ("create", text v)
   | "FS!delete"    -> Some ("delete", text v)
@@ -519,6 +528,13 @@ let describe_operation name (v : value) =
   | "FS!copy"      -> Some ("copy", pair v)
   | "FS!temp_file" -> Some ("create temp file", first v)
   | "FS!temp_dir"  -> Some ("create temp directory", text v)
+  (* A lock is not withheld by a rehearsal, so these only ever report a
+     real one -- but taking a guard is exactly the kind of thing `--trace`
+     exists to show, and a trace that showed the deploy and not the lock
+     around it would be reporting the smaller half. *)
+  | "FS!lock"      -> Some ("lock", text v)
+  | "FS!lock_wait" -> Some ("lock, waiting up to", pair v)
+  | "FS!unlock"    -> Some ("release the lock on", text v)
   | "FS!delete_tree" -> Some ("delete recursively", text v)
   | "FS!copy_tree" -> Some ("copy recursively", pair v)
   | "Env!set"      -> Some ("set", pair v)
@@ -550,6 +566,134 @@ let copy_file src dst =
      outright. *)
   if not existed then Unix.chmod dst mode
 
+(* ── Locks ─────────────────────────────────────────────────────────────── *)
+
+external flock_try : Unix.file_descr -> int * string = "wand_flock_try"
+
+(* Which paths this process holds, and the descriptor holding each.
+
+   The guard against this process's own second acquire is `flock` itself,
+   not this table. A lock belongs to the open file description rather than
+   to the process, and each acquire does its own `open`, so a second `Par`
+   worker -- or a nested bracket in the same worker -- holds a distinct
+   description and conflicts with the first exactly as another process
+   would. Disabling the check below leaves every lock test passing, which is
+   how that was established rather than assumed.
+
+   What the table is for is the descriptor: closing it is what releases the
+   lock, so a release has to be able to find the one its acquire took. The
+   check in front of `flock` is then a fast path that saves a syscall, and
+   the domain it records is how a wait tells a nested self-hold -- which can
+   never be released -- from another worker, which will release.
+
+   The key is the resolved path, because `/var/run/x`, `./x` from that
+   directory and a path through a symlinked parent are one file, and a table
+   keyed on the spelling would miss its own entry. `Unix.realpath` answers
+   it, which is why the file is created before the table is consulted.
+
+   A lock is not re-entrant. A `with FS.lock p` inside another one on the
+   same path fails with `Held`, which is what any other process is told, and
+   is a nesting mistake rather than a thing to permit. *)
+let held_locks : (string, Unix.file_descr * int) Hashtbl.t = Hashtbl.create 8
+let held_locks_mutex = Mutex.create ()
+
+let with_held_locks f =
+  Mutex.lock held_locks_mutex;
+  Fun.protect ~finally:(fun () -> Mutex.unlock held_locks_mutex) f
+
+(* Take the lock on `path`, or answer that it is held. Anything else -- the
+   directory is not there, the file cannot be opened -- raises, because it
+   is a broken script rather than a busy one, and a caller that exits 0 on
+   "someone else is running" must not exit 0 on "this never worked".
+
+   The lock file is created if it is missing and is never removed. Unlinking
+   it is the race that makes a lock useless: another process may already
+   have opened it and be about to lock it, and after the unlink the two hold
+   locks on two inodes with one name. The empty file left behind is
+   harmless. *)
+let take_lock path =
+  let fd =
+    try Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT] 0o644
+    with Unix.Unix_error (e, f, _) ->
+      raise (EvalError (Printf.sprintf "lock: %s: %s" f (Unix.error_message e)))
+  in
+  let close () = try Unix.close fd with Unix.Unix_error _ -> () in
+  let key =
+    try Unix.realpath path
+    with Unix.Unix_error _ -> path
+  in
+  with_held_locks (fun () ->
+    if Hashtbl.mem held_locks key then (close (); None)
+    else
+      match flock_try fd with
+      | 0, _ ->
+        Hashtbl.replace held_locks key (fd, (Domain.self () :> int));
+        Some key
+      | 1, _ -> close (); None
+      | _, why ->
+        close ();
+        raise (EvalError (Printf.sprintf "lock: %s: %s" path why)))
+
+(* Wait up to `budget_ms` for the lock, then give up and answer `Held`.
+
+   A poll rather than a blocking `flock`, because `flock` has no timeout and
+   the alternative is `SIGALRM` around a blocking call. A signal is delivered
+   to the process rather than to the domain that armed it, so under `Par` an
+   alarm meant for one worker can land on another -- an expensive bug for a
+   feature whose whole job is to be dependable. Fifty milliseconds of latency
+   after a release costs nothing; twelve hundred syscalls over a minute costs
+   nothing either.
+
+   A wait that expires is `Held`, not a case of its own. "I waited and
+   somebody still has it" tells a caller what `Held` tells it -- stand down
+   -- and a new constructor would break the exhaustiveness of every match
+   already written against `LockError`.
+
+   A `Denied` stops the wait at once. A directory that is not there will not
+   appear because we polled it, and a broken script should not spend the
+   budget finding that out. *)
+let poll_ms = 50
+
+let take_lock_wait path budget_ms =
+  let deadline = Unix.gettimeofday () +. (float_of_int budget_ms /. 1000.) in
+  let rec attempt () =
+    (* Asked afresh each time round: the entry that matters is the one there
+       now, and a self-hold cannot appear part way through a wait. *)
+    let self_held =
+      with_held_locks (fun () ->
+        match Hashtbl.find_opt held_locks (try Unix.realpath path with Unix.Unix_error _ -> path) with
+        | Some (_, owner) -> owner = (Domain.self () :> int)
+        | None -> false)
+    in
+    (* A wait on a lock this bracket already holds can never end, so it is
+       answered now rather than after the budget. Another worker holding it
+       is the opposite: it will be released, which is what waiting is for. *)
+    if self_held then None
+    else
+      match take_lock path with
+      | Some key -> Some key
+      | None ->
+        let left = deadline -. Unix.gettimeofday () in
+        if left <= 0. then None
+        else begin
+          ignore (Unix.select [] [] [] (min (float_of_int poll_ms /. 1000.) left));
+          attempt ()
+        end
+  in
+  attempt ()
+
+(* Closing the descriptor is what releases the lock, so there is one place
+   the lock can be given back and it is this one. A key the table does not
+   know is not an error: a release runs however the bracket ended, including
+   after an acquire that never took anything. *)
+let release_lock key =
+  with_held_locks (fun () ->
+    match Hashtbl.find_opt held_locks key with
+    | None -> ()
+    | Some (fd, _) ->
+      Hashtbl.remove held_locks key;
+      (try Unix.close fd with Unix.Unix_error _ -> ()))
+
 (* What a rehearsal withholds. Reads run even in a rehearsal, so that
    control flow follows the path a real run would take; a change is
    withheld and reported instead.
@@ -560,7 +704,7 @@ let copy_file src dst =
    and sleeps for real. *)
 let is_mutation = function
   | "Clock!sleep"
-  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_lines" | "FS!append_lines" | "FS!write_file" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
+  | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_lines" | "FS!write_lines_atomic" | "FS!append_lines" | "FS!write_file" | "FS!write_atomic" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
   | _ -> false
 
 (* What an operation hands back when it is reported instead of carried out.
@@ -593,6 +737,102 @@ let random_tag () =
 let dry_run_path suffix =
   Filename.concat (Filename.get_temp_dir_name ())
     (Printf.sprintf "wand-dry-run-%s%s" (random_tag ()) suffix)
+
+(* The path a write lands on. `FS.write_file` writes through a symlink,
+   because it opens and truncates whatever the link resolves to, and an
+   atomic write has to target the same file or two functions that differ
+   only in atomicity would differ in what they write to.
+
+   A link that points nowhere resolves to the name it points at, which is
+   the file a write through it would create. The depth bound is what stops
+   a loop -- `a -> b -> a` -- from spinning here forever. *)
+let rec resolve_link ?(depth = 0) p =
+  if depth > 40 then failwith "too many levels of symbolic link"
+  else
+    match Unix.lstat p with
+    | { Unix.st_kind = Unix.S_LNK; _ } ->
+      let target = Unix.readlink p in
+      let target =
+        if Filename.is_relative target
+        then Filename.concat (Filename.dirname p) target
+        else target
+      in
+      resolve_link ~depth:(depth + 1) target
+    | _ -> p
+    | exception Unix.Unix_error _ -> p
+
+(* Write `content` to `path` so that no reader ever sees it half-written.
+
+   The mode: an existing target's own, set outright so the umask cannot trim
+   it; a new file's is 0644 through the umask, which is what every other
+   write in `FS` asks for. `write_atomic` is not the place a file's
+   permissions change.
+
+   The temp file is dot-prefixed and carries the target's name, so an
+   ordinary `*.conf` glob in another process does not match it and one left
+   behind by a hard kill says what it was. It is removed if any step
+   fails. *)
+(* A publication in progress: the file being filled, and where it goes.
+
+   Three steps rather than one function, because a whole string and a stream
+   of lines are the same publication with different amounts of it known at
+   once. Splitting it here is what keeps one implementation of the rename,
+   the mode and the sync -- two copies would be two things to keep in
+   agreement, and the second copy is the one that would drift. *)
+type publication = {
+  pub_fd : Unix.file_descr;
+  pub_tmp : string;
+  pub_target : string;
+  pub_mode : int option;
+}
+
+let open_atomic path =
+  let target = resolve_link path in
+  let dir = Filename.dirname target in
+  let mode =
+    match Unix.stat target with
+    | { Unix.st_perm; _ } -> Some st_perm
+    | exception Unix.Unix_error _ -> None
+  in
+  let tmp =
+    Filename.concat dir
+      (Printf.sprintf ".%s.wand-tmp-%s" (Filename.basename target)
+         (random_tag ()))
+  in
+  let fd =
+    Unix.openfile tmp [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o644
+  in
+  { pub_fd = fd; pub_tmp = tmp; pub_target = target; pub_mode = mode }
+
+let write_publication p content =
+  let n = String.length content in
+  let rec go off =
+    if off < n then
+      let written = Unix.write_substring p.pub_fd content off (n - off) in
+      if written = 0 then failwith "short write" else go (off + written)
+  in
+  go 0
+
+(* Contents before the rename, so the published file is never a name with
+   nothing behind it. *)
+let commit_atomic p =
+  Unix.fsync p.pub_fd;
+  Unix.close p.pub_fd;
+  (match p.pub_mode with Some m -> Unix.chmod p.pub_tmp m | None -> ());
+  Unix.rename p.pub_tmp p.pub_target
+
+(* Nothing is published and nothing is left lying beside the target. Both
+   steps tolerate having already happened, because this runs on the way out
+   of a failure and must not raise one of its own. *)
+let abort_atomic p =
+  (try Unix.close p.pub_fd with Unix.Unix_error _ -> ());
+  (try Unix.unlink p.pub_tmp with Unix.Unix_error _ -> ())
+
+let write_atomic path content =
+  let p = open_atomic path in
+  match write_publication p content; commit_atomic p with
+  | () -> ()
+  | exception e -> abort_atomic p; raise e
 
 let substitute_for name =
   match name with
@@ -775,6 +1015,29 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("write_lines: " ^ m)) with
               | Ok oc   -> Effect.Deep.continue    k (channel_sink oc)
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* The publishing sink. `write_atomic` with the content arriving a
+             line at a time rather than all at once, so it is the same three
+             steps: open beside the target, fill, and rename over it.
+
+             The abort is the arm that only exists for this sink. A stream
+             that raises part way has produced a file that is missing its
+             tail, and renaming that over the target would deliver a torn
+             file atomically -- precisely what the operation is for. So the
+             temp file goes and the target is left holding what it held. *)
+          | WandEffect ("FS!write_lines_atomic", (VString path | VPath path)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (open_atomic path)
+                     with Sys_error m -> Error ("write_lines_atomic: " ^ m)
+                        | Unix.Unix_error (e, f, _) ->
+                          Error (Printf.sprintf "write_lines_atomic: %s: %s" f
+                                   (Unix.error_message e))) with
+              | Error m -> Effect.Deep.discontinue k (EvalError m)
+              | Ok p ->
+                Effect.Deep.continue k
+                  (VLineSink
+                     ((fun line -> write_publication p (line ^ "\n")),
+                      (fun () -> commit_atomic p),
+                      (fun () -> abort_atomic p))))
           | WandEffect ("FS!append_lines", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               match (try Ok (Out_channel.open_gen
@@ -802,6 +1065,70 @@ let run_with_default_handler (thunk : unit -> value) : value =
                      with Sys_error m -> Error ("write_file: " ^ m)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit
               | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* Publish a file whole: write beside the target, then rename
+             over it. A reader sees the old contents or the new ones and
+             never a half-written file.
+
+             Three things here are the reason this is a function rather
+             than a paragraph in the documentation, because the calls a
+             person composes by hand are not the calls that are correct.
+
+             The temp file goes in the target's own directory. `FS.rename`
+             is `Unix.rename`, which cannot cross a filesystem, and the OS
+             temp directory is a different one often enough -- `/tmp` on
+             Linux is usually tmpfs -- that the hand-written version passes
+             on a mac and fails in CI.
+
+             An existing target keeps its mode. Renaming replaces the inode,
+             so without this a 644 configuration file becomes whatever the
+             temp file was created as, silently, on every write.
+
+             A symlink is written through rather than replaced, which is
+             what `FS.write_file` does. A deploy publishing to
+             `/etc/app/config -> config.v3` means the file at the end of the
+             link; renaming onto the link itself turns it into a regular
+             file and is the opposite of what was asked.
+
+             The temp file is synced before the rename, so a file that is
+             there after a power loss is whole. The containing directory is
+             not synced, so the rename itself may be lost -- durability of
+             the publication costs a second sync per file, and atomicity is
+             what the name promises. *)
+          | WandEffect ("FS!write_atomic", VTuple [(VString path | VPath path); VString content]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (write_atomic path content)
+                     with Sys_error m -> Error ("write_atomic: " ^ m)
+                        | Unix.Unix_error (e, f, _) ->
+                          Error (Printf.sprintf "write_atomic: %s: %s" f
+                                   (Unix.error_message e))) with
+              | Ok ()   -> Effect.Deep.continue    k VUnit
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          (* Taking a lock answers with the path it was taken on -- the
+             resolved one, so what the bracket releases is what the table
+             knows. `None` is the one failure a caller is expected to
+             branch on: somebody else is running. *)
+          | WandEffect ("FS!lock", (VString path | VPath path)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match take_lock path with
+              | Some key ->
+                Effect.Deep.continue k
+                  (VConstr (Ctor.Builtin "Some", [VPath key]))
+              | None ->
+                Effect.Deep.continue k (VConstr (Ctor.Builtin "None", []))
+              | exception EvalError m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("FS!lock_wait",
+                        VTuple [(VString path | VPath path); VDuration d]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match take_lock_wait path (Evaluator.parse_dur_ms d) with
+              | Some key ->
+                Effect.Deep.continue k
+                  (VConstr (Ctor.Builtin "Some", [VPath key]))
+              | None ->
+                Effect.Deep.continue k (VConstr (Ctor.Builtin "None", []))
+              | exception EvalError m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("FS!unlock", (VString path | VPath path)) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              release_lock path; Effect.Deep.continue k VUnit)
           | WandEffect ("FS!mkdir", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rec mkdir_p p =
@@ -1724,7 +2051,7 @@ let remember_change name (v : value) =
       | _ -> None
     in
     match name, v with
-    | "FS!write_file", VTuple [p; VString content] ->
+    | ("FS!write_file" | "FS!write_atomic"), VTuple [p; VString content] ->
       (match path p with Some p -> remember_file o p content | None -> ())
     | "FS!append", VTuple [p; VString content] ->
       (match path p with
@@ -1968,13 +2295,22 @@ let remember_substitute name (sub : (value * string) option) =
    has. *)
 let substitute_sink name (v : value) : value option =
   match !rehearsal, name, v with
-  | Some o, ("FS!write_lines" | "FS!append_lines"), (VPath p | VString p) ->
+  | Some o, ("FS!write_lines" | "FS!append_lines" | "FS!write_lines_atomic"),
+    (VPath p | VString p) ->
     let buf = Buffer.create 256 in
     if name = "FS!append_lines" then
       (match contents_of o p with Some c -> Buffer.add_string buf c | None -> ());
+    let remember () = remember_file o p (Buffer.contents buf) in
+    (* A rehearsal follows the path a real run would take, so it has to end
+       the way a real run would. The two straight-to-the-file sinks leave a
+       part-written file behind when a stream raises, so the overlay
+       remembers one. The publishing sink leaves the target untouched, so
+       the overlay remembers nothing and a later read in the same rehearsal
+       still answers what is on the disk. *)
+    let abort = if name = "FS!write_lines_atomic" then (fun () -> ()) else remember in
     Some (VLineSink
             ((fun line -> Buffer.add_string buf line; Buffer.add_char buf '\n'),
-             (fun () -> remember_file o p (Buffer.contents buf))))
+             remember, abort))
   | _ -> None
 
 (* Wraps a program in the chosen mode. The mode handler sits inside the
@@ -2002,6 +2338,20 @@ let run_in_mode mode (thunk : unit -> value) : value =
                 Some (fun (k : (a, value) Effect.Deep.continuation) ->
                   let described = describe_operation name v in
                   let withhold = mode = DryRun && is_mutation name in
+                  (* The one operation a rehearsal neither carries out nor
+                     withholds. Two rules already settled point opposite ways
+                     here: a rehearsal takes a lock for real, so it cannot
+                     run beside a real run, and a rehearsal withholds a sleep,
+                     so nobody waits out a backoff to be told what a script
+                     would do.
+
+                     So it takes the lock and declines to wait. When the lock
+                     is free the two are the same thing. They differ only when
+                     it is held, which is exactly when waiting costs the most
+                     and says the least -- and the line below says the wait
+                     was skipped, so a rehearsal that reports `Held` is not
+                     mistaken for a real run that would have got the lock. *)
+                  let skip_wait = mode = DryRun && name = "FS!lock_wait" in
                   (* Decided once: the substitute is now a fresh name each
                      time it is asked for, and the line reporting it has to
                      name the one the script was actually handed. *)
@@ -2013,6 +2363,8 @@ let run_in_mode mode (thunk : unit -> value) : value =
                         | Some (_, shown) ->
                           report "would %s: %s -> %s\n" verb what shown
                         | None -> report "would %s: %s\n" verb what)
+                     else if skip_wait then
+                       report "%s: %s (a rehearsal does not wait)\n" verb what
                      else report "%s: %s\n" verb what
                    | None -> ());
                   if withhold then begin
@@ -2027,6 +2379,14 @@ let run_in_mode mode (thunk : unit -> value) : value =
                     | None, Some (v, _) -> Effect.Deep.continue k v
                     | None, None        -> Effect.Deep.continue k VUnit
                   end
+                  else if skip_wait then
+                    (* The non-waiting acquire, which is the same operation
+                       with the budget spent down to nothing. *)
+                    let path = match v with VTuple (p :: _) -> p | other -> other in
+                    (match (try Ok (Effect.perform (WandEffect ("FS!lock", path)))
+                            with EvalError m -> Error m) with
+                     | Ok result -> Effect.Deep.continue k result
+                     | Error m -> Effect.Deep.discontinue k (EvalError m))
                   else
                     (* A read of something the rehearsal already changed is
                        answered from what it remembers. Anything it does not

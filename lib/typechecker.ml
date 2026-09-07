@@ -298,9 +298,26 @@ let operations : operation list =
       op_performers = ["FS.write_lines"; "FS.write_lines!"] };
     { op_name = "FS!append_lines"; op_effect = FsWrite; op_types = t path TUnit;
       op_performers = ["FS.append_lines"; "FS.append_lines!"] };
+    (* The streaming half of `FS!write_atomic`. One operation per open, as
+       the other two sinks have, and the same payload: the lines go through
+       the sink it answers with, so a trace shows the file once rather than
+       once per line. What differs is the ending -- the sink publishes when
+       the stream finishes and takes its temp file away when the stream
+       raises. *)
+    { op_name = "FS!write_lines_atomic"; op_effect = FsWrite;
+      op_types = t path TUnit;
+      op_performers = ["FS.write_lines_atomic"; "FS.write_lines_atomic!"] };
     { op_name = "FS!write_file"; op_effect = FsWrite;
       op_types = t (TTuple [path; str]) TUnit;
       op_performers = ["FS.write_file"; "FS.write_file!"] };
+    (* Publishing a file whole. The write and the rename are one operation
+       because a handler that saw them apart could answer one and not the
+       other, which is the half-written file the function exists to prevent.
+       Reading the target's mode is part of it, so the builtin's type carries
+       `FS.Read` as well; the label a handler discharges is the write. *)
+    { op_name = "FS!write_atomic"; op_effect = FsWrite;
+      op_types = t (TTuple [path; str]) TUnit;
+      op_performers = ["FS.write_atomic"; "FS.write_atomic!"] };
     { op_name = "FS!append"; op_effect = FsWrite;
       op_types = t (TTuple [path; str]) TUnit;
       op_performers = ["FS.append"; "FS.append!"] };
@@ -328,6 +345,26 @@ let operations : operation list =
       op_performers = ["FS.temp_file"] };
     { op_name = "FS!temp_dir"; op_effect = FsWrite; op_types = t str path;
       op_performers = ["FS.temp_dir"] };
+    (* Taking a lock creates a file and holds it, so the label is the write.
+       The answer is an `Option`: `None` is the one failure a caller
+       branches on -- another process holds it -- and everything else is a
+       raise. A double stands in for a lock by answering this. *)
+    { op_name = "FS!lock"; op_effect = FsWrite;
+      op_types = t path (TApp (TName "Option", path));
+      op_performers = ["FS.lock"; "FS.lock!"] };
+    (* The waiting acquire. Its own operation rather than a loop written in
+       wand over `FS!lock` and `Clock.sleep`: a rehearsal withholds a sleep,
+       so such a loop would spin against a wall-clock deadline for the whole
+       budget. One operation is also what lets a rehearsal decline to wait.
+
+       It carries `Clock` as well as the write, because it sleeps, so a
+       script that waits for a lock says so in its manifest and one that
+       does not, does not. *)
+    { op_name = "FS!lock_wait"; op_effect = FsWrite;
+      op_types = t (TTuple [path; TDuration]) (TApp (TName "Option", path));
+      op_performers = ["FS.lock_wait"; "FS.lock_wait!"] };
+    { op_name = "FS!unlock"; op_effect = FsWrite; op_types = t path TUnit;
+      op_performers = ["FS.lock"; "FS.lock!"; "FS.lock_wait"; "FS.lock_wait!"] };
     (* The program's own streams. *)
     { op_name = "IO!print"; op_effect = IO;
       (* Printing takes whatever it is given. *)
@@ -3542,6 +3579,11 @@ let stdlib_type_env : env = [
      the path does, so the labels sit on the last arrow. *)
   ("hash_file",  generalize [] ((TString @-> effs [Effect_set.FsRead; Effect_set.Raise] (TPath) (TString))));
   ("write_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TString @-> TUnit))));
+  (* `FS.Read` is here because the mode of an existing target is read before
+     it is replaced, and because a symlink is resolved rather than
+     overwritten. Both are stats. A script that publishes a file atomically
+     declares the read, which is true of what it does. *)
+  ("write_atomic", generalize [] (effs [Effect_set.FsRead; Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TString @-> TUnit))));
   (* String primitives *)
   ("str_length",     generalize [] ((TString @-> TInt)));
   ("str_upper",      generalize [] ((TString @-> TString)));
@@ -3693,6 +3735,18 @@ let stdlib_type_env : env = [
    let e = Effect_set.unknown () in
    let with_write = Effect_set.add Effect_set.Raise
                       (Effect_set.add Effect_set.FsWrite e) in
+   generalize []
+     (TFun (TPath, TFun (TStream (e, TString), TUnit, with_write),
+            Effect_set.pure)));
+  (* `FS.Read` for the same two reasons `write_atomic` carries it: the
+     target's mode is read before it is replaced, and a symlink is resolved
+     rather than overwritten. Both are stats. *)
+  ("fs_write_lines_atomic",
+   let e = Effect_set.unknown () in
+   let with_write =
+     Effect_set.add Effect_set.Raise
+       (Effect_set.add Effect_set.FsRead
+          (Effect_set.add Effect_set.FsWrite e)) in
    generalize []
      (TFun (TPath, TFun (TStream (e, TString), TUnit, with_write),
             Effect_set.pure)));
@@ -3879,6 +3933,9 @@ let stdlib_type_env : env = [
   ("fs_create",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TUnit)));
   ("fs_temp_file", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) ((TString @-> TPath))));
   ("fs_temp_dir",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TString) TPath));
+  ("fs_lock",   generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TApp (TName "Option", TPath))));
+  ("fs_lock_wait", generalize [] (effs [Effect_set.Clock; Effect_set.FsWrite; Effect_set.Raise] (TDuration) ((TPath @-> TApp (TName "Option", TPath))))); 
+  ("fs_unlock", generalize [] (effs [Effect_set.FsWrite] (TPath) TUnit));
   ("fs_delete_tree", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) TUnit));
   ("fs_copy_tree", generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) (TPath @-> TUnit)));
   ("fs_rename",  generalize [] (effs [Effect_set.FsWrite; Effect_set.Raise] (TPath) ((TPath @-> TUnit))));

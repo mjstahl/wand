@@ -36,24 +36,16 @@ let example_files () =
   in
   List.sort String.compare (walk "")
 
-(* Typechecking needs the file's own directory as the import base, since
-   party.wand imports ./greetings. *)
+(* The tool's own entry point, rather than a second assembly of the same
+   stages. This test built its own and the copy fell behind: it did not pass
+   the type names an import carries, so a constructor from an imported
+   module -- `FS.Held` -- read as a module that declares no types, and an
+   example `wand t` accepts failed here. What a visitor runs is
+   `wand t <file>`, and that is `typecheck_file`. *)
 let typecheck path =
-  let src = In_channel.with_open_text path In_channel.input_all in
-  try
-    let tokens = Lexer.tokenize src in
-    let prog = Parser.parse_program tokens in
-    let cache = Hashtbl.create 8 in
-    let loading = ref [] in
-    let base_dir = Filename.dirname path in
-    let (imp, _) = Runner.load_imports_for ~base_dir ~cache ~loading prog in
-    match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
-    | Ok _ -> Ok ()
-    | Error msg -> Error ("type error: " ^ msg)
-  with
-  | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
-    | Typechecker.TypeErrorAt _ | Failure _) as e ->
-    Error (Runner.legacy_of_exn e)
+  match Runner.typecheck_file path with
+  | Ok _ -> Ok ()
+  | Error d -> Error (Diag.legacy d)
 
 let test_all_typecheck () =
   List.iter (fun name ->

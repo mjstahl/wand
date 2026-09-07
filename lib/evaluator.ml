@@ -172,7 +172,14 @@ type value =
      not necessarily a file: a rehearsal answers with one that collects
      them, so the reads after the write see what would have been written.
      Runtime-internal -- no wand code holds one. *)
-  | VLineSink      of (string -> unit) * (unit -> unit)
+  (* Write a line, commit, abort. A sink that publishes what it collected --
+     an atomic write of a stream -- has to be told which ending it got: a
+     stream that raised at line 900 of 1000 must take its temp file away
+     rather than rename it over the target, which would deliver the torn
+     file the write exists to prevent. For a sink that writes straight to
+     the file the two are the same call, because a run that raised half way
+     really does leave a half-written file. *)
+  | VLineSink      of (string -> unit) * (unit -> unit) * (unit -> unit)
   (* A decoder: how to read a value out of data that arrived untyped. It is
      handed the data and the path it stands at, so a failure can name the
      field that failed rather than only the type that did not fit. Every
@@ -3494,19 +3501,27 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
     if !exhausted then flush_from stages;
     finish ~early:(not !exhausted))
 
-(* Open once, write each line, close on the way out. The lines are the
+(* Open once, write each line, finish on the way out. The lines are the
    stream's own, so a source that fails or a stage that raises arrives here
-   as an ordinary raise and the file still closes. *)
+   as an ordinary raise -- and which of the sink's two endings that takes is
+   the whole reason it has two.
+
+   `Fun.protect` cannot express this: it has one exit, and it could not tell
+   a stream that finished from one that raised. It would also be the wrong
+   shape for the reason `run_stream_terminal` already documents -- an
+   exception out of a `finally` arrives wrapped as `Fun.Finally_raised`,
+   which `try` does not recognise. `abort` swallows its own failures for
+   that same reason: the raise a caller has to see is the stream's. *)
 let write_stream_to op path desc =
   let target = match path with
     | VPath p | VString p -> VPath p
     | _ -> raise (EvalError "expected a Path")
   in
   match Effect.perform (WandEffect (op, target)) with
-  | VLineSink (write_line, close) ->
-    Fun.protect ~finally:close (fun () ->
-      run_stream_terminal desc ~on_item:(fun v -> write_line (to_text v));
-      VUnit)
+  | VLineSink (write_line, commit, abort) ->
+    (match run_stream_terminal desc ~on_item:(fun v -> write_line (to_text v)) with
+     | () -> commit (); VUnit
+     | exception e -> (try abort () with _ -> ()); raise e)
   (* A mock, or a rehearsal: the lines are still pulled, so the source is
      still read and the stages still run, and nothing is written. *)
   | _ -> run_stream_terminal desc ~on_item:(fun _ -> ()); VUnit
@@ -3595,6 +3610,9 @@ let stream_builtins : env = [
   ("fs_append_lines", VBuiltin (fun path -> VBuiltin (function
     | VStream d -> write_stream_to "FS!append_lines" path d
     | _ -> raise (EvalError "FS.append_lines: expected a Stream"))));
+  ("fs_write_lines_atomic", VBuiltin (fun path -> VBuiltin (function
+    | VStream d -> write_stream_to "FS!write_lines_atomic" path d
+    | _ -> raise (EvalError "FS.write_lines_atomic: expected a Stream"))));
   ("stream_each", VBuiltin (fun f -> VBuiltin (function
     | VStream d ->
       run_stream_terminal d ~on_item:(fun x -> ignore (apply f x));
@@ -3692,6 +3710,9 @@ let stdlib_eval_env : env = [
   ("write_file", VBuiltin (fun path ->
     VBuiltin (fun content ->
       Effect.perform (WandEffect ("FS!write_file", VTuple [path; content])))));
+  ("write_atomic", VBuiltin (fun path ->
+    VBuiltin (fun content ->
+      Effect.perform (WandEffect ("FS!write_atomic", VTuple [path; content])))));
   (* Result constructors *)
   ("Ok",    VPartialConstr (Ctor.Builtin "Ok",    1, []));
   ("Error", VPartialConstr (Ctor.Builtin "Error", 1, []));
@@ -4543,6 +4564,11 @@ let stdlib_eval_env : env = [
       Effect.perform (WandEffect ("FS!temp_file", VTuple [prefix; suffix])))));
   ("fs_temp_dir", VBuiltin (fun prefix ->
     Effect.perform (WandEffect ("FS!temp_dir", prefix))));
+  ("fs_lock",   VBuiltin (fun v -> Effect.perform (WandEffect ("FS!lock", v))));
+  ("fs_lock_wait", VBuiltin (fun budget ->
+    VBuiltin (fun path ->
+      Effect.perform (WandEffect ("FS!lock_wait", VTuple [path; budget])))));
+  ("fs_unlock", VBuiltin (fun v -> Effect.perform (WandEffect ("FS!unlock", v))));
   ("fs_delete_tree", VBuiltin (fun v ->
     Effect.perform (WandEffect ("FS!delete_tree", v))));
   ("fs_rename",  VBuiltin (fun old_ ->

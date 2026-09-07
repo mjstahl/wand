@@ -1,7 +1,8 @@
-uses {FS.Read, FS.Write, Shell}
+uses {Clock, FS.Read, FS.Write, Shell}
 
 import Test
 let {test} = import Test
+import Clock
 import Par
 import List
 import Map
@@ -80,3 +81,23 @@ test "many watched workers, several effects each" (fn t ->
   in
   let counts = List.map (fn r -> List.length r) (List.map round [1, 2, 3, 4, 5, 6, 7, 8]) in
   t.eq [4, 4, 4, 4, 4, 4, 4, 4] counts)
+
+-- ── A lock guards workers, not just processes ───────────────────────────
+
+-- A kernel lock is held by the process, so two workers -- two domains of
+-- one process -- would both take one and the guard would do nothing. wand
+-- keeps a table of what this process holds, which is what makes the second
+-- worker fail. Exactly one of four gets it.
+test "only one worker takes a lock" (fn t -> (
+  let dir = with FS.temp_file "wand_par_lock_" "" as p -> Path.to_string p;
+  FS.mkdir! (Path.of_string dir);
+  let guard = Path.of_string "%{dir}/one.lock";
+  let attempt =
+    (fn n -> with FS.lock guard as taken ->
+     match taken with
+     | Ok _ -> (Clock.sleep 150ms; "took")
+     | Error _ -> "held");
+  let outcomes = Par.map 4 attempt ["a", "b", "c", "d"];
+  FS.delete_tree! (Path.of_string dir);
+  t.eq 1 (List.length (List.filter (fn r -> r == Ok "took") outcomes))
+))

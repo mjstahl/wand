@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.64.0] - 2026-09-07
+
+### Added
+
+- **`FS.write_atomic` and `FS.write_atomic!`.** Write a file so no reader
+  sees it half-written. The content goes to a temporary file beside the
+  target, and a rename replaces the target. An existing target keeps its
+  mode, a symlink is written through, and the temporary file is synced
+  before the rename. The containing directory is not synced. Declares
+  `FS.Read` as well as `FS.Write`
+
+```
+FS.write_atomic! /etc/app/config.toml (TOML.stringify (TOML.of! settings))
+```
+
+- **`FS.write_lines_atomic` and `FS.write_lines_atomic!`.** The same for a
+  stream, one element per line. Only a stream that finishes is published: a
+  source that fails or a stage that raises leaves the target unchanged
+- **`FS.lock` and `FS.lock!`.** An operating-system lock on a file, held for
+  as long as the `with` holds it and released when the process dies. The
+  acquire does not wait. It guards other `Par` workers as well as other
+  processes, and is not re-entrant. The lock file is created if missing and
+  is never deleted. Not dependable on NFS
+
+```
+with FS.lock /var/run/deploy.lock as taken ->
+  match taken with
+  | Ok _ -> deploy ()
+  | Error FS.Held -> IO.println "a deploy is already running"
+  | Error FS.Denied why -> IO.println_err "cannot lock: %{why}"
+```
+
+- **`FS.LockError`**, `Held | Denied String`. `Held` is another holder;
+  `Denied` is a lock that could not be opened. `FS.lock!` raises on either
+- **`FS.lock_wait` and `FS.lock_wait!`.** Take a lock, waiting up to a
+  `Duration` for it. A budget that runs out answers `Held`; a `Denied` ends
+  the wait at once, as does a wait on a lock the same bracket holds. Carries
+  `Clock`
+- **`Test.with_lock`, `Test.with_lock_held` and `Test.lock_calls`.** Answer
+  every acquire as taken, answer every acquire as held, and report the paths
+  a body locks. All three answer at once
+- **`examples/ports/publish-config.wand`**, a cron-guarded publish
+
+### Changed
+
+- **`Test.without_writes` and `Test.writes` cover every write of a file's
+  contents**, not `write_file` alone: `write_atomic`, `append`,
+  `create_file`, `write_lines`, `append_lines` and `write_lines_atomic` as
+  well. `delete`, `mkdir`, `rename`, `copy` and taking a lock still reach
+  the disk
+- **`--dry-run` reports the two atomic writes and withholds them.** It takes
+  a lock rather than withholding it, and does not wait for one
+- **`--trace` reports taking and releasing a lock**
+
+### Fixed
+
+- **V-BANG2 no longer reports a `!` on a function that answers a
+  `Resource`.** `FS.lock!` raises when the bracket opens rather than when
+  the name is called. V-BANG1 is unchanged, so `FS.temp_file` keeps its name
+
 ## [0.63.0] - 2026-09-06
 
 ### Changed
@@ -2407,6 +2467,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.63.0...HEAD
+[0.64.0]: https://github.com/mjstahl/wand/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/mjstahl/wand/compare/v0.62.1...v0.63.0
 [0.62.1]: https://github.com/mjstahl/wand/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/mjstahl/wand/compare/v0.61.0...v0.62.0

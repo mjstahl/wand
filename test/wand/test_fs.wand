@@ -1,10 +1,12 @@
-uses {FS.Read, FS.Write}
+uses {Clock, FS.Read, FS.Write}
 
 let {test} = import Test
 import FS
 import Path
 import List
 import String
+import Result
+import Stream
 
 -- Real filesystem operations, self-contained: this file creates its own
 -- scratch directory (via FS.temp_file, so it can't collide with another
@@ -54,6 +56,149 @@ test "create_file makes an empty file" (fn t -> (
   let contents = FS.read_file! p;
   FS.delete! p;
   t.eq "" contents
+))
+
+-- Publishing rather than filling: a reader sees the whole of one version or
+-- the whole of the other. What the language level can check is that the
+-- content arrives and that the directory is left with only the published
+-- file in it -- the temp file goes beside the target, so a leak would show
+-- up here.
+test "write_atomic publishes a file and leaves no temp file" (fn t -> (
+  let dir = Path.of_string "%{scratch}/atomic_case";
+  FS.mkdir! dir;
+  let p = Path.join dir ./published.conf;
+  FS.write_atomic! p "one";
+  FS.write_atomic! p "two";
+  let contents = FS.read_file! p;
+  let left = List.map Path.basename (FS.list_dir! dir);
+  FS.delete_tree! dir;
+  t.eq ("two", [./published.conf]) (contents, left)
+))
+
+-- One run at a time. What another process sees needs another process, and
+-- test_fs.ml runs those; from here what is reachable is the guard against
+-- this program's own second acquire, which is the same answer by design.
+test "lock is held against a second acquire on the same path" (fn t -> (
+  let p = Path.of_string "%{scratch}/guard.lock";
+  let again = with FS.lock p as _ -> with FS.lock p as again -> again;
+  FS.delete! p;
+  t.eq (Error FS.Held) again
+))
+
+-- Two spellings of one file are one lock, so a guard cannot be walked past
+-- by writing the path differently.
+test "lock keys on the file, not the spelling" (fn t -> (
+  let p = Path.of_string "%{scratch}/spelling.lock";
+  let indirect = Path.of_string "%{scratch}/./spelling.lock";
+  let again = with FS.lock p as _ -> with FS.lock indirect as again -> again;
+  FS.delete! p;
+  t.eq (Error FS.Held) again
+))
+
+-- Released when the bracket ends, so the next run gets it.
+test "lock is given back when the bracket ends" (fn t -> (
+  let p = Path.of_string "%{scratch}/serial.lock";
+  let first = with FS.lock p as taken -> Result.ok? taken;
+  let second = with FS.lock p as taken -> Result.ok? taken;
+  FS.delete! p;
+  t.eq (true, true) (first, second)
+))
+
+-- A lock that could not be asked for at all is a broken script, not a busy
+-- one, and the two exit differently. Telling them apart is why the acquire
+-- answers a Result.
+test "a lock that cannot be opened is Denied, not Held" (fn t -> (
+  let p = Path.of_string "%{scratch}/no_such_dir/x.lock";
+  let outcome =
+    (with FS.lock p as taken ->
+     match taken with
+     | Ok _ -> "took it"
+     | Error (FS.Held) -> "held"
+     | Error (FS.Denied _) -> "denied");
+  t.eq "denied" outcome
+))
+
+-- A wait on a lock this same bracket holds can never end, so it is answered
+-- now rather than after the budget. Ten seconds of budget, and this test
+-- takes none of it: another worker would release, this will not.
+test "a wait on a lock this bracket holds gives up at once" (fn t -> (
+  let p = Path.of_string "%{scratch}/self_wait.lock";
+  let again = with FS.lock p as _ -> with FS.lock_wait 10s p as again -> again;
+  FS.delete! p;
+  t.eq (Error FS.Held) again
+))
+
+-- A budget that runs out is Held, not a case of its own: waiting and being
+-- told no says what being told no at once says.
+test "a wait that runs out of budget is Held" (fn t -> (
+  let p = Path.of_string "%{scratch}/budget.lock";
+  let again = with FS.lock p as _ -> with FS.lock_wait 50ms p as again -> again;
+  FS.delete! p;
+  t.eq (Error FS.Held) again
+))
+
+-- A free lock is taken at once, so a budget is a bound and not a wait.
+test "a wait on a free lock takes it" (fn t -> (
+  let p = Path.of_string "%{scratch}/free_wait.lock";
+  let taken = with FS.lock_wait 10s p as taken -> Result.ok? taken;
+  FS.delete! p;
+  t.eq true taken
+))
+
+-- A lock that cannot be opened ends the wait rather than spending it. Ten
+-- seconds of budget against a directory that does not exist.
+test "a wait on an impossible lock is Denied at once" (fn t -> (
+  let p = Path.of_string "%{scratch}/no_such_dir/x.lock";
+  let outcome =
+    (with FS.lock_wait 10s p as taken ->
+     match taken with
+     | Ok _ -> "took it"
+     | Error (FS.Held) -> "held"
+     | Error (FS.Denied _) -> "denied");
+  t.eq "denied" outcome
+))
+
+-- The lock file is never deleted. It looks like a leak and is the safe half
+-- of the trade -- deleting it is the race the lock exists to prevent.
+test "the lock file is left behind" (fn t -> (
+  let p = Path.of_string "%{scratch}/kept.lock";
+  let () = with FS.lock! p as _ -> ();
+  let there = FS.exists? p;
+  FS.delete! p;
+  t.eq true there
+))
+
+-- The streaming publish. Same three properties as write_atomic, since it is
+-- the same rename; what is its own is the ending.
+test "write_lines_atomic publishes a stream and leaves no temp file" (fn t -> (
+  let dir = Path.of_string "%{scratch}/atomic_lines";
+  FS.mkdir! dir;
+  let p = Path.join dir ./out.txt;
+  FS.write_lines_atomic! p (Stream.of_list ["a", "b"]);
+  let contents = FS.read_file! p;
+  let left = List.map Path.basename (FS.list_dir! dir);
+  FS.delete_tree! dir;
+  t.eq ("a\nb\n", [./out.txt]) (contents, left)
+))
+
+-- The one thing only this form does. A stream that raises part way has
+-- produced a file missing its tail, and publishing that would deliver a torn
+-- file atomically -- which is what the operation exists to prevent. So the
+-- temp file goes and the target still holds what it held.
+--
+-- `FS.write_lines` on the same stream leaves the target holding "a\n": the
+-- old contents destroyed and the new ones incomplete.
+test "a stream that raises publishes nothing" (fn t -> (
+  let dir = Path.of_string "%{scratch}/atomic_lines_fail";
+  FS.mkdir! dir;
+  let p = Path.join dir ./out.txt;
+  FS.write_file! p "old";
+  let boom = fn line -> if line == "b" then List.head! [] else line;
+  let attempt = try Stream.of_list ["a", "b"] |> Stream.map boom |> FS.write_lines_atomic! p;
+  let contents = FS.read_file! p;
+  let left = List.map Path.basename (FS.list_dir! dir);
+  FS.delete_tree! dir;
+  t.eq (true, "old", [./out.txt]) (Result.error? attempt, contents, left)
 ))
 
 test "append writes to a real file on disk" (fn t -> (

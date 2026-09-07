@@ -1,0 +1,66 @@
+uses {FS.Read, FS.Write, IO, Proc}
+
+import FS
+import IO
+import Path
+import Proc
+import TOML
+
+-- Render a configuration file and publish it, once at a time.
+--
+-- bash:  flock -n /var/run/publish.lock -c '
+--          render > /tmp/app.toml && mv /tmp/app.toml /etc/app/config.toml'
+--
+-- Three things go wrong there, and the machine it was written on shows
+-- none of them.
+--
+-- `mv` from `/tmp` is a rename across filesystems wherever `/tmp` is not
+-- the same device as `/etc` -- which on a Linux box with a tmpfs `/tmp` it
+-- is not. `mv` then falls back to a copy, and a copy is exactly the
+-- half-written file the temp file was there to avoid. The script passes in
+-- development and publishes torn files in production.
+--
+-- `mv` also replaces the file, so the published file's mode is the
+-- temporary file's. A 644 configuration file that everything reads becomes
+-- whatever the redirect made, silently, on every run. If `/etc/app/config`
+-- is a symlink into a versioned directory, `mv` replaces the link with a
+-- regular file and the versioning is gone.
+--
+-- `flock -n` fails when the lock is held and fails when the lock file
+-- cannot be opened. Both arrive as a non-zero exit, so "another publish is
+-- running" and "this path is wrong" are the same event, and a cron job that
+-- should be quiet about the first is quiet about the second too.
+--
+-- Here the lock says which failure it was, and the publish is one call that
+-- cannot be composed wrongly.
+
+let target = /etc/app/config.toml
+let guard = /var/run/publish.lock
+
+-- What to publish. A value rather than text, so the file cannot be
+-- half-quoted.
+let settings = {listen = ":8080", upstream = "https://api.example.com", timeout = "30s"}
+
+-- The publish itself. `write_atomic` puts its temporary file beside the
+-- target, keeps the target's mode, and writes through a symlink -- the
+-- three things the `mv` above gets wrong.
+let publish! () = (
+  FS.write_atomic! target (TOML.stringify (TOML.of! settings));
+  IO.println "published %{target}"
+)
+
+-- One run at a time. `Held` is the guard working, so this run has nothing
+-- to say and nothing to report; `Denied` is a lock that could not be asked
+-- for, which is a broken script and has to be loud.
+--
+-- The lock is the operating system's, so a run killed mid-publish leaves
+-- nothing for the next one to reason about. There is no stale lock to
+-- break.
+let main! () =
+  with FS.lock guard as taken ->
+  match taken with
+  | Ok _ -> publish! ()
+  | Error (FS.Held) -> IO.println "another publish is running"
+  | Error (FS.Denied why) -> (IO.println_err "cannot take %{guard}: %{why}"; Proc.exit 1)
+
+main! ()

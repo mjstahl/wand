@@ -1,4 +1,4 @@
-uses {FS.Read, FS.Write}
+uses {Clock, FS.Read, FS.Write}
 
 import Resource
 
@@ -48,6 +48,45 @@ let write_file! path s = write_file path s
 -- ..   FS.write_file (Path.join d ./x) "hi"
 -- Ok(()) : Result String Unit
 let write_file path s = try write_file! path s
+
+-- Publish a string to a file so no reader sees it half-written. Raises on failure.
+--
+-- The content is written to a temporary file beside the target and renamed
+-- over it, so another process reading the path gets the old contents or the
+-- new ones and never a partial file. `FS.write_file` truncates and fills,
+-- which leaves a window where the file is short.
+--
+-- What the temporary file being *beside* the target buys is the rename: a
+-- rename cannot cross a filesystem, and the OS temp directory is often a
+-- different one, so the hand-written version of this passes where it was
+-- written and fails on a Linux box where /tmp is tmpfs.
+--
+-- An existing target keeps the mode it had. A new file gets 0644 through the
+-- umask, as `FS.write_file` does. A symlink is written through rather than
+-- replaced, also as `FS.write_file` does.
+--
+-- The temporary file is synced before the rename, so a published file is
+-- whole. The directory is not, so after a power loss the publication itself
+-- may be missing -- what this promises is that a reader never sees half a
+-- file, not that the write survives the machine going down.
+--
+-- Reading the target's mode and resolving a symlink are both stats, which is
+-- why this declares `FS.Read` as well as `FS.Write`.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x; FS.write_atomic! f "one";
+-- ..    FS.write_atomic! f "two"; FS.read_file! f)
+-- "two" : String
+let write_atomic! path s = write_atomic path s
+
+-- Publish a string to a file so no reader sees it half-written.
+--
+-- The Result carries the reason the OS gave; the `!` sibling raises it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.write_atomic (Path.join d ./x) "hi"
+-- Ok(()) : Result String Unit
+let write_atomic path s = try write_atomic! path s
 
 -- Append a string to a file, creating it if it does not exist. Raises on failure.
 --
@@ -167,12 +206,169 @@ let temp_dir prefix =
   let acquire = fn () -> fs_temp_dir prefix in
   let release = fn p -> if exists? p then fs_delete_tree p in Resource.make acquire release
 
--- There is deliberately no `lock`. A lock is worth having for what happens
--- when a process dies holding one, so a usable one needs staleness detection
--- -- pid, host, timestamp -- and a policy for breaking a stale lock. That is
--- a design, and it wants a real deploy to shape it: a lock that wedges a
--- queue after one crash is worse than no lock at all. The bracket it would
--- sit on is here and proven, so nothing is waiting on anything.
+-- Why an acquire did not get the lock.
+--
+-- `Held` is another run: the guard did its job, and a cron job that should
+-- stand down when the last one is still going exits 0 on this. `Denied`
+-- carries what the OS said about a lock that could not be asked for at all
+-- -- no such directory, no permission -- which is a broken script rather
+-- than a busy one, and exits 1.
+--
+-- Telling them apart is the whole reason the acquire answers a `Result`
+-- rather than raising both as text.
+type LockError = Held | Denied String
+
+-- Take a lock on `path` for as long as the `with` holds it. Answers why not
+-- rather than raising.
+--
+-- The lock a cron job wants: one run at a time, and the guard released when
+-- the process dies rather than left behind for the next run to reason about.
+-- It is the operating system's lock on an open file, so nothing here holds a
+-- pid, nothing goes stale, and there is no policy for breaking one.
+--
+-- The acquire does not wait. Either the lock is free now, or somebody else
+-- has it and the answer is `Error Held`:
+--
+-- with FS.lock /var/run/deploy.lock as taken ->
+--   match taken with
+--   | Ok _ -> deploy ()
+--   | Error FS.Held -> IO.println "a deploy is already running"
+--   | Error FS.Denied why -> Proc.die "cannot lock: %{why}"
+--
+-- It guards against other runs of the script, and against other `Par`
+-- workers in this one: a second acquire on the same file answers `Held`
+-- whichever it is. The lock belongs to the open file and not to the
+-- process, so a worker is told exactly what another process is told. That
+-- includes this script's own -- a lock is not re-entrant, so a
+-- `with FS.lock` inside another on the same path is `Held`.
+--
+-- The guard is only as good as the filesystem holding the lock file. On a
+-- local filesystem it is exact. On NFS the lock is emulated and is not
+-- dependable, so a lock file shared between machines guards less than it
+-- appears to -- keep it on the machine that runs the job.
+--
+-- The lock file is created if it is missing and is never deleted, which
+-- looks like a leak and is not. Deleting it is the race the lock exists to
+-- prevent: another process can be holding the same name open, and after the
+-- delete the two hold locks on two files. The empty file left behind costs
+-- nothing.
+--
+-- A rehearsal takes the lock for real. Withholding it would let a `--dry-run`
+-- run beside a real one, which is the situation being guarded against; the
+-- change it makes to the world is an empty file.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (with FS.lock (Path.join d ./l) as taken -> Result.ok? taken)
+-- true : Bool
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let p = Path.join d ./l;
+-- ..    with FS.lock p as _ -> with FS.lock p as again -> again)
+-- Error(Held) : Result LockError Path
+let lock path =
+  let acquire =
+    fn () -> match try fs_lock path with
+      | Ok (Some taken) -> Ok taken
+      | Ok None -> Error Held
+      | Error why -> Error (Denied why)
+  in
+  let release =
+    fn taken -> match taken with
+      | Ok taken -> fs_unlock taken
+      | Error _ -> ()
+  in
+  Resource.make acquire release
+
+-- Take a lock on `path`, waiting up to `budget` for it. Answers why not
+-- rather than raising.
+--
+-- `FS.lock` for a script that would rather queue than stand down -- a deploy
+-- behind another deploy, where the second one still has to happen:
+--
+-- with FS.lock_wait 5min /var/run/deploy.lock as taken ->
+--   match taken with
+--   | Ok _ -> deploy ()
+--   | Error FS.Held -> IO.println "gave up waiting"
+--   | Error FS.Denied why -> Proc.die "cannot lock: %{why}"
+--
+-- A budget that runs out is `Error Held`. Waiting and being told no is the
+-- same answer as being told no at once: somebody else has it, and this run
+-- is not going to get it.
+--
+-- `Denied` ends the wait immediately. A directory that is not there will not
+-- appear because we kept asking, and a broken script should not spend the
+-- budget finding that out.
+--
+-- The wait is a poll, so the lock is taken within a moment of being freed
+-- rather than the instant it is freed. It carries `Clock`, because it
+-- sleeps -- which is what makes a script that waits say so in its manifest
+-- and one that does not, not.
+--
+-- A wait on a lock this same `with` already holds answers `Held` at once
+-- rather than after the budget. Nothing is going to release it.
+--
+-- A rehearsal takes the lock and does not wait, and says so in the line it
+-- reports. Waiting out a real budget would make `--dry-run` useless on the
+-- scripts that need it most.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (with FS.lock_wait 1s (Path.join d ./l) as taken -> Result.ok? taken)
+-- true : Bool
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let p = Path.join d ./l;
+-- ..    with FS.lock p as _ -> with FS.lock_wait 50ms p as again -> again)
+-- Error(Held) : Result LockError Path
+let lock_wait budget path =
+  let acquire =
+    fn () -> match try fs_lock_wait budget path with
+      | Ok (Some taken) -> Ok taken
+      | Ok None -> Error Held
+      | Error why -> Error (Denied why)
+  in
+  let release =
+    fn taken -> match taken with
+      | Ok taken -> fs_unlock taken
+      | Error _ -> ()
+  in
+  Resource.make acquire release
+
+-- Take a lock on `path`, waiting up to `budget` for it. Raises if it cannot
+-- be taken.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (with FS.lock_wait! 1s (Path.join d ./l) as taken -> Path.extension taken)
+-- "" : String
+let lock_wait! budget path =
+  let acquire =
+    fn () -> match fs_lock_wait budget path with
+      | Some taken -> taken
+      | None -> fail_exn "lock: %{path} is held by another process"
+  in
+  let release = fn taken -> fs_unlock taken in Resource.make acquire release
+
+-- Take a lock on `path` for as long as the `with` holds it. Raises if it
+-- cannot be taken.
+--
+-- For a script that has nothing to say about either failure and should stop:
+--
+-- with FS.lock! /var/run/deploy.lock as _ ->
+--   deploy ()
+--
+-- `FS.lock` is the one to reach for when "somebody else is running" and
+-- "this lock file cannot be opened" call for different exit codes, since
+-- both arrive here as a raise.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (with FS.lock! (Path.join d ./l) as taken -> Path.extension taken)
+-- "" : String
+let lock! path =
+  let acquire =
+    fn () -> match fs_lock path with
+      | Some taken -> taken
+      | None -> fail_exn "lock: %{path} is held by another process"
+  in
+  let release = fn taken -> fs_unlock taken in Resource.make acquire release
 
 -- Delete a directory and everything under it. Raises on failure.
 --
@@ -360,6 +556,35 @@ let write_lines! path s = fs_write_lines path s
 -- ..   FS.write_lines (Path.join d ./x) (Stream.of_list ["a"])
 -- Ok(()) : Result String Unit
 let write_lines path s = try write_lines! path s
+
+-- Publish a stream's elements to a file, one per line, so no reader sees it
+-- half-written. Raises on failure.
+--
+-- `FS.write_atomic` for a stream: the lines go to a temporary file beside
+-- the target and it is renamed over the target when the stream ends, so
+-- another process reading the path gets the whole of the old contents or
+-- the whole of the new ones. Everything `FS.write_atomic` says about the
+-- filesystem, the mode and a symlink holds here.
+--
+-- The difference is the ending. `FS.write_lines` writes straight into the
+-- target, so a stream that fails part way through leaves a file missing its
+-- tail. This one publishes only a stream that finished: if the source fails
+-- or a stage raises, the temporary file goes and the target still holds
+-- what it held.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./x;
+-- ..    FS.write_lines_atomic! f (Stream.of_list ["a", "b"]); FS.read_file! f)
+-- "a\nb\n" : String
+let write_lines_atomic! path s = fs_write_lines_atomic path s
+
+-- Publish a stream's elements to a file, one per line, so no reader sees it
+-- half-written.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   FS.write_lines_atomic (Path.join d ./x) (Stream.of_list ["a"])
+-- Ok(()) : Result String Unit
+let write_lines_atomic path s = try write_lines_atomic! path s
 
 -- Add a stream's elements to the end of a file, one per line. Makes the
 -- file if it is not there. Raises on failure.

@@ -1,4 +1,4 @@
-uses {FS.Read, FS.Write, Shell}
+uses {Clock, FS.Read, FS.Write, Shell(dune, git, rsync)}
 
 import Test
 let {test} = import Test
@@ -7,6 +7,7 @@ import String
 import FS
 import Path
 import Shell
+import Stream
 
 -- A script whose real execution would push to production and rewrite a
 -- config. Every test below runs it, and neither happens.
@@ -80,3 +81,91 @@ test "and a command the table misses succeeded" (fn t ->
 
 test "a capture is reported as a command it would run" (fn t ->
   t.eq ["dune build"] (Test.shell_calls gate))
+
+-- ── Every way of putting bytes in a file ────────────────────────────────
+
+-- The doubles held back `write_file` alone, so a sealed test wrote for real
+-- the moment a script reached for any of the other six. The rule now is
+-- contents rather than the filesystem, and this is the list it covers.
+
+let every_write! () = (
+  FS.write_file! ./seal/a "x";
+  FS.write_atomic! ./seal/b "x";
+  FS.append! ./seal/c "x";
+  FS.create_file! ./seal/d;
+  FS.write_lines! ./seal/e (Stream.of_list ["x"]);
+  FS.append_lines! ./seal/f (Stream.of_list ["x"]);
+  FS.write_lines_atomic! ./seal/g (Stream.of_list ["x"])
+)
+
+test "every write of contents is held back" (fn t -> (
+  let _ = Test.without_writes every_write!;
+  -- The directory is never made either, so a write that got through would
+  -- have raised rather than landed. Either way it did not happen.
+  t.eq false (FS.exists? ./seal)
+))
+
+test "and every one is reported, in order" (fn t ->
+  t.eq
+    [./seal/a, ./seal/b, ./seal/c, ./seal/d, ./seal/e, ./seal/f, ./seal/g]
+    (Test.writes every_write!))
+
+-- What is about where a file is rather than what is in it still reaches the
+-- disk, which is what keeps the rule statable.
+test "moving a file is not a write of contents" (fn t -> (
+  let dir = with FS.temp_file "wand_seal_" "" as p -> Path.to_string p;
+  FS.mkdir! (Path.of_string dir);
+  let src = Path.of_string "%{dir}/src";
+  let dst = Path.of_string "%{dir}/dst";
+  FS.write_file! src "x";
+  let _ = Test.without_writes (fn () -> FS.rename! src dst);
+  let moved = FS.exists? dst;
+  FS.delete_tree! (Path.of_string dir);
+  t.eq true moved
+))
+
+-- ── A script that guards itself with a lock ─────────────────────────────
+
+-- The branch a cron job is written for -- "the last run has not finished,
+-- stand down" -- otherwise needs two processes to reach. A double reaches
+-- it from one, and the lock file is never created.
+
+let guarded () =
+  with FS.lock /var/run/wand-test.lock as taken ->
+  match taken with
+  | Ok _ -> "ran"
+  | Error (FS.Held) -> "stood down"
+  | Error (FS.Denied why) -> "denied: %{why}"
+
+test "with_lock takes it, so the body runs" (fn t -> t.eq "ran" (Test.with_lock guarded))
+
+test "with_lock_held is the branch that needs a second process" (fn t ->
+  t.eq "stood down" (Test.with_lock_held guarded))
+
+test "the raising form gives up when the lock is held" (fn t ->
+  t.raises (fn () ->
+    Test.with_lock_held (fn () -> with FS.lock! /var/run/wand-test.lock as p -> p)))
+
+-- The doubles answer a waiting acquire too, and answer it at once. A test of
+-- a script that waits five minutes should not take five minutes, and the
+-- branch worth testing is the one where the wait ran out.
+let patient () =
+  with FS.lock_wait 5min /var/run/wand-test.lock as taken ->
+  match taken with
+  | Ok _ -> "ran"
+  | Error (FS.Held) -> "gave up waiting"
+  | Error (FS.Denied why) -> "denied: %{why}"
+
+test "with_lock answers a waiting acquire" (fn t -> t.eq "ran" (Test.with_lock patient))
+
+test "with_lock_held reaches the ran-out branch without waiting" (fn t ->
+  t.eq "gave up waiting" (Test.with_lock_held patient))
+
+test "lock_calls reports a waiting acquire like any other" (fn t ->
+  t.eq [/var/run/wand-test.lock] (Test.lock_calls patient))
+
+test "lock_calls reports what a body would guard" (fn t ->
+  t.eq [/var/run/wand-test.lock] (Test.lock_calls guarded))
+
+test "and no lock file was made" (fn t ->
+  let _ = Test.with_lock guarded in t.eq false (FS.exists? /var/run/wand-test.lock))

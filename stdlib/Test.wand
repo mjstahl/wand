@@ -162,29 +162,63 @@ let shell_calls thunk =
   | Shell!capture cmd k -> let rest = k ShellResult(stdout = "", stderr = "", code = 0) in cmd :: rest
   | return _ -> []
 
--- Run `thunk` with `FS!write_file` swallowed, returning what it returned.
--- Handlers compose, so this nests inside `with_shell` to hold back both.
--- Other FS.Write operations -- append, delete, mkdir -- still reach the
--- disk.
+-- Run `thunk` with every write of a file's contents swallowed, returning
+-- what it returned. Handlers compose, so this nests inside `with_shell` to
+-- hold back both.
+--
+-- The line is contents rather than the filesystem: putting bytes at a path
+-- is held back, whether they arrive as a string or as a stream, and whether
+-- they replace, append or publish. Operations about where a file is rather
+-- than what is in it -- delete, delete_tree, mkdir, rename, copy, copy_tree
+-- -- still reach the disk, and so does taking a lock.
+--
+-- Answering a streaming write without a sink is what sends its lines
+-- nowhere. The stream is still pulled, so the source is still read and the
+-- stages still run.
 --
 -- >> Test.without_writes (fn () -> FS.write_file! ./out.txt "x")
 -- >> FS.exists? ./out.txt
 -- false : Bool
+--
+-- >> Test.without_writes (fn () -> FS.write_atomic! ./pub.txt "x")
+-- >> FS.exists? ./pub.txt
+-- false : Bool
+--
+-- >> Test.without_writes (fn () -> FS.append! ./log.txt "x")
+-- >> FS.exists? ./log.txt
+-- false : Bool
 let without_writes thunk =
   handle thunk () with
   | FS!write_file _ k -> k ()
+  | FS!write_atomic _ k -> k ()
+  | FS!append _ k -> k ()
+  | FS!create_file _ k -> k ()
+  | FS!write_lines _ k -> k ()
+  | FS!append_lines _ k -> k ()
+  | FS!write_lines_atomic _ k -> k ()
 
--- Return the paths `thunk` would pass to `FS!write_file`, in order,
--- without writing them. They come back as `Path`s, which is what the write
--- carried. Other FS.Write operations still reach the disk.
+-- Return the paths `thunk` would write contents to, in order, without
+-- writing any of them. They come back as `Path`s, which is what the write
+-- carried.
 --
--- The paths a body would have written, without writing any of them.
+-- The same operations `without_writes` holds back, so the two answer the
+-- same question about one body: what it would have put bytes into. A path
+-- appears once per write, so a file written twice is two entries.
 --
 -- >> Test.writes (fn () -> FS.write_file! ./out.txt "x")
 -- [./out.txt] : List Path
+--
+-- >> Test.writes (fn () -> FS.write_atomic! ./pub.txt "x")
+-- [./pub.txt] : List Path
 let writes thunk =
   handle thunk () with
   | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path :: rest
+  | FS!write_atomic arg k -> let (path, _) = arg in let rest = k () in path :: rest
+  | FS!append arg k -> let (path, _) = arg in let rest = k () in path :: rest
+  | FS!create_file path k -> let rest = k () in path :: rest
+  | FS!write_lines path k -> let rest = k () in path :: rest
+  | FS!append_lines path k -> let rest = k () in path :: rest
+  | FS!write_lines_atomic path k -> let rest = k () in path :: rest
   | return _ -> []
 
 -- Run `thunk` with streamed files answered from `lines` instead of the
@@ -232,3 +266,52 @@ let at instant thunk =
 let with_clock thunk =
   handle (fn () -> (0ms, thunk ())) () with
   | Clock!sleep d k -> let (so_far, v) = k () in (Duration.add so_far d, v)
+
+-- Run `thunk` with every lock taken, without touching the filesystem.
+-- `FS.lock` answers `Ok`, `FS.lock!` returns the path, and nothing is
+-- created or held. This is the path a script takes when it is the only run.
+--
+-- A waiting acquire is answered the same way and takes no time, which keeps
+-- a test of a script that waits five minutes instant.
+--
+-- >> Test.with_lock (fn () ->
+-- ..   with FS.lock /var/run/x.lock as taken -> Result.ok? taken)
+-- true : Bool
+let with_lock thunk =
+  handle thunk () with
+  | FS!lock path k -> k (Some path)
+  | FS!lock_wait arg k -> let (path, _) = arg in k (Some path)
+  | FS!unlock _ k -> k ()
+
+-- Run `thunk` with every lock already held by somebody else. `FS.lock`
+-- answers `Error FS.Held` and `FS.lock!` raises. This is the path a cron
+-- job takes when the last run has not finished, which is the branch that
+-- otherwise needs two processes to reach.
+--
+-- `FS.lock_wait` answers the same, at once rather than after its budget: the
+-- branch under test is the one where the wait ran out, and a test should not
+-- have to spend the budget to reach it.
+--
+-- >> Test.with_lock_held (fn () ->
+-- ..   with FS.lock /var/run/x.lock as taken ->
+-- ..     match taken with | Ok(_) -> "took it" | Error(_) -> "stood down")
+-- "stood down" : String
+let with_lock_held thunk =
+  handle thunk () with
+  | FS!lock _ k -> k None
+  | FS!lock_wait _ k -> k None
+  | FS!unlock _ k -> k ()
+
+-- Return the paths `thunk` would lock, in order, taking each one. What was
+-- guarded, rather than what the guard answered -- the same question
+-- `shell_calls` asks of commands.
+--
+-- >> Test.lock_calls (fn () ->
+-- ..   with FS.lock! /var/run/x.lock as _ -> ())
+-- [/var/run/x.lock] : List Path
+let lock_calls thunk =
+  handle thunk () with
+  | FS!lock path k -> let rest = k (Some path) in path :: rest
+  | FS!lock_wait arg k -> let (path, _) = arg in let rest = k (Some path) in path :: rest
+  | FS!unlock _ k -> k ()
+  | return _ -> []

@@ -1756,7 +1756,7 @@ there is nothing extra to remember.
 | Family | Operations |
 |---|---|
 | `Shell` | `command`, `run`, `stream`, `run_quiet`, `capture`, `exit_code` |
-| `FS` | `read_file`, `stream_lines`, `write_file`, `write_lines`, `append_lines`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir` |
+| `FS` | `read_file`, `stream_lines`, `write_file`, `write_atomic`, `write_lines`, `write_lines_atomic`, `append_lines`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir`, `lock`, `lock_wait`, `unlock` |
 | `Hash` | `file` |
 | `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `read` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
@@ -1825,8 +1825,8 @@ always count.
 
 ## Resource brackets
 
-You must give some things back: a temp file, a lock, a directory that you
-changed into. `with` acquires one, binds it, runs a body, and releases it:
+You must give some things back: a temp file, a lock (`FS.lock`), a directory
+that you changed into. `with` acquires one, binds it, runs a body, and releases it:
 
 ```ocaml
 with FS.temp_file "build_" ".tar" as archive ->
@@ -3230,6 +3230,7 @@ Each operation that can fail comes as a pair. The plain name returns a
 ```ocaml
 read_file    : Path -> Result String String ! {FS.Read}
 write_file   : Path -> String -> Result String Unit ! {FS.Write}
+write_atomic : Path -> String -> Result String Unit ! {FS.Read, FS.Write}
 append       : Path -> String -> Result String Unit ! {FS.Write}
 create_file  : Path -> Result String Unit ! {FS.Write}
 mkdir        : Path -> Result String Unit ! {FS.Write}
@@ -3245,6 +3246,7 @@ stream_lines : Path -> Stream {FS.Read, Raise | ..} String
 stream_lines_all : List Path -> Stream {FS.Read, Raise | ..} String
 write_lines  : Path -> Stream {Raise | ..} String -> Result String Unit ! {FS.Write | 'e}
 append_lines : Path -> Stream {Raise | ..} String -> Result String Unit ! {FS.Write | 'e}
+write_lines_atomic : Path -> Stream {Raise | ..} String -> Result String Unit ! {FS.Read, FS.Write | 'e}
 ```
 
 The `!` siblings return the value and carry `Raise`:
@@ -3252,6 +3254,7 @@ The `!` siblings return the value and carry `Raise`:
 ```ocaml
 read_file!   : Path -> String ! {FS.Read, Raise}
 write_file!  : Path -> String -> Unit ! {FS.Write, Raise}
+write_atomic! : Path -> String -> Unit ! {FS.Read, FS.Write, Raise}
 append!      : Path -> String -> Unit ! {FS.Write, Raise}
 create_file! : Path -> Unit ! {FS.Write, Raise}
 mkdir!       : Path -> Unit ! {FS.Write, Raise}
@@ -3265,6 +3268,7 @@ mtime!       : Path -> DateTime ! {FS.Read, Raise}
 size!        : Path -> Size ! {FS.Read, Raise}
 write_lines!  : Path -> Stream {..} String -> Unit ! {FS.Write, Raise | 'e}
 append_lines! : Path -> Stream {..} String -> Unit ! {FS.Write, Raise | 'e}
+write_lines_atomic! : Path -> Stream {..} String -> Unit ! {FS.Read, FS.Write, Raise | 'e}
 ```
 
 `stream_lines` reads and `write_lines` writes, so a read-transform-write
@@ -3290,6 +3294,65 @@ when the file before it runs out:
 FS.glob *.log |> FS.stream_lines_all |> Stream.count
 ```
 
+`write_atomic` publishes a file rather than filling it. The content goes to
+a temporary file in the target's own directory, and that file is renamed
+over the target, so another process reading the path gets the whole of the
+old contents or the whole of the new ones:
+
+```ocaml
+FS.write_atomic! /etc/app/config.toml (TOML.of settings)
+```
+
+`write_file` opens the target and truncates it, which leaves a window where
+a reader sees a short file. That window is what this closes.
+
+Three details are why it is a function rather than three calls a script
+composes, and none of them shows up on the machine where the script is
+written:
+
+- The temporary file is **beside the target**. A rename cannot cross a
+  filesystem, and the OS temp directory is frequently a different one, so a
+  version built on `temp_file` works on a mac and fails on a Linux box where
+  `/tmp` is tmpfs.
+- An existing target **keeps its mode**. A rename replaces the inode, so
+  without this the published file's permissions become the temporary file's
+  and a 644 configuration file changes silently on every write. A new file
+  is created as `write_file` creates one.
+- A symlink is **written through**, not replaced, which is again what
+  `write_file` does. Publishing to `/etc/app/config -> config.v3` means the
+  file at the end of the link.
+
+Reading the target's mode and resolving the link are stats, which is why
+this is the one write that declares `FS.Read` as well as `FS.Write`.
+
+The temporary file is synced before the rename, so a published file is never
+a name with nothing behind it. The containing directory is not synced. After
+a power loss the publication itself may be missing; what `write_atomic`
+promises is that no reader sees half a file, not that the write survives the
+machine going down.
+
+`write_file` is not atomic and does not become so. Atomicity costs a rename
+and a new inode on every write, and the name is where that is said.
+
+`write_lines_atomic` is the same publication with the content arriving a line
+at a time, so a filtered log can be published rather than filled:
+
+```ocaml
+FS.stream_lines /var/log/app.log
+|> Stream.filter (fn l -> String.contains? "ERROR" l)
+|> FS.write_lines_atomic! ./errors.log
+```
+
+Everything above about the filesystem, the mode and the symlink holds. What
+is its own is the ending. `write_lines` writes into the target, so a source
+that fails or a stage that raises leaves the file missing its tail -- the old
+contents destroyed and the new ones incomplete. `write_lines_atomic`
+publishes only a stream that finished: on a raise the temporary file goes and
+the target still holds what it held.
+
+A stream stopped early is not a failure. `Stream.take 3` asked for three
+lines and got them, so those three are published.
+
 Questions and lookups cannot fail, so they have no pair:
 
 ```ocaml
@@ -3304,6 +3367,10 @@ glob_in      : Glob -> Path -> List Path ! {FS.Read}
 ```ocaml
 temp_file    : String -> String -> Resource {FS.Read, FS.Write, Raise | ..} Path
 temp_dir     : String -> Resource {FS.Read, FS.Write, Raise | ..} Path
+lock         : Path -> Resource {FS.Write | ..} (Result LockError Path)
+lock!        : Path -> Resource {FS.Write, Raise | ..} Path
+lock_wait    : Duration -> Path -> Resource {Clock, FS.Write | ..} (Result LockError Path)
+lock_wait!   : Duration -> Path -> Resource {Clock, FS.Write, Raise | ..} Path
 ```
 
 `temp_file prefix suffix` is a resource rather than a plain call, so the
@@ -3315,8 +3382,10 @@ with FS.temp_file "wand_" ".txt" as p ->
 ```
 
 The release accepts a file that is already gone. So a body can rename the
-file into place, which is how an atomic write publishes its result, and the
-cleanup still succeeds.
+file into place and the cleanup still succeeds. For publishing a file, reach
+for `write_atomic` rather than building the pattern here: a temp file from
+this call is in the OS temp directory, which the rename may not be able to
+leave.
 
 `temp_dir prefix` is the same for a directory, and removes it with
 everything in it:
@@ -3328,6 +3397,100 @@ with FS.temp_dir "build_" as dir ->
 
 A scratch directory exists to be filled. So the release removes the tree.
 The body does not have to empty it first.
+
+`lock` takes an operating-system lock on a file and holds it for as long as
+the bracket does. It is the guard for a cron job that must not run twice at
+once:
+
+```ocaml
+with FS.lock /var/run/deploy.lock as taken ->
+  match taken with
+  | Ok _ -> deploy ()
+  | Error FS.Held -> IO.println "a deploy is already running"
+  | Error FS.Denied why -> Proc.die "cannot lock: %{why}"
+```
+
+`LockError` is `Held | Denied String`, and the split is the point. `Held` is
+another run, which is the guard working, and a script that should stand down
+exits 0. `Denied` carries what the OS said about a lock that could not be
+asked for at all -- no such directory, no permission -- which is a broken
+script and exits 1. Both are failures of the acquire, and a caller that
+cannot tell them apart cannot choose an exit code.
+
+`lock!` raises on both, for a script with nothing to say about either:
+
+```ocaml
+with FS.lock! /var/run/deploy.lock as _ ->
+  deploy ()
+```
+
+`lock` never waits. Either the lock is free now or it is not, and "somebody
+else has it" is an answer rather than a delay. `lock_wait` is for a script
+that would rather queue than stand down -- a deploy behind another deploy,
+where the second one still has to happen:
+
+```ocaml
+with FS.lock_wait 5min /var/run/deploy.lock as taken ->
+  match taken with
+  | Ok _ -> deploy ()
+  | Error FS.Held -> IO.println "gave up waiting"
+  | Error FS.Denied why -> IO.println_err "cannot lock: %{why}"
+```
+
+A budget that runs out is `Error Held`, not a case of its own: waiting and
+being told no says what being told no at once says. A `Denied` ends the wait
+immediately, because a directory that is not there will not appear because a
+script kept asking.
+
+The wait is a poll, so the lock is taken within a moment of being freed
+rather than the instant it is freed. `flock` has no timeout of its own, and
+the alternative -- an alarm signal around a blocking call -- is delivered to
+the process rather than to the domain that armed it, so under `Par` it can
+land on the wrong worker.
+
+`lock_wait` carries `Clock` because it sleeps, so a script that waits for a
+lock says so in its manifest and one that does not, does not.
+
+A wait on a lock the same bracket already holds answers `Held` at once
+rather than after the budget. Another worker will release; this will not.
+
+The lock is the kernel's, not a file holding a pid. So it is released when
+the process dies, including `kill -9`, which is the property a guard is worth
+having for and the one a pid file cannot offer: nothing goes stale, and there
+is no policy for breaking a stale lock because there are none.
+
+It guards against other `Par` workers as well as other processes. The lock
+belongs to the open file rather than to the process, and each acquire opens
+the file for itself, so a second worker conflicts with the first exactly as
+another process would. A lock is therefore not re-entrant -- a `with FS.lock`
+inside another on the same path is `Held`, which is what any other caller is
+told.
+
+The guard is only as good as the filesystem holding the lock file. On a
+local filesystem it is exact. On NFS the lock is emulated and is not
+dependable, so a lock file shared between machines guards less than it looks
+like it does -- keep it on the machine that runs the job.
+
+The lock file is created if it is missing and is **never deleted**. That
+looks like a leak and is not. Deleting it is the very race the lock exists to
+prevent. Another process can be holding the same name open, and after the
+delete the two hold locks on two files with one name. The empty file left
+behind costs nothing.
+
+A rehearsal takes the lock for real, unlike every other `FS.Write`.
+Withholding it would let a `--dry-run` run beside a real one, which is the
+situation being guarded against. A rehearsal that finds the lock held has
+told its author something true, and the change it makes to the world is an
+empty file.
+
+A rehearsal of `lock_wait` takes the lock and does **not** wait, and says so
+in the line it reports. Two rules meet here and point opposite ways: a
+rehearsal takes a lock, and a rehearsal withholds a sleep so nobody waits out
+a backoff to be told what a script would do. When the lock is free the two
+readings agree. They differ only when it is held, which is when waiting costs
+the most and says the least -- so a rehearsal reports `Held` and moves on,
+and the line says the wait was skipped, so it is not mistaken for a real run
+that would have got the lock.
 
 wand creates a file with mode 0644 and a directory with mode 0755. The umask
 then applies. `copy` is the exception. A new destination gets the permissions
@@ -4833,7 +4996,24 @@ with_lines         : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes             : (Unit -> 'a ! 'e) -> List Path ! 'e
 with_clock         : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
 at                 : DateTime -> (Unit -> 'a ! 'e) -> 'a ! 'e
+with_lock          : (Unit -> 'a ! 'e) -> 'a ! 'e
+with_lock_held     : (Unit -> 'a ! 'e) -> 'a ! 'e
+lock_calls         : (Unit -> 'a ! 'e) -> List Path ! 'e
 ```
+
+`without_writes` holds back every write of a file's contents, and `writes`
+reports the paths of the same ones. The line is drawn at contents rather
+than at the filesystem. Putting bytes at a path is held back, whether they
+arrive as a string or as a stream and whether they replace, append or
+publish. What is
+about where a file is rather than what is in it -- `delete`, `delete_tree`,
+`mkdir`, `rename`, `copy`, `copy_tree` -- still reaches the disk, and so
+does taking a lock.
+
+`with_lock` answers every acquire with the lock taken, and `with_lock_held`
+with somebody else holding it, so both branches of a guarded script are
+reachable from one process. `lock_calls` reports what a body would lock, in
+order, and takes each one -- the question `shell_calls` asks of commands.
 
 The handle that a test block receives carries `ok`, `not_ok`, `eq`,
 `not_eq`, `raises` and `fail`.
@@ -5021,7 +5201,7 @@ a handler by hand:
 Test.with_shell [(fragment, output), ...] thunk          -- answer commands from a table
 Test.with_shell_results [(fragment, result), ...] thunk -- answer `$?()` with whole results
 Test.shell_calls thunk                                  -- the commands it would run
-Test.without_writes thunk                               -- swallow writes, keep the result
+Test.without_writes thunk                               -- swallow every content write
 Test.writes thunk                                       -- the paths it would write
 Test.at instant thunk                                   -- pin what `Clock.now` answers
 ```

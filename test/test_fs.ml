@@ -345,6 +345,437 @@ IO.println (FS.read_file! %s)|} dir target target)
   if Sys.file_exists target then
     Alcotest.failf "the rehearsal created %s" target
 
+
+(* ── Publishing a file whole ───────────────────────────────────────────── *)
+
+(* The three ways the hand-written version of an atomic write is wrong.
+   None of them shows up on the machine where the script is written, which
+   is why each one is a test rather than a paragraph. *)
+
+let write_atomic_to path content =
+  wand_ok (Printf.sprintf
+    {|import FS
+import Path
+FS.write_atomic! (Path.of_string "%s") "%s"|} path content)
+
+(* `FS.rename` is `Unix.rename`, which cannot cross a filesystem. A version
+   built on `FS.temp_file` puts the temp file in the OS temp directory and
+   fails with EXDEV wherever that is a different device -- a Linux box where
+   /tmp is tmpfs, which is not the mac the script was written on.
+
+   TMPDIR names somewhere that does not exist, so anything reaching for the
+   OS temp directory fails here and a temp file beside the target does not
+   notice. *)
+let test_the_temp_file_is_beside_the_target () =
+  with_tree (fun root ->
+    let gone = Filename.concat root "no-such-temp-dir" in
+    let old = Sys.getenv_opt "TMPDIR" in
+    Unix.putenv "TMPDIR" gone;
+    Fun.protect
+      ~finally:(fun () ->
+        match old with
+        | Some v -> Unix.putenv "TMPDIR" v
+        | None -> Unix.putenv "TMPDIR" "")
+      (fun () ->
+        let target = Filename.concat root "published" in
+        write_atomic_to target "whole";
+        Alcotest.(check string) "the file was published" "whole"
+          (In_channel.with_open_text target In_channel.input_all)))
+
+(* Renaming replaces the inode, so the published file's mode is whatever the
+   temp file was created as unless the target's own is carried over. Without
+   this a 644 configuration file becomes 600 on the first atomic write. *)
+let test_an_existing_target_keeps_its_mode () =
+  with_tree (fun root ->
+    with_open_umask (fun () ->
+      let target = Filename.concat root "config" in
+      write target "before";
+      Unix.chmod target 0o640;
+      write_atomic_to target "after";
+      Alcotest.(check int) "the mode survived the rename" 0o640
+        (mode_of target)))
+
+(* A new file should not depend on which function wrote it. *)
+let test_a_new_target_is_created_like_write_file () =
+  with_tree (fun root ->
+    with_open_umask (fun () ->
+      let atomic = Filename.concat root "atomic" in
+      let plain = Filename.concat root "plain" in
+      write_atomic_to atomic "x";
+      wand_ok (Printf.sprintf
+        {|import FS
+import Path
+FS.write_file! (Path.of_string "%s") "x"|} plain);
+      Alcotest.(check int) "write_atomic creates what write_file creates"
+        (mode_of plain) (mode_of atomic)))
+
+(* `FS.write_file` opens and truncates, so it writes through a link. A
+   rename replaces the link itself, which turns
+   `/etc/app/config -> config.v3` into a regular file and is the opposite of
+   what a deploy publishing through it asked for. *)
+let test_a_symlink_is_written_through () =
+  with_tree (fun root ->
+    let real = Filename.concat root "config.v3" in
+    let link = Filename.concat root "config" in
+    write real "old";
+    Unix.symlink "config.v3" link;
+    write_atomic_to link "new";
+    Alcotest.(check bool) "the link is still a link" true
+      ((Unix.lstat link).Unix.st_kind = Unix.S_LNK);
+    Alcotest.(check string) "the link's target was written" "new"
+      (In_channel.with_open_text real In_channel.input_all))
+
+(* The temp file lives in the target's directory for the length of the
+   write, so it must not be there afterwards -- and a `*.conf` glob in
+   another process must not match it while it is. *)
+let test_no_temp_file_is_left_behind () =
+  with_tree (fun root ->
+    let target = Filename.concat root "kept.conf" in
+    write_atomic_to target "x";
+    Alcotest.(check (list string)) "only the published file is there"
+      ["kept.conf"]
+      (List.sort String.compare (Array.to_list (Sys.readdir root))))
+
+(* A failed write leaves the target as it was and takes its temp file with
+   it. The directory is unwritable, so the temp file cannot be created. *)
+let test_a_failed_write_leaves_nothing () =
+  with_tree (fun root ->
+    let dir = Filename.concat root "locked" in
+    Unix.mkdir dir 0o755;
+    let target = Filename.concat dir "config" in
+    write target "before";
+    Unix.chmod dir 0o500;
+    Fun.protect ~finally:(fun () -> Unix.chmod dir 0o755) (fun () ->
+      match run (Printf.sprintf
+        {|import FS
+import Path
+FS.write_atomic! (Path.of_string "%s") "after"|} target) with
+      | Ok _ -> Alcotest.fail "the write was expected to fail"
+      | Error m ->
+        if not (contains m "write_atomic") then
+          Alcotest.failf "the error does not name the operation: %s" m);
+    Alcotest.(check string) "the target is untouched" "before"
+      (In_channel.with_open_text target In_channel.input_all);
+    Alcotest.(check (list string)) "no temp file survived" ["config"]
+      (List.sort String.compare (Array.to_list (Sys.readdir dir))))
+
+(* A rehearsal reports the publication and writes nothing, as every other
+   `FS.Write` does. *)
+let test_a_rehearsal_withholds_an_atomic_write () =
+  let target = Filename.concat (Filename.get_temp_dir_name ()) "wand-atomic-rehearsal" in
+  (try Sys.remove target with Sys_error _ -> ());
+  let out = rehearse (Printf.sprintf
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+let f = Path.of_string "%s"
+let () = FS.write_atomic! f "hi"
+IO.println (FS.read_file! f)|} target)
+  in
+  if not (contains out "would write atomically") then
+    Alcotest.failf "the rehearsal did not report the write:\n%s" out;
+  if not (contains out "hi") then
+    Alcotest.failf "the rehearsal did not answer the read:\n%s" out;
+  if Sys.file_exists target then begin
+    Sys.remove target;
+    Alcotest.failf "the rehearsal wrote %s" target
+  end
+
+
+
+(* The streaming publish shares `write_atomic`'s three steps, so what is
+   tested here is what is its own: the ending, and that a rehearsal follows
+   it. *)
+
+let write_lines_atomic_to path lines =
+  Printf.sprintf
+    {|import FS
+import Path
+import Stream
+FS.write_lines_atomic! (Path.of_string "%s") (Stream.of_list [%s])|} path
+    (String.concat ", " (List.map (Printf.sprintf "\"%s\"") lines))
+
+(* An existing target keeps its mode through the streaming form too, because
+   it is the same rename. A second copy of that logic is what this rules
+   out. *)
+let test_a_streamed_publish_keeps_the_mode () =
+  with_tree (fun root ->
+    with_open_umask (fun () ->
+      let target = Filename.concat root "config" in
+      write target "before";
+      Unix.chmod target 0o640;
+      wand_ok (write_lines_atomic_to target ["x"]);
+      Alcotest.(check string) "the lines were published" "x\n"
+        (In_channel.with_open_text target In_channel.input_all);
+      Alcotest.(check int) "the mode survived" 0o640 (mode_of target)))
+
+(* The reason the sink has two endings. `FS.write_lines` writes into the
+   target, so the same failing stream leaves it holding "a\n" -- the old
+   contents destroyed and the new ones incomplete. This one leaves it
+   alone. *)
+let failing_stream path writer =
+  Printf.sprintf
+    {|import FS
+import List
+import Path
+import Stream
+let boom = fn line -> if line == "b" then List.head! [] else line
+let _ = try (Stream.of_list ["a", "b"] |> Stream.map boom
+             |> FS.%s (Path.of_string "%s"))
+()|} writer path
+
+let test_a_raising_stream_publishes_nothing () =
+  with_tree (fun root ->
+    let target = Filename.concat root "config" in
+    write target "old";
+    wand_ok (failing_stream target "write_lines_atomic!");
+    Alcotest.(check string) "the target is untouched" "old"
+      (In_channel.with_open_text target In_channel.input_all);
+    Alcotest.(check (list string)) "no temp file survived" ["config"]
+      (List.sort String.compare (Array.to_list (Sys.readdir root))))
+
+(* The contrast, so the test above is measuring the difference rather than
+   an accident of how the stream happens to run. *)
+let test_the_plain_form_leaves_a_partial_file () =
+  with_tree (fun root ->
+    let target = Filename.concat root "config" in
+    write target "old";
+    wand_ok (failing_stream target "write_lines!");
+    Alcotest.(check string) "the plain form wrote what it had" "a\n"
+      (In_channel.with_open_text target In_channel.input_all))
+
+(* A rehearsal ends the way a real run would. The publication is withheld
+   and reported; the failing one is withheld and leaves the overlay alone,
+   so a read after it still answers what is on the disk. *)
+let test_a_rehearsal_withholds_a_streamed_publish () =
+  let target =
+    Filename.concat (Filename.get_temp_dir_name ()) "wand-atomic-lines-rehearsal"
+  in
+  (try Sys.remove target with Sys_error _ -> ());
+  let out = rehearse (Printf.sprintf
+    {|uses {FS.Read, FS.Write, IO}
+import FS
+import IO
+import Path
+import Stream
+let f = Path.of_string "%s"
+let () = FS.write_lines_atomic! f (Stream.of_list ["a"])
+IO.println (FS.read_file! f)|} target)
+  in
+  if not (contains out "would write lines atomically to") then
+    Alcotest.failf "the rehearsal did not report the publication:\n%s" out;
+  if not (contains out "a") then
+    Alcotest.failf "the rehearsal did not answer the read:\n%s" out;
+  if Sys.file_exists target then begin
+    Sys.remove target;
+    Alcotest.failf "the rehearsal wrote %s" target
+  end
+
+(* ── Locks ─────────────────────────────────────────────────────────────── *)
+
+(* What a lock is worth having for is what happens to it when the process
+   holding it goes away, so these run the real binary in real processes.
+   Nothing here can be observed from inside one program. *)
+
+let lock_script body =
+  let path = Filename.temp_file "wand_lock_" ".wand" in
+  write path body;
+  path
+
+let spawn script =
+  Unix.create_process wand_binary [| wand_binary; script |]
+    Unix.stdin Unix.stdout Unix.stderr
+
+let run_script script =
+  let cmd =
+    String.concat " " (List.map Filename.quote [wand_binary; script]) ^ " 2>&1"
+  in
+  let ic = Unix.open_process_in cmd in
+  let out = In_channel.input_all ic in
+  ignore (Unix.close_process_in ic);
+  out
+
+let taker lock =
+  lock_script (Printf.sprintf
+    {|uses {FS.Write, IO}
+import FS
+import IO
+import Path
+let () = with FS.lock (Path.of_string "%s") as taken ->
+  match taken with
+  | Ok(_) -> IO.println "took it"
+  | Error(FS.Held) -> IO.println "held"
+  | Error(FS.Denied(why)) -> IO.println "denied: %%{why}"|} lock)
+
+(* A holder that takes the lock, says so, and holds it for `hold` -- long
+   enough to be killed, or short enough for a waiter to outlast. *)
+let holder ?(hold = "30s") lock =
+  lock_script (Printf.sprintf
+    {|uses {Clock, FS.Write, IO}
+import FS
+import IO
+import Clock
+import Path
+let () = with FS.lock! (Path.of_string "%s") as _ ->
+  (IO.println "held"; Clock.sleep %s)|} lock hold)
+
+(* The lock file is opened by the holder before the taker looks, so the
+   taker's answer is about the lock and not about a race to start. *)
+let wait_for_file path =
+  let rec go n =
+    if Sys.file_exists path then ()
+    else if n = 0 then Alcotest.failf "the holder never created %s" path
+    else (ignore (Unix.select [] [] [] 0.05); go (n - 1))
+  in
+  go 100
+
+let test_a_second_process_is_told_it_is_held () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let h = holder lock and t = taker lock in
+    let pid = spawn h in
+    Fun.protect
+      ~finally:(fun () ->
+        (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+        ignore (Unix.waitpid [] pid);
+        List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [h; t])
+      (fun () ->
+        wait_for_file lock;
+        (* The file exists before the flock is taken, briefly. Retry until
+           the holder has it, rather than racing the answer. *)
+        let rec settle n =
+          let out = run_script t in
+          if contains out "held" then out
+          else if n = 0 then out
+          else (ignore (Unix.select [] [] [] 0.05); settle (n - 1))
+        in
+        let out = settle 40 in
+        if not (contains out "held") then
+          Alcotest.failf "a second process took a held lock: %s" out))
+
+(* The property a pid file cannot offer. `kill -9` runs nothing on the way
+   out -- no release, no cleanup -- and the lock is still gone, because it
+   was the kernel's rather than the script's. *)
+let test_a_killed_holder_releases_the_lock () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let h = holder lock and t = taker lock in
+    let pid = spawn h in
+    Fun.protect
+      ~finally:(fun () ->
+        List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [h; t])
+      (fun () ->
+        wait_for_file lock;
+        ignore (Unix.select [] [] [] 0.3);
+        Unix.kill pid Sys.sigkill;
+        ignore (Unix.waitpid [] pid);
+        let out = run_script t in
+        if not (contains out "took it") then
+          Alcotest.failf "the lock outlived the process holding it: %s" out))
+
+(* A lock file is never deleted, on purpose -- deleting it is the race it
+   exists to prevent. The empty file left behind is the documented cost. *)
+let test_the_lock_file_stays () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let t = taker lock in
+    Fun.protect ~finally:(fun () -> try Sys.remove t with Sys_error _ -> ())
+      (fun () ->
+        let out = run_script t in
+        if not (contains out "took it") then
+          Alcotest.failf "the lock was not taken: %s" out;
+        Alcotest.(check bool) "the lock file is still there" true
+          (Sys.file_exists lock)))
+
+(* The point of a waiting acquire: a second run queues behind the first
+   instead of standing down. Needs two processes, so it lives here. *)
+let test_a_wait_queues_behind_a_holder () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let h = holder ~hold:"600ms" lock in
+    let w =
+      lock_script (Printf.sprintf
+        {|uses {Clock, FS.Write, IO}
+import FS
+import IO
+import Path
+let () = with FS.lock_wait 20s (Path.of_string "%s") as taken ->
+  match taken with
+  | Ok(_) -> IO.println "waited and got it"
+  | Error(FS.Held) -> IO.println "gave up"
+  | Error(FS.Denied(why)) -> IO.println "denied: %%{why}"|} lock)
+    in
+    let pid = spawn h in
+    Fun.protect
+      ~finally:(fun () ->
+        (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+        (try ignore (Unix.waitpid [] pid) with Unix.Unix_error _ -> ());
+        List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [h; w])
+      (fun () ->
+        wait_for_file lock;
+        let out = run_script w in
+        if not (contains out "waited and got it") then
+          Alcotest.failf "the wait did not get the lock: %s" out))
+
+(* A rehearsal takes the lock and declines to wait. A rehearsal that waited
+   out a real budget would be useless on exactly the scripts that need one,
+   and the line it reports has to say the wait was skipped so `Held` is not
+   read as what a real run would have got. *)
+let test_a_rehearsal_does_not_wait () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let h = holder ~hold:"30s" lock in
+    let w = Printf.sprintf
+      {|uses {Clock, FS.Write, IO}
+import FS
+import IO
+import Path
+let () = with FS.lock_wait 30s (Path.of_string "%s") as taken ->
+  match taken with
+  | Ok(_) -> IO.println "took it"
+  | Error(_) -> IO.println "held"|} lock
+    in
+    let pid = spawn h in
+    Fun.protect
+      ~finally:(fun () ->
+        (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+        (try ignore (Unix.waitpid [] pid) with Unix.Unix_error _ -> ());
+        try Sys.remove h with Sys_error _ -> ())
+      (fun () ->
+        wait_for_file lock;
+        (* Settle: the file exists a moment before the flock is taken. *)
+        ignore (Unix.select [] [] [] 0.3);
+        let started = Unix.gettimeofday () in
+        let out = rehearse w in
+        let elapsed = Unix.gettimeofday () -. started in
+        if not (contains out "a rehearsal does not wait") then
+          Alcotest.failf "the rehearsal did not say it skipped the wait:\n%s" out;
+        (* Thirty seconds of budget against a lock somebody else holds. A
+           rehearsal that waited would still be running. *)
+        if elapsed > 10. then
+          Alcotest.failf "the rehearsal waited %.1fs of its 30s budget" elapsed))
+
+(* A rehearsal takes the lock rather than withholding it. Withholding would
+   let a `--dry-run` run beside a real one, which is what the lock is for. *)
+let test_a_rehearsal_takes_the_lock () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let out = rehearse (Printf.sprintf
+      {|uses {FS.Write, IO}
+import FS
+import IO
+import Path
+let () = with FS.lock (Path.of_string "%s") as taken ->
+  match taken with
+  | Ok(_) -> IO.println "took it"
+  | Error(_) -> IO.println "not taken"|} lock)
+    in
+    if not (contains out "took it") then
+      Alcotest.failf "a rehearsal did not take the lock:\n%s" out;
+    Alcotest.(check bool) "the rehearsal made the lock file" true
+      (Sys.file_exists lock))
+
 (* ── Suite ─────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -373,5 +804,45 @@ let () =
         test_written_files_are_not_world_writable;
       Alcotest.test_case "a copy carries the source mode" `Quick
         test_a_copy_carries_the_source_mode;
+    ];
+    "publishing a file whole", [
+      Alcotest.test_case "the temp file is beside the target" `Quick
+        test_the_temp_file_is_beside_the_target;
+      Alcotest.test_case "an existing target keeps its mode" `Quick
+        test_an_existing_target_keeps_its_mode;
+      Alcotest.test_case "a new target is created like write_file" `Quick
+        test_a_new_target_is_created_like_write_file;
+      Alcotest.test_case "a symlink is written through" `Quick
+        test_a_symlink_is_written_through;
+      Alcotest.test_case "no temp file is left behind" `Quick
+        test_no_temp_file_is_left_behind;
+      Alcotest.test_case "a failed write leaves nothing" `Quick
+        test_a_failed_write_leaves_nothing;
+      Alcotest.test_case "a rehearsal withholds it" `Quick
+        test_a_rehearsal_withholds_an_atomic_write;
+    ];
+    "publishing a stream", [
+      Alcotest.test_case "an existing target keeps its mode" `Quick
+        test_a_streamed_publish_keeps_the_mode;
+      Alcotest.test_case "a raising stream publishes nothing" `Quick
+        test_a_raising_stream_publishes_nothing;
+      Alcotest.test_case "the plain form leaves a partial file" `Quick
+        test_the_plain_form_leaves_a_partial_file;
+      Alcotest.test_case "a rehearsal withholds it" `Quick
+        test_a_rehearsal_withholds_a_streamed_publish;
+    ];
+    "a lock", [
+      Alcotest.test_case "a second process is told it is held" `Slow
+        test_a_second_process_is_told_it_is_held;
+      Alcotest.test_case "a killed holder releases it" `Slow
+        test_a_killed_holder_releases_the_lock;
+      Alcotest.test_case "the lock file stays" `Quick
+        test_the_lock_file_stays;
+      Alcotest.test_case "a rehearsal takes it" `Quick
+        test_a_rehearsal_takes_the_lock;
+      Alcotest.test_case "a wait queues behind a holder" `Slow
+        test_a_wait_queues_behind_a_holder;
+      Alcotest.test_case "a rehearsal does not wait" `Slow
+        test_a_rehearsal_does_not_wait;
     ];
   ]

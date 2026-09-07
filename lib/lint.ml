@@ -67,9 +67,21 @@ let rec informationless_error (t : Typechecker.typ) =
 
    The arrows of a single curried function still share one effect set, so it
    still does not matter which of those is asked. *)
-let rec type_raises ?(demanded = false) (t : Typechecker.typ) =
+(* `through_resource` is the difference between the two `!` rules, and the
+   asymmetry is deliberate. A `Resource` carries what acquiring and
+   releasing it perform, so `FS.lock!` raises when the bracket is entered
+   rather than when the name is called. That is a real risk, and a `!` on
+   such a name is honest -- V-BANG2 passes `true` and does not object.
+
+   V-BANG1 passes `false`, so it does not *demand* the `!`. `FS.temp_file`
+   and `FS.temp_dir` have raised from their acquire since they were written,
+   and the bracket is where a reader is already looking. A rule that renamed
+   both would be re-deciding a convention rather than enforcing one. *)
+let rec type_raises ?(demanded = false) ?(through_resource = false)
+    (t : Typechecker.typ) =
   let self ?(flip = false) t =
-    type_raises ~demanded:(if flip then not demanded else demanded) t
+    type_raises ~through_resource
+      ~demanded:(if flip then not demanded else demanded) t
   in
   match Typechecker.repr t with
   | Typechecker.TFun (a, b, r) ->
@@ -78,6 +90,14 @@ let rec type_raises ?(demanded = false) (t : Typechecker.typ) =
   | Typechecker.TTuple ts -> List.exists self ts
   | Typechecker.TList t | Typechecker.TMap t -> self t
   | Typechecker.TResult (e, t) -> self e || self t
+  (* A resource carries what acquiring and releasing it perform, so a
+     function answering one can raise without raising itself: `FS.lock!`
+     returns a value, and entering the bracket is what raises. The `!` is
+     the caller's warning either way, which is what this rule is asking
+     about. *)
+  | Typechecker.TResource (r, t) ->
+    (through_resource && not demanded && Effect_set.mem Effect_set.Raise r)
+    || self t
   | Typechecker.TApp (f, a) -> self f || self a
   | _ -> false
 
@@ -588,7 +608,8 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          if is_function t then begin
            if raises && not (ends_with name '!') then
              add Lint_rules.V_BANG1 loc (Lint_rules.bang1 ~name);
-           if (not raises) && ends_with name '!' then
+           if (not (type_raises ~through_resource:true t))
+              && ends_with name '!' then
              add Lint_rules.V_BANG2 loc (Lint_rules.bang2 ~name)
          end
        | None -> ());
