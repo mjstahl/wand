@@ -202,14 +202,9 @@ let scan (segs : seg list) : scan =
 (* The runtime side: the resolved command line, no holes left. *)
 let scan_string text = scan [Lit text]
 
-(* An entry without a slash matches the word's final path component, so
-   `git` admits both `git` and `/usr/bin/git`; an entry with a slash
-   matches the whole word exactly. *)
-let allowed ~allow word =
-  List.exists (fun entry ->
-    if String.contains entry '/' then entry = word
-    else entry = word || entry = Filename.basename word)
-    allow
+(* The narrowing check, which `Narrow` owns because `Net` is about to be its
+   second user. Kept here as the name the shell side already calls. *)
+let allowed ~allow word = Narrow.allowed ~rule:Narrow.binary ~allow word
 
 (* The command template a $()/$?() payload was written as. Anything that is
    not literal text or a recognisable interpolation -- an arbitrary
@@ -241,6 +236,12 @@ let fragment = function
   (* `demos/probe.sh` arrives as `demos` then the path `/probe.sh`. *)
   | Token.Path p -> Some p
   | Token.Minus -> Some "-"
+  (* `docker-*` reaches here as `docker`, `-`, `*`, and `*.example.com` as
+     one Glob token -- the lexer reads a `*` with more after it as a glob.
+     A manifest word is not a `Glob` value; this is the token the spelling
+     produced, and the word is the text. *)
+  | Token.Star -> Some "*"
+  | Token.Glob g -> Some g
   | Token.Dot -> Some "."
   | Token.Plus -> Some "+"
   | Token.PlusPlus -> Some "++"
@@ -254,7 +255,7 @@ let render_entry w =
   let reads_back () =
     match Lexer.tokenize w with
     | exception _ -> false
-    | ((Token.Ident w0 | Token.Path w0), loc0) :: rest
+    | ((Token.Ident w0 | Token.Path w0 | Token.Glob w0), loc0) :: rest
       when loc0.Token.offset = 0 ->
       let rec go acc end_ = function
         | [] -> acc = w

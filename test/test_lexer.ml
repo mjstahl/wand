@@ -136,6 +136,24 @@ let test_comments () =
   refuses "slash comment" "// nope\n1" "'-- ...'";
   refuses "hash comment" "# nope\n1" "'-- ...'"
 
+(* The hint above is a courtesy for OCaml drift, and a manifest pattern
+   needs the same two characters: a narrowed label puts its paren directly
+   before the star. What follows the star is what tells them apart, so these
+   have to lex rather than read as an unclosed comment.
+
+   `wand f` sorts a manifest's words and a star sorts first, so a pattern
+   anywhere in the list ends up first in the formatted output. A rule that
+   only worked away from the paren would have the formatter writing a file
+   it could not read back. *)
+let test_a_pattern_after_a_paren_lexes () =
+  List.iter (fun src ->
+    match Lexer.tokenize src with
+    | _ -> ()
+    | exception Lexer.LexError (_, msg) ->
+      Alcotest.failf "%s did not lex: %s" src msg)
+    ["uses {Shell(*.sh)}"; "uses {Shell(*)}"; "uses {Shell(*-compose)}";
+     "uses {Net(*.example.com)}"; "(*.sh"]
+
 let test_line_comments () =
   check_tokens "line comment to end of line" "-- ignored\n1"
     [LineComment " ignored"; Int 1];
@@ -204,6 +222,8 @@ let () =
     ];
     "comments", [
       Alcotest.test_case "comments"      `Quick test_comments;
+      Alcotest.test_case "a pattern after a paren lexes" `Quick
+        test_a_pattern_after_a_paren_lexes;
       Alcotest.test_case "line comments" `Quick test_line_comments;
       Alcotest.test_case "whitespace" `Quick test_whitespace;
     ];

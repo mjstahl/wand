@@ -1589,6 +1589,34 @@ space. Bare `Shell` stays legal and means any binary. It is the honest
 spelling for a script that is open-ended. `Shell()` is a parse error: a file
 that runs nothing drops the label.
 
+**A word may be a pattern.** `*` matches any run of characters that holds no
+separator, and the separator is `/` in a binary name:
+
+```ocaml
+uses {Shell(docker-*)}        -- docker-compose, docker-credential-osx
+uses {Shell(./scripts/*)}     -- ./scripts/probe.sh, not ./scripts/a/b.sh
+```
+
+One separator, and `*` does not cross it. This is what a shell glob does
+with `/`, so there is no third convention to learn. A level deeper is
+written with a second `*`. A manifest word is not a `Glob` value: `Glob` is
+a type about paths, with rules about `./` prefixes that mean nothing here.
+
+`Shell(*)` is an error. A pattern that admits everything is bare `Shell`
+spelled at greater length, and the error says to write that instead.
+
+A pattern costs something, and it is worth saying plainly: a reviewer no
+longer reads the exact set of binaries off the first line. The claim weakens
+from *these names* to *names of this shape*. It is still far narrower than
+bare `Shell`, and the alternative is a line that grows a word per binary
+until nobody reads it.
+
+**A suggestion never contains a pattern.** `wand t` and `wand t --fix` write
+the literal words they read, because a suggestion that widened past what it
+observed would be inventing permission. For the same reason, `A-USES1`
+leaves a pattern alone rather than reporting it unused: a pattern claims a
+shape rather than a name, and the fix would delete a deliberate choice.
+
 What is checked, and when:
 
 - **`wand t` checks each literal command word.** A command word is the first

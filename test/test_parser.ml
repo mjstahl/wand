@@ -758,6 +758,14 @@ let test_manifest_parses () =
    | Some ([], _) -> ()
    | _ -> Alcotest.fail "expected an empty manifest")
 
+(* One manifest word, however many tokens its spelling took. *)
+let manifest_is label src expected =
+  match (parse_program src).Ast.manifest with
+  | Some (labels, _) ->
+    Alcotest.(check (list (pair string (option (list string)))))
+      label expected labels
+  | None -> Alcotest.failf "%s: expected a manifest" label
+
 let test_manifest_shell_allowlist () =
   let prog =
     parse_program
@@ -777,7 +785,24 @@ let test_manifest_shell_allowlist () =
     "already in this Shell(...) list";
   parse_error "args on another label"
     "uses {FS.Write(git)}\nlet x = 1\nx"
-    "only Shell takes a list of binaries"
+    "FS.Write takes no list in a manifest";
+  (* A pattern that admits everything is the bare label at greater length,
+     and the error says which one to write. *)
+  parse_error "a bare star"
+    "uses {Shell(*)}\nlet x = 1\nx"
+    "admits everything";
+  (* The lexer reads `docker-*` as three tokens and `*.example.com` as one
+     glob. Both are one manifest word, and the parser joins whatever the
+     spelling took. *)
+  manifest_is "a trailing pattern"
+    "uses {Shell(docker-*)}\nlet x = 1\nx"
+    [("Shell", Some ["docker-*"])];
+  manifest_is "a leading pattern"
+    "uses {Shell(*-compose)}\nlet x = 1\nx"
+    [("Shell", Some ["*-compose"])];
+  manifest_is "a pattern with a path"
+    "uses {Shell(./scripts/*)}\nlet x = 1\nx"
+    [("Shell", Some ["./scripts/*"])]
 
 let test_manifest_is_optional () =
   match (parse_program "let x = 1\nx").Ast.manifest with

@@ -694,7 +694,16 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
          let used = !Typechecker.last_shell_words in
          let unused_bins =
            List.filter (fun entry ->
-             not (List.exists (Shell_scan.allowed ~allow:[entry]) used))
+             (* A pattern is left alone. It is written on purpose and it
+                claims a shape rather than a name, so "this file runs
+                nothing matching it today" is not the same finding as an
+                unused literal -- and the fix would delete a deliberate
+                choice. Without this, adding one command outside the shape
+                cost the author their pattern: `--fix` added the literal,
+                and this rule then removed the pattern it no longer
+                matched. *)
+             not (String.contains entry '*')
+             && not (List.exists (Shell_scan.allowed ~allow:[entry]) used))
              allow
          in
          if unused_bins <> [] then begin

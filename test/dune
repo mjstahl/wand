@@ -11,6 +11,10 @@
  (libraries wand alcotest))
 
 (test
+ (name test_narrow)
+ (libraries wand alcotest))
+
+(test
  (name test_drift)
  (libraries wand alcotest))
 

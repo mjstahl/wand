@@ -1983,49 +1983,68 @@ let parse_manifest s =
   ignore (advance s);              (* uses *)
   expect s Token.LBrace;
   let labels = ref [] in
-  (* `Shell(git, curl)` -- the binaries the file may invoke. Entries are
-     bare when they lex as one word or one path; anything else is quoted. *)
-  let read_shell_args () =
+  (* `Shell(git, curl)` -- the binaries the file may invoke -- and any other
+     narrowed label's word list, which is read the same way. `Narrow` says
+     which labels take one and what their words name; the reading of a word
+     is the same either way. Entries are bare when they lex as one word, one
+     path or one glob; anything else is quoted. *)
+  let read_words label =
     ignore (advance s);            (* ( *)
     if peek s = Token.RParen then
-      fail_at (peek_loc s)
-        "Shell() admits nothing -- a file that runs no commands drops the \
-         label instead";
+      fail_at (peek_loc s) (Printf.sprintf
+        "%s() admits nothing -- a file that reaches nothing drops the \
+         label instead" label);
     let args = ref [] in
-    let read_arg () =
-      let add word =
-        if List.mem word !args then
-          fail_at (peek_loc s) (Printf.sprintf
-            "'%s' is already in this Shell(...) list" word);
-        args := !args @ [word]
+    let add word =
+      (* A pattern that admits everything is the bare label written at
+         greater length, and two spellings of one claim is one more than a
+         reader should have to hold. *)
+      if Narrow.admits_everything word then
+        fail_at (peek_loc s) (Printf.sprintf
+          "%s(*) admits everything, which is what bare %s already says -- \
+           write %s" label label label);
+      if List.mem word !args then
+        fail_at (peek_loc s) (Printf.sprintf
+          "'%s' is already in this %s(...) list" word label);
+      args := !args @ [word]
+    in
+    (* One word, from however many tokens its spelling took. *)
+    let add_joined w0 (floc : Token.loc) =
+      let buf = Buffer.create 16 in
+      Buffer.add_string buf w0;
+      let end_ = ref (floc.Token.offset + String.length w0) in
+      let rec join () =
+        match Shell_scan.fragment (peek s) with
+        | Some frag when (peek_loc s).Token.offset = !end_ ->
+          ignore (advance s);
+          Buffer.add_string buf frag;
+          end_ := !end_ + String.length frag;
+          join ()
+        | _ -> ()
       in
+      join ();
+      add (Buffer.contents buf)
+    in
+    let read_arg () =
       let (first, floc) = advance_loc s in
       match first with
       | Token.String w -> add w
-      | Token.Ident w0 | Token.Path w0 ->
+      (* `*` alone, and `*.example.com`, which the lexer reads as one glob
+         token because a `*` with more after it is a glob everywhere else in
+         the language. The word is its text; nothing here is a `Glob`
+         value. *)
+      | Token.Star -> add_joined "*" floc
+      | Token.Ident w0 | Token.Path w0 | Token.Glob w0 ->
         (* `docker-compose` arrives as `docker`, `-`, `compose`, and
            `demos/probe.sh` as an ident then a path -- inside $() a name
            is raw text, and the manifest should read the same spelling.
            Fragments are rejoined only when byte-adjacent, so a genuinely
            spaced `a - b` stays an error. *)
-        let buf = Buffer.create 16 in
-        Buffer.add_string buf w0;
-        let end_ = ref (floc.Token.offset + String.length w0) in
-        let rec join () =
-          match Shell_scan.fragment (peek s) with
-          | Some frag when (peek_loc s).Token.offset = !end_ ->
-            ignore (advance s);
-            Buffer.add_string buf frag;
-            end_ := !end_ + String.length frag;
-            join ()
-          | _ -> ()
-        in
-        join ();
-        add (Buffer.contents buf)
+        add_joined w0 floc
       | t -> fail_at floc (Format.asprintf
-          "expected a binary name in Shell(...), got %a -- quote a name \
-           wand cannot lex as one: Shell(git, \"7zip\")"
-          Token.pp t)
+          "expected a name in %s(...), got %a -- quote a name \
+           wand cannot lex as one: %s(git, \"7zip\")"
+          label Token.pp t label)
     in
     read_arg ();
     while peek s = Token.Comma do ignore (advance s); read_arg () done;
@@ -2046,10 +2065,10 @@ let parse_manifest s =
     let name = String.concat "." (parts []) in
     let allow =
       if peek s <> Token.LParen then None
-      else if name = "Shell" then Some (read_shell_args ())
+      else if Narrow.narrowable name then Some (read_words name)
       else
-        fail_at (peek_loc s)
-          "only Shell takes a list of binaries in a manifest"
+        fail_at (peek_loc s) (Printf.sprintf
+          "%s takes no list in a manifest -- write bare %s" name name)
     in
     labels := !labels @ [(name, allow)]
   in

@@ -857,7 +857,20 @@ let next_token s =
     | '\n' -> ret Newline
     | '"'  -> ret (read_string s)
     | '`'  -> ret (read_raw_string s)
-    | '('  when peek s = '*' ->
+    (* An open paren followed by a star is not wand syntax for anything, so
+       the error below is a courtesy to someone arriving from OCaml. It
+       yields where a real spelling needs that pair: a manifest word may be
+       a pattern, and a narrowed label puts its paren directly before one.
+
+       What follows the star tells them apart. A block comment opens with a
+       star and a space, and a doc comment with a second star; a manifest
+       pattern does neither, since a word beginning with two stars says no
+       more than one. The cost is that an opener written with no space after
+       the star loses the hint, which is not how anyone writes one. *)
+    | '('  when peek s = '*'
+                && (let c = peek2 s in
+                    is_at_end s
+                    || c = ' ' || c = '\t' || c = '\n' || c = '\r' || c = '*') ->
       raise (Fail "a comment is '-- ...' to the end of the line; write \
                        each line of this one with '--'")
     | '('  -> ret LParen
