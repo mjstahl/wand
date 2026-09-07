@@ -119,6 +119,13 @@ One separator, one `*`, no crossing it. This is what a shell glob does with
 `/`, and what a TLS certificate does with `.`, so neither reader has to
 learn a third convention. Nesting deeper is written with a second `*`.
 
+**A wildcard does not match the bare host.** `Net(*.example.com)` admits
+`api.example.com` and refuses `example.com`, which is what a TLS certificate
+does with the same spelling. The rule above already borrows the
+certificate's separator, so borrowing the rest of it means a reader learns
+one convention rather than two. A manifest that wants both writes both:
+`Net(example.com, *.example.com)`.
+
 **`Net(*)` and `Shell(*)` are errors.** A pattern that admits everything is
 a bare `Shell` or a bare `Net` spelled at greater length, and the error says
 to write that instead. A manifest should not have two spellings for the
@@ -191,6 +198,14 @@ type Request(
   redirects : Int = 0,
 )
 ```
+
+**Decided: `redirects` defaults to zero.** A 302 is the one thing that can
+send bytes to a host the manifest never named, so following one is opted
+into rather than out of. At zero a redirect is a `Response` with that status
+and the caller decides, which is how `$?()` already behaves. Above zero
+every hop is checked against the manifest. The cost is friction on APIs that
+redirect as a matter of course, and it is accepted: on this operation, the
+default that surprises a reviewer is the dangerous one.
 
 ```ocaml
 let base = Request(url = api, headers = {authorization = "Bearer %{tok}"})
@@ -316,9 +331,10 @@ it off costs.
 `Test.shell_calls`. The single `Net!http` operation is what keeps this to
 one interception point.
 
-**`--dry-run` follows the filesystem rule.** Reads go through; writes are
-held and reported. Method safety maps onto that exactly: `Get` and `Head`
-run, and every other method reports what it would send without sending it.
+**Decided: `--dry-run` follows the filesystem rule.** Reads go through;
+writes are held and reported. Method safety maps onto that exactly: `Get`
+and `Head` run, and every other method reports what it would send without
+sending it.
 
 ```
 would POST https://api.example.com/deploy
@@ -343,16 +359,70 @@ Three ways to get bytes onto the wire:
 - **A `curl` subprocess** — no new dependency, and the binary stops being
   the whole installation.
 
-**Take the subprocess first.** The irreversible parts of this design are
-the label, the narrowing unit, the operation name, the redirect rule and
+**Decided: the subprocess, first.** The irreversible parts of this design
+are the label, the narrowing unit, the operation name, the redirect rule and
 the `Request` type. The transport is none of them. The manifest check works
 on the URL, so the guarantee holds identically whichever way the bytes
 move, and swapping in real TLS later touches no script.
 
-It costs one asterisk, and the reference should carry it: `Shell(git)` then
-means only `git` runs *from this script*, not that only `git` runs. That
-asterisk is the argument for moving in-process eventually. It is not an
-argument for paying twenty packages before the API has been used.
+Two corrections to the comparison above, recorded so the eventual move is
+argued from the right facts.
+
+**The trust store is not an `ocaml-tls` cost.** It is the price of moving
+TLS in-process at all. OpenSSL verifies against the `OPENSSLDIR/certs`
+baked in at compile time, which for a musl static binary built in Alpine is
+`/etc/ssl/certs` -- present on most Linuxes, absent on macOS, which keeps
+roots in the Keychain. Either in-process option has to choose between an
+embedded CA bundle, reading the Keychain through `Security.framework`, or
+requiring roots where wand expects them. The column is a wash, and it should
+not decide anything.
+
+**A statically linked crypto library is a maintenance commitment.** The
+release archives are self-contained by design, and CI asserts it. So every
+advisory against a linked TLS stack becomes a wand release, on wand's
+schedule, for binaries already copied onto boxes -- there is no package
+manager to fix it behind us. The subprocess has no such treadmill: it
+inherits whatever the operating system has patched. `ocaml-tls` has a
+smaller version of the same obligation. This is the strongest argument
+against OpenSSL bindings, and it is why they place third rather than second.
+
+### What the subprocess costs, and where that is written
+
+`Shell(git)` means only `git` runs *from this script*, not that only `git`
+runs. The transport is the exception, and it is documented rather than
+declared: a script that fetches writes `uses {Net(api.example.com)}` and
+nothing about `curl`.
+
+Making `Net` imply `Shell(curl)` was considered and refused. It would be
+literally true, and it would put noise in every fetching manifest while
+telling a reviewer less than it appears to -- `Shell(curl)` also permits
+running `curl` directly, so the two cases become indistinguishable.
+
+The sentence goes in four places, because a reader meets the claim in four:
+
+- a `### Net` section in the reference, beside the other labels;
+- the `HTTP` module doc, which `wand d HTTP` prints;
+- the README, next to the claim about manifests;
+- the reference's `Shell` section, which today promises that a narrowed
+  `Shell` bounds what runs.
+
+`--trace` reports the spawn as well. It costs nothing and keeps the
+exception visible at run time rather than only in prose.
+
+### Two things the transport must do
+
+**Spawn outside `guard_shell`.** That check runs at spawn time over the
+resolved command line, against the manifest's `Shell` list. A script with
+`uses {Net(api.x), Shell(git)}` would otherwise fail, because `curl` is not
+in its list. The bypass is the asterisk made real in code, so it is one
+named exception with a comment rather than something that falls out of
+having used a different exec path.
+
+**Refuse proxy environment variables.** `curl` honours `HTTPS_PROXY` by
+default. wand does not honour proxies, so the transport passes
+`--noproxy '*'` or is handed a scrubbed environment. Without this the rule
+recorded under *Where the guarantee frays* is void on any machine with a
+proxy configured, and silently.
 
 ## Left out on purpose
 
@@ -368,12 +438,36 @@ needed to make the manifest honest, which is what this change is for.
 
 ## Order
 
-The narrowing unit is the host and the operation is `Net!http`; both are
-decided. What is left in the same tier is the pattern rule — the separator,
-and the refusal of a bare `*`. It is manifest grammar, so it is what cannot
-be walked back.
+Every question this record raised is answered. The manifest grammar — the
+separator, the refusal of a bare `*`, and a wildcard that does not match the
+bare host — is the part that cannot be walked back, and it is settled.
+`--dry-run` is method safety. `redirects` defaults to zero. The transport is
+a `curl` subprocess, documented rather than declared.
 
-Decide `--dry-run` next. It is the feature the README leads with, and it is
-the one most likely to be discovered late.
+One thing is left undecided on purpose: what narrowing means for a future
+`Net!tcp`. A host list may not be the right unit for it, and nothing here
+depends on the answer.
 
-Everything else is a library decision that can be revised in an afternoon.
+It is one release. `Net` and `HTTP` have to arrive together, for the reason
+recorded at the top — the module without the label would have `HTTP.get`
+report `Shell`. Narrowing patterns on their own are worse: they change the
+manifest grammar for `Shell` while the second user that justifies the change
+does not exist yet. A half-shipped version of this is a grammar change with
+nothing to show for it.
+
+So the four pieces below are a build order and not a release plan. Each is a
+commit; they go out as one version.
+
+1. **Lift narrowing out of `check_shell_words`, and give it patterns.** One
+   mechanism about to have a second user. It is the manifest grammar, so it
+   is the part that cannot be revised later, and `parser.ml`'s "only Shell
+   takes a list of binaries in a manifest" gate comes out here.
+2. **Add the `Net` label and the `Net!http` operation,** with the dispatch
+   check, `V-NET1`, and the reference's tenth label section.
+3. **The transport,** with its two obligations: spawning outside
+   `guard_shell`, and refusing proxy environment variables.
+4. **The `HTTP` module** over the single primitive, plus `Test.with_http`,
+   `HTTP.requests`, and the rehearsal's method-safety rule.
+
+Piece 1 changes `Shell` manifests as well as adding `Net`'s, so it is its own
+commit and the existing corpus is the test for it.
