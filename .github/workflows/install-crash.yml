@@ -380,3 +380,80 @@ jobs:
             ./hello; echo "exit=$?"
             rm -f hello hello.cm* hello.o
           done
+
+  # Which toolchain runs on a machine that wants more than 8192?
+  #
+  # The pin-move test answered nothing about the produced binary, because
+  # the musl compiler aborted before it built one. So ask the compilers
+  # directly: `ocamlopt -version` is itself an OCaml 5 binary starting up,
+  # which is the whole question. A compiler that prints its version on an
+  # AMX machine is a toolchain that survives there.
+  #
+  # glibc is the control: sysconf(_SC_SIGSTKSZ) reported 47808 on these
+  # machines, so the ubuntu images should be unaffected. The alpine ones are
+  # asked across OCaml versions, because if any of them starts, that names
+  # the version where the runtime learned to read the kernel's number -- and
+  # the fix is a version bump rather than giving up static linking.
+  glibc:
+    name: glibc ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+
+    steps:
+      - name: Is this one of the machines that fails
+        id: draw
+        run: |
+          set +e
+          cat > m.c <<'C'
+          #include <stdio.h>
+          #include <sys/auxv.h>
+          int main(void){ printf("%lu\n", (unsigned long)getauxval(AT_MINSIGSTKSZ)); return 0; }
+          C
+          gcc -o m m.c && min=$(./m) || min=0
+          grep -m1 "model name" /proc/cpuinfo
+          echo "AT_MINSIGSTKSZ=$min"
+          if [ "$min" -gt 8192 ]; then
+            echo "drew=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "drew=no" >> "$GITHUB_OUTPUT"
+            echo "8192 covers this machine -- nothing to test here"
+          fi
+
+      - name: Which compilers start, and does what they build run
+        if: steps.draw.outputs.drew == 'yes'
+        run: |
+          set +e
+          echo 'let () = print_string "the binary ran\n"' > hello.ml
+          for img in \
+            ocaml/opam:ubuntu-ocaml-5.4 \
+            ocaml/opam:ubuntu-ocaml-5.2 \
+            ocaml/opam:alpine-ocaml-5.4 \
+            ocaml/opam:alpine-ocaml-5.3 \
+            ocaml/opam:alpine-ocaml-5.2 \
+            ocaml/opam:alpine-ocaml-5.1 \
+            ocaml/opam:alpine-ocaml-4.14
+          do
+            echo "=================================== $img"
+            docker pull -q "$img" >/dev/null 2>&1 || { echo "RESULT $img: no such image"; continue; }
+            out=$(docker run --rm -v "$PWD:/w" -w /w "$img" sh -c '
+              v=$(ocamlopt -version 2>&1) || { echo "COMPILER-ABORTED: $v"; exit 9; }
+              echo "compiler: $v"
+              ocamlopt hello.ml -o hello >/dev/null 2>&1 || { echo "BUILD-FAILED"; exit 8; }
+              ./hello || { echo "ARTIFACT-ABORTED"; exit 7; }
+            ' 2>&1)
+            rc=$?
+            echo "$out"
+            case "$rc" in
+              0) echo "RESULT $img: compiler starts, artifact runs" ;;
+              9) echo "RESULT $img: COMPILER ABORTS" ;;
+              8) echo "RESULT $img: compiler starts, build failed" ;;
+              7) echo "RESULT $img: compiler starts, ARTIFACT ABORTS" ;;
+              *) echo "RESULT $img: exit $rc" ;;
+            esac
+            rm -f hello hello.cm* hello.o
+          done
