@@ -41,10 +41,9 @@ let disabled =
 
 (* Bumped when the shape of what is written changes. An old entry then has a
    different key rather than being read back as the wrong shape -- Marshal
-   will happily hand back nonsense typed as whatever the reader expected. *)
-(* Bumped whenever the marshaled AST changes shape; "2" is the manifest
-   with Shell allowlists and the tagged $()/$?() sites. *)
-let format_version = "4"
+   will happily hand back nonsense typed as whatever the reader expected.
+   "5" is the digest an entry now carries in front of its bytes. *)
+let format_version = "5"
 
 (* Where the entries live, most specific first.
 
@@ -152,6 +151,21 @@ let key ~path ~source ~deps =
 
 let path_for key = Filename.concat (dir ()) (key ^ ".wandc")
 
+(* An entry is its own digest and then its bytes. Marshal reads whatever it
+   is given: an entry with a valid header and a corrupt body is not an
+   exception it can catch but a segmentation fault, and a fault cannot be
+   caught either -- so the entry stayed, and every later run of that script
+   died the same way until someone deleted the cache by hand. A power loss
+   between the write and the rename produced that shape with nobody at
+   fault, which is why the write below now reaches the disk before the
+   rename.
+
+   This answers corruption, not a chosen file. An entry whose bytes someone
+   picked can carry a matching digest as easily as a matching header. What
+   stops that is `dir_is_trustworthy`: the bytes are only ever read from a
+   directory this user owns and no one else can write to. *)
+let digest_len = 16
+
 let find (key : string) : 'a option =
   if disabled then None
   (* A value is deserialised only out of a directory this user owns and no one
@@ -162,14 +176,19 @@ let find (key : string) : 'a option =
     let p = path_for key in
     if not (Sys.file_exists p) then None
     else
+      (* A truncated, unreadable or damaged entry is a cache miss, not a
+         failure: two runs writing at once, a half-written file, a format
+         that moved on. Drop it and let the caller do the work. *)
+      let drop () = (try Sys.remove p with _ -> ()); None in
       try
-        In_channel.with_open_bin p (fun ic -> Some (Marshal.from_channel ic))
-      with _ ->
-        (* A truncated or unreadable entry is a cache miss, not a failure:
-           two runs writing at once, a half-written file, a format that moved
-           on. Drop it and let the caller do the work. *)
-        (try Sys.remove p with _ -> ());
-        None
+        let bytes = In_channel.with_open_bin p In_channel.input_all in
+        if String.length bytes <= digest_len then drop ()
+        else
+          let recorded = String.sub bytes 0 digest_len in
+          let body = String.sub bytes digest_len (String.length bytes - digest_len) in
+          if not (String.equal recorded (Digest.string body)) then drop ()
+          else Some (Marshal.from_string body 0)
+      with _ -> drop ()
 
 let store (key : string) (value : 'a) : unit =
   if not disabled then begin
@@ -184,9 +203,16 @@ let store (key : string) (value : 'a) : unit =
            temp file is opened 0600, so an entry is never briefly readable by
            anyone but its owner even inside a private directory. *)
         let tmp = Filename.concat d (key ^ "." ^ string_of_int (Unix.getpid ()) ^ ".tmp") in
+        let body = Marshal.to_string value [] in
         let oc = open_out_gen [Open_wronly; Open_creat; Open_trunc; Open_binary] 0o600 tmp in
         Fun.protect ~finally:(fun () -> close_out_noerr oc)
-          (fun () -> Marshal.to_channel oc value []);
+          (fun () ->
+            output_string oc (Digest.string body);
+            output_string oc body;
+            (* On the disk before the rename, or a power loss leaves the
+               name pointing at bytes that were never all written. *)
+            flush oc;
+            Unix.fsync (Unix.descr_of_out_channel oc));
         Sys.rename tmp (path_for key)
       with _ -> ()
   end

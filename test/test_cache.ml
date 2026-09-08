@@ -77,6 +77,46 @@ let test_a_corrupt_entry_is_survivable () =
     entries;
   Alcotest.(check string) "still runs" "42" (run ~dir:d ~cache:c ["main.wand"])
 
+(* The guarantee: a byte of an entry changed anywhere makes it a cache miss.
+   It used to depend on where. Marshal reads what it is given, so a header it
+   accepted and a body it then walked into was a segmentation fault (verified,
+   exit 139) -- which nothing can catch, so the entry stayed and every later
+   run of that script died the same way until someone deleted the cache by
+   hand. A byte further in was worse than a crash: the entry read back as a
+   value of the wrong shape and the run answered "namespace 'm' has no
+   member 'n'" about a module that has one. A power loss between the write
+   and the rename produced either with nobody at fault.
+
+   Every offset, rather than the two that were found: which byte means what
+   moves whenever the marshaled shape does, and a test that quietly stops
+   reaching the dangerous ones is worse than no test. *)
+let test_any_changed_byte_is_a_cache_miss () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "mod.wand") "let n = 41";
+  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+  Alcotest.(check string) "first run" "42" (run ~dir:d ~cache:c ["main.wand"]);
+  let wand_dir = Filename.concat c "wand" in
+  let entry = Filename.concat wand_dir (Sys.readdir wand_dir).(0) in
+  let original = In_channel.with_open_bin entry In_channel.input_all in
+  let restore () =
+    Out_channel.with_open_bin entry
+      (fun oc -> Out_channel.output_string oc original)
+  in
+  let n = String.length original in
+  let i = ref 0 in
+  while !i < n do
+    let bytes = Bytes.of_string original in
+    Bytes.set bytes !i (Char.chr (Char.code (Bytes.get bytes !i) lxor 0xff));
+    Out_channel.with_open_bin entry (fun oc -> Out_channel.output_bytes oc bytes);
+    let out = run ~dir:d ~cache:c ["main.wand"] in
+    if out <> "42" then
+      Alcotest.failf "byte %d of the entry changed the answer to: %s" !i out;
+    (* The run rewrote the entry it dropped, so put the damaged one back for
+       the next offset rather than testing a fresh file each time. *)
+    restore ();
+    i := !i + 4
+  done
+
 (* `WAND_CACHE` is read for what it says, not for being set at all: the
    values a reader picks to mean off have to mean off, and everything else --
    including the empty string a shell leaves behind for an unset variable --
@@ -228,6 +268,8 @@ let () =
     ];
     "when it cannot be trusted", [
       Alcotest.test_case "a corrupt entry"         `Quick test_a_corrupt_entry_is_survivable;
+      Alcotest.test_case "any changed byte"        `Slow
+        test_any_changed_byte_is_a_cache_miss;
       Alcotest.test_case "a world-writable dir"    `Quick test_a_world_writable_dir_is_not_used;
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
