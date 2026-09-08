@@ -47,27 +47,41 @@ jobs:
       # multi-arch, so the same reference builds natively on both runners.
       # Docker is driven directly rather than through `container:`, which
       # would put the checkout and the image's `opam` user at odds.
-      # Retried, because one thing this does is build dune from source and
-      # that has twice died with
+      # An OCaml 5 runtime older than 5.5.1 sizes its alternate signal
+      # stack from the build-time SIGSTKSZ, which musl fixes at 8192. The
+      # kernel asks for more than that on a CPU with AMX -- 11952 on the
+      # Xeons GitHub runs -- and musl 1.2.6 checks the request against the
+      # kernel's number and answers ENOMEM. The runtime then prints
       #
       #   Fatal error: Failed to allocate signal stack for domain 0
       #
-      # -- the OCaml runtime failing to start, while opam compiled
-      # dune.3.24.2, before any of wand was reached. Twice in the last
-      # twenty-five releases, both on x86_64, never on aarch64. It does not
-      # reproduce off the runners: 320 concurrent starts of the same binary
-      # in the same image, under memory limits down to 16 MB, produced none
-      # of it. So it is not something this repository can fix, only
-      # something it can stop paying for. The step is a container build and
-      # rebuilding it costs nothing but time.
+      # and aborts. This is deterministic per machine, not a flake: about
+      # one runner in eight is such a machine, and every start on one of
+      # them fails. It killed the build while opam compiled dune, and it
+      # killed the *shipped* binary for anyone on AMX hardware.
+      #
+      # OCaml 5.5.1 reads sysconf(_SC_SIGSTKSZ) instead, so the switch
+      # below is made here rather than taken from the image: 5.5.1 is new
+      # and no opam image carries it yet -- alpine-ocaml-5.5 is still
+      # 5.5.0, which does not have the fix. Drop the switch once a base
+      # image ships 5.5.1 or later.
+      #
+      # musl 1.2.6 is right to refuse, so the answer is not an older Alpine.
+      # 8192 really is too small there, and musl 1.2.5 and glibc both accept
+      # it silently -- which trades an abort at startup for a signal frame
+      # written past the end of the stack.
+      #
+      # The retry stays, but it cannot help this: it re-runs on the same
+      # machine, and the failure is a property of the machine. Only a new
+      # VM clears it, which is `gh run rerun`. Until the base image carries
+      # 5.5.1 the *build* still needs a non-AMX runner; the artifact it
+      # produces is correct everywhere, which is the half that reaches
+      # users.
+      #
       # Pinned by digest, not by tag. `alpine-ocaml-5.4` moves: it is rebuilt
       # with a newer opam repository snapshot whenever one lands, so two
       # releases cut a day apart are built by two different toolchains and
       # neither says so. This digest is the image that built 0.55.0.
-      #
-      # A build that fails here fails inside the container, compiling dune
-      # from source, before any wand code is reached. That is worth being
-      # able to hold still while the cause is found.
       #
       # To move it: read `Digest: sha256:...` from a run that worked.
       - name: Build (Linux, static musl)
@@ -81,6 +95,10 @@ jobs:
               set -eu
               sudo chown -R opam:opam /src
               sudo apk add --no-cache musl-dev
+              opam update -y
+              opam switch create build ocaml-base-compiler.5.5.1 -y
+              eval $(opam env --switch=build --set-switch)
+              ocamlopt -version
               opam install . --deps-only
               opam exec -- dune build --profile static bin/wand.exe
               # A downloaded binary is read by nothing that wants symbols,
