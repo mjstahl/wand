@@ -378,7 +378,6 @@ jobs:
             '
             echo "--- built by that image, run here:"
             ./hello; echo "exit=$?"
-            rm -f hello hello.cm* hello.o
           done
 
   # Which toolchain runs on a machine that wants more than 8192?
@@ -428,7 +427,6 @@ jobs:
         if: steps.draw.outputs.drew == 'yes'
         run: |
           set +e
-          echo 'let () = print_string "the binary ran\n"' > hello.ml
           for img in \
             ocaml/opam:ubuntu-ocaml-5.4 \
             ocaml/opam:ubuntu-ocaml-5.2 \
@@ -440,10 +438,18 @@ jobs:
           do
             echo "=================================== $img"
             docker pull -q "$img" >/dev/null 2>&1 || { echo "RESULT $img: no such image"; continue; }
-            out=$(docker run --rm -v "$PWD:/w" -w /w "$img" sh -c '
+            # Everything happens inside the container, in a directory the
+            # image's own user owns. The first pass mounted the runner's
+            # working directory, which the `opam` user cannot write, so
+            # every build "failed" for a reason that had nothing to do with
+            # the question.
+            out=$(docker run --rm "$img" sh -c '
+              cd /tmp || exit 6
+              printf "musl/libc: "; (ldd --version 2>&1 || ldd 2>&1) | head -1
               v=$(ocamlopt -version 2>&1) || { echo "COMPILER-ABORTED: $v"; exit 9; }
               echo "compiler: $v"
-              ocamlopt hello.ml -o hello >/dev/null 2>&1 || { echo "BUILD-FAILED"; exit 8; }
+              echo "let () = print_string \"the binary ran\\n\"" > hello.ml
+              b=$(ocamlopt hello.ml -o hello 2>&1) || { echo "BUILD-FAILED: $b"; exit 8; }
               ./hello || { echo "ARTIFACT-ABORTED"; exit 7; }
             ' 2>&1)
             rc=$?
@@ -453,6 +459,7 @@ jobs:
               9) echo "RESULT $img: COMPILER ABORTS" ;;
               8) echo "RESULT $img: compiler starts, build failed" ;;
               7) echo "RESULT $img: compiler starts, ARTIFACT ABORTS" ;;
+              6) echo "RESULT $img: could not enter /tmp" ;;
               *) echo "RESULT $img: exit $rc" ;;
             esac
             rm -f hello hello.cm* hello.o
