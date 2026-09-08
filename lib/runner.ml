@@ -3023,6 +3023,22 @@ let skipped_dir name =
    not a test: stepping around it beats crashing a test run over it. *)
 let is_dir path = try Sys.is_directory path with Sys_error _ -> false
 
+(* The walk does not descend through a symlink. `Sys.is_directory` follows
+   one, so a link to a directory was walked into and `wand s` discovered and
+   ran test files outside the tree it was pointed at, with every effect a
+   test has. What a run covers has to be what the tree holds, and a link to a
+   directory is a name for a tree it does not.
+
+   A linked *file* is still read. It is one name, listed where the reader can
+   see it, and it is how dune's sandbox presents every fixture in a
+   `source_tree` dep -- refusing those would leave the wand-level suites
+   discovering nothing. The directory is where a single link quietly brings
+   in everything below it. *)
+let is_walkable path =
+  match Unix.lstat path with
+  | { Unix.st_kind = Unix.S_DIR; _ } -> true
+  | _ | exception Unix.Unix_error _ -> false
+
 let find_test_files root =
   let found = ref [] in
   let rec walk dir =
@@ -3032,7 +3048,7 @@ let find_test_files root =
       Array.sort compare entries;
       Array.iter (fun name ->
         let path = Filename.concat dir name in
-        if is_dir path then begin
+        if is_walkable path then begin
           if not (skipped_dir name) then walk path
         end else if is_test_file name then found := path :: !found
       ) entries

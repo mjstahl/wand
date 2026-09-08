@@ -5505,8 +5505,10 @@ Name a test file `test_*.wand`. Put the tests of a script beside the script:
 test together, away from the code under test. With no argument, `wand s`
 searches from the directory you are in, so you edit a script and run its tests
 without a path. `wand s` does not search `_build`, `_opam`, `.git` or
-`node_modules`. A file that you name on the command line runs, whatever it is
-called.
+`node_modules`, and it does not walk into a symlinked directory — a run
+covers what the tree holds, not what a link points at. A directory you name
+on the command line is searched whatever it is, and so is a file you name,
+whatever it is called.
 
 wand prints each call to `test` as `ok   <label>` or as `FAIL <message>`. A
 test whose body raises outside `t.raises` is the failure of that test:
@@ -6147,6 +6149,11 @@ import, appears under `errors` and not under `tests`:
 overwrites each file with the formatted text, and prints one line for each
 file. A shell glob works: `wand f stdlib/*.wand` formats every file in
 `stdlib/`.
+
+The file is written beside and renamed into place, the way `FS.write_atomic`
+writes: a reader never sees it half-written, it keeps the mode it had, and a
+symlink is written through rather than replaced. `wand t --fix` writes the
+same way.
 
 wand keeps each comment and never drops one. It writes a
 function of several equations back as separate clauses, as in

@@ -762,12 +762,23 @@ let main () =
            | Ok src ->
              (try
                 let formatted = Wand.Formatter.format_source src in
-                Out_channel.with_open_text path (fun oc -> Out_channel.output_string oc formatted);
+                (* Written beside and renamed into place, the way every
+                   other write wand makes is. Truncating the file the
+                   reader is editing and then filling it means a crash or a
+                   full disk part way through leaves half a source file and
+                   no copy of the other half. *)
+                Wand.Runner.write_atomic path formatted;
                 Printf.printf "formatted %s\n" path
               with
               | (Wand.Lexer.LexError _ | Wand.Parser.ParseError _) as e ->
                 had_error := true;
-                Printf.eprintf "Error: %s: %s\n" path (Wand.Runner.legacy_of_exn e))
+                Printf.eprintf "Error: %s: %s\n" path (Wand.Runner.legacy_of_exn e)
+              | Unix.Unix_error (e, f, _) ->
+                had_error := true;
+                Printf.eprintf "Error: %s: %s: %s\n" path f (Unix.error_message e)
+              | Failure m ->
+                had_error := true;
+                Printf.eprintf "Error: %s: %s\n" path m)
          ) paths;
          if !had_error then exit 1)
     | "s" | "test" ->

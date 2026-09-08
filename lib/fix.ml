@@ -239,7 +239,17 @@ let fix_file path : (applied list, Diag.t) result =
     match fix_source ~path src with
     | Error d -> Error d
     | Ok (fixed, applied) ->
+      (* Beside and renamed into place, like every other write wand makes.
+         Truncating the source the reader is editing and then filling it
+         means a crash or a full disk part way through leaves half a file
+         and no copy of the other half. *)
       if fixed <> src then
-        Out_channel.with_open_text full (fun oc ->
-          Out_channel.output_string oc fixed);
-      Ok applied
+        match Runner.write_atomic full fixed with
+        | () -> Ok applied
+        | exception Unix.Unix_error (e, f, _) ->
+          Error (Diag.error ~code:"E-FAIL"
+                   (Printf.sprintf "cannot write file: %s: %s" f
+                      (Unix.error_message e)))
+        | exception Failure m ->
+          Error (Diag.error ~code:"E-FAIL" ("cannot write file: " ^ m))
+      else Ok applied

@@ -67,6 +67,7 @@
 
 (test
  (name test_cli)
+ (deps %{exe:../bin/wand.exe})
  (libraries wand alcotest unix))
 
 (test

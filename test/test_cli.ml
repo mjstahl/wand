@@ -417,6 +417,31 @@ let test_a_dangling_symlink_is_stepped_over () =
     let found = Runner.find_test_files root |> List.map Filename.basename in
     Alcotest.(check (list string)) "still finds the test" ["test_real.wand"] found)
 
+(* The walk does not descend through a symlink. `Sys.is_directory` follows
+   one, so a link to a directory was walked into and `wand s` ran test files
+   outside the tree it was pointed at, with every effect a test has -- a
+   whole tree brought in by one name nobody reading the directory would
+   notice. A linked *file* is still read: it is one name, listed where it can
+   be seen, and it is how dune's sandbox presents every fixture in a
+   `source_tree` dep. *)
+let test_the_walk_does_not_leave_the_tree () =
+  with_tree (fun root ->
+    with_tree (fun outside ->
+      write (Filename.concat outside "test_outside.wand") "";
+      write (Filename.concat root "test_real.wand") "";
+      Unix.symlink outside (Filename.concat root "linked");
+      Unix.symlink (Filename.concat outside "test_outside.wand")
+        (Filename.concat root "test_linked.wand");
+      let found = Runner.find_test_files root |> List.map Filename.basename in
+      Alcotest.(check (list string)) "the linked directory brought nothing in"
+        ["test_linked.wand"; "test_real.wand"] found;
+      (* Named outright it still runs: that directory is the one the reader
+         asked for. *)
+      Alcotest.(check (list string)) "a linked directory named outright"
+        ["test_outside.wand"]
+        (Runner.find_test_files (Filename.concat root "linked")
+         |> List.map Filename.basename)))
+
 (* `:reset` built its own list and had been missing eighteen modules since
    they were added, so a session that had been reset could not reach `Map`
    while a fresh one could. One list now, and this is what keeps it one. *)
@@ -504,6 +529,69 @@ let test_repl_doc_of_a_member () =
       Alcotest.failf ":d Random.hex did not carry %S:\n%s" needle out)
     ["Random.hex : Int -> String ! {Random}"; "hexadecimal"]
 
+(* ── Rewriting a file in place (wand f, wand t --fix) ───────────────────── *)
+
+(* Both used to truncate the source and then fill it, so a crash or a full
+   disk part way through left half a file and no copy of the other half --
+   in the one place where the file is the reader's own work. Both write
+   beside and rename now, which is what `write_atomic` has always done for
+   `FS.write_atomic`. What that buys is visible from outside: the target
+   keeps its mode, a symlink is written through rather than replaced, and
+   nothing is left beside it. *)
+
+let wand_binary =
+  let dir = Filename.dirname (Filename.dirname Sys.executable_name) in
+  Filename.concat (Filename.concat dir "bin") "wand.exe"
+
+let in_scratch f =
+  let d = Filename.temp_file "wand_rewrite_" "" in
+  Sys.remove d; Unix.mkdir d 0o700;
+  Fun.protect
+    ~finally:(fun () ->
+      Array.iter (fun n ->
+        try Sys.remove (Filename.concat d n) with Sys_error _ -> ())
+        (Sys.readdir d);
+      try Unix.rmdir d with Unix.Unix_error _ -> ())
+    (fun () -> f d)
+
+let write_file path contents =
+  Out_channel.with_open_text path
+    (fun oc -> Out_channel.output_string oc contents)
+
+let read_file path = In_channel.with_open_text path In_channel.input_all
+
+let wand ~dir args =
+  let cmd =
+    Printf.sprintf "cd %s && %s %s >/dev/null 2>&1" (Filename.quote dir)
+      (Filename.quote wand_binary)
+      (String.concat " " (List.map Filename.quote args))
+  in
+  ignore (Sys.command cmd)
+
+let check_rewrite label args =
+  in_scratch (fun d ->
+    let target = Filename.concat d "a.wand" in
+    (* Loose spacing for `wand f` to close up, and a name to import for
+       `wand t --fix` to reach for, so one file is rewritten by both. *)
+    let before = "let x    =  1\nlet () = IO.println \"hi\"\n" in
+    write_file target before;
+    Unix.chmod target 0o640;
+    let link = Filename.concat d "link.wand" in
+    Unix.symlink "a.wand" link;
+    wand ~dir:d (args @ ["link.wand"]);
+    Alcotest.(check bool) (label ^ ": the file was rewritten") true
+      (read_file target <> before);
+    Alcotest.(check int) (label ^ ": the target kept its mode") 0o640
+      (Unix.stat target).Unix.st_perm;
+    Alcotest.(check bool) (label ^ ": the link is still a link") true
+      ((Unix.lstat link).Unix.st_kind = Unix.S_LNK);
+    Alcotest.(check (list string)) (label ^ ": nothing left beside it")
+      ["a.wand"; "link.wand"]
+      (List.sort compare (Array.to_list (Sys.readdir d))))
+
+let test_fmt_rewrites_in_place () = check_rewrite "wand f" ["f"]
+let test_fix_rewrites_in_place () = check_rewrite "wand t --fix" ["t"; "--fix"]
+
 let () =
   Alcotest.run "CLI" [
     "the REPL's :d", [
@@ -524,6 +612,7 @@ let () =
       Alcotest.test_case "finds tests beside scripts" `Quick test_finds_tests_beside_scripts;
       Alcotest.test_case "skips build directories"    `Quick test_skips_build_directories;
       Alcotest.test_case "a named file as given"      `Quick test_a_named_file_is_taken_as_given;
+      Alcotest.test_case "stays in the tree"          `Quick test_the_walk_does_not_leave_the_tree;
       Alcotest.test_case "steps over a broken link"   `Quick test_a_dangling_symlink_is_stepped_over;
     ];
     "repl", [
@@ -542,6 +631,10 @@ let () =
     "doc", [
       Alcotest.test_case "type lookup"   `Quick test_doc;
       Alcotest.test_case "doc strings"   `Quick test_doc_strings;
+    ];
+    "rewriting a file", [
+      Alcotest.test_case "wand f"        `Quick test_fmt_rewrites_in_place;
+      Alcotest.test_case "wand t --fix"  `Quick test_fix_rewrites_in_place;
     ];
     "scope", [
       Alcotest.test_case "list all"      `Quick test_env_all;
