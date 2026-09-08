@@ -464,3 +464,130 @@ jobs:
             esac
             rm -f hello hello.cm* hello.o
           done
+
+  # What is actually different between the images?
+  #
+  # 5.4 and 5.2 abort where 5.3, 5.1 and 4.14 do not, which is not a story
+  # about OCaml versions. This asks each image what it is made of, and then
+  # asks the decisive question directly: `strace` the startup and read the
+  # ss_size the runtime passes to sigaltstack. That number is the whole
+  # bug -- 8192 fails on a machine wanting 11952, anything above it does
+  # not -- and reading it needs no AMX machine at all, so this job runs
+  # anywhere.
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: What each image is, and what size it asks for
+        run: |
+          set +e
+          PINNED='ocaml/opam:alpine-ocaml-5.4@sha256:8e26f87086ac85e521889b26b35709220bdd13b2019a1524157e6de5caf3cff4'
+          for img in \
+            "$PINNED" \
+            ocaml/opam:alpine-ocaml-5.4 \
+            ocaml/opam:alpine-ocaml-5.3 \
+            ocaml/opam:alpine-ocaml-5.2 \
+            ocaml/opam:alpine-ocaml-5.1 \
+            ocaml/opam:alpine-ocaml-5.0 \
+            ocaml/opam:alpine-ocaml-4.14 \
+            ocaml/opam:ubuntu-ocaml-5.4 \
+            ocaml/opam:ubuntu-ocaml-5.3
+          do
+            echo "=================================== $img"
+            docker pull -q "$img" >/dev/null 2>&1 || { echo "no such image"; continue; }
+            docker run --rm --cap-add=SYS_PTRACE "$img" sh -c '
+              cd /tmp || exit 1
+              . /etc/os-release 2>/dev/null
+              echo "os: $PRETTY_NAME"
+              if command -v apk >/dev/null 2>&1; then
+                echo "alpine-release: $(cat /etc/alpine-release 2>/dev/null)"
+                echo "musl: $(apk info -v musl 2>/dev/null | head -1)"
+                sudo apk add --no-cache strace musl-dev >/dev/null 2>&1
+              else
+                echo "glibc: $(ldd --version 2>&1 | head -1)"
+                sudo apt-get install -y -qq strace >/dev/null 2>&1
+              fi
+              echo "ocaml: $(ocamlopt -version 2>&1)"
+              ocamlopt -config 2>/dev/null | grep -E "^(version|standard_library|c_compiler|native_c_compiler|flat_float_array|supports_shared_libraries):"
+              echo "let () = print_string \"ran\\n\"" > h.ml
+              ocamlopt h.ml -o h >/dev/null 2>&1 || echo "build failed"
+              # The number that decides it.
+              if [ -x ./h ]; then
+                strace -f -e trace=sigaltstack ./h 2>&1 | grep -o "sigaltstack({ss_sp=[^,]*, ss_flags=[^,]*, ss_size=[0-9]*}" | head -3
+                strace -f -e trace=sigaltstack ./h 2>&1 | grep -c sigaltstack | sed "s/^/sigaltstack calls: /"
+              fi
+            '
+            docker rmi -f "$img" >/dev/null 2>&1
+            df -h / | tail -1
+          done
+
+  # wand itself, built by an image that survives, on a machine that fails.
+  # hello-world is not wand: wand links more, allocates more and starts more
+  # domains, so the end-to-end build is the only thing that proves a fix.
+  # The pinned image runs first as the control -- it is expected to abort,
+  # on the same machine, minutes apart.
+  endtoend:
+    name: end to end ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Is this one of the machines that fails
+        id: draw
+        run: |
+          set +e
+          cat > /tmp/m.c <<'C'
+          #include <stdio.h>
+          #include <sys/auxv.h>
+          int main(void){ printf("%lu\n", (unsigned long)getauxval(AT_MINSIGSTKSZ)); return 0; }
+          C
+          gcc -o /tmp/m /tmp/m.c && min=$(/tmp/m) || min=0
+          grep -m1 "model name" /proc/cpuinfo
+          echo "AT_MINSIGSTKSZ=$min"
+          if [ "$min" -gt 8192 ]; then
+            echo "drew=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "drew=no" >> "$GITHUB_OUTPUT"
+            echo "8192 covers this machine -- nothing to test here"
+          fi
+
+      - name: Build wand with the pinned image (control), then with 5.3
+        if: steps.draw.outputs.drew == 'yes'
+        run: |
+          set +e
+          PINNED='ocaml/opam:alpine-ocaml-5.4@sha256:8e26f87086ac85e521889b26b35709220bdd13b2019a1524157e6de5caf3cff4'
+          for img in "$PINNED" ocaml/opam:alpine-ocaml-5.3 ocaml/opam:alpine-ocaml-5.1; do
+            echo "=================================== $img"
+            git clean -xfd >/dev/null 2>&1
+            docker run --rm -v "$PWD:/src" -w /src \
+              -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "$img" sh -c '
+                set -eu
+                sudo chown -R opam:opam /src
+                sudo apk add --no-cache musl-dev
+                opam install . --deps-only 2>&1 | tail -2
+                opam exec -- dune build --profile static bin/wand.exe
+                sudo strip _build/default/bin/wand.exe
+                sudo chown -R "$HOST_UID:$HOST_GID" /src
+              '
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "RESULT $img: BUILD FAILED (exit $rc)"
+              continue
+            fi
+            file _build/default/bin/wand.exe
+            out=$(_build/default/bin/wand.exe -e '1 + 1' 2>&1); rc=$?
+            echo "wand -e '1 + 1' -> exit $rc: $out"
+            v=$(_build/default/bin/wand.exe version 2>&1)
+            echo "wand version -> $v"
+            if [ "$out" = "2 : Int" ]; then
+              echo "RESULT $img: BUILDS AND RUNS ON THIS MACHINE"
+            else
+              echo "RESULT $img: built, but the binary did not answer"
+            fi
+          done
