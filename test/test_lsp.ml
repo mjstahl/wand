@@ -543,15 +543,78 @@ let test_framing_round_trip () =
         Lsp.write_message oc (notif "exit" `Null));
       In_channel.with_open_bin path (fun ic ->
         (match Lsp.read_message ic with
-         | Some j -> Alcotest.(check string) "first message survives"
+         | Lsp.Frame j -> Alcotest.(check string) "first message survives"
                        (Yojson.Safe.to_string msg) (Yojson.Safe.to_string j)
-         | None -> Alcotest.fail "no first message");
+         | _ -> Alcotest.fail "no first message");
         (match Lsp.read_message ic with
-         | Some j -> Alcotest.(check (option string)) "second too"
+         | Lsp.Frame j -> Alcotest.(check (option string)) "second too"
                        (Some "exit") (Lsp.str (m "method" j))
-         | None -> Alcotest.fail "no second message");
+         | _ -> Alcotest.fail "no second message");
         Alcotest.(check bool) "then the stream ends" true
-          (Lsp.read_message ic = None)))
+          (Lsp.read_message ic = Lsp.Ended)))
+
+(* A frame the server will not read. Each of these ended the process before:
+   a negative length reached `Bytes.create` and raised `Invalid_argument`, a
+   huge one asked the runtime for the memory and got "Out of memory", and a
+   body that was not JSON was read as the client having gone away -- so the
+   server exited and every later request in that session went unanswered. *)
+
+let framed headers body =
+  let path = Filename.temp_file "wand_lsp" ".bin" in
+  Out_channel.with_open_bin path (fun oc ->
+    List.iter (fun h -> Out_channel.output_string oc (h ^ "\r\n")) headers;
+    Out_channel.output_string oc "\r\n";
+    Out_channel.output_string oc body);
+  path
+
+let read_one path =
+  Fun.protect ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () -> In_channel.with_open_bin path Lsp.read_message)
+
+let test_a_length_the_server_will_not_read () =
+  List.iter (fun header ->
+    match read_one (framed [header] "") with
+    | Lsp.Ended -> ()
+    | Lsp.Bad_body -> Alcotest.failf "%s: read as a bad body" header
+    | Lsp.Frame _ -> Alcotest.failf "%s: read as a message" header)
+    ["Content-Length: -1";
+     "Content-Length: 999999999999999";
+     "Content-Length: 0x10";
+     "Content-Length: nonsense"]
+
+let test_a_body_that_is_not_json_keeps_the_session () =
+  match read_one (framed ["Content-Length: 5"] "{not}") with
+  | Lsp.Bad_body -> ()
+  | Lsp.Ended -> Alcotest.fail "read as the client going away"
+  | Lsp.Frame _ -> Alcotest.fail "read as a message"
+
+(* And the session goes on: the server answers the one message with a parse
+   error and reads the next. *)
+let test_the_server_answers_a_bad_body_and_reads_on () =
+  let path =
+    let p = Filename.temp_file "wand_lsp" ".bin" in
+    Out_channel.with_open_bin p (fun oc ->
+      Out_channel.output_string oc "Content-Length: 5\r\n\r\n{not}";
+      Lsp.write_message oc (request 1 "shutdown" `Null);
+      Lsp.write_message oc (notif "exit" `Null));
+    p
+  in
+  let out = Filename.temp_file "wand_lsp_out" ".bin" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [path; out])
+    (fun () ->
+      let code =
+        In_channel.with_open_bin path (fun ic ->
+          Out_channel.with_open_bin out (fun oc -> Lsp.serve ic oc))
+      in
+      (* 0 is `shutdown` and then `exit`, both read past the bad body. The
+         bad body used to answer "the client went away", which is the 1 this
+         would otherwise be. *)
+      Alcotest.(check int) "the session ran to the client's exit" 0 code;
+      let written = In_channel.with_open_bin out In_channel.input_all in
+      Alcotest.(check bool) "the bad body was answered with -32700" true
+        (Lint.contains written "-32700"))
 
 let () =
   Alcotest.run "lsp" [
@@ -605,6 +668,12 @@ let () =
       Alcotest.test_case "fires once"          `Quick test_auto_import_fires_once;
     ];
     "framing", [
-      Alcotest.test_case "round trip" `Quick test_framing_round_trip;
+      Alcotest.test_case "round trip"        `Quick test_framing_round_trip;
+      Alcotest.test_case "a length refused"  `Quick
+        test_a_length_the_server_will_not_read;
+      Alcotest.test_case "a body that is not JSON" `Quick
+        test_a_body_that_is_not_json_keeps_the_session;
+      Alcotest.test_case "the session goes on" `Quick
+        test_the_server_answers_a_bad_body_and_reads_on;
     ];
   ]

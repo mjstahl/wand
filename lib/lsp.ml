@@ -31,38 +31,69 @@ let trim_cr s =
   let n = String.length s in
   if n > 0 && s.[n - 1] = '\r' then String.sub s 0 (n - 1) else s
 
+(* The largest body this will read. A `didChange` carries a whole document,
+   so the bound is generous; what it is for is a header that names a length
+   no client meant to send. `Content-Length: 999999999999999` asked the
+   runtime for a terabyte of bytes and ended the server with "Out of
+   memory". *)
+let max_content_length = 64 * 1024 * 1024
+
+(* Digits only, and a length that could be a body. `int_of_string` also reads
+   `0x10` and `-1`, and a negative length reached `Bytes.create`, which ends
+   the server with `Invalid_argument`. *)
 let content_length_of line =
   let lower = String.lowercase_ascii line in
   let prefix = "content-length:" in
   if String.length lower >= String.length prefix
      && String.sub lower 0 (String.length prefix) = prefix
   then
-    int_of_string_opt
-      (String.trim
-         (String.sub line (String.length prefix)
-            (String.length line - String.length prefix)))
+    let digits =
+      String.trim
+        (String.sub line (String.length prefix)
+           (String.length line - String.length prefix))
+    in
+    if digits <> "" && String.for_all (fun c -> c >= '0' && c <= '9') digits
+    then
+      match int_of_string_opt digits with
+      | Some n when n >= 0 && n <= max_content_length -> Some n
+      | _ -> None
+    else None
   else None
 
-(* One framed message, or None when the stream has ended (or stopped making
-   sense -- a transport that has lost framing cannot be resynchronized). *)
-let read_message ic : J.t option =
+(* What one read of the stream produced.
+
+   A body that is not JSON leaves the framing intact, so the session goes on
+   and the client hears about the one message. Anything else -- the stream
+   ended, or a header named a length this will not read -- has lost the
+   framing, and a transport that has lost framing cannot be resynchronized.
+
+   These used to be one `None`. A single unparseable body was read as the
+   client having gone away, and the server exited: every later request went
+   unanswered, and the editor showed no diagnostics for the rest of the
+   session with nothing to say why. *)
+type frame =
+  | Frame of J.t
+  | Bad_body
+  | Ended
+
+let read_message ic : frame =
   let rec headers len =
     match input_line ic with
     | exception End_of_file -> None
     | line ->
       let line = trim_cr line in
-      if line = "" then len
+      if line = "" then Some len
       else headers (match content_length_of line with Some n -> Some n | None -> len)
   in
   match headers None with
-  | None -> None
-  | Some n ->
+  | None | Some None -> Ended
+  | Some (Some n) ->
     (match really_input_string ic n with
-     | exception End_of_file -> None
+     | exception End_of_file -> Ended
      | body ->
        (match J.from_string body with
-        | json -> Some json
-        | exception _ -> None))
+        | json -> Frame json
+        | exception _ -> Bad_body))
 
 let write_message oc (json : J.t) =
   let s = J.to_string json in
@@ -862,10 +893,16 @@ let serve ic oc : int =
     | Some code -> code
     | None ->
       match read_message ic with
-      | None ->
+      | Ended ->
         (* The client went away without `exit`. *)
         if st.shutdown_seen then 0 else 1
-      | Some msg ->
+      | Bad_body ->
+        (* The framing held, so the session does. JSON-RPC answers a body it
+           could not parse with -32700 and a null id, because there is no id
+           to answer under. *)
+        write_message oc (error_response `Null (-32700) "parse error");
+        loop st
+      | Frame msg ->
         let (st, outgoing) = handle st msg in
         List.iter (write_message oc) outgoing;
         loop st
