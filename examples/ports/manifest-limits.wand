@@ -1,0 +1,79 @@
+uses {FS.Read, IO, Proc}
+
+import IO
+import List
+import Proc
+import Result
+import YAML
+
+-- Which containers in a manifest set no resource limits.
+--
+-- bash:  yq -r 'select(.kind == "Deployment")
+--          | .spec.template.spec.containers[]
+--          | select(.resources.limits == null)
+--          | .name' deploy.yaml
+--
+-- Three things go wrong with that line, and none of them announces itself.
+--
+-- `yq` is a second tool to install, and the v3 and v4 command lines are
+-- different enough that the same script does different things depending on
+-- which one is on the machine.
+--
+-- `select(.kind == "Deployment")` is doing the work of splitting the
+-- documents, and it only looks like it works. A manifest is many documents,
+-- and a jq-shaped filter that finds none of them exits 0 with no output --
+-- which reads exactly like "every container sets limits".
+--
+-- And `.resources.limits == null` is true both when the key is absent and
+-- when the file says `limits:` with nothing under it. Those are the same
+-- answer here, but the difference between "missing" and "empty" is a real
+-- one elsewhere in this file, and the shell has no way to hold it.
+--
+-- Here the documents are a list, an unreadable file stops the run, and a
+-- container missing the key is a value rather than a hole.
+
+type Limits(cpu: String = "", memory: String = "")
+
+type Resources(limits: Limits = Limits())
+
+type Container(name: String, resources: Resources = Resources())
+
+type PodSpec(containers: List Container = [])
+
+type Template(spec: PodSpec = PodSpec())
+
+type Spec(template: Template = Template())
+
+type Doc(kind: String = "", spec: Spec = Spec())
+
+-- A document that is not a Deployment is not a failure, it is not a
+-- Deployment. So a document that will not decode is skipped rather than
+-- stopping the run -- a manifest holds ConfigMaps and Services too, and
+-- they have no containers to check.
+let deployments docs =
+  docs
+    |> List.filter_map (fn d -> Result.to_option (YAML.decode Doc.decoder d))
+    |> List.filter (fn (d: Doc) -> d.kind == "Deployment")
+
+let containers (d: Doc) = d.spec.template.spec.containers
+
+let unlimited? (c: Container) =
+  c.resources.limits.cpu == "" || c.resources.limits.memory == ""
+
+let report! path = (
+  let docs = deployments (YAML.read_file_all! path);
+  let bad =
+    docs
+      |> List.map containers
+      |> List.flatten
+      |> List.filter unlimited?
+      |> List.map (fn (c: Container) -> c.name);
+  IO.println "%{List.length docs} Deployments, %{List.length bad} containers without limits";
+  match bad with
+  | [] -> ()
+  | _ -> (bad |> List.each (fn name -> IO.println_err "  %{name}"); Proc.exit 1)
+)
+
+let main! () = report! ./deploy.yaml
+
+main! ()

@@ -1,0 +1,157 @@
+uses {FS.Read, FS.Write}
+
+import Decode
+import FS
+import List
+import Map
+import Path
+import Result
+import String
+import YAML
+
+let {test, group} = import Test
+
+-- The reading layer is covered in OCaml, against the parser. What is
+-- covered here is the surface a script actually calls, and the three
+-- formats the module exists for.
+
+-- ── the 1.2 core schema, from a script ──────────────────────────────────
+
+-- Every one of these reads a real file wrongly under YAML 1.1, which is
+-- why the record settles on 1.2 core.
+group "what 1.1 would get wrong" (fn () -> [
+  test "a workflow's on: is a key, not a boolean" (fn t ->
+    t.eq
+      (Ok "push")
+      (YAML.parse! "on: push" |> YAML.field "on" |> Result.and_then YAML.get_string)),
+  test "a compose restart policy is a word" (fn t ->
+    t.eq
+      (Ok "no")
+      (YAML.parse! "restart: no" |> YAML.field "restart" |> Result.and_then YAML.get_string)),
+  test "a port mapping is not base sixty" (fn t ->
+    t.eq
+      (Ok "2200:22")
+      (YAML.parse! "ports:\n  - 2200:22"
+        |> YAML.field! "ports"
+        |> YAML.get_sequence
+        |> Result.and_then (fn ps -> List.head! ps |> YAML.get_string)
+      )),
+  test "NO is a country" (fn t ->
+    t.eq
+      (Ok "NO")
+      (YAML.parse! "country: NO" |> YAML.field "country" |> Result.and_then YAML.get_string)),
+  test "yes and off are words too" (fn t ->
+    t.eq
+      [Ok "yes", Ok "off"]
+      (["a: yes", "a: off"]
+        |> List.map (fn src ->
+          YAML.parse! src |> YAML.field "a" |> Result.and_then YAML.get_string)
+      ))
+])
+
+group "what it does resolve" (fn () -> [
+  test "true is a boolean" (fn t ->
+    t.eq (Ok true) (YAML.parse! "a: true" |> YAML.field! "a" |> YAML.get_bool)),
+  test "an integer" (fn t ->
+    t.eq (Ok 8080) (YAML.parse! "a: 8080" |> YAML.field! "a" |> YAML.get_int)),
+  test "a float" (fn t ->
+    t.eq (Ok 1.5) (YAML.parse! "a: 1.5" |> YAML.field! "a" |> YAML.get_float)),
+  -- Quoting says string whatever the text looks like, which is how a port
+  -- and a chart version are written correctly.
+  test "a quoted number stays text" (fn t ->
+    t.eq (Ok "8080") (YAML.parse! `a: "8080"` |> YAML.field! "a" |> YAML.get_string)),
+  -- The row that survives both schemas. A chart version read unquoted
+  -- loses its zero, and the docs say so.
+  test "an unquoted 1.10 is a float" (fn t ->
+    t.eq (Ok 1.1) (YAML.parse! "a: 1.10" |> YAML.field! "a" |> YAML.get_float))
+])
+
+-- ── documents ───────────────────────────────────────────────────────────
+
+group "documents" (fn () -> [
+  test "parse_all splits a manifest" (fn t ->
+    t.eq 2 (List.length (YAML.parse_all! "kind: Service\n---\nkind: Deployment"))),
+  -- Taking the first silently is how a script checks one third of a
+  -- manifest and reports that everything passed.
+  test "parse refuses a file holding more than one" (fn t ->
+    t.eq true (Result.error? (YAML.parse "a: 1\n---\nb: 2"))),
+  test "parse reads a file holding one" (fn t -> t.eq true (Result.ok? (YAML.parse "a: 1"))),
+  test "an anchor does not reach into the document above" (fn t ->
+    t.eq true (Result.error? (YAML.parse_all "a: &x 1\n---\nb: *x")))
+])
+
+-- ── anchors and merge keys, which compose files live on ─────────────────
+
+group "anchors" (fn () -> [
+  test "a merge key brings the keys in" (fn t ->
+    t.eq
+      (Ok 1)
+      (YAML.parse! "base: &b\n  x: 1\nsvc:\n  <<: *b"
+        |> YAML.field! "svc"
+        |> YAML.field "x"
+        |> Result.and_then YAML.get_int
+      )),
+  test "an explicit key wins over a merged one" (fn t ->
+    t.eq
+      (Ok 9)
+      (YAML.parse! "base: &b\n  y: 2\nsvc:\n  <<: *b\n  y: 9"
+        |> YAML.field! "svc"
+        |> YAML.field "y"
+        |> Result.and_then YAML.get_int
+      )),
+  test "an alias naming nothing is refused" (fn t ->
+    t.eq true (Result.error? (YAML.parse "a: *nope")))
+])
+
+-- ── refusing rather than reading wrongly ────────────────────────────────
+
+group "what it refuses" (fn () -> [
+  -- Ignoring !Ref turns a CloudFormation template into a document that
+  -- parses, decodes, and means something else entirely.
+  test "an unknown tag" (fn t ->
+    t.eq true (Result.error? (YAML.parse "a: !Ref Thing"))),
+
+  test "and the message names it" (fn t ->
+    t.eq true
+      (match YAML.parse "a: !Ref Thing" with
+      | Error why -> String.contains? "!Ref" why
+      | Ok _ -> false)),
+
+  test "a mapping used as a key" (fn t ->
+    t.eq true (Result.error? (YAML.parse "? {a: 1}\n: 2"))),
+
+  test "text that is not YAML at all" (fn t ->
+    t.eq true (Result.error? (YAML.parse "a:\n  - b\n c: bad indent")))
+])
+
+-- ── the shape the record says these scripts have ────────────────────────
+
+group "reading a manifest" (fn () -> [
+  test "a decoder reads it into a type" (fn t ->
+    t.eq
+      (Ok 3)
+      (YAML.decode (Decode.field "replicas" Decode.int) (YAML.parse! "replicas: 3"))),
+  test "a mapping comes out as a Map" (fn t ->
+    t.eq (Ok 2) (YAML.parse! "a: 1\nb: 2" |> YAML.get_mapping |> Result.map Map.size)),
+  test "sequence? and mapping? answer" (fn t ->
+    t.eq [true, true] [
+      YAML.sequence? (YAML.parse! "- 1"),
+      YAML.mapping? (YAML.parse! "a: 1")
+    ]),
+  -- A manifest with a bare `resources:` is ordinary.
+  test "an absent value is null" (fn t ->
+    t.eq true (YAML.parse! "resources:" |> YAML.field! "resources" |> YAML.null?))
+])
+
+-- ── from a file ─────────────────────────────────────────────────────────
+
+group "from a file" (fn () -> [
+  test "read_file_all reads every document" (fn t ->
+    with FS.temp_dir "yaml-test" as dir -> (
+      let path = Path.join dir ./manifest.yaml;
+      FS.write_file! path "kind: Service\n---\nkind: Deployment\n";
+      t.eq 2 (List.length (YAML.read_file_all! path))
+    )),
+  test "a missing file is an Error, not a raise" (fn t ->
+    t.eq true (Result.error? (YAML.read_file ./no-such-file.yaml)))
+])

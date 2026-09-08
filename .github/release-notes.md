@@ -1,67 +1,105 @@
-## 0.66.1 - 2026-09-08
+## 0.67.0 - 2026-09-08
 
-A rebuild. The linux-x86_64 binary would not start on some machines, and
-this is the release that starts.
+wand reads YAML. Kubernetes manifests, docker-compose files, GitHub Actions
+workflows — the formats the work is actually written in.
 
-### What happened
+```ocaml
+uses {FS.Read, IO}
 
+import YAML
+
+let docs = YAML.read_file_all! ./deploy.yaml
 ```
-$ wand -e '1 + 1'
-Fatal error: Failed to allocate signal stack for domain 0
-Aborted (core dumped)
+
+### It reads them the way they are written
+
+The module follows the **YAML 1.2 core schema**, and that is not a detail.
+Under 1.1, which is what most parsers still do, each of these reads as
+something other than what the file says:
+
+| written | 1.1 | wand |
+|---|---|---|
+| `on: push` | the key is the boolean `true` | the key is `"on"` |
+| `- 2200:22` | base sixty, `132022` | the string `"2200:22"` |
+| `restart: no` | the boolean `false` | the string `"no"` |
+| `country: NO` | the boolean `false` | the string `"NO"` |
+
+The first is every GitHub Actions workflow ever written. The second is why
+the compose documentation tells people to quote their ports. For a language
+whose pitch is that values carry their type, reading a workflow's `on:` key
+as `true` would be indefensible.
+
+Only `true` and `false` are booleans here. `yes`, `no`, `on` and `off` are
+words. Quoting always makes a string, whatever the text looks like.
+
+One row survives both schemas and still bites: `1.10` is a float, so a chart
+version read unquoted arrives as `1.1` with a digit missing. Read it from a
+quoted string, which is what the file should be writing.
+
+### A manifest is many documents
+
+```ocaml
+YAML.parse "kind: Service\n---\nkind: Pod"
+-- Error("this holds 2 documents. YAML.parse reads a file that holds one,
+--        and YAML.parse_all reads them all")
 ```
 
-Through `install.sh` it read `the downloaded binary did not run`, with no
-more detail, because the script ran the binary with `2>/dev/null` and threw
-the message away.
+`parse` refuses rather than truncates. Silently taking the first document is
+how a script checks one third of a manifest and reports that everything
+passed — and `kubectl apply -f` would have applied all three.
 
-It looked like a flake. It was not one. The binary failed **every** start on
-about one machine in eight and no start on any other, so re-running always
-appeared to fix it, and always only moved to a different machine.
+`parse_all` is what the policy checks want anyway, since they iterate.
 
-### Why
+### Anchors, aliases and merge keys
 
-The machines are the ones whose CPU has AMX -- Intel's matrix extensions,
-on Xeons from Sapphire Rapids on. AMX adds 8 KB of register state, and the
-kernel saves register state onto the signal stack, so the minimum signal
-stack a signal frame needs grows with the CPU. The kernel reports it:
+An `x-common` block merged into several services is the standard way a
+compose file avoids repetition, so `&name`, `*name` and `<<:` all work. An
+explicit key beats a merged one wherever it is written, and `<<: [*a, *b]`
+takes the earlier one.
 
-| CPU | minimum |
-|---|---|
-| no AMX | 1776 |
-| AVX-512 | 3376 |
-| **AMX** | **11952** |
+Expansion is capped at 100,000 nodes. A dozen lines of aliases can unfold
+into gigabytes, and a script reading a file it did not write should not be
+where that is discovered.
 
-An OCaml runtime before 5.5.1 sizes that stack from the build-time
-`SIGSTKSZ`, and musl fixes `SIGSTKSZ` at 8192 whatever the CPU says. musl
-1.2.6 compares the request against the kernel's number and answers
-`ENOMEM`, and the runtime aborts.
+### It refuses rather than reads wrongly
 
-musl is right to refuse. 8192 really is too small there. musl 1.2.5 and
-glibc both accept it in silence, which is worse rather than better: it
-trades an abort at startup for a signal frame written past the end of the
-stack. So the answer was not an older Alpine.
+An unknown tag is an error naming the tag. Ignoring `!Ref` would turn a
+CloudFormation template into a document that parses, decodes, and means
+something entirely different from what it says.
 
-### The fix
+Reading is all it does. There is no `stringify` to pair with `JSON`'s and
+`TOML`'s: emitting YAML means choosing among many equivalent spellings, and
+the one job that would want it — editing a workflow in place — needs the
+comments and the layout kept, which is a different data structure and a
+different tool.
 
-OCaml 5.5.1 reads `sysconf(_SC_SIGSTKSZ)` instead of the constant. On one
-of those machines it asks for 19120 rather than 8192, and starts.
+Helm charts are not YAML. A chart's templates are Go templates that happen
+to produce it, so read the output of `helm template` rather than the chart.
 
-No opam image carries 5.5.1 yet -- `alpine-ocaml-5.5` is still 5.5.0, which
-does not have it -- so the release build creates the switch itself, from a
-pinned opam-repository commit. That comes out once a base image ships
-5.5.1.
+### Nothing new to learn
 
-The binary is still statically linked, so nothing about how it is installed
-or copied changes.
+`decode` takes the same `Decoder 'a` as `JSON.decode` and `TOML.decode`,
+including the ones a type definition derives:
 
-### What else
+```ocaml
+type Container(image: String, name: String)
+type Spec(replicas: Int, containers: List Container)
+```
 
-Only linux-x86_64 was affected. linux-aarch64 and both macOS builds ask for
-the same 8192 and are not refused, because there is no comparable register
-state to save.
+### Where the parser comes from
 
-`install.sh` now keeps the failing binary's stderr and prints it above the
-failure, so the next thing that cannot start says why.
+libyaml does the syntax and wand does the meaning. Indentation, block and
+flow context, quoting, line folding and escapes are the large, exacting part
+of the format and are already written; reimplementing them would have added
+errors to a solved problem. What wand supplies is the part where the answers
+this domain needs differ: scalar resolution, alias expansion, merge keys and
+document boundaries.
 
-No language changes. Every wand program behaves as it did in 0.66.0.
+The `yaml` package vendors libyaml, so there is no system library to install
+and the binary stays statically linked. It is about 12% larger.
+
+### Also
+
+`examples/ports/manifest-limits.wand` reports the containers in a manifest
+that set no resource limits — including the ones that write `limits:` with
+nothing under it, which a `yq` filter reads as identical to a missing key.

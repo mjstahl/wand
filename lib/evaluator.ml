@@ -173,6 +173,12 @@ type value =
   | VRegex         of Re.re
   | VJson          of Yojson.Basic.t
   | VToml          of Toml.Types.value
+  (* Restricted to string keys, YAML 1.2 core's value space is JSON's,
+     so a document needs no representation of its own. It stays a
+     separate wand type: what a file is decides how it is read, and a
+     `JSON.get_object` on a manifest would read as though wand had
+     converted the file. *)
+  | VYaml          of Yojson.Basic.t
   | VTuple         of value list
   | VList          of value list
   | VMap           of (string * value) list
@@ -510,6 +516,7 @@ let rec render ~quote v =
      says this is a command rather than the text of one. *)
   | VCommand (cmd, _) -> "$*(" ^ cmd ^ ")"
   | VJson j     -> Yojson.Basic.to_string j
+  | VYaml y     -> Yojson.Basic.to_string y
   (* A TOML value shows the way the rest of the language shows the same
      shapes: a table like a map, an array like a list. What it does not show
      as is a TOML document -- that is the text of the value rather than a
@@ -5218,6 +5225,88 @@ let stdlib_eval_env : env = [
          | None   -> VConstr (Ctor.Builtin "Error", [VString ("no field: " ^ k)]))
       | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
       | _ -> raise (EvalError "json_field: expected JSON"))));
+  (* ── YAML ──────────────────────────────────────────────────────────────
+     Read-only. `Yaml_read` resolves scalars against the 1.2 core schema
+     rather than letting the library resolve them the 1.1 way, which is what
+     keeps a workflow's `on:` a string and a compose file's `restart: no` a
+     word. *)
+  ("yaml_parse", VBuiltin (function
+    | VString s ->
+      (match Yaml_read.parse s with
+       | Ok y      -> VConstr (Ctor.Builtin "Ok", [VYaml y])
+       | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
+    | _ -> raise (EvalError "yaml_parse: expected String")));
+  ("yaml_parse_exn", VBuiltin (function
+    | VString s ->
+      (match Yaml_read.parse s with
+       | Ok y      -> VYaml y
+       | Error msg -> raise (EvalError ("yaml_parse: " ^ msg)))
+    | _ -> raise (EvalError "yaml_parse_exn: expected String")));
+  ("yaml_parse_all", VBuiltin (function
+    | VString s ->
+      (match Yaml_read.parse_all s with
+       | Ok ys     -> VConstr (Ctor.Builtin "Ok", [VList (List.map (fun y -> VYaml y) ys)])
+       | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
+    | _ -> raise (EvalError "yaml_parse_all: expected String")));
+  ("yaml_parse_all_exn", VBuiltin (function
+    | VString s ->
+      (match Yaml_read.parse_all s with
+       | Ok ys     -> VList (List.map (fun y -> VYaml y) ys)
+       | Error msg -> raise (EvalError ("yaml_parse_all: " ^ msg)))
+    | _ -> raise (EvalError "yaml_parse_all_exn: expected String")));
+  ("yaml_is_mapping", VBuiltin (function
+    | VYaml (`Assoc _) -> VBool true | VYaml _ -> VBool false
+    | _ -> raise (EvalError "yaml_is_mapping: expected YAML")));
+  ("yaml_is_sequence", VBuiltin (function
+    | VYaml (`List _) -> VBool true | VYaml _ -> VBool false
+    | _ -> raise (EvalError "yaml_is_sequence: expected YAML")));
+  ("yaml_is_null", VBuiltin (function
+    | VYaml `Null -> VBool true | VYaml _ -> VBool false
+    | _ -> raise (EvalError "yaml_is_null: expected YAML")));
+  ("yaml_get_bool", VBuiltin (function
+    | VYaml (`Bool b) -> VConstr (Ctor.Builtin "Ok", [VBool b])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected bool, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_bool: expected YAML")));
+  ("yaml_get_int", VBuiltin (function
+    | VYaml (`Int n) -> VConstr (Ctor.Builtin "Ok", [VInt n])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected int, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_int: expected YAML")));
+  ("yaml_get_float", VBuiltin (function
+    | VYaml (`Float f) -> VConstr (Ctor.Builtin "Ok", [VFloat f])
+    | VYaml (`Int n)   -> VConstr (Ctor.Builtin "Ok", [VFloat (float_of_int n)])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected float, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_float: expected YAML")));
+  ("yaml_get_string", VBuiltin (function
+    | VYaml (`String s) -> VConstr (Ctor.Builtin "Ok", [VString s])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected string, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_string: expected YAML")));
+  ("yaml_get_sequence", VBuiltin (function
+    | VYaml (`List ys) -> VConstr (Ctor.Builtin "Ok", [VList (List.map (fun y -> VYaml y) ys)])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected sequence, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_sequence: expected YAML")));
+  ("yaml_get_mapping", VBuiltin (function
+    | VYaml (`Assoc kvs) ->
+      VConstr (Ctor.Builtin "Ok", [VMap (map_of_pairs (List.map (fun (k, y) -> (k, VYaml y)) kvs))])
+    | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected mapping, got " ^ Yojson.Basic.to_string y)])
+    | _ -> raise (EvalError "yaml_get_mapping: expected YAML")));
+  ("yaml_field", VBuiltin (fun key ->
+    VBuiltin (function
+      | VYaml (`Assoc kvs) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "yaml_field: key must be String")) in
+        (match assoc_last k kvs with
+         | Some y -> VConstr (Ctor.Builtin "Ok", [VYaml y])
+         | None   -> VConstr (Ctor.Builtin "Error", [VString ("no field: " ^ k)]))
+      | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected mapping, got " ^ Yojson.Basic.to_string y)])
+      | _ -> raise (EvalError "yaml_field: expected YAML"))));
+  ("yaml_field_exn", VBuiltin (fun key ->
+    VBuiltin (function
+      | VYaml (`Assoc kvs) ->
+        let k = (match key with VString s -> s | _ -> raise (EvalError "yaml_field!: key must be String")) in
+        (match assoc_last k kvs with
+         | Some y -> VYaml y
+         | None   -> raise (EvalError ("no field: " ^ k)))
+      | VYaml y -> raise (EvalError ("expected mapping, got " ^ Yojson.Basic.to_string y))
+      | _ -> raise (EvalError "yaml_field!: expected YAML"))));
   ("json_parse", VBuiltin (function
     | VString s ->
       (try VConstr (Ctor.Builtin "Ok", [VJson (Yojson.Basic.from_string s)])
@@ -6156,6 +6245,16 @@ let decode_builtins : env = [
          | Ok v      -> VConstr (Ctor.Builtin "Ok", [v])
          | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
       | _ -> raise (EvalError "toml_decode: expected TOML"))));
+  (* No conversion, unlike TOML's: a YAML document already is the value the
+     decoders run over. *)
+  ("yaml_decode", VBuiltin (fun d ->
+    let inner = as_decoder "yaml_decode" d in
+    VBuiltin (function
+      | VYaml y ->
+        (match inner y [] with
+         | Ok v      -> VConstr (Ctor.Builtin "Ok", [v])
+         | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
+      | _ -> raise (EvalError "yaml_decode: expected YAML"))));
   (* One record per line, and the line is text: a command's output has no
      types of its own, so `Decode.int` reads the digits. *)
   ("shell_lines", VBuiltin (fun d ->

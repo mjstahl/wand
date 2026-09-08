@@ -23,6 +23,7 @@
   linenoise
   yojson
   toml
+  yaml
   re
   digestif
   eqaf

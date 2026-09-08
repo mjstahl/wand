@@ -205,3 +205,7 @@
   (source_tree ../stdlib)
   (source_tree wand))
  (libraries wand_fuzz alcotest))
+
+(test
+ (name test_yaml_read)
+ (libraries wand alcotest yojson))

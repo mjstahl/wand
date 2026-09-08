@@ -4280,6 +4280,103 @@ match TOML.read_file ./config.toml with
 | Error m -> TOML.parse! ""
 ```
 
+### `YAML`
+
+```ocaml
+parse          : String -> Result String YAML
+parse!         : String -> YAML ! {Raise}
+parse_all      : String -> Result String (List YAML)
+parse_all!     : String -> List YAML ! {Raise}
+read_file      : Path -> Result String YAML ! {FS.Read}
+read_file!     : Path -> YAML ! {FS.Read, Raise}
+read_file_all  : Path -> Result String (List YAML) ! {FS.Read}
+read_file_all! : Path -> List YAML ! {FS.Read, Raise}
+mapping?       : YAML -> Bool
+sequence?      : YAML -> Bool
+null?          : YAML -> Bool
+get_bool       : YAML -> Result String Bool
+get_int        : YAML -> Result String Int
+get_float      : YAML -> Result String Float
+get_string     : YAML -> Result String String
+get_sequence   : YAML -> Result String (List YAML)
+get_mapping    : YAML -> Result String (Map YAML)
+field          : String -> YAML -> Result String YAML
+field!         : String -> YAML -> YAML ! {Raise}
+decode         : Decoder 'a -> YAML -> Result String 'a
+```
+
+**Reading only.** There is no `stringify` and no `of` to pair with `JSON`'s
+and `TOML`'s. Emitting YAML means choosing among many equivalent spellings,
+and the one job that would want it — editing a workflow in place — needs the
+comments and the layout kept, which is a different data structure.
+
+**Scalars follow the YAML 1.2 core schema.** That is what these three rows
+turn on, and each one is a real file read wrongly under 1.1:
+
+| written | 1.1 | here |
+|---|---|---|
+| `on: push` | the key is the boolean `true` | the key is `"on"` |
+| `- 2200:22` | base sixty, `132022` | the string `"2200:22"` |
+| `restart: no` | the boolean `false` | the string `"no"` |
+| `country: NO` | the boolean `false` | the string `"NO"` |
+
+Only `true` and `false` are booleans. `yes`, `no`, `on` and `off` are words.
+Quoting always makes a string, whatever the text looks like.
+
+**`1.10` is a float**, under both schemas, so a chart version read unquoted
+arrives as `1.1` and has lost a digit. Read it from a quoted string, which
+is what the file should be writing:
+
+```yaml
+version: "1.10.0"
+```
+
+**A file holds one document or many.** `parse` reads a file that holds one
+and *fails* on a file that holds more, naming how many it found — taking the
+first silently is how a script checks one third of a manifest and reports
+that everything passed. `parse_all` reads them all, which is what a
+Kubernetes manifest wants:
+
+```ocaml
+import YAML
+
+let deployments =
+  YAML.read_file_all! ./deploy.yaml
+    |> List.filter (fn d ->
+      YAML.field "kind" d |> Result.and_then YAML.get_string == Ok "Deployment")
+```
+
+Anchors are per document: `---` starts a new naming scope, so an alias
+cannot reach into the document above it.
+
+**Anchors, aliases and merge keys work**, because an `x-common` block merged
+into several services is how a compose file avoids repetition. An explicit
+key beats a merged one wherever it is written, and `<<: [*a, *b]` takes the
+earlier one. Expansion is capped at 100,000 nodes: a dozen lines can
+otherwise unfold into gigabytes, and a script reading a file it did not
+write should not be where that is discovered.
+
+**An unknown tag is refused, by name.** `!Ref` in a CloudFormation template
+would otherwise parse, decode, and mean something entirely different from
+what the file says. Refusing to read a file beats reading it wrongly. The
+standard `!!str`, `!!int`, `!!float`, `!!bool` and `!!null` are honoured.
+
+A key is a `String`, because `Map` is keyed by `String` and nothing in these
+formats has another kind of key.
+
+**Helm charts are not YAML.** A chart's templates are Go templates that
+happen to produce it, so read the output of `helm template` rather than the
+chart. The same holds for anything else templated before it is applied.
+
+`decode` takes the same `Decoder 'a` as `JSON.decode` and `TOML.decode`,
+including the ones derived from a type definition — so reading a manifest
+into a record is the same job it is for the other two:
+
+```ocaml
+type Container(image: String, name: String)
+type Spec(replicas: Int, containers: List Container)
+```
+
 ### `Float`
 
 ```ocaml

@@ -11,7 +11,7 @@ let stdlib_module_names =
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
     "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
-    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64"; "HTTP" ]
+    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64"; "HTTP"; "YAML" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -56,6 +56,7 @@ type typ =
   | TDecoder of typ
   | TJson
   | TToml
+  | TYaml
   | TName of string
 
 and tv = {
@@ -640,6 +641,7 @@ let string_of_typ t =
     | TCommand  -> "Command"
     | TJson     -> "JSON"
     | TToml     -> "TOML"
+    | TYaml     -> "YAML"
     (* A type carries the module that declares it. A reader wrote the short
        name, so that is what a message shows. *)
     (* A type carries the module that declares it. A reader wrote the short
@@ -787,6 +789,7 @@ let rec unify_ t1 t2 =
   | TRegex,    TRegex    -> ()
   | TJson,     TJson     -> ()
   | TToml,     TToml     -> ()
+  | TYaml,     TYaml     -> ()
   | TCommand,  TCommand  -> ()
   | TName n1, TName n2 when n1 = n2 -> ()
   | TVar tv1, TVar tv2 when tv1 == tv2 -> ()
@@ -1202,7 +1205,7 @@ let known_type_arities : (string * int) list ref = ref []
 let builtin_type_names =
   [ "Int"; "Float"; "String"; "Bool"; "Unit"; "Path"; "Glob";
     "DateTime"; "Duration"; "URL"; "IPv4"; "CIDR";
-    "Port"; "Version"; "Size"; "JSON"; "TOML"; "Command";
+    "Port"; "Version"; "Size"; "JSON"; "TOML"; "YAML"; "Command";
     "List"; "Map"; "Result"; "Option"; "Decoder" ]
 
 let builtin_type_name n = List.mem n builtin_type_names
@@ -1428,6 +1431,7 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | "Version"  -> TVersion  | "Size"     -> TSize
        | "JSON"     -> TJson
        | "TOML"     -> TToml
+       | "YAML"     -> TYaml
        | "Command"  -> TCommand
        (* A canonical name resolves to itself: it is not something a file
           writes, it is what a declaration that travelled says. *)
@@ -2169,7 +2173,7 @@ let rec ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list
   | TVar _ -> []  (* still unresolved -- shape unknown, can't check, never flagged *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TCommand | TFun _ | TResource _ | TStream _
+  | TRegex | TJson | TToml | TYaml | TCommand | TFun _ | TResource _ | TStream _
   | TDecoder _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
@@ -2179,7 +2183,7 @@ let is_infinite_domain t =
   | TVar _ -> false  (* unresolved -- handled as "unchecked" via ctors_of_type = [] *)
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
-  | TRegex | TJson | TToml | TCommand | TFun _ | TApp _ | TResource _
+  | TRegex | TJson | TToml | TYaml | TCommand | TFun _ | TApp _ | TResource _
   | TStream _ | TDecoder _ -> true
   | _ -> false
 
@@ -4127,6 +4131,9 @@ let stdlib_type_env : env = [
   ("toml_decode",     let a = fresh () in
                       generalize []
                         (TDecoder a @-> (TToml @-> TResult (TString, a))));
+  ("yaml_decode",     let a = fresh () in
+                      generalize []
+                        (TDecoder a @-> (TYaml @-> TResult (TString, a))));
   ("shell_decode",    let a = fresh () in
                       generalize []
                         (TDecoder a @-> (TString @-> TResult (TString, a))));
@@ -4183,6 +4190,26 @@ let stdlib_type_env : env = [
   ("toml_get_table",    generalize [] ((TToml @-> TResult (TString, (TMap TToml)))));
   ("toml_field",        generalize [] ((TString @-> (TToml @-> TResult (TString, TToml)))));
   ("toml_field_exn",    generalize [] (effs [Effect_set.Raise] (TString) ((TToml @-> TToml))));
+
+  (* YAML is read, never written: there is no `yaml_stringify` to pair with
+     the other two, because emitting means choosing among many equivalent
+     spellings and the one job that would want it -- editing a workflow in
+     place -- needs comments and layout kept, which this does not carry. *)
+  ("yaml_parse",         generalize [] ((TString @-> TResult (TString, TYaml))));
+  ("yaml_parse_exn",     generalize [] (effs [Effect_set.Raise] (TString) (TYaml)));
+  ("yaml_parse_all",     generalize [] ((TString @-> TResult (TString, (TList TYaml)))));
+  ("yaml_parse_all_exn", generalize [] (effs [Effect_set.Raise] (TString) ((TList TYaml))));
+  ("yaml_is_mapping",    generalize [] ((TYaml @-> TBool)));
+  ("yaml_is_sequence",   generalize [] ((TYaml @-> TBool)));
+  ("yaml_is_null",       generalize [] ((TYaml @-> TBool)));
+  ("yaml_get_bool",      generalize [] ((TYaml @-> TResult (TString, TBool))));
+  ("yaml_get_int",       generalize [] ((TYaml @-> TResult (TString, TInt))));
+  ("yaml_get_float",     generalize [] ((TYaml @-> TResult (TString, TFloat))));
+  ("yaml_get_string",    generalize [] ((TYaml @-> TResult (TString, TString))));
+  ("yaml_get_sequence",  generalize [] ((TYaml @-> TResult (TString, (TList TYaml)))));
+  ("yaml_get_mapping",   generalize [] ((TYaml @-> TResult (TString, (TMap TYaml)))));
+  ("yaml_field",         generalize [] ((TString @-> (TYaml @-> TResult (TString, TYaml)))));
+  ("yaml_field_exn",     generalize [] (effs [Effect_set.Raise] (TString) ((TYaml @-> TYaml))));
   ("env_get_exn", generalize [] (effs [Effect_set.Env; Effect_set.Raise] (TString) (TString)));
   ("env_set",     generalize [] (effs [Effect_set.Env] (TString) ((TString @-> TUnit))));
   ("env_clear",   generalize [] (effs [Effect_set.Env] (TString) (TUnit)));

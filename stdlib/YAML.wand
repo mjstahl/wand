@@ -1,0 +1,187 @@
+uses {FS.Read}
+
+import FS
+
+-- Reading YAML: Kubernetes manifests, docker-compose files, GitHub Actions
+-- workflows.
+--
+-- The questions this is for read a document, pull a few fields and report:
+-- does every Deployment set resource limits, is any image pinned to
+-- `:latest`, which workflows still run on an unsupported runner. None of
+-- them rewrites the file, and this module cannot: there is no `stringify`
+-- to pair with `JSON`'s and `TOML`'s. Emitting YAML means choosing among
+-- many equivalent spellings, and the one job that would want it -- editing
+-- a workflow in place -- needs the comments and the layout kept, which is a
+-- different data structure and a different tool.
+--
+-- Scalars are read against the **YAML 1.2 core schema**, not 1.1. A
+-- workflow's `on:` is the string `"on"` and not the boolean true; a compose
+-- file's `2200:22` is a string and not base sixty; `restart: no` is the
+-- word `"no"`. Every one of those is 1.1 behaviour that would read a real
+-- file as something other than what it says.
+--
+-- One row survives both schemas and bites anyway: `1.10` is a **float**, so
+-- a chart version read unquoted arrives as `1.1`. Read it from a quoted
+-- string, which is what the file should be writing:
+--
+--     version: "1.10.0"
+--
+-- Helm charts are not YAML. A chart's templates are Go templates that
+-- happen to produce it, so read the output of `helm template` rather than
+-- the chart.
+
+-- Read one document.
+--
+-- A file that holds more than one is an error rather than a truncation --
+-- silently taking the first is how a script checks one third of a manifest
+-- and reports that everything passed. Use `parse_all` for those.
+--
+-- >> YAML.parse "name: web\nport: 8080"
+-- Ok({"name":"web","port":8080}) : Result String YAML
+--
+-- >> YAML.parse "on: push"
+-- Ok({"on":"push"}) : Result String YAML
+let parse src = yaml_parse src
+
+-- Read one document. Raises on anything `parse` reports.
+--
+-- >> YAML.parse! "replicas: 3" |> YAML.field! "replicas" |> YAML.get_int
+-- Ok(3) : Result String Int
+let parse! src = yaml_parse_exn src
+
+-- Read every document in the file. `---` separates them, which is how
+-- Kubernetes manifests are written and how `kubectl apply -f` reads them.
+--
+-- >> YAML.parse_all "kind: Service\n---\nkind: Deployment" |> Result.map List.length
+-- Ok(2) : Result String Int
+let parse_all src = yaml_parse_all src
+
+-- Read every document in the file. Raises instead of answering.
+--
+-- >> YAML.parse_all! "a: 1\n---\na: 2" |> List.length
+-- 2 : Int
+let parse_all! src = yaml_parse_all_exn src
+
+-- Read one document from a file. Raises on a file that will not open, and
+-- on one holding more than one document.
+--
+-- This performs the same `FS!read_file` every other reader performs, so it
+-- is `FS.Read` like any other read: a handler mocking the filesystem stands
+-- in for it, and `--dry-run` sees it.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./c.yaml; FS.write_file! f "port: 8080";
+-- ..    YAML.read_file! f)
+-- {"port":8080} : YAML
+let read_file! path = parse! (FS.read_file! path)
+
+-- Read one document from a file.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match YAML.read_file (Path.join d ./missing.yaml) with
+-- ..    | Ok _ -> "read" | Error _ -> "no")
+-- "no" : String
+let read_file path = try read_file! path
+
+-- Read every document in a file. This is the one a manifest wants, because
+-- `---` is how they are written and how `kubectl apply -f` reads them.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (let f = Path.join d ./m.yaml; FS.write_file! f "kind: Service\n---\nkind: Pod";
+-- ..    List.length (YAML.read_file_all! f))
+-- 2 : Int
+let read_file_all! path = parse_all! (FS.read_file! path)
+
+-- Read every document in a file.
+--
+-- >> with FS.temp_dir "ex_" as d ->
+-- ..   (match YAML.read_file_all (Path.join d ./missing.yaml) with
+-- ..    | Ok _ -> "read" | Error _ -> "no")
+-- "no" : String
+let read_file_all path = try read_file_all! path
+
+-- Read a document into a type, with a decoder.
+--
+-- A `Decoder 'a` is the same one `JSON.decode` and `TOML.decode` take, and
+-- the same one a type definition derives, so nothing here is a third
+-- vocabulary to learn.
+--
+-- >> YAML.decode (Decode.field "port" Decode.int) (YAML.parse! "port: 8080")
+-- Ok(8080) : Result String Int
+let decode d y = yaml_decode d y
+
+-- The value at a key.
+--
+-- >> YAML.parse! "a:\n  b: 1" |> YAML.field "a" |> Result.and_then (YAML.field "b")
+-- Ok(1) : Result String YAML
+let field key y = yaml_field key y
+
+-- The value at a key. Raises if it is not there.
+--
+-- >> YAML.parse! "kind: Pod" |> YAML.field! "kind" |> YAML.get_string
+-- Ok("Pod") : Result String String
+let field! key y = yaml_field_exn key y
+
+-- The string, or an Error saying what it found instead.
+--
+-- >> YAML.get_string (YAML.parse! "'yes'")
+-- Ok("yes") : Result String String
+let get_string y = yaml_get_string y
+
+-- The integer, or an Error saying what it found instead.
+--
+-- >> YAML.get_int (YAML.parse! "8080")
+-- Ok(8080) : Result String Int
+let get_int y = yaml_get_int y
+
+-- The float, or an Error saying what it found instead. An integer reads as
+-- a float, as it does in `JSON`.
+--
+-- >> YAML.get_float (YAML.parse! "1.5")
+-- Ok(1.5) : Result String Float
+let get_float y = yaml_get_float y
+
+-- The boolean, or an Error saying what it found instead. Only `true` and
+-- `false` are booleans here: `yes`, `no`, `on` and `off` are words.
+--
+-- >> YAML.get_bool (YAML.parse! "true")
+-- Ok(true) : Result String Bool
+--
+-- >> YAML.get_bool (YAML.parse! "yes") |> Result.error?
+-- true : Bool
+let get_bool y = yaml_get_bool y
+
+-- The sequence, or an Error saying what it found instead.
+--
+-- >> YAML.get_sequence (YAML.parse! "- 1\n- 2") |> Result.map List.length
+-- Ok(2) : Result String Int
+let get_sequence y = yaml_get_sequence y
+
+-- The mapping, or an Error saying what it found instead.
+--
+-- >> YAML.get_mapping (YAML.parse! "a: 1") |> Result.map Map.size
+-- Ok(1) : Result String Int
+let get_mapping y = yaml_get_mapping y
+
+-- Whether it is a sequence.
+--
+-- >> YAML.sequence? (YAML.parse! "- 1")
+-- true : Bool
+let sequence? y = yaml_is_sequence y
+
+-- Whether it is a mapping.
+--
+-- >> YAML.mapping? (YAML.parse! "a: 1")
+-- true : Bool
+let mapping? y = yaml_is_mapping y
+
+-- Whether it is empty. YAML writes nothing four ways -- `null`, `~`, `Null`
+-- and an absent value -- and a manifest with a bare `resources:` under it
+-- is ordinary, so the question comes up.
+--
+-- >> YAML.parse! "resources:" |> YAML.field! "resources" |> YAML.null?
+-- true : Bool
+--
+-- >> YAML.parse! "resources: {}" |> YAML.field! "resources" |> YAML.null?
+-- false : Bool
+let null? y = yaml_is_null y

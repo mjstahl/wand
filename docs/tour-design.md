@@ -257,9 +257,10 @@ Every stage of the tour is then a file that the compiler has agreed with.
 - **`Proc`.** Refused, not rehearsed. A rehearsal of "ends the process" that
   continued would be a lie about the one label whose description says nothing
   catches it.
-- **Network examples.** Blocked until `HTTP` and `Net` land; see
-  `http-design.md`. Today they would read as `Shell(curl)` and rehearse,
-  which teaches the wrong thing.
+- **Network examples.** `HTTP` and `Net` shipped in 0.65.0, so an example
+  that reaches a host now says so in its manifest. What is left to decide is
+  whether such an example runs on the tour or is rehearsed -- it reaches a
+  machine that is not the reader's, which is the same question `Shell` asks.
 
 ## Order
 

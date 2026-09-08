@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.67.0] - 2026-09-08
+
+### Added
+
+- **`YAML`, read-only.** Twenty members: `parse`, `parse_all`, `read_file`,
+  `read_file_all`, each with a `!` sibling, plus `decode`, `field`,
+  `field!`, `get_string`, `get_int`, `get_float`, `get_bool`,
+  `get_sequence`, `get_mapping`, `mapping?`, `sequence?` and `null?`
+- **Scalars follow the YAML 1.2 core schema, not 1.1.** Each of these is a
+  real file that 1.1 reads as something other than what it says:
+
+| written | 1.1 | wand |
+|---|---|---|
+| `on: push` | the key is the boolean `true` | the key is `"on"` |
+| `- 2200:22` | base sixty, `132022` | the string `"2200:22"` |
+| `restart: no` | the boolean `false` | the string `"no"` |
+| `country: NO` | the boolean `false` | the string `"NO"` |
+
+- Only `true` and `false` are booleans. `yes`, `no`, `on` and `off` are
+  words. Quoting always makes a string
+- `1.10` is a float under both schemas, so a chart version read unquoted
+  arrives as `1.1`. Read it from a quoted string
+- **`parse` reads a file holding one document and fails on a file holding
+  more**, naming how many it found. Taking the first silently is how a
+  script checks one third of a manifest and reports that everything passed.
+  `parse_all` reads them all, which is what a Kubernetes manifest wants
+- Anchors are per document: `---` starts a new naming scope
+- **Anchors, aliases and merge keys work**, because a block merged into
+  several services is how a compose file avoids repetition. An explicit key
+  beats a merged one wherever it is written, and `<<: [*a, *b]` takes the
+  earlier one. Expansion is capped at 100,000 nodes
+- **An unknown tag is refused, by name.** `!Ref` in a CloudFormation
+  template would otherwise parse, decode, and mean something entirely
+  different from what the file says. The standard `!!str`, `!!int`,
+  `!!float`, `!!bool` and `!!null` are honoured
+- `decode` takes the same `Decoder 'a` as `JSON.decode` and `TOML.decode`,
+  including the ones derived from a type definition
+- **`examples/ports/manifest-limits.wand`** reports the containers in a
+  manifest that set no resource limits
+
+### Changed
+
+- The linux-x86_64 and linux-aarch64 release builds link libyaml, which the
+  `yaml` package vendors. The binary is still statically linked, and is
+  about 12% larger
+- `docs/http-design.md` and `docs/yaml-design.md` are deleted, their work
+  having shipped. `docs/roadmap.md` goes with them: both items on it are
+  done
+
 ## [0.66.1] - 2026-09-08
 
 ### Fixed
