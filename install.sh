@@ -99,9 +99,19 @@ tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 # `wand -e` is the spelling from 0.55.0 on and `wand e` the one before it.
 # WAND_VERSION installs whatever it is given, so both are asked and an older
 # release is not a failure.
-got=$(cd "$tmp" && { "./$name/wand" -e '1 + 1' 2>/dev/null \
-                     || "./$name/wand" e '1 + 1' 2>/dev/null; }) \
-  || fail "the downloaded binary did not run"
+# Both spellings are asked, and stderr is kept. A binary that dies at
+# startup prints why and then aborts; discarding that left "did not run" as
+# the whole report, and a run-time abort on the linux-x86_64 build has twice
+# been diagnosed from nothing else.
+err="$tmp/run.err"
+got=$(cd "$tmp" && { "./$name/wand" -e '1 + 1' 2>"$err" \
+                     || "./$name/wand" e '1 + 1' 2>"$err"; }) || {
+  if [ -s "$err" ]; then
+    printf 'install.sh: the binary said:\n' >&2
+    sed 's/^/  /' "$err" >&2
+  fi
+  fail "the downloaded binary did not run"
+}
 [ "$got" = "2 : Int" ] || fail "the downloaded binary answered '$got' to 1 + 1"
 
 # ── Install ───────────────────────────────────────────────────────────────

@@ -1,0 +1,218 @@
+name: Install crash
+
+# A published linux-x86_64 binary sometimes dies at startup with SIGABRT:
+#
+#     downloading wand-0.65.0-linux-x86_64.tar.gz
+#     checksum verified
+#     Aborted (core dumped)
+#     install.sh: the downloaded binary did not run
+#
+# Seen on v0.62.0 (2026-09-06) and v0.66.0 (2026-09-08), each time on the
+# *previous* release's binary, and each time gone on a re-run. It has never
+# been investigated, because a re-run has always been cheaper than a look.
+#
+# install.sh runs the binary with `2>/dev/null`, so the message the runtime
+# printed before aborting has never been read. That is the first thing this
+# answers. The second is a rate: how often, sequentially and under load, on
+# which runner image, and on which architecture.
+#
+# Dispatch only. It costs nothing until someone asks.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release to test, without the leading v"
+        required: false
+        default: "0.65.0"
+      iterations:
+        description: "Sequential starts per job"
+        required: false
+        default: "2000"
+      concurrency:
+        description: "Parallel starts in the burst phase"
+        required: false
+        default: "64"
+
+permissions:
+  contents: read
+
+jobs:
+  starts:
+    name: ${{ matrix.runs-on }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The one that fails. Both images, because `ubuntu-latest` moved to
+          # 24.04 and the failures postdate the move.
+          - runs-on: ubuntu-latest
+            arch: x86_64
+          - runs-on: ubuntu-22.04
+            arch: x86_64
+          # The control. Same image, same build script, never seen to fail.
+          - runs-on: ubuntu-24.04-arm
+            arch: aarch64
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Runner facts
+        run: |
+          set +e
+          set -x
+          uname -a
+          cat /etc/os-release | head -3
+          echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
+          nproc
+          free -m
+          ulimit -a
+          cat /proc/sys/vm/max_map_count
+          cat /proc/sys/vm/overcommit_memory
+          cat /proc/sys/vm/overcommit_ratio
+          cat /proc/sys/kernel/randomize_va_space
+          cat /proc/sys/kernel/threads-max
+          cat /proc/sys/kernel/pid_max
+          getconf PAGESIZE
+          # OCaml 5 sizes the signal stack from this on glibc; musl has no
+          # such knob, which is part of what is being asked here.
+          getconf SIGSTKSZ 2>/dev/null || echo "getconf SIGSTKSZ: unsupported"
+
+      - name: Download the release
+        env:
+          V: ${{ github.event.inputs.version }}
+          A: ${{ matrix.arch }}
+        run: |
+          set -euxo pipefail
+          name="wand-$V-linux-$A"
+          url="https://github.com/${{ github.repository }}/releases/download/v$V/$name.tar.gz"
+          curl -fsSL "$url" -o "$name.tar.gz"
+          tar -xzf "$name.tar.gz"
+          mv "$name/wand" ./wand
+          chmod +x ./wand
+          file ./wand
+          ls -l ./wand
+
+      - name: Collect cores
+        run: |
+          set -eux
+          ulimit -c unlimited
+          sudo mkdir -p /cores
+          sudo chmod 1777 /cores
+          # %e executable, %p pid. A literal pattern, so no core handler is
+          # involved and nothing needs to be running to catch one.
+          echo '/cores/core.%e.%p' | sudo tee /proc/sys/kernel/core_pattern
+          cat /proc/sys/kernel/core_pattern
+
+      # Sequential starts. This is the shape install.sh takes: one start, on
+      # an idle machine, from a cold page cache the first time.
+      - name: Sequential starts
+        env:
+          N: ${{ github.event.inputs.iterations }}
+        run: |
+          set +e
+          set -uo pipefail
+          ulimit -c unlimited
+          fails=0
+          i=0
+          while [ "$i" -lt "$N" ]; do
+            i=$((i + 1))
+            err=$(./wand -e '1 + 1' 2>&1 >/dev/null)
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              fails=$((fails + 1))
+              echo "--- sequential start $i failed, exit $rc"
+              echo "$err"
+            fi
+          done
+          echo "sequential: $fails failed of $N"
+          echo "SEQ_FAILS=$fails" >> "$GITHUB_ENV"
+          echo "SEQ_TOTAL=$N" >> "$GITHUB_ENV"
+
+      # Concurrent starts. Every earlier failure happened on a runner that was
+      # doing something else, so the interesting question is whether pressure
+      # is what makes it. Each round starts C copies at once.
+      - name: Concurrent starts
+        env:
+          N: ${{ github.event.inputs.iterations }}
+          C: ${{ github.event.inputs.concurrency }}
+        run: |
+          set +e
+          set -uo pipefail
+          ulimit -c unlimited
+          rounds=$(( N / C ))
+          [ "$rounds" -lt 1 ] && rounds=1
+          fails=0
+          started=0
+          mkdir -p /tmp/burst
+          r=0
+          while [ "$r" -lt "$rounds" ]; do
+            r=$((r + 1))
+            j=0
+            while [ "$j" -lt "$C" ]; do
+              j=$((j + 1))
+              ( ./wand -e '1 + 1' >/dev/null 2>"/tmp/burst/e.$r.$j"; echo $? > "/tmp/burst/rc.$r.$j" ) &
+            done
+            wait
+            j=0
+            while [ "$j" -lt "$C" ]; do
+              j=$((j + 1))
+              started=$((started + 1))
+              rc=$(cat "/tmp/burst/rc.$r.$j" 2>/dev/null || echo 255)
+              if [ "$rc" -ne 0 ]; then
+                fails=$((fails + 1))
+                echo "--- concurrent start r$r/j$j failed, exit $rc"
+                cat "/tmp/burst/e.$r.$j"
+              fi
+            done
+            rm -f /tmp/burst/*
+          done
+          echo "concurrent: $fails failed of $started (C=$C)"
+          echo "CON_FAILS=$fails" >> "$GITHUB_ENV"
+          echo "CON_TOTAL=$started" >> "$GITHUB_ENV"
+
+      # Under a stack limit. musl gives a thread 128 KB by default where glibc
+      # gives 8 MB, and OCaml 5 wants a signal stack per domain. If the abort
+      # is the runtime failing to get one, squeezing this should turn a rare
+      # failure into a certain one -- and that would name the cause.
+      - name: Starts under a squeezed stack limit
+        run: |
+          set +e
+          set -uo pipefail
+          for kb in 8192 1024 256 128 64 32; do
+            out=$( (ulimit -s "$kb"; ./wand -e '1 + 1') 2>&1 )
+            rc=$?
+            echo "ulimit -s $kb -> exit $rc: $out"
+          done
+
+      - name: What the cores say
+        if: always()
+        run: |
+          set +e
+          set -uo pipefail
+          ls -l /cores || true
+          n=$(ls /cores 2>/dev/null | wc -l)
+          echo "cores: $n"
+          if [ "$n" -gt 0 ]; then
+            sudo apt-get install -y gdb >/dev/null 2>&1 || true
+            for c in /cores/*; do
+              echo "=== $c"
+              gdb -batch -ex "bt" ./wand "$c" 2>&1 | tail -40
+              break
+            done
+          fi
+
+      - name: Cores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cores-${{ matrix.runs-on }}-${{ matrix.arch }}
+          path: /cores
+          if-no-files-found: ignore
+
+      - name: Verdict
+        if: always()
+        run: |
+          echo "sequential: ${SEQ_FAILS:-?} of ${SEQ_TOTAL:-?}"
+          echo "concurrent: ${CON_FAILS:-?} of ${CON_TOTAL:-?}"
