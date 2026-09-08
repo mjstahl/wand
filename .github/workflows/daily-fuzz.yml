@@ -58,9 +58,9 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: ocaml/setup-ocaml@v3
+      - uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
         with:
           ocaml-compiler: "5.x"
 
@@ -73,19 +73,41 @@ jobs:
       # The seed is the run id plus the shard, so it is different every
       # night, recorded in the run, and enough on its own to replay a
       # finding: `fuzz --seed S --only I`. A finding's notes carry both.
+      #
+      # Both arrive through `env:`, never substituted into the script: a
+      # `${{ }}` in a `run:` block is pasted into the source the shell reads,
+      # so a dispatch input becomes shell to run.
+      #
+      # A variable is not enough on its own here. `$(( ))` evaluates what a
+      # variable holds, and `a[$(cmd)]` runs the command inside arithmetic
+      # whether or not the expansion is quoted -- so each number is checked
+      # for being one before it reaches the arithmetic.
       - name: Fuzz
         id: fuzz
+        env:
+          SEED_INPUT: ${{ github.event.inputs.seed }}
+          RUN_ID: ${{ github.run_id }}
+          SHARD: ${{ matrix.shard }}
+          MINUTES_INPUT: ${{ github.event.inputs.minutes }}
         run: |
           # No -e: a finding is a non-zero exit from the fuzzer, and this
           # step has to record it rather than die on it. The last step of
           # the job is what turns it into a red run.
           set +e
           set -uo pipefail
-          BASE="${{ github.event.inputs.seed }}"
-          if [ -z "$BASE" ]; then BASE="${{ github.run_id }}"; fi
-          SEED=$(( BASE + ${{ matrix.shard }} ))
-          MINUTES="${{ github.event.inputs.minutes }}"
+          digits() {
+            case "$1" in
+              "" | *[!0-9]*) echo "::error::$2 must be digits, got: $1" >&2; exit 1 ;;
+            esac
+          }
+          BASE="$SEED_INPUT"
+          if [ -z "$BASE" ]; then BASE="$RUN_ID"; fi
+          MINUTES="$MINUTES_INPUT"
           if [ -z "$MINUTES" ]; then MINUTES=45; fi
+          digits "$BASE" seed
+          digits "$MINUTES" minutes
+          digits "$SHARD" shard
+          SEED=$(( BASE + SHARD ))
           echo "seed=$SEED" >> "$GITHUB_OUTPUT"
           _build/default/test/fuzz/fuzz.exe \
             --seed "$SEED" \
@@ -101,7 +123,7 @@ jobs:
       # to notice the fuzzer quietly slowing down or stopping early.
       - name: Keep the findings and the log
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: fuzz-shard-${{ matrix.shard }}
           path: |
@@ -111,8 +133,10 @@ jobs:
 
       - name: Fail if the shard found something new
         if: steps.fuzz.outputs.status != '0'
+        env:
+          SEED: ${{ steps.fuzz.outputs.seed }}
         run: |
-          echo "seed ${{ steps.fuzz.outputs.seed }} found something new" >&2
+          echo "seed $SEED found something new" >&2
           exit 1
 
   # One job after all four, so a signature two shards hit becomes one issue
@@ -123,9 +147,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: findings
 
@@ -136,6 +160,10 @@ jobs:
       - name: File an issue for each new signature
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -177,7 +205,7 @@ jobs:
               continue
             fi
             {
-              echo "Found by the daily fuzzer (\`${{ github.workflow }}\`, run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))."
+              echo "Found by the daily fuzzer (\`$WORKFLOW\`, run [$RUN_ID]($SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID))."
               echo
               echo '```json'
               cat "$notes"

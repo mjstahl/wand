@@ -181,7 +181,7 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Which machine built this
         run: |
@@ -227,7 +227,7 @@ jobs:
           file _build/default/bin/wand.exe | grep -q "statically linked" || {
             echo "not static any more" >&2; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wand-551-${{ matrix.shard }}
           path: _build/default/bin/wand.exe
@@ -245,7 +245,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
                 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Is this one of the machines that fails
         id: draw
@@ -266,7 +266,7 @@ jobs:
             echo "8192 covers this machine -- nothing to prove here"
           fi
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: steps.draw.outputs.drew == 'yes'
         with:
           pattern: wand-551-*

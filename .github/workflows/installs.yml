@@ -43,16 +43,23 @@ jobs:
       matrix:
         runs-on: [ubuntu-latest, macos-15]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
+      # Through `env:`, never substituted into the script. A `${{ }}` in a
+      # `run:` block is pasted into the source the shell reads, so text
+      # someone else chose -- a tag name, a dispatch input -- becomes shell
+      # to run. As a variable it is data the shell reads, which is what
+      # release.yml already does.
       - name: Install the published release, and run it
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           # The release that triggered this, or the one a dispatch named.
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="$INPUT_VERSION"
           if [ -z "$VERSION" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-            VERSION="${VERSION#v}"
+            VERSION="${RELEASE_TAG#v}"
           fi
 
           dir="$RUNNER_TEMP/wand-install"

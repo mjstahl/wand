@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Read, and nothing else. Without a block the token takes the repository
+# default, which is whatever the settings page says today rather than what
+# this file asks for. Every other workflow here already declares its own.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,9 +19,9 @@ jobs:
     # and setup-ocaml has hung indefinitely (2026-08-19).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: ocaml/setup-ocaml@v3
+      - uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
         with:
           ocaml-compiler: "5.x"
 
@@ -104,9 +110,16 @@ jobs:
       # in that repository runs against an unreleased wand, so a change here
       # could break it and nobody would know until the next release. Run it
       # against this build.
-      - uses: actions/checkout@v5
+      # Pinned to a commit, not to a branch. That suite is wand code and wand
+      # code runs shell, so checking out the default branch made a push to
+      # another repository a command running in this one. Moving it forward
+      # is then a commit here, which is where a change to what CI runs
+      # belongs. Bump the SHA when that repository has something this build
+      # should be tested against.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: mjstahl/setup-wand
+          ref: eb3b29225788c6a5669bce3ecc5e73b97dd7968a # main, 2026-09-08
           path: .setup-wand
 
       - name: Run setup-wand's suite against this build
@@ -139,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: The published install script installs the latest release
         run: |
