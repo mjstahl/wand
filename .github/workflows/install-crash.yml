@@ -501,7 +501,7 @@ jobs:
               echo "os: $PRETTY_NAME"
               if command -v apk >/dev/null 2>&1; then
                 echo "alpine-release: $(cat /etc/alpine-release 2>/dev/null)"
-                echo "musl: $(apk info -v musl 2>/dev/null | head -1)"
+                echo "musl: $(/lib/ld-musl-x86_64.so.1 --version 2>&1 | tr "\n" " ")"
                 sudo apk add --no-cache strace musl-dev >/dev/null 2>&1
               else
                 echo "glibc: $(ldd --version 2>&1 | head -1)"
@@ -533,7 +533,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
 
     steps:
       - uses: actions/checkout@v5
@@ -556,6 +557,37 @@ jobs:
             echo "drew=no" >> "$GITHUB_OUTPUT"
             echo "8192 covers this machine -- nothing to test here"
           fi
+
+      # What the kernel actually answers here. Every image asks for
+      # ss_size=8192; on a machine that wants 11952 the question is which
+      # libc refuses it. Alpine 3.24 aborts and 3.23 does not, so the errno
+      # -- or its absence -- is the mechanism.
+      - name: What sigaltstack answers on this machine
+        if: steps.draw.outputs.drew == 'yes'
+        run: |
+          set +e
+          for img in ocaml/opam:alpine-ocaml-5.4 ocaml/opam:alpine-ocaml-5.3 ocaml/opam:ubuntu-ocaml-5.4; do
+            echo "=================================== $img"
+            docker run --rm --cap-add=SYS_PTRACE "$img" sh -c '
+              cd /tmp
+              if command -v apk >/dev/null 2>&1; then
+                echo "alpine: $(cat /etc/alpine-release)"
+                echo "musl: $(/lib/ld-musl-x86_64.so.1 --version 2>&1 | tr "\n" " ")"
+                sudo apk add --no-cache strace musl-dev >/dev/null 2>&1
+              else
+                echo "glibc: $(ldd --version 2>&1 | head -1)"
+                sudo apt-get install -y -qq strace >/dev/null 2>&1
+              fi
+              echo "let () = print_string \"ran\\n\"" > h.ml
+              ocamlopt h.ml -o h >/dev/null 2>&1
+              if [ -x ./h ]; then
+                strace -f -e trace=sigaltstack ./h 2>&1 | grep sigaltstack | head -3
+              else
+                echo "could not build here -- stracing ocamlopt itself instead"
+                strace -f -e trace=sigaltstack ocamlopt -version 2>&1 | grep sigaltstack | head -3
+              fi
+            '
+          done
 
       - name: Build wand with the pinned image (control), then with 5.3
         if: steps.draw.outputs.drew == 'yes'
