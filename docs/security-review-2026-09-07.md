@@ -15,119 +15,11 @@ The core guarantees mostly hold. Shell quoting resisted every injection
 payload. The effect table is complete. The dry-run overlay withholds every
 write it promises to. The Marshal cache is permission-gated.
 
-Two findings break the README's promises and block release: typechecking
-executes imported code, and a newline bypasses the `Shell(...)` allowlist.
+Two findings broke the README's promises and blocked release: typechecking
+executed imported code, and a newline bypassed the `Shell(...)` allowlist.
+Both are fixed; see **Fixed** at the bottom.
 
 ---
-
-## Critical
-
-### C1. Typechecking and the LSP execute imported modules — open
-
-- `lib/runner.ml:1834-1839` — `load_module` evaluates a module's top-level
-  items under `run_with_default_handler` (real effects).
-- `lib/runner.ml:3131` — `typecheck_source` calls `load_imports_for`
-  unconditionally, so `wand t` evaluates imports.
-- `lib/lsp.ml:155-158` — the LSP calls `typecheck_source` on `didOpen` and
-  `didChange`, so opening a hostile file in an editor executes code.
-- `bin/wand.ml:277-364` — `wand d -x`, `wand d -t`, and `--load` also run
-  code with live effects.
-
-Repro:
-
-```
--- evil.wand
-uses {Shell(sh)}
-let boom = $(sh -c "echo owned > PWNED")
-
--- victim.wand
-let {boom} = import ./evil
-let x = boom
-```
-
-`wand t victim.wand` exits 0 and creates `PWNED`. The same happens through
-the live LSP on `didOpen`.
-
-Two gaps compound it:
-
-1. The attacker writes the malicious module's own manifest, so the static
-   command-word check passes. The manifest is not a trust boundary against
-   a hostile file.
-2. An importer never has to declare its imports' top-level effects
-   (`lib/runner.ml:1574-1583` — imports contribute names and types only).
-   The importing file typechecks clean while its import writes to disk.
-
-The fuzzer's purity gate is consulted *after* imports execute
-(`test/fuzz/oracle.ml:333-336`): `typecheck_source` has already run the
-imported modules by the time `reaches_outside ()` is read. Same class of
-hole as the recorded `df` incident, through a different door.
-
-Fix direction: analysis paths must load imports for types and signatures
-without evaluating bodies. Defer top-level evaluation until the importer
-actually runs, or gate module evaluation behind the same effect check.
-Note the design comment at `runner.ml:1826-1833`: moving module eval under
-the handler fixed an `Effect.Unhandled` crash, and cemented this. Decide
-separately whether an import's top-level effects should join the
-importer's manifest.
-
-## High
-
-### H1. Newline bypasses the `Shell(...)` allowlist — open
-
-`lib/shell_scan.ml:156` — `scan_lit` treats an unquoted `'\n'` as
-whitespace (`| ' ' | '\t' | '\n' -> finish_word (); incr i`). The shell
-treats it as a command separator. The newline arm never sets
-`expecting := true`, unlike `;` `|` `&` (lines 160-166), so a word after a
-newline is never a command position — neither the typechecker nor
-`guard_shell` (`lib/runner.ml:856-872`) checks it.
-
-Repro: under `uses {Shell(echo), IO}`:
-
-```
-let c = "hi\ntouch NEWLINE_PWNED"
-IO.println $(echo %!{c})
-```
-
-Runs `echo hi`, then `touch` — file created, exit 0. A literal newline in
-the command gets only the V-SHELL2 warning and still runs unbounded; one
-arriving through `%!{}` gets no warning at all. Newlines inside quotes are
-data and must stay data.
-
-Fix: make an unquoted `'\n'` behave like `;` in `scan_lit`.
-
-### H2. JSON round-trip of a huge exponent is an uncatchable crash — open
-
-`lib/evaluator.ml:4999-5019`. `JSON.parse "1e999999"` yields a Yojson
-`` `Float infinity ``. `JSON.stringify` on it raises
-`Yojson__Common.Json_error` outside the wrapping `try` at 5001 — fatal,
-exit 2, and wand's `try` cannot catch it. Also reachable via
-`JSON.of_float (1.0 /. 0.0)`. Any script that parses untrusted JSON and
-re-emits part of it dies on one crafted number.
-
-Related bug: `JSON.stringify_pretty` does not crash — it silently emits
-`Infinity`, which is not JSON. The two serializers disagree.
-
-Fix: wrap serialization so it returns a wand error; make both serializers
-agree on non-finite floats.
-
-### H3. NUL byte in a shell splice is an uncatchable crash — open
-
-`lib/runner.ml:190-199` (`create_process_for`),
-`lib/evaluator.ml:1435` (`shell_quote`). Strings are byte strings, and NUL
-flows in from command output, file reads, and `Base64.decode!`. The
-quoting is correct, but `Unix.create_process` rejects a NUL argv string
-with EINVAL, and the `Unix.Unix_error` escapes as a fatal error. `try` and
-`$?()` do not catch it.
-
-Repro:
-
-```
-let v = $(printf 'A\000B')
-$(echo pre %{v} post)          -- Fatal error, exit via crash; try does not help
-```
-
-Not an injection — the byte is rejected, not truncated. Fix: detect NUL
-before spawn and raise a normal wand error.
 
 ## Medium
 
@@ -145,19 +37,6 @@ entry deliberately — a checkout dir passes `dir_is_trustworthy`.
 
 Fix: add an integrity trailer (digest of the marshaled bytes) checked
 before unmarshal, and fsync before the rename.
-
-### M2. Lock fd leaks into spawned children — open
-
-`lib/runner.ml:616` — the `FS.lock` open lacks `O_CLOEXEC`; it is the one
-descriptor in runner.ml without it (every pipe is `~cloexec:true`). A
-script that starts a background process while holding the lock hands it a
-copy; the flock belongs to the open file description, so the lock stays
-held after wand exits, until the child dies. Verified: release ran, a
-second wand still got `Error Held`. This defeats the documented cron-guard
-use (`stdlib/FS.wand:224-227`).
-
-Fix: add `Unix.O_CLOEXEC`; consider `O_NOFOLLOW` too (the open follows a
-pre-planted symlink in a shared directory).
 
 ### M3. `wand f` and `wand t --fix` destroy the file on a crash — open
 
@@ -187,23 +66,6 @@ JSON-RPC parse error -32700 and continue.
 `wand s` discover and run a `test_*.wand` outside the tree, with full
 effects. Fix: skip symlinked directories (`Unix.lstat`) or track visited
 real paths.
-
-### M6. Size and Duration addition wraps silently — open
-
-`lib/evaluator.ml:2036-2037` — raw OCaml `+` on byte/ms totals. Verified:
-`4000000000GB + 4000000000GB` yields a negative Size, no error. Int
-arithmetic is overflow-checked (`add_ovf` etc., evaluator.ml:530-554) and
-Size/Duration subtraction floors at 0; addition is the gap, and it can
-defeat a threshold check on untrusted totals. Fix: use the checked add.
-
-### M7. IPv4 leading-zero octets read as decimal; libc reads octal — open
-
-`lib/evaluator.ml:3952` — `IPv4.of_string "010.8.8.8"` parses as 10.8.8.8
-(private). curl/libc/most resolvers read `010` as octal → 8.8.8.8
-(public). A script that checks `IPv4.private?` and hands the original
-string to a subprocess validates one host and connects to another — the
-standard SSRF allowlist bypass. wand already rejects hex and bare-int
-forms. Fix: reject octets with a leading zero (RFC 6943 guidance).
 
 ### M8. CI: unpinned cross-repo code executes; ci.yml has no permissions — open
 
@@ -341,12 +203,35 @@ forms. Fix: reject octets with a leading zero (RFC 6943 guidance).
 
 ## Suggested fix order
 
-1. C1 — stop evaluating imports on analysis paths. The release blocker.
-2. H1 — unquoted newline is a command separator in `shell_scan`. One arm
-   of one match.
-3. H2 + H3 — make the two uncatchable crashes catchable.
-4. M2, M6, M7 — one-line to small local fixes (O_CLOEXEC, checked add,
-   leading-zero rejection).
+1. ~~C1~~ — done at `d20f7d1`.
+2. ~~H1~~ — done at `d427837`.
+3. ~~H2 + H3~~ — done at `5c43893`.
+4. ~~M2, M6, M7~~ — done at `dc45301`.
 5. M1, M3, M4, M5 — cache integrity + fsync; `write_atomic` in fmt/fix;
    harden the LSP read loop; lstat in `wand s`.
 6. M8 and the workflow hygiene items.
+
+## Fixed
+
+- **C1. Typechecking and the LSP execute imported modules** — `d20f7d1`.
+  `load_imports_for` and `load_module` take `~evaluate`; every analysis path
+  passes false and loads a module for its types only. The module cache is
+  keyed by the mode as well as the path. Left open by design, and separate
+  from this: whether an import's top-level effects should join the
+  importer's manifest.
+- **H1. Newline bypasses the `Shell(...)` allowlist** — `d427837`. The
+  newline arm of `scan_lit` sets `expecting`, as `;` `|` `&` do.
+- **H2. JSON round-trip of a huge exponent is an uncatchable crash** —
+  `5c43893`. No JSON value holds an infinite or NaN number; each door
+  refuses one. YAML is read into the same value and answers the same way.
+- **H3. NUL byte in a shell splice is an uncatchable crash** — `5c43893`.
+  `create_process_for` checks before it spawns and raises.
+- **M2. Lock fd leaks into spawned children** — `dc45301`. O_CLOEXEC on the
+  lock open, and on the three other opens in runner.ml. O_NOFOLLOW was not
+  added: the lock path is resolved with `realpath` on purpose, so a
+  symlinked lock file is a supported spelling.
+- **M6. Size and Duration addition wraps silently** — `dc45301`. Both use
+  the checked add, as do the two `DateTime` arms that were raw.
+- **M7. IPv4 leading-zero octets read as decimal** — `dc45301`. A lex error
+  naming the rule. This takes a spelling away: `192.168.001.1` was an
+  address and is not one now.
