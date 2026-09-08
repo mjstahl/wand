@@ -1,0 +1,97 @@
+name: YAML spike
+
+# Can the `yaml` package be linked into the static musl binary?
+#
+# The package vendors libyaml, so there is no system library to find, but it
+# reaches OCaml through `ctypes`, and ctypes plus fully static linking is the
+# kind of thing that works everywhere except the place it has to. That place
+# is the release container, with the flags bin/dune uses:
+#
+#   -ccopt -static -ccopt -no-pie
+#
+# `-no-pie` is load-bearing. Alpine's gcc defaults to PIE, `-static` alone
+# gives a static-pie binary, and the x86_64 one segfaults before printing
+# anything. So the spike asserts on `statically linked`, not on the build
+# exiting 0, and it runs what it built.
+#
+# Answer this before any YAML code exists. Delete the workflow once it has.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runs-on: ubuntu-latest
+          - target: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Link a static binary against yaml
+        run: |
+          set -euo pipefail
+          mkdir -p spike/bin
+          cat > spike/dune-project <<'EOF'
+          (lang dune 3.23)
+          EOF
+          cat > spike/bin/dune <<'EOF'
+          (env
+           (static
+            (link_flags
+             (-ccopt -static -ccopt -no-pie))))
+
+          (executable
+           (name probe)
+           (libraries yaml))
+          EOF
+          # Exercises the three things the module actually needs: the event
+          # stream, a document boundary, and an anchor. If any of them is
+          # missing from the package the spike fails here rather than later.
+          cat > spike/bin/probe.ml <<'EOF'
+          let () =
+            let src = "a: &x 1\nb: *x\n---\nc: no\n" in
+            match Yaml.yaml_of_string src with
+            | Error (`Msg m) -> print_endline ("yaml_of_string: " ^ m)
+            | Ok _ -> print_endline "yaml_of_string: ok";
+            (match Yaml.of_string "restart: no" with
+             | Ok (`O [ ("restart", `Bool b) ]) ->
+               Printf.printf "of_string resolved 'no' to the bool %b\n" b
+             | Ok (`O [ ("restart", `String s) ]) ->
+               Printf.printf "of_string resolved 'no' to the string %S\n" s
+             | Ok _ -> print_endline "of_string: some other shape"
+             | Error (`Msg m) -> print_endline ("of_string: " ^ m));
+            print_endline "linked and ran"
+          EOF
+          docker run --rm -v "$PWD/spike:/src" -w /src \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            ocaml/opam:alpine-ocaml-5.4@sha256:8e26f87086ac85e521889b26b35709220bdd13b2019a1524157e6de5caf3cff4 sh -c '
+              set -eu
+              sudo chown -R opam:opam /src
+              sudo apk add --no-cache musl-dev
+              opam repository set-url default \
+                git+https://github.com/ocaml/opam-repository.git#bbc595948dff71b5d1203200377ff7ee18745215
+              opam update -y
+              opam switch create build ocaml-base-compiler.5.5.1 -y
+              eval $(opam env --switch=build --set-switch)
+              opam install -y yaml
+              opam exec -- dune build --profile static bin/probe.exe
+              sudo chown -R "$HOST_UID:$HOST_GID" /src
+            '
+          BIN=spike/_build/default/bin/probe.exe
+          file "$BIN"
+          file "$BIN" | grep -q "statically linked" || {
+            echo "::error::not statically linked -- ctypes or libyaml pulled in a dynamic dependency" >&2
+            file "$BIN" >&2
+            exit 1
+          }
+          echo "--- and it runs:"
+          "$BIN"
