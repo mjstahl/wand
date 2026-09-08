@@ -113,8 +113,7 @@ group "Version" (fn () -> [
 group "Port and IPv4" (fn () -> [
   test "a port is its number" (fn t -> t.ok (:80 < :443)),
   test "an address is its 32 bits" (fn t -> t.ok (10.0.0.9 < 10.0.0.10)),
-  test "across octets" (fn t -> t.ok (10.0.1.0 > 10.0.0.255)),
-  test "a padded octet is the same address" (fn t -> t.ok (192.168.001.1 == 192.168.1.1))
+  test "across octets" (fn t -> t.ok (10.0.1.0 > 10.0.0.255))
 ])
 
 -- A network reads as numbers too. Compared as text, `10.0.0.0/8` sat below

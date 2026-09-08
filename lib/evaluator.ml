@@ -2227,17 +2227,26 @@ and eval_binop (env : env) op a b : value =
 
      Neither a size nor a duration has a value below zero, so a subtraction
      that would go under floors there -- the same answer `Duration.sub` and
-     `Size.of_bytes` already give. *)
+     `Size.of_bytes` already give.
+
+     A size is a count of bytes and a duration a count of milliseconds, both
+     held in an Int, so both add through the checked add that Int addition
+     uses. Raw `+` wrapped: `4000000000GB + 4000000000GB` answered with a
+     negative size, which reads as under any threshold a script compares it
+     against. *)
   | "+"  ->
     (match eval env a, eval env b with
      | VInt x,   VInt y   -> VInt (add_ovf x y)
      | VFloat x, VFloat y -> VFloat (x +. y)
-     | VSize x,  VSize y  -> VSize (Printf.sprintf "%dB" (size_bytes x + size_bytes y))
-     | VDuration x, VDuration y -> VDuration (format_dur_ms (parse_dur_ms x + parse_dur_ms y))
+     | VSize x,  VSize y  ->
+       VSize (Printf.sprintf "%dB" (add_ovf (size_bytes x) (size_bytes y)))
+     | VDuration x, VDuration y ->
+       VDuration (format_dur_ms (add_ovf (parse_dur_ms x) (parse_dur_ms y)))
      (* A Duration moves an instant, from either side. The instant carries
         whole seconds, so a duration below a second moves it nowhere. *)
      | VDateTime x, VDuration d | VDuration d, VDateTime x ->
-       VDateTime (datetime_of_epoch (datetime_epoch x + parse_dur_ms d / 1000))
+       VDateTime (datetime_of_epoch
+                    (add_ovf (datetime_epoch x) (parse_dur_ms d / 1000)))
      | _ -> raise (EvalError "'+' requires matching types"))
   | "-"  ->
     (match eval env a, eval env b with
@@ -2248,12 +2257,14 @@ and eval_binop (env : env) op a b : value =
      | VDuration x, VDuration y ->
        VDuration (format_dur_ms (max 0 (parse_dur_ms x - parse_dur_ms y)))
      | VDateTime x, VDuration d ->
-       VDateTime (datetime_of_epoch (datetime_epoch x - parse_dur_ms d / 1000))
+       VDateTime (datetime_of_epoch
+                    (sub_ovf (datetime_epoch x) (parse_dur_ms d / 1000)))
      (* The length between two instants. It floors at zero like every other
         Duration subtraction, so a file stamped in the future reads as no
         age rather than a negative one. *)
      | VDateTime x, VDateTime y ->
-       VDuration (format_dur_ms (max 0 ((datetime_epoch x - datetime_epoch y) * 1000)))
+       VDuration (format_dur_ms
+                    (max 0 (mul_ovf (sub_ovf (datetime_epoch x) (datetime_epoch y)) 1000)))
      | _ -> raise (EvalError "'-' requires matching types"))
   | "*"  ->
     (match eval env a, eval env b with

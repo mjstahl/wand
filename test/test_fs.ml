@@ -688,6 +688,39 @@ let test_the_lock_file_stays () =
         Alcotest.(check bool) "the lock file is still there" true
           (Sys.file_exists lock)))
 
+(* A flock belongs to the open file description, not to the process, so a
+   descriptor a child inherits keeps the lock after the holder has exited
+   and released it. The lock file was the one descriptor wand opened without
+   O_CLOEXEC: a script that started a background process while holding the
+   lock left the next run reporting Held with nothing holding it, which is
+   exactly the cron guard the lock is for. *)
+let test_a_background_child_does_not_keep_the_lock () =
+  with_tree (fun root ->
+    let lock = Filename.concat root "guard.lock" in
+    let h =
+      lock_script (Printf.sprintf
+        {|uses {FS.Write, IO, Shell(sh)}
+import FS
+import IO
+import Path
+let () = with FS.lock! (Path.of_string "%s") as _ ->
+  (let _ = $(sh -c "sleep 30 >/dev/null 2>&1 </dev/null & echo started");
+   IO.println "held")|} lock)
+    in
+    let t = taker lock in
+    Fun.protect
+      ~finally:(fun () ->
+        List.iter (fun f -> try Sys.remove f with Sys_error _ -> ()) [h; t])
+      (fun () ->
+        let held = run_script h in
+        if not (contains held "held") then
+          Alcotest.failf "the holder did not take the lock: %s" held;
+        let out = run_script t in
+        if not (contains out "took it") then
+          Alcotest.failf
+            "the lock outlived its holder, in a child that inherited it: %s"
+            out))
+
 (* The point of a waiting acquire: a second run queues behind the first
    instead of standing down. Needs two processes, so it lives here. *)
 let test_a_wait_queues_behind_a_holder () =
@@ -838,6 +871,8 @@ let () =
         test_a_killed_holder_releases_the_lock;
       Alcotest.test_case "the lock file stays" `Quick
         test_the_lock_file_stays;
+      Alcotest.test_case "a background child does not keep it" `Slow
+        test_a_background_child_does_not_keep_the_lock;
       Alcotest.test_case "a rehearsal takes it" `Quick
         test_a_rehearsal_takes_the_lock;
       Alcotest.test_case "a wait queues behind a holder" `Slow

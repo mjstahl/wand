@@ -124,3 +124,10 @@ test "String.to_cidr is the same function" (fn t ->
 -- 10.0.0.0/8 sorts below 9.0.0.0/8, which is the wrong way round.
 test "networks order by their start, not their text" (fn t ->
   t.eq [9.0.0.0/8, 10.0.0.0/8, 10.0.0.0/16] (List.sort [10.0.0.0/16, 10.0.0.0/8, 9.0.0.0/8]))
+
+-- The address is read by the same rule an IPv4 literal is, so a network
+-- cannot name a host a literal would refuse.
+test "an octet cannot have a leading zero" (fn t ->
+  match CIDR.of_string "010.0.0.0/8" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "leading zero" e))

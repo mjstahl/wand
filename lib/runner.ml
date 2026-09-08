@@ -225,7 +225,7 @@ let spawn_in cmd =
    then has to keep emptying: the child writes as fast as it likes and wand
    has one thing to wait for. *)
 let spawn_quiet cmd =
-  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0o666 in
+  let devnull = Unix.openfile "/dev/null" [Unix.O_WRONLY; Unix.O_CLOEXEC] 0o666 in
   let pid = create_process_for cmd Unix.stdin devnull Unix.stderr in
   Unix.close devnull;
   remember pid;
@@ -641,7 +641,13 @@ let with_held_locks f =
    harmless. *)
 let take_lock path =
   let fd =
-    try Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT] 0o644
+    (* Close-on-exec, as every other descriptor wand opens is. A flock
+       belongs to the open file description rather than to the process, so a
+       copy inherited by a child keeps the lock after wand has exited and
+       released it -- until the child dies. That defeats the cron guard this
+       is for: a script that starts a background process while holding the
+       lock left the next run reporting `Held`, with nothing holding it. *)
+    try Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT; Unix.O_CLOEXEC] 0o644
     with Unix.Unix_error (e, f, _) ->
       raise (EvalError (Printf.sprintf "lock: %s: %s" f (Unix.error_message e)))
   in
@@ -771,7 +777,7 @@ let is_mutation = function
 let random_tag () =
   let bytes = Bytes.create 8 in
   (try
-     let fd = Unix.openfile "/dev/urandom" [Unix.O_RDONLY] 0 in
+     let fd = Unix.openfile "/dev/urandom" [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
      Fun.protect ~finally:(fun () -> try Unix.close fd with Unix.Unix_error _ -> ())
        (fun () -> ignore (Unix.read fd bytes 0 (Bytes.length bytes)))
    with Unix.Unix_error _ | Sys_error _ ->
@@ -850,7 +856,7 @@ let open_atomic path =
          (random_tag ()))
   in
   let fd =
-    Unix.openfile tmp [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o644
+    Unix.openfile tmp [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL; Unix.O_CLOEXEC] 0o644
   in
   { pub_fd = fd; pub_tmp = tmp; pub_target = target; pub_mode = mode }
 

@@ -89,6 +89,10 @@ This is a runtime error, not the `Raise` effect. Division by zero is the
 same. Any `+` can overflow. To track it, wand would put `Raise` on every
 function that adds two numbers.
 
+A `Size` is a count of bytes and a `Duration` a count of milliseconds, each
+held in an `Int`, so adding two of either answers the same way. A sum past
+the end is an error, never a negative size.
+
 Arithmetic (`+ - * /` and unary `-`) has one spelling for `Int` and for
 `Float`. An expression holds one numeric type. wand never mixes the two for
 you. `1.5 + 1` is a type error, and the error names the functions that
@@ -4570,14 +4574,22 @@ to_string : IPv4 -> String
 of_string : String -> Result String IPv4
 ```
 
-The literal checks itself — each octet is 0 to 255, or it is a lex error
-naming the rule — and the language orders addresses numerically, so
+The literal checks itself — each octet is 0 to 255, and no octet has a
+leading zero, or it is a lex error naming the rule — and the language orders
+addresses numerically, so
 `10.0.0.2 > 10.0.0.1` and `List.sort` agrees where sorting the text would
 not. There is no `compare` here for that reason.
 
 `to_int` is the address as the number it is, and every question about a
 network is arithmetic on it. Doing that octet by octet is how an off-by-one
 gets in one octet at a time.
+
+**`010.8.8.8` is not an address.** A leading zero is octal to libc, and to
+every resolver reading the same text, so `010.8.8.8` there is 8.8.8.8. Read
+as decimal it is 10.8.8.8, which is private. A script that asks `private?`
+and then hands the text to a command would check one host and reach another,
+so wand refuses the spelling and there is one reading. `String.to_ipv4` and
+`CIDR.of_string` answer the same way, as does a literal.
 
 `private?` is the three RFC 1918 ranges — `10.0.0.0/8`, `172.16.0.0/12`,
 `192.168.0.0/16` — and nothing else. A caller asking about link-local or

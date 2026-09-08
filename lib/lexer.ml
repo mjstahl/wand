@@ -663,6 +663,17 @@ let read_numeric s first_char =
             | Some n -> n >= 0 && n <= 255
             | None   -> false
           in
+          (* A leading zero is an octal octet to libc, and a decimal one
+             here, so the two would disagree about which host the text
+             names: `010.8.8.8` is private to wand and 8.8.8.8 to curl and
+             to every resolver. A script that asks `IPv4.private?` and then
+             hands the same text to a command would check one host and
+             reach another. Refused, so there is one reading. Hex and bare
+             integer forms are already refused. *)
+          let no_leading_zero seg = String.length seg = 1 || seg.[0] <> '0' in
+          if not (List.for_all no_leading_zero [first; s2; s3; s4]) then
+            raise (Fail "invalid IPv4 address: an octet cannot have a \
+                         leading zero -- write 10, not 010");
           if not (octet_ok first && octet_ok s2 && octet_ok s3 && octet_ok s4) then
             raise (Fail "invalid IPv4 address: each octet must be 0–255");
           let ipv4 = Printf.sprintf "%s.%s.%s.%s" first s2 s3 s4 in

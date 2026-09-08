@@ -1,5 +1,6 @@
 import IPv4
 import List
+import Result
 import String
 
 let {test} = import Test
@@ -68,3 +69,22 @@ test "an octet above 255 is not an address" (fn t ->
 
 test "String.to_ipv4 is the same function" (fn t ->
   t.eq (String.to_ipv4 "10.0.0.1") (IPv4.of_string "10.0.0.1"))
+
+-- A leading zero is octal to libc and decimal here, so `010.8.8.8` would be
+-- private to wand and 8.8.8.8 to curl, to the resolver, to everything the
+-- address is handed on to. A script that checks `private?` and then hands
+-- the text to a command would check one host and reach another. There is
+-- one reading because there is no second spelling.
+test "an octet cannot have a leading zero" (fn t ->
+  match IPv4.of_string "010.8.8.8" with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "leading zero" e))
+
+test "a single zero octet is still an octet" (fn t ->
+  t.eq (Ok 0.0.0.0) (IPv4.of_string "0.0.0.0"))
+
+-- A padded octet used to read as the address it looks like: `192.168.001.1`
+-- was `192.168.1.1`. It is the same spelling as `010.8.8.8` and refused for
+-- the same reason.
+test "a padded octet is not an address either" (fn t ->
+  t.eq true (Result.error? (IPv4.of_string "192.168.001.1")))
