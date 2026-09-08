@@ -2,8 +2,15 @@ uses {FS.Read}
 
 -- Parse a JSON string.  Returns Ok JSON or Error message.
 --
+-- A number too large to hold reads as infinity, which JSON has no way to
+-- write, so it is an Error here rather than a value that cannot be written
+-- back out.
+--
 -- >> JSON.parse `{"a": 1}`
 -- Ok({"a":1}) : Result String JSON
+--
+-- >> JSON.parse "1e999999" |> Result.error?
+-- true : Bool
 let parse src = json_parse src
 
 -- Parse a JSON string, raising on error.
@@ -77,6 +84,9 @@ let of_bool b = json_of_bool b
 -- >> JSON.of_int 3
 -- 3 : JSON
 let of_int n = json_of_int n
+--
+-- An infinite number and NaN are the two a JSON value cannot hold, and
+-- this raises on either.
 --
 -- >> JSON.of_float 1.5
 -- 1.5 : JSON

@@ -41,6 +41,12 @@ import FS
 --
 -- >> YAML.parse "on: push"
 -- Ok({"on":"push"}) : Result String YAML
+--
+-- YAML spells infinity `.inf`, and the value a document is read into has no
+-- way to hold one. Both spellings are an Error.
+--
+-- >> YAML.parse "a: .inf" |> Result.error?
+-- true : Bool
 let parse src = yaml_parse src
 
 -- Read one document. Raises on anything `parse` reports.

@@ -1094,6 +1094,13 @@ let n = "x; rm -rf /tmp/z"
 $(echo %{n})                -- runs: echo 'x; rm -rf /tmp/z'
 ```
 
+One byte a value cannot carry is NUL. A command line ends an argument at
+one, so the whole spawn is refused — by the kernel, not by wand. A String
+holds bytes and a NUL reaches one from a command's output, a file read or
+`Base64.decode!`, so wand checks before it spawns and raises, which `try`
+catches. The byte is rejected, never dropped: nothing runs with the value
+cut short.
+
 Write `%{x}` between quotes of your own, and it becomes part of that word.
 It is not an argument of its own. wand escapes it for the quote it sits in.
 The shell reads nothing in the value as syntax:
@@ -1631,7 +1638,7 @@ What is checked, and when:
 
 - **`wand t` checks each literal command word.** A command word is the first
   word of a `$()`, a `$?()` or a `$*()`. It is also the first word after a top-level
-  `|`, `&&`, `||` or `;`. A word that the list omits is a type error. The
+  `|`, `&&`, `||`, `;` or a newline. A word that the list omits is a type error. The
   error names the word and the manifest line that admits it. wand skips a prefix
   assignment, so `$(FOO=1 git status)` checks `git`. It skips a redirection
   and its target. It honours quoting, so a `|` inside an argument separates
@@ -4191,7 +4198,14 @@ decode           : Decoder 'a -> JSON -> Result String 'a
 be converted a piece at a time: numbers, text, every domain type, lists,
 maps, options and records, and any nesting of them. A function, a resource
 or a stream cannot be written, and that is the `Error`; `of!` raises
-instead. The `of_*` builders take one converted value each and cannot fail.
+instead. The `of_*` builders take one converted value each.
+
+JSON has no way to write an infinite number and none for NaN, so no `JSON`
+value holds one. A `Float` has all three -- `1.0 / 0.0` is `inf` -- and each
+door refuses it: `parse` and `read_file` answer `Error` for a number too
+large to hold (`1e999999` reads as infinity), `of` answers `Error`, and
+`of_float` and the `!` forms raise. The check is at the door so that reading
+a value, writing it and showing it cannot fail.
 
 A `Map` holds one type, so a document whose fields differ is a record.
 
@@ -4218,7 +4232,7 @@ type Pod (name : String, port : Int)
 JSON.stringify (JSON.of! Pod(name = "web", port = 8080))
                                               -- {"name":"web","port":8080}
 
--- The precise builders are still there, and cannot fail.
+-- The precise builders are still there.
 let arr = JSON.of_list [JSON.of_int 1, JSON.of_int 2]
 
 match JSON.read_file ./config.json with
@@ -4322,6 +4336,11 @@ turn on, and each one is a real file read wrongly under 1.1:
 
 Only `true` and `false` are booleans. `yes`, `no`, `on` and `off` are words.
 Quoting always makes a string, whatever the text looks like.
+
+**`.inf` and `.nan` are refused.** A document is read into the same value
+`JSON` uses, which has no way to hold either, so `parse` answers `Error`
+rather than handing back a value that cannot be shown. A number too large to
+hold reads as infinity and is refused the same way.
 
 **`1.10` is a float**, under both schemas, so a chart version read unquoted
 arrives as `1.1` and has lost a digit. Read it from a quoted string — a

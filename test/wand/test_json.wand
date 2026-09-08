@@ -271,3 +271,27 @@ test "and the raising form raises" (fn t -> t.raises (fn () -> JSON.of! (fn x ->
 -- A JSON value passes through, so a structure may hold both.
 test "of a JSON value is itself" (fn t ->
   t.eq "1" (JSON.stringify (JSON.of! (JSON.of_int 1))))
+
+-- ── Numbers JSON cannot write ───────────────────────────────────────────
+-- `1e999999` reads as infinity, and JSON has no spelling for it. Refused at
+-- the door: reading it used to succeed and every later look at the value --
+-- `JSON.stringify`, `"%{j}"` -- ended the program with an error `try` could
+-- not catch, while `stringify_pretty` wrote `Infinity`, which is not JSON.
+test "an out-of-range number is refused" (fn t ->
+  match JSON.parse "1e999999" with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "infinite" why))
+test "and inside a structure too" (fn t ->
+  match JSON.parse `{"a": [1e999999]}` with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "infinite" why))
+test "the raising form raises, and try catches it" (fn t ->
+  t.raises (fn () -> JSON.parse! "1e999999"))
+test "an infinite Float is not a JSON number" (fn t ->
+  t.raises (fn () -> JSON.of_float (1.0 / 0.0)))
+test "and JSON.of refuses one" (fn t ->
+  match JSON.of (1.0 / 0.0) with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "infinite" why))
+test "a number in range still reads" (fn t ->
+  t.eq "1e+300" (JSON.stringify (JSON.parse! "1e300")))

@@ -155,3 +155,18 @@ group "from a file" (fn () -> [
   test "a missing file is an Error, not a raise" (fn t ->
     t.eq true (Result.error? (YAML.read_file ./no-such-file.yaml)))
 ])
+
+-- ── Numbers the value cannot hold ───────────────────────────────────────
+
+-- YAML spells infinity `.inf`; the value wand reads a document into is the
+-- JSON one, which has no way to hold it. Refused where it is read, rather
+-- than at the first look at the value -- which used to end the program.
+group "out of range numbers" (fn () -> [
+  test ".inf is refused" (fn t -> t.eq true (Result.error? (YAML.parse "a: .inf"))),
+  test "so is a number too large to hold" (fn t ->
+    t.eq true (Result.error? (YAML.parse "a: 1e999999"))),
+  test "parse_all answers the same way" (fn t ->
+    t.eq true (Result.error? (YAML.parse_all "a: 1\n---\nb: .inf"))),
+  test "a number in range still reads" (fn t ->
+    t.eq (Ok 1.5) (YAML.parse! "a: 1.5" |> YAML.field! "a" |> YAML.get_float))
+])

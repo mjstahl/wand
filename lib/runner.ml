@@ -188,6 +188,17 @@ let stop_children signal =
    it exactly as it always has (its own line on stderr, exit 127) instead
    of surfacing a Unix_error the sh path never raised. *)
 let create_process_for cmd stdin stdout stderr =
+  (* A wand String is a byte string, and a NUL can arrive in one from a
+     command's output, a file read or `Base64.decode!`. A command line
+     cannot carry one: the kernel takes it as the end of the argument, so
+     `create_process` refuses the whole call with EINVAL. The refusal used
+     to escape as a fatal error -- neither `try` nor `$?()` could see it.
+     Asked here, it is an ordinary raise the caller can catch. The quoting
+     is not at fault: the byte is rejected, never truncated. *)
+  if String.contains cmd '\000' then
+    raise (Evaluator.EvalError
+      "this command holds a NUL byte, which no command line can carry -- \
+       take it out of the value before splicing it in");
   let via_sh () =
     Unix.create_process "/bin/sh" [| "/bin/sh"; "-c"; cmd |]
       stdin stdout stderr

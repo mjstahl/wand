@@ -3201,6 +3201,26 @@ let json_kind (j : Yojson.Basic.t) =
   | `List _   -> "a list"
   | `Assoc _  -> "an object"
 
+(* JSON has no spelling for infinity and none for NaN. A wand Float has all
+   three -- `1.0 / 0.0` is `inf` -- so the boundary is here: a number that
+   cannot be written is refused at the door it would come in through. YAML
+   is read into the same value and answers the same way; YAML can spell
+   `.inf`, but the value wand reads it into cannot hold one.
+
+   It used to be refused at the far end, by Yojson, as a fatal error a
+   `try` could not catch: `JSON.stringify (JSON.parse! "1e999999")` ended
+   the program with exit 2, and so did `"%{j}"`. The two serializers also
+   disagreed -- `stringify_pretty` wrote `Infinity`, which is not JSON. *)
+let rec json_is_finite (j : Yojson.Basic.t) =
+  match j with
+  | `Float f  -> Float.is_finite f
+  | `List xs  -> List.for_all json_is_finite xs
+  | `Assoc kv -> List.for_all (fun (_, v) -> json_is_finite v) kv
+  | _         -> true
+
+let unwritable_number =
+  "a number here is infinite or NaN, which a JSON value cannot hold"
+
 let expected what path j =
   match j with
   (* A string that failed is worth quoting: the reader wants to see what was
@@ -5167,7 +5187,10 @@ let stdlib_eval_env : env = [
   ("json_null",  VJson `Null);
   ("json_of_bool",   VBuiltin (function VBool b  -> VJson (`Bool b)   | _ -> raise (EvalError "json_of_bool: expected Bool")));
   ("json_of_int",    VBuiltin (function VInt n   -> VJson (`Int n)    | _ -> raise (EvalError "json_of_int: expected Int")));
-  ("json_of_float",  VBuiltin (function VFloat f -> VJson (`Float f)  | _ -> raise (EvalError "json_of_float: expected Float")));
+  ("json_of_float",  VBuiltin (function
+    | VFloat f when Float.is_finite f -> VJson (`Float f)
+    | VFloat _ -> raise (EvalError ("json_of_float: " ^ unwritable_number))
+    | _ -> raise (EvalError "json_of_float: expected Float")));
   ("json_of_string", VBuiltin (function VString s -> VJson (`String s) | _ -> raise (EvalError "json_of_string: expected String")));
   ("json_of_list",   VBuiltin (function
     | VList vs ->
@@ -5233,24 +5256,32 @@ let stdlib_eval_env : env = [
   ("yaml_parse", VBuiltin (function
     | VString s ->
       (match Yaml_read.parse s with
+       | Ok y when not (json_is_finite y) ->
+         VConstr (Ctor.Builtin "Error", [VString unwritable_number])
        | Ok y      -> VConstr (Ctor.Builtin "Ok", [VYaml y])
        | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "yaml_parse: expected String")));
   ("yaml_parse_exn", VBuiltin (function
     | VString s ->
       (match Yaml_read.parse s with
+       | Ok y when not (json_is_finite y) ->
+         raise (EvalError ("yaml_parse: " ^ unwritable_number))
        | Ok y      -> VYaml y
        | Error msg -> raise (EvalError ("yaml_parse: " ^ msg)))
     | _ -> raise (EvalError "yaml_parse_exn: expected String")));
   ("yaml_parse_all", VBuiltin (function
     | VString s ->
       (match Yaml_read.parse_all s with
+       | Ok ys when not (List.for_all json_is_finite ys) ->
+         VConstr (Ctor.Builtin "Error", [VString unwritable_number])
        | Ok ys     -> VConstr (Ctor.Builtin "Ok", [VList (List.map (fun y -> VYaml y) ys)])
        | Error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "yaml_parse_all: expected String")));
   ("yaml_parse_all_exn", VBuiltin (function
     | VString s ->
       (match Yaml_read.parse_all s with
+       | Ok ys when not (List.for_all json_is_finite ys) ->
+         raise (EvalError ("yaml_parse_all: " ^ unwritable_number))
        | Ok ys     -> VList (List.map (fun y -> VYaml y) ys)
        | Error msg -> raise (EvalError ("yaml_parse_all: " ^ msg)))
     | _ -> raise (EvalError "yaml_parse_all_exn: expected String")));
@@ -5309,12 +5340,18 @@ let stdlib_eval_env : env = [
       | _ -> raise (EvalError "yaml_field!: expected YAML"))));
   ("json_parse", VBuiltin (function
     | VString s ->
-      (try VConstr (Ctor.Builtin "Ok", [VJson (Yojson.Basic.from_string s)])
+      (try
+         let j = Yojson.Basic.from_string s in
+         if json_is_finite j then VConstr (Ctor.Builtin "Ok", [VJson j])
+         else VConstr (Ctor.Builtin "Error", [VString unwritable_number])
        with Yojson.Json_error msg -> VConstr (Ctor.Builtin "Error", [VString msg]))
     | _ -> raise (EvalError "json_parse: expected String")));
   ("json_parse_exn", VBuiltin (function
     | VString s ->
-      (try VJson (Yojson.Basic.from_string s)
+      (try
+         let j = Yojson.Basic.from_string s in
+         if json_is_finite j then VJson j
+         else raise (EvalError ("json_parse: " ^ unwritable_number))
        with Yojson.Json_error msg -> raise (EvalError ("json_parse: " ^ msg)))
     | _ -> raise (EvalError "json_parse_exn: expected String")));
   ("json_field_exn", VBuiltin (fun key ->
@@ -5842,6 +5879,8 @@ and json_of_typed venv (te : type_expr) (v : value) : Yojson.Basic.t =
 and json_of_value (v : value) : Yojson.Basic.t =
   match v with
   | VInt n    -> `Int n
+  | VFloat f when not (Float.is_finite f) ->
+    raise (EvalError ("JSON.of: " ^ unwritable_number))
   | VFloat f  -> `Float f
   | VString s -> `String s
   | VBool b   -> `Bool b

@@ -147,3 +147,18 @@ test "a single quote in the value does not close the word" (fn t ->
 -- not it. Counting parens blind cut the command in half and read the rest
 -- of the line as wand source.
 test "a quoted paren does not end the command" (fn t -> t.eq "[a)b]" $(printf "[%s]" "a)b"))
+
+-- A NUL byte cannot travel on a command line: the kernel reads it as the
+-- end of the argument, so the whole spawn is refused. It arrives in a
+-- String from a command's output, a file read or `Base64.decode!`. The
+-- refusal used to escape as a fatal error that neither `try` nor `$?()`
+-- could see. The byte is rejected, never truncated -- the quoting was
+-- always right.
+test "a NUL byte in a splice raises rather than crashing" (fn t ->
+  let v = $(printf 'A\000B') in t.raises (fn () -> $(echo pre %{v} post)))
+
+test "and try reports what to change" (fn t ->
+  let v = $(printf 'A\000B') in
+  match try (fn () -> $(echo pre %{v} post)) () with
+  | Ok _ -> t.fail "expected a refusal"
+  | Error why -> t.ok (String.contains? "NUL byte" why))
