@@ -1859,7 +1859,15 @@ let module_keys : (string, string) Hashtbl.t = Hashtbl.create 16
    A module loaded from here loads its own imports without locations, so a
    failure deep in a chain arrives as a bare `ImportError` and is pinned to
    the import that started the chain. That is the line the reader wrote. *)
-let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading prog =
+(* Loading a module for its signature and loading it to use it are two
+   different questions, and one cache would answer the second with the
+   first. `wand t` and the language server want the types; only a run wants
+   the values. Keyed apart so a session that checks a line and then runs it
+   does not run against the bindings the check stood up. *)
+let module_cache_key ~evaluate path =
+  (if evaluate then "run:" else "sig:") ^ path
+
+let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate prog =
   List.fold_left (fun (acc, acc_docs) (item_index, item) ->
     let at_import f =
       try f () with
@@ -1872,11 +1880,11 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading prog =
     let load_kind kind =
       let src_ref = resolve_import base_dir kind in
       let key = Module_types.key_of src_ref in
-      match Hashtbl.find_opt cache key with
+      match Hashtbl.find_opt cache (module_cache_key ~evaluate key) with
       | Some cached -> cached
       | None ->
         if List.mem key !loading then raise (Module_types.ImportError ("import cycle detected: " ^ key))
-        else load_module src_ref ~cache ~loading
+        else load_module src_ref ~cache ~loading ~evaluate
     in
     let bind_field own_type own_eval field alias =
       let t = match List.assoc_opt field own_type with
@@ -2050,7 +2058,7 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading prog =
     | _ -> (acc, acc_docs)
   ) (empty_import_env, []) (List.mapi (fun i it -> (i, it)) prog.Ast.items)
 
-and load_module src_ref ~cache ~loading =
+and load_module src_ref ~cache ~loading ~evaluate =
   (* Embedded or on disk, a module is a name and some source from here on:
      the name keys the caches and the cycle check, and nothing below asks
      where the bytes came from. *)
@@ -2076,7 +2084,7 @@ and load_module src_ref ~cache ~loading =
   in
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
-  let (imported, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
+  let (imported, imp_docs) = load_imports_for ~base_dir ~cache ~loading ~evaluate prog in
   (* Settled here for the reason `run_program` settles the entry: the
      typechecker and the evaluator have to be handed the same program.
 
@@ -2152,20 +2160,35 @@ and load_module src_ref ~cache ~loading =
           itself is fixed by this point, and every name the module goes on to
           look up sits in front of it. *)
        let base = index_env (stdlib_eval_env @ imported.eval_env) in
-       (* Under the same handler a script's own body runs under. An import
-          evaluates the module's bindings, and `let greeting = $(hostname)`
-          at the top of one is work like any other -- it used to reach an
-          empty handler stack and end the program with OCaml's own
-          `Effect.Unhandled`, because the load happened before the handler
-          went in rather than because the effect was not allowed. The
-          manifest still decides what a module may do; this decides only
-          that it is asked. *)
        let full_eval =
-         let out = ref base in
-         ignore (run_with_default_handler (fun () ->
-           out := fold_items (run_item ~modul:path) base prog.Ast.items;
-           VUnit));
-         !out
+         if not evaluate then
+           (* The caller asked what this module is, not what it does, so the
+              body is never run: each exported name stands in the
+              environment with nothing behind it. `wand t`, the language
+              server and the linters all read types from here, and a value
+              reached from an analysis load is a bug in the caller -- it
+              says so rather than answering with a plausible unit. *)
+           List.map (fun (n, _) ->
+             (n, VBuiltin (fun _ ->
+                raise (Evaluator.EvalError (Printf.sprintf
+                  "internal error: '%s' of module '%s' was used by a path \
+                   that loaded the module for its types only" n path)))))
+             own_type
+           @ base
+         else
+           (* Under the same handler a script's own body runs under. An
+              import evaluates the module's bindings, and
+              `let greeting = $(hostname)` at the top of one is work like any
+              other -- it used to reach an empty handler stack and end the
+              program with OCaml's own `Effect.Unhandled`, because the load
+              happened before the handler went in rather than because the
+              effect was not allowed. The manifest still decides what a
+              module may do; this decides only that it is asked. *)
+           let out = ref base in
+           ignore (run_with_default_handler (fun () ->
+             out := fold_items (run_item ~modul:path) base prog.Ast.items;
+             VUnit));
+           !out
        in
        let n_own = List.length full_eval - List.length base in
        let own_eval = List.filteri (fun i _ -> i < n_own) full_eval
@@ -2187,7 +2210,7 @@ and load_module src_ref ~cache ~loading =
           (n, Module_types.canonicalise_tdef ~modul:path own_names d)) own,
         prog.Ast.docs @ imp_docs))
   in
-  Hashtbl.replace cache path result;
+  Hashtbl.replace cache (module_cache_key ~evaluate path) result;
   loading := List.filter (fun p -> p <> path) !loading;
   result
 
@@ -2212,7 +2235,7 @@ let stdlib_module_sig name :
       else
         match
           load_module (Module_types.resolve_stdlib name)
-            ~cache:(Hashtbl.create 8) ~loading:(ref [])
+            ~cache:(Hashtbl.create 8) ~loading:(ref []) ~evaluate:false
         with
         | (_, own_type, _, _, docs) -> Some (own_type, docs)
         | exception _ -> None
@@ -2753,7 +2776,7 @@ let () = Evaluator.with_default_handler := run_with_default_handler
 let run_program ?(mode = Normal) ~base_dir prog =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
-  let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+  let (imp, _) = load_imports_for ~base_dir ~cache ~loading ~evaluate:true prog in
   (* Settled once, here, so the typechecker and the evaluator are handed the
      same program: `type This = That` is an alias to both of them or a
      variant to both, never one to each. *)
@@ -2910,7 +2933,7 @@ let run_test_program ~base_dir ?(item_locs = []) prog
   : (test_outcome list, string) result =
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
-  let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+  let (imp, _) = load_imports_for ~base_dir ~cache ~loading ~evaluate:true prog in
   (* Settled before anything reads the program's own declarations: an
      alias parses as a variant with one nullary constructor, and a lint
      or a tenv built from that has the alias declaring a constructor over
@@ -3251,7 +3274,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
-    let (imp, imp_docs) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, imp_docs) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading ~evaluate:true prog in
     (* A session declares its types a line at a time, so the ones to settle
        against are the ones it already has. *)
     let prog =
@@ -3468,7 +3491,7 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     let base_dir = Filename.dirname full in
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
-    let (imp, imp_docs) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
+    let (imp, imp_docs) = load_imports_for ~item_locs ~base_dir ~cache ~loading ~evaluate:false prog in
     (* Settled before anything reads the program's own declarations: an
        alias parses as a variant with one nullary constructor, and a lint
        or a tenv built from that has the alias declaring a constructor over
@@ -3535,7 +3558,7 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let base_dir = Module_types.stdlib_base_dir in
-    let (imp, _) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
+    let (imp, _) = load_imports_for ~item_locs ~base_dir ~cache ~loading ~evaluate:false prog in
     (* Settled before anything reads the program's own declarations: an
        alias parses as a variant with one nullary constructor, and a lint
        or a tenv built from that has the alias declaring a constructor over
@@ -3559,7 +3582,7 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let tokens = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let loading = ref [] in
-    let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading ~evaluate:false prog in
     (* Settled before anything reads the program's own declarations: an
        alias parses as a variant with one nullary constructor, and a lint
        or a tenv built from that has the alias declaring a constructor over
@@ -3586,7 +3609,7 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let tokens = Lexer.tokenize src in
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
-    let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading ~evaluate:false prog in
     (* Settled before anything reads the program's own declarations: an
        alias parses as a variant with one nullary constructor, and a lint
        or a tenv built from that has the alias declaring a constructor over

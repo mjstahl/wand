@@ -855,7 +855,7 @@ let type_of_program_with_imports src =
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let base_dir = Sys.getcwd () in
-    let (imp, _) = Runner.load_imports_for ~base_dir ~cache ~loading prog in
+    let (imp, _) = Runner.load_imports_for ~base_dir ~cache ~loading ~evaluate:false prog in
     match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
     | Ok _ -> Ok ()
     | Error e -> Error e
@@ -1182,7 +1182,7 @@ let type_of label src =
        let cache = Hashtbl.create 8 in
        let loading = ref [] in
        let (imp, _) =
-         Runner.load_imports_for ~base_dir:(Sys.getcwd ()) ~cache ~loading prog in
+         Runner.load_imports_for ~base_dir:(Sys.getcwd ()) ~cache ~loading ~evaluate:false prog in
        (match Typechecker.infer_program_full_with_own
                 ~init_tenv:imp.tenv ~init_env:imp.type_env prog with
         | Ok (_, _, t, _) -> Ok (Typechecker.string_of_typ t)

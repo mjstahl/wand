@@ -143,6 +143,48 @@ let make () = HTTPResponse(status = 204, headers = {}, body = "")|}
 match m.make () with
   | m.Response(status = s) -> s|} path)))
 
+(* ── Analysis does not run an import ─────────────────────── *)
+
+(* `wand t` used to evaluate every module the file imported, under the
+   handler a run uses. Opening a file in an editor ran the code it imported:
+   the language server typechecks on every keystroke, and the attacker writes
+   the imported module's own manifest, so nothing static stood in the way.
+   Checking asks a module for its types; only a run asks for its values. *)
+
+let with_module_dir f =
+  let dir = Filename.temp_file "wand-analysis" "" in
+  Sys.remove dir; Sys.mkdir dir 0o700;
+  Fun.protect ~finally:(fun () ->
+    Array.iter (fun n ->
+      try Sys.remove (Filename.concat dir n) with Sys_error _ -> ())
+      (Sys.readdir dir);
+    try Sys.rmdir dir with Sys_error _ -> ())
+    (fun () -> f dir)
+
+let write_file path contents =
+  Out_channel.with_open_text path
+    (fun oc -> Out_channel.output_string oc contents)
+
+let test_typecheck_does_not_run_imports () =
+  with_module_dir (fun dir ->
+    let marker = Filename.concat dir "ran" in
+    write_file (Filename.concat dir "evil.wand")
+      (Printf.sprintf "uses {FS.Write}\nimport FS\nlet boom = FS.write_file! %s \"owned\\n\"\n"
+         marker);
+    let victim = Filename.concat dir "victim.wand" in
+    write_file victim "let {boom} = import ./evil\nlet x = boom\n";
+    (match Runner.typecheck_file victim with
+     | Ok _    -> ()
+     | Error d -> Alcotest.failf "typecheck failed: %s" (Diag.legacy d));
+    Alcotest.(check bool) "typechecking did not run the import"
+      false (Sys.file_exists marker);
+    (* And a run still does. *)
+    (match Runner.run_file victim with
+     | Ok _    -> ()
+     | Error m -> Alcotest.failf "run failed: %s" m);
+    Alcotest.(check bool) "running did run the import"
+      true (Sys.file_exists marker))
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -164,6 +206,10 @@ let () =
       Alcotest.test_case "transitive do not leak"   `Quick test_transitive_imports_do_not_leak;
       Alcotest.test_case "constructors cross"       `Quick test_imported_constructors_cross;
       Alcotest.test_case "constructors selected"    `Quick test_imported_constructors_selected;
+    ];
+    "analysis", [
+      Alcotest.test_case "typecheck does not run imports" `Quick
+        test_typecheck_does_not_run_imports;
     ];
     "aliases", [
       Alcotest.test_case "used inside its module"   `Quick test_module_alias_used_inside;
