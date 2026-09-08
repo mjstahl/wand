@@ -1,15 +1,16 @@
-uses {Clock, Env, IO, Proc, Shell(curl)}
+uses {Clock, Env, IO, Net(example.com), Proc}
 
 import Clock
 import Duration
 import Env
+import HTTP
 import IO
 import JSON
 import Proc
-import Shell
 import String
 
--- Read a JSON endpoint that needs a token, and retry a failure.
+-- Read a JSON endpoint that needs a token, and retry a failure worth
+-- retrying.
 --
 -- bash:  for i in 1 2 3; do
 --          curl -s -H "Authorization: Bearer $TOKEN" "$URL" && break
@@ -20,29 +21,37 @@ import String
 -- page as the answer and stops retrying. The loop has no ceiling on the
 -- wait it will do, and the body it finally gets is text nobody reads.
 --
--- `--fail` makes the exit code mean something, `$?()` holds it without
--- raising, and the backoff doubles from a `Duration` that is a value
--- rather than an arithmetic expression in a string. The body decodes into
--- a type, so a schema change is an error with a field name in it.
+-- Adding `--fail` fixes the exit code and loses the status: the shell can
+-- then tell success from failure, but not a 503 worth retrying from a 404
+-- that never will. Getting it back means `--write-out "%{http_code}"` and
+-- parsing the number out of the output beside the body.
 --
--- Every failure is retried, including a 404 that will never succeed.
--- Telling those apart needs the status code, which `--fail` does not
--- hand back; `--write-out "%{http_code}"` does, at the cost of parsing
--- the number back out of the output. The bash retries a 404 as well.
+-- A `Response` has a `status` field, so that whole problem is one `match`.
+-- The manifest says where the bytes go rather than which binary ran, and
+-- the body decodes into a type, so a schema change is an error with a field
+-- name in it.
 
 type Health(status: String, version: Version)
 
--- The token is spliced with `%{}`, so it arrives as one argument however
--- it is punctuated. It is still an argument: `ps` can read it, which is
--- true of the bash above as well.
-let fetch url token =
-  let header = "Authorization: Bearer %{token}" in
-  $?(curl --fail --silent --show-error -H %{header} %{url})
+-- A 404 is not an `Error`: the exchange happened and the server said no.
+-- So the retry decides on the status, which is the thing bash could not
+-- see. A server error may pass; a request error will not, however many
+-- times it is asked.
+let worth_retrying? (r: HTTP.Response) = r.status >= 500
+
+-- The request is built where the host is written, so the manifest's
+-- `Net(example.com)` is checked against a name a reader can see. A helper
+-- taking the URL as a parameter would move the host out of the text, and
+-- `V-NET1` says so.
+--
+-- The token is a header rather than an argument, so it is not on anybody's
+-- command line. `ps` could read it out of the bash above.
+let ask! req = HTTP.request! req
 
 let attempt tries wait thunk = (
   let r = thunk ();
-  if Shell.ok? r then Ok r.stdout
-  else if tries <= 1 then Error (String.trim r.stderr)
+  if HTTP.ok? r then Ok r.body
+  else if tries <= 1 || !(worth_retrying? r) then Error "answered %{r.status}"
   else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
 )
 
@@ -53,11 +62,17 @@ let read out =
 
 let report (h: Health) = IO.println "%{h.status}, version %{h.version}"
 
-let main () =
+let main! () =
   match Env.get "TOKEN" with
   | None -> (IO.println_err "TOKEN is not set"; Proc.exit 1)
   | Some token -> (
-    match attempt 3 1s (fn () -> fetch https://example.com/health token) with
+    let req =
+      HTTP.Request(
+        url = https://example.com/health,
+        headers = {authorization = "Bearer %{token}"}
+      )
+    in
+    match attempt 3 1s (fn () -> ask! req) with
     | Error why -> (IO.println_err why; Proc.exit 1)
     | Ok body -> (
       match read body with
@@ -66,4 +81,4 @@ let main () =
     )
   )
 
-main ()
+main! ()

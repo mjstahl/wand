@@ -123,12 +123,21 @@ type t =
    wrapper's loc to the whole expression it wraps. A loc built by `point`
    has zero width, which renderers read as "no range worth showing". *)
 type loc = {
+  (* Which file the text is in, or "" when nothing said. A position without
+     one reads as "the file being run", which is what an error against a
+     script means and what every position meant before this field existed.
+
+     It is here rather than beside the position because a position outlives
+     its file: a closure from one file is called from another, and by the
+     time an error is raised there is nothing left to ask. *)
+  file: string;
   line: int; col: int; offset: int;
   end_line: int; end_col: int; end_offset: int;
 }
 
-let point line col offset =
-  { line; col; offset; end_line = line; end_col = col; end_offset = offset }
+let point ?(file = "") line col offset =
+  { file; line; col; offset;
+    end_line = line; end_col = col; end_offset = offset }
 
 (* `a` extended to stop where `b` stops. *)
 let span_to (a : loc) (b : loc) =

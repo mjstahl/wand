@@ -28,8 +28,6 @@ type rule = {
 
 let binary = { sep = '/'; basename = true }
 
-(* Used when `Net` joins the set. Defined here rather than beside it so the
-   separator rule is one rule written once. *)
 let host = { sep = '.'; basename = false }
 
 (* Which labels take a word list. The manifest parser asks this, so a label
@@ -37,6 +35,7 @@ let host = { sep = '.'; basename = false }
    something that means nothing. *)
 let rule_of_label = function
   | "Shell" -> Some binary
+  | "Net" -> Some host
   | _ -> None
 
 let narrowable name = rule_of_label name <> None

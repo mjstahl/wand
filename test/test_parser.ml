@@ -191,7 +191,7 @@ let test_domain_lits () =
   e "path"     "/etc/foo"             (Path "/etc/foo");
   e "date"     "2024-01-15"           (DateTime "2024-01-15");
   e "duration" "5min"                 (Duration "5min");
-  e "url"      "https://example.com"  (URL "https://example.com");
+  e "url"      "https://example.com"  (URL ("https://example.com", None));
   e "ipv4"     "192.168.1.1"          (IPv4 "192.168.1.1");
   e "size"     "10MB"                 (Size "10MB")
 
@@ -354,10 +354,10 @@ let test_list () =
 let test_constr_app () =
   e "named construction"
     {|Point (x = 1, y = 2)|}
-    (ConstrApp ("Point", [Some "x", Int 1; Some "y", Int 2]));
+    (ConstrApp ("Point", [Some "x", Int 1; Some "y", Int 2], None));
   e "single named field"
     "Circle (radius = 5)"
-    (ConstrApp ("Circle", [Some "radius", Int 5]))
+    (ConstrApp ("Circle", [Some "radius", Int 5], None))
 
 
 (* ── Constructor application (positional) ────────────────────────────────── *)
@@ -393,11 +393,11 @@ let test_constr_positional () =
     (ConstrBare ("Point", ["x"; "y"]));
   e "a pun after a named field"
     "Point(x = 1, y)"
-    (ConstrApp ("Point", [(Some "x", Int 1); (Some "y", Var "y")]));
+    (ConstrApp ("Point", [(Some "x", Int 1); (Some "y", Var "y")], None));
   (* `T(r, b = 3)` was the update long before puns, and stays it. *)
   e "a name before a named field is the base of an update"
     "Point(x, y = 1)"
-    (ConstrUpdate ("Point", Var "x", [("y", Int 1)]))
+    (ConstrUpdate ("Point", Var "x", [("y", Int 1)], None))
 
 
 (* Only a `,` makes a constructor's bracket a field list -- a construction
@@ -501,13 +501,13 @@ let test_local_multi_equation () =
 let test_record_update () =
   e "one field"
     "T(r, b = 3)"
-    (ConstrUpdate ("T", Var "r", [("b", Int 3)]));
+    (ConstrUpdate ("T", Var "r", [("b", Int 3)], None));
   e "several fields"
     "T(r, a = 1, b = 2)"
-    (ConstrUpdate ("T", Var "r", [("a", Int 1); ("b", Int 2)]));
+    (ConstrUpdate ("T", Var "r", [("a", Int 1); ("b", Int 2)], None));
   e "the base is any expression"
     "T(f x, b = 3)"
-    (ConstrUpdate ("T", App (Var "f", Var "x"), [("b", Int 3)]));
+    (ConstrUpdate ("T", App (Var "f", Var "x"), [("b", Int 3)], None));
   (* Bare names are the one list the parser leaves undecided, so the pair
      payload is written with something that is not one. *)
   e "a pair payload is untouched"
@@ -638,7 +638,7 @@ let test_qualified_names () =
     (Qualified ("one", Constr "Live"));
   e "a qualified construction"
     "Foo.Conf(port = 1)"
-    (Qualified ("Foo", ConstrApp ("Conf", [(Some "port", Int 1)])));
+    (Qualified ("Foo", ConstrApp ("Conf", [(Some "port", Int 1)], None)));
   e "a qualified constructor applied"
     "Foo.Wrap 3"
     (App (Qualified ("Foo", Constr "Wrap"), Int 3));

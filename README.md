@@ -26,6 +26,12 @@ command. A function that runs a command five calls down still needs the first
 line to permit it. wand does not check that a script is correct. It checks that
 a script cannot do what it did not declare.
 
+`Net(api.github.com)` says where bytes may go, and every redirect is held to
+it too. One thing that claim does not cover today: wand has no TLS of its
+own, so `HTTP` reaches a host through a `curl` subprocess, and a narrowed
+`Shell` does not bound that one. `Shell(git)` means only `git` runs *from
+this script*.
+
 **[Language reference →](docs/reference.md)**
 
 ---

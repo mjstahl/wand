@@ -1,0 +1,143 @@
+uses {FS.Read, FS.Write, Net}
+
+import FS
+import List
+import Map
+import Shell
+import String
+
+-- Reaching a host over HTTP.
+--
+-- One primitive underneath, so a double that stands in for `Net!http`
+-- covers every function here. What a call answers is an `HTTPResponse`
+-- whatever the server said: a 404 is not an `Error`, because the exchange
+-- succeeded and the server said no. `Error` is for the transport failing --
+-- a name that does not resolve, a connection refused, a timeout -- which is
+-- the line `$()` and `$?()` already draw.
+--
+-- Where the bytes may go is the manifest's business. `uses {Net}` admits
+-- any host; `uses {Net(api.github.com)}` admits one. A request is checked
+-- against the manifest of the file that built it, and so is every redirect
+-- it follows.
+--
+-- `HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so they need
+-- no import and no module prefix. `HTTP.Request`, `HTTP.Response` and
+-- `HTTP.Method` are those three under the names a reader would reach for
+-- first. They are aliases, so the two spellings are one type: a value built
+-- one way annotates, matches and passes the other.
+--
+-- The transport runs `curl`. wand has no TLS of its own yet, so bytes reach
+-- a host through a subprocess, and that subprocess is not bounded by a
+-- narrowed `Shell`: `Shell(git)` means only `git` runs from this script,
+-- not that only `git` runs. `--trace` reports the request. Moving TLS
+-- in-process later changes no script, because the manifest is checked on
+-- the URL either way.
+
+type Method = HTTPMethod
+type Request = HTTPRequest
+type Response = HTTPResponse
+
+-- True when the status is a 2xx. `Shell.ok?` for a status code.
+--
+-- >> HTTP.ok? HTTP.Response(status = 204, headers = {}, body = "")
+-- true : Bool
+let ok? (r: Response) = r.status >= 200 && r.status < 300
+
+-- One header of a response, by name, matched without regard to case --
+-- which is how the wire treats it, and why the names come back lowercased.
+--
+-- >> HTTP.header "Accept" HTTP.Response(status = 200, headers = {accept = "text/plain"}, body = "")
+-- Some("text/plain") : Option String
+let header name (r: Response) = Map.get (String.lower name) r.headers
+
+-- Send a request. Raises if the exchange did not happen.
+--
+-- >> Test.with_http [] (fn () ->
+-- ..   (HTTP.request! HTTP.Request(url = https://example.com/)).status)
+-- 200 : Int
+let request! req = net_http req
+
+-- Send a request, reporting a transport failure rather than raising.
+--
+-- >> Test.with_http [] (fn () ->
+-- ..   Result.ok? (HTTP.request HTTP.Request(url = https://example.com/)))
+-- true : Bool
+let request req = try request! req
+
+-- Fetch a URL.
+--
+-- >> Test.with_http [] (fn () -> Result.ok? (HTTP.get https://example.com/))
+-- true : Bool
+let get url = request Request(url = url)
+
+-- Fetch a URL, raising on a transport failure or on a status outside 2xx.
+--
+-- >> Test.with_http [] (fn () -> (HTTP.get! https://example.com/).status)
+-- 200 : Int
+let get! url = (
+  let r = request! Request(url = url);
+  match ok? r with
+  | true -> r
+  | false -> fail_exn "http: %{url} answered %{r.status}"
+)
+
+-- Send a body to a URL. Raises if the exchange did not happen; a status the
+-- caller has to read is on the response.
+--
+-- >> Test.with_http [] (fn () ->
+-- ..   (HTTP.post! https://example.com/ "{}").status)
+-- 200 : Int
+let post! url body = request! Request(url = url, method = POST, body = body)
+
+-- Send a body to a URL, reporting a transport failure rather than raising.
+--
+-- >> Test.with_http [] (fn () ->
+-- ..   Result.ok? (HTTP.post https://example.com/ "{}"))
+-- true : Bool
+let post url body = try post! url body
+
+-- Every value of one header, in the order they arrived. A response may
+-- repeat a header -- `set-cookie` is the one that matters -- and `header`
+-- answers the last of them.
+--
+-- >> HTTP.header_list "Accept" HTTP.Response(status = 200, headers = {accept = "a"}, body = "")
+-- ["a"] : List String
+let header_list name (r: Response) =
+  match header name r with
+  | Some v -> [v]
+  | None -> []
+
+-- Read a response body as one value, the way `Shell.decode` reads a
+-- capture. There is no `get_json`: the reading happens in one place, with a
+-- message that says what was wrong, rather than a chain of scrapes that
+-- each assume the last one worked.
+--
+-- >> HTTP.decode Decode.int HTTP.Response(status = 200, headers = {}, body = "42")
+-- Ok(42) : Result String Int
+let decode d (r: Response) = Shell.decode d r.body
+
+-- Fetch a URL straight into a file. Raises if the exchange did not happen
+-- or the server did not answer 2xx.
+--
+-- Load-bearing rather than a convenience. The bytes go from the socket to
+-- the file without becoming a value on the way, so an artifact larger than
+-- memory is a download rather than a crash -- which is also why the body of
+-- a `Response` is a `String` and this is not.
+--
+-- Redirects are followed and every hop is checked against the manifest, as
+-- they are for any other request.
+let download! url dest = net_download url dest
+
+-- Fetch a URL straight into a file.
+let download url dest = try download! url dest
+
+-- Send a file as the body of a request. Raises if the exchange did not
+-- happen.
+--
+-- The file is read rather than streamed, which is why this declares
+-- `FS.Read` and `download` declares `FS.Write`. A body that will not fit in
+-- memory has no answer here yet.
+let upload! url path = request! Request(url = url, method = POST, body = FS.read_file! path)
+
+-- Send a file as the body of a request.
+let upload url path = try upload! url path

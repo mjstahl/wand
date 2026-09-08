@@ -11,7 +11,7 @@ let stdlib_module_names =
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
     "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
-    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64" ]
+    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64"; "HTTP" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -365,6 +365,27 @@ let operations : operation list =
       op_performers = ["FS.lock_wait"; "FS.lock_wait!"] };
     { op_name = "FS!unlock"; op_effect = FsWrite; op_types = t path TUnit;
       op_performers = ["FS.lock"; "FS.lock!"; "FS.lock_wait"; "FS.lock_wait!"] };
+    (* Reaching a host. One operation, because the operation count is the
+       mocking surface: four would be four ways for a test to believe it was
+       sealed and not be. `HTTP.get`, `HTTP.post` and the rest are written
+       in wand over this one, so one handler case covers the module.
+
+       Named for the protocol rather than for the label, so a listening
+       socket or a raw read is a second operation under the same label
+       rather than an eleventh label. `Net` is the reach; the operation says
+       how. *)
+    { op_name = "Net!http"; op_effect = Net;
+      op_types = t (TName "HTTPRequest") (TName "HTTPResponse");
+      op_performers = ["HTTP.request"; "HTTP.get"; "HTTP.post";
+                       "HTTP.download"; "HTTP.upload"] };
+    (* Fetching to a file is its own operation, because a download must not
+       become a value on the way past: a 2GB artifact held in a `String` is
+       the thing `HTTP.download` exists to avoid, and one operation cannot
+       both answer with a body and write one. Both are `Net`, and the
+       doubles answer both, so a test that seals one seals the module. *)
+    { op_name = "Net!download"; op_effect = Net;
+      op_types = t (TTuple [TURL; TPath]) TUnit;
+      op_performers = ["HTTP.download"; "HTTP.download!"] };
     (* The program's own streams. *)
     { op_name = "IO!print"; op_effect = IO;
       (* Printing takes whatever it is given. *)
@@ -1348,9 +1369,14 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
     let arg_ts = List.map go args in
     let saved = List.map (fun p -> (p, Hashtbl.find_opt vars p)) params in
     List.iter2 (fun p t -> Hashtbl.replace vars p t) params arg_ts;
-    resolving := name :: !resolving;
+    (* Both spellings, because an alias declared in a module is reachable
+       under the short name the file writes and under the canonical one the
+       table is keyed by; a ring that changes spelling half way round has to
+       stop the same as one that does not. *)
+    let marks = [name; canonical_type_name name] in
+    resolving := marks @ !resolving;
     let t = go target in
-    resolving := List.tl !resolving;
+    resolving := List.filteri (fun i _ -> i >= List.length marks) !resolving;
     List.iter (fun (p, prev) ->
       match prev with
       | Some t -> Hashtbl.replace vars p t
@@ -1367,7 +1393,14 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | Some names when not (List.mem (m ^ "." ^ n) names) ->
          raise (TypeError (Printf.sprintf "unknown type '%s.%s'" m n))
        | _ -> ());
-      TName (canonical_type_name (m ^ "." ^ n))
+      let canon = canonical_type_name (m ^ "." ^ n) in
+      (* An alias is transparent whichever way it is named. Written bare it
+         goes through the branch below; written `M.Alias` it arrived here
+         and stayed an opaque name, so `HTTP.Response` in a signature and
+         `HTTP.Response(...)` in a pattern were two different types. *)
+      if List.mem_assoc canon !known_aliases && not (List.mem canon !resolving)
+      then apply_alias canon []
+      else TName canon
     | TEName name when List.mem_assoc name !known_aliases
                     && not (List.mem name !resolving) ->
       (* The name is kept over what it names, for the message. Everything
@@ -1412,14 +1445,24 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | None -> let t = fresh () in Hashtbl.add vars name t; t)
     | TEFun (a, b, eff) -> TFun (go a, go b, effects_of eff)
     | TETuple ts    -> TTuple (List.map go ts)
+    (* A parameterised alias applied to its arguments, written bare or
+       written with the module it came from. `Args.Parser Opts` reached the
+       generic application below, which read the head on its own -- an alias
+       with no arguments, one short of what it takes. *)
     | TEApp _ as te when (
-        let rec head = function TEApp (f, _) -> head f | h -> h in
+        let rec head = function
+          | TEApp (f, _) -> head f
+          | TEName n -> Some n
+          | TEQual (m, n) -> Some (canonical_type_name (m ^ "." ^ n))
+          | _ -> None
+        in
         match head te with
-        | TEName n -> List.mem_assoc n !known_aliases && not (List.mem n !resolving)
-        | _ -> false) ->
+        | Some n -> List.mem_assoc n !known_aliases && not (List.mem n !resolving)
+        | None -> false) ->
       let rec peel acc = function
         | TEApp (f, a) -> peel (a :: acc) f
         | TEName n -> (n, acc)
+        | TEQual (m, n) -> (canonical_type_name (m ^ "." ^ n), acc)
         | _ -> assert false
       in
       let (name, args) = peel [] te in
@@ -1707,12 +1750,20 @@ let module_first tenv m =
   (* The module's own types, keyed as they are everywhere else. Putting them
      first is what makes a constructor lookup find this module's. *)
   let own =
-    List.filter_map (fun (written, canon) ->
+    List.concat_map (fun (written, canon) ->
       if String.length written > n && String.sub written 0 n = pre then
         match List.assoc_opt canon tenv with
-        | Some d -> Some (canon, d)
-        | None -> None
-      else None) !type_name_map
+        | Some d ->
+          (* Under the canonical key, and under the short name the module
+             wrote. `Foo.Conf(...)` reads `Conf` inside this scope, and an
+             alias is resolved by the name it was written under -- without
+             the short entry, `Foo.Alias(...)` looked up `Alias`, found
+             nothing, and reported an unknown constructor for a type that
+             is right there. *)
+          let short = String.sub written n (String.length written - n) in
+          [(canon, d); (short, d)]
+        | None -> []
+      else []) !type_name_map
   in
   (own, own @ tenv)
 
@@ -1723,10 +1774,19 @@ let rec ctor_name_for tenv name =
   (* The name a file writes; the declaration is under its canonical one. *)
   match List.assoc_opt (canonical_type_name name) tenv with
   | Some (Variants (_, _, [c])) when c.name <> name -> c.name
-  | Some (Alias (_, _, TEName target)) when target <> name ->
-    ctor_name_for tenv target
-  | Some (Alias (_, _, TEQual (_, target))) when target <> name ->
-    ctor_name_for tenv target
+  | Some (Alias (_, _, te)) ->
+    (* The head of what the alias names. A parameterised alias writes its
+       target applied -- `type Parser 'a = CommandLine 'a` -- and the
+       constructor belongs to the head, so reading only the bare forms left
+       `Args.Parser(...)` naming a type and no constructor. *)
+    let rec head = function
+      | TEApp (f, _) -> head f
+      | TEName t | TEQual (_, t) -> Some t
+      | _ -> None
+    in
+    (match head te with
+     | Some target when target <> name -> ctor_name_for tenv target
+     | _ -> name)
   | _ -> name
 
 (* Whose constructors a file may name without a qualifier: its own, the ones
@@ -2148,8 +2208,11 @@ let rec match_against_ctor ?(tenv = []) name arity (p : pat) =
     if ctor_of n = name then `Match (List.init arity (fun _ -> Wild))
     else `NoMatch
   (* Which module it was reached through does not change which constructor
-     it is. *)
-  | PQualified (_, p) -> match_against_ctor ~tenv name arity p
+     it is -- but it does say where to look the name up. The module's types
+     go in front, the way `infer_pat` reads the same pattern, so an alias
+     written `M.Response(...)` forwards to the constructor it names instead
+     of standing for a constructor of its own and covering nothing. *)
+  | PQualified (m, p) -> match_against_ctor ~tenv:(snd (module_first tenv m)) name arity p
   | _ -> `NoMatch  (* literal patterns never arise for finite-ctor types *)
 
 type witness = Witness of string * witness list
@@ -2621,7 +2684,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
       | None -> false
     in
     infer tenv env (Ast.constr_bare_construction ~named_fields name ids)
-  | ConstrApp (name, fields) ->
+  | ConstrApp (name, fields, _) ->
     let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
      (* A name that is a type rather than a constructor is not unknown, and
@@ -2698,7 +2761,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
   (* `T(r, b = 3)`: `r` is a `T` already, so the fields not named keep what
      it holds. Only the named ones are checked, which is the whole
      difference from a construction -- that has to name every field. *)
-  | ConstrUpdate (name, base, fields) ->
+  | ConstrUpdate (name, base, fields, _) ->
+    (* A type with one constructor names that constructor too, the same as
+       construction reads it a few lines up. Without this an update through
+       an alias -- `HTTP.Request(base, redirects = 0)` -- reported an
+       unknown constructor for a type that builds perfectly well. *)
+    let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
      | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
          name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
@@ -3957,6 +4025,11 @@ let stdlib_type_env : env = [
      out of a String, which is what makes these two safe. *)
   ("shell_run",   generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TCommand) (TString)));
   ("shell_query", generalize [] (effs [Effect_set.Shell] (TCommand) (TName "ShellResult")));
+  (* A 404 is not a failure of this call: the exchange succeeded and the
+     server said no. `Raise` is here for the transport failing -- DNS, a
+     connect, TLS, a timeout -- which is the same line `$()` draws. *)
+  ("net_http", generalize [] (effs [Effect_set.Net; Effect_set.Raise] (TName "HTTPRequest") (TName "HTTPResponse")));
+  ("net_download", generalize [] (effs [Effect_set.Net; Effect_set.FsWrite; Effect_set.Raise] (TURL) ((TPath @-> TUnit))));
   ("process_run",       generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TString) (TString)));
   ("process_run_quiet", generalize [] (effs [Effect_set.Shell] (TString) (TUnit)));
   ("process_exit_code", generalize [] (effs [Effect_set.Shell] (TString) (TInt)));
@@ -4195,7 +4268,65 @@ let command_line_tdef : type_def =
     defaults = [];
   }])
 
+(* What a request is made of, and what one answers with.
+
+   Built in for the reason `CommandLine` is: the compiler names these -- the
+   `Net!http` operation's payload is one of them -- and a module's types are
+   keyed by its path, which moves with `WAND_STDLIB`.
+
+   Named `HTTPRequest` rather than `Request` for the other reason
+   `CommandLine` gives: a built-in name cannot be declared over, and
+   `Request`, `Response` and `Method` are three names a file has every right
+   to want.
+
+   `stdlib/HTTP.wand` does not alias them to `HTTP.Request` and friends.
+   Nothing stops it -- an alias declared in a module resolves inside it and
+   under the qualified name outside it, in an annotation and in a pattern
+   alike -- but two spellings for one type is what the alias would buy, and
+   the built-in name is the one every script already writes.
+
+   Every field but the URL has a default, so field defaults do the work a
+   builder pattern does elsewhere and record update gives the chaining. *)
+let http_method_tdef : type_def =
+  Variants ("HTTPMethod", [],
+    List.map (fun n -> { name = n; loc = None; fields = []; defaults = [] })
+      ["GET"; "POST"; "PUT"; "PATCH"; "DELETE"; "HEAD"])
+
+let http_request_tdef : type_def =
+  Variants ("HTTPRequest", [], [{
+    name   = "HTTPRequest";
+    loc    = None;
+    fields = [ (Some "url",       TEName "URL");
+               (Some "method",    TEName "HTTPMethod");
+               (Some "headers",   TEApp (TEName "Map", TEName "String"));
+               (Some "body",      TEName "String");
+               (Some "timeout",   TEName "Duration");
+               (Some "redirects", TEName "Int") ];
+    defaults = [ ("method",    Ast.Constr "GET");
+                 ("headers",   Ast.MapLit []);
+                 ("body",      Ast.String "");
+                 ("timeout",   Ast.Duration "30s");
+                 ("redirects", Ast.Int 5) ];
+  }])
+
+(* A body is a `String` because a wand `String` is a byte string, and
+   because the alternative -- a sum with a `File` case -- would put
+   `FS.Read` in the signature of every script that posts a little JSON.
+   File work has its own functions, where the signature stays exact. *)
+let http_response_tdef : type_def =
+  Variants ("HTTPResponse", [], [{
+    name   = "HTTPResponse";
+    loc    = None;
+    fields = [ (Some "status",  TEName "Int");
+               (Some "headers", TEApp (TEName "Map", TEName "String"));
+               (Some "body",    TEName "String") ];
+    defaults = [];
+  }])
+
 let builtin_tenv : typedef_env = [
+  ("HTTPMethod", http_method_tdef);
+  ("HTTPRequest", http_request_tdef);
+  ("HTTPResponse", http_response_tdef);
   ("Option", option_tdef);
   ("ShellResult", shell_result_tdef);
   ("CommandLine", command_line_tdef);
@@ -4319,9 +4450,9 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
         (match g with Some g -> go loc g | None -> ()); go loc b) cases
     | Tuple es | List es -> List.iter (go loc) es
     | MapLit kvs -> List.iter (fun (_, v) -> go loc v) kvs
-    | ConstrApp (_, fs) -> List.iter (fun (_, v) -> go loc v) fs
+    | ConstrApp (_, fs, _) -> List.iter (fun (_, v) -> go loc v) fs
     | ConstrBare (_, _) -> ()
-    | ConstrUpdate (_, b, fs) -> go loc b; List.iter (fun (_, v) -> go loc v) fs
+    | ConstrUpdate (_, b, fs, _) -> go loc b; List.iter (fun (_, v) -> go loc v) fs
     | Interp (parts, _) | RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go loc e) parts
     | CmdInterp (parts, _) -> List.iter (fun (_, e, _) -> go loc e) parts
@@ -4517,6 +4648,12 @@ let settle_aliases ?(init_tenv=[]) (prog : program) : program =
       | TLType (Variants (n, _, _), _) | TLType (Alias (n, _, _), _) -> Some n
       | _ -> None) prog.items
     @ List.map fst init_tenv @ builtin_type_names
+    (* The built-in records as well as the built-in primitives. Without
+       them `type SR = ShellResult` was not a name that "is some other
+       type", so it stayed a variant declaring a nullary constructor called
+       `ShellResult` -- which shadowed the real one, and took its fields
+       with it for the rest of the file. *)
+    @ List.map fst builtin_tenv
   in
   let settle = function
     | TLType (Variants (n, params, [{ name = c; fields; _ }]), loc)
@@ -4625,6 +4762,18 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   let seen_types = Hashtbl.create 16 in
   let seen_ctors = Hashtbl.create 16 in
   List.iter (function
+    (* An alias is a declaration of the name too, so it answers to both rules
+       below. It used to answer to neither -- the walk read variants only --
+       so `type Int = String` was taken, and every `Int` in the file after it
+       meant `String`. A built-in cannot be declared over, whichever form the
+       declaration takes. *)
+    | TLType (Alias (tname, _, _), tdef_loc) ->
+      if builtin_type_name tname then
+        fail_at_opt tdef_loc (Printf.sprintf
+          "'%s' is a built-in type, so it cannot be declared" tname);
+      if Hashtbl.mem seen_types tname then
+        fail_at_opt tdef_loc (Printf.sprintf "'%s' is declared twice" tname);
+      Hashtbl.add seen_types tname ()
     | TLType (Variants (tname, _, ctors), tdef_loc) ->
       (* A builtin's name is taken too. Declaring over one used to be
          accepted, and then field access on the result answered "field
@@ -4698,14 +4847,34 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
         fail_at_opt loc (Printf.sprintf
           "'%s' is a constructor, so it cannot also name a value" name)) bound
   ) prog.items;
-  known_aliases :=
+  let alias_table =
     List.filter_map (function
       | (n, Alias (_, params, te)) -> Some (n, (params, te))
-      | _ -> None) tenv;
-  known_type_arities :=
+      | _ -> None) tenv
+  in
+  (* A module's types are keyed by the module, so a module's own alias is in
+     the table under its canonical name while the file that declared it
+     writes the short one. Both spellings answer, or `type Response =
+     HTTPResponse` resolved for every file except the one it was written in,
+     where `(r: Response)` stayed an opaque name and field access on it had
+     nothing to read. *)
+  known_aliases :=
+    alias_table
+    @ List.filter_map (fun (written, canon) ->
+        if written = canon then None
+        else Option.map (fun v -> (written, v))
+               (List.assoc_opt canon alias_table)) !type_name_map;
+  let arity_table =
     List.filter_map (function
       | (n, Variants (_, params, _)) -> Some (n, List.length params)
-      | _ -> None) tenv;
+      | _ -> None) tenv
+  in
+  known_type_arities :=
+    arity_table
+    @ List.filter_map (fun (written, canon) ->
+        if written = canon then None
+        else Option.map (fun v -> (written, v))
+               (List.assoc_opt canon arity_table)) !type_name_map;
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   (* A field default is checked once, here, rather than at each construction

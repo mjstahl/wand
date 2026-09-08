@@ -119,6 +119,14 @@ let rec pat_names (p : Ast.pat) =
 (* Shell-level structure in a command string. One stage is exactly what $()
    is for; it is the accumulation of stages that hides work from the type
    system and from --trace. *)
+(* A URL written out, which is what makes a host readable from the file. A
+   located literal is still a literal. *)
+let rec is_url_literal (e : Ast.expr) =
+  match e with
+  | Ast.Located (_, inner) -> is_url_literal inner
+  | Ast.URL _ -> true
+  | _ -> false
+
 let shell_operators cmd =
   let n = String.length cmd in
   let count = ref 0 and i = ref 0 in
@@ -220,6 +228,26 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
                     text = Lint_rules.shell1_dynamic;
                     fix = None } :: !acc);
       go inner
+    (* A request whose host the run decides. The bound is on the node, so a
+       file that declared bare `Net` or nothing says nothing here -- the
+       rule is about a narrowed manifest, exactly as V-SHELL1 is.
+
+       What is reported is the construction, which is where a URL becomes a
+       request. `HTTP.get u` builds its request inside the standard library,
+       so it is not a site in this file and does not appear here; the check
+       that catches it is the one at the send, which is where the record
+       always said a run-decided host is answered for. *)
+    | Ast.ConstrApp (name, fields, (Some _ as bound)) ->
+      (if name = "HTTPRequest" then
+         match List.assoc_opt (Some "url") fields with
+         | Some u when not (is_url_literal u) ->
+           acc := { rule = Lint_rules.V_NET1;
+                    loc = !here;
+                    text = Lint_rules.net1_dynamic;
+                    fix = None } :: !acc
+         | _ -> ());
+      ignore bound;
+      List.iter (fun (_, v) -> go v) fields
     | Ast.Interp (parts, _) | Ast.RawInterp (parts, _) ->
       List.iter (fun (_, e) -> go e) parts
     (* Measuring by subtracting two readings of the civil clock. Only the
@@ -249,10 +277,10 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
         (match g with Some g -> go g | None -> ()); go b) cases
     | Ast.Tuple es | Ast.List es -> List.iter go es
     | Ast.MapLit kvs -> List.iter (fun (_, v) -> go v) kvs
-    | Ast.ConstrApp (_, fields) -> List.iter (fun (_, v) -> go v) fields
+    | Ast.ConstrApp (_, fields, _) -> List.iter (fun (_, v) -> go v) fields
     | Ast.ConstrBare (_, _) -> ()
     | Ast.Qualified (_, e) -> go e
-    | Ast.ConstrUpdate (_, base, fields) -> go base; List.iter (fun (_, v) -> go v) fields
+    | Ast.ConstrUpdate (_, base, fields, _) -> go base; List.iter (fun (_, v) -> go v) fields
     | Ast.Handle (b, cases) ->
       go b;
       List.iter (function
@@ -303,8 +331,8 @@ let rec names_of_expr (e : Ast.expr) : string list =
         @ names_of_expr b) cases
   | Ast.Tuple es | Ast.List es -> of_list es
   | Ast.MapLit kvs -> of_list (List.map snd kvs)
-  | Ast.ConstrApp (c, kvs) -> c :: of_list (List.map snd kvs)
-  | Ast.ConstrUpdate (c, base, kvs) ->
+  | Ast.ConstrApp (c, kvs, _) -> c :: of_list (List.map snd kvs)
+  | Ast.ConstrUpdate (c, base, kvs, _) ->
     c :: names_of_expr base @ of_list (List.map snd kvs)
   | Ast.ConstrBare (c, ids) -> c :: ids
   (* The module is a use of the import that brought it in. *)
@@ -386,8 +414,8 @@ let names_of_item_types (item : Ast.top_item) : string list =
           cases
     | Ast.Tuple es | Ast.List es -> List.concat_map te_of_expr es
     | Ast.MapLit kvs -> List.concat_map (fun (_, v) -> te_of_expr v) kvs
-    | Ast.ConstrApp (_, kvs) -> List.concat_map (fun (_, v) -> te_of_expr v) kvs
-    | Ast.ConstrUpdate (_, b, kvs) ->
+    | Ast.ConstrApp (_, kvs, _) -> List.concat_map (fun (_, v) -> te_of_expr v) kvs
+    | Ast.ConstrUpdate (_, b, kvs, _) ->
       te_of_expr b @ List.concat_map (fun (_, v) -> te_of_expr v) kvs
     | Ast.Contract (reqs, ens, body) ->
       List.concat_map te_of_expr (reqs @ ens @ [body])

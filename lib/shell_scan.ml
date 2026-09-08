@@ -241,6 +241,7 @@ let fragment = function
      A manifest word is not a `Glob` value; this is the token the spelling
      produced, and the word is the text. *)
   | Token.Star -> Some "*"
+  | Token.IPv4 a -> Some a
   | Token.Glob g -> Some g
   | Token.Dot -> Some "."
   | Token.Plus -> Some "+"

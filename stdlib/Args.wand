@@ -19,6 +19,13 @@ import String
 --
 -- There is no second set of combinators here on purpose. What this module
 -- does is turn a list of strings into a document; `Decode` does the rest.
+--
+-- `CommandLine` is built in, so it needs no import and no module prefix.
+-- `Args.Parser` is that type under the name the thing already goes by:
+-- `Opts.parser` is what makes one and `Args.read` is what takes one. It is
+-- an alias, so the two spellings are one type.
+
+type Parser 'a = CommandLine 'a
 
 -- ── What counts as a flag ───────────────────────────────────────────────
 
@@ -186,15 +193,15 @@ let parse decoder args = parse_with [] decoder args
 -- separately, one type's account of its flags could meet another type's
 -- reader, and nothing said so until the run.
 --
--- >> Args.read CommandLine(spec = {v = "switch"}, reader = Decode.field "v" Decode.bool, usage = "") ["--v"]
+-- >> Args.read Args.Parser(spec = {v = "switch"}, reader = Decode.field "v" Decode.bool, usage = "") ["--v"]
 -- Ok(true) : Result String Bool
 --
 -- A flag the spec calls repeated holds a list however many times it was
 -- written:
 --
--- >> Args.read CommandLine(spec = {t = "repeated"}, reader = Decode.field "t" (Decode.list Decode.string), usage = "") ["--t", "a"]
+-- >> Args.read Args.Parser(spec = {t = "repeated"}, reader = Decode.field "t" (Decode.list Decode.string), usage = "") ["--t", "a"]
 -- Ok(["a"]) : Result String (List String)
-let read : CommandLine 'a -> List String -> Result String 'a =
+let read : Parser 'a -> List String -> Result String 'a =
   fn parser args -> match _object_of_spec parser.spec args with
     | Error e -> Error e
     | Ok obj -> JSON.decode parser.reader obj

@@ -34,6 +34,7 @@ type eff =
   | FsRead    (* reads from the filesystem *)
   | FsWrite   (* creates, changes or removes something on disk *)
   | Env       (* reads or changes environment variables *)
+  | Net       (* sends bytes to a host outside this machine *)
   | IO        (* reads or writes the program's own streams *)
   | Proc      (* ends the process; nothing catches this *)
   | Random    (* answers differently between runs; draws from entropy *)
@@ -45,7 +46,7 @@ type eff =
    manifest is always already in canonical form and a reader can predict
    where a label sits without knowing any convention beyond the
    alphabet. *)
-let all = [Clock; Env; FsRead; FsWrite; IO; Proc; Raise; Random; Shell]
+let all = [Clock; Env; FsRead; FsWrite; IO; Net; Proc; Raise; Random; Shell]
 
 let name_of = function
   | Clock   -> "Clock"
@@ -54,6 +55,7 @@ let name_of = function
   | FsWrite -> "FS.Write"
   | Env     -> "Env"
   | IO      -> "IO"
+  | Net     -> "Net"
   | Proc    -> "Proc"
   | Random  -> "Random"
   | Raise   -> "Raise"
@@ -70,6 +72,9 @@ let description = function
   | FsWrite -> "Creates, changes or removes something on disk."
   | Env     -> "Reads or changes environment variables."
   | IO      -> "Reads or writes the program's own streams."
+  | Net     -> "Sends bytes to a host outside this machine. \
+                `Net(api.github.com)` narrows it to the hosts named; bare \
+                `Net` admits any."
   | Proc    -> "Ends the process. Nothing catches this."
   | Random  -> "Draws from entropy: answers differently on two runs unless \
                 the seed is pinned."

@@ -105,7 +105,13 @@ type expr =
   | Glob     of string
   | DateTime of string
   | Duration of string
-  | URL      of string
+  (* A URL literal, and the `Net(...)` bound of the file it was written in.
+     `HTTP.get https://api.example.com/x` builds its request inside the
+     standard library, so the construction site carries the wrong manifest;
+     the literal is the part the caller wrote, and it is where the caller's
+     bound can be attached. A URL the run computed has none, which is the
+     case `V-NET1` reports. *)
+  | URL      of string * string list option
   | IPv4     of string
   | CIDR     of string
   | Port     of int
@@ -126,12 +132,19 @@ type expr =
   | UnOp     of string * expr
   | Tuple      of expr list
   | List       of expr list
-  | ConstrApp  of string * (string option * expr) list
+  (* The third part is the manifest's narrowing list for the label this
+     construction may be bounded by, taken from the file the construction
+     was written in. `$*()` stamps a `Command` the same way and for the same
+     reason: the bound belongs to whoever wrote the words, and by the time a
+     value is used its file is long out of reach. Only a built-in type whose
+     construction is checked reads it; every other constructor carries
+     `None`. *)
+  | ConstrApp  of string * (string option * expr) list * string list option
   (* `T(r, b = 3)`: the record `r` with the named fields replaced. Kept
      apart from `ConstrApp` because it is checked differently -- a
      construction has to name every field, and an update names only what
      changes. *)
-  | ConstrUpdate of string * expr * (string * expr) list
+  | ConstrUpdate of string * expr * (string * expr) list * string list option
   (* `Pod(name, restarts)`: bare identifiers where a constructor's arguments
      go, read the way `PConstrBare` is read on the other side -- fields of
      their own name where the constructor names its fields, a tuple where it
@@ -201,7 +214,8 @@ let constr_bare_reading ~named_fields name ids : pat =
    that name, and one that does not takes them as the tuple it is applied
    to. *)
 let constr_bare_construction ~named_fields name ids : expr =
-  if named_fields then ConstrApp (name, List.map (fun i -> (Some i, Var i)) ids)
+  if named_fields then
+    ConstrApp (name, List.map (fun i -> (Some i, Var i)) ids, None)
   else match ids with
     (* `Some ()` is the constructor applied to unit, which is what an empty
        pair of parentheses means everywhere else. *)
@@ -258,7 +272,7 @@ let rec show : expr -> string = function
   | Glob s     -> Printf.sprintf "glob:%s" s
   | DateTime s -> Printf.sprintf "datetime:%s" s
   | Duration s -> Printf.sprintf "dur:%s" s
-  | URL s      -> Printf.sprintf "url:%s" s
+  | URL (s, _) -> Printf.sprintf "url:%s" s
   | IPv4 s     -> Printf.sprintf "ipv4:%s" s
   | CIDR s     -> Printf.sprintf "cidr:%s" s
   | Port n     -> Printf.sprintf "port:%d" n
@@ -287,10 +301,10 @@ let rec show : expr -> string = function
   | UnOp (op, e)    -> Printf.sprintf "(%s%s)" op (show e)
   | Tuple es        -> Printf.sprintf "(tuple %s)" (String.concat " " (List.map show es))
   | List es         -> Printf.sprintf "[%s]" (String.concat "; " (List.map show es))
-  | ConstrApp (c, kvs) ->
+  | ConstrApp (c, kvs, _) ->
     Printf.sprintf "(%s %s)" c (String.concat ", "
       (List.map (fun (k, v) -> (match k with Some n -> n ^ "=" | None -> "") ^ show v) kvs))
-  | ConstrUpdate (c, base, kvs) ->
+  | ConstrUpdate (c, base, kvs, _) ->
     Printf.sprintf "(%s %s with %s)" c (show base) (String.concat ", "
       (List.map (fun (k, v) -> k ^ "=" ^ show v) kvs))
   | ConstrBare (c, ids) -> Printf.sprintf "%s(%s)" c (String.concat ", " ids)
@@ -386,7 +400,7 @@ let rec is_written_value (e : expr) : bool =
   | UnOp ("-", e) -> is_written_value e
   | Tuple es | List es -> List.for_all is_written_value es
   | MapLit kvs -> List.for_all (fun (_, v) -> is_written_value v) kvs
-  | ConstrApp (_, kvs) -> List.for_all (fun (_, v) -> is_written_value v) kvs
+  | ConstrApp (_, kvs, _) -> List.for_all (fun (_, v) -> is_written_value v) kvs
   | ConstrBare (_, _) -> true
   | App (f, a) -> is_constr_head f && is_written_value a
   | _ -> false

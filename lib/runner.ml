@@ -490,6 +490,11 @@ let report fmt =
 (* How an operation reads in a report. Every operation name a user sees comes
    through here, so what they are called is one decision in one place rather
    than a vocabulary spread through the output. *)
+(* The method a request asks with, as the wire spells it. *)
+let method_name = function
+  | VConstr (c, _) -> String.uppercase_ascii (Ctor.name c)
+  | _ -> "GET"
+
 let describe_operation name (v : value) =
   (* A report is read to judge blast radius, so each operation shows the one
      argument that decides it -- the command, the path, the variable -- and a
@@ -532,6 +537,18 @@ let describe_operation name (v : value) =
      real one -- but taking a guard is exactly the kind of thing `--trace`
      exists to show, and a trace that showed the deploy and not the lock
      around it would be reporting the smaller half. *)
+  (* A request reports the method and the URL, because those are the two
+     things a reader of a plan wants: what it would do, and to whom. *)
+  | "Net!http" ->
+    (match v with
+     | VConstr (_, (VURL (url, _) | VString url) :: meth :: _) ->
+       Some (String.lowercase_ascii (method_name meth), url)
+     | other -> Some ("request", text other))
+  | "Net!download" ->
+    (match v with
+     | VTuple [(VURL (url, _) | VString url); dest] ->
+       Some ("download", url ^ " -> " ^ text dest)
+     | other -> Some ("download", text other))
   | "FS!lock"      -> Some ("lock", text v)
   | "FS!lock_wait" -> Some ("lock, waiting up to", pair v)
   | "FS!unlock"    -> Some ("release the lock on", text v)
@@ -702,6 +719,28 @@ let release_lock key =
    that retries with backoff would otherwise take the backoff, and nobody
    waits an hour to be told what a script would do. `--trace` is a real run
    and sleeps for real. *)
+(* A request whose method is not safe to repeat. `--dry-run` follows the
+   filesystem rule -- reads go through, writes are held and reported -- and
+   the protocol already draws that line for us: `GET` and `HEAD` are the
+   methods defined not to change anything, so a rehearsal runs them and
+   reports everything else.
+
+   Withholding every request instead would make a rehearsal useless on the
+   scripts that need one most: a deploy that fetches its configuration
+   before it posts would take a branch a real run never takes. Sending
+   everything is not a rehearsal. *)
+let unsafe_request = function
+  | VConstr (_, _ :: meth :: _) ->
+    (match method_name meth with "GET" | "HEAD" -> false | _ -> true)
+  | _ -> false
+
+let is_mutation_value name v =
+  match name with
+  | "Net!http" -> unsafe_request v
+  (* A download writes a file, so it is withheld like any other write. *)
+  | "Net!download" -> true
+  | _ -> false
+
 let is_mutation = function
   | "Clock!sleep"
   | "Shell!run" | "Shell!run_quiet" | "Shell!capture" | "Shell!exit_code" | "Shell!stream" | "FS!write_lines" | "FS!write_lines_atomic" | "FS!append_lines" | "FS!write_file" | "FS!write_atomic" | "FS!append" | "FS!create_file" | "FS!delete" | "FS!mkdir" | "FS!rename" | "FS!copy" | "FS!temp_file" | "FS!temp_dir" | "FS!delete_tree" | "FS!copy_tree" | "Env!set" | "Env!clear"-> true
@@ -843,6 +882,13 @@ let substitute_for name =
   (* A stream of nothing. The lines a rehearsal cannot have are no lines,
      which is the same answer `Shell!run`'s empty String gives. *)
   | "Shell!stream" -> Some (VList [], "no output")
+  (* A request that was not sent still has to answer, and what it answers
+     steers the rest of the script. `202 Accepted` with no body says the
+     server took it and said nothing, which is the least a caller can read
+     into. The line reporting it says the request was withheld. *)
+  | "Net!http" ->
+    Some (VConstr (Ctor.Builtin "HTTPResponse",
+                   [VInt 202; VMap []; VString ""]), "202, no body")
   | "FS!temp_file"      -> let p = dry_run_path ""     in Some (VPath p, p)
   | "FS!temp_dir"       -> let p = dry_run_path "-dir" in Some (VPath p, p)
   | _ -> None
@@ -870,6 +916,233 @@ let guard_shell cmd =
            bare Shell" kw (Shell_scan.render_label ("Shell", Some allow))))
       | _ -> ())
       (Shell_scan.scan_string cmd).Shell_scan.words
+
+(* ── The transport ───────────────────────────────────────────────────────
+   Bytes reach a host through a `curl` subprocess. TLS is the reason: OCaml's
+   standard library has none, and the two ways to link one in-process both
+   cost more than this release is buying. Which way the bytes move is not
+   part of what the design settled -- the manifest is checked on the URL, so
+   the guarantee holds identically either way, and moving in-process later
+   touches no script.
+
+   What it costs is one asterisk, and the reference carries it: a narrowed
+   `Shell(git)` means only `git` runs *from this script*, not that only `git`
+   runs. *)
+
+(* The manifest's bound on where bytes may go, checked over a host the run
+   resolved. Set beside the perform by `net_http`, so it is the bound of the
+   file that built the request rather than of the standard library the send
+   happens inside.
+
+   A redirect is checked here as well as the URL the caller wrote. That is
+   the whole reason the bound has to travel: a hop's host is not known until
+   the server names it, and a 302 is the one thing that can send a body to a
+   host nobody wrote down. `None` is a file that declared bare `Net`, and
+   nothing is checked -- the reading `ambient_shell_allow` already gives. *)
+let guard_net ~what host =
+  match Domain.DLS.get Evaluator.ambient_net_allow with
+  | None -> ()
+  | Some allow ->
+    if not (Narrow.allowed ~rule:Narrow.host ~allow host) then
+      raise (EvalError (Printf.sprintf
+        "%s '%s', which %s does not allow"
+        what host (Shell_scan.render_label ("Net", Some allow))))
+
+(* One exec, no shell. The words are wand's own rather than a command line
+   anyone wrote, so there is nothing for a shell to read and no reason to
+   pay for one -- and `guard_shell` is not on this path, which is the
+   asterisk above stated in code: the transport is the one subprocess a
+   narrowed `Shell` does not bound. *)
+let spawn_argv argv stdin_text =
+  let (out_r, out_w) = Unix.pipe ~cloexec:true () in
+  let (err_r, err_w) = Unix.pipe ~cloexec:true () in
+  let (in_r,  in_w)  = Unix.pipe ~cloexec:true () in
+  let pid =
+    Unix.create_process argv.(0) argv in_r out_w err_w
+  in
+  Unix.close out_w; Unix.close err_w; Unix.close in_r;
+  remember pid;
+  let write_stdin () =
+    (try
+       let n = String.length stdin_text in
+       let rec go off =
+         if off < n then
+           let k = Unix.write_substring in_w stdin_text off (n - off) in
+           if k > 0 then go (off + k)
+       in
+       go 0
+     with Unix.Unix_error _ -> ());
+    try Unix.close in_w with Unix.Unix_error _ -> ()
+  in
+  write_stdin ();
+  let read fd =
+    let buf = Buffer.create 4096 in
+    let chunk = Bytes.create 65536 in
+    let rec go () =
+      match Unix.read fd chunk 0 (Bytes.length chunk) with
+      | 0 -> ()
+      | n -> Buffer.add_subbytes buf chunk 0 n; go ()
+      | exception Unix.Unix_error (Unix.EINTR, _, _) -> go ()
+    in
+    go (); Buffer.contents buf
+  in
+  let out = read out_r in
+  let err = read err_r in
+  (try Unix.close out_r with Unix.Unix_error _ -> ());
+  (try Unix.close err_r with Unix.Unix_error _ -> ());
+  let status = reap pid in
+  (out, err, status)
+
+(* What a response looked like on the wire, taken apart. `curl -i` writes the
+   status line, the headers, a blank line, and then the body. *)
+let split_response text =
+  let rec find i =
+    if i + 1 >= String.length text then None
+    else if text.[i] = '\n' && text.[i + 1] = '\n' then Some (i, i + 2)
+    else if i + 3 < String.length text
+            && text.[i] = '\r' && text.[i + 1] = '\n'
+            && text.[i + 2] = '\r' && text.[i + 3] = '\n' then Some (i, i + 4)
+    else find (i + 1)
+  in
+  match find 0 with
+  | None -> (String.trim text, "")
+  | Some (head_end, body_start) ->
+    (String.sub text 0 head_end,
+     String.sub text body_start (String.length text - body_start))
+
+let header_lines head =
+  String.split_on_char '\n' head
+  |> List.map (fun l ->
+       let n = String.length l in
+       if n > 0 && l.[n - 1] = '\r' then String.sub l 0 (n - 1) else l)
+  |> List.filter (fun l -> l <> "")
+
+(* A header name is case-insensitive on the wire and a `Map` is not, so the
+   module lowercases on the way in and the reference says so. A request
+   cannot repeat a header, which is fine for requests; a response genuinely
+   repeats `Set-Cookie`, and the last one wins here until `HTTP.header_list`
+   exists to answer that shape properly. *)
+let parse_headers lines =
+  List.filter_map (fun line ->
+    match String.index_opt line ':' with
+    | None -> None
+    | Some i ->
+      let name = String.lowercase_ascii (String.trim (String.sub line 0 i)) in
+      let value = String.trim (String.sub line (i + 1) (String.length line - i - 1)) in
+      if name = "" then None else Some (name, value)) lines
+
+let status_of head =
+  match header_lines head with
+  | first :: _ ->
+    (match String.split_on_char ' ' first with
+     | _ :: code :: _ -> (try int_of_string code with _ -> 0)
+     | _ -> 0)
+  | [] -> 0
+
+(* A relative `Location` is resolved against the URL it came from, which is
+   what a client does and what makes a same-host redirect the ordinary
+   case. *)
+let resolve_location ~base loc =
+  if String.length loc > 7
+     && (String.sub loc 0 7 = "http://" || String.sub loc 0 8 = "https://")
+  then loc
+  else
+    let scheme_host =
+      match String.index_opt base ':' with
+      | Some i when i + 2 < String.length base ->
+        let rest = String.sub base (i + 3) (String.length base - i - 3) in
+        (match String.index_opt rest '/' with
+         | Some j -> String.sub base 0 (i + 3 + j)
+         | None -> base)
+      | _ -> base
+    in
+    if String.length loc > 0 && loc.[0] = '/' then scheme_host ^ loc
+    else scheme_host ^ "/" ^ loc
+
+(* Fetch straight to a file, so a large artifact never becomes a value.
+   `-D -` puts the headers on stdout and `-o` puts the body in the file, so
+   a redirect can still be read and checked without holding what it points
+   at. Each hop overwrites the file, and the last one is what stays. *)
+let rec http_download ~hops ~url ~dest ~timeout_ms =
+  guard_net ~what:"this download reaches" (Evaluator.host_of_url url);
+  let seconds = max 1 ((timeout_ms + 999) / 1000) in
+  let argv =
+    [| "curl"; "-sS"; "--noproxy"; "*"; "--max-redirs"; "0";
+       "--max-time"; string_of_int seconds; "-D"; "-"; "-o"; dest; url |]
+  in
+  let (out, err, status) = spawn_argv argv "" in
+  (match status with
+   | Unix.WEXITED 0 -> ()
+   | _ ->
+     let why = String.trim err in
+     raise (EvalError (Printf.sprintf "download: %s"
+       (if why = "" then "the request did not complete" else why))));
+  let code = status_of out in
+  let hdrs = parse_headers (List.tl (header_lines out)) in
+  if code >= 300 && code < 400 && hops > 0 then
+    match List.assoc_opt "location" hdrs with
+    | Some loc when String.trim loc <> "" ->
+      let next = resolve_location ~base:url (String.trim loc) in
+      guard_net ~what:"this download is redirected to"
+        (Evaluator.host_of_url next);
+      http_download ~hops:(hops - 1) ~url:next ~dest ~timeout_ms
+    | _ -> code
+  else code
+
+(* Send one request and answer what came back.
+
+   Redirects are followed here rather than by `curl`, because each hop's host
+   has to be checked against the manifest and `curl` cannot be told to ask.
+   `--max-redirs 0` keeps it from following on its own.
+
+   Proxy environment variables are refused. `curl` honours `HTTPS_PROXY` by
+   default, and honouring it would send the body to a host the manifest never
+   named -- and make every fetch read the environment, so every script that
+   fetched anything would declare `Env`. `--noproxy '*'` is what makes the
+   rule the reference states true on a machine that sets one. *)
+let rec http_send ~hops ~url ~meth ~headers ~body ~timeout_ms =
+  guard_net ~what:"this request reaches" (Evaluator.host_of_url url);
+  let seconds = max 1 ((timeout_ms + 999) / 1000) in
+  let head_only = meth = "HEAD" in
+  let argv =
+    [ "curl"; "-sS"; "--noproxy"; "*"; "--max-redirs"; "0";
+      "--max-time"; string_of_int seconds ]
+    @ (if head_only then ["--head"] else ["-i"; "-X"; meth])
+    @ (if body = "" then [] else ["--data-binary"; "@-"])
+    @ List.concat_map (fun (k, v) -> ["-H"; k ^ ": " ^ v]) headers
+    @ [url]
+  in
+  let (out, err, status) = spawn_argv (Array.of_list argv) body in
+  (match status with
+   | Unix.WEXITED 0 -> ()
+   | _ ->
+     let why = String.trim err in
+     raise (EvalError (Printf.sprintf "http: %s"
+       (if why = "" then "the request did not complete" else why))));
+  let (head, payload) = split_response out in
+  let code = status_of head in
+  let hdrs = parse_headers (List.tl (header_lines head)) in
+  (* A 3xx with somewhere to go, and budget left to go there. Every hop is
+     checked, so a manifest naming two hosts admits a redirect between them
+     and one naming a single host does not. *)
+  if code >= 300 && code < 400 && hops > 0 then
+    match List.assoc_opt "location" hdrs with
+    | Some loc when String.trim loc <> "" ->
+      let next = resolve_location ~base:url (String.trim loc) in
+      guard_net ~what:"this request is redirected to"
+        (Evaluator.host_of_url next);
+      (* A redirect answers with the method it was given, except that the
+         three that change one are the reason `303` exists: after it, and
+         after a `301` or `302` on a POST, a client asks with GET. That is
+         what every other client does and what servers are written for. *)
+      let meth =
+        if code = 303 || ((code = 301 || code = 302) && meth = "POST")
+        then "GET" else meth
+      in
+      let body = if meth = "GET" then "" else body in
+      http_send ~hops:(hops - 1) ~url:next ~meth ~headers ~body ~timeout_ms
+    | _ -> (code, hdrs, payload)
+  else (code, hdrs, payload)
 
 (* Downstream has gone -- `wand report.wand | head -3`. SIGPIPE is ignored
    (see `install_signal_handlers`), so the write comes back as an error
@@ -1129,6 +1402,43 @@ let run_with_default_handler (thunk : unit -> value) : value =
           | WandEffect ("FS!unlock", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               release_lock path; Effect.Deep.continue k VUnit)
+          (* One operation for the protocol, so a mock has one case to
+             write and a test cannot believe itself sealed while a second
+             operation reaches the network. *)
+          | WandEffect ("Net!http",
+                        VConstr (_, [(VURL (url, _) | VString url); meth; VMap headers;
+                                     VString body; VDuration timeout;
+                                     VInt redirects])) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              let headers =
+                List.map (fun (name, v) ->
+                  (name, match v with VString s -> s | other -> to_text other))
+                  headers
+              in
+              match (try
+                       Ok (http_send ~hops:(max 0 redirects) ~url
+                             ~meth:(method_name meth) ~headers ~body
+                             ~timeout_ms:(Evaluator.parse_dur_ms timeout))
+                     with EvalError m -> Error m) with
+              | Ok (code, hdrs, payload) ->
+                Effect.Deep.continue k
+                  (VConstr (Ctor.Builtin "HTTPResponse",
+                            [VInt code;
+                             VMap (List.map (fun (h, v) -> (h, VString v)) hdrs);
+                             VString payload]))
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
+          | WandEffect ("Net!download",
+                        VTuple [(VURL (url, _) | VString url); VPath dest]) ->
+            Some (fun (k : (a, value) Effect.Deep.continuation) ->
+              match (try Ok (http_download ~hops:5 ~url ~dest
+                               ~timeout_ms:(5 * 60 * 1000))
+                     with EvalError m -> Error m) with
+              | Ok code when code >= 200 && code < 300 ->
+                Effect.Deep.continue k VUnit
+              | Ok code ->
+                Effect.Deep.discontinue k (EvalError (Printf.sprintf
+                  "download: %s answered %d" url code))
+              | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!mkdir", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rec mkdir_p p =
@@ -1426,6 +1736,14 @@ let run_item ?modul env item =
     in
     (match target_name target with
      | Some tn ->
+       (* A record constructor is not a value in scope -- it is built by
+          naming its fields -- so forwarding it means giving the alias the
+          same constructor identity rather than the same value. Without
+          this, `type Req = HTTPRequest` typechecked and then failed at run
+          time with "unknown constructor 'Req'". *)
+       (match Hashtbl.find_opt Evaluator.ctor_of_name tn with
+        | Some c -> Hashtbl.replace Evaluator.ctor_of_name aname c
+        | None -> ());
        (match Evaluator.lookup_var tn env with
         | Some ((VConstr _ | VPartialConstr _) as v) -> (aname, v) :: env
         | _ -> env)
@@ -1739,7 +2057,10 @@ and load_module src_ref ~cache ~loading =
   let path = Module_types.key_of src_ref in
   let src = Module_types.read_source src_ref in
   let tokens =
-    try Lexer.tokenize src
+    (* Every position from here names this file, so an error raised inside an
+       imported module says which one rather than a bare line number the
+       reader cannot place. *)
+    try Lexer.tokenize ~file:path src
     with Lexer.LexError (loc, msg) ->
       raise (Module_types.ImportError (Printf.sprintf "lex error in '%s': %d:%d: %s"
                   path loc.Token.line loc.Token.col msg))
@@ -1756,6 +2077,14 @@ and load_module src_ref ~cache ~loading =
   let base_dir = Filename.dirname path in
   loading := path :: !loading;
   let (imported, imp_docs) = load_imports_for ~base_dir ~cache ~loading prog in
+  (* Settled here for the reason `run_program` settles the entry: the
+     typechecker and the evaluator have to be handed the same program.
+
+     A module was skipping this, so `type P2 = Point` beside the `Point` it
+     names stayed a variant declaring a nullary constructor called `Point` --
+     which took the real one's fields with it, for every file that imported
+     the module and whether or not it ever wrote the alias. *)
+  let prog = Typechecker.settle_aliases ~init_tenv:imported.tenv prog in
   (* The key covers this module's source and its imports' keys, which cover
      theirs. Parsing happens either way -- it is a fifth of what inference
      costs, and the import list has to be read to know what the key depends
@@ -2337,7 +2666,9 @@ let run_in_mode mode (thunk : unit -> value) : value =
               | WandEffect (name, v) ->
                 Some (fun (k : (a, value) Effect.Deep.continuation) ->
                   let described = describe_operation name v in
-                  let withhold = mode = DryRun && is_mutation name in
+                  let withhold =
+                    mode = DryRun && (is_mutation name || is_mutation_value name v)
+                  in
                   (* The one operation a rehearsal neither carries out nor
                      withholds. Two rules already settled point opposite ways
                      here: a rehearsal takes a lock for real, so it cannot
@@ -2532,7 +2863,11 @@ let run_file ?(mode = Normal) path =
   in
   try
     let src      = In_channel.with_open_text full In_channel.input_all in
-    let tokens   = Lexer.tokenize src in
+    (* The file the run was asked for. A position in it is reported bare,
+       because it is the file the reader is looking at; a position from
+       anywhere else says where it is. *)
+    Evaluator.entry_file := full;
+    let tokens   = Lexer.tokenize ~file:full src in
     let prog     = Parser.parse_program tokens in
     let base_dir = Filename.dirname full in
     run_program ~mode ~base_dir prog
@@ -2576,6 +2911,11 @@ let run_test_program ~base_dir ?(item_locs = []) prog
   let cache = Hashtbl.create 8 in
   let loading = ref [] in
   let (imp, _) = load_imports_for ~base_dir ~cache ~loading prog in
+  (* Settled before anything reads the program's own declarations: an
+     alias parses as a variant with one nullary constructor, and a lint
+     or a tenv built from that has the alias declaring a constructor over
+     the very name it aliases. *)
+  let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
   match Typechecker.infer_program_env_with_own
           ~init_tenv:imp.tenv ~init_env:imp.type_env
           ~type_names:imp.type_names prog with
@@ -3129,6 +3469,11 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let (imp, imp_docs) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
+    (* Settled before anything reads the program's own declarations: an
+       alias parses as a variant with one nullary constructor, and a lint
+       or a tenv built from that has the alias declaring a constructor over
+       the very name it aliases. *)
+    let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
     (* A file in the stdlib is checked as what it is: a module, whose body
        calls the raw builtins the modules are built from. Checked as a
        script it fails on the first one, so nothing here could be checked
@@ -3191,6 +3536,11 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let loading = ref [] in
     let base_dir = Module_types.stdlib_base_dir in
     let (imp, _) = load_imports_for ~item_locs ~base_dir ~cache ~loading prog in
+    (* Settled before anything reads the program's own declarations: an
+       alias parses as a variant with one nullary constructor, and a lint
+       or a tenv built from that has the alias declaring a constructor over
+       the very name it aliases. *)
+    let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)
             ~init_env:imp.type_env ~type_names:imp.type_names prog with
@@ -3210,6 +3560,12 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    (* Settled before anything reads the program's own declarations: an
+       alias parses as a variant with one nullary constructor, and a lint
+       or a tenv built from that has the alias declaring a constructor over
+       the very name it aliases. *)
+    let prog =
+      Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     let merged_type_names = imp.type_names @ sess.s_type_names in
@@ -3231,6 +3587,12 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading prog in
+    (* Settled before anything reads the program's own declarations: an
+       alias parses as a variant with one nullary constructor, and a lint
+       or a tenv built from that has the alias declaring a constructor over
+       the very name it aliases. *)
+    let prog =
+      Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     let merged_type_names = imp.type_names @ sess.s_type_names in

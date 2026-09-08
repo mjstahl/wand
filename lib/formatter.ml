@@ -904,7 +904,8 @@ and emit_expr_inner ?col indent e =
   | Bool b     -> string_of_bool b
   | Unit       -> "()"
   | Path s | Glob s | DateTime s | Duration s
-  | URL s | CIDR s | Version s | Size s | IPv4 s -> s
+  | URL (s, _) -> s
+  | CIDR s | Version s | Size s | IPv4 s -> s
   | Port n     -> ":" ^ string_of_int n
   | Var x      -> x
   | Constr x   -> x
@@ -981,7 +982,7 @@ and emit_expr_inner ?col indent e =
        in
        m ^ "." ^ emit_expr indent f ^ "(" ^ payload ^ ")"
      | _ -> m ^ "." ^ emit_expr indent e)
-  | ConstrApp (name, kvs) ->
+  | ConstrApp (name, kvs, _) ->
     (* Punned only where every field puns, and there are two or more of
        them. That is the whole of what reads back as a construction: one
        identifier alone is a payload (`B(n)`), and a pun standing in front
@@ -1020,7 +1021,7 @@ and emit_expr_inner ?col indent e =
   (* `T(r, a = 1)`: the base reads as the first item, and the fields that
      change follow it, so the one-per-line form puts the base on its own
      line as well. *)
-  | ConstrUpdate (name, base, kvs) ->
+  | ConstrUpdate (name, base, kvs, _) ->
     let items =
       emit_expr indent base
       :: List.map (fun (k, v) -> k ^ " = " ^ emit_expr indent v) kvs

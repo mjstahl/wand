@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Net](#net) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -1330,7 +1330,8 @@ Nine, and a script cannot define more:
 | Label | Means |
 |---|---|
 | `Clock` | waits; how long the call takes depends on wall-clock time |
-| `Shell` | runs a subprocess, or names one with `$*(...)` — including anything reaching the network, since it does so through a command |
+| `Shell` | runs a subprocess, or names one with `$*(...)` |
+| `Net` | sends bytes to a host outside this machine |
 | `FS.Read` | reads from the filesystem |
 | `FS.Write` | creates, changes or removes something on disk |
 | `Env` | reads or changes environment variables |
@@ -1340,16 +1341,16 @@ Nine, and a script cannot define more:
 | `Raise` | can raise instead of returning |
 
 A label answers one question: what can this touch? So a label is coarse. It
-must fit in a signature, and you must be able to hold all nine in your
+must fit in a signature, and you must be able to hold all ten in your
 head.
 
 ### What earns a label
 
-Three things justify one, and the nine divide between them:
+Three things justify one, and the ten divide between them:
 
 | Justification | Labels |
 |---|---|
-| Reach — the call touches something outside the program | `Shell`, `FS.Read`, `FS.Write`, `Env`, `IO`, `Proc` |
+| Reach — the call touches something outside the program | `Shell`, `Net`, `FS.Read`, `FS.Write`, `Env`, `IO`, `Proc` |
 | Non-determinism inside one run — two calls can disagree | `Clock`, `Random` |
 | Control flow | `Raise` |
 
@@ -1585,21 +1586,30 @@ uses {Shell(git, curl), FS.Write}
 Write each name as it appears inside `$()`. `Shell(git, docker-compose,
 node.js, g++, /opt/bin/deploy)` all work without quotes. Use quotes only for a
 name that wand cannot lex as one name, such as `"7zip"` or a name with a
-space. Bare `Shell` stays legal and means any binary. It is the honest
+space. Bare `Shell` stays legal and means any binary.
+
+One subprocess is outside this: the `curl` that `HTTP` sends bytes through.
+A narrowed `Shell` bounds what *this script* runs, and the transport is not
+that. See [`Net`](#net). It is the honest
 spelling for a script that is open-ended. `Shell()` is a parse error: a file
 that runs nothing drops the label.
 
-**A word may be a pattern.** `*` matches any run of characters that holds no
-separator, and the separator is `/` in a binary name:
+**A word may be a pattern.** `*` stands for part of a name, and stops where
+a binary name's parts divide, which is at a `/`:
 
 ```ocaml
 uses {Shell(docker-*)}        -- docker-compose, docker-credential-osx
 uses {Shell(./scripts/*)}     -- ./scripts/probe.sh, not ./scripts/a/b.sh
 ```
 
-One separator, and `*` does not cross it. This is what a shell glob does
-with `/`, so there is no third convention to learn. A level deeper is
-written with a second `*`. A manifest word is not a `Glob` value: `Glob` is
+This is what a shell glob does with `/`, so there is no third convention to
+learn. A level deeper is written with a second `*`.
+
+The rule above about a name without a path still holds, and it is worth
+seeing together with a pattern: `docker-*` names no path, so it matches the
+binary's own name wherever it is found, and admits a `docker-compose`
+anywhere on `PATH` — exactly as `git` admits `/usr/bin/git`. A word that
+does name a path, like `./scripts/*`, is matched whole. A manifest word is not a `Glob` value: `Glob` is
 a type about paths, with rules about `./` prefixes that mean nothing here.
 
 `Shell(*)` is an error. A pattern that admits everything is bare `Shell`
@@ -1785,6 +1795,7 @@ there is nothing extra to remember.
 |---|---|
 | `Shell` | `command`, `run`, `stream`, `run_quiet`, `capture`, `exit_code` |
 | `FS` | `read_file`, `stream_lines`, `write_file`, `write_atomic`, `write_lines`, `write_lines_atomic`, `append_lines`, `append`, `create_file`, `delete`, `delete_tree`, `copy`, `copy_tree`, `rename`, `mkdir`, `list_dir`, `glob`, `exists?`, `file?`, `dir?`, `size`, `mtime`, `cwd`, `temp_file`, `temp_dir`, `lock`, `lock_wait`, `unlock` |
+| `Net` | `http`, `download` |
 | `Hash` | `file` |
 | `Env` | `get`, `set`, `clear`, `all`, `home`, `user`, `read` |
 | `IO` | `print`, `println`, `print_err`, `println_err`, `read_line`, `read_all`, `flush`, `stdin_lines` |
@@ -2178,7 +2189,8 @@ Opts.parser.spec   -- {verbose = "switch"}
 
 `T.parser` holds the three things reading a command line takes: `spec`,
 `reader` and `usage`. `CommandLine` is a built-in type, so a file may take
-one apart and may build one.
+one apart and may build one. `Args.Parser` is an alias of it, so a file that
+imports `Args` can write `Args.Parser Opts`; the two spellings are one type.
 
 Until 0.49.0 `spec` and `reader` were members of their own, and `Args.read`
 took them side by side. Nothing said that they had to come from one type,
@@ -3964,6 +3976,131 @@ and never change, so reading either reaches nothing and answers the same
 twice — see [What earns a label](#what-earns-a-label). A `Par` worker is a
 domain rather than a second process, so every branch reads one pid.
 
+### `Net`
+
+`Net` says that the file sends bytes to a host outside this machine. Bare
+`Net` admits any host; the manifest can narrow it to the ones the file may
+reach:
+
+```ocaml
+uses {Net(api.github.com, hooks.slack.com)}
+uses {Net(*.internal.example.com)}
+```
+
+The narrowing unit is the **host**, not a path. The host is what answers the
+question a reviewer is asking, which is where the data goes. A path list
+grows long, drifts on the first API change, and invites a manifest to be
+read as an authorization boundary, which it is not.
+
+A word may be a pattern, on the same rule every narrowed label uses, with
+`.` as the separator: `*.example.com` admits `api.example.com` and refuses
+both `a.b.example.com` and the bare `example.com`, which is what a TLS
+certificate does with the same spelling. `Net(*)` is an error — write bare
+`Net`.
+
+**The host is checked as written. wand resolves no DNS.** `Net(example.com)`
+does not stop a connection to an address the script writes out, any more
+than `Shell(git)` peels a wrapper. The manifest bounds the text, and that is
+the whole of what it claims.
+
+A request is checked against the manifest of the file that wrote its URL,
+and so is every redirect it follows — a 302 is the one thing that can send a
+body to a host nobody wrote down. A host the run decides is checked when the
+request is made rather than at `wand t`; `V-NET1` reports a request built
+that way, as `V-SHELL1` reports a command word decided the same way.
+
+> **The transport runs `curl`.** wand has no TLS of its own yet, so bytes
+> reach a host through a subprocess. That subprocess is not bounded by a
+> narrowed `Shell`: `Shell(git)` means only `git` runs *from this script*,
+> not that only `git` runs. `--trace` reports the request, and moving TLS
+> in-process later will change no script.
+
+### `HTTP`
+
+```ocaml
+request  : HTTPRequest -> Result String HTTPResponse ! {Net}
+request! : HTTPRequest -> HTTPResponse ! {Net, Raise}
+get      : URL -> Result String HTTPResponse ! {Net}
+get!     : URL -> HTTPResponse ! {Net, Raise}
+post     : URL -> String -> Result String HTTPResponse ! {Net}
+post!    : URL -> String -> HTTPResponse ! {Net, Raise}
+download  : URL -> Path -> Result String Unit ! {FS.Write, Net}
+download! : URL -> Path -> Unit ! {FS.Write, Net, Raise}
+upload   : URL -> Path -> Result String HTTPResponse ! {FS.Read, Net}
+upload!  : URL -> Path -> HTTPResponse ! {FS.Read, Net, Raise}
+ok?      : HTTPResponse -> Bool
+header      : String -> HTTPResponse -> Option String
+header_list : String -> HTTPResponse -> List String
+decode   : Decoder 'a -> HTTPResponse -> Result String 'a
+```
+
+`HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so they need no
+import and no module prefix. `HTTP.Request`, `HTTP.Response` and
+`HTTP.Method` are aliases of the three, so a file that already imports `HTTP`
+can write the short name; the two spellings are one type, and a value built
+one way annotates, matches and passes the other. Signatures print the
+built-in name.
+
+```ocaml
+type HTTPMethod = GET | POST | PUT | PATCH | DELETE | HEAD
+```
+
+`HTTPRequest` has one field with no default and five with one:
+
+| field | type | default |
+|---|---|---|
+| `url` | `URL` | — |
+| `method` | `HTTPMethod` | `GET` |
+| `headers` | `Map String` | `{}` |
+| `body` | `String` | `""` |
+| `timeout` | `Duration` | `30s` |
+| `redirects` | `Int` | `5` |
+
+`HTTPResponse` has three, and no defaults: `status` is an `Int`, `headers` a
+`Map String`, and `body` a `String`.
+
+Every field but the URL has a default, so a request is written by naming
+what differs, and record update gives the chaining a builder gives
+elsewhere:
+
+```ocaml
+let base = HTTPRequest(url = api, headers = {authorization = "Bearer %{tok}"})
+let slow = HTTPRequest(base, timeout = 2min)
+```
+
+**A 404 is not an `Error`.** The exchange succeeded and the server said no.
+`Error` is for the transport failing — a name that does not resolve, a
+connection refused, a timeout. This is `$()` and `$?()` again: `HTTP.get`
+answers with a `Response` whatever the status, and `HTTP.get!` raises on a
+non-2xx. `HTTP.ok?` is `Shell.ok?` for a status code.
+
+**A body is a `String`, never transcoded.** A wand `String` is a byte
+string, so the bytes of a compressed response survive being held in one.
+What does not survive is describing them: `String.length` counts bytes, and
+`String.slice` will cut a character in half. That is not why binary goes to
+disk through `download` — `download` exists because a 2GB artifact should
+never become a value at all. It streams, and that is load-bearing rather
+than a convenience.
+
+`upload` reads its file rather than streaming it, which is why it declares
+`FS.Read` and `download` declares `FS.Write`. A body that will not fit in
+memory has no answer yet.
+
+`decode` reads a body as one value, the way `Shell.decode` reads a capture.
+There is no `get_json`: the reading happens in one place, with a message
+that says what was wrong, rather than a chain of scrapes that each assume
+the last one worked.
+
+Header names are lowercased, because they are case-insensitive on the wire
+and a `Map` is not. `header` answers the last value of a name; a response
+that repeats one — `set-cookie` is the case that matters — is read with
+`header_list`.
+
+`timeout` is a field rather than a wrapper, unlike `Shell.timeout` and
+`Par.timeout`. A wrapper cannot differ per request inside a `Par.map` over a
+list of URLs, which is the case that wants a timeout most, and a field is
+visible at the call site where the reviewer is reading.
+
 ### `Env`
 
 ```ocaml
@@ -5024,6 +5161,8 @@ with_lines         : Path -> List String -> (Unit -> 'a ! 'e) -> 'a ! 'e
 writes             : (Unit -> 'a ! 'e) -> List Path ! 'e
 with_clock         : (Unit -> 'a ! 'e) -> (Duration, 'a) ! 'e
 at                 : DateTime -> (Unit -> 'a ! 'e) -> 'a ! 'e
+with_http          : List (String, HTTPResponse) -> (Unit -> 'a ! {Net | 'e}) -> 'a ! 'e
+http_calls         : (Unit -> 'a ! {Net | 'e}) -> List URL ! 'e
 with_lock          : (Unit -> 'a ! 'e) -> 'a ! 'e
 with_lock_held     : (Unit -> 'a ! 'e) -> 'a ! 'e
 lock_calls         : (Unit -> 'a ! 'e) -> List Path ! 'e
@@ -5677,6 +5816,7 @@ punish the safer choice.
 | `V-CLOCK1` | a length of time is measured by subtracting two readings of `Clock.now`, which a clock step spoils — wrap the work in `Clock.timed` |
 | `A-SHELL1` | a `$()` holds a shell pipeline of three or more operators |
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
+| `V-NET1` | the manifest narrows `Net` to named hosts, but a request is built with a host decided at run time |
 | `V-SHELL2` | a command runs on to a second line, which starts a second command |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `V-USES2` | a file performs effects and declares no manifest |

@@ -34,7 +34,10 @@ let () =
   (* The built-in pairs declare their absent and failed cases first, which
      is the order they already sorted in. *)
   List.iter (fun (n, i) -> Hashtbl.replace constr_index (Ctor.Builtin n) i)
-    ["None", 0; "Some", 1; "Error", 0; "Ok", 1; "ShellResult", 0];
+    ["None", 0; "Some", 1; "Error", 0; "Ok", 1; "ShellResult", 0;
+     "HTTPRequest", 0; "HTTPResponse", 0;
+     (* Declaration order, which is what the index means. *)
+     "GET", 0; "POST", 1; "PUT", 2; "PATCH", 3; "DELETE", 4; "HEAD", 5];
   Hashtbl.add constr_fields (Ctor.Builtin "ShellResult")
     [Some "stdout"; Some "stderr"; Some "code"];
   (* Built in, so they are known before any file is read. *)
@@ -43,8 +46,54 @@ let () =
   (* What `T.parser` answers with, and what `Args.read` takes apart. *)
   Hashtbl.add constr_fields (Ctor.Builtin "CommandLine")
     [Some "spec"; Some "reader"; Some "usage"];
+  (* What a request is made of, and what one answers with. `HTTP.Request`
+     and `HTTP.Response` are aliases of these, so a script never writes
+     these spellings. *)
+  Hashtbl.add constr_fields (Ctor.Builtin "HTTPRequest")
+    [Some "url"; Some "method"; Some "headers"; Some "body"; Some "timeout";
+     Some "redirects"];
+  Hashtbl.add constr_fields (Ctor.Builtin "HTTPResponse")
+    [Some "status"; Some "headers"; Some "body"];
+  (* Every field but the URL has one, so a request is written by naming what
+     differs from the ordinary case. These are the same expressions the
+     type's declaration carries; the typechecker holds its own copy for the
+     same reason it holds the fields. *)
+  Hashtbl.add constr_defaults (Ctor.Builtin "HTTPRequest")
+    [ ("method",    Ast.Constr "GET");
+      ("headers",   Ast.MapLit []);
+      ("body",      Ast.String "");
+      ("timeout",   Ast.Duration "30s");
+      ("redirects", Ast.Int 5) ];
+  List.iter (fun n -> Hashtbl.add constr_fields (Ctor.Builtin n) [])
+    ["GET"; "POST"; "PUT"; "PATCH"; "DELETE"; "HEAD"];
   List.iter (fun n -> Hashtbl.replace ctor_of_name n (Ctor.Builtin n))
-    ["ShellResult"; "CommandLine"; "Some"; "None"; "Ok"; "Error"]
+    ["ShellResult"; "CommandLine"; "HTTPRequest"; "HTTPResponse";
+     "GET"; "POST"; "PUT"; "PATCH"; "DELETE"; "HEAD";
+     "Some"; "None"; "Ok"; "Error"]
+
+(* The host a URL names, as written. wand resolves no DNS: the host as
+   written is the thing the manifest allows, which is the rule
+   `shell_scan.ml` already states for a binary. *)
+let host_of_url u =
+  let after_scheme =
+    match String.index_opt u ':' with
+    | Some i when i + 2 < String.length u && u.[i + 1] = '/' && u.[i + 2] = '/' ->
+      String.sub u (i + 3) (String.length u - i - 3)
+    | _ -> u
+  in
+  let stop_at c s =
+    match String.index_opt s c with
+    | Some i -> String.sub s 0 i
+    | None -> s
+  in
+  let host = stop_at '/' after_scheme |> stop_at '?' |> stop_at '#' in
+  (* Credentials come before the host, a port after it. *)
+  let host =
+    match String.rindex_opt host '@' with
+    | Some i -> String.sub host (i + 1) (String.length host - i - 1)
+    | None -> host
+  in
+  stop_at ':' host
 
 let defaults_of name =
   match Hashtbl.find_opt constr_defaults name with
@@ -110,7 +159,12 @@ type value =
   | VGlob     of string
   | VDateTime of string
   | VDuration of string
-  | VURL      of string
+  (* A URL, and the `Net(...)` bound of the file whose text wrote it. The
+     bound rides here rather than on the request, because the request a
+     `HTTP.get` sends is built inside the standard library while the URL is
+     the part the caller wrote. A URL the run computed carries none, which
+     is the case `V-NET1` reports. *)
+  | VURL      of string * string list option
   | VIPv4     of string
   | VCIDR     of string
   | VPort     of int
@@ -128,6 +182,16 @@ type value =
      modules may each declare one called `Status`, and a pattern from one
      file must not match a value from the other. *)
   | VConstr        of Ctor.t * value list
+  (* A request, and the `Net(...)` bound of the file that built it. The
+     value inside is the ordinary `VConstr`, so every field reads as it
+     would without this.
+
+     A `Command` already carries its bound this way, and for the same
+     reason: the manifest belongs to a file, the send happens somewhere
+     else, and by then there is nothing left to ask. The construction site
+     checks the URL it was given; the transport needs the same list again
+     because a redirect's host is only known mid-flight. *)
+  | VRequest       of value * string list option
   | VPartialConstr of Ctor.t * int * value list
   | VFix           of string * env * pat list * expr
   | VFixGroup      of (string * pat list * expr) list * env * string
@@ -434,7 +498,7 @@ let rec render ~quote v =
      formatter's business rather than this one's. *)
   | VDateTime s -> datetime_of_epoch (datetime_epoch s)
   | VDuration s -> s
-  | VURL s      -> s
+  | VURL (s, _)      -> s
   | VIPv4 s     -> s
   | VCIDR s     -> s
   | VPort n     -> Printf.sprintf ":%d" n
@@ -464,6 +528,8 @@ let rec render ~quote v =
   | VDecoder _  -> "<decoder>"
   | VEnvIndex _ -> "<env index>"
   | VPartialConstr (n, _, _) -> Printf.sprintf "<%s>" (Ctor.name n)
+  (* The bound is not part of what a request is; it shows as the record. *)
+  | VRequest (inner, _) -> sub inner
   | VConstr (name, []) -> (Ctor.name name)
   | VConstr (name, vs) ->
     (Ctor.name name) ^ "(" ^ String.concat ", " (List.map sub vs) ^ ")"
@@ -565,6 +631,13 @@ type _ Effect.t += WandEffect : string * value -> value Effect.t
    made on (Par's cross-domain forwarding re-threads it explicitly). None
    means the site is unbounded and nothing is checked at spawn. *)
 let ambient_shell_allow : string list option Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> None)
+
+(* The same, for the request being sent: the `Net(...)` bound of the file
+   that built it, carried out of band so the payload a handler matches on
+   stays the request itself. The transport reads it to check each redirect,
+   whose host is not knowable any earlier. *)
+let ambient_net_allow : string list option Domain.DLS.key =
   Domain.DLS.new_key (fun () -> None)
 
 (* How long a command may run, in milliseconds, or None for as long as it
@@ -669,10 +742,17 @@ let request_interrupt code = Atomic.set interrupt_requested code
    Read only when an error is being reported. Until then it is written and
    never looked at. *)
 type loc_cell =
-  { mutable at_line : int; mutable at_col : int; mutable depth : int }
+  { mutable at_line : int; mutable at_col : int;
+    (* Which file the position is in, "" for the one being run. A raise from
+       inside an imported module used to report a bare line number, which
+       reads as a line of the reader's own file and sends them to the wrong
+       place entirely. *)
+    mutable at_file : string;
+    mutable depth : int }
 
 let current_loc : loc_cell Domain.DLS.key =
-  Domain.DLS.new_key (fun () -> { at_line = 0; at_col = 0; depth = 0 })
+  Domain.DLS.new_key (fun () ->
+    { at_line = 0; at_col = 0; at_file = ""; depth = 0 })
 
 (* A call left with work to do after it returns keeps a frame; one in tail
    position does not. So this bounds `apply` and never `apply_tail`, and a
@@ -707,13 +787,35 @@ let loc_cell () = Domain.DLS.get current_loc
 
 let mark_loc (c : loc_cell) (l : Token.loc) =
   c.at_line <- l.Token.line;
-  c.at_col  <- l.Token.col
+  c.at_col  <- l.Token.col;
+  c.at_file <- l.Token.file
 
 (* Prefix a runtime error with where it was raised, unless it says already. *)
+(* The file a run was asked for. A position in that file needs no name --
+   it is the one the reader is looking at -- so only a position from
+   somewhere else carries one. *)
+let entry_file : string ref = ref ""
+
 let stamp_loc msg =
   let c = loc_cell () in
   if c.at_line = 0 || Util.has_loc_prefix msg then msg
-  else Printf.sprintf "%d:%d: %s" c.at_line c.at_col msg
+  else if c.at_file = "" || c.at_file = !entry_file then
+    Printf.sprintf "%d:%d: %s" c.at_line c.at_col msg
+  else
+    (* Written the way the reader would type it: a file under the working
+       directory by the path from there, anything else in full. An absolute
+       path to a file three directories down is noise around the two numbers
+       that matter. *)
+    let shown =
+      let cwd = Sys.getcwd () in
+      let n = String.length cwd in
+      if String.length c.at_file > n + 1
+         && String.sub c.at_file 0 n = cwd
+         && c.at_file.[n] = '/'
+      then String.sub c.at_file (n + 1) (String.length c.at_file - n - 1)
+      else c.at_file
+    in
+    Printf.sprintf "%s:%d:%d: %s" shown c.at_line c.at_col msg
 
 (* Forget the position between runs. A session evaluates one statement after
    another, and an error raised before the next one reaches a `Located` --
@@ -721,6 +823,7 @@ let stamp_loc msg =
    against the statement before it. *)
 let forget_loc () =
   let c = loc_cell () in
+  c.at_file <- "";
   c.at_line <- 0;
   c.at_col <- 0;
   (* Statements are evaluated one after another at depth zero. Resetting
@@ -1121,6 +1224,9 @@ let rec wand_equal a b =
      question as `60s == 1min`. *)
   | VTuple xs, VTuple ys | VList xs, VList ys ->
     List.length xs = List.length ys && List.for_all2 wand_equal xs ys
+  (* Two requests are equal when they ask for the same thing. The bound is
+     an account of where they were written, not part of what they are. *)
+  | VRequest (a, _), b | a, VRequest (b, _) -> wand_equal a b
   | VConstr (n1, xs), VConstr (n2, ys) ->
     n1 = n2 && List.length xs = List.length ys && List.for_all2 wand_equal xs ys
   | VMap kvs1, VMap kvs2 | VRecord kvs1, VRecord kvs2 ->
@@ -1166,6 +1272,9 @@ let rec eq_key v =
      in, exactly as `wand_equal` does. *)
   | VList xs        -> VList (List.map eq_key xs)
   | VTuple xs       -> VTuple (List.map eq_key xs)
+  (* Keyed by what it asks for, so the bound cannot make two equal requests
+     two different keys. *)
+  | VRequest (inner, _) -> eq_key inner
   | VConstr (n, xs) -> VConstr (n, List.map eq_key xs)
   | VRecord kvs     -> VRecord (List.map (fun (k, x) -> (k, eq_key x)) kvs)
   | VMap kvs        -> VMap (List.map (fun (k, x) -> (k, eq_key x)) kvs)
@@ -1339,12 +1448,18 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
      the index, where one name holds one constructor and another module may
      have registered it. *)
   | PQualified (m, inner), VConstr (vc, vals) ->
+    let cname = pat_ctor_name inner in
     let owner =
       match lookup_var m env with
       | Some (VRecord kvs) ->
-        (match List.assoc_opt (pat_ctor_name inner) kvs with
+        (match List.assoc_opt cname kvs with
          | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> Some c
-         | _ -> None)
+         (* A module's alias is not a value in its record -- a record
+            constructor never is -- so the module hands back nothing under
+            that name. The identity was registered when the alias was read,
+            the same fallback construction takes, so `M.Response(...)`
+            matches where `M.Response(...)` builds. *)
+         | _ -> Hashtbl.find_opt ctor_of_name cname)
       | _ -> None
     in
     (match owner with
@@ -1483,6 +1598,42 @@ let derive_parser : (string -> value) ref =
 let derive_reader : (string -> value) ref =
   ref (fun _ -> raise (EvalError "reader derivation is not wired up"))
 
+(* A request is checked where it is built, against the manifest of the file
+   that built it. That is earlier than the send, and better placed: the
+   error lands on the line that named the host, which is the line the
+   manifest is about. A URL the run decided is checked here too, because the
+   URL is a field and the field has a value by now.
+
+   `None` means the file declared bare `Net` or no manifest at all, and
+   nothing is checked -- the same reading `ambient_shell_allow` gives. *)
+(* The bound to check a request against: the one on the URL if it has one,
+   and the construction's otherwise.
+
+   The URL comes first because it is the part the caller wrote.
+   `HTTP.get https://api.example.com/x` builds its request inside the
+   standard library, whose manifest is bare `Net`, so the construction
+   carries nothing and only the literal can say whose manifest applies. A
+   request the caller builds itself has the same bound on both. *)
+let request_bound allow value =
+  match value with
+  | VConstr (_, VURL (_, (Some _ as from_url)) :: _) -> from_url
+  | _ -> allow
+
+let check_request_host allow value =
+  match request_bound allow value with
+  | None -> ()
+  | Some allow_list ->
+    (match value with
+     | VConstr (_, (VURL (u, _) | VString u) :: _) ->
+       let host = host_of_url u in
+       if not (Narrow.allowed ~rule:Narrow.host ~allow:allow_list host) then begin
+         raise (EvalError (Printf.sprintf
+           "this request reaches '%s', which %s does not allow"
+           host
+           (Shell_scan.render_label ("Net", Some allow_list))))
+       end
+     | _ -> ())
+
 let rec eval (env : env) (e : expr) : value = eval_at false env e
 
 (* Evaluate in tail position: the value of `e` is the value of whatever
@@ -1534,7 +1685,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
   | Glob s     -> VGlob s
   | DateTime s -> VDateTime s
   | Duration s -> VDuration s
-  | URL s      -> VURL s
+  | URL (s, allow) -> VURL (s, allow)
   | IPv4 s     -> VIPv4 s
   | CIDR s     -> VCIDR s
   | Port n     -> VPort n
@@ -1550,8 +1701,16 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     (match lookup_var name env with
      | Some v -> v
      | None   ->
-       raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (env_names env)))))
+       (* A built-in constructor that carries nothing -- `GET` and the other
+          methods -- is a value wherever it is named. It is not in the
+          environment, because that holds what a file declared or imported,
+          and nothing imports the language's own. *)
+       (match Hashtbl.find_opt ctor_of_name name with
+        | Some c when Hashtbl.find_opt constr_fields c = Some [] ->
+          VConstr (c, [])
+        | _ ->
+          raise (EvalError (Printf.sprintf "unknown constructor '%s'%s"
+            name (Util.hint name (env_names env))))))
   | EnvVar name ->
     (match Sys.getenv_opt name with
      | Some v -> VString v
@@ -1623,8 +1782,17 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       match from_module name with
       | Some c -> k c
       | None ->
-        raise (EvalError (Printf.sprintf
-          "'%s' has no constructor '%s'" m name))
+        (* A module's alias is not a value in its record -- a record
+           constructor never is -- so the module has nothing to hand back
+           under that name. The identity was registered when the alias was
+           read, and the typechecker has already settled that this name
+           belongs to this module, so the table is the right place to
+           finish. *)
+        (match Hashtbl.find_opt ctor_of_name name with
+         | Some c -> k c
+         | None ->
+           raise (EvalError (Printf.sprintf
+             "'%s' has no constructor '%s'" m name)))
     in
     (* The constructor after the dot carries its own extent now, so the
        shapes below are read through it. *)
@@ -1633,8 +1801,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
          match Hashtbl.find_opt constr_fields c with
          | Some (_ :: _ as fs) -> VPartialConstr (c, List.length fs, [])
          | _ -> VConstr (c, []))
-     | ConstrApp (name, fields) ->
-       with_ident name (fun c -> eval_constr_app env c fields)
+     | ConstrApp (name, fields, allow) ->
+       with_ident name (fun c -> eval_constr_app env c fields allow)
      | ConstrBare (name, ids) ->
        with_ident name (fun c ->
          let named_fields =
@@ -1643,7 +1811,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
            | None -> false
          in
          match Ast.constr_bare_construction ~named_fields name ids with
-         | ConstrApp (_, fields) -> eval_constr_app env c fields
+         | ConstrApp (_, fields, allow) -> eval_constr_app env c fields allow
          | other -> eval env other)
      | App (f, arg) ->
        (* `Foo.Some 3`: the constructor, then what it is applied to. *)
@@ -1656,17 +1824,32 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | None -> false
     in
     eval env (Ast.constr_bare_construction ~named_fields name ids)
-  | ConstrApp (name, fields) -> eval_constr_app env (ctor_in_scope env name) fields
-  | ConstrUpdate (name, base, fields) ->
+  | ConstrApp (name, fields, allow) ->
+    eval_constr_app env (ctor_in_scope env name) fields allow
+  | ConstrUpdate (name, base, fields, allow) ->
     let replacements = List.map (fun (fname, e) -> (fname, eval env e)) fields in
     (match eval env base, Hashtbl.find_opt constr_fields (ctor_named name) with
+     (* Updating a request answers a request, and the bound is the one on the
+        file that wrote the update -- it is the file that chose the new
+        URL. *)
+     | VRequest (VConstr (_, values), _), Some field_names
      | VConstr (_, values), Some field_names ->
-       VConstr ((ctor_named name), List.map2 (fun fname_opt v ->
-         match fname_opt with
-         | Some fn -> (match List.assoc_opt fn replacements with
-                       | Some v' -> v'
-                       | None -> v)
-         | None -> v) field_names values)
+       let c = ctor_named name in
+       let built =
+         VConstr (c, List.map2 (fun fname_opt v ->
+           match fname_opt with
+           | Some fn -> (match List.assoc_opt fn replacements with
+                         | Some v' -> v'
+                         | None -> v)
+           | None -> v) field_names values)
+       in
+       (* An update may name a different host, so it is checked like a
+          construction -- against the manifest of the file the update was
+          written in, which is the file that chose the new URL. *)
+       if c = Ctor.Builtin "HTTPRequest" then begin
+         check_request_host allow built;
+         VRequest (built, allow)
+       end else built
      | _ -> raise (EvalError (Printf.sprintf
          "'%s' cannot be updated: it has no named fields" name)))
   | MapLit kvs ->
@@ -1694,6 +1877,8 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
         | None   ->
           raise (EvalError (Printf.sprintf "no field '%s'%s"
             label (Util.hint label (List.map fst kvs)))))
+     (* A request reads as the record it wraps. *)
+     | VRequest (VConstr (name, vals), _)
      | VConstr (name, vals) ->
        (match Hashtbl.find_opt constr_fields name with
         | Some names ->
@@ -1922,7 +2107,7 @@ and command_line env e allow form : string =
   | v -> raise (EvalError (Printf.sprintf
       "a handler for Shell!command answered with %s, and a command is a        String" (show_value v)))
 
-and eval_constr_app env c fields =
+and eval_constr_app env c fields allow =
   let name = Ctor.name c in
   let provided = List.filter_map (fun (fname_opt, e) ->
     match fname_opt with
@@ -1949,7 +2134,14 @@ and eval_constr_app env c fields =
              | None -> raise (EvalError (Printf.sprintf
                  "constructor '%s' missing field '%s'" name fn))))
      ) field_names in
-     VConstr (c, ordered))
+     let built = VConstr (c, ordered) in
+     (* Where a request meets the manifest of the file that wrote it. The
+        URL it was given is checked now; the bound travels with it, because
+        a redirect's host is not known until the send. *)
+     if c = Ctor.Builtin "HTTPRequest" then begin
+       check_request_host allow built;
+       VRequest (built, allow)
+     end else built)
 
 and apply vf vx =
   (* The call is left with work to do after this returns -- it is a builtin
@@ -3716,6 +3908,14 @@ let stdlib_eval_env : env = [
   (* Result constructors *)
   ("Ok",    VPartialConstr (Ctor.Builtin "Ok",    1, []));
   ("Error", VPartialConstr (Ctor.Builtin "Error", 1, []));
+  (* The methods, spelled as the wire spells them. Nullary, so each is a
+     value in scope rather than something to apply. *)
+  ("GET",    VConstr (Ctor.Builtin "GET",    []));
+  ("POST",   VConstr (Ctor.Builtin "POST",   []));
+  ("PUT",    VConstr (Ctor.Builtin "PUT",    []));
+  ("PATCH",  VConstr (Ctor.Builtin "PATCH",  []));
+  ("DELETE", VConstr (Ctor.Builtin "DELETE", []));
+  ("HEAD",   VConstr (Ctor.Builtin "HEAD",   []));
   (* String primitives *)
   ("str_length", VBuiltin (function
     | VString s -> VInt (String.length s)
@@ -3945,7 +4145,7 @@ let stdlib_eval_env : env = [
     | VString s ->
       let text = String.trim s in
       (match Lexer.url_error text with
-       | None -> VConstr (Ctor.Builtin "Ok", [VURL text])
+       | None -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
        | Some why -> VConstr (Ctor.Builtin "Error", [VString
            (Printf.sprintf "cannot parse %S as URL: %s" s why)]))
     | _ -> raise (EvalError "str_to_url: expected String")));
@@ -4211,17 +4411,17 @@ let stdlib_eval_env : env = [
      accessor is total. A part that is absent is "" or None, not an error:
      `https://x` has no port and no fragment, and that is ordinary. *)
   ("url_scheme", VBuiltin (function
-    | VURL u -> VString (fst (url_split_scheme u))
+    | VURL (u, _) -> VString (fst (url_split_scheme u))
     | _ -> raise (EvalError "url_scheme: expected URL")));
   (* `hostname` is the domain alone and `host` is the domain with the port,
      which is the split the web platform uses. Naming the bare one `host`
      would read correctly to anyone who had not met the other spelling and
      silently wrongly to everyone who had. *)
   ("url_hostname", VBuiltin (function
-    | VURL u -> VString (url_authority u).au_hostname
+    | VURL (u, _) -> VString (url_authority u).au_hostname
     | _ -> raise (EvalError "url_hostname: expected URL")));
   ("url_host", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       let a = url_authority u in
       VString (a.au_hostname
                ^ (match a.au_port with None -> "" | Some n -> ":" ^ string_of_int n))
@@ -4232,13 +4432,13 @@ let stdlib_eval_env : env = [
      `https://:pw@host` has a password and no username, which is why these
      are two Options and not one. *)
   ("url_username", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       (match fst (url_userinfo_parts (url_authority u)) with
        | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
        | None   -> VConstr (Ctor.Builtin "None", []))
     | _ -> raise (EvalError "url_username: expected URL")));
   ("url_password", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       (match snd (url_userinfo_parts (url_authority u)) with
        | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
        | None   -> VConstr (Ctor.Builtin "None", []))
@@ -4253,7 +4453,7 @@ let stdlib_eval_env : env = [
      this answers whether two URLs *say* the same origin, and normalizing
      first is the caller's business. *)
   ("url_origin", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       let a = url_authority u in
       VString (fst (url_split_scheme u) ^ "://" ^ a.au_hostname
                ^ (match a.au_port with None -> "" | Some n -> ":" ^ string_of_int n))
@@ -4263,7 +4463,7 @@ let stdlib_eval_env : env = [
      https and wrong for http, and a caller passing the port to something
      else needs to know whether the URL said one at all. *)
   ("url_port", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       (match (url_authority u).au_port with
        | Some n -> VConstr (Ctor.Builtin "Some", [VPort n])
        | None   -> VConstr (Ctor.Builtin "None", []))
@@ -4272,7 +4472,7 @@ let stdlib_eval_env : env = [
      segments and extensions. `https://x` has no path and answers `/`, which
      is what it addresses. *)
   ("url_path", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       let p = (url_parts u).up_path in
       VPath (if p = "" then "/" else p)
     | _ -> raise (EvalError "url_path: expected URL")));
@@ -4284,20 +4484,20 @@ let stdlib_eval_env : env = [
      A repeated key keeps its last value, which is what a Map can hold.
      `URL.query_list` answers all of them in order. *)
   ("url_query", VBuiltin (function
-    | VURL u -> VMap (map_of_pairs (url_query_pairs u))
+    | VURL (u, _) -> VMap (map_of_pairs (url_query_pairs u))
     | _ -> raise (EvalError "url_query: expected URL")));
   ("url_query_list", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       VList (List.map (fun (k, v) -> VTuple [VString k; v]) (url_query_pairs u))
     | _ -> raise (EvalError "url_query_list: expected URL")));
   ("url_fragment", VBuiltin (function
-    | VURL u ->
+    | VURL (u, _) ->
       (match (url_parts u).up_fragment with
        | Some f -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false f)])
        | None   -> VConstr (Ctor.Builtin "None", []))
     | _ -> raise (EvalError "url_fragment: expected URL")));
   ("url_to_str", VBuiltin (function
-    | VURL u -> VString u
+    | VURL (u, _) -> VString u
     | _ -> raise (EvalError "url_to_str: expected URL")));
 
   (* ── Building one ───────────────────────────────────────────────────── *)
@@ -4309,7 +4509,7 @@ let stdlib_eval_env : env = [
      value from becoming a separator. *)
   ("url_with_query", VBuiltin (function
     | VMap kvs -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, _) ->
         let parts = url_parts u in
         let q =
           String.concat "&"
@@ -4323,7 +4523,7 @@ let stdlib_eval_env : env = [
                  url_encode_text k ^ "=" ^ url_encode_text text)
                kvs)
         in
-        VURL (url_rebuild { parts with up_query = q })
+        VURL (url_rebuild { parts with up_query = q }, None)
       | _ -> raise (EvalError "url_with_query: expected URL"))
     | _ -> raise (EvalError "url_with_query: expected Map")));
 
@@ -4332,7 +4532,7 @@ let stdlib_eval_env : env = [
      without this the module could read a `?x=1&x=2` it had no way to build. *)
   ("url_with_query_list", VBuiltin (function
     | VList pairs -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let parts = url_parts u in
         let q =
           String.concat "&"
@@ -4343,7 +4543,7 @@ let stdlib_eval_env : env = [
                  | _ -> raise (EvalError "url_with_query_list: expected List (String, String)"))
                pairs)
         in
-        VURL (url_rebuild { parts with up_query = q })
+        VURL (url_rebuild { parts with up_query = q }, None)
       | _ -> raise (EvalError "url_with_query_list: expected URL"))
     | _ -> raise (EvalError "url_with_query_list: expected List (String, String)")));
 
@@ -4356,16 +4556,16 @@ let stdlib_eval_env : env = [
      changing what it means, the setter is total instead. *)
   ("url_with_scheme", VBuiltin (function
     | VString sch -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let parts = url_parts u in
         (match url_checked (url_rebuild { parts with up_scheme = sch }) with
-         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL text])
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_with_scheme: expected URL"))
     | _ -> raise (EvalError "url_with_scheme: expected String")));
   ("url_with_hostname", VBuiltin (function
     | VString h -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let parts = url_parts u in
         let au = url_authority_of parts.up_authority in
         let text =
@@ -4373,7 +4573,7 @@ let stdlib_eval_env : env = [
             up_authority = url_authority_text { au with au_hostname = h } }
         in
         (match url_checked text with
-         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL text])
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_with_hostname: expected URL"))
     | _ -> raise (EvalError "url_with_hostname: expected String")));
@@ -4381,7 +4581,7 @@ let stdlib_eval_env : env = [
      already a port, so nothing here can fail. *)
   ("url_with_port", VBuiltin (function
     | port -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let n = match port with
           | VConstr (Ctor.Builtin "Some", [VPort n]) -> Some n
           | VConstr (Ctor.Builtin "None", []) -> None
@@ -4390,7 +4590,7 @@ let stdlib_eval_env : env = [
         let parts = url_parts u in
         let au = url_authority_of parts.up_authority in
         VURL (url_rebuild { parts with
-                up_authority = url_authority_text { au with au_port = n } })
+                up_authority = url_authority_text { au with au_port = n } }, None)
       | _ -> raise (EvalError "url_with_port: expected URL"))));
   (* A Path is made of `/`, so its separators are kept and only what cannot
      appear in a URL is escaped. A path that does not start with `/` gets
@@ -4398,23 +4598,23 @@ let stdlib_eval_env : env = [
      meaning `/a/b` is the only reading that addresses anything. *)
   ("url_with_path", VBuiltin (function
     | VPath p -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let p = if p = "" then "/" else if p.[0] = '/' then p else "/" ^ p in
         let parts = url_parts u in
-        VURL (url_rebuild { parts with up_path = url_encode_keep p })
+        VURL (url_rebuild { parts with up_path = url_encode_keep p }, None)
       | _ -> raise (EvalError "url_with_path: expected URL"))
     | _ -> raise (EvalError "url_with_path: expected Path")));
   (* An Option, because an empty fragment is not a missing one: `page#`
      names the top of the page and `page` does not. *)
   ("url_with_fragment", VBuiltin (function
     | frag -> VBuiltin (function
-      | VURL u ->
+      | VURL (u, None) ->
         let f = match frag with
           | VConstr (Ctor.Builtin "Some", [VString f]) -> Some (url_encode_keep f)
           | VConstr (Ctor.Builtin "None", []) -> None
           | _ -> raise (EvalError "url_with_fragment: expected Option String")
         in
-        VURL (url_rebuild { (url_parts u) with up_fragment = f })
+        VURL (url_rebuild { (url_parts u) with up_fragment = f }, None)
       | _ -> raise (EvalError "url_with_fragment: expected URL"))));
   (* The credentials, strictly encoded: `@` and `:` are the delimiters of the
      authority, so a password holding one has to be escaped or it moves the
@@ -4422,22 +4622,22 @@ let stdlib_eval_env : env = [
      with a password and no username, and dropping the password because the
      username went away would lose something the caller did not touch. *)
   ("url_with_username", VBuiltin (fun name -> VBuiltin (function
-    | VURL u ->
+    | VURL (u, None) ->
       let n = match name with
         | VConstr (Ctor.Builtin "Some", [VString n]) -> Some n
         | VConstr (Ctor.Builtin "None", []) -> None
         | _ -> raise (EvalError "url_with_username: expected Option String")
       in
-      VURL (url_set_userinfo u (fun (_, pw) -> (n, pw)))
+      VURL (url_set_userinfo u (fun (_, pw) -> (n, pw)), None)
     | _ -> raise (EvalError "url_with_username: expected URL"))));
   ("url_with_password", VBuiltin (fun pass -> VBuiltin (function
-    | VURL u ->
+    | VURL (u, None) ->
       let p = match pass with
         | VConstr (Ctor.Builtin "Some", [VString p]) -> Some p
         | VConstr (Ctor.Builtin "None", []) -> None
         | _ -> raise (EvalError "url_with_password: expected Option String")
       in
-      VURL (url_set_userinfo u (fun (n, _) -> (n, p)))
+      VURL (url_set_userinfo u (fun (n, _) -> (n, p)), None)
     | _ -> raise (EvalError "url_with_password: expected URL"))));
 
   (* Resolving a reference against a base, RFC 3986 section 5. An absolute
@@ -4448,9 +4648,9 @@ let stdlib_eval_env : env = [
      wrong, which is why this is here rather than in a script. *)
   ("url_join", VBuiltin (function
     | VString r -> VBuiltin (function
-      | VURL base ->
+      | VURL (base, None) ->
         (match url_resolve base r with
-         | Ok u -> VConstr (Ctor.Builtin "Ok", [VURL u])
+         | Ok u -> VConstr (Ctor.Builtin "Ok", [VURL (u, None)])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_join: expected URL"))
     | _ -> raise (EvalError "url_join: expected String")));
@@ -4842,6 +5042,28 @@ let stdlib_eval_env : env = [
   ("shell_run", VBuiltin (function
     | VCommand (cmd, allow) -> perform_shell "Shell!run" allow (VString cmd)
     | _ -> raise (EvalError "shell_run: expected a Command")));
+  ("net_http", VBuiltin (fun request ->
+    (* The bound rides beside the perform rather than inside the payload, so
+       a mock still matches `| Net!http request k` on a plain request. *)
+    let (payload, allow) =
+      match request with
+      | VRequest (inner, allow) -> (inner, request_bound allow inner)
+      | other -> (other, request_bound None other)
+    in
+    let saved = Domain.DLS.get ambient_net_allow in
+    Domain.DLS.set ambient_net_allow allow;
+    Fun.protect
+      ~finally:(fun () -> Domain.DLS.set ambient_net_allow saved)
+      (fun () -> Effect.perform (WandEffect ("Net!http", payload)))));
+  ("net_download", VBuiltin (fun url ->
+    VBuiltin (fun dest ->
+      let allow = match url with VURL (_, a) -> a | _ -> None in
+      let saved = Domain.DLS.get ambient_net_allow in
+      Domain.DLS.set ambient_net_allow allow;
+      Fun.protect
+        ~finally:(fun () -> Domain.DLS.set ambient_net_allow saved)
+        (fun () ->
+          Effect.perform (WandEffect ("Net!download", VTuple [url; dest]))))));
   ("shell_query", VBuiltin (function
     | VCommand (cmd, allow) -> perform_shell "Shell!capture" allow (VString cmd)
     | _ -> raise (EvalError "shell_query: expected a Command")));
@@ -5535,7 +5757,7 @@ and json_of_value (v : value) : Yojson.Basic.t =
   | VString s -> `String s
   | VBool b   -> `Bool b
   | VUnit     -> `Null
-  | VPath s | VDuration s | VURL s | VSize s | VVersion s
+  | VPath s | VDuration s | VURL (s, None) | VSize s | VVersion s
   | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> `String s
   (* A port reads back from either spelling, so it goes out as the number a
      document would have held. *)
@@ -5875,7 +6097,7 @@ let decode_builtins : env = [
     | `String s ->
       let text = String.trim s in
       (match Lexer.url_error text with
-       | None -> Ok (VURL text)
+       | None -> Ok (VURL (text, None))
        | Some why -> decode_error path (Printf.sprintf "expected URL, got %S: %s" s why))
     | _ -> expected "URL" path j));
   ("decode_size", VDecoder (decode_lexed "Size"
@@ -6091,7 +6313,7 @@ let rec toml_of_value (v : value) : Toml.Types.value =
   | VFloat f  -> Toml.Types.TFloat f
   | VString s -> Toml.Types.TString s
   | VBool b   -> Toml.Types.TBool b
-  | VPath s | VDuration s | VURL s | VSize s | VVersion s
+  | VPath s | VDuration s | VURL (s, None) | VSize s | VVersion s
   | VDateTime s | VIPv4 s | VCIDR s | VGlob s -> Toml.Types.TString s
   | VPort n -> Toml.Types.TInt n
   | VConstr (Ctor.Builtin "Some", [x]) -> toml_of_value x

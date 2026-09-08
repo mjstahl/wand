@@ -23,6 +23,7 @@ type id =
   | V_DROP2    (* an assertion's outcome is thrown away, so the test cannot fail *)
   | V_SHELL2   (* a command literal runs on to a second line without a `\` *)
   | V_SHELL1   (* Shell is narrowed, but this command word is only known at run time *)
+  | V_NET1     (* Net is narrowed, but this host is only known at run time *)
   | V_IMP1     (* an import binding is dead: a later import rebinds the name *)
   | V_IMP2     (* an import binds a name the file never mentions *)
   | V_CLOCK1   (* two readings of the civil clock subtracted: a step spoils it *)
@@ -124,6 +125,13 @@ let all = [
      also insist every command word be readable from the text. *)
   { id = V_SHELL1; code = "V-SHELL1";
     summary = "the manifest narrows Shell, but this command word is decided at run time";
+    kind = Violation };
+  (* The same rule with the nouns changed. A narrowed `Net` bounds the hosts
+     a file may reach, and a URL the run decides is checked when the request
+     is made rather than here -- which is legal, and worth saying out loud
+     for a repository that wants every host readable from the text. *)
+  { id = V_NET1; code = "V-NET1";
+    summary = "the manifest narrows Net, but this host is decided at run time";
     kind = Violation };
   (* A newline inside `$()` is a command separator, exactly as it is in a
      shell script, so what follows it runs as a command of its own. That is
@@ -293,6 +301,10 @@ let uses1_shell ~unused ~corrected =
   Printf.sprintf
     "the manifest allows %s, which no command here runs; it could be \"%s\""
     unused corrected
+
+let net1_dynamic =
+  "this request's host is decided at run time, so the Net(...) list is \
+   checked when the request is made rather than here"
 
 let shell1_dynamic =
   "this command's first word is decided at run time, so the Shell(...) \

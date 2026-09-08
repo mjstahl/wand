@@ -113,6 +113,36 @@ let name c = match c with | Warm -> "warm" | Cool -> "cool"|} (fun path ->
       (run (Printf.sprintf {|let {name, Warm} = import %s
 name Warm|} path)))
 
+(* ── A module's alias, inside it and outside it ──────────────────── *)
+
+(* A module's types are keyed by the module, and the alias table was keyed
+   the same way while the file that declared it writes the short name. So
+   `type Response = HTTPResponse` resolved everywhere except inside the
+   module: `(r: Response)` stayed an opaque name and `r.status` had no field
+   to read. *)
+let test_module_alias_used_inside () =
+  with_named "resp" {|type Response = HTTPResponse
+let ok? (r: Response) = r.status >= 200|} (fun path ->
+    Alcotest.(check (result string string))
+      "a module's own alias resolves inside the module"
+      (Ok "true")
+      (run (Printf.sprintf {|let {ok?} = import %s
+ok? HTTPResponse(status = 204, headers = {}, body = "")|} path)))
+
+(* And the qualified spelling matches, not only annotates: the exhaustiveness
+   check read the name after the dot without the module's types in front, so
+   `M.Response(...)` forwarded to no constructor and covered nothing. *)
+let test_module_alias_pattern () =
+  with_named "resp2" {|type Response = HTTPResponse
+let make () = HTTPResponse(status = 204, headers = {}, body = "")|}
+    (fun path ->
+    Alcotest.(check (result string string))
+      "a module's alias matches under the qualified name"
+      (Ok "204")
+      (run (Printf.sprintf {|let m = import %s
+match m.make () with
+  | m.Response(status = s) -> s|} path)))
+
 (* ── Suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -134,5 +164,9 @@ let () =
       Alcotest.test_case "transitive do not leak"   `Quick test_transitive_imports_do_not_leak;
       Alcotest.test_case "constructors cross"       `Quick test_imported_constructors_cross;
       Alcotest.test_case "constructors selected"    `Quick test_imported_constructors_selected;
+    ];
+    "aliases", [
+      Alcotest.test_case "used inside its module"   `Quick test_module_alias_used_inside;
+      Alcotest.test_case "matched from outside"     `Quick test_module_alias_pattern;
     ];
   ]

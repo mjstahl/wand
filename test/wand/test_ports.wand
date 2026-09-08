@@ -185,21 +185,29 @@ group "pod-restarts" (fn () -> [
     | Error e -> t.ok (String.contains? "namespace" e))
 ])
 
--- The retry is a function over a thunk, so a test drives it with answers
--- of its own and never runs curl. `Test.with_clock` answers the sleeps at
+-- The retry is a function over a thunk, so a test drives it with answers of
+-- its own and never reaches a host. `Test.with_clock` answers the sleeps at
 -- no cost, and reports what the waits added up to.
-let failure code = ShellResult(stdout = "", stderr = "curl: (%{code}) no", code = code)
+--
+-- The status is what the retry decides on, which is the thing the bash it
+-- replaces could not see: a 503 is worth asking again and a 404 is not.
+let answering code = HTTPResponse(status = code, headers = {}, body = "")
 
 group "http-retry" (fn () -> [
   test "the first answer is taken" (fn t ->
     t.eq
       (Ok "body")
-      (attempt 3 1s (fn () -> ShellResult(stdout = "body", stderr = "", code = 0)))),
-  test "a failure gives up after the last try" (fn t ->
-    t.eq (Error "curl: (22) no") (attempt 3 1s (fn () -> failure 22))),
+      (attempt 3 1s (fn () -> HTTPResponse(status = 200, headers = {}, body = "body")))),
+  test "a server error gives up after the last try" (fn t ->
+    t.eq (Error "answered 503") (attempt 3 1s (fn () -> answering 503))),
+  -- The whole point of the port: bash retried this one too.
+  test "a request error is not retried at all" (fn t -> (
+    let (waited, outcome) = with_clock (fn () -> attempt 3 1s (fn () -> answering 404));
+    t.eq (0ms, Error "answered 404") (waited, outcome)
+  )),
   -- 1s then 2s: the backoff doubles, and three tries wait twice.
   test "the backoff doubles and the tries are capped" (fn t -> (
-    let (waited, _) = with_clock (fn () -> attempt 3 1s (fn () -> failure 22));
+    let (waited, _) = with_clock (fn () -> attempt 3 1s (fn () -> answering 503));
     t.eq 3s waited
   )),
   test "a body reads into the type" (fn t ->

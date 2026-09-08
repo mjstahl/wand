@@ -16,10 +16,14 @@ type state = {
      `next_token` is reported at, so an unterminated string points at its
      opening quote rather than at end of file. *)
   mutable tok_start : Token.loc;
+  (* The file this text came from, stamped onto every position it produces.
+     "" for source with no file behind it -- `wand t -e`, a session line. *)
+  file : string;
 }
 
-let make src =
-  { src; pos = 0; line = 1; col = 1; tok_start = Token.point 1 1 0 }
+let make ?(file = "") src =
+  { src; pos = 0; line = 1; col = 1; file;
+    tok_start = Token.point ~file 1 1 0 }
 
 let len s = String.length s.src
 let is_at_end s = s.pos >= len s
@@ -844,7 +848,7 @@ let read_port s =
 let next_token s =
   let rec scan () =
     let l = s.line and c = s.col and o = s.pos in
-    let loc = Token.point l c o in
+    let loc = Token.point ~file:s.file l c o in
     s.tok_start <- loc;
     (* `ret` runs after its argument is scanned, so the state now sits just
        past the token -- exactly the exclusive end the loc records. *)
@@ -1010,8 +1014,8 @@ let next_token s =
   in
   scan ()
 
-let tokenize src =
-  let s = make src in
+let tokenize ?(file = "") src =
+  let s = make ~file src in
   (* skip shebang line if present *)
   if String.length src >= 2 && src.[0] = '#' && src.[1] = '!' then
     while not (is_at_end s) && peek s <> '\n' do ignore (advance s) done;

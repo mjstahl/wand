@@ -1,133 +1,163 @@
-## 0.64.0 - 2026-09-07
+## 0.65.0 - 2026-09-07
 
-Two filesystem primitives that a shell script fakes and gets wrong: an
-atomic write, and a lock.
+wand can call an API without shelling out to `curl`, and the manifest says
+where the bytes go rather than which binary ran.
 
-### Publishing a file
-
-```ocaml
-FS.write_atomic! /etc/app/config.toml (TOML.stringify (TOML.of! settings))
-```
-
-`FS.write_file` opens the target and truncates it, so a reader can see a
-short file. `FS.write_atomic` writes to a temporary file beside the target
-and renames it over the target. A reader gets the whole of the old contents
-or the whole of the new ones.
-
-The version people compose by hand is wrong three ways, and none of them
-shows on the machine where the script is written.
-
-- **The temp file lands on another filesystem.** `FS.temp_file` is committed
-  to the OS temp directory, and a rename cannot cross a device. On a Linux
-  box where `/tmp` is tmpfs, the rename fails. The script passes in
-  development and fails in CI.
-- **The published file changes mode.** A rename replaces the inode, so the
-  target's permissions become the temp file's. A 644 configuration file
-  silently becomes 600.
-- **A symlink is replaced rather than followed.** `write_file` writes through
-  a link. A rename replaces the link itself, so a deploy publishing to
-  `/etc/app/config -> config.v3` gets the opposite of what it asked for.
-
-`write_atomic` puts the temp file beside the target, carries an existing
-target's mode across, and writes through a symlink. It syncs the temp file
-before the rename, so a published file is never a name with nothing behind
-it. It does not sync the directory, so a power loss can still lose the
-publication: what it promises is that no reader sees half a file, not that
-the write survives the machine going down.
-
-Reading the mode and resolving the link are stats, so this is the one write
-that declares `FS.Read` as well as `FS.Write`.
-
-`FS.write_lines_atomic` is the same publication for a stream, so a filtered
-log can be published rather than filled:
+### The tenth label
 
 ```ocaml
-FS.stream_lines /var/log/app.log
-|> Stream.filter (fn l -> String.contains? "ERROR" l)
-|> FS.write_lines_atomic! ./errors.log
+uses {Net(api.github.com, hooks.slack.com)}
 ```
 
-It publishes only a stream that finished. `FS.write_lines` writes into the
-target, so a source that fails part way leaves the file short -- the old
-contents destroyed and the new ones incomplete. This one removes its temp
-file and leaves the target holding what it held.
+Reaching the network went through a command, so a script that posted to
+Slack declared `Shell(curl)`. That is the wrong sentence: it names the tool
+and hides the destination, which is the one thing a reviewer is trying to
+read off the first line.
 
-`FS.write_file` is not atomic and does not become so. Atomicity costs a
-rename and a new inode, and the name is where that is said.
+`Net` says a file sends bytes to a host outside this machine, and the
+manifest narrows it by host. The host is the unit because it answers the
+question being asked. A path list grows long, drifts on the first API
+change, and invites a manifest to be read as an authorization boundary,
+which it is not.
 
-### Guarding a run
+The host is checked **as written**. wand resolves no DNS, so
+`Net(example.com)` does not stop a connection to an address the script
+writes out — the same rule `Shell(git)` already follows by not peeling a
+wrapper. The manifest bounds the text, and that is the whole of what it
+claims.
+
+### Manifest words can be patterns
 
 ```ocaml
-with FS.lock /var/run/deploy.lock as taken ->
-  match taken with
-  | Ok _ -> deploy ()
-  | Error FS.Held -> IO.println "a deploy is already running"
-  | Error FS.Denied why -> Proc.exit 1
+uses {Shell(docker-*)}        -- docker-compose, docker-credential-osx
+uses {Net(*.example.com)}     -- api.example.com, not a.b.example.com
 ```
 
-A lockfile holding a pid goes stale the moment a job is killed: the next run
-finds the file, tries to work out whether that process is alive, and races
-everyone else doing the same. `FS.lock` is the kernel's lock, so it is
-released when the process dies -- `kill -9` included. Nothing goes stale,
-and there is no policy for breaking a stale lock, because there are none.
+`*` stands for part of a name, and stops where the name's parts divide: at a
+`/` in a binary, at a `.` in a host. So `Shell(./scripts/*)` admits
+`./scripts/probe.sh` and not `./scripts/a/b.sh`, and `Net(*.example.com)`
+admits `api.example.com` but neither `a.b.example.com` nor the bare
+`example.com`.
 
-The acquire says which failure it was. `Held` is another run, which is the
-guard working, so a cron job stands down and exits 0. `Denied` is a lock
-that could not be asked for at all, which is a broken script and exits 1.
-`flock -n` reports both as one non-zero exit, so a shell guard that is quiet
-about the first is quiet about the second too.
+Neither rule is new to learn. A shell glob already stops at `/`, and a TLS
+certificate already stops at `.` and already refuses the bare domain.
 
-`FS.lock!` raises on either, for a script with nothing to say about both.
+A binary named without a path matches wherever it is found, which is how
+`Shell(git)` has always admitted `/usr/bin/git`. That carries over: a
+`Shell(docker-*)` admits a `docker-compose` anywhere on `PATH`. A host has
+no such rule and is matched exactly as written.
 
-The lock guards other `Par` workers as well as other processes: a lock
-belongs to the open file rather than to the process, so a second worker
-conflicts with the first exactly as another process would. It follows that a
-lock is not re-entrant.
+A pattern is something a person writes on purpose. The ordinary manifest
+still names its hosts one by one, `wand t --fix` writes the literal words it
+read, and nothing turns a list into a pattern on an author's behalf —
+widening past what was observed would be inventing permission.
 
-The lock file is created if missing and is **never deleted**. That looks
-like a leak and is not -- deleting it is the very race the lock prevents,
-since another process can be holding the same name open, and after the
-delete the two hold locks on two files with one name.
+Where one is written, it says so: `Net(*.example.com)` admits a host that
+appears nowhere in the file, so a reviewer reads *hosts of this shape*
+rather than *these hosts*. That is the author's trade to make against a line
+that grows a word per subdomain, and it is still far narrower than bare
+`Net`. `A-USES1` leaves a pattern alone rather than reporting it unused, for
+the same reason: it claims a shape, and deleting it would undo a deliberate
+choice.
 
-On NFS the lock is emulated and is not dependable. Keep the file on the
-machine that runs the job.
+`Net(*)` and `Shell(*)` are errors. A pattern that admits everything is the
+bare label spelled at greater length, and a manifest should not have two
+spellings for one claim.
 
-A rehearsal takes the lock, unlike every other `FS.Write`. Withholding it
-would let a `--dry-run` run beside a real one, which is the situation being
-guarded against.
-
-### Waiting for a lock
+### `HTTP`
 
 ```ocaml
-with FS.lock_wait 5min /var/run/deploy.lock as taken -> ...
+uses {IO, Net(api.example.com)}
+import HTTP
+import IO
+
+let r = HTTP.get! https://api.example.com/health
+let () = IO.println "%{r.status}"
 ```
 
-`FS.lock` never waits. `FS.lock_wait` is for a script that would rather
-queue than stand down -- a deploy behind another deploy, where the second one
-still has to happen.
+`request`, `get`, `post`, `download` and `upload`, each with a `!` sibling,
+plus `ok?`, `header`, `header_list` and `decode`.
 
-A budget that runs out answers `Held`: waiting and being told no says what
-being told no at once says. A `Denied` ends the wait immediately, and so
-does a wait on a lock the same bracket already holds, since nothing is going
-to release it.
+**A 404 is not an `Error`.** The exchange succeeded and the server said no.
+`Error` is for the transport failing. This is `$()` and `$?()` again:
+`HTTP.get` answers with a response whatever the status, and `HTTP.get!`
+raises on a non-2xx. `examples/ports/http-retry.wand` used to spend a
+paragraph explaining that `curl --fail` cannot hand back a status code, so
+the retry could not tell a 503 worth asking again from a 404 that never
+will. That paragraph is gone, and the retry is one `match` on `r.status`.
 
-It carries `Clock`, because it sleeps, so a script that waits for a lock
-says so in its manifest and one that does not, does not.
+Every field but the URL has a default, so a request is written by naming
+what differs, and record update gives the chaining a builder gives
+elsewhere:
 
-A rehearsal takes the lock and does not wait, and says so in the line it
-reports. A rehearsal that waited out a real budget would be useless on
-exactly the scripts that need one.
+```ocaml
+let base = HTTPRequest(url = api, headers = {authorization = "Bearer %{tok}"})
+let slow = HTTPRequest(base, timeout = 2min)
+```
 
-### Testing a guarded script
+**Every redirect is checked against the manifest.** A 302 is the one thing
+that can send a body to a host nobody wrote down — `git` does not turn into
+`rsync` half way through, and a redirect does exactly that. Following them
+is the default because the check is what makes it safe: a manifest naming
+two hosts admits a redirect between them, and one naming a single host does
+not.
 
-`Test.with_lock` answers every acquire as taken and `Test.with_lock_held`
-answers every acquire as held, so both branches of a guarded script are
-reachable from one process and no lock file is created. `Test.lock_calls`
-reports the paths a body would lock. All three answer a waiting acquire at
-once, so a test of a five-minute wait takes no time.
+`download` writes to a file without the body ever becoming a value. That is
+load-bearing rather than a convenience, and it is why a response body is a
+`String`: a 2GB artifact should not be one.
 
-`Test.without_writes` and `Test.writes` now cover every write of a file's
-contents rather than `write_file` alone. They missed `append`,
-`create_file`, `write_lines` and `append_lines`, so a sealed test wrote to
-the real disk the moment a script reached for one of them. `delete`,
-`mkdir`, `rename`, `copy` and taking a lock still reach the disk.
+`Test.with_http` answers requests from a table and `Test.http_calls` reports
+what a body would ask for. Both cover every `Net` operation, so a test that
+seals the module reaches nothing.
+
+### The transport, and what it costs
+
+wand has no TLS of its own, so bytes reach a host through a `curl`
+subprocess. The alternatives both cost more than this release is buying: a
+pure-OCaml stack is about twenty packages, and linking a C one statically
+would make every advisory against it a wand release, for binaries already
+copied onto machines.
+
+That subprocess is **not** bounded by a narrowed `Shell`. `Shell(git)` means
+only `git` runs *from this script*, not that only `git` runs. The reference
+and the README say so rather than leaving it to be discovered, and `--trace`
+reports the request.
+
+Nothing about a script changes when TLS moves in-process, because the
+manifest is checked on the URL either way.
+
+### `--dry-run` sends what is safe to send
+
+Reads go through and writes are held: that is the filesystem rule, and the
+protocol already draws the same line. `GET` and `HEAD` are defined not to
+change anything, so a rehearsal runs them and reports everything else:
+
+```
+would post: https://api.example.com/deploy -> 202, no body
+```
+
+A rehearsal that sent nothing could not preview a script that fetches its
+configuration before it posts, which is most deploy scripts. One that sent
+everything is not a rehearsal.
+
+### An error position names its file
+
+```
+Error: eval error: 4:9: ...                        -- the file being run
+Error: eval error: lib/deploy.wand:12:3: ...       -- a module it imported
+Error: eval error: <stdlib>/HTTP.wand:71:11: ...   -- the standard library
+```
+
+A position used to be a line and a column, which reads as a line of the file
+you are looking at. When the raise came from somewhere else, that sent you
+to the wrong place entirely. Positions now carry the file they were lexed
+from, and one in the file you asked to run stays bare, because that is the
+file you have open.
+
+### Also
+
+An alias to a built-in record was broken, and had been since those records
+existed: `type SR = ShellResult` was kept as a variant declaring a nullary
+constructor named `ShellResult`, which shadowed the real one and took its
+fields with it for the rest of the file — whether or not the alias was ever
+used. Such an alias now builds, matches, and carries its field defaults.

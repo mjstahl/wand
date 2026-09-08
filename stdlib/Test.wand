@@ -315,3 +315,41 @@ let lock_calls thunk =
   | FS!lock_wait arg k -> let (path, _) = arg in let rest = k (Some path) in path :: rest
   | FS!unlock _ k -> k ()
   | return _ -> []
+
+-- Run `thunk` with its requests answered from a table instead of sent. Each
+-- entry is (fragment, response): the first fragment that appears in a
+-- request's URL supplies the answer, and a request matching nothing gets a
+-- 200 with an empty body.
+--
+-- One operation underneath the whole module, so this one case seals every
+-- function in it -- which is why there is one and not four.
+--
+-- >> Test.with_http [("example.com", HTTPResponse(status = 404, headers = {}, body = ""))]
+-- ..   (fn () -> (HTTP.request! HTTPRequest(url = https://example.com/x)).status)
+-- 404 : Int
+let with_http mocks thunk =
+  handle thunk () with
+  -- A download writes a file rather than answering with one, so it is a
+  -- second operation -- and both are held back here, or a test that sealed
+  -- the module would still reach the network through the other.
+  | Net!download _ k -> k ()
+  | Net!http req k -> (
+    match List.find (fn (pat, _) -> String.contains? pat "%{req.url}") mocks with
+    | Some(_, response) -> k response
+    | None -> k HTTPResponse(status = 200, headers = {}, body = "")
+  )
+
+-- Return the requests `thunk` would send, in order, without sending any of
+-- them. Each answers a 200 with an empty body, as `with_http` does for a
+-- request its table misses.
+--
+-- What was asked for, rather than what came back -- the question
+-- `shell_calls` asks of commands.
+--
+-- >> Test.http_calls (fn () -> HTTP.get https://example.com/x)
+-- [https://example.com/x] : List URL
+let http_calls thunk =
+  handle thunk () with
+  | Net!download arg k -> let (url, _) = arg in let rest = k () in url :: rest
+  | Net!http req k -> let rest = k HTTPResponse(status = 200, headers = {}, body = "") in req.url :: rest
+  | return _ -> []

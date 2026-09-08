@@ -1,5 +1,104 @@
 # Changelog
 
+## [0.65.0] - 2026-09-07
+
+### Added
+
+- **`Net`, a tenth effect label.** A file that sends bytes to a host outside
+  this machine declares it. The manifest narrows it by host, and bare `Net`
+  admits any:
+
+```
+uses {Net(api.github.com, hooks.slack.com)}
+```
+
+- The host is checked **as written**. wand resolves no DNS, so
+  `Net(example.com)` does not stop a connection to an address the script
+  writes out, any more than `Shell(git)` peels a wrapper
+- **A manifest word may be a pattern.** `*` stands for part of a name, and
+  stops where the name's parts divide: at a `/` in a binary, at a `.` in a
+  host
+
+```
+uses {Shell(docker-*)}      -- docker-compose, but not docker
+uses {Shell(./scripts/*)}   -- ./scripts/probe.sh, but not ./scripts/a/b.sh
+uses {Net(*.example.com)}   -- api.example.com, but neither example.com
+                            -- nor a.b.example.com
+```
+
+- A binary named without a path still matches wherever it is found, which is
+  how `Shell(git)` has always admitted `/usr/bin/git`. So `Shell(docker-*)`
+  admits a `docker-compose` anywhere on `PATH`. A host has no such rule: it
+  is matched as written
+
+- `Shell(*)` and `Net(*)` are errors. A pattern that admits everything is
+  the bare label written at greater length, and the message says to write
+  that instead
+
+- **`HTTP`.** `request`, `get`, `post`, `download`, `upload`, each with a `!`
+  sibling, plus `ok?`, `header`, `header_list` and `decode`. `HTTPRequest`,
+  `HTTPResponse` and `HTTPMethod` are built in, so they need no import
+- **A 404 is not an `Error`.** The exchange succeeded and the server said
+  no. `Error` is a transport failure. `HTTP.get` answers with a response
+  whatever the status; `HTTP.get!` raises on a non-2xx
+- Every field of a request but the URL has a default: `GET`, no headers, no
+  body, `30s`, and five redirects. **Every redirect hop is checked against
+  the manifest**, so a manifest naming two hosts admits a redirect between
+  them and one naming a single host does not
+- `HTTP.download` writes to a file without the body becoming a value
+- **`Test.with_http` and `Test.http_calls`.** The first answers requests
+  from a table, the second reports the URLs a body would ask for. Both cover
+  every `Net` operation, so a sealed test reaches nothing
+- **`V-NET1`**, for a request built with a host decided at run time under a
+  narrowed `Net`
+- **An error position names its file** when the file is not the one being
+  run — an imported module by path, the standard library as
+  `<stdlib>/HTTP.wand`. A position in the file you asked to run stays bare
+- **`HTTP.Request`, `HTTP.Response` and `HTTP.Method`** are aliases of the
+  built-in three, so a file that imports `HTTP` can write the short name. The
+  two spellings are one type: a value built one way annotates, matches and
+  passes the other. Signatures print the built-in name
+- **`Args.Parser`** is an alias of `CommandLine`, under the name the thing
+  already goes by — `Opts.parser` makes one and `Args.read` takes one
+- **`examples/ports/http-retry.wand`** now uses `HTTP`
+
+### Changed
+
+- **`--dry-run` runs `GET` and `HEAD` and withholds every other method**,
+  reporting `would post: <url>` and answering `202` with no body
+- **`--trace` reports a request and a download**
+- **The transport runs `curl`.** wand has no TLS of its own, so a narrowed
+  `Shell` does not bound it: `Shell(git)` means only `git` runs *from this
+  script*. The reference and the README say so
+- **`A-USES1` leaves a manifest pattern alone** rather than reporting it
+  unused
+- **The block-comment hint fires on fewer spellings.** An open paren
+  followed by a star reported "a comment is `-- ...`", which a manifest
+  pattern needs. It now fires when the star is followed by whitespace, end
+  of input, or a second star
+
+### Fixed
+
+- **`type X = ShellResult` broke `ShellResult`.** An alias to a built-in
+  record was kept as a variant declaring a nullary constructor over the real
+  one, which took its fields with it for the rest of the file — whether or
+  not the alias was used. An alias to a built-in record now builds, matches
+  and carries its field defaults
+- **A built-in constructor that carries nothing can be named.** `GET` and
+  the other methods answered "unknown constructor"
+- **A module's own alias resolves inside the module that declared it.** The
+  alias table was keyed by the canonical name a module's types travel under,
+  while the file writes the short one, so `type Response = HTTPResponse`
+  worked everywhere except where it was written
+- **An alias reached through its module matches as well as annotates.**
+  `M.Response(...)` in a pattern covered nothing, and the run refused it
+- **An alias forwards the constructor of a parameterised target**, is
+  accepted applied under its module's name, and can be updated through —
+  `T(base, f = x)` reported an unknown constructor
+- **A built-in type cannot be declared over by an alias.** `type Int =
+  String` was taken, and every `Int` after it meant `String`. Two aliases of
+  one name are an error too
+
 ## [0.64.0] - 2026-09-07
 
 ### Added
@@ -2467,6 +2566,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/mjstahl/wand/compare/v0.63.0...HEAD
+[0.65.0]: https://github.com/mjstahl/wand/compare/v0.64.0...v0.65.0
 [0.64.0]: https://github.com/mjstahl/wand/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/mjstahl/wand/compare/v0.62.1...v0.63.0
 [0.62.1]: https://github.com/mjstahl/wand/compare/v0.62.0...v0.62.1

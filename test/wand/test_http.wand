@@ -1,0 +1,100 @@
+import Test
+let {test} = import Test
+import Decode
+import HTTP
+import List
+import Result
+
+-- Reaching a host, without reaching one. Every test here runs under a
+-- double, so the suite needs no network and no server: the module has one
+-- operation under it, and `Test.with_http` answers that. The file has no
+-- manifest for the same reason -- sealed, it reaches nothing.
+--
+-- What a manifest admits is a property of a file rather than of a call, so
+-- those tests run whole files in their own processes, in `test_http.ml`.
+
+test "a response comes back whatever the status" (fn t ->
+  t.eq
+    404
+    (Test.with_http [("api.example.com", HTTP.Response(status = 404, headers = {}, body = ""))] (fn () ->
+      (HTTP.request! HTTP.Request(url = https://api.example.com/x)).status)
+    ))
+
+-- A 404 is not an Error: the exchange happened and the server said no.
+test "a 404 is not an Error" (fn t ->
+  t.eq
+    true
+    (Test.with_http [("api.example.com", HTTP.Response(status = 404, headers = {}, body = ""))] (fn () ->
+      Result.ok? (HTTP.get https://api.example.com/x))
+    ))
+
+-- The `!` sibling draws the other line: a status outside 2xx raises.
+test "the raising form gives up on a non-2xx" (fn t ->
+  t.raises (fn () ->
+    Test.with_http [("api.example.com", HTTP.Response(status = 500, headers = {}, body = ""))] (fn () ->
+      HTTP.get! https://api.example.com/x)))
+
+test "ok? is the 2xx question" (fn t ->
+  t.eq (true, false, false) (
+    HTTP.ok? HTTP.Response(status = 204, headers = {}, body = ""),
+    HTTP.ok? HTTP.Response(status = 302, headers = {}, body = ""),
+    HTTP.ok? HTTP.Response(status = 500, headers = {}, body = "")
+  ))
+
+-- Every field but the URL has a default, so a request is written by naming
+-- what differs.
+test "a request fills in what it was not given" (fn t ->
+  let r = HTTP.Request(url = https://api.example.com/x) in
+  t.eq (GET, "", 30s, 5) (r.method, r.body, r.timeout, r.redirects))
+
+-- Record update gives the chaining a builder gives elsewhere, and leaves
+-- everything it does not name alone.
+test "an update keeps the fields it does not name" (fn t ->
+  let base = HTTP.Request(url = https://api.example.com/x, timeout = 2min) in
+  let slow = HTTP.Request(base, redirects = 0) in
+  t.eq (2min, 0) (slow.timeout, slow.redirects))
+
+-- Header names are case-insensitive on the wire and a Map is not, so the
+-- module lowercases and matches without regard to case.
+test "a header is found whatever case it is asked for" (fn t ->
+  let r = HTTP.Response(status = 200, headers = {accept = "text/plain"}, body = "") in
+  t.eq (Some "text/plain", Some "text/plain", None) (
+    HTTP.header "Accept" r,
+    HTTP.header "accept" r,
+    HTTP.header "missing" r
+  ))
+
+-- Reading a body happens in one place, with a message that says what was
+-- wrong, rather than a chain of scrapes that each assume the last worked.
+test "a body is read by a decoder" (fn t ->
+  let r = HTTP.Response(status = 200, headers = {}, body = "42") in
+  t.eq (Ok 42, true) (
+    HTTP.decode Decode.int r,
+    Result.error?
+      (HTTP.decode Decode.int HTTP.Response(status = 200, headers = {}, body = "x"))
+  ))
+
+-- What was asked for, rather than what came back.
+test "http_calls reports the requests a body would send" (fn t ->
+  t.eq
+    [https://api.example.com/a, https://api.example.com/b]
+    (Test.http_calls (fn () -> (
+      let _ = HTTP.get https://api.example.com/a;
+      let _ = HTTP.get https://api.example.com/b;
+      ()
+    ))
+    ))
+
+-- The short names are aliases, so the two spellings are one type: a value
+-- built one way annotates, matches and passes the other.
+test "an alias and the built-in name are one type" (fn t ->
+  let r = HTTPResponse(status = 204, headers = {}, body = "") in
+  let status =
+    match r with
+    | HTTP.Response(status = s) -> s
+  in
+  t.eq (true, 204, GET) (
+    HTTP.ok? r,
+    status,
+    HTTP.Request(url = https://api.example.com/x).method
+  ))

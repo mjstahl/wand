@@ -43,12 +43,18 @@ type state = {
     (* the manifest's Shell(...) allowlist, once one has been parsed --
        stamped onto every $()/$?() site so the bound travels with the
        site's AST wherever its closure goes. *)
+  mutable net_allow : string list option;
+    (* the manifest's Net(...) list, stamped onto every construction for the
+       same reason and in the same way: a request is checked against the
+       bound of the file that built it, and by the time it is sent that file
+       is no longer anywhere to be asked. *)
 }
 
 let make tokens =
   { tokens = Array.of_list tokens; pos = 0; in_contract = false;
     paren_depth = 0; top_fns = Hashtbl.create 16; with_owners = 0;
-    clause_name = None; stmt_depth = 0; stmt_col = 1; shell_allow = None }
+    clause_name = None; stmt_depth = 0; stmt_col = 1; shell_allow = None;
+    net_allow = None }
 
 (* Comments are invisible to the real parser, exactly like `Newline`. A run
    of them above a definition is that definition's documentation, which
@@ -990,7 +996,7 @@ and atom_base_ s =
   | Token.Glob g     -> Glob g
   | Token.DateTime d -> DateTime d
   | Token.Duration d -> Duration d
-  | Token.URL u      -> URL u
+  | Token.URL u      -> URL (u, s.net_allow)
   | Token.IPv4 a     -> IPv4 a
   | Token.CIDR c     -> CIDR c
   | Token.Port n     -> Port n
@@ -1187,7 +1193,7 @@ and constr_body_ s name =
       while peek s = Token.Comma do ignore (advance s); parse_field () done
     end;
     expect s Token.RParen;
-    ConstrApp (name, !fields)
+    ConstrApp (name, !fields, s.net_allow)
   end else if takes_a_bracket && peek_bare_args s then begin
     ignore (advance s); (* consume LParen *)
     let ids = ref [expect_ident s] in
@@ -1238,7 +1244,7 @@ and constr_body_ s name =
           fields := !fields @ [(fname, expr_ 0 s)]
         done;
         expect s Token.RParen;
-        ConstrUpdate (name, first, !fields)
+        ConstrUpdate (name, first, !fields, s.net_allow)
       end else begin
       let args = ref [first] in
       while peek s = Token.Comma do
@@ -2034,7 +2040,8 @@ let parse_manifest s =
          the language. The word is its text; nothing here is a `Glob`
          value. *)
       | Token.Star -> add_joined "*" floc
-      | Token.Ident w0 | Token.Path w0 | Token.Glob w0 ->
+      (* A host may be an address, which lexes as itself. *)
+      | Token.IPv4 w0 | Token.Ident w0 | Token.Path w0 | Token.Glob w0 ->
         (* `docker-compose` arrives as `docker`, `-`, `compose`, and
            `demos/probe.sh` as an ident then a path -- inside $() a name
            is raw text, and the manifest should read the same spelling.
@@ -2140,10 +2147,13 @@ let parse_program_generic ~on_item tokens =
   (* Before anything else: the manifest, if the file has one. *)
   if looks_like_manifest s then begin
     manifest := Some (parse_manifest s);
-    s.shell_allow <-
-      (match !manifest with
-       | Some (labels, _) -> Option.join (List.assoc_opt "Shell" labels)
-       | None -> None)
+    let word_list label =
+      match !manifest with
+      | Some (labels, _) -> Option.join (List.assoc_opt label labels)
+      | None -> None
+    in
+    s.shell_allow <- word_list "Shell";
+    s.net_allow <- word_list "Net"
   end;
   (* Where the previous top-level item began, so an item that starts further
      in can be recognised for what it almost always is: a continuation the

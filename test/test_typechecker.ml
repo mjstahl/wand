@@ -1003,7 +1003,25 @@ let test_type_aliases () =
     "type Shape = Circle Int | Rect Int\ntype S = Shape\nS"
     "'S' is a type, not a value";
   err_contains "a variant's own name" "type Shape = Circle Int | Rect Int\nShape"
-    "'Shape' is a type, not a value"
+    "'Shape' is a type, not a value";
+  (* An update through an alias reads the same constructor a construction
+     through it does. It used to report an unknown constructor. *)
+  ok "an alias updates what it builds"
+    "type That(i: Int, j: Int = 2)\ntype This = That\nThis(This(i = 1), j = 9).j" "9";
+  (* A parameterised alias names its target's constructor too: the
+     constructor belongs to the head of the application. *)
+  prog_is "a parameterised alias to a single-constructor type builds it"
+    "type Box 'a(v: 'a)\ntype B 'a = Box 'a\nB(v = 1).v" "Int";
+  (* A built-in cannot be declared over, whichever form the declaration
+     takes. An alias used to slip through: `type Int = String` was taken,
+     and every `Int` after it meant `String`. *)
+  err_contains "an alias over a builtin" "type Int = String\nlet f (x: Int) = x\nf 1"
+    "'Int' is a built-in type, so it cannot be declared";
+  err_contains "an alias over a builtin record"
+    "type Command = CommandLine\nlet f (x: Command) = x\nf 1"
+    "'Command' is a built-in type, so it cannot be declared";
+  err_contains "an alias declared twice" "type A = Int\ntype A = String\nlet x : A = 1\nx"
+    "'A' is declared twice"
 
 let test_unbound_names () =
   rejects "unbound variable" "x";

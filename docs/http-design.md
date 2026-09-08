@@ -195,17 +195,29 @@ type Request(
   headers   : Map String = {},
   body      : String = "",
   timeout   : Duration = 30s,
-  redirects : Int = 0,
+  redirects : Int = 5,
 )
 ```
 
-**Decided: `redirects` defaults to zero.** A 302 is the one thing that can
-send bytes to a host the manifest never named, so following one is opted
-into rather than out of. At zero a redirect is a `Response` with that status
-and the caller decides, which is how `$?()` already behaves. Above zero
-every hop is checked against the manifest. The cost is friction on APIs that
-redirect as a matter of course, and it is accepted: on this operation, the
-default that surprises a reviewer is the dangerous one.
+**Decided: `redirects` defaults to five, and every hop is checked against
+the manifest.**
+
+The first draft of this record set it to zero, on the argument that a 302 is
+the one thing that can send bytes to a host the manifest never named. That
+argument is answered by the check rather than by the default. The manifest
+is the statement of where this program may send bytes; if it names two
+hosts, a redirect between them is the thing it said was allowed, and
+refusing it is surprising in a way that teaches nobody anything. A hop to a
+host the manifest does not name is refused whatever the default is.
+
+So the default is what every other client does, and the guard is the
+manifest. `redirects = 0` remains available for a caller who wants the 3xx
+itself, and at zero a redirect is a `Response` with that status, which is
+how `$?()` already behaves.
+
+This is what makes the bound have to reach the transport: a hop's host is
+only known mid-flight, so checking it at the construction site is not
+enough.
 
 ```ocaml
 let base = Request(url = api, headers = {authorization = "Bearer %{tok}"})
