@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Net](#net) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Net](#net) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -4324,12 +4324,10 @@ Only `true` and `false` are booleans. `yes`, `no`, `on` and `off` are words.
 Quoting always makes a string, whatever the text looks like.
 
 **`1.10` is a float**, under both schemas, so a chart version read unquoted
-arrives as `1.1` and has lost a digit. Read it from a quoted string, which
-is what the file should be writing:
-
-```yaml
-version: "1.10.0"
-```
+arrives as `1.1` and has lost a digit. Read it from a quoted string — a
+chart writing `version: "1.10.0"` reads back whole, and one writing
+`version: 1.10.0` is not a number at all, so it stays a string either way.
+The one that bites is `version: 1.10`, which is a float and loses the zero.
 
 **A file holds one document or many.** `parse` reads a file that holds one
 and *fails* on a file that holds more, naming how many it found — taking the
