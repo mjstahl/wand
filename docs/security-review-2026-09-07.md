@@ -23,21 +23,8 @@ Both are fixed; see **Fixed** at the bottom.
 
 ## Medium
 
-### M8. CI: unpinned cross-repo code executes; ci.yml has no permissions — open
-
-- `.github/workflows/ci.yml:107-121` checks out `mjstahl/setup-wand` at
-  default-branch HEAD and runs `wand s` on its suite — wand tests execute
-  shell, so a push to that repo's default branch is code execution in
-  wand's CI. Pin to a SHA.
-- ci.yml has no `permissions:` block; token scope falls back to the repo
-  default. release.yml and daily-fuzz.yml declare minimal blocks. Add
-  `permissions: contents: read`.
-- Trust model note: the release `.sha256` is produced by the same job that
-  builds the archive and uploaded beside it (release.yml:168-175,
-  Makefile:118-124), so it authenticates the download pipe, not the
-  publisher. The Makefile's own comment records a clobber incident going
-  undetected. Consider build-provenance attestation, or at least publish
-  the sha256 list in the release notes as a second channel.
+None open. What is left of M8 is a decision rather than a fix; it is in
+**Still to decide** below.
 
 ## Low
 
@@ -62,13 +49,6 @@ Both are fixed; see **Fixed** at the bottom.
   `"scope": "machine"`, so a workspace's settings can point the LSP launch
   at a script in the repo. Use argv-based execution; add machine scope.
   `editors/vscode/src/extension.ts`, `package.json`.
-- **Workflow interpolation hygiene.** `${{ github.event.release.tag_name }}`
-  and dispatch inputs are substituted into run blocks
-  (`installs.yml:52-56`, `daily-fuzz.yml:84-87`; note `SEED=$((BASE + …))`
-  is bash arithmetic, which evaluates `a[$(cmd)]` even quoted). All
-  triggers need write access today. Pass via `env:` as release.yml does.
-  Third-party actions are tag-pinned, not SHA-pinned; the Alpine image is
-  digest-pinned with a rationale — apply the same to the actions.
 - **Check-then-open races**, each narrow: cache trust check stats the dir
   then opens by path, no fstat of the fd (`lib/compile_cache.ml:160-166`);
   `delete_tree` recurses by concatenated path and a concurrent symlink
@@ -164,7 +144,24 @@ Both are fixed; see **Fixed** at the bottom.
 3. ~~H2 + H3~~ — done at `5c43893`.
 4. ~~M2, M6, M7~~ — done at `dc45301`.
 5. ~~M1, M3, M4, M5~~ — done at `a476a1e`, `616250b` and `8d22d73`.
-6. M8 and the workflow hygiene items.
+6. ~~M8 and the workflow hygiene items~~ — done at `1b5db1e`.
+7. The Lows, then the functionality bugs.
+
+## Still to decide
+
+- **The release `.sha256` authenticates the download, not the publisher.**
+  It is produced by the job that builds the archive and uploaded beside it
+  (release.yml, Makefile), so anyone who can write the release can write
+  both. Build-provenance attestation would answer it, at the cost of two
+  more token scopes on the release job and a step that can turn a release
+  red; publishing the sha256 list in the release notes is a weaker second
+  channel and a manual step per release. Neither is a code fix, and the
+  choice is the maintainer's.
+- **Keeping the action pins fresh.** Every `uses:` is a commit now, and a
+  pinned action never gains its own security fixes. A `github-actions`
+  dependabot config is the usual answer; it costs a PR per action update.
+  Not added: it puts recurring PRs in the repository, which is a
+  maintainer's call.
 
 ## Fixed
 
@@ -205,3 +202,11 @@ Both are fixed; see **Fixed** at the bottom.
   uses `lstat` and does not descend through a link. A linked *file* is still
   read, deliberately: it is one visible name, and it is how dune's sandbox
   presents a `source_tree` dep.
+- **M8. CI: unpinned cross-repo code executes; ci.yml has no permissions** —
+  `1b5db1e`. `mjstahl/setup-wand` is pinned to a commit, `ci.yml` declares
+  `contents: read`, and every action is pinned to a commit with its tag
+  beside it. The release-checksum trust model is under **Still to decide**.
+- **Workflow interpolation hygiene** — `1b5db1e`. `installs.yml` and
+  `daily-fuzz.yml` take trigger values through `env:`. The fuzz step also
+  checks the seed, shard and minutes are digits: `$(( ))` evaluates what a
+  variable holds, so `env:` alone does not close arithmetic injection.
