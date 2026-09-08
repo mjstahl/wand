@@ -23,50 +23,6 @@ Both are fixed; see **Fixed** at the bottom.
 
 ## Medium
 
-### M1. Corrupt compile-cache entry segfaults wand persistently — open
-
-`lib/compile_cache.ml:166` (Marshal read), `186-190` (store). The recovery
-at 167-172 handles entries that make Marshal *raise* (truncation —
-verified recovered). An entry with a valid 20-byte header and corrupt body
-segfaults (verified, exit 139); SIGSEGV cannot be caught, so the cleanup
-never runs and every later run of that script segfaults until the cache is
-deleted by hand. `store` renames without fsync, so a power loss can
-produce exactly this shape with no attacker. A malicious repo that gets
-`WAND_CACHE_HOME` set (direnv `.envrc`, a Makefile) can ship a poisoned
-entry deliberately — a checkout dir passes `dir_is_trustworthy`.
-
-Fix: add an integrity trailer (digest of the marshaled bytes) checked
-before unmarshal, and fsync before the rename.
-
-### M3. `wand f` and `wand t --fix` destroy the file on a crash — open
-
-`bin/wand.ml:765` and `lib/fix.ml:242-244` rewrite the source by
-truncate-then-write into the original inode. A crash or ENOSPC mid-write
-leaves a truncated source file, no backup. The correct pattern already
-exists: `write_atomic` (`lib/runner.ml:789-835`) — same-directory temp,
-fsync before rename, mode preserved. Route both writers through it,
-copying the target's mode.
-
-### M4. One malformed LSP frame kills the server — open
-
-`lib/lsp.ml:34-65` and `864-867`. Three reproduced ways:
-
-- `Content-Length: -1` → `Invalid_argument("Bytes.create")`, exit 2.
-- `Content-Length: 999999999999999` → `Out of memory`, exit 2.
-- An invalid JSON body → `read_message` returns None → serve loop reads
-  "client went away" and exits; later valid requests are never answered.
-
-Fix: reject non-positive lengths, cap the length, answer a bad body with
-JSON-RPC parse error -32700 and continue.
-
-### M5. `wand s` follows symlinks out of the tree — open
-
-`lib/runner.ml:2644-2662` — `find_test_files` uses `Sys.is_directory`
-(follows symlinks), no visited set. Verified: a symlinked directory made
-`wand s` discover and run a `test_*.wand` outside the tree, with full
-effects. Fix: skip symlinked directories (`Unix.lstat`) or track visited
-real paths.
-
 ### M8. CI: unpinned cross-repo code executes; ci.yml has no permissions — open
 
 - `.github/workflows/ci.yml:107-121` checks out `mjstahl/setup-wand` at
@@ -207,8 +163,7 @@ real paths.
 2. ~~H1~~ — done at `d427837`.
 3. ~~H2 + H3~~ — done at `5c43893`.
 4. ~~M2, M6, M7~~ — done at `dc45301`.
-5. M1, M3, M4, M5 — cache integrity + fsync; `write_atomic` in fmt/fix;
-   harden the LSP read loop; lstat in `wand s`.
+5. ~~M1, M3, M4, M5~~ — done at `a476a1e`, `616250b` and `8d22d73`.
 6. M8 and the workflow hygiene items.
 
 ## Fixed
@@ -235,3 +190,18 @@ real paths.
 - **M7. IPv4 leading-zero octets read as decimal** — `dc45301`. A lex error
   naming the rule. This takes a spelling away: `192.168.001.1` was an
   address and is not one now.
+- **M1. Corrupt compile-cache entry segfaults wand persistently** —
+  `a476a1e`. An entry carries a digest of its bytes, checked before anything
+  is unmarshalled, and the write reaches the disk before the rename. Format
+  version 5. This answers corruption; `dir_is_trustworthy` is still what
+  answers chosen bytes.
+- **M3. `wand f` and `wand t --fix` destroy the file on a crash** —
+  `8d22d73`. Both go through `write_atomic`.
+- **M4. One malformed LSP frame kills the server** — `616250b`. A body that
+  is not JSON is answered with -32700 and the session goes on; a length the
+  server will not read ends the stream the way the client going away does.
+  Lengths are digits only and at most 64MB.
+- **M5. `wand s` follows symlinks out of the tree** — `8d22d73`. The walk
+  uses `lstat` and does not descend through a link. A linked *file* is still
+  read, deliberately: it is one visible name, and it is how dune's sandbox
+  presents a `source_tree` dep.
