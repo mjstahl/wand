@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.66.1] - 2026-09-08
+
+### Fixed
+
+- **The linux-x86_64 binary aborted at startup on some machines.** It
+  printed `Fatal error: Failed to allocate signal stack for domain 0` and
+  exited 134. `install.sh` reported `the downloaded binary did not run`
+- The machines are the ones whose CPU has AMX -- `Intel(R) Xeon(R) 6973P-C`
+  and `INTEL(R) XEON(R) PLATINUM 8573C` among them. About one GitHub runner
+  in eight is such a machine. It failed every start on those, and no start
+  on any other, so a re-run only ever drew a different machine
+- An OCaml runtime before 5.5.1 sizes its alternate signal stack from the
+  build-time `SIGSTKSZ`, which musl fixes at 8192. A CPU with AMX makes the
+  kernel ask for 11952, and musl 1.2.6 compares the request against the
+  kernel's number and answers `ENOMEM`
+- The release now builds with OCaml 5.5.1, which reads
+  `sysconf(_SC_SIGSTKSZ)` instead. It asks for 19120 on those machines and
+  starts. The binary is still statically linked
+- Only the linux-x86_64 build was affected. linux-aarch64 and both macOS
+  builds ask the same 8192 and are not refused, because no comparable
+  register state is saved there
+- **`install.sh` keeps the failing binary's stderr** and prints it above the
+  failure. It ran the binary with `2>/dev/null`, so the message the runtime
+  printed before aborting went unread for two releases
+
+No language changes. Every wand program behaves as it did in 0.66.0.
+
 ## [0.66.0] - 2026-09-08
 
 ### Added

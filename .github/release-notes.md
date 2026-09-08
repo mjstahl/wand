@@ -1,123 +1,67 @@
-## 0.66.0 - 2026-09-08
+## 0.66.1 - 2026-09-08
 
-`Result` has seven more functions. A script can now write the `!` half of
-its own pair.
+A rebuild. The linux-x86_64 binary would not start on some machines, and
+this is the release that starts.
 
-### What `Result` had
+### What happened
 
-```ocaml
-to_option : Result 'b 'a -> Option 'a
-ok?       : Result 'b 'a -> Bool
-error?    : Result 'b 'a -> Bool
+```
+$ wand -e '1 + 1'
+Fatal error: Failed to allocate signal stack for domain 0
+Aborted (core dumped)
 ```
 
-Three functions. `Option` had eight, over a type that carries less. Every
-fallible operation in wand answers with a `Result`, so the thinner module
-was the one in the way more often.
+Through `install.sh` it read `the downloaded binary did not run`, with no
+more detail, because the script ran the binary with `2>/dev/null` and threw
+the message away.
 
-The gap showed up as hand-written code. The standard library and the
-examples had fourteen arms that read `| Error why -> Error why`, and
-fourteen more that read `| Ok v -> v | Error _ -> <default>`. Three
-functions in the standard library unwrapped a `Result` by hand to raise its
-reason. None of those say anything a name could not.
+It looked like a flake. It was not one. The binary failed **every** start on
+about one machine in eight and no start on any other, so re-running always
+appeared to fix it, and always only moved to a different machine.
 
-### What it has now
+### Why
 
-```ocaml
-to_option : Result 'b 'a -> Option 'a
-reason    : Result 'b 'a -> Option 'b
-ok?       : Result 'b 'a -> Bool
-error?    : Result 'b 'a -> Bool
-map       : ('a -> 'b ! 'e) -> Result 'c 'a -> Result 'c 'b ! 'e
-and_then  : ('a -> Result 'c 'b ! 'e) -> Result 'c 'a -> Result 'c 'b ! 'e
-map_error : ('a -> 'b ! 'e) -> Result 'a 'c -> Result 'b 'c ! 'e
-flatten   : Result 'b (Result 'b 'a) -> Result 'b 'a
-default   : 'a -> Result 'b 'a -> 'a
-get!      : Result String 'a -> 'a ! {Raise}
-```
+The machines are the ones whose CPU has AMX -- Intel's matrix extensions,
+on Xeons from Sapphire Rapids on. AMX adds 8 KB of register state, and the
+kernel saves register state onto the signal stack, so the minimum signal
+stack a signal frame needs grows with the CPU. The kernel reports it:
 
-Matching a `Result` is still the usual way to deal with one. These are for
-where a match says nothing a name could not.
+| CPU | minimum |
+|---|---|
+| no AMX | 1776 |
+| AVX-512 | 3376 |
+| **AMX** | **11952** |
 
-### Chaining steps that can fail
+An OCaml runtime before 5.5.1 sizes that stack from the build-time
+`SIGSTKSZ`, and musl fixes `SIGSTKSZ` at 8192 whatever the CPU says. musl
+1.2.6 compares the request against the kernel's number and answers
+`ENOMEM`, and the runtime aborts.
 
-`map` applies a function to the value. `map_error` applies one to the
-reason. `and_then` applies a function that returns a `Result` of its own, so
-a run of steps stays one `Result` deep and stops at the first failure:
+musl is right to refuse. 8192 really is too small there. musl 1.2.5 and
+glibc both accept it in silence, which is worse rather than better: it
+trades an abort at startup for a signal frame written past the end of the
+stack. So the answer was not an older Alpine.
 
-```ocaml
-let read path = JSON.read_file path |> Result.and_then (JSON.decode Release.decoder)
-```
+### The fix
 
-That is `examples/ports/release-check.wand`, which was four lines. The same
-shape was written out in `pod-restarts.wand` and `http-retry.wand`.
-`check!` in `verify-archives.wand` was seven lines and two levels of
-nesting around one comparison:
+OCaml 5.5.1 reads `sysconf(_SC_SIGSTKSZ)` instead of the constant. On one
+of those machines it asks for 19120 rather than 8192, and starts.
 
-```ocaml
-let check! file =
-  stated file
-    |> Result.and_then (fn (digest, archive) ->
-      taken! archive |> Result.map (fn got -> got == digest))
-```
+No opam image carries 5.5.1 yet -- `alpine-ocaml-5.5` is still 5.5.0, which
+does not have it -- so the release build creates the switch itself, from a
+pinned opam-repository commit. That comes out once a base image ships
+5.5.1.
 
-### Reaching the reason
+The binary is still statically linked, so nothing about how it is installed
+or copied changes.
 
-`to_option` returns the value and drops the reason. Until now nothing
-returned the reason, so a script that wanted to report a failure had to
-match. `reason` answers it as an `Option`:
+### What else
 
-```ocaml
-List.filter_map Result.reason [Ok 1, Error "a", Ok 2, Error "b"]   -- ["a", "b"]
-```
+Only linux-x86_64 was affected. linux-aarch64 and both macOS builds ask for
+the same 8192 and are not refused, because there is no comparable register
+state to save.
 
-### Two layers of `Result`
+`install.sh` now keeps the failing binary's stderr and prints it above the
+failure, so the next thing that cannot start says why.
 
-`Par.map` returns one `Result` per item, for the work that raised. Work that
-itself returns a `Result` therefore comes back with two, and every caller
-matched all four combinations. `flatten` turns
-`Result 'e (Result 'e 'a)` into `Result 'e 'a`:
-
-```ocaml
-match Result.flatten outcome with
-| Ok true -> None
-| Ok false -> Some (file, "digest does not match")
-| Error why -> Some (file, why)
-```
-
-`Par.timeout` is written with it too. It raced the work against a sleeper
-and then unwrapped the two answers by hand; it is now one line.
-
-### Writing your own `!` function
-
-Every fallible operation in wand comes as a pair: the plain name returns a
-`Result`, and the `!` sibling raises. A script could write the plain half.
-It could not write the `!` half, because nothing in the language raises a
-message a script composed. A script's `!` function had to call a standard
-library one and inherit its message, which described the wrong thing.
-
-`get!` returns the value and raises the reason:
-
-```ocaml
-let port_of s = if s == "" then Error "no port given" else String.to_int s
-let port_of! s = Result.get! (port_of s)
-```
-
-It takes `Result String 'a` rather than `Result 'e 'a`, because the reason
-becomes the message and a message is a `String`. A `Result` carrying a
-structured error still needs a match, which is correct: a type with
-constructors is not a sentence.
-
-This adds no way to raise from nowhere. wand still has no `raise`. A raise
-still comes from a check that failed, and `try` still turns it back into a
-`Result`.
-
-### Also
-
-`Digest.of_hex!`, `Base64.decode!` and `Base64.decode_url!` are written with
-`get!`. They were the three functions that unwrapped a `Result` by hand to
-raise its reason, and `get!` is now the only one that does.
-
-Six examples, four standard library modules and one test file use the new
-functions. Outside the three that implement `Result` itself, no
-`| Error why -> Error why` arm is left in the tree.
+No language changes. Every wand program behaves as it did in 0.66.0.

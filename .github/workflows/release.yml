@@ -16,7 +16,10 @@ jobs:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
     # See ci.yml: a hung runner fails in minutes, not GitHub's six hours.
-    timeout-minutes: 30
+    # Raised from 30 when the static builds started compiling OCaml 5.5.1
+    # from source: one attempt is about eight minutes and the step retries
+    # up to three times, which did not fit.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
