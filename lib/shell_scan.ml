@@ -153,7 +153,12 @@ let scan (segs : seg list) : scan =
         | '$' when peek 1 = '(' -> enter (); i := !i + 2
         | '\\' when !i + 1 < n ->
           Buffer.add_char buf (peek 1); i := !i + 2
-        | ' ' | '\t' | '\n' -> finish_word (); incr i
+        | ' ' | '\t' -> finish_word (); incr i
+        (* A newline separates two commands, exactly as `;` does. Read as
+           whitespace, the word after one was never a command position, so
+           neither the allowlist check nor the check at spawn ever saw it:
+           `$(echo %!{c})` with a newline in `c` ran whatever followed. *)
+        | '\n' -> finish_word (); expecting := true; incr i
         | '(' -> finish_word (); nested := !quote :: !nested;
                  expecting := true; incr i
         | ')' -> leave (); incr i

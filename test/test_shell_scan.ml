@@ -34,7 +34,16 @@ let test_operators () =
     [Literal "cd"; Literal "ls"; Literal "pwd"];
   check "background" "sleep 5 & echo done"
     [Literal "sleep"; Literal "echo"];
-  check "trailing operator" "ls |" [Literal "ls"]
+  check "trailing operator" "ls |" [Literal "ls"];
+  (* A newline is a command separator, not whitespace. Read as whitespace,
+     the word after one was never a command position, so a newline arriving
+     through `%!{}` ran a second command the allowlist never saw. *)
+  check "newline separates" "echo hi\ntouch x"
+    [Literal "echo"; Literal "touch"];
+  check "newline after an operator" "echo hi &&\ntouch x"
+    [Literal "echo"; Literal "touch"];
+  check "newline inside quotes is data" "echo \"hi\ntouch x\""
+    [Literal "echo"]
 
 let test_quotes () =
   check "quoted pipe is an argument" "echo \"a | b\" | wc"
