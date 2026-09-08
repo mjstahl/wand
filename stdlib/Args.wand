@@ -2,6 +2,7 @@ import JSON
 import List
 import Map
 import Option
+import Result
 import String
 
 -- Reading a command line.
@@ -112,21 +113,18 @@ let _object_of_spec spec args =
     (fn acc (k, kind) -> if kind == "repeated" then Map.set k [] acc else acc)
     Map.empty
     (Map.to_list spec))
-  in match go (Map.empty, seeded) [] args with
-  | Error e -> Error e
-  | Ok((fields, repeats), positional) -> (
-    -- A flag declared repeated holds a list whether it was written once or
-    -- twenty times, so the type reads the same either way.
-    let gathered =
-      List.fold_left
-        (fn acc (k, vs) -> Map.set k (JSON.of_list (List.map JSON.of_string vs)) acc)
-        fields
-        (Map.to_list repeats);
-    Ok
-      (JSON.of_map
+  in go (Map.empty, seeded) [] args
+    |> Result.map (fn ((fields, repeats), positional) -> (
+      -- A flag declared repeated holds a list whether it was written once
+      -- or twenty times, so the type reads the same either way.
+      let gathered =
+        List.fold_left
+          (fn acc (k, vs) -> Map.set k (JSON.of_list (List.map JSON.of_string vs)) acc)
+          fields
+          (Map.to_list repeats);
+      JSON.of_map
         (Map.set _positional_key (JSON.of_list (List.map JSON.of_string positional)) gathered)
-      )
-  )
+    ))
 
 let _object_of flags args =
   _object_of_spec (Map.from_list (List.map (fn f -> (f, "switch")) flags)) args
@@ -154,9 +152,7 @@ let _object_of flags args =
 -- >> Args.parse (Decode.field "v" Decode.bool) ["--v"]
 -- Error("--v expects a value") : Result String Bool
 let parse_with flags decoder args =
-  match _object_of flags args with
-  | Error e -> Error e
-  | Ok obj -> JSON.decode decoder obj
+  _object_of flags args |> Result.and_then (JSON.decode decoder)
 
 -- Read arguments with a decoder. Every flag is assumed to take a value:
 -- `--port 8080` and `--port=8080` are the same thing. Use `parse_with`
@@ -202,9 +198,8 @@ let parse decoder args = parse_with [] decoder args
 -- >> Args.read Args.Parser(spec = {t = "repeated"}, reader = Decode.field "t" (Decode.list Decode.string), usage = "") ["--t", "a"]
 -- Ok(["a"]) : Result String (List String)
 let read : Parser 'a -> List String -> Result String 'a =
-  fn parser args -> match _object_of_spec parser.spec args with
-    | Error e -> Error e
-    | Ok obj -> JSON.decode parser.reader obj
+  fn parser args -> _object_of_spec parser.spec args
+    |> Result.and_then (JSON.decode parser.reader)
 
 -- Return true if the arguments ask for help.
 --

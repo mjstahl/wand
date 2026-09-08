@@ -1,6 +1,7 @@
 uses {Clock}
 
 import Clock
+import Result
 
 -- Fork-join parallelism, and nothing else.
 --
@@ -111,7 +112,5 @@ let timeout d thunk = (
   par_deadline_guard ();
   let work = fn () -> Ok (thunk ());
   let sleeper = fn () -> (Clock.sleep d; Error "timed out after %{d}");
-  match race [work, sleeper] with
-  | Ok answer -> answer
-  | Error why -> Error why
+  Result.flatten (race [work, sleeper])
 )

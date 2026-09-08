@@ -4,6 +4,7 @@ import IO
 import JSON
 import List
 import Proc
+import Result
 
 -- Read a release manifest and say whether it may ship.
 --
@@ -38,10 +39,7 @@ let report floor r =
   | [] -> IO.println "ready"
   | reasons -> (reasons |> List.each (fn why -> IO.println_err why); Proc.exit 1)
 
-let read path =
-  match JSON.read_file path with
-  | Error why -> Error why
-  | Ok doc -> JSON.decode Release.decoder doc
+let read path = JSON.read_file path |> Result.and_then (JSON.decode Release.decoder)
 
 let main () =
   match read ./release.json with

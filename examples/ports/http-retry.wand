@@ -7,6 +7,7 @@ import HTTP
 import IO
 import JSON
 import Proc
+import Result
 import String
 
 -- Read a JSON endpoint that needs a token, and retry a failure worth
@@ -55,10 +56,7 @@ let attempt tries wait thunk = (
   else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
 )
 
-let read out =
-  match JSON.parse out with
-  | Error why -> Error why
-  | Ok doc -> JSON.decode Health.decoder doc
+let read out = JSON.parse out |> Result.and_then (JSON.decode Health.decoder)
 
 let report (h: Health) = IO.println "%{h.status}, version %{h.version}"
 

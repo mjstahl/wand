@@ -6,6 +6,7 @@ import List
 import Par
 import Path
 import Proc
+import Result
 import String
 
 -- Check every archive's checksum at once, and say which ones failed.
@@ -33,13 +34,11 @@ import String
 -- from. The name is bare, so it is read against the directory the file
 -- sits in rather than against wherever this runs.
 let stated file =
-  match FS.read_file file with
-  | Error why -> Error why
-  | Ok text -> (
-    match String.words text with
-    | [digest, name] -> Ok (digest, Path.join (Path.parent file) (Path.of_string name))
-    | _ -> Error "not one digest and one name"
-  )
+  FS.read_file file
+    |> Result.and_then (fn text ->
+      match String.words text with
+      | [digest, name] -> Ok (digest, Path.join (Path.parent file) (Path.of_string name))
+      | _ -> Error "not one digest and one name")
 
 let taken! archive =
   match String.words $(shasum -a 256 %{archive}) with
@@ -47,25 +46,21 @@ let taken! archive =
   | _ -> Error "shasum answered something else"
 
 let check! file =
-  match stated file with
-  | Error why -> Error why
-  | Ok(digest, archive) -> (
-    match taken! archive with
-    | Error why -> Error why
-    | Ok got -> Ok (got == digest)
-  )
+  stated file
+    |> Result.and_then (fn (digest, archive) ->
+      taken! archive |> Result.map (fn got -> got == digest))
 
 let verify! limit files = List.zip files (Par.map limit check! files)
 
 -- Two layers of `Result`: `Par.map` answers one per item for the work that
 -- raised, and `check!` answers one for the archive that did not match.
+-- Either way the archive is not verified, so `flatten` makes them one.
 let failures checked =
   checked
     |> List.filter_map (fn (file, outcome) ->
-      match outcome with
-      | Ok (Ok true) -> None
-      | Ok (Ok false) -> Some (file, "digest does not match")
-      | Ok (Error why) -> Some(file, why)
+      match Result.flatten outcome with
+      | Ok true -> None
+      | Ok false -> Some (file, "digest does not match")
       | Error why -> Some(file, why))
 
 let report! limit dir = (

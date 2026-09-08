@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.66.0] - 2026-09-08
+
+### Added
+
+- **Seven functions in `Result`:** `reason`, `map`, `and_then`, `map_error`,
+  `flatten`, `default` and `get!`. The module had `to_option`, `ok?` and
+  `error?`
+- `Result.map` applies a function to the value. A failure passes through
+  unchanged
+- `Result.and_then` applies a function that returns a `Result` of its own.
+  The answer stays one `Result` deep, and stops at the first failure
+
+```
+let read path = JSON.read_file path |> Result.and_then (JSON.decode Release.decoder)
+```
+
+- `Result.map_error` applies a function to the reason. A value passes
+  through unchanged. The error type can change
+- `Result.reason` returns the reason as an `Option`. `to_option` returns the
+  value; there was no function that returned the reason
+- `Result.flatten` turns `Result 'e (Result 'e 'a)` into `Result 'e 'a`.
+  `Par.map` returns one `Result` per item, so work that returns a `Result`
+  comes back with two
+- `Result.default` returns the value, or a given fallback if it failed
+- `Result.get!` returns the value, and raises the reason if it failed. It
+  takes `Result String 'a`, because the reason becomes the message. A script
+  uses it to write the `!` half of its own pair. Before this, a script's `!`
+  function could only raise a message from the standard library
+
+```
+let port_of s = if s == "" then Error "no port given" else String.to_int s
+let port_of! s = Result.get! (port_of s)
+```
+
+### Changed
+
+- `Par.timeout` uses `Result.flatten`. `Args.parse_with` and `Args.read` use
+  `Result.and_then`. `Args._object_of_spec` and `Digest.of_hex` use
+  `Result.map`
+- `Digest.of_hex!`, `Base64.decode!` and `Base64.decode_url!` use
+  `Result.get!`. These were the three functions that unwrapped a `Result` by
+  hand to raise its reason
+- Six examples use the new functions: `verify-archives.wand` (`and_then`,
+  `map`, `flatten`), `pod-restarts.wand`, `http-retry.wand` and
+  `release-check.wand` (`and_then`), `error-rate.wand` (`to_option`) and
+  `repo-status.wand` (`default`)
+- The tree had fourteen `| Error why -> Error why` arms. Only the three
+  that implement `Result.map`, `Result.and_then` and `Result.flatten` are
+  left
+- `test/wand/test_json.wand` uses `Result.and_then`
+
 ## [0.65.0] - 2026-09-07
 
 ### Added

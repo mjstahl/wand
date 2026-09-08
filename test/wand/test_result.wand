@@ -2,6 +2,7 @@ import List
 import Map
 import Option
 import Result
+import String
 
 let {test, group} = import Test
 
@@ -35,4 +36,87 @@ group "the lookups it is used by" (fn () -> [
   test "Map.get misses" (fn t -> t.eq (None) (Map.get "z" {a = 1})),
   test "List.get finds one" (fn t -> t.eq (Some 2) (List.get 1 [1, 2])),
   test "List.get is out of bounds" (fn t -> t.eq (None) (List.get 9 [1, 2]))
+])
+
+group "reason" (fn () -> [
+  test "a failure hands over its because" (fn t ->
+    t.eq (Some "no such key") (Result.reason (Error "no such key"))),
+  test "a success has none" (fn t -> t.eq (None) (Result.reason (Ok 1))),
+  -- to_option keeps the value and drops the reason; this keeps the reason
+  -- and drops the value. Between them a Result comes apart either way.
+  test "the two sides together" (fn t ->
+    t.eq [Some 1, None] [Result.to_option (Ok 1), Result.to_option (Error "why")]),
+  test "collecting the reasons out of a list" (fn t ->
+    t.eq ["a", "b"] (List.filter_map Result.reason [Ok 1, Error "a", Ok 2, Error "b"]))
+])
+
+group "map" (fn () -> [
+  test "a value is transformed" (fn t -> t.eq (Ok 6) (Result.map (fn x -> x * 2) (Ok 3))),
+  -- The reason a map exists at all: the caller says what to do with the
+  -- value and nothing about the failure.
+  test "a failure passes through" (fn t ->
+    t.eq (Error "nope") (Result.map (fn x -> x * 2) (Error "nope"))),
+  test "the function does not run on a failure" (fn t ->
+    t.eq (Error "nope") (Result.map (fn _ -> List.head! []) (Error "nope")))
+])
+
+group "and_then" (fn () -> [
+  test "a step that succeeds" (fn t ->
+    t.eq (Ok 30) (Result.and_then (fn x -> Ok (x * 10)) (Ok 3))),
+  test "a step that fails" (fn t ->
+    t.eq (Error "too small") (Result.and_then (fn _ -> Error "too small") (Ok 0))),
+  test "an earlier failure stops the chain" (fn t ->
+    t.eq (Error "earlier") (Result.and_then (fn x -> Ok (x * 10)) (Error "earlier"))),
+  -- Where map would leave two layers, this leaves one.
+  test "it stays one Result deep" (fn t ->
+    t.eq (Ok 30) (Ok 3 |> Result.and_then (fn x -> Ok (x * 10)))),
+  test "a chain stops at the first failure" (fn t ->
+    t.eq
+      (Error "second")
+      (Ok 1
+        |> Result.and_then (fn x -> Ok (x + 1))
+        |> Result.and_then (fn _ -> Error "second")
+        |> Result.and_then (fn _ -> Error "third")
+      ))
+])
+
+group "map_error" (fn () -> [
+  test "a reason gains context" (fn t ->
+    t.eq
+      (Error "reading config: no such file")
+      (Result.map_error (fn why -> "reading config: %{why}") (Error "no such file"))),
+  test "a value passes through" (fn t ->
+    t.eq (Ok 1) (Result.map_error (fn why -> "reading config: %{why}") (Ok 1))),
+  -- The error type is free to change, which is what moving a failure into
+  -- the caller's own type needs.
+  test "the error type can change" (fn t ->
+    t.eq (Error 3) (Result.map_error String.length (Error "abc")))
+])
+
+group "flatten" (fn () -> [
+  test "two successes become one" (fn t -> t.eq (Ok 1) (Result.flatten (Ok (Ok 1)))),
+  test "the inner failure survives" (fn t ->
+    t.eq (Error "inner") (Result.flatten (Ok (Error "inner")))),
+  test "the outer failure survives" (fn t ->
+    t.eq (Error "outer") (Result.flatten (Error "outer"))),
+  -- The shape Par.map answers with: one Result for the work that raised,
+  -- around the one the work itself returned.
+  test "the two layers Par.map leaves" (fn t ->
+    t.eq
+      [Ok 2, Error "raised", Error "returned"]
+      (List.map Result.flatten [Ok (Ok 2), Error "raised", Ok (Error "returned")]))
+])
+
+group "default" (fn () -> [
+  test "a value is itself" (fn t -> t.eq 3 (Result.default 0 (Ok 3))),
+  test "a failure is the default" (fn t -> t.eq 0 (Result.default 0 (Error "nope")))
+])
+
+group "get!" (fn () -> [
+  test "a value comes out" (fn t -> t.eq 3 (Result.get! (Ok 3))),
+  -- The reason becomes the message, which is what lets a script write the
+  -- `!` half of a pair of its own.
+  test "a failure raises its reason" (fn t ->
+    t.eq (Error "no such key") (try Result.get! (Error "no such key"))),
+  test "it raises" (fn t -> t.raises (fn () -> Result.get! (Error "nope")))
 ])

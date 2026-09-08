@@ -4,6 +4,7 @@ import Float
 import IO
 import Proc
 import Regex
+import Result
 import Stream
 import String
 
@@ -27,11 +28,7 @@ type Tally(ok: Int, failed: Int)
 -- not a request, and is not counted either way.
 let status line =
   match Regex.capture r/" ([0-9]{3}) / line with
-  | [_, code] -> (
-    match String.to_int code with
-    | Ok n -> Some n
-    | Error _ -> None
-  )
+  | [_, code] -> Result.to_option (String.to_int code)
   | _ -> None
 
 let count_into (tally: Tally) line =

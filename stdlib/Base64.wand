@@ -1,3 +1,5 @@
+import Result
+
 -- Base64, both alphabets.
 --
 -- RFC 4648 defines two, and both are load-bearing. The standard alphabet
@@ -34,10 +36,7 @@ let encode text = base64_encode text
 --
 -- >> Base64.decode! "aGVsbG8"
 -- "hello" : String
-let decode! text =
-  match base64_decode text with
-  | Ok bytes -> bytes
-  | Error why -> fail_exn why
+let decode! text = Result.get! (base64_decode text)
 
 -- Decode the standard alphabet, or an Error naming what was wrong.
 --
@@ -66,10 +65,7 @@ let encode_url text = base64_encode_url text
 --
 -- >> Base64.decode_url! "aGVsbG8="
 -- "hello" : String
-let decode_url! text =
-  match base64_decode_url text with
-  | Ok bytes -> bytes
-  | Error why -> fail_exn why
+let decode_url! text = Result.get! (base64_decode_url text)
 
 -- Decode the URL-safe alphabet, or an Error naming what was wrong.
 --

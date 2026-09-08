@@ -5,6 +5,7 @@ import JSON
 import List
 import Option
 import Proc
+import Result
 
 -- Which pods are restarting, and how much.
 --
@@ -46,13 +47,9 @@ let summary (p: Pod) =
   "%{p.metadata.namespace}/%{p.metadata.name}\t%{p.status.phase}\t%{restarts p} restarts"
 
 let pods out =
-  match JSON.parse out with
-  | Error why -> Error why
-  | Ok doc -> (
-    match JSON.decode PodList.decoder doc with
-    | Error why -> Error why
-    | Ok list -> Ok list.items
-  )
+  JSON.parse out
+    |> Result.and_then (JSON.decode PodList.decoder)
+    |> Result.map (fn (list: PodList) -> list.items)
 
 let report limit pods =
   match flapping limit pods with

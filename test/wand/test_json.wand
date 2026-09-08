@@ -3,6 +3,7 @@ uses {FS.Read, FS.Write}
 let {test} = import Test
 import Decode
 import JSON
+import Result
 import String
 import List
 import Map
@@ -236,19 +237,13 @@ test "and what was read can be written back" (fn t ->
 -- program can disagree about it.
 test "a document that names a key twice reads the later one, whichever way it is read" (fn t ->
   let doc = JSON.parse! `{"a": 1, "a": 9}` in
-  let via_field =
-    match JSON.field "a" doc with
-    | Ok v -> JSON.get_int v
-    | Error why -> Error why
-  in
+  let via_field = JSON.field "a" doc |> Result.and_then JSON.get_int in
   let via_object =
-    match JSON.get_object doc with
-    | Ok m -> (
-      match Map.get "a" m with
-      | Some v -> JSON.get_int v
-      | None -> Error "missing"
-    )
-    | Error why -> Error why
+    JSON.get_object doc
+      |> Result.and_then (fn m ->
+        match Map.get "a" m with
+        | Some v -> JSON.get_int v
+        | None -> Error "missing")
   in
   t.eq (Ok 9, Ok 9, Ok 9) (
     via_field,

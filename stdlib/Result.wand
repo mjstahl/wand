@@ -6,9 +6,9 @@
 -- takes when it is a value rather than a control flow.
 --
 -- Matching one is the usual way to deal with it, and stays the usual way.
--- These are for the three places a match says nothing a name could not:
--- asking which side it is, and crossing to an `Option` when the reason is
--- not wanted.
+-- These are for the places a match says nothing a name could not: asking
+-- which side it is, reaching either side, and carrying a failure through
+-- a chain of steps without writing the arm that passes it on.
 
 -- The value, or None if it failed. The reason is dropped, which is the
 -- point: this is for a caller that has somewhere to put "no value" and
@@ -26,6 +26,20 @@ let to_option r =
   match r with
   | Ok v -> Some v
   | Error _ -> None
+
+-- The reason it failed, or None if it did not. The other side of
+-- `to_option`, for a caller that wants the "because" and not the value --
+-- reporting a failure, collecting the reasons out of a list of answers.
+--
+-- >> Result.reason (Error "no such key")
+-- Some("no such key") : Option String
+--
+-- >> Result.reason (Ok 1)
+-- None : Option 'a
+let reason r =
+  match r with
+  | Ok _ -> None
+  | Error why -> Some why
 
 -- Whether it succeeded.
 --
@@ -48,3 +62,93 @@ let error? r =
   match r with
   | Ok _ -> false
   | Error _ -> true
+
+-- Apply a function to the value, if there is one. A failure passes through
+-- untouched, so the caller says what to do with a value and nothing about
+-- a failure.
+--
+-- >> Result.map (fn x -> x * 2) (Ok 3)
+-- Ok(6) : Result 'a Int
+--
+-- >> Result.map (fn x -> x * 2) (Error "nope")
+-- Error("nope") : Result String Int
+let map f r =
+  match r with
+  | Ok v -> Ok (f v)
+  | Error why -> Error why
+
+-- Chain a fallible step onto the value, if there is one.
+--
+-- Where `map` wraps what the function returns, this one does not: the
+-- function answers with a Result of its own, so a run of steps that may
+-- each fail stays one Result deep and stops at the first failure. This is
+-- the arm that would otherwise be written `| Error why -> Error why` at
+-- every step.
+--
+-- >> Result.and_then (fn x -> if x > 1 then Ok (x * 10) else Error "too small") (Ok 3)
+-- Ok(30) : Result String Int
+--
+-- >> Result.and_then (fn x -> if x > 1 then Ok (x * 10) else Error "too small") (Ok 0)
+-- Error("too small") : Result String Int
+--
+-- >> Result.and_then (fn x -> Ok (x * 10)) (Error "earlier")
+-- Error("earlier") : Result String Int
+let and_then f r =
+  match r with
+  | Ok v -> f v
+  | Error why -> Error why
+
+-- Apply a function to the reason, if it failed. For adding context to a
+-- failure on its way up, or moving it to the error type the caller reads.
+--
+-- >> Result.map_error (fn why -> "reading config: %{why}") (Error "no such file")
+-- Error("reading config: no such file") : Result String 'a
+--
+-- >> Result.map_error (fn why -> "reading config: %{why}") (Ok 1)
+-- Ok(1) : Result String Int
+let map_error f r =
+  match r with
+  | Ok v -> Ok v
+  | Error why -> Error (f why)
+
+-- Remove one layer from a Result holding a Result. `Par.map` answers one
+-- Result per item for the work that raised, so fallible work run through
+-- it comes back doubly wrapped; this is how the two layers become one.
+--
+-- >> Result.flatten (Ok (Ok 1))
+-- Ok(1) : Result 'a Int
+--
+-- >> Result.flatten (Ok (Error "inner"))
+-- Error("inner") : Result String 'a
+--
+-- >> Result.flatten (Error "outer")
+-- Error("outer") : Result String 'a
+let flatten r =
+  match r with
+  | Ok inner -> inner
+  | Error why -> Error why
+
+-- The value, or a default if it failed.
+--
+-- >> Result.default 0 (Ok 3)
+-- 3 : Int
+--
+-- >> Result.default 0 (Error "nope")
+-- 0 : Int
+let default d r =
+  match r with
+  | Ok v -> v
+  | Error _ -> d
+
+-- The value. Raises the reason if it failed.
+--
+-- This is how a script writes the `!` half of a pair of its own. The plain
+-- name does the checking and answers with the reason. The `!` name calls
+-- the plain one and passes the answer through here.
+--
+-- >> Result.get! (Ok 3)
+-- 3 : Int
+let get! r =
+  match r with
+  | Ok v -> v
+  | Error why -> fail_exn why

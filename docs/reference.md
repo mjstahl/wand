@@ -5228,8 +5228,15 @@ Map.get "k" m |> Option.to_result "no such key"   -- Result String 'a
 
 ```ocaml
 to_option : Result 'b 'a -> Option 'a
+reason    : Result 'b 'a -> Option 'b
 ok?       : Result 'b 'a -> Bool
 error?    : Result 'b 'a -> Bool
+map       : ('a -> 'b ! 'e) -> Result 'c 'a -> Result 'c 'b ! 'e
+and_then  : ('a -> Result 'c 'b ! 'e) -> Result 'c 'a -> Result 'c 'b ! 'e
+map_error : ('a -> 'b ! 'e) -> Result 'a 'c -> Result 'b 'c ! 'e
+flatten   : Result 'b (Result 'b 'a) -> Result 'b 'a
+default   : 'a -> Result 'b 'a -> 'a
+get!      : Result String 'a -> 'a ! {Raise}
 ```
 
 `Result 'b 'a` is built in: `Ok v` and `Error e`, with the error type first.
@@ -5238,11 +5245,35 @@ are for what a match cannot say more briefly.
 
 `to_option` drops the reason, which is the point: it is for a caller with
 somewhere to put "no value" and nowhere to put "because". `Map.get`,
-`List.get` and `Env.get` are each written with it.
+`List.get` and `Env.get` are each written with it. `reason` is the other
+side, for a caller that wants the "because" and not the value.
 
 `ok?` and `error?` are the same question either way, so the failing branch can
 be the one a script is written around, and so either can be handed to
 `List.filter` without brackets.
+
+`map` applies a function to the value, `map_error` to the reason, and
+`and_then` applies a function that returns a `Result` of its own. A run of
+them stays one `Result` deep and stops at the first failure, so none of the
+steps writes an arm for a failure that already happened:
+
+```ocaml
+let read path =
+  JSON.read_file path |> Result.and_then (JSON.decode Release.decoder)
+```
+
+`flatten` turns `Result 'b (Result 'b 'a)` into `Result 'b 'a`. `Par.map`
+returns one `Result` per item, so work that returns a `Result` comes back
+with two.
+
+`default` returns the value, or a given fallback if it failed. `get!`
+returns the value, and raises the reason if it failed. A script uses it to
+write the `!` half of its own pair:
+
+```ocaml
+let port_of s = if s == "" then Error "no port given" else String.to_int s
+let port_of! s = Result.get! (port_of s)
+```
 
 ---
 
