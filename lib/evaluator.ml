@@ -626,6 +626,62 @@ let div_ovf x y = if x = min_int && y = -1 then overflow "/" else x / y
 
 let neg_ovf x = if x = min_int then overflow "-" else -x
 
+(* ── Regex repeat bound ──────────────────────────────────────────────────── *)
+
+(* A counted repeat is expanded when the pattern is compiled, so the cost is
+   the count and nothing else: `a{10000000}` takes seconds, `a{999999999}`
+   takes minutes and the memory to match. Matching is a non-backtracking
+   automaton, so no input makes a compiled pattern worse -- the pattern alone
+   decides this, which is why it is answered where a pattern becomes a Regex.
+
+   10,000 is past any repeat anyone writes and still compiles in the noise;
+   the cost is linear, and 100,000 was already indistinguishable from zero
+   when measured. `\{` is a literal brace, and so is a `{` inside a character
+   class or one not followed by digits -- which is what PCRE reads them as,
+   so neither is counted here. *)
+let max_regex_repeat = 10_000
+
+let regex_repeat_error pat =
+  let n = String.length pat in
+  let i = ref 0 and in_class = ref false and bad = ref None in
+  (* The digits at `j`, as a count, with anything too long to be an int
+     reported as over the bound rather than skipped. *)
+  let count_at j =
+    let start = !j in
+    while !j < n && pat.[!j] >= '0' && pat.[!j] <= '9' do incr j done;
+    if !j = start then None
+    else
+      let text = String.sub pat start (!j - start) in
+      match int_of_string_opt text with
+      | Some c -> Some c
+      | None   -> Some max_int
+  in
+  while !i < n && !bad = None do
+    (match pat.[!i] with
+     | '\\' -> incr i
+     | '[' when not !in_class -> in_class := true
+     | ']' when !in_class -> in_class := false
+     | '{' when not !in_class ->
+       let j = ref (!i + 1) in
+       (match count_at j with
+        | None -> ()
+        | Some lo ->
+          let hi =
+            if !j < n && pat.[!j] = ',' then (incr j; count_at j) else Some lo
+          in
+          if !j < n && pat.[!j] = '}' then
+            let biggest = match hi with Some h -> max lo h | None -> lo in
+            if biggest > max_regex_repeat then bad := Some biggest)
+     | _ -> ());
+    incr i
+  done;
+  Option.map (fun c ->
+    Printf.sprintf "%s is too large -- a pattern may repeat at most %d times"
+      (if c = max_int then "that repeat count"
+       else Printf.sprintf "repeat count %d" c)
+      max_regex_repeat)
+    !bad
+
 (* ── Algebraic effects ────────────────────────────────────────────────────── *)
 
 type _ Effect.t += WandEffect : string * value -> value Effect.t
@@ -1911,9 +1967,12 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | 's' -> List.to_seq [`DOTALL]
       | _   -> List.to_seq []) |> List.of_seq
     in
-    (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
-     with Re.Pcre.Parse_error ->
-       raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags)))
+    (match regex_repeat_error pat with
+     | Some why -> raise (EvalError why)
+     | None ->
+       (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
+        with Re.Pcre.Parse_error ->
+          raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags))))
   (* `$*(c)` builds the command and stops there. `$(c)` and `$?(c)` build
      the same command and run it -- they are `Shell.run!` and `Shell.query`
      over one, spelled short. *)
@@ -4971,9 +5030,12 @@ let stdlib_eval_env : env = [
     VBuiltin (fun release -> VResource (acquire, release))));
   ("regex_compile", VBuiltin (function
     | VString pat ->
-      (try VConstr (Ctor.Builtin "Ok", [VRegex (Re.compile (Re.Pcre.re pat))])
-       with Re.Pcre.Parse_error ->
-         VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "invalid regex: %s" pat)]))
+      (match regex_repeat_error pat with
+       | Some why -> VConstr (Ctor.Builtin "Error", [VString why])
+       | None ->
+         (try VConstr (Ctor.Builtin "Ok", [VRegex (Re.compile (Re.Pcre.re pat))])
+          with Re.Pcre.Parse_error ->
+            VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "invalid regex: %s" pat)])))
     | _ -> raise (EvalError "regex_compile: expected String")));
   (* Path primitives — pure string operations on VPath values *)
   ("path_join", VBuiltin (function

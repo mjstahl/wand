@@ -1,6 +1,7 @@
 let {test} = import Test
 import List
 import Regex
+import String
 
 -- ── Literals ────────────────────────────────────────────────────────────
 
@@ -87,3 +88,31 @@ test "compile invalid pattern returns Error" (fn t ->
   match Regex.compile "[invalid" with
   | Ok _ -> t.ok false
   | Error _ -> t.ok true)
+
+-- A counted repeat is expanded when the pattern is compiled, so the cost is
+-- the count and nothing else. `a{999999999}` took minutes and the memory to
+-- match, from a pattern alone -- matching is a non-backtracking automaton,
+-- so no input can make a compiled pattern worse.
+test "a repeat count past the bound is refused" (fn t ->
+  match Regex.compile "a{999999999}" with
+  | Ok _ -> t.ok false
+  | Error why -> t.ok (String.contains? "repeat" why))
+test "and one too long to be a number" (fn t ->
+  match Regex.compile "a{99999999999999999999}" with
+  | Ok _ -> t.ok false
+  | Error why -> t.ok (String.contains? "repeat" why))
+test "the bound itself still compiles" (fn t ->
+  match Regex.compile "a{10000}" with
+  | Ok _ -> t.ok true
+  | Error _ -> t.ok false)
+test "an ordinary repeat is untouched" (fn t -> t.ok (Regex.match? r/[0-9]{3}/ "abc123"))
+test "a brace in a character class is a brace" (fn t ->
+  match Regex.compile "[{]{2}" with
+  | Ok re -> t.eq true (Regex.match? re "a{{b")
+  | Error _ -> t.ok false)
+test "an escaped brace is a brace" (fn t ->
+  match Regex.compile "a\\{999999999\\}" with
+  | Ok _ -> t.ok true
+  | Error _ -> t.ok false)
+test "a literal is bounded the same way" (fn t ->
+  t.raises (fn () -> Regex.match? r/a{999999999}/ "aaa"))
