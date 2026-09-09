@@ -41,24 +41,32 @@ esac
 
 # ── Download tooling ──────────────────────────────────────────────────────
 
-if command -v curl >/dev/null 2>&1; then
-  fetch()      { curl -fsSL -o "$2" "$1"; }
-  latest_url() { curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"; }
-elif command -v wget >/dev/null 2>&1; then
-  fetch()      { wget -q -O "$2" "$1"; }
-  # Two reasons this never worked, so a curl-less install failed here --
-  # closed, with an error, but failed. `-q` turns off every message wget
-  # writes, including the server response that `-S` asks for, so there were
-  # no headers to read; and wget indents the headers it does print, which
-  # a pattern anchored at `Location` cannot match. `-S`, no `-q`, and the
-  # indent allowed for. wget's progress goes to stderr into the same pipe,
-  # where sed ignores it.
-  latest_url() { wget -S --max-redirect=10 -O /dev/null "$1" 2>&1 \
-                   | sed -n 's/^[[:space:]]*Location: *\([^ ]*\).*/\1/p' \
-                   | tail -1; }
-else
-  fail "neither curl nor wget is available"
-fi
+# curl, and only curl. There used to be a wget fallback; it could not have
+# worked, and nothing here could have told you. Resolving "latest" means
+# reading the URL that /releases/latest redirects to, which curl prints
+# outright and wget does not -- so the wget path scraped the `Location:`
+# header out of wget's diagnostic output, without asking wget to print
+# headers at all, with a pattern that could not have matched the indented
+# lines if it had. It failed closed, and it failed for everyone who reached
+# it.
+#
+# Two reasons it is gone rather than fixed. Every CI runner has curl, so the
+# branch never ran anywhere and a fix would have shipped unexercised. And the
+# output it read is diagnostic text, which differs between GNU wget and the
+# busybox one on the machines most likely to lack curl -- so a fix aimed at
+# either would still be a guess about the other.
+#
+# The install line at the top of this file is a curl pipeline, so anyone
+# following it has curl already.
+
+command -v curl >/dev/null 2>&1 || fail \
+  "curl is needed to install wand.
+            Install curl, or take the archive for your platform from
+            https://github.com/$repo/releases and unpack it yourself --
+            it holds a single binary."
+
+fetch()      { curl -fsSL -o "$2" "$1"; }
+latest_url() { curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"; }
 
 if command -v shasum >/dev/null 2>&1; then
   checksum() { shasum -a 256 -c "$1" >/dev/null; }

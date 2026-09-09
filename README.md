@@ -125,6 +125,10 @@ directory:
 curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 ```
 
+The script needs curl — which the line above already uses. Without it, take
+the archive for your platform from the releases page below and unpack it: it
+holds a single binary and nothing else.
+
 Each [release](https://github.com/mjstahl/wand/releases) has static Linux
 builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), and a `.sha256`
 file beside each one. That file says the download arrived whole. It does not
