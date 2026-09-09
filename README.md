@@ -147,11 +147,6 @@ It covers the three archives CI builds. The macOS x86_64 archive is built by
 hand on an Intel Mac, because GitHub's Intel runner never leaves the queue, so
 that one has the `.sha256` and no attestation.
 
-The binary holds its own standard library. You install nothing else. Startup is
-short enough for CI glue and for an editing loop. The release binary runs
-`wand -e "1 + 2"` in about 9 ms on macOS x86_64. That is about 2 times
-`bash -c :`. `bench/startup.sh` repeats the measurement.
-
 **From source.** This is the contributor path. It needs OCaml 5.x and opam:
 
 ```sh

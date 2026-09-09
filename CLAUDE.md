@@ -37,7 +37,6 @@ examples. Most tasks need only one part.
   for each one that is fixed, run by `test_fuzz_regressions.ml` on every PR.
   Run it locally as shown below.
 - `.github/workflows/ci.yml` builds and tests on push/PR; `release.yml` builds release archives when a tag lands; `daily-fuzz.yml` runs the fuzzer on four seeds each day and files an issue per new signature.
-- `bench/startup.sh`, `bench/throughput.sh` — the numbers the startup-path rule below asks for.
 
 ### Verifying a change
 
@@ -109,7 +108,8 @@ fixed point *and* still runs. `wand f` writes in place, so run it on a copy.
 
 Changing anything on the startup path gets before-and-after numbers in the
 commit message, from several runs. Readings move ~15% between runs, so one
-reading cannot tell an improvement from noise.
+reading cannot tell an improvement from noise. There is no script for this;
+time the two binaries directly.
 
 The drift is slow as well as wide, so measuring one build and then the other
 attributes to the change whatever the machine did in between. Keep both

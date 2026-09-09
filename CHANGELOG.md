@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.70.0] - 2026-09-09
+
+Two more of the things the benchmark found, and a directory retired.
+
+### Added
+
+- **`String.word n s`** answers with the nth whitespace-separated word, and
+  **`word!`** raises where there is none. `List.get! n (String.words s)`
+  builds a string, a cons cell and a reversal for every field to hand back
+  one of them; `word` walks to `n` and builds only that. 636ns a line
+  against 410ns on a seven-field log line. It follows the rule `words`
+  follows -- a run of whitespace separates once, and leading or trailing
+  whitespace adds no word -- and is checked against `words` at every index
+  so the two cannot drift. It is not called `field`: in `JSON.field`,
+  `TOML.field`, `Decode.field` and in a type error about a record, a field
+  is selected by name, and this is a position
+
+### Fixed
+
+- **A regex literal was compiled on every evaluation.** `Re.compile` ran
+  each time the expression was reached, so a pattern written inside a loop
+  was recompiled once per iteration at about 5us a time:
+  `Regex.match? r/ERROR/ line` over a 200k-line file spent a second
+  compiling the same pattern 200,000 times, and the way to avoid it was
+  knowing to lift the literal out by hand. Written inline it now costs what
+  lifting it out costs. The compiled form is kept per pattern and flags as
+  written, so one pattern under two flags stays two patterns.
+  `Regex.compile` is not cached: its argument can be built at run time, and
+  the table would grow with the data
+
+### Removed
+
+- **`bench/startup.sh` and `bench/throughput.sh`.** The startup-path rule
+  still asks for before-and-after numbers in the commit message; time the
+  two binaries directly. `README` no longer offers the script as a way to
+  repeat its startup figure
+
 ## [0.69.0] - 2026-09-09
 
 ### Added

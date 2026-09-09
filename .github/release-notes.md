@@ -1,134 +1,60 @@
-## 0.69.0 - 2026-09-09
+## 0.70.0 - 2026-09-09
 
-Seventeen tasks written three ways — wand, Python, and bash — run
-interleaved against each other on the same seeded data, with every loss
-decomposed until one function could be named. Five causes came out of it,
-and all five are fixed.
+Two more of the things the cross-language benchmark turned up in 0.69.0,
+found by profiling what was left rather than by a new measurement.
 
-Against 0.68.0, on the same machine:
+### Reading one word out of a line
 
-| task | before | after | |
-|---|---|---|---|
-| dedupe, 20k lines | 6094 ms | **32 ms** | 188× |
-| top-5 by key, 200k lines | 2639 ms | **348 ms** | 7.6× |
-| count matching lines, 200k | 479 ms | **161 ms** | 3.0× |
-| string replace per line, 200k | 646 ms | **236 ms** | 2.7× |
-| sort 200k rows | 1944 ms | **866 ms** | 2.2× |
-| CSV group-and-sum, 100k | 680 ms | **328 ms** | 2.1× |
-| date arithmetic, 200k | 1652 ms | **873 ms** | 1.9× |
-| sum a field · JSON · regex | | | 1.4×–1.6× |
-
-wand now beats both Python and bash on four of the seventeen: spawning
-processes, parallel map, reading many small files, and dedupe.
-
-### There was no hash table
-
-`Map` was an association list. A lookup read every key before the one it
-wanted and a write walked the whole map, so cost grew with the number of
-keys: 200,000 counts over 400 keys spent two seconds inside `Map`.
-`Stream.unique` was the same shape by another name — it kept everything it
-had seen in a list and searched it for every item, which is the square of
-what it reads. 20,000 distinct lines took six seconds. 200,000 would have
-taken about ten minutes.
-
-Both are backed properly now. The same file takes about 320 ms.
-
-A map still holds its entries in the order their keys were first added, a
-key already present still keeps its place, and a document read in, edited
-and written back still keeps its shape. That behaviour is documented, so it
-is kept by a counter rather than by the list's own order, and there are
-tests over fifty keys and across a delete-then-re-add.
-
-### Counting a thing is one line
+Pulling a field out of a log line was two operations:
 
 ```
--- before
-match Map.get who counts with
-| Some n -> Map.set who (n + 1) counts
-| None -> Map.set who 1 counts
-
--- after
-Map.update who 0 (fn n -> n + 1) counts
+List.get! 3 (String.words line)
 ```
 
-`Map.update` gives `f` what is there, or the value you name where the key is
-new, and reads and writes in one pass. `Map.set` is unchanged: it ignores
-what is there, so it applies no function, and it is still the way to write a
-value that does not depend on the old one.
-
-### A `;` outside parentheses was quietly a different program
+`String.words` scans the line and builds seven strings, seven cons cells and
+a reversal; `List.get!` then walks past three of them and returns one. Six of
+the seven are allocated and thrown away.
 
 ```
-let go () =
-  IO.println "one";
-  IO.println "two"
+String.word! 3 line
 ```
 
-printed `two` and then `one`. The `;` ended the definition, and the indented
-line below it became a top-level statement — and top-level statements run in
-file order, before `go ()` is ever called. Nothing reported it. The one
-diagnostic that did fire was the `!`-naming lint saying `go` cannot raise,
-which was true of what had been parsed and the opposite of what was written.
+walks to word 3 and builds only that one — 410 ns a line against 636 ns, and
+1.23× on counting requests by path. `String.word` is the `Option` form.
 
-It is a parse error now, and the message names the fix. A `;` separating
-top-level items on one line is unaffected.
+It follows the same rule `words` does: a run of whitespace separates once,
+and leading or trailing whitespace adds no word. The tests check it against
+`words` at every index rather than against literals, so the two cannot drift
+apart.
 
-### A message you could not copy
+It is deliberately not called `field`. `JSON.field`, `TOML.field` and
+`Decode.field` all select a member by *name*, and so does the type error
+about a record. This selects a position, and `word` is the singular of the
+`words` it indexes.
+
+### A regex literal is compiled once
 
 ```
-$ wand t -e 'fn xs -> match xs with | [] -> 0 | [a :: [b :: _]] -> a + b'
-Error: type error: non-exhaustive match: missing case, e.g. _ : []
+Stream.filter (fn line -> Regex.match? r/ERROR/ line)
 ```
 
-Paste that case in and you got `cons is '::' -- a single ':' gives a name a
-type`: one error telling you to write what the other refuses. `_ : []` used
-the cons spelling removed in 0.31.0, and left off the brackets a list
-pattern is written with. It reads `[_ :: []]`.
+recompiled that pattern on every line — about 5 µs each, a second of it over
+a 200,000-line file. The literal is a constant and the compiled form is a
+pure function of the pattern and its flags, but `Re.compile` ran every time
+the expression was reached. The only way to avoid it was knowing to lift the
+literal into a `let` above the loop.
 
-### Two string builtins allocated at every position
+Written inline it now costs what lifting it out costs: 1325 ms to 370 ms,
+against 362 ms for the hand-lifted version.
 
-`String.contains?` asked "is the needle here?" by allocating a fresh
-substring at each position, and then ran to the end of the string after it
-already had its answer. `String.replace` allocated the same way. Both
-compare in place now, and `contains?` stops at the first match.
-
-`List.sort_by` computed its key inside the comparator, so ordering n
-elements applied it about 2n log n times instead of n — seven million
-interpreted calls to sort 200,000 rows.
-
-### Naming a standard library function cost more than calling it
-
-`String.length` was a walk of every member of `String`, and the members run
-backwards, so the function declared first in a file was the last one found:
-584 ns to resolve, against 74 ns for the one declared last. A namespace
-carries an index now and both are 92 ns.
-
-Underneath that, half the standard library is written `let trim s =
-str_trim s` — handing its arguments to a builtin unchanged. Such a
-definition *is* that builtin, and the closure around it existed only to pass
-values along. 289 of the 530 definitions have that shape and are bound
-directly now.
+Kept per pattern *and* flags, so `r/ABC/i` and `r/ABC/` stay two patterns.
+`Regex.compile` is deliberately not cached — its argument can be built at run
+time, and a table keyed on that would grow with the data. One table per
+domain, because `Par` workers evaluate on domains of their own and a table
+written from several at once is a data race.
 
 ### Also
 
-- A glob matches a *name*; `FS.glob` answers with *files*. Those are
-  different questions, and on a directory whose name fits the pattern they
-  give different answers:
-
-      FS.glob_in ./*.txt dir                      -- [real.txt]
-      Glob.matches? ./*.txt ./looks.txt           -- true, and it is a directory
-
-  The reference said the walk and the predicate could not disagree. They
-  can, and it now says which case and why — `matches?` performs nothing, so
-  it cannot look at the disk. `FS.dir?` tells them apart and `FS.list_dir`
-  reads a directory's entries. The test that covered this used a tree of
-  files alone, so it could not have caught it
-- Reading an instant built the date with `Printf.sprintf` and tested the
-  characters after it by rebuilding a five-element list for each one
-- `docs/reference.md` named the effect `FsRead`; it is `FS.Read`
-
-One task is 4% slower: the pure arithmetic loop, 243 ms to 260 ms.
-Bisecting the builds puts it on the change to the instant scanner, which
-cannot run during that loop — the program is five lines and never lexes at
-run time. It is a code-layout effect, reproducible and not attributable to
-anything the change does.
+`bench/startup.sh` and `bench/throughput.sh` are gone. The startup-path rule
+still asks for before-and-after numbers on any change to that path — time the
+two binaries directly.
