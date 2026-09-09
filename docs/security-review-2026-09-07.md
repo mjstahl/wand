@@ -23,8 +23,7 @@ Both are fixed; see **Fixed** at the bottom.
 
 ## Medium
 
-None open. What is left of M8 is a decision rather than a fix; it is in
-**Still to decide** below.
+None open.
 
 ## Low
 
@@ -145,23 +144,8 @@ None open. What is left of M8 is a decision rather than a fix; it is in
 4. ~~M2, M6, M7~~ — done at `dc45301`.
 5. ~~M1, M3, M4, M5~~ — done at `a476a1e`, `616250b` and `8d22d73`.
 6. ~~M8 and the workflow hygiene items~~ — done at `1b5db1e`.
-7. The Lows, then the functionality bugs.
-
-## Still to decide
-
-- **The release `.sha256` authenticates the download, not the publisher.**
-  It is produced by the job that builds the archive and uploaded beside it
-  (release.yml, Makefile), so anyone who can write the release can write
-  both. Build-provenance attestation would answer it, at the cost of two
-  more token scopes on the release job and a step that can turn a release
-  red; publishing the sha256 list in the release notes is a weaker second
-  channel and a manual step per release. Neither is a code fix, and the
-  choice is the maintainer's.
-- **Keeping the action pins fresh.** Every `uses:` is a commit now, and a
-  pinned action never gains its own security fixes. A `github-actions`
-  dependabot config is the usual answer; it costs a PR per action update.
-  Not added: it puts recurring PRs in the repository, which is a
-  maintainer's call.
+7. ~~The two decisions M8 left~~ — done at `24e963c`.
+8. The Lows, then the functionality bugs.
 
 ## Fixed
 
@@ -205,7 +189,17 @@ None open. What is left of M8 is a decision rather than a fix; it is in
 - **M8. CI: unpinned cross-repo code executes; ci.yml has no permissions** —
   `1b5db1e`. `mjstahl/setup-wand` is pinned to a commit, `ci.yml` declares
   `contents: read`, and every action is pinned to a commit with its tag
-  beside it. The release-checksum trust model is under **Still to decide**.
+  beside it.
+- **The release `.sha256` authenticates the download, not the publisher** —
+  `24e963c`. Each build job signs a build attestation over the archive it
+  built; `gh attestation verify <archive> --repo mjstahl/wand` checks one.
+  `permissions:` moved from the workflow to the two jobs, so the build job no
+  longer has `contents: write`. The macOS x86_64 archive is built by hand and
+  has no attestation -- no workflow produced its bytes, so none can honestly
+  claim them. `make release-archive` says so, and the README names what is
+  covered.
+- **Action pins go stale** — `24e963c`. `.github/dependabot.yml` bumps them
+  weekly, grouped into one PR.
 - **Workflow interpolation hygiene** — `1b5db1e`. `installs.yml` and
   `daily-fuzz.yml` take trigger values through `env:`. The fuzz step also
   checks the seed, shard and minutes are digits: `$(( ))` evaluates what a
