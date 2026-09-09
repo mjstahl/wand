@@ -118,6 +118,19 @@ interleave the runs, taking the minimum rather than the median: drift only
 ever adds. Sequential measurement of the same two builds has reported a 26%
 cost that interleaving put at 4%.
 
+Interleave in a *random* order, not a fixed one. A fixed rotation still puts
+the same build last in every round, and whatever the machine drifts into
+lands on that build every time. A fixed rotation reported the arithmetic
+loop 5.8% slower across a release; randomising the order put the same two
+builds within noise of each other, with the sign of the difference changing
+between the minimum and the median.
+
+Below about 3% there is nothing to read on this machine. Two builds that
+differ only in where their code sits -- never-called functions added ahead
+of the evaluator, or existing code moved across it -- measure 1-3% apart on
+a tight interpreter loop while running identical instructions. A result
+inside that band is layout, not work.
+
 ### Releasing
 
 `VERSION` holds the number, and it is bumped in the commit that warrants it
