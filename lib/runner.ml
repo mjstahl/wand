@@ -612,6 +612,56 @@ external unsetenv : string -> unit = "wand_unsetenv"
    See lib/ext/tempdir.c for the window this closes. *)
 external mkdtemp : string -> string = "wand_mkdtemp"
 
+(* Walking a tree by descriptor instead of by path. See lib/ext/dirfd.c. *)
+external openat_dir :
+  Unix.file_descr -> string -> Unix.file_descr option = "wand_openat_dir"
+external readdir_fd : Unix.file_descr -> string list = "wand_readdir_fd"
+external unlinkat : Unix.file_descr -> string -> bool -> unit = "wand_unlinkat"
+
+(* A directory and everything under it, depth first.
+
+   Every step names an entry relative to a directory this holds open, so a
+   name that is replaced after it has been looked at cannot redirect the next
+   step. The path-based form asked three separate questions about one
+   name -- `lstat` said "directory", `readdir` listed it, `rmdir` removed
+   it -- with nothing tying the three answers to the same object, so
+   something able to write in the tree could swap a directory for a symlink
+   between two of them and have the deletions land wherever it pointed.
+   `rm -rf` walks this way too; fts(3) does it by changing directory, which
+   is not open to wand because the cwd belongs to the process and `Par` runs
+   work on other domains.
+
+   A symlink is unlinked and never descended into -- `O_NOFOLLOW` is what
+   decides that here, where an `lstat` decided it before -- so the tree is
+   still the only thing that goes.
+
+   It holds one descriptor per level of depth, which the path form did not.
+   That is the cost of the trade, and it is small: 600 levels deep is fine
+   under an ordinary limit, and only a limit cut to 64 refuses it. A tree
+   deep enough to run out stops with `Too many open files`, because
+   `openat_dir` answers None for "not a directory" and raises for everything
+   else -- read the other way it would have tried to unlink a directory and
+   reported EISDIR, which says nothing about what went wrong. *)
+let delete_tree path =
+  let parent = Filename.dirname path and name = Filename.basename path in
+  match Unix.openfile parent [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 with
+  (* No parent, so nothing under it either. Deleting what is not there has
+     always been success. *)
+  | exception Unix.Unix_error ((Unix.ENOENT | Unix.ENOTDIR), _, _) -> ()
+  | parent_fd ->
+    let close fd = try Unix.close fd with Unix.Unix_error _ -> () in
+    Fun.protect ~finally:(fun () -> close parent_fd) (fun () ->
+      let rec rm dir_fd entry =
+        match openat_dir dir_fd entry with
+        (* A file, a symlink, or already gone. *)
+        | None -> unlinkat dir_fd entry false
+        | Some fd ->
+          Fun.protect ~finally:(fun () -> close fd)
+            (fun () -> List.iter (rm fd) (readdir_fd fd));
+          unlinkat dir_fd entry true
+      in
+      rm parent_fd name)
+
 (* ── Locks ─────────────────────────────────────────────────────────────── *)
 
 external flock_try : Unix.file_descr -> int * string = "wand_flock_try"
@@ -1535,29 +1585,9 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!delete_tree", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              (* Depth-first, and it does not follow symlinks out of the
-                 tree: a link is unlinked, never descended into.
-
-                 The walk names each entry by path, so between the `lstat`
-                 that says "directory" and the `readdir` that reads it,
-                 something else could replace that name with a link and the
-                 next step would be taken somewhere else. Closing that means
-                 walking by directory descriptor -- `openat`, `fdopendir`,
-                 `unlinkat` -- none of which OCaml's Unix has, and the whole
-                 traversal would have to move into C. Left as it is: it needs
-                 someone able to write inside the tree while wand is deleting
-                 it, which is a tree wand should not have been pointed at. *)
-              let rec rm p =
-                match Unix.lstat p with
-                | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-                | st ->
-                  if st.Unix.st_kind = Unix.S_DIR then begin
-                    Array.iter (fun e -> rm (Filename.concat p e)) (Sys.readdir p);
-                    Unix.rmdir p
-                  end else Sys.remove p
-              in
-              match (try rm path; Ok ()
-                     with Sys_error m -> Error ("delete_tree: " ^ m)
+              match (try delete_tree path; Ok ()
+                     with Failure m -> Error ("delete_tree: " ^ m)
+                        | Sys_error m -> Error ("delete_tree: " ^ m)
                         | Unix.Unix_error (e, _, _) ->
                           Error ("delete_tree: " ^ Unix.error_message e)) with
               | Ok ()   -> Effect.Deep.continue    k VUnit

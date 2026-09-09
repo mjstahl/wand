@@ -572,6 +572,74 @@ IO.println (FS.read_file! f)|} target)
     Alcotest.failf "the rehearsal wrote %s" target
   end
 
+(* ── delete_tree walks by descriptor ────────────────────────────────────── *)
+
+(* The property, without a race to lose: once the walk has opened a
+   directory, replacing the *name* it came from cannot redirect what the walk
+   does next. Deterministic, because the swap happens between the open and
+   the use rather than being hoped for while wand runs.
+
+   The path form had nothing to hold. It asked `lstat` whether a name was a
+   directory, then asked `readdir` for its contents, then asked `rmdir` to
+   remove it -- three lookups of one name, so a swap between any two of them
+   sent the deletions somewhere else. *)
+let test_delete_tree_holds_what_it_opened () =
+  with_tree (fun root ->
+    let victim = Filename.concat root "victim" in
+    let bystander = Filename.concat root "bystander" in
+    Unix.mkdir victim 0o700;
+    Unix.mkdir bystander 0o700;
+    write (Filename.concat victim "mine.txt") "";
+    write (Filename.concat bystander "precious.txt") "";
+    let root_fd = Unix.openfile root [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
+    Fun.protect ~finally:(fun () -> Unix.close root_fd) (fun () ->
+      match Runner.openat_dir root_fd "victim" with
+      | None -> Alcotest.fail "victim is a directory and did not open as one"
+      | Some fd ->
+        Fun.protect ~finally:(fun () -> Unix.close fd) (fun () ->
+          (* The swap: the directory is moved aside and the name it had now
+             points at the bystander. A descriptor follows the directory,
+             not the name. *)
+          let moved = Filename.concat root "moved" in
+          Unix.rename victim moved;
+          Unix.symlink bystander victim;
+          Alcotest.(check (list string)) "the descriptor still lists what it opened"
+            ["mine.txt"] (Runner.readdir_fd fd);
+          Runner.unlinkat fd "mine.txt" false;
+          Alcotest.(check bool) "and deleted through it" false
+            (Sys.file_exists (Filename.concat moved "mine.txt"));
+          Alcotest.(check bool) "the bystander is untouched" true
+            (Sys.file_exists (Filename.concat bystander "precious.txt")))))
+
+(* A symlink is unlinked, never descended into, so a tree that links outside
+   itself takes only the link. `O_NOFOLLOW` decides it now, where an `lstat`
+   decided it before. *)
+let test_delete_tree_does_not_follow_a_link_out () =
+  with_tree (fun root ->
+    let tree = Filename.concat root "tree" in
+    let outside = Filename.concat root "outside" in
+    Unix.mkdir tree 0o700;
+    Unix.mkdir outside 0o700;
+    write (Filename.concat outside "keep.txt") "";
+    Unix.symlink outside (Filename.concat tree "link");
+    Unix.symlink "/nowhere/at/all" (Filename.concat tree "dangling");
+    Runner.delete_tree tree;
+    Alcotest.(check bool) "the tree is gone" false (Sys.file_exists tree);
+    Alcotest.(check bool) "what it linked to is not" true
+      (Sys.file_exists (Filename.concat outside "keep.txt")))
+
+(* Nesting deeper than one directory's worth, and a path that is not there.
+   Deleting what is already gone has always been success. *)
+let test_delete_tree_depth_and_absence () =
+  with_tree (fun root ->
+    let deep = Filename.concat root "a/b/c/d/e" in
+    ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote deep)));
+    write (Filename.concat deep "leaf.txt") "";
+    Runner.delete_tree (Filename.concat root "a");
+    Alcotest.(check bool) "the whole tree is gone" false
+      (Sys.file_exists (Filename.concat root "a"));
+    Runner.delete_tree (Filename.concat root "never-existed"))
+
 (* ── Locks ─────────────────────────────────────────────────────────────── *)
 
 (* What a lock is worth having for is what happens to it when the process
@@ -863,6 +931,14 @@ let () =
         test_the_plain_form_leaves_a_partial_file;
       Alcotest.test_case "a rehearsal withholds it" `Quick
         test_a_rehearsal_withholds_a_streamed_publish;
+    ];
+    "delete_tree", [
+      Alcotest.test_case "holds what it opened" `Quick
+        test_delete_tree_holds_what_it_opened;
+      Alcotest.test_case "does not follow a link out" `Quick
+        test_delete_tree_does_not_follow_a_link_out;
+      Alcotest.test_case "depth, and a path that is not there" `Quick
+        test_delete_tree_depth_and_absence;
     ];
     "a lock", [
       Alcotest.test_case "a second process is told it is held" `Slow
