@@ -6,8 +6,9 @@ handling, the CLI/REPL/LSP, CI and supply chain, and the stdlib parsers.
 Every critical and high finding was reproduced against the built binary.
 Line numbers refer to `33e96eb`.
 
-Status key: each finding is `open` until a fix lands. Update this file as
-fixes land; move a fixed item to the bottom with its commit.
+**Closed 2026-09-09.** Every finding is either fixed — see **Fixed** at the
+bottom, one line each with the commit — or kept for a stated reason under
+**Kept, with the reason**. Nothing is open.
 
 ## Verdict
 
@@ -17,67 +18,9 @@ write it promises to. The Marshal cache is permission-gated.
 
 Two findings broke the README's promises and blocked release: typechecking
 executed imported code, and a newline bypassed the `Shell(...)` allowlist.
-Both are fixed; see **Fixed** at the bottom.
+Both are fixed.
 
 ---
-
-## Medium
-
-None open.
-
-## Low
-
-- **`%{x}` is one-word safe, not option safe.** `$?(grep %{pat} f)` with
-  `pat = "--version"` runs grep's version banner (verified). The README's
-  "cannot become a second command" is true; "safe for data" overclaims.
-  Document the leading-dash caveat (`--` sentinels) or reject leading-dash
-  data. `lib/evaluator.ml:1435`, README.
-- **`Proc.exit` is not withheld under `--dry-run`.** `is_mutation`
-  (`lib/runner.ml:705-708`) omits it; a rehearsal can end before reporting
-  later would-writes. Report "would exit N" and continue, or document it.
-- **Fuzzer eval child has no memory limit.** The 2-second SIGKILL bounds
-  CPU; a pure program can exhaust host memory first. `setrlimit` in the
-  child. `test/fuzz/oracle.ml:323-372`.
-- **Regex compile bomb.** `Regex.compile "a{999999999}"` expands at
-  compile time for minutes (verified, alarm-killed). Matching itself is a
-  non-backtracking automaton — no input-driven blowup. Bound the
-  quantifier. `lib/evaluator.ml:1722, 4737`.
-- **VS Code extension.** The Rehearse command builds a shell string with
-  `JSON.stringify` — a file named `x$(cmd).wand` injects when the lens is
-  clicked in a trusted workspace. And `wand.path` lacks
-  `"scope": "machine"`, so a workspace's settings can point the LSP launch
-  at a script in the repo. Use argv-based execution; add machine scope.
-  `editors/vscode/src/extension.ts`, `package.json`.
-- **Check-then-open races**, each narrow: cache trust check stats the dir
-  then opens by path, no fstat of the fd (`lib/compile_cache.ml:160-166`);
-  `delete_tree` recurses by concatenated path and a concurrent symlink
-  swap redirects it (`lib/runner.ml:1193-1200`); `FS.temp_dir` has a
-  remove-then-mkdir gap, fails closed (`lib/runner.ml:1179-1183`). All
-  matter only in shared or hostile directories.
-- **LSP applies edits without a gesture.** Auto-import and manifest edits
-  are pushed on `didChange` (`lib/lsp.ml:744-768`). Undoable,
-  buffer-local; worth a settings gate.
-- **Daily-fuzz reporting fragility.** One failed `gh issue create` (e.g.
-  invalid UTF-8 in a finding body) aborts the filing loop under `set -e`;
-  later findings exist only in artifacts. A finding containing ``` also
-  escapes the markdown fence (cosmetic). `daily-fuzz.yml:179-196`.
-
-## Functionality bugs
-
-- `FS.delete!` on a symlink to a directory fails "Not a directory" instead
-  of unlinking the link — `Sys.is_directory` follows, `rmdir` gets the
-  link. Use lstat, as `delete_tree` does. `lib/runner.ml:1292-1295`.
-- `copy_tree` re-run fails on a dangling symlink at the destination —
-  followed-link existence check answers false, `Unix.symlink` raises
-  EEXIST. `lib/runner.ml:1237`.
-- `copy_file` reads the whole source into memory. `lib/runner.ml:557-567`.
-- `Env.clear` sets `""` instead of unsetting — observable to children.
-  `lib/runner.ml:1286-1288`.
-- install.sh's wget fallback for resolving "latest" is dead code —
-  `wget -q` prints no `Location:` header, so a curl-less install fails
-  (closed, with an error). Add `-S`. `install.sh:49-50`.
-- Comment drift: `lib/compile_cache.ml:45-46` says format version "2"; the
-  value is "4".
 
 ## What held up (verified, no action)
 
@@ -145,7 +88,25 @@ None open.
 5. ~~M1, M3, M4, M5~~ — done at `a476a1e`, `616250b` and `8d22d73`.
 6. ~~M8 and the workflow hygiene items~~ — done at `1b5db1e`.
 7. ~~The two decisions M8 left~~ — done at `24e963c`.
-8. The Lows, then the functionality bugs.
+8. ~~The Lows, then the functionality bugs~~ — done at `d91db2c`, `0949b29`,
+   `4a98cd2`, `64d64e3`, `c748bea`, `02a7246` and `315e4ae`.
+
+The review is closed.
+
+## Kept, with the reason
+
+- **`delete_tree` walks by path.** Between the `lstat` that says "directory"
+  and the `readdir` that reads it, that name can be replaced with a link.
+  Closing it means walking by directory descriptor — `openat`, `fdopendir`,
+  `unlinkat` — none of which OCaml's Unix has, so the whole traversal would
+  move into C. It needs someone able to write inside the tree while wand
+  deletes it. The reason is beside the code.
+- **The macOS x86_64 release archive has no build attestation.** It is built
+  by hand, so no workflow produced its bytes and none can honestly claim
+  them. Closing it means CI building that target.
+- **install.sh's wget path is fixed but not run.** There is no wget on the
+  machine the fix was written on. The sed was checked against wget's header
+  format; the `-S` behaviour was not.
 
 ## Fixed
 
@@ -200,6 +161,28 @@ None open.
   covered.
 - **Action pins go stale** — `24e963c`. `.github/dependabot.yml` bumps them
   weekly, grouped into one PR.
+- **Regex compile bomb** — `d91db2c`. A counted repeat is bounded at 10,000,
+  in a literal and in `Regex.compile`.
+- **`FS.delete`, `copy_tree`, `copy_file`, `Env.clear`, `FS.temp_dir`** —
+  `0949b29`. A name is removed rather than what it points at; a re-run
+  survives a dangling link; a copy is a block at a time (1 GB file: 1.08 GB
+  resident, now 7.0 MB); `clear` unsets; `temp_dir` is `mkdtemp`.
+- **Cache check-then-open** — `4a98cd2`. The entry is judged by `fstat` of
+  the descriptor: regular, owned by this user, not writable by anyone else.
+- **VS Code extension, and the LSP editing unasked** — `64d64e3`. The
+  Rehearse terminal spawns from an argv; `wand.path` is machine scope;
+  `wand.autoEdit` gates the pushed edits, default on.
+- **Daily-fuzz reporting, install.sh wget** — `c748bea`. One failed filing no
+  longer ends the loop, the fence is measured from the text, and the wget
+  header is read with `-S` and an indent-tolerant pattern.
+- **Fuzzer eval child memory** — `02a7246`. `RLIMIT_AS` on Linux, a GC alarm
+  everywhere, 1GB either way.
+- **`%{x}` is one-word safe, not option safe** — `315e4ae`. Documented, with
+  the `--` sentinel.
+- **`Proc.exit` under `--dry-run`** — `0949b29` and `315e4ae`. The rehearsal
+  ends there, as a run does, and the line says so.
+- **Comment drift on the cache format version** — `a476a1e`, where the
+  version moved to 5.
 - **Workflow interpolation hygiene** — `1b5db1e`. `installs.yml` and
   `daily-fuzz.yml` take trigger values through `env:`. The fuzz step also
   checks the seed, shard and minutes are digits: `$(( ))` evaluates what a
