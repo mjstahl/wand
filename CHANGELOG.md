@@ -1,5 +1,96 @@
 # Changelog
 
+## [0.69.0] - 2026-09-09
+
+### Added
+
+- **`Map.update key absent f m`** changes what a key holds, where `set`
+  replaces it. `f` is given what is there, or `absent` where the key is new,
+  and the map is read and written in one pass. Counting was a `match` on
+  `Map.get` with a branch for the first count -- four lines, and the branch
+  where the seed goes wrong. The three tallies in this repository are each
+  one line now. `set` is unchanged and is still the way to write a value
+  that does not depend on the old one: it ignores what is there, so it
+  applies no function
+
+### Changed
+
+- **A `;` inside a body that is not in parentheses is a parse error.** It
+  used to end the definition, quietly, and turn the indented lines below it
+  into top-level statements:
+
+      let go () =
+        IO.println "one";
+        IO.println "two"
+
+  printed `two` and then `one`, because the second line became a statement
+  of its own and those run in file order. Nothing said so, and the
+  `!`-naming lint then reported that `go` cannot raise -- true of what was
+  parsed and the opposite of what was written. The error names the fix. A
+  `;` separating top-level items on one line is unaffected
+
+- **A map holds its entries in a search tree and remembers when each key was
+  first added.** It was an association list, so a lookup read every key
+  before it and a write walked the whole map: 200,000 counts over 400 keys
+  spent two seconds in there. Everything a map promises is unchanged --
+  entries come back in the order their keys were first added, a key already
+  present keeps its place, `from_list` lets the last value win at the first
+  appearance, and `merge` leaves the left map's keys where they are
+
+- **A module namespace carries an index.** `String.length` was a walk of
+  every member of `String`, and the list runs backwards, so the function
+  declared first in a file was the last one found: 584ns to resolve, against
+  74ns for the one declared last. Both are 92ns now
+
+- **A standard library definition that only forwards to a builtin is that
+  builtin.** `let trim s = str_trim s` hands its argument on unchanged, so
+  the closure around it existed only to pass one value along. 289 of the
+  library's 530 definitions have that shape
+
+### Fixed
+
+- **The non-exhaustive-match error suggested syntax the parser rejects.** It
+  printed a missing case as `_ : []`, using the cons spelling removed in
+  0.31.0 and without the brackets a list pattern is written with. Copying it
+  into the source gave `cons is '::'` -- one error telling you to write what
+  the other refuses. It reads `[_ :: []]`
+
+- **`Stream.unique` cost the square of what it read.** It held
+  everything it had seen in a list and searched it for every item, so 20,000
+  distinct lines took six seconds and 200,000 would have taken ten minutes.
+  It files them the way `List.unique` already did. Its doc warned about
+  memory, which was the wrong resource
+
+- **`String.contains?` read the whole string after it had its answer.** The
+  scan had no early exit, and it asked the question at each position by
+  allocating a fresh substring. `String.replace` allocated the same way.
+  Both compare in place now, and `contains?` stops at the first match
+
+- **`List.sort_by` computed its key on every comparison.** It sat inside the
+  comparator, so ordering n elements applied it about 2n log n times where n
+  would do -- seven million calls to sort 200,000 rows. It decorates, sorts
+  and drops the keys now, and `f` runs once per element, left to right
+
+- **Reading an instant cost more than the rest of decoding one.** The
+  scanner built the date with `Printf.sprintf` and tested each character
+  after it by rebuilding a five-element list
+
+- **`wand d` said `FS.glob` answers with paths.** It answers with files: a
+  directory whose name fits the pattern is not in the answer. The example
+  wrote a file and matched it, so it read the same either way; it creates a
+  directory alongside now. `FS.list_dir` is what reads a directory's entries
+
+- **The reference said a glob walk and the glob predicate cannot disagree.**
+  They do, on exactly one case. `Glob.matches?` reads a name and performs
+  nothing, so it cannot look at the disk: it answers `true` for a directory
+  called `notes.txt` against `*.txt`. `FS.glob` walks and answers with
+  files, so that directory is not in its answer. The two read a pattern the
+  same way and answer different questions, and the reference says so now.
+  The test that covered this used a tree of files alone, which cannot tell
+  the two readings apart
+
+- **`docs/reference.md` named the effect `FsRead`.** It is `FS.Read`
+
 ## [0.68.0] - 2026-09-09
 
 A pre-release security review of the whole tree, and what it found. Six

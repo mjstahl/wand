@@ -252,11 +252,14 @@ let lines s = str_split "\n" s
 -- Split a string into words: any run of whitespace separates them, and
 -- leading or trailing whitespace adds none.
 --
+-- A space, a tab, a carriage return and a newline each separate, and a run
+-- of them separates once. Splitting on a single space instead made every
+-- extra space its own empty word -- `words "  a  b  "` came back with seven
+-- elements, five of them "" -- and a tab separated nothing at all.
+--
 -- >> String.words "  one   two  "
 -- ["one", "two"] : List String
-let words s =
-  -- Splitting on a single space made every extra space its own empty word --
-  -- `words "  a  b  "` came back with seven elements, five of them "" -- and
-  -- a tab separated nothing at all.
-  let spaced = str_replace "\t" " " (str_replace "\r" " " (str_replace "\n" " " s)) in
-  List.filter (fn w -> w != "") (str_split " " spaced)
+--
+-- >> String.words "a\tb\nc  d"
+-- ["a", "b", "c", "d"] : List String
+let words s = str_words s

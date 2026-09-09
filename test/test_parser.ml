@@ -882,6 +882,31 @@ let test_handler_continuation_binder () =
    inside brackets, which is two rules for one piece of punctuation and the
    reason a binding inside a block needed a `;` or an `in` that the same
    binding at the top level did not. *)
+(* A `;` inside an unbracketed body ends the definition, and the indented
+   lines below it become top-level statements. That parsed silently and ran
+   in a surprising order -- `let go () = a; b; c` printed b, c, a -- and the
+   only diagnostic was the `!`-naming lint reporting the opposite of the
+   truth. It is a parse error now, and the message names the fix. *)
+let test_semicolon_body_without_parens () =
+  parse_error "an unbracketed ; body is refused"
+    "import IO\nlet go () =\n  IO.println \"one\";\n  IO.println \"two\"\ngo ()\n"
+    "put the body in parentheses";
+  let parse src = Lexer.tokenize src |> Parser.parse_program in
+  let ok label src =
+    match parse src with
+    | _ -> ()
+    | exception Parser.ParseError (_, m) -> Alcotest.failf "%s: %s" label m
+  in
+  (* The two spellings that must keep working. Bracket the body and it is a
+     sequence; leave the statements on one line and `;` separates top-level
+     items, which is how a `-e` one-liner and half the test suite are written. *)
+  ok "bracketed, it is a sequence"
+    "import IO\nlet go () = (\n  IO.println \"one\";\n  IO.println \"two\"\n)\ngo ()\n";
+  ok "; separates items on one line"
+    "let f b = match b with | true -> 1 | false -> 0; f true\n";
+  ok "; then an item at the same column"
+    "let a = 1;\nlet b = 2\nb\n"
+
 let test_indented_continuation () =
   let parse src = Lexer.tokenize src |> Parser.parse_program in
   let ok label src =
@@ -982,6 +1007,7 @@ let () =
     ];
     "layout", [
       Alcotest.test_case "indented continuation" `Quick test_indented_continuation;
+      Alcotest.test_case "; body without parens" `Quick test_semicolon_body_without_parens;
     ];
     "handler cases", [
       Alcotest.test_case "continuation binder" `Quick test_handler_continuation_binder;

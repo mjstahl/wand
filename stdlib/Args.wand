@@ -80,7 +80,7 @@ let _object_of_spec spec args =
   let set k v (fields, repeats) =
     if _repeated? spec k
     then (fields,
-          Map.set k (List.append (Option.default [] (Map.get k repeats)) [v]) repeats)
+          Map.update k [] (fn vs -> List.append vs [v]) repeats)
     else (Map.set k (JSON.of_string v) fields, repeats)
   in let go acc positional args =
     match args with

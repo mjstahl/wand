@@ -2164,6 +2164,11 @@ let parse_program_generic ~on_item tokens =
      parses as separate items and surfaces much later as an unbound name
      that is plainly in scope, which is a bad way to learn a layout rule. *)
   let previous_item = ref None in
+  (* Set when a `;` ended the item above. Definitions separated by `;` on one
+     line are ordinary, so the flag alone means nothing -- it is the `;`
+     together with a line indented under the definition it ended that says
+     the author meant a sequence and got two statements. *)
+  let after_semi = ref false in
   let continue_ = ref true in
   while !continue_ do
     (match doc_run_before s with
@@ -2174,17 +2179,31 @@ let parse_program_generic ~on_item tokens =
        whether a line below continues it or starts something new. *)
     s.stmt_col <- start_loc.Token.col;
     s.stmt_depth <- 0;
-    (match !previous_item with
-     (* Only where an item is about to begin on a later line: the end of the
-        file carries a position too, and definitions separated by `;` sit on
-        one line, where a greater column means nothing. *)
-     (* A line indented past the definition above it used to be refused
-        here, with an error telling the reader to bracket it. It is read as
-        the continuation it looks like now -- see `newline_breaks_expr` --
-        so by the time the loop comes round again there is no indented line
-        left to refuse. What remains of `previous_item` is the position it
-        carries, which nothing else reads. *)
-     | _ -> ());
+    (* A line indented past the definition above it is read as the
+       continuation it looks like -- see `newline_breaks_expr` -- so it
+       normally never reaches this loop at all. A `;` is the one thing that
+       ends the definition first, and then the indented lines below it do
+       arrive here, as statements of their own. That parses, and it runs:
+
+         let go () =
+           IO.println "one";
+           IO.println "two"
+
+       prints `two` and then `one`, because the second line became a
+       top-level statement and top-level statements run in file order. It
+       used to do that silently, and the `!`-naming lint would then report
+       that `go` cannot raise -- true of what was parsed, and the opposite
+       of what was written. *)
+    (match peek s, !previous_item with
+     | (Token.Newline | Token.Semicolon | Token.EOF), _ -> ()
+     | _, Some (prev_col, prev_line) when !after_semi ->
+       after_semi := false;
+       if start_loc.Token.col > prev_col && start_loc.Token.line > prev_line then
+         fail_at start_loc
+           "the ';' above ended the definition, so this line is a statement \
+            of its own rather than part of it -- put the body in parentheses \
+            to sequence it"
+     | _ -> after_semi := false);
     let before_items = !items in
     (match peek s with
     | Token.EOF -> continue_ := false
@@ -2194,7 +2213,10 @@ let parse_program_generic ~on_item tokens =
         "the manifest must be the first thing in the file, before \
          everything but a shebang and comments%s"
         (if !manifest = None then "" else " (this file already has one)"))
-    | Token.Newline | Token.Semicolon ->
+    | Token.Newline ->
+      ignore (advance s)
+    | Token.Semicolon ->
+      after_semi := true;
       ignore (advance s)
     | Token.Let ->
       let saved = mark s in

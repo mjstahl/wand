@@ -617,6 +617,13 @@ let read_duration s first_digits =
   done;
   Duration (Buffer.contents buf)
 
+(* The characters an instant is spelled with, after the date. This was
+   `List.mem (peek s) ['T';':';'Z';'+';'-']`, which built the list again for
+   every character it tested and compared with the polymorphic compare --
+   about seventy allocations to read one timestamp. *)
+let is_instant_char c =
+  is_digit c || c = 'T' || c = ':' || c = 'Z' || c = '+' || c = '-'
+
 (* ── Numbers (Int, Float, Date, DateTime, Time, IPv4, CIDR, Version, Size, Duration) *)
 
 let read_numeric s first_char =
@@ -732,12 +739,21 @@ let read_numeric s first_char =
     let mm1 = advance s and mm2 = advance s in
     ignore (advance s);
     let dd1 = advance s and dd2 = advance s in
-    let date = Printf.sprintf "%s-%c%c-%c%c" first mm1 mm2 dd1 dd2 in
+    (* `first` is four digits -- the guard above says so -- so the whole
+       date is ten characters written into one buffer. `Printf.sprintf` here
+       cost more than the rest of reading the literal put together. *)
+    let date =
+      let b = Bytes.create 10 in
+      Bytes.blit_string first 0 b 0 4;
+      Bytes.set b 4 '-'; Bytes.set b 5 mm1; Bytes.set b 6 mm2;
+      Bytes.set b 7 '-'; Bytes.set b 8 dd1; Bytes.set b 9 dd2;
+      Bytes.unsafe_to_string b
+    in
     if peek s = 'T' then begin
       let dt = Buffer.create 24 in
       Buffer.add_string dt date;
       while not (is_at_end s)
-         && (is_digit (peek s) || List.mem (peek s) ['T';':';'Z';'+';'-']) do
+         && is_instant_char (peek s) do
         Buffer.add_char dt (advance s)
       done;
       DateTime (Buffer.contents dt)

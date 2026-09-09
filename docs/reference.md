@@ -3288,6 +3288,7 @@ empty     : Map 'a
 get       : String -> Map 'a -> Option 'a
 get!      : String -> Map 'a -> 'a ! {Raise}
 set       : String -> 'a -> Map 'a -> Map 'a
+update    : String -> 'a -> ('a -> 'a) -> Map 'a -> Map 'a
 delete    : String -> Map 'a -> Map 'a
 has?      : String -> Map 'a -> Bool
 keys      : Map 'a -> List String
@@ -3299,6 +3300,27 @@ merge     : Map 'a -> Map 'a -> Map 'a
 map       : ('a -> 'b) -> Map 'a -> Map 'b
 filter    : ('a -> Bool) -> Map 'a -> Map 'a
 ```
+
+A map holds its entries in the order their keys were first added, and every
+function that hands them back — `keys`, `values`, `to_list`, and writing one
+out — reads them in that order. It is not key order; sort the result when you
+want that. Setting a key that is already there replaces its value and leaves
+it where it was, so a document read in, edited and written back keeps its
+shape.
+
+`set` and `update` are the two ways to write. `set` puts a value under a key
+and ignores whatever was there. `update` is for a value that depends on the
+old one: `f` is given what is there, or the `'a` argument where the key is
+new. Counting is the case it exists for —
+
+```ocaml
+Map.update host 0 (fn n -> n + 1) counts
+```
+
+— which is a `match` on `Map.get` with a `Some` and a `None` branch written
+in one line, with no first count to get wrong. `set` is not `update` with a
+function that ignores its argument: that reads backwards, and it is slower,
+because `set` applies no function at all.
 
 ### `FS`
 
@@ -4660,12 +4682,19 @@ to_string : Glob -> String
 of_string : String -> Result String Glob
 ```
 
-[`FS.glob`](#fs) answers which files a pattern selects, and needs `FsRead`
-to say so. `matches?` answers the other question — whether a path is one the
-pattern would select — and needs no effect, because the pattern and the path
-are both already in hand. It is a builtin rather than the rules written
-again in wand: it compiles the pattern the way `FS.glob` walks a directory
-with it, so a walk and a predicate cannot disagree.
+[`FS.glob`](#fs) answers which files a pattern selects, and needs `FS.Read`
+to say so. `matches?` answers a narrower question — whether a *name* is one
+the pattern would select — and needs no effect, because the pattern and the
+path are both already in hand. It is a builtin rather than the rules written
+again in wand: it compiles the pattern the way `FS.glob` does, so the two
+read a pattern the same way.
+
+They do not answer the same question, and on one case they differ. A glob
+matches a name, so `matches? *.txt ./notes.txt` is true whether `notes.txt`
+is a file or a directory — `matches?` reads no effect and cannot look. But
+`FS.glob` answers with files, so a directory called `notes.txt` is not in
+its answer. [`FS.dir?`](#fs) is what tells the two apart, and
+[`FS.list_dir`](#fs) is what reads a directory's entries.
 
 A leading `./` is not part of either side. It is a way of writing "here", so
 it comes off the pattern and the path before they meet.

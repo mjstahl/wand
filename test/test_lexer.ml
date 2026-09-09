@@ -165,7 +165,20 @@ let test_line_comments () =
   check_tokens "spaced double minus"     "5 - -3"  [Int 5; Minus; Minus; Int 3];
   check_tokens "arrow unaffected"        "x -> y"  [Ident "x"; Arrow; Ident "y"];
   check_tokens "dashed path unaffected"  "./my-file"  [Path "./my-file"];
-  check_tokens "date literal unaffected" "2024-01-15" [DateTime "2024-01-15"]
+  check_tokens "date literal unaffected" "2024-01-15" [DateTime "2024-01-15"];
+  (* The instant scanner builds the date into one buffer and tests the
+     characters after it with a predicate. It used to use `Printf.sprintf`
+     and rebuild a five-element list for every character, which cost more
+     than the rest of reading the literal. Every spelling it accepts is
+     pinned here, since the two are easy to narrow by accident -- the `+`
+     and `-` of an offset especially. *)
+  check_tokens "bare day"     "2026-08-22" [DateTime "2026-08-22"];
+  check_tokens "instant, Z"   "2026-01-15T03:22:11Z" [DateTime "2026-01-15T03:22:11Z"];
+  check_tokens "plus offset"  "2026-01-15T03:22:11+05:00" [DateTime "2026-01-15T03:22:11+05:00"];
+  check_tokens "minus offset" "2026-01-15T03:22:11-05:00" [DateTime "2026-01-15T03:22:11-05:00"];
+  (* And the date still ends where it ends: what follows is its own token. *)
+  check_tokens "a day then a minus" "2026-08-22 - 5h"
+    [DateTime "2026-08-22"; Minus; Duration "5h"]
 
 (* ── Whitespace ─────────────────────────────────────────────────────────── *)
 

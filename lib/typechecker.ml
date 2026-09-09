@@ -2225,12 +2225,20 @@ let rec render_witness (Witness (name, args) : witness) : string =
   match name, args with
   | _, [] -> name
   | "(tuple)", args -> "(" ^ String.concat ", " (List.map render_witness_arg args) ^ ")"
-  | "::", [h; t] -> render_witness_arg h ^ " : " ^ render_witness_arg t
+  (* A list pattern is written `[h :: t]` -- cons is `::`, and the brackets
+     are part of the pattern. This printed `h : t`, so the case the message
+     told you to add was one the parser rejects with "cons is '::' -- a
+     single ':' gives a name a type". A message that cannot be copied is
+     worse than no message. *)
+  | "::", [h; t] -> "[" ^ render_witness_arg h ^ " :: " ^ render_witness_arg t ^ "]"
   | name, args -> name ^ " " ^ String.concat " " (List.map render_witness_arg args)
 and render_witness_arg (Witness (name, args) as w : witness) : string =
-  match args with
-  | [] -> name
-  | _  -> "(" ^ render_witness w ^ ")"
+  match name, args with
+  | _, [] -> name
+  (* Already bracketed, so it is an atom and parentheses around it would be
+     a second, wrong way of writing it. *)
+  | "::", [_; _] -> render_witness w
+  | _ -> "(" ^ render_witness w ^ ")"
 
 (* A multi-equation definition desugars to a match over synthetic `_p0.._pN`
    parameters (parser.ml's collapse_multi_equation). That exact shape is what
@@ -3663,6 +3671,7 @@ let stdlib_type_env : env = [
   ("str_trim",       generalize [] ((TString @-> TString)));
   ("str_slice",      generalize [] ((TInt @-> (TInt @-> (TString @-> TString)))));
   ("str_split",      generalize [] ((TString @-> (TString @-> TList TString))));
+  ("str_words",      generalize [] ((TString @-> TList TString)));
   ("str_contains",   generalize [] ((TString @-> (TString @-> TBool))));
   ("str_starts_with",generalize [] ((TString @-> (TString @-> TBool))));
   ("str_ends_with",  generalize [] ((TString @-> (TString @-> TBool))));
@@ -4238,6 +4247,8 @@ let stdlib_type_env : env = [
   ("map_size",     let a = fresh () in generalize [] ((TMap a @-> TInt)));
   ("map_to_list",  let a = fresh () in generalize [] ((TMap a @-> TList (TTuple [TString; a]))));
   ("map_from_list",let a = fresh () in generalize [] ((TList (TTuple [TString; a]) @-> TMap a)));
+  ("map_update",   let a = fresh () in
+                   generalize [] ((TString @-> (a @-> ((a @-> a) @-> (TMap a @-> TMap a))))));
   ("map_merge",    let a = fresh () in generalize [] ((TMap a @-> (TMap a @-> TMap a))));
   ("map_map",      let a = fresh () in let b = fresh () in
                    generalize [] (((a @-> b) @-> (TMap a @-> TMap b))));

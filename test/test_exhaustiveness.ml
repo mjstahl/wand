@@ -123,6 +123,52 @@ let test_map () =
       match m with | {a = x} -> x|}
     "1"
 
+(* ── The witness must be a pattern you can paste back in ─────────────────── *)
+
+(* The counterexample used to print cons as `h : t`, the transitional
+   spelling removed in 0.31.0, and without the brackets a list pattern is
+   written with. Copying it into the source gave "cons is '::'" -- one error
+   telling you to write what the other rejects. So the test is not what the
+   message says, it is that following it works. *)
+
+let witness_of msg =
+  let marker = "e.g. " in
+  let ml = String.length marker and n = String.length msg in
+  let rec find i =
+    if i + ml > n then None
+    else if String.sub msg i ml = marker then Some (String.sub msg (i + ml) (n - i - ml))
+    else find (i + 1)
+  in
+  find 0
+
+let copyable label ~before ~after =
+  match run before with
+  | Ok s -> Alcotest.failf "%s: expected a non-exhaustive error, got: %s" label s
+  | Error msg ->
+    match witness_of msg with
+    | None -> Alcotest.failf "%s: no 'e.g.' witness in: %s" label msg
+    | Some w ->
+      (* Splice the witness in as a new case and the match must close. *)
+      let patched = Printf.sprintf after w in
+      (match run patched with
+       | Ok _ -> ()
+       | Error m2 ->
+         Alcotest.failf "%s: the suggested case '%s' does not work: %s" label w m2)
+
+let test_witness_copyable () =
+  copyable "one-element list gap"
+    ~before:"let f xs = match xs with | [] -> 0 | [a :: [b :: _]] -> a + b"
+    ~after:"let f xs = match xs with | [] -> 0 | %s -> 1 | [a :: [b :: _]] -> a + b; f [1]";
+  copyable "cons inside a constructor"
+    ~before:"let f o = match o with | None -> 0 | Some [] -> 0 | Some [a :: [b :: _]] -> a"
+    ~after:"let f o = match o with | None -> 0 | Some [] -> 0 | %s -> 1 | Some [a :: [b :: _]] -> a; f None";
+  copyable "tuple gap"
+    ~before:"let f p = match p with | (1, y) -> y"
+    ~after:"let f p = match p with | (1, y) -> y | %s -> 0; f (1, 2)";
+  err_contains "cons renders with :: and brackets"
+    "let f xs = match xs with | [] -> 0 | [a :: [b :: _]] -> a + b"
+    "[_ :: []]"
+
 (* ── Suite ────────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -134,4 +180,5 @@ let () =
     "result", [ Alcotest.test_case "result" `Quick test_result ];
     "adt", [ Alcotest.test_case "adt" `Quick test_adt ];
     "map", [ Alcotest.test_case "map" `Quick test_map ];
+    "witness", [ Alcotest.test_case "witness is copyable" `Quick test_witness_copyable ];
   ]

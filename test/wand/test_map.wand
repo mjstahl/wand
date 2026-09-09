@@ -1,5 +1,7 @@
-let {test} = import Test
 import Map
+import List
+
+let {test} = import Test
 
 -- ── A key is held once ────────────────────────────────────────────────────
 
@@ -42,3 +44,71 @@ test "a map prints in braces" (fn t -> t.eq "{a = 1, b = 2}" "%{{a = 1, b = 2}}"
 
 test "a brace pattern puns" (fn t ->
   let {a, b = renamed} = {a = 5, b = 6} in t.eq 11 (a + renamed))
+
+-- ── Order survives the index ──────────────────────────────────────────────
+
+-- A map holds its entries in a `StrMap` keyed by name and remembers, per
+-- key, when it was first added; `keys` sorts on that. The order used to be
+-- the list's own, where these held by construction. They are worth stating
+-- now that a counter keeps them, and two or three keys would not catch a
+-- counter that drifts.
+
+let wide = List.fold_left (fn m i -> Map.set "k%{i}" i m) Map.empty (List.range 1 50)
+
+test "fifty keys come back in the order they went in" (fn t ->
+  t.eq (List.map (fn i -> "k%{i}") (List.range 1 50)) (Map.keys wide))
+
+test "and setting every one of them again moves none of them" (fn t ->
+  t.eq
+    (Map.keys wide)
+    (Map.keys (List.fold_left (fn m i -> Map.set "k%{i}" 0 m) wide (List.range 1 50))))
+
+test "a key deleted and set again goes on the end" (fn t ->
+  t.eq ["b", "c", "a"] (Map.keys (Map.set "a" 9 (Map.delete "a" {a = 1, b = 2, c = 3}))))
+
+test "deleting the last key leaves the rest where they were" (fn t ->
+  t.eq ["a", "b"] (Map.keys (Map.delete "c" {a = 1, b = 2, c = 3})))
+
+test "map and filter keep the order too" (fn t ->
+  t.eq (["c", "a"], ["c"]) (
+    Map.keys (Map.map (fn v -> v * 2) {c = 1, a = 2}),
+    Map.keys (Map.filter (fn v -> v == 1) {c = 1, a = 2})
+  ))
+
+-- ── update ───────────────────────────────────────────────────────────────
+
+-- `update` is `set` for a value that depends on the old one. It exists for
+-- the counting idiom, which was a `match` on `get` with a branch for the
+-- first count -- and that branch is where the seed goes wrong.
+
+test "update changes what is there" (fn t ->
+  t.eq {a = 2} (Map.update "a" 0 (fn n -> n + 1) {a = 1}))
+
+test "and uses the given value when the key is new" (fn t ->
+  t.eq {a = 1, b = 1} (Map.update "b" 0 (fn n -> n + 1) {a = 1}))
+
+test "a key already there keeps its place" (fn t ->
+  t.eq ["b", "a"] (Map.keys (Map.update "a" 0 (fn n -> n + 5) {b = 1, a = 2})))
+
+test "a new key goes on the end, as set leaves it" (fn t ->
+  t.eq ["b", "a", "c"] (Map.keys (Map.update "c" 7 (fn n -> n) {b = 1, a = 2})))
+
+test "it agrees with the match on get that it replaces" (fn t ->
+  let by_hand =
+    fn k m -> match Map.get k m with
+      | Some n -> Map.set k (n + 1) m
+      | None -> Map.set k 1 m
+  in
+  let counted = List.fold_left (fn m w -> Map.update w 0 (fn n -> n + 1) m) Map.empty [
+    "a",
+    "b",
+    "a",
+    "c",
+    "b",
+    "a"
+  ]
+  in
+  let by_hand_counted =
+    List.fold_left (fn m w -> by_hand w m) Map.empty ["a", "b", "a", "c", "b", "a"]
+  in
+  t.eq by_hand_counted counted)

@@ -973,7 +973,7 @@ let substitute_for name =
      into. The line reporting it says the request was withheld. *)
   | "Net!http" ->
     Some (VConstr (Ctor.Builtin "HTTPResponse",
-                   [VInt 202; VMap []; VString ""]), "202, no body")
+                   [VInt 202; VMap Evaluator.vmap_empty; VString ""]), "202, no body")
   | "FS!temp_file"      -> let p = dry_run_path ""     in Some (VPath p, p)
   | "FS!temp_dir"       -> let p = dry_run_path "-dir" in Some (VPath p, p)
   | _ -> None
@@ -1491,14 +1491,14 @@ let run_with_default_handler (thunk : unit -> value) : value =
              write and a test cannot believe itself sealed while a second
              operation reaches the network. *)
           | WandEffect ("Net!http",
-                        VConstr (_, [(VURL (url, _) | VString url); meth; VMap headers;
+                        VConstr (_, [(VURL (url, _) | VString url); meth; VMap header_map;
                                      VString body; VDuration timeout;
                                      VInt redirects])) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let headers =
                 List.map (fun (name, v) ->
                   (name, match v with VString s -> s | other -> to_text other))
-                  headers
+                  (Evaluator.vmap_list header_map)
               in
               match (try
                        Ok (http_send ~hops:(max 0 redirects) ~url
@@ -1509,7 +1509,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                 Effect.Deep.continue k
                   (VConstr (Ctor.Builtin "HTTPResponse",
                             [VInt code;
-                             VMap (List.map (fun (h, v) -> (h, VString v)) hdrs);
+                             VMap (Evaluator.vmap_of_list (List.map (fun (h, v) -> (h, VString v)) hdrs));
                              VString payload]))
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("Net!download",
@@ -1810,7 +1810,10 @@ let run_item ?modul env item =
   | Ast.TLLet (name, [], body) ->
     (name, eval env body) :: env
   | Ast.TLLet (name, params, body) ->
-    (name, VFix (name, env, params, body)) :: env
+    (* A definition that only forwards to a builtin is that builtin. *)
+    (match Evaluator.forwarding_builtin env params body with
+     | Some v -> (name, v) :: env
+     | None   -> (name, VFix (name, env, params, body)) :: env)
   | Ast.TLLetRec bindings ->
     List.fold_left (fun acc (name, _, _) ->
       (name, VFixGroup (bindings, env, name)) :: acc) env bindings
@@ -2042,7 +2045,7 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
         (* The namespace holds the module's constructors as well as its
            values, so `Foo.Live` reads the one `Foo` declares rather than
            whichever `Live` was registered last. *)
-        [(ns_name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))]
+        [(ns_name, VRecord (Evaluator.vrecord_make (own_eval @ ctor_bindings_of ~modul own_tenv)))]
         prefixed_docs
     | Ast.TLLet (name, [], body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
@@ -2051,7 +2054,7 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       let prefixed_docs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
       add_import ~modul ~alias:name ~own_tenv modul_import
         [(name, Typechecker.Namespace own_type)]
-        [(name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))]
+        [(name, VRecord (Evaluator.vrecord_make (own_eval @ ctor_bindings_of ~modul own_tenv)))]
         prefixed_docs
     | Ast.TLLetPat (pat, body) when Option.is_some (import_kind_of body) ->
       let kind = Option.get (import_kind_of body) in
@@ -2061,7 +2064,7 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
         | Ast.PVar name ->
           let pdocs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
           [(name, Typechecker.Namespace own_type)],
-          [(name, VRecord (own_eval @ ctor_bindings_of ~modul own_tenv))],
+          [(name, VRecord (Evaluator.vrecord_make (own_eval @ ctor_bindings_of ~modul own_tenv)))],
           pdocs,
           own_tenv
         | Ast.PMap binds ->

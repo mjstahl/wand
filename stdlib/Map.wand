@@ -1,5 +1,14 @@
 import Result
 
+-- A map keeps its entries in the order they were first added, and every
+-- function that hands them back -- `keys`, `values`, `to_list`, and writing
+-- one out -- reads them in that order. It is not key order. Sort the result
+-- when you want key order.
+--
+-- Setting a key that is already present replaces its value and leaves it
+-- where it was, so a document read in, edited and written back keeps its
+-- shape instead of reordering itself on every edit.
+
 -- An empty map. `{}` is the same value written as a literal.
 --
 -- >> Map.empty
@@ -26,9 +35,37 @@ let get! key m = map_get_exn key m
 -- A map is a value, so this answers with a new one and leaves the old
 -- alone.
 --
+-- A new key goes on the end. A key already present keeps its position and
+-- takes the new value.
+--
 -- >> Map.set "c" 3 {a = 1}
 -- {a = 1, c = 3} : Map Int
+--
+-- >> Map.set "a" 9 {b = 1, a = 2}
+-- {b = 1, a = 9} : Map Int
 let set key value m = map_set key value m
+
+-- Change what a key holds. `f` is given what is there, or `absent` when the
+-- key is not there yet, and the map is read and written in one pass.
+--
+-- This is the counting idiom: `Map.update k 0 (fn n -> n + 1) m` says in one
+-- line what a `match` on `Map.get` says in four, and has no branch to get the
+-- first count wrong in.
+--
+-- Use `set` where the new value does not depend on the old one. It ignores
+-- what is there, so it applies no function.
+--
+-- >> Map.update "a" 0 (fn n -> n + 1) {a = 1}
+-- {a = 2} : Map Int
+--
+-- >> Map.update "b" 0 (fn n -> n + 1) {a = 1}
+-- {a = 1, b = 1} : Map Int
+--
+-- A key already there keeps its place, as `set` leaves it.
+--
+-- >> Map.keys (Map.update "a" 0 (fn n -> n + 5) {b = 1, a = 2})
+-- ["b", "a"] : List String
+let update key absent f m = map_update key absent f m
 
 -- Remove a key, returning the updated map.
 --
@@ -42,16 +79,16 @@ let delete key m = map_delete key m
 -- true : Bool
 let has? key m = map_has key m
 
--- Return a list of all keys.
+-- Return a list of all keys, in the order they were added.
 --
--- >> Map.keys {a = 1, b = 2}
--- ["a", "b"] : List String
+-- >> Map.keys {b = 2, a = 1}
+-- ["b", "a"] : List String
 let keys m = map_keys m
 
--- Return a list of all values.
+-- Return a list of all values, in the order their keys were added.
 --
--- >> Map.values {a = 1, b = 2}
--- [1, 2] : List Int
+-- >> Map.values {b = 2, a = 1}
+-- [2, 1] : List Int
 let values m = map_values m
 
 -- Return the number of entries.
@@ -60,22 +97,26 @@ let values m = map_values m
 -- 2 : Int
 let size m = map_size m
 
--- Return the map as a list of (key, value) tuples.
+-- Return the map as a list of (key, value) tuples, in the order the keys
+-- were added. `List.sort_by` on the result gives key order.
 --
--- >> Map.to_list {a = 1, b = 2}
--- [("a", 1), ("b", 2)] : List (String, Int)
+-- >> Map.to_list {b = 2, a = 1}
+-- [("b", 2), ("a", 1)] : List (String, Int)
 let to_list m = map_to_list m
 
--- Build a map from a list of (key, value) tuples.
+-- Build a map from a list of (key, value) tuples. The list's order becomes
+-- the map's. Where a key appears twice, the last value wins and sits at the
+-- first appearance.
 --
--- >> Map.from_list [("a", 1), ("b", 2)]
--- {a = 1, b = 2} : Map Int
+-- >> Map.from_list [("b", 2), ("a", 1)]
+-- {b = 2, a = 1} : Map Int
 let from_list xs = map_from_list xs
 
--- Merge two maps. Keys in the second map take precedence.
+-- Merge two maps. Keys in the second map take precedence. The first map's
+-- keys hold their positions, and keys only the second has go on the end.
 --
--- >> Map.merge {a = 1, b = 2} {b = 9, c = 3}
--- {a = 1, b = 9, c = 3} : Map Int
+-- >> Map.merge {b = 1, a = 2} {a = 9, c = 3}
+-- {b = 1, a = 9, c = 3} : Map Int
 let merge a b = map_merge a b
 
 -- Apply a function to every value, returning a new map.

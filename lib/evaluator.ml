@@ -1,5 +1,8 @@
 open Ast
 
+module StrMap = Map.Make (String)
+
+
 (* ── Constructor field name registry ─────────────────────────────────────── *)
 
 let constr_fields : (Ctor.t, string option list) Hashtbl.t = Hashtbl.create 16
@@ -181,8 +184,28 @@ type value =
   | VYaml          of Yojson.Basic.t
   | VTuple         of value list
   | VList          of value list
-  | VMap           of (string * value) list
-  | VRecord        of (string * value) list  (* used for module namespaces *)
+  (* A map holds its entries in a `StrMap` and remembers, per key, when it
+     was first added. It was an association list, so `get` was
+     `List.assoc_opt` and `set` a walk -- cost linear in the number of keys,
+     paid on every operation. Tallying 200k lines over 400 keys spent 2.0s in
+     here, 81% of the run, and the same shape made a keying mistake read as a
+     hang rather than a wrong answer.
+
+     The order is what the list gave for free and is documented behaviour:
+     entries come back in the order their keys were first added, a key
+     already present keeps its place, and a document read in, edited and
+     written back keeps its shape. `m_next` is the counter that buys that
+     back -- `vmap_list` sorts on it. *)
+  | VMap           of vmap
+  (* A module namespace. `Foo.bar` used to be `List.assoc_opt` over this
+     list, so every qualified call cost one string compare per member of the
+     module it named -- and the list is in reverse declaration order, so the
+     function declared first in a file was the last one found.
+     `String.length` took 584ns to resolve where `String.words`, declared
+     last, took 74ns. The index makes both the second number. An environment
+     already carries one for the same reason; this is that idea one level
+     in. *)
+  | VRecord        of vrecord
   | VFun           of env * pat list * expr
   (* Which constructor, and whose. `Ctor.t` rather than the bare name: two
      modules may each declare one called `Status`, and a pattern from one
@@ -268,6 +291,17 @@ type value =
      any of it having to know. *)
   | VEnvIndex      of (string, value) Hashtbl.t
 
+(* `m_entries` maps a key to when it was first added and what it holds;
+   `m_next` is the number the next new key takes. A delete leaves a gap in
+   the numbering, which costs nothing: only their order is ever read. *)
+and vmap = { m_entries : (int * value) StrMap.t; m_next : int }
+
+(* `r_fields` is the members in the order they were bound, which is what
+   printing and pattern matching read; `r_index` answers a lookup. They are
+   built together and neither changes after, so the two cannot disagree. *)
+and vrecord = { r_fields : (string * value) list;
+                r_index  : (string, value) Hashtbl.t }
+
 and env = (string * value) list
 
 and stream_desc = { s_source : stream_source; s_stages : stream_stage list }
@@ -309,6 +343,76 @@ and stream_stage =
   (* The one stage that emits several per item, which is why the driver
      carries a list rather than an option. *)
   | StFlatMap   of value
+
+(* ── Map values ──────────────────────────────────────────────────────────── *)
+
+(* First binding wins, exactly as walking the list did. *)
+let vrecord_make r_fields =
+  let r_index = Hashtbl.create (List.length r_fields * 2 + 1) in
+  List.iter (fun (k, v) -> if not (Hashtbl.mem r_index k) then Hashtbl.add r_index k v)
+    r_fields;
+  { r_fields; r_index }
+
+let vrecord_get label r = Hashtbl.find_opt r.r_index label
+
+let vmap_empty = { m_entries = StrMap.empty; m_next = 0 }
+
+(* The entries, in the order their keys were first added. Sorting on the
+   number costs O(n log n) once, where reading a key costs O(log n) every
+   time -- and reads outnumber traversals in every program that has been
+   measured here. *)
+let vmap_list m =
+  StrMap.bindings m.m_entries
+  |> List.map (fun (k, (i, v)) -> (i, (k, v)))
+  |> List.sort (fun (i, _) (j, _) -> compare i j)
+  |> List.map snd
+
+let vmap_get key m =
+  match StrMap.find_opt key m.m_entries with
+  | Some (_, v) -> Some v
+  | None        -> None
+
+(* A key already present keeps the number it was first given, so setting it
+   again replaces the value and leaves it where it was. *)
+let vmap_set key v m =
+  match StrMap.find_opt key m.m_entries with
+  | Some (i, _) -> { m with m_entries = StrMap.add key (i, v) m.m_entries }
+  | None        -> { m_entries = StrMap.add key (m.m_next, v) m.m_entries;
+                     m_next = m.m_next + 1 }
+
+(* `Map.update`: one descent, where `Map.set k (f (Map.get k m)) m` walks the
+   map twice and allocates an `Option` between the halves to be read once and
+   thrown away. Measured over 100k rows on a five-key map, that round trip is
+   260ms and this is 147ms.
+
+   `set` is not written in terms of this. It ignores what is there, so it
+   applies no function, and saying "ignore it" as a function of it costs 12%
+   and reads backwards. *)
+let vmap_update key f m =
+  let added = ref false in
+  let m_entries =
+    StrMap.update key
+      (function
+       | Some (i, v) -> Some (i, f (Some v))
+       | None        -> added := true; Some (m.m_next, f None))
+      m.m_entries
+  in
+  { m_entries; m_next = if !added then m.m_next + 1 else m.m_next }
+
+let vmap_delete key m = { m with m_entries = StrMap.remove key m.m_entries }
+let vmap_mem key m    = StrMap.mem key m.m_entries
+let vmap_size m       = StrMap.cardinal m.m_entries
+
+let vmap_map f m =
+  { m with m_entries = StrMap.map (fun (i, v) -> (i, f v)) m.m_entries }
+
+let vmap_filter f m =
+  { m with m_entries = StrMap.filter (fun _ (_, v) -> f v) m.m_entries }
+
+(* The list's order becomes the map's, and where a key appears twice the last
+   value wins and sits at the first appearance. *)
+let vmap_of_list pairs =
+  List.fold_left (fun acc (k, v) -> vmap_set k v acc) vmap_empty pairs
 
 (* The key an index entry is filed under. Not a legal identifier, so no
    program can name it and no lookup can collide with it. *)
@@ -365,6 +469,48 @@ let rec lookup_var name (e : env) =
      | Some _ as found -> found
      | None -> lookup_var name rest)
   | (k, v) :: rest -> if String.equal k name then Some v else lookup_var name rest
+
+(* A definition that only forwards.
+
+   `let trim s = str_trim s` takes its argument and hands it to a builtin
+   unchanged. It *is* that builtin: the closure around it exists to pass one
+   value along and nothing else, and it costs 92ns on every call to do it.
+   289 of the standard library's 530 definitions are written this way, so the
+   closure is skipped and the name bound to the builtin itself.
+
+   Every parameter must arrive in its own position, in order, once, and the
+   head must already be a builtin. `let f a b = g b a` reorders,
+   `let f a = g a a` repeats, `let lines s = str_split "\n" s` supplies an
+   argument of its own, and `let empty? s = str_length s == 0` does work on
+   the answer -- none of those is the same function as its head, and none of
+   them qualifies. A `let f x = f x` cannot slip through either: `f` is not
+   bound to a builtin when its own definition is read. *)
+let forwarding_builtin env params body =
+  let rec param_names acc = function
+    | []            -> Some (List.rev acc)
+    | PVar n :: rest -> param_names (n :: acc) rest
+    | _             -> None
+  in
+  match param_names [] params with
+  | None | Some [] -> None
+  | Some ps ->
+    (* Peel the applications off the body. `g a b` is `App (App (g, a), b)`,
+       so the arguments come back out in the order they were written. *)
+    let rec peel args e =
+      match strip_located e with
+      | App (f, x) ->
+        (match strip_located x with
+         | Var n -> peel (n :: args) f
+         | _     -> None)
+      | Var f -> Some (f, args)
+      | _     -> None
+    in
+    (match peel [] body with
+     | Some (head, args) when args = ps ->
+       (match lookup_var head env with
+        | Some (VBuiltin _ as v) -> Some v
+        | _ -> None)
+     | _ -> None)
 
 (* ── Instants ───────────────────────────────────────────────────────────── *)
 
@@ -544,9 +690,10 @@ let rec render ~quote v =
     "(" ^ String.concat ", " (List.map sub vs) ^ ")"
   | VList vs    ->
     "[" ^ String.concat ", " (List.map sub vs) ^ "]"
-  | VMap kvs    ->
+  | VMap m      ->
+    let kvs = vmap_list m in
     "{" ^ String.concat ", " (List.map (fun (k, v) -> k ^ " = " ^ sub v) kvs) ^ "}"
-  | VRecord kvs ->
+  | VRecord vr_ -> let kvs = vr_.r_fields in
     "{ " ^ String.concat ", " (List.map (fun (k, v) ->
       k ^ " = " ^ sub v) kvs) ^ " }"
 
@@ -1292,7 +1439,15 @@ let rec wand_equal a b =
   | VRequest (a, _), b | a, VRequest (b, _) -> wand_equal a b
   | VConstr (n1, xs), VConstr (n2, ys) ->
     n1 = n2 && List.length xs = List.length ys && List.for_all2 wand_equal xs ys
-  | VMap kvs1, VMap kvs2 | VRecord kvs1, VRecord kvs2 ->
+  (* Entry for entry in insertion order, which is what comparing the two
+     association lists did before the representation changed. *)
+  | VMap m1, VMap m2 ->
+    let kvs1 = vmap_list m1 and kvs2 = vmap_list m2 in
+    List.length kvs1 = List.length kvs2
+    && List.for_all2 (fun (k1, v1) (k2, v2) -> k1 = k2 && wand_equal v1 v2)
+         kvs1 kvs2
+  | VRecord r1, VRecord r2 ->
+    let kvs1 = r1.r_fields and kvs2 = r2.r_fields in
     List.length kvs1 = List.length kvs2
     && List.for_all2 (fun (k1, v1) (k2, v2) -> k1 = k2 && wand_equal v1 v2)
          kvs1 kvs2
@@ -1339,8 +1494,8 @@ let rec eq_key v =
      two different keys. *)
   | VRequest (inner, _) -> eq_key inner
   | VConstr (n, xs) -> VConstr (n, List.map eq_key xs)
-  | VRecord kvs     -> VRecord (List.map (fun (k, x) -> (k, eq_key x)) kvs)
-  | VMap kvs        -> VMap (List.map (fun (k, x) -> (k, eq_key x)) kvs)
+  | VRecord r       -> VRecord (vrecord_make (List.map (fun (k, x) -> (k, eq_key x)) r.r_fields))
+  | VMap m          -> VMap (vmap_map eq_key m)
   | v -> v
 
 
@@ -1370,8 +1525,9 @@ let rec wand_compare a b =
     let c = compare_ctor c1 c2 in
     if c <> 0 then c else compare_each xs1 xs2
   | VList xs, VList ys | VTuple xs, VTuple ys -> compare_each xs ys
-  | VRecord kvs1, VRecord kvs2 | VMap kvs1, VMap kvs2 ->
-    compare_pairs kvs1 kvs2
+  | VMap m1, VMap m2 -> compare_pairs (vmap_list m1) (vmap_list m2)
+  | VRecord r1, VRecord r2 ->
+    compare_pairs r1.r_fields r2.r_fields
   | _ ->
     (try compare a b
      with Invalid_argument _ -> raise (EvalError "cannot order functions"))
@@ -1514,7 +1670,7 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
     let cname = pat_ctor_name inner in
     let owner =
       match lookup_var m env with
-      | Some (VRecord kvs) ->
+      | Some (VRecord vr_) -> let kvs = vr_.r_fields in
         (match List.assoc_opt cname kvs with
          | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> Some c
          (* A module's alias is not a value in its record -- a record
@@ -1587,7 +1743,11 @@ let rec try_match ?(prefix = false) (p : pat) v (env : env) : env option =
                | None -> None
                | Some v -> try_match ~prefix p v env))
        ) (Some env) bindings)
-  | PMap bindings, (VMap kvs | VRecord kvs) ->
+  | PMap bindings, (VMap _ | VRecord _) ->
+    let kvs = (match v with
+      | VMap m      -> vmap_list m
+      | VRecord r    -> r.r_fields
+      | _           -> []) in
     List.fold_left (fun acc (key, p) ->
       match acc with
       | None -> None
@@ -1720,7 +1880,7 @@ and nullary_payload env x =
       | None, Constr name -> lookup_var name env
       | Some m, Constr name ->
         (match lookup_var m env with
-         | Some (VRecord kvs) -> List.assoc_opt name kvs
+         | Some (VRecord r) -> vrecord_get name r
          | _ -> None)
       | _ -> None
     in
@@ -1835,7 +1995,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
   | Qualified (m, inner) ->
     let from_module name =
       match lookup_var m env with
-      | Some (VRecord kvs) ->
+      | Some (VRecord vr_) -> let kvs = vr_.r_fields in
         (match List.assoc_opt name kvs with
          | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) -> Some c
          | _ -> None)
@@ -1916,7 +2076,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
      | _ -> raise (EvalError (Printf.sprintf
          "'%s' cannot be updated: it has no named fields" name)))
   | MapLit kvs ->
-    VMap (map_of_pairs (List.map (fun (k, e) -> (k, eval env e)) kvs))
+    VMap (vmap_of_list (List.map (fun (k, e) -> (k, eval env e)) kvs))
   | Field (e, label) ->
     (* A type's derived decoder: `Pod.decoder`. Resolved from the type's own
        definition rather than bound as a value, so it costs nothing until it
@@ -1934,12 +2094,12 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     (* No VMap case: dot access on a Map is rejected by the typechecker.
        VRecord is how imported module namespaces are reached (FS.cwd). *)
     (match eval env e with
-     | VRecord kvs ->
-       (match List.assoc_opt label kvs with
+     | VRecord r ->
+       (match vrecord_get label r with
         | Some v -> v
         | None   ->
           raise (EvalError (Printf.sprintf "no field '%s'%s"
-            label (Util.hint label (List.map fst kvs)))))
+            label (Util.hint label (List.map fst r.r_fields)))))
      (* A request reads as the record it wraps. *)
      | VRequest (VConstr (name, vals), _)
      | VConstr (name, vals) ->
@@ -2486,6 +2646,17 @@ let fs_size_impl = function
 
 (* ── String primitive helpers ─────────────────────────────────────────────── *)
 
+(* Does `needle` sit at position `i` of `haystack`? Compared in place.
+
+   Every scanning loop below used to ask this with
+   `String.sub haystack i nlen = needle`, which allocates a fresh short
+   string at every position it looks at -- a 200k-line log answered
+   `String.contains?` with about twelve million of them. Reading the bytes
+   costs nothing and stops at the first one that differs. *)
+let str_matches_at needle nlen haystack i =
+  let rec go j = j = nlen || (haystack.[i + j] = needle.[j] && go (j + 1)) in
+  go 0
+
 let str_split_impl delim str =
   let dlen = String.length delim in
   let slen = String.length str in
@@ -2495,8 +2666,18 @@ let str_split_impl delim str =
     let result = ref [] in
     let start = ref 0 in
     let i = ref 0 in
+    (* A one-character delimiter is the common case -- every `String.lines`
+       and every split on a space or a comma -- and testing it with
+       `String.sub` allocates a one-byte string per position in the input.
+       Splitting a 17MB log on " " allocated 17MB of them. *)
+    let matches_at =
+      if dlen = 1 then
+        let c = delim.[0] in
+        fun i -> str.[i] = c
+      else fun i -> str_matches_at delim dlen str i
+    in
     while !i <= slen - dlen do
-      if String.sub str !i dlen = delim then begin
+      if matches_at !i then begin
         result := VString (String.sub str !start (!i - !start)) :: !result;
         i := !i + dlen;
         start := !i
@@ -2507,6 +2688,33 @@ let str_split_impl delim str =
     List.rev !result
   end
 
+(* The whitespace `String.words` separates on. Written out rather than
+   `Char.is_whitespace` so that what counts is visible and fixed: these are
+   the four the wand-level version replaced before it split. *)
+let is_word_space = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
+
+(* One pass, and it allocates only the words it returns.
+
+   `String.words` used to be three `str_replace` passes to turn every
+   separator into a space, a split that produced an empty string for every
+   repeat, and a `List.filter` to drop them again -- so a line cost three
+   full copies plus one interpreted closure call per field. Over a 200k-line
+   log that was ~2.2M closure calls and about 3.2 seconds, against 73ms to
+   read the same lines. *)
+let str_words_impl str =
+  let slen = String.length str in
+  let result = ref [] in
+  let i = ref 0 in
+  while !i < slen do
+    while !i < slen && is_word_space str.[!i] do incr i done;
+    if !i < slen then begin
+      let start = !i in
+      while !i < slen && not (is_word_space str.[!i]) do incr i done;
+      result := VString (String.sub str start (!i - start)) :: !result
+    end
+  done;
+  List.rev !result
+
 let str_replace_impl old_ new_ str =
   let olen = String.length old_ in
   let slen = String.length str in
@@ -2515,7 +2723,7 @@ let str_replace_impl old_ new_ str =
     let buf = Buffer.create slen in
     let i = ref 0 in
     while !i <= slen - olen do
-      if String.sub str !i olen = old_ then begin
+      if str_matches_at old_ olen str !i then begin
         Buffer.add_string buf new_;
         i := !i + olen
       end else begin
@@ -2528,15 +2736,20 @@ let str_replace_impl old_ new_ str =
     Buffer.contents buf
   end
 
+(* The `for` here ran to the end of the string after it had its answer, so a
+   needle at position 0 still read every byte of the line. Stopping at the
+   first match, and comparing without allocating, took counting the matching
+   lines of a 200k-line log from 456ms to 274ms. *)
 let str_contains_impl needle haystack =
   let nlen = String.length needle in
   let hlen = String.length haystack in
   if nlen = 0 then true
   else if nlen > hlen then false
   else begin
+    let i = ref 0 in
     let found = ref false in
-    for i = 0 to hlen - nlen do
-      if String.sub haystack i nlen = needle then found := true
+    while not !found && !i <= hlen - nlen do
+      if str_matches_at needle nlen haystack !i then found := true else incr i
     done;
     !found
   end
@@ -3687,7 +3900,12 @@ type live_stage =
   | LIndexed   of int ref
   | LScan      of value * value ref
   | LChunks    of int * value list ref  (* held in reverse *)
-  | LUnique    of value list ref
+  (* Keyed like `List.unique`: `eq_key` narrows to the values that could be
+     equal, `wand_equal` decides among them. This was a `value list ref`
+     scanned end to end for every item, so a stream of n distinct elements
+     cost n^2/2 comparisons -- 20,000 unique lines took six seconds and
+     200,000 would have taken about ten minutes. *)
+  | LUnique    of (value, value list) Hashtbl.t
 
 let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
   let (pull, close) = stream_provider desc.s_source in
@@ -3703,7 +3921,7 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
     | StIndexed     -> LIndexed (ref 0)
     | StScan (f, init) -> LScan (f, ref init)
     | StChunks n    -> LChunks (n, ref [])
-    | StUnique      -> LUnique (ref [])) desc.s_stages
+    | StUnique      -> LUnique (Hashtbl.create 64)) desc.s_stages
   in
   (* A gate that closes ends the read: nothing later can pass it, so there is
      nothing left to pull for. `take 100` of a 10GB file reads 100 lines. *)
@@ -3745,8 +3963,13 @@ let run_stream_terminal (desc : stream_desc) ~(on_item : value -> unit) : unit =
         (let full = List.rev !held in held := []; [VList full])
       else []
     | LUnique seen ->
-      if List.exists (fun v -> wand_equal v x) !seen then []
-      else (seen := x :: !seen; [x])
+      let k = eq_key x in
+      let bucket = match Hashtbl.find seen k with
+        | b -> b
+        | exception Not_found -> []
+      in
+      if List.exists (wand_equal x) bucket then []
+      else (Hashtbl.replace seen k (x :: bucket); [x])
   in
   (* What a stage still holds when the source runs out. Only `chunks` holds
      anything: a last group of fewer than n is a group, and dropping it would
@@ -4042,6 +4265,9 @@ let stdlib_eval_env : env = [
       | VString str -> VList (str_split_impl delim str)
       | _ -> raise (EvalError "str_split: expected String"))
     | _ -> raise (EvalError "str_split: expected String")));
+  ("str_words", VBuiltin (function
+    | VString str -> VList (str_words_impl str)
+    | _ -> raise (EvalError "str_words: expected String")));
   ("str_contains", VBuiltin (function
     | VString needle -> VBuiltin (function
       | VString haystack -> VBool (str_contains_impl needle haystack)
@@ -4581,7 +4807,7 @@ let stdlib_eval_env : env = [
      A repeated key keeps its last value, which is what a Map can hold.
      `URL.query_list` answers all of them in order. *)
   ("url_query", VBuiltin (function
-    | VURL (u, _) -> VMap (map_of_pairs (url_query_pairs u))
+    | VURL (u, _) -> VMap (vmap_of_list (url_query_pairs u))
     | _ -> raise (EvalError "url_query: expected URL")));
   ("url_query_list", VBuiltin (function
     | VURL (u, _) ->
@@ -4605,8 +4831,9 @@ let stdlib_eval_env : env = [
      encoding has to happen, and doing it here is what stops a `&` in a
      value from becoming a separator. *)
   ("url_with_query", VBuiltin (function
-    | VMap kvs -> VBuiltin (function
+    | VMap m -> VBuiltin (function
       | VURL (u, _) ->
+        let kvs = vmap_list m in
         let parts = url_parts u in
         let q =
           String.concat "&"
@@ -5279,7 +5506,7 @@ let stdlib_eval_env : env = [
      read differently by different parsers. Writing the one that can be read
      back is the only answer that round-trips. *)
   ("json_of_map",    VBuiltin (function
-    | VMap kvs ->
+    | VMap kvs_m -> let kvs = vmap_list kvs_m in
       (* A Map holds a key once, so what comes out names each key once too. *)
       VJson (`Assoc (List.map (fun (k, v) -> match v with
         | VJson j -> (k, j)
@@ -5309,7 +5536,7 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "json_get_array: expected JSON")));
   ("json_get_object", VBuiltin (function
     | VJson (`Assoc kvs) ->
-      VConstr (Ctor.Builtin "Ok", [VMap (map_of_pairs (List.map (fun (k, j) -> (k, VJson j)) kvs))])
+      VConstr (Ctor.Builtin "Ok", [VMap (vmap_of_list (List.map (fun (k, j) -> (k, VJson j)) kvs))])
     | VJson j -> VConstr (Ctor.Builtin "Error", [VString ("expected object, got " ^ Yojson.Basic.to_string j)])
     | _ -> raise (EvalError "json_get_object: expected JSON")));
   ("json_field", VBuiltin (fun key ->
@@ -5390,7 +5617,7 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "yaml_get_sequence: expected YAML")));
   ("yaml_get_mapping", VBuiltin (function
     | VYaml (`Assoc kvs) ->
-      VConstr (Ctor.Builtin "Ok", [VMap (map_of_pairs (List.map (fun (k, y) -> (k, VYaml y)) kvs))])
+      VConstr (Ctor.Builtin "Ok", [VMap (vmap_of_list (List.map (fun (k, y) -> (k, VYaml y)) kvs))])
     | VYaml y -> VConstr (Ctor.Builtin "Error", [VString ("expected mapping, got " ^ Yojson.Basic.to_string y)])
     | _ -> raise (EvalError "yaml_get_mapping: expected YAML")));
   ("yaml_field", VBuiltin (fun key ->
@@ -5502,8 +5729,8 @@ let stdlib_eval_env : env = [
   ("toml_get_table", VBuiltin (function
     | VToml (Toml.Types.TTable tbl) ->
       let pairs = Toml.Types.Table.to_list tbl in
-      let vmap = VMap (List.map (fun (k, v) ->
-        (Toml.Types.Table.Key.to_string k, VToml v)) pairs) in
+      let vmap = VMap (vmap_of_list (List.map (fun (k, v) ->
+        (Toml.Types.Table.Key.to_string k, VToml v)) pairs)) in
       VConstr (Ctor.Builtin "Ok", [vmap])
     | VToml _ -> VConstr (Ctor.Builtin "Error", [VString "expected table"])
     | _ -> raise (EvalError "toml_get_table: expected TOML")));
@@ -5556,7 +5783,15 @@ let stdlib_eval_env : env = [
   ("list_sort_by", VBuiltin (fun f ->
     VBuiltin (function
       | VList xs ->
-        VList (List.sort (fun a b -> wand_compare (apply f a) (apply f b)) xs)
+        (* The key was computed inside the comparator, so sorting n elements
+           applied `f` about 2n log n times where n would do -- seven million
+           interpreted calls to order 200k rows. Compute each key once, sort
+           the pairs, drop the keys. `f` now runs exactly once per element,
+           left to right. *)
+        let keyed = List.map (fun x -> (apply f x, x)) xs in
+        let sorted =
+          List.stable_sort (fun (ka, _) (kb, _) -> wand_compare ka kb) keyed in
+        VList (List.map snd sorted)
       | _ -> raise (EvalError "list_sort_by: expected List"))));
   ("list_unique", VBuiltin (function
     | VList xs ->
@@ -5615,49 +5850,59 @@ let apply_fn f v = match f with
   | _ -> raise (EvalError "apply_fn: not a function")
 
 let map_builtins : env = [
-  ("map_empty",  VMap []);
+  ("map_empty",  VMap vmap_empty);
   ("map_get", VBuiltin (function
     | VString key -> VBuiltin (function
-      | VMap kvs ->
-        (match List.assoc_opt key kvs with
+      | VMap m ->
+        (match vmap_get key m with
          | Some v -> VConstr (Ctor.Builtin "Ok", [v])
          | None   -> VConstr (Ctor.Builtin "Error", [VString ("key not found: " ^ key)]))
       | _ -> raise (EvalError "map_get: expected Map"))
     | _ -> raise (EvalError "map_get: expected String key")));
   ("map_get_exn", VBuiltin (function
     | VString key -> VBuiltin (function
-      | VMap kvs ->
-        (match List.assoc_opt key kvs with
+      | VMap m ->
+        (match vmap_get key m with
          | Some v -> v
          | None   -> raise (EvalError ("map key not found: " ^ key)))
       | _ -> raise (EvalError "map_get!: expected Map"))
     | _ -> raise (EvalError "map_get!: expected String key")));
   ("map_set", VBuiltin (function
     | VString key -> VBuiltin (fun v -> VBuiltin (function
-      | VMap kvs -> VMap (map_put kvs key v)
+      | VMap m -> VMap (vmap_set key v m)
       | _ -> raise (EvalError "map_set: expected Map")))
     | _ -> raise (EvalError "map_set: expected String key")));
+  (* `absent` is what the function sees when the key is not there, so the
+     function never meets an `Option` and none is built. A key already
+     present keeps its place, as `set` leaves it. *)
+  ("map_update", VBuiltin (function
+    | VString key -> VBuiltin (fun dflt -> VBuiltin (fun f -> VBuiltin (function
+      | VMap m ->
+        VMap (vmap_update key
+                (fun cur -> apply_fn f (match cur with Some v -> v | None -> dflt)) m)
+      | _ -> raise (EvalError "map_update: expected Map"))))
+    | _ -> raise (EvalError "map_update: expected String key")));
   ("map_delete", VBuiltin (function
     | VString key -> VBuiltin (function
-      | VMap kvs -> VMap (List.filter (fun (k, _) -> k <> key) kvs)
+      | VMap m -> VMap (vmap_delete key m)
       | _ -> raise (EvalError "map_delete: expected Map"))
     | _ -> raise (EvalError "map_delete: expected String key")));
   ("map_has", VBuiltin (function
     | VString key -> VBuiltin (function
-      | VMap kvs -> VBool (List.mem_assoc key kvs)
+      | VMap m -> VBool (vmap_mem key m)
       | _ -> raise (EvalError "map_has?: expected Map"))
     | _ -> raise (EvalError "map_has?: expected String key")));
   ("map_keys", VBuiltin (function
-    | VMap kvs -> VList (List.map (fun (k, _) -> VString k) kvs)
+    | VMap m -> VList (List.map (fun (k, _) -> VString k) (vmap_list m))
     | _ -> raise (EvalError "map_keys: expected Map")));
   ("map_values", VBuiltin (function
-    | VMap kvs -> VList (List.map snd kvs)
+    | VMap m -> VList (List.map snd (vmap_list m))
     | _ -> raise (EvalError "map_values: expected Map")));
   ("map_size", VBuiltin (function
-    | VMap kvs -> VInt (List.length kvs)
+    | VMap m -> VInt (vmap_size m)
     | _ -> raise (EvalError "map_size: expected Map")));
   ("map_to_list", VBuiltin (function
-    | VMap kvs -> VList (List.map (fun (k, v) -> VTuple [VString k; v]) kvs)
+    | VMap m -> VList (List.map (fun (k, v) -> VTuple [VString k; v]) (vmap_list m))
     | _ -> raise (EvalError "map_to_list: expected Map")));
   ("map_from_list", VBuiltin (function
     | VList pairs ->
@@ -5665,7 +5910,7 @@ let map_builtins : env = [
         | VTuple [VString k; v] -> (k, v)
         | _ -> raise (EvalError "map_from_list: expected list of (String, value) tuples")) pairs
       in
-      VMap (map_of_pairs kvs)
+      VMap (vmap_of_list kvs)
     | _ -> raise (EvalError "map_from_list: expected List")));
   ("map_merge", VBuiltin (function
     | VMap a -> VBuiltin (function
@@ -5673,18 +5918,18 @@ let map_builtins : env = [
         (* The right-hand value wins, and a key already on the left keeps its
            place there -- merging a change into a document should not shuffle
            the document. *)
-        VMap (List.fold_left (fun acc (k, v) -> map_put acc k v) a b)
+        VMap (List.fold_left (fun acc (k, v) -> vmap_set k v acc) a (vmap_list b))
       | _ -> raise (EvalError "map_merge: expected Map"))
     | _ -> raise (EvalError "map_merge: expected Map")));
   ("map_map", VBuiltin (function
     | f -> VBuiltin (function
-      | VMap kvs -> VMap (List.map (fun (k, v) -> (k, apply_fn f v)) kvs)
+      | VMap m -> VMap (vmap_map (fun v -> apply_fn f v) m)
       | _ -> raise (EvalError "map_map: expected Map"))));
   ("map_filter", VBuiltin (function
     | f -> VBuiltin (function
-      | VMap kvs ->
-        VMap (List.filter (fun (_, v) ->
-          match apply_fn f v with VBool b -> b | _ -> false) kvs)
+      | VMap m ->
+        VMap (vmap_filter (fun v ->
+          match apply_fn f v with VBool b -> b | _ -> false) m)
       | _ -> raise (EvalError "map_filter: expected Map"))));
 ]
 
@@ -5810,7 +6055,7 @@ let rec decoder_of_type_expr venv (te : type_expr) :
       match j with
       | `Assoc kvs ->
         let rec go acc = function
-          | [] -> Ok (VMap (map_of_pairs (List.rev acc)))
+          | [] -> Ok (VMap (vmap_of_list (List.rev acc)))
           | (k, v) :: rest ->
             (match elem v (("." ^ k) :: path) with
              | Ok x      -> go ((k, x) :: acc) rest
@@ -5934,8 +6179,8 @@ and json_of_typed venv (te : type_expr) (v : value) : Yojson.Basic.t =
   | TEApp (TEName "Option", inner), VConstr (Ctor.Builtin "Some", [x]) -> json_of_typed venv inner x
   | TEApp (TEName "List", inner), VList vs ->
     `List (List.map (json_of_typed venv inner) vs)
-  | TEApp (TEName "Map", inner), VMap kvs ->
-    `Assoc (List.map (fun (k, x) -> (k, json_of_typed venv inner x)) kvs)
+  | TEApp (TEName "Map", inner), VMap m ->
+    `Assoc (List.map (fun (k, x) -> (k, json_of_typed venv inner x)) (vmap_list m))
   | _, VConstr (_, _) ->
     (match type_spine te with
      | (Some tname, args) when Hashtbl.mem derivable tname ->
@@ -5964,7 +6209,7 @@ and json_of_value (v : value) : Yojson.Basic.t =
      document would have held. *)
   | VPort n -> `Int n
   | VList vs -> `List (List.map json_of_value vs)
-  | VMap kvs -> `Assoc (List.map (fun (k, v) -> (k, json_of_value v)) kvs)
+  | VMap kvs_m -> let kvs = vmap_list kvs_m in `Assoc (List.map (fun (k, v) -> (k, json_of_value v)) kvs)
   | VJson j -> j
   | VConstr (Ctor.Builtin "None", []) -> `Null
   | VConstr (Ctor.Builtin "Some", [x]) -> json_of_value x
@@ -6195,7 +6440,7 @@ let decode_builtins : env = [
       match j with
       | `Assoc kvs ->
         let rec go acc = function
-          | [] -> Ok (VMap (map_of_pairs (List.rev acc)))
+          | [] -> Ok (VMap (vmap_of_list (List.rev acc)))
           | (k, v) :: rest ->
             (match inner v (("." ^ k) :: path) with
              | Ok x      -> go ((k, x) :: acc) rest
@@ -6502,12 +6747,12 @@ let rec spec_value tname =
     match cmdline_parts fields with
     | Some (_, ftype, _, _) -> spec_value ftype
     | None ->
-    VMap (List.filter_map (fun (fname, te) ->
+    VMap (vmap_of_list (List.filter_map (fun (fname, te) ->
       match fname, te with
       | Some name, Ast.TEName "Bool" -> Some (name, VString "switch")
       | Some name, Ast.TEApp (Ast.TEName "List", _) ->
         Some (name, VString "repeated")
-      | _ -> None) fields)
+      | _ -> None) fields))
 
 let () = derive_spec := spec_value
 
@@ -6529,8 +6774,8 @@ let rec toml_of_value (v : value) : Toml.Types.value =
   | VPort n -> Toml.Types.TInt n
   | VConstr (Ctor.Builtin "Some", [x]) -> toml_of_value x
   | VList vs -> Toml.Types.TArray (toml_array vs)
-  | VMap kvs -> Toml.Types.TTable (toml_table kvs)
-  | VRecord kvs -> Toml.Types.TTable (toml_table kvs)
+  | VMap kvs_m -> let kvs = vmap_list kvs_m in Toml.Types.TTable (toml_table kvs)
+  | VRecord vr_ -> let kvs = vr_.r_fields in Toml.Types.TTable (toml_table kvs)
   | VConstr (ctor, vals) ->
     (match Hashtbl.find_opt constr_fields ctor with
      | Some names when List.length names = List.length vals ->

@@ -1,0 +1,32 @@
+import String
+import List
+
+let {test, group} = import Test
+
+-- Half the standard library is written `let trim s = str_trim s`: it hands
+-- its arguments to a builtin unchanged, so the name is bound to that builtin
+-- and the wrapper never exists at run time. These check that the ones which
+-- are rebound still behave, and -- the half that matters -- that the ones
+-- which only look similar are left alone.
+
+group "a definition that only forwards" (fn () -> [
+  test "still answers" (fn t -> t.eq "x" (String.trim "  x  ")),
+  test "still splits" (fn t -> t.eq ["a", "b"] (String.words " a  b ")),
+  test "still raises where it should" (fn t -> t.raises (fn () -> List.get! 9 [1])),
+  test "is still a value that can be passed" (fn t ->
+    t.eq ["A", "B"] (List.map String.upper ["a", "b"])),
+  test "and partially applied" (fn t ->
+    t.eq [["a"], ["b"]] (List.map String.words ["a", "b"]))
+])
+
+group "a definition that only looks like one" (fn () -> [
+  -- `let lines s = str_split "\n" s` supplies an argument of its own.
+  test "one that supplies an argument keeps it" (fn t ->
+    t.eq ["a", "b"] (String.lines "a\nb")),
+  -- `let empty? s = str_length s == 0` works on the answer.
+  test "one that works on the answer keeps doing it" (fn t ->
+    t.eq (true, false) (String.empty? "", String.empty? "x")),
+  -- `let get n xs = Result.to_option (list_get n xs)` wraps the answer.
+  test "one that wraps the answer keeps wrapping" (fn t ->
+    t.eq (Some 20, None) (List.get 1 [10, 20], List.get 9 [10, 20]))
+])
