@@ -127,4 +127,11 @@ release-archive:
 	gh release upload v$(VERSION) dist/$(NAME).tar.gz dist/$(NAME).tar.gz.sha256 --clobber
 	@echo
 	@echo "attached $(NAME).tar.gz to the v$(VERSION) draft"
+# The archives CI builds carry a build attestation, signed by the workflow
+# that built them. This one is built here, so it cannot have one: an
+# attestation says which workflow produced the bytes, and no workflow
+# produced these. Said out loud rather than left to be noticed, because it
+# is the one archive whose provenance rests on the .sha256 alone -- and the
+# one that was clobbered before.
+	@echo "not attested: built here, so only the .sha256 stands behind it"
 	@echo "publish with: gh release edit v$(VERSION) --draft=false"

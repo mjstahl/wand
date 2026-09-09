@@ -135,6 +135,13 @@ release if it is missing, so they can finish in either order, and it stays a
 draft until someone publishes it. `make release` refuses a tag that `VERSION`
 disagrees with.
 
+CI also signs a build attestation for each archive it builds, which is what
+says who built one — the `.sha256` beside an archive is written by the same
+job and says only that the download arrived whole. Check one with
+`gh attestation verify <archive> --repo mjstahl/wand`. The macOS x86_64
+archive is built here, so it has no attestation; `make release-archive` says
+so when it finishes.
+
 The musl build is retried up to three times. It compiles dune from source,
 and that has twice died with `Failed to allocate signal stack for domain 0` --
 the OCaml runtime failing to start, before any of wand is reached. It does

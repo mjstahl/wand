@@ -1,0 +1,23 @@
+# Every `uses:` in this repository is pinned to a commit, so a tag its owner
+# moves cannot change what CI runs. The cost of that is the other direction:
+# a pinned action never picks up its own fixes, and a pin nobody bumps is a
+# pin that quietly ages. This is what bumps them.
+#
+# A PR per update, weekly, grouped so a week's worth arrives as one. The
+# commit that merges it is the record of what CI runs changing, which is
+# where that decision belongs.
+#
+# Actions only. OCaml dependencies are opam's, which dependabot does not
+# read, and the Alpine image in release.yml is pinned by digest with its own
+# rationale beside it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

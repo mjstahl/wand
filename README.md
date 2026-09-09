@@ -127,7 +127,21 @@ curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
 
 Each [release](https://github.com/mjstahl/wand/releases) has static Linux
 builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), and a `.sha256`
-file beside each one.
+file beside each one. That file says the download arrived whole. It does not
+say who built it — it is uploaded beside the archive, so whoever can write the
+release can write both.
+
+What says who built it is a build attestation. GitHub signs one for each
+archive its runners build, with a token that workflow cannot pass on, over
+the archive's digest and the commit it came from. From 0.68.0 on:
+
+```sh
+gh attestation verify wand-<version>-linux-x86_64.tar.gz --repo mjstahl/wand
+```
+
+It covers the three archives CI builds. The macOS x86_64 archive is built by
+hand on an Intel Mac, because GitHub's Intel runner never leaves the queue, so
+that one has the `.sha256` and no attestation.
 
 The binary holds its own standard library. You install nothing else. Startup is
 short enough for CI glue and for an editing loop. The release binary runs
