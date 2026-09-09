@@ -194,7 +194,17 @@ jobs:
           gh issue list --label fuzz --state open --limit 500 \
             --json title --jq '.[].title' > filed.txt
 
+          # A fence longer than the longest run of backticks in the text it
+          # wraps. A finding is arbitrary bytes -- the fuzzer writes them --
+          # and one holding ``` closed the block early, so the rest of the
+          # input rendered as prose and the issue misreported the reproducer.
+          fence() {
+            longest=$(grep -ao '`\+' "$1" | awk '{ print length }' | sort -rn | head -1)
+            printf '%*s\n' "$(( ${longest:-0} < 3 ? 3 : longest + 1 ))" '' | tr ' ' '`'
+          }
+
           filed=0
+          unfiled=0
           for notes in findings/*/_fuzz-findings/*.json; do
             input="${notes%.json}.wand"
             sig=$(jq -r '.signature' "$notes")
@@ -204,27 +214,41 @@ jobs:
               echo "already filed: $title"
               continue
             fi
+            notes_fence=$(fence "$notes")
+            input_fence=$(fence "$input")
             {
               echo "Found by the daily fuzzer (\`$WORKFLOW\`, run [$RUN_ID]($SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID))."
               echo
-              echo '```json'
+              echo "${notes_fence}json"
               cat "$notes"
-              echo '```'
+              echo "$notes_fence"
               echo
               echo "Input:"
               echo
-              echo '```'
+              echo "$input_fence"
               cat "$input"
-              echo '```'
+              echo "$input_fence"
               echo
               echo "If this is not going to be fixed now, put the signature in"
               echo "\`test/fuzz/known.txt\` so the next night is green. When it is fixed,"
               echo "put the input in \`test/fuzz/regressions/\`."
             } > body.md
-            gh issue create --title "$title" --body-file body.md --label fuzz
-            # Before the next shard's finding is considered, not after the
-            # loop: the duplicate this guards against is inside one run.
-            printf '%s\n' "$title" >> filed.txt
-            filed=$((filed + 1))
+            # One failure is one finding, not the rest of them. Under `set -e`
+            # a refused `gh issue create` -- invalid UTF-8 in a body, a rate
+            # limit, a network blip -- ended the loop, and every finding after
+            # it existed only in the artifacts, with nothing saying so.
+            if gh issue create --title "$title" --body-file body.md --label fuzz; then
+              # Before the next shard's finding is considered, not after the
+              # loop: the duplicate this guards against is inside one run.
+              printf '%s\n' "$title" >> filed.txt
+              filed=$((filed + 1))
+            else
+              echo "::warning::could not file an issue for: $title"
+              unfiled=$((unfiled + 1))
+            fi
           done
           echo "filed $filed issue(s)"
+          if [ "$unfiled" -gt 0 ]; then
+            echo "::error::$unfiled finding(s) could not be filed; they are in the artifacts" >&2
+            exit 1
+          fi

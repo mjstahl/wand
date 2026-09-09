@@ -46,8 +46,16 @@ if command -v curl >/dev/null 2>&1; then
   latest_url() { curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"; }
 elif command -v wget >/dev/null 2>&1; then
   fetch()      { wget -q -O "$2" "$1"; }
-  latest_url() { wget -q --max-redirect=10 -O /dev/null "$1" 2>&1 \
-                   | sed -n 's/^Location: \([^ ]*\).*/\1/p' | tail -1; }
+  # Two reasons this never worked, so a curl-less install failed here --
+  # closed, with an error, but failed. `-q` turns off every message wget
+  # writes, including the server response that `-S` asks for, so there were
+  # no headers to read; and wget indents the headers it does print, which
+  # a pattern anchored at `Location` cannot match. `-S`, no `-q`, and the
+  # indent allowed for. wget's progress goes to stderr into the same pipe,
+  # where sed ignores it.
+  latest_url() { wget -S --max-redirect=10 -O /dev/null "$1" 2>&1 \
+                   | sed -n 's/^[[:space:]]*Location: *\([^ ]*\).*/\1/p' \
+                   | tail -1; }
 else
   fail "neither curl nor wget is available"
 fi
