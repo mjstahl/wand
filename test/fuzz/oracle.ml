@@ -322,6 +322,38 @@ let outcome_of src =
    the run's honesty on. *)
 let eval_budget = 2.0
 
+(* Two seconds bounds the CPU a mutant can spend and nothing else. A pure
+   program that allocates as fast as it can takes the machine down well
+   inside its budget, and on a shared runner that is everyone else's build
+   too. Generous enough that no honest program reaches it: the whole compiler
+   and standard library sit inside a few tens of megabytes.
+
+   Two bounds, because neither covers both platforms.
+
+   `RLIMIT_AS` is the real one: the kernel refuses the mapping, the
+   allocation raises Out_of_memory, and the child reports what it reports for
+   any program that did not run. It covers every allocation, including a
+   single huge one and anything the C side asks for. Linux honours it and
+   Darwin does not -- `setrlimit(RLIMIT_AS, ...)` there answers EINVAL for
+   any value, as does `RLIMIT_DATA` (measured, macOS 25.6). The daily job
+   runs on Linux, so that is where it bites.
+
+   The GC alarm is what is left on a Mac, and a Mac is where `make fuzz-eval`
+   is run by hand. It sees the OCaml heap only, and only at the end of a
+   major cycle, so a single large request slips past it -- but a wand program
+   eating memory is building lists and strings, and those it catches. Set to
+   1MB it fires on 31 of 400 mutants and at 1GB on none of them, which is how
+   both halves of that were checked. *)
+external limit_address_space : int -> unit = "wand_limit_address_space"
+
+let eval_memory_budget = 1024 * 1024 * 1024
+
+let bound_memory () =
+  limit_address_space eval_memory_budget;
+  let words = eval_memory_budget / (Sys.word_size / 8) in
+  ignore (Gc.create_alarm (fun () ->
+    if (Gc.quick_stat ()).Gc.heap_words > words then Stdlib.exit 0))
+
 let outcomes_in_child ~path src once =
   flush stdout;
   flush stderr;
@@ -329,6 +361,7 @@ let outcomes_in_child ~path src once =
   match Unix.fork () with
   | 0 ->
     Unix.close r;
+    bound_memory ();
     let answer s =
       match Runner.typecheck_source ~path s with
       | Ok _ when not (reaches_outside ()) -> outcome_of s

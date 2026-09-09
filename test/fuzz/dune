@@ -5,6 +5,9 @@
 (library
  (name wand_fuzz)
  (modules mutate oracle)
+ (foreign_stubs
+  (language c)
+  (names rlimit))
  (libraries wand unix))
 
 ; Not attached to `runtest`: a fuzz run is a daily job with a time budget,
