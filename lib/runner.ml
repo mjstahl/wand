@@ -585,14 +585,32 @@ let describe_operation name (v : value) =
 let copy_file src dst =
   let mode = (Unix.stat src).Unix.st_perm in
   let existed = Sys.file_exists dst in
-  let content = In_channel.with_open_bin src In_channel.input_all in
-  Out_channel.with_open_gen
-    [Open_wronly; Open_creat; Open_trunc; Open_binary] mode dst
-    (fun oc -> Out_channel.output_string oc content);
+  (* A block at a time. The whole file used to be read into a string first,
+     so copying a file took the file's size in memory -- and `FS.copy` is
+     what a script reaches for on the large ones. *)
+  In_channel.with_open_bin src (fun ic ->
+    Out_channel.with_open_gen
+      [Open_wronly; Open_creat; Open_trunc; Open_binary] mode dst
+      (fun oc ->
+        let buf = Bytes.create 65536 in
+        let rec go () =
+          let n = In_channel.input ic buf 0 (Bytes.length buf) in
+          if n > 0 then (Out_channel.output oc buf 0 n; go ())
+        in
+        go ()));
   (* The open honours the umask, which can only take bits away; a copy is
      meant to carry the source's own mode, so a new file is set to it
      outright. *)
   if not existed then Unix.chmod dst mode
+
+(* Taking a name back out of the environment. OCaml's Unix has `putenv` and
+   no inverse, so this is a C stub -- see lib/ext/env.c for why the empty
+   string is not the same answer. *)
+external unsetenv : string -> unit = "wand_unsetenv"
+
+(* A private directory under a name nobody else can hold first, in one step.
+   See lib/ext/tempdir.c for the window this closes. *)
+external mkdtemp : string -> string = "wand_mkdtemp"
 
 (* ── Locks ─────────────────────────────────────────────────────────────── *)
 
@@ -1500,15 +1518,17 @@ let run_with_default_handler (thunk : unit -> value) : value =
               | Error m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!temp_dir", VString prefix) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              (* Filename.temp_file makes a unique name and reserves it; the
-                 file is replaced by a directory of the same name, so two
-                 callers cannot be handed the same path. *)
+              (* One step, 0700, under a name that did not exist a moment
+                 before. It used to take a unique file name, remove the file
+                 and make a directory of the same name -- and between those
+                 two the name belonged to nobody, which in a shared /tmp is
+                 a name another process can take. *)
               match (try
-                       let path = Filename.temp_file prefix "" in
-                       Sys.remove path;
-                       Unix.mkdir path 0o700;
-                       Ok path
-                     with Sys_error m -> Error ("temp_dir: " ^ m)
+                       Ok (mkdtemp
+                             (Filename.concat (Filename.get_temp_dir_name ())
+                                (prefix ^ "XXXXXX")))
+                     with Failure m -> Error ("temp_dir: " ^ m)
+                        | Sys_error m -> Error ("temp_dir: " ^ m)
                         | Unix.Unix_error (e, _, _) ->
                           Error ("temp_dir: " ^ Unix.error_message e)) with
               | Ok path -> Effect.Deep.continue    k (VPath path)
@@ -1516,7 +1536,17 @@ let run_with_default_handler (thunk : unit -> value) : value =
           | WandEffect ("FS!delete_tree", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               (* Depth-first, and it does not follow symlinks out of the
-                 tree: a link is unlinked, never descended into. *)
+                 tree: a link is unlinked, never descended into.
+
+                 The walk names each entry by path, so between the `lstat`
+                 that says "directory" and the `readdir` that reads it,
+                 something else could replace that name with a link and the
+                 next step would be taken somewhere else. Closing that means
+                 walking by directory descriptor -- `openat`, `fdopendir`,
+                 `unlinkat` -- none of which OCaml's Unix has, and the whole
+                 traversal would have to move into C. Left as it is: it needs
+                 someone able to write inside the tree while wand is deleting
+                 it, which is a tree wand should not have been pointed at. *)
               let rec rm p =
                 match Unix.lstat p with
                 | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
@@ -1560,8 +1590,14 @@ let run_with_default_handler (thunk : unit -> value) : value =
                 match st.Unix.st_kind with
                 | Unix.S_LNK ->
                   (* `symlink` fails on a name that exists, and a re-run of
-                     a copy is an ordinary thing to do. *)
-                  if Sys.file_exists d then Sys.remove d;
+                     a copy is an ordinary thing to do. Asked with `lstat`,
+                     because `Sys.file_exists` follows the link: a dangling
+                     one at the destination answered "not there", and the
+                     re-run failed with EEXIST on the name it had just been
+                     told was free. *)
+                  (match Unix.lstat d with
+                   | _ -> Sys.remove d
+                   | exception Unix.Unix_error _ -> ());
                   Unix.symlink (Unix.readlink s) d
                 | Unix.S_DIR ->
                   if not (Sys.file_exists d) then Unix.mkdir d st.Unix.st_perm;
@@ -1612,14 +1648,25 @@ let run_with_default_handler (thunk : unit -> value) : value =
               Effect.Deep.continue k VUnit)
           | WandEffect ("Env!clear", VString name) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
-              Unix.putenv name "";
+              (* Removed, not emptied. `putenv name ""` leaves the variable
+                 in the environment holding nothing, which a child can tell
+                 from its absence -- `${FOO-fallback}` takes the empty
+                 string and skips the fallback. *)
+              unsetenv name;
               Effect.Deep.continue k VUnit)
           | WandEffect ("FS!delete", VPath path) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->
               let rm () =
-                if Sys.file_exists path && Sys.is_directory path
-                then Unix.rmdir path
-                else Sys.remove path
+                (* `Sys.is_directory` follows a link, so a symlink *to* a
+                   directory was handed to `rmdir`, which got the link and
+                   answered "Not a directory". What `delete` removes is the
+                   name it was given. *)
+                match Unix.lstat path with
+                | { Unix.st_kind = Unix.S_DIR; _ } -> Unix.rmdir path
+                | _ -> Sys.remove path
+                | exception Unix.Unix_error _ ->
+                  (* Not there, or unreadable: `Sys.remove` says which. *)
+                  Sys.remove path
               in
               match (try rm (); Ok ()
                      with Sys_error m -> Error ("remove: " ^ m)
@@ -2723,6 +2770,12 @@ let run_in_mode mode (thunk : unit -> value) : value =
                      was skipped, so a rehearsal that reports `Held` is not
                      mistaken for a real run that would have got the lock. *)
                   let skip_wait = mode = DryRun && name = "FS!lock_wait" in
+                  (* An exit is neither carried out nor withheld either: a
+                     run ends here, so a rehearsal that carried on would
+                     report writes a run would never reach. It ends, and
+                     says that is why -- a plan that simply stopped read as
+                     a plan that had finished. *)
+                  let stops_here = mode = DryRun && name = "Proc!exit" in
                   (* Decided once: the substitute is now a fresh name each
                      time it is asked for, and the line reporting it has to
                      name the one the script was actually handed. *)
@@ -2736,6 +2789,9 @@ let run_in_mode mode (thunk : unit -> value) : value =
                         | None -> report "would %s: %s\n" verb what)
                      else if skip_wait then
                        report "%s: %s (a rehearsal does not wait)\n" verb what
+                     else if stops_here then
+                       report "%s: %s (the rehearsal ends here, as a run \
+                               would)\n" verb what
                      else report "%s: %s\n" verb what
                    | None -> ());
                   if withhold then begin

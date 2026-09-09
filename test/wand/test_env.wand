@@ -30,10 +30,18 @@ test "set then get" (fn t -> (
 
 -- ── clear ───────────────────────────────────────────────────────────────
 
+-- Removed, not emptied. Setting the name to "" leaves it in the
+-- environment, where a child can still find it: `${NAME-fallback}` takes
+-- the empty string and never reaches the fallback.
 let () = Env.set "WAND_TEST_CLEAR" "before"
-test "clear empties value" (fn t -> (
+test "clear takes the name out" (fn t -> (
   Env.clear "WAND_TEST_CLEAR";
-  t.eq (Some "") (Env.get "WAND_TEST_CLEAR")
+  t.eq (None (Env.get "WAND_TEST_CLEAR"))
+))
+test "and it is gone from all ()" (fn t -> (
+  Env.set "WAND_TEST_CLEAR2" "before";
+  Env.clear "WAND_TEST_CLEAR2";
+  t.eq false (List.any? (fn (k, _) -> k == "WAND_TEST_CLEAR2") (Env.all ()))
 ))
 
 -- ── all ─────────────────────────────────────────────────────────────────

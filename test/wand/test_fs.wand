@@ -1,4 +1,4 @@
-uses {Clock, FS.Read, FS.Write}
+uses {Clock, FS.Read, FS.Write, Shell(ln)}
 
 let {test} = import Test
 import FS
@@ -394,3 +394,40 @@ test "copy_tree error names the operation" (fn t ->
     (Path.of_string "%{scratch}/x")) with
   | Ok _ -> t.ok false
   | Error e -> t.ok (String.starts_with? "copy_tree:" e))
+
+-- ── What a name is, and what it points at ───────────────────────────────
+
+-- wand has no way to make a symlink, so `ln -s` makes them. What is under
+-- test is what `delete` and `copy_tree` do when they meet one.
+
+-- `delete` removes the name it is given. It used to ask `Sys.is_directory`,
+-- which follows a link, so a symlink to a directory was handed to `rmdir` --
+-- which got the link and answered "Not a directory".
+test "delete removes a link to a directory, not the directory" (fn t -> (
+  let dir = Path.of_string "%{scratch}/link_target";
+  let link = Path.of_string "%{scratch}/link_to_dir";
+  FS.mkdir! dir;
+  let _ = $(ln -s %{dir} %{link});
+  let removed = FS.delete link;
+  let kept = FS.dir? dir;
+  FS.delete! dir;
+  t.eq (true, true) (Result.ok? removed, kept)
+))
+
+-- Copying a tree twice is an ordinary thing to do, and it failed when the
+-- tree held a link pointing nowhere: the existence check followed the link,
+-- answered "not there", and `symlink` then refused the name it had just
+-- been told was free.
+test "copy_tree runs twice over a dangling link" (fn t -> (
+  let src = Path.of_string "%{scratch}/ct_src";
+  let dst = Path.of_string "%{scratch}/ct_dst";
+  let dangling = Path.of_string "%{scratch}/ct_src/dangling";
+  FS.mkdir! src;
+  FS.write_file! (Path.of_string "%{scratch}/ct_src/a.txt") "a\n";
+  let _ = $(ln -s /nowhere/at/all %{dangling});
+  FS.copy_tree! src dst;
+  let again = FS.copy_tree src dst;
+  FS.delete_tree! src;
+  FS.delete_tree! dst;
+  t.eq true (Result.ok? again)
+))
