@@ -21,6 +21,9 @@ the compiler.
   `FS` inserts `import FS` (sorted into the import block) and adds
   `FS.Write` to the manifest, as you type. `Shell` is never touched
   automatically — those changes stay one visible click away as quick fixes.
+  This is the one thing the extension writes into a buffer without being
+  asked, so `wand.autoEdit` turns it off; the same fixes are still offered
+  as quick fixes.
 - **Completion**, including members of modules you have not imported yet;
   accepting one carries the import with it.
 - **Quick fixes** from every finding that knows its correction — manifest
@@ -59,4 +62,5 @@ with `code --install-extension`. `make package` stops after building the
 
 | setting | default | meaning |
 |---|---|---|
-| `wand.path` | `wand` | The wand binary the extension spawns (`wand lsp`, `wand --dry-run`). |
+| `wand.path` | `wand` | The wand binary the extension spawns (`wand lsp`, `wand --dry-run`). Machine scope: a workspace cannot point it at a script in the repository. |
+| `wand.autoEdit` | `true` | Let a completed name earn its import and its manifest labels as you type. Off keeps every edit a gesture. |

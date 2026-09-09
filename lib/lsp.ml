@@ -210,9 +210,36 @@ type state = {
   shutdown_seen : bool;
   quit : int option;                (* Some code once `exit` arrives *)
   next_req : int;                   (* ids for server->client requests *)
+  (* Whether a change that completes a resolvable name may earn its import
+     and its manifest labels without being asked. On, because that is what
+     the tier is for and what it has always done; a switch because it is the
+     one thing here that edits a buffer nobody asked it to edit. The client
+     sends it in `initializationOptions` and again on
+     `workspace/didChangeConfiguration`. *)
+  auto_edit : bool;
 }
 
-let initial = { docs = []; shutdown_seen = false; quit = None; next_req = 1 }
+let initial =
+  { docs = []; shutdown_seen = false; quit = None; next_req = 1;
+    auto_edit = true }
+
+(* `wand.autoEdit` wherever the client puts it: under `initializationOptions`
+   it arrives bare, and under `settings` it arrives beneath the section name.
+   Absent leaves the setting alone, so a client that sends neither keeps the
+   default. *)
+let auto_edit_of (v : J.t) : bool option =
+  let rec look v =
+    match v with
+    | `Assoc kvs ->
+      (match List.assoc_opt "autoEdit" kvs with
+       | Some (`Bool b) -> Some b
+       | _ ->
+         (match List.assoc_opt "wand" kvs with
+          | Some inner -> look inner
+          | None -> None))
+    | _ -> None
+  in
+  look v
 
 let capabilities : J.t =
   `Assoc [
@@ -752,7 +779,17 @@ let handle (st : state) (msg : J.t) : state * J.t list =
   | Some m when st.shutdown_seen && m <> "exit" ->
     if id = `Null then (st, [])
     else (st, [error_response id (-32600) "shutdown has been requested"])
-  | Some "initialize" -> (st, [response id capabilities])
+  | Some "initialize" ->
+    let st =
+      match auto_edit_of (mem "initializationOptions" params) with
+      | Some b -> { st with auto_edit = b }
+      | None -> st
+    in
+    (st, [response id capabilities])
+  | Some "workspace/didChangeConfiguration" ->
+    (match auto_edit_of (mem "settings" params) with
+     | Some b -> ({ st with auto_edit = b }, [])
+     | None -> (st, []))
   | Some "initialized" -> (st, [])
   | Some "shutdown" -> ({ st with shutdown_seen = true }, [response id `Null])
   | Some "exit" -> ({ st with quit = Some (if st.shutdown_seen then 0 else 1) }, [])
@@ -779,7 +816,7 @@ let handle (st : state) (msg : J.t) : state * J.t list =
           as it stood, so nothing fires twice and an undo is respected. *)
        let auto =
          match prev with
-         | Some p when p.d_text <> text ->
+         | Some p when st.auto_edit && p.d_text <> text ->
            Autoedit.changes ~sig_of:Runner.stdlib_module_sig
              ~old_text:p.d_text text
          | _ -> []

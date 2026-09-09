@@ -39,12 +39,28 @@ const wandPath = () => {
   return configured;
 };
 
+const autoEdit = () =>
+  workspace.getConfiguration('wand').get<boolean>('autoEdit', true);
+
 export async function activate(context: ExtensionContext) {
   const serverOptions: ServerOptions = { command: wandPath(), args: ['lsp'] };
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ language: 'wand' }],
+    // The server pushes an import and its manifest labels on a change that
+    // completes a resolvable name -- the one thing it does to a buffer
+    // without being asked, so it is a setting. Sent at startup, and again
+    // whenever it changes, because the server holds it rather than asking.
+    initializationOptions: { autoEdit: autoEdit() },
   };
   client = new LanguageClient('wand', 'wand', serverOptions, clientOptions);
+
+  context.subscriptions.push(
+    workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('wand.autoEdit')) {
+        client?.sendNotification('workspace/didChangeConfiguration',
+          { settings: { wand: { autoEdit: autoEdit() } } });
+      }
+    }));
 
   // Standard library sources live inside the binary, not on disk; a
   // definition jump into one answers a wand-stdlib:/ URI, and this
@@ -80,16 +96,37 @@ export async function activate(context: ExtensionContext) {
       },
     }));
 
+  // The file name is an argument, never text a shell reads. It used to be
+  // typed into a terminal with `JSON.stringify` around it, and a file named
+  // `x$(cmd).wand` ran `cmd` the moment the lens was clicked: double quotes
+  // do not stop a shell reading `$(...)`.
+  //
+  // The terminal spawns its process from an argv, so nothing here is parsed
+  // as a command line. On a POSIX machine that process is `sh` running a
+  // fixed script with the two paths after it -- `$0` and `$1` are positional
+  // parameters, which a shell never reads back as source, so the script is a
+  // constant with nothing to escape. The shell is there for the redirect
+  // alone: stdin from /dev/null means a script that reads stdin
+  // (`IO.stdin_lines`) rehearses against empty input instead of blocking on
+  // the terminal. Windows has no /bin/sh and no /dev/null, so it spawns wand
+  // itself and does without the redirect.
+  const REHEARSE = 'wand rehearse';
   context.subscriptions.push(
     commands.registerCommand('wand.rehearse', (uri?: Uri) => {
       const file = uri?.fsPath ?? window.activeTextEditor?.document.uri.fsPath;
       if (!file) { return; }
-      const term = window.terminals.find((t) => t.name === 'wand rehearse')
-        ?? window.createTerminal('wand rehearse');
+      // A terminal that runs one command exits with it, so the last one is
+      // replaced rather than reused.
+      window.terminals.filter((t) => t.name === REHEARSE)
+        .forEach((t) => t.dispose());
+      const term = window.createTerminal(
+        process.platform === 'win32'
+          ? { name: REHEARSE, shellPath: wandPath(),
+              shellArgs: ['--dry-run', file] }
+          : { name: REHEARSE, shellPath: '/bin/sh',
+              shellArgs: ['-c', 'exec "$0" --dry-run "$1" < /dev/null',
+                          wandPath(), file] });
       term.show(true);
-      // stdin comes from /dev/null: a script that reads stdin (IO.stdin_lines)
-      // rehearses against empty input instead of blocking on the terminal.
-      term.sendText(`${wandPath()} --dry-run ${JSON.stringify(file)} < /dev/null`);
     }));
 
   await client.start();

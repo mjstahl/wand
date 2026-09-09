@@ -56,7 +56,14 @@
         "wand.path": {
           "type": "string",
           "default": "wand",
-          "description": "Path to the wand binary. The language server is `wand lsp` on the same binary, so it can never disagree with the compiler."
+          "description": "Path to the wand binary. The language server is `wand lsp` on the same binary, so it can never disagree with the compiler. Machine scope: a workspace cannot set it, because opening a folder would then launch whatever that folder named.",
+          "scope": "machine"
+        },
+        "wand.autoEdit": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Let a change that completes a resolvable name earn its import, and its manifest labels, without being asked. Turn it off to keep every edit a gesture; the same fixes are still offered as code actions."
         }
       }
     }

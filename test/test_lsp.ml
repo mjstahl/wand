@@ -500,6 +500,32 @@ let apply_edits_of outs =
     if Lsp.str (m "method" o) = Some "workspace/applyEdit"
     then Some (m "params" o) else None) outs
 
+(* The one thing here that edits a buffer nobody asked it to edit, so it can
+   be turned off -- in `initializationOptions` at startup, or later through
+   `workspace/didChangeConfiguration`. On by default: that is what the tier
+   is for and what it has always done. *)
+let test_auto_import_can_be_turned_off () =
+  let (_, outs) =
+    session [
+      request 1 "initialize" (`Assoc [("initializationOptions",
+                                       `Assoc [("autoEdit", `Bool false)])]);
+      did_open uri "uses {IO}\n\nprintln \"hi\"\n";
+      did_change uri "uses {IO}\n\nprintln \"hi\"\nFS.write_file! \n";
+    ]
+  in
+  Alcotest.(check int) "no edit was pushed" 0 (List.length (apply_edits_of outs))
+
+let test_auto_import_off_by_configuration () =
+  let (_, outs) =
+    session [
+      notif "workspace/didChangeConfiguration"
+        (`Assoc [("settings", `Assoc [("wand", `Assoc [("autoEdit", `Bool false)])])]);
+      did_open uri "uses {IO}\n\nprintln \"hi\"\n";
+      did_change uri "uses {IO}\n\nprintln \"hi\"\nFS.write_file! \n";
+    ]
+  in
+  Alcotest.(check int) "no edit was pushed" 0 (List.length (apply_edits_of outs))
+
 let test_auto_import_fires_on_completion () =
   let (_, outs) =
     session [
@@ -666,6 +692,8 @@ let () =
     "auto-edits", [
       Alcotest.test_case "fires on completion" `Quick test_auto_import_fires_on_completion;
       Alcotest.test_case "fires once"          `Quick test_auto_import_fires_once;
+      Alcotest.test_case "turned off"          `Quick test_auto_import_can_be_turned_off;
+      Alcotest.test_case "turned off later"    `Quick test_auto_import_off_by_configuration;
     ];
     "framing", [
       Alcotest.test_case "round trip"        `Quick test_framing_round_trip;
