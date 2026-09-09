@@ -245,3 +245,27 @@ test "to_duration err" (fn t ->
   match String.to_duration "abc" with
   | Ok _ -> t.ok false
   | Error _ -> t.ok true)
+
+-- ── word ─────────────────────────────────────────────────────────────────
+
+-- `word` reads one of what `words` would return, without building the rest.
+-- The two must not drift, so these check the answer against `words` rather
+-- than against a literal, and cover the places the two rules could part:
+-- runs of whitespace, a tab, and leading and trailing space.
+
+test "word agrees with words at every index" (fn t -> (
+  let s = "  a\tbb   ccc  ";
+  let ws = String.words s;
+  t.eq
+    (List.map (fn i -> List.get i ws) [0, 1, 2, 3])
+    (List.map (fn i -> String.word i s) [0, 1, 2, 3])
+))
+
+test "word is None past the end" (fn t -> t.eq (None (String.word 9 "a b")))
+
+test "word! raises past the end" (fn t -> t.raises (fn () -> String.word! 9 "a b"))
+
+test "and says how many there were" (fn t ->
+  t.eq (Error "no word 9: the string has 2") (try String.word! 9 "a b"))
+
+test "no words at all" (fn t -> t.eq (None, []) (String.word 0 "   ", String.words "   "))

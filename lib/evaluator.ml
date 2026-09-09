@@ -439,6 +439,25 @@ let ctor_env () =
     in
     ctor_env_cache := Some e; e
 
+(* A regex literal is a constant, and `Re.compile` is a pure function of its
+   pattern and flags -- but it ran on every evaluation of the expression,
+   which inside a loop is once per iteration at about 5us a time.
+   `Regex.match? r/ERROR/ line` over a 200k-line file spent a second
+   compiling the same pattern 200,000 times, and the way to avoid it was to
+   know to hoist the literal out by hand.
+
+   Keyed on the pattern and the flags as written. The set of literals comes
+   from the source text, so it is finite and fixed before the program runs;
+   `Regex.compile` is deliberately not cached, because its argument can be
+   built at run time and the table would then grow with the data.
+
+   One table per domain. `Par` workers evaluate wand code on domains of
+   their own, and a shared `Hashtbl` written from several at once is a data
+   race. Compiling a pattern twice on two domains costs a little and is
+   safe; sharing one table is neither. *)
+let regex_literals : (string * string, Re.re) Hashtbl.t Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> Hashtbl.create 16)
+
 let env_index_key = "\000index"
 
 let index_env (base : env) : env =
@@ -2127,12 +2146,19 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
       | 's' -> List.to_seq [`DOTALL]
       | _   -> List.to_seq []) |> List.of_seq
     in
-    (match regex_repeat_error pat with
-     | Some why -> raise (EvalError why)
+    let cache = Domain.DLS.get regex_literals in
+    (match Hashtbl.find_opt cache (pat, flags) with
+     | Some re -> VRegex re
      | None ->
-       (try VRegex (Re.compile (Re.Pcre.re ~flags:opts pat))
-        with Re.Pcre.Parse_error ->
-          raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags))))
+       (match regex_repeat_error pat with
+        | Some why -> raise (EvalError why)
+        | None ->
+          (try
+             let re = Re.compile (Re.Pcre.re ~flags:opts pat) in
+             Hashtbl.replace cache (pat, flags) re;
+             VRegex re
+           with Re.Pcre.Parse_error ->
+             raise (EvalError (Printf.sprintf "invalid regex: r/%s/%s" pat flags)))))
   (* `$*(c)` builds the command and stops there. `$(c)` and `$?(c)` build
      the same command and run it -- they are `Shell.run!` and `Shell.query`
      over one, spelled short. *)
@@ -2714,6 +2740,27 @@ let str_words_impl str =
     end
   done;
   List.rev !result
+
+(* The nth whitespace-separated word, without building the others.
+   `List.get! n (String.words s)` allocates a string per word, a cons per
+   word and a reversal, to answer with one of them: 663ns a line against
+   397ns here on a seven-field log. Same rule as `words` -- a run of
+   whitespace separates once, and leading or trailing whitespace adds no
+   word. *)
+let str_word_impl n str =
+  let slen = String.length str in
+  let i = ref 0 and seen = ref 0 and result = ref None in
+  while !result = None && !i < slen do
+    while !i < slen && is_word_space str.[!i] do incr i done;
+    if !i < slen then begin
+      let start = !i in
+      while !i < slen && not (is_word_space str.[!i]) do incr i done;
+      if !seen = n then result := Some (String.sub str start (!i - start))
+      else incr seen
+    end
+  done;
+  (* `seen` is how many were passed, so on a miss it is the count. *)
+  (!result, !seen)
 
 let str_replace_impl old_ new_ str =
   let olen = String.length old_ in
@@ -4265,6 +4312,25 @@ let stdlib_eval_env : env = [
       | VString str -> VList (str_split_impl delim str)
       | _ -> raise (EvalError "str_split: expected String"))
     | _ -> raise (EvalError "str_split: expected String")));
+  ("str_word", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VString str ->
+        (match str_word_impl n str with
+         | (Some w, _) -> VConstr (Ctor.Builtin "Ok", [VString w])
+         | (None, count) ->
+           VConstr (Ctor.Builtin "Error",
+             [VString (Printf.sprintf "no word %d: the string has %d" n count)]))
+      | _ -> raise (EvalError "str_word: expected String"))
+    | _ -> raise (EvalError "str_word: expected Int")));
+  ("str_word_exn", VBuiltin (function
+    | VInt n -> VBuiltin (function
+      | VString str ->
+        (match str_word_impl n str with
+         | (Some w, _) -> VString w
+         | (None, count) ->
+           raise (EvalError (Printf.sprintf "no word %d: the string has %d" n count)))
+      | _ -> raise (EvalError "str_word!: expected String"))
+    | _ -> raise (EvalError "str_word!: expected Int")));
   ("str_words", VBuiltin (function
     | VString str -> VList (str_words_impl str)
     | _ -> raise (EvalError "str_words: expected String")));

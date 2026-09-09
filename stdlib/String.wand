@@ -1,4 +1,5 @@
 import List
+import Result
 
 -- Return the number of characters in a string.
 --
@@ -263,3 +264,27 @@ let lines s = str_split "\n" s
 -- >> String.words "a\tb\nc  d"
 -- ["a", "b", "c", "d"] : List String
 let words s = str_words s
+
+-- The word at index `n`, counting from 0. `None` where the string has no
+-- such word.
+--
+-- The same rule `words` uses: a run of whitespace separates once, and
+-- leading or trailing whitespace adds no word. Reading one word is what
+-- this is for -- it walks to `n` and builds only that one, where
+-- `List.get n (String.words s)` builds every word to hand back one.
+--
+-- >> String.word 1 "a b c"
+-- Some("b") : Option String
+--
+-- >> String.word 9 "a b c"
+-- None : Option String
+--
+-- >> String.word 1 "  a   b  "
+-- Some("b") : Option String
+let word n s = Result.to_option (str_word n s)
+
+-- The word at index `n`, raising where there is none.
+--
+-- >> String.word! 1 "a b c"
+-- "b" : String
+let word! n s = str_word_exn n s

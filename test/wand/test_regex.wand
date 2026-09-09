@@ -2,6 +2,8 @@ let {test} = import Test
 import List
 import Regex
 import String
+import Result
+import Par
 
 -- ── Literals ────────────────────────────────────────────────────────────
 
@@ -116,3 +118,35 @@ test "an escaped brace is a brace" (fn t ->
   | Error _ -> t.ok false)
 test "a literal is bounded the same way" (fn t ->
   t.raises (fn () -> Regex.match? r/a{999999999}/ "aaa"))
+
+-- ── A literal is compiled once ───────────────────────────────────────────
+
+-- `Re.compile` used to run on every evaluation of a regex literal, so a
+-- pattern written inside a loop was recompiled once per iteration -- about
+-- 5us each, and a second of it over a 200k-line file. The compiled form is
+-- cached on the pattern and the flags as written. These pin what the cache
+-- must not break: a key that ignored the flags would collide, and a cached
+-- pattern must not turn a failing literal into a passing one.
+
+test "the same pattern under different flags stays two patterns" (fn t ->
+  t.eq (true, false) (Regex.match? r/ABC/i "abc", Regex.match? r/ABC/ "abc"))
+
+test "and in either order" (fn t ->
+  t.eq (false, true) (Regex.match? r/DEF/ "def", Regex.match? r/DEF/i "def"))
+
+test "an oversized repeat still raises on every evaluation" (fn t ->
+  t.eq
+    [true, true]
+    (List.map (fn i -> Result.error? (try Regex.match? r/a{999999}/ "x")) [1, 2]))
+
+test "a literal in a loop answers the same as one hoisted out" (fn t -> (
+  let hoisted = r/(\d+)/;
+  let inline = List.map (fn s -> Regex.capture r/(\d+)/ s) ["a1", "b22", "c"];
+  let out = List.map (fn s -> Regex.capture hoisted s) ["a1", "b22", "c"];
+  t.eq out inline
+))
+
+-- Par workers evaluate on domains of their own, which is why the cache is
+-- per domain rather than shared.
+test "a literal works inside Par workers" (fn t ->
+  t.eq 40 (List.length (Par.map 8 (fn i -> Regex.match? r/^a+$/ "aaa") (List.range 1 40))))

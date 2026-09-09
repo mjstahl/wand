@@ -16,7 +16,7 @@ import String
 
 -- The first field of a common-log line is the client address. A line with
 -- nothing on it contributes nothing.
-let client line = List.head (String.words line)
+let client line = String.word 0 line
 
 let count_into counts line =
   match client line with

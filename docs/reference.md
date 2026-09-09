@@ -3220,6 +3220,8 @@ bytes        : String -> List String
 join         : String -> List String -> String
 lines        : String -> List String
 words        : String -> List String
+word         : Int -> String -> Option String
+word!        : Int -> String -> String ! {Raise}
 of_int       : Int -> String
 to_int       : String -> Result String Int
 to_float     : String -> Result String Float
@@ -3235,6 +3237,19 @@ to_size      : String -> Result String Size
 to_datetime  : String -> Result String DateTime
 to_duration  : String -> Result String Duration
 ```
+
+`word` reads one of what `words` would return, and follows the same rule: a
+run of whitespace separates once, and leading or trailing whitespace adds no
+word. It exists because `List.get n (String.words s)` builds every word to
+hand back one — a string, a cons cell and a reversal per field — where
+`word` walks to `n` and builds only that. On a seven-field log line that is
+397ns against 663ns.
+
+Use `words` when you want them all, and `word` when you want one. `field` is
+deliberately not the name: in `JSON.field`, `TOML.field`, `Decode.field` and
+in a type error about a record, a field is selected by *name*, and this is a
+position.
+
 
 A `String` holds bytes, so `length` and `bytes` count bytes, `upper` and
 `lower` convert ASCII only, and `slice` and `reverse` can cut a multi-byte

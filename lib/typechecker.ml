@@ -3672,6 +3672,8 @@ let stdlib_type_env : env = [
   ("str_slice",      generalize [] ((TInt @-> (TInt @-> (TString @-> TString)))));
   ("str_split",      generalize [] ((TString @-> (TString @-> TList TString))));
   ("str_words",      generalize [] ((TString @-> TList TString)));
+  ("str_word",       generalize [] ((TInt @-> (TString @-> TResult (TString, TString)))));
+  ("str_word_exn",   generalize [] (TInt @-> effs [Effect_set.Raise] TString TString));
   ("str_contains",   generalize [] ((TString @-> (TString @-> TBool))));
   ("str_starts_with",generalize [] ((TString @-> (TString @-> TBool))));
   ("str_ends_with",  generalize [] ((TString @-> (TString @-> TBool))));
