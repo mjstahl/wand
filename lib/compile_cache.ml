@@ -180,8 +180,32 @@ let find (key : string) : 'a option =
          failure: two runs writing at once, a half-written file, a format
          that moved on. Drop it and let the caller do the work. *)
       let drop () = (try Sys.remove p with _ -> ()); None in
+      (* The descriptor is asked what it is, rather than the name being
+         asked again. The check above is of the directory; between it and
+         this open a name inside it can still be replaced, and a `stat` of
+         the path afterwards would be answering about whatever the name
+         points at now. `fstat` answers about the file in hand: a regular
+         file, owned by this user, that no one else can write. A symlink
+         planted under the key resolves to whatever it names, and that file
+         has to pass the same three questions.
+
+         `O_NOFOLLOW` would say it in one word; OCaml's Unix does not have
+         it. *)
+      let read_entry () =
+        let fd = Unix.openfile p [Unix.O_RDONLY; Unix.O_CLOEXEC] 0 in
+        Fun.protect ~finally:(fun () -> try Unix.close fd with Unix.Unix_error _ -> ())
+          (fun () ->
+            let st = Unix.fstat fd in
+            if st.Unix.st_kind <> Unix.S_REG
+               || st.Unix.st_uid <> Unix.getuid ()
+               || st.Unix.st_perm land 0o022 <> 0
+            then None
+            else Some (In_channel.input_all (Unix.in_channel_of_descr fd)))
+      in
       try
-        let bytes = In_channel.with_open_bin p In_channel.input_all in
+        match read_entry () with
+        | None -> drop ()
+        | Some bytes ->
         if String.length bytes <= digest_len then drop ()
         else
           let recorded = String.sub bytes 0 digest_len in

@@ -117,6 +117,25 @@ let test_any_changed_byte_is_a_cache_miss () =
     i := !i + 4
   done
 
+(* The directory check is of the directory. A name inside it can still be
+   replaced between that check and the open, so the entry is asked what it is
+   through the descriptor: a regular file, owned by this user, that no one
+   else can write. An entry someone else can write is not read. *)
+let test_an_entry_anyone_can_write_is_not_read () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "mod.wand") "let n = 41";
+  write (Filename.concat d "main.wand") "let m = import ./mod\nm.n + 1";
+  Alcotest.(check string) "first run" "42" (run ~dir:d ~cache:c ["main.wand"]);
+  let wand_dir = Filename.concat c "wand" in
+  let entries = Sys.readdir wand_dir in
+  Array.iter (fun e -> Unix.chmod (Filename.concat wand_dir e) 0o666) entries;
+  Alcotest.(check string) "still runs" "42" (run ~dir:d ~cache:c ["main.wand"]);
+  (* Not read, so it was dropped and written again -- 0600, as every entry
+     is. *)
+  Array.iter (fun e ->
+    Alcotest.(check int) "the entry is private again" 0o600
+      ((Unix.stat (Filename.concat wand_dir e)).Unix.st_perm)) entries
+
 (* `WAND_CACHE` is read for what it says, not for being set at all: the
    values a reader picks to mean off have to mean off, and everything else --
    including the empty string a shell leaves behind for an unset variable --
@@ -270,6 +289,8 @@ let () =
       Alcotest.test_case "a corrupt entry"         `Quick test_a_corrupt_entry_is_survivable;
       Alcotest.test_case "any changed byte"        `Slow
         test_any_changed_byte_is_a_cache_miss;
+      Alcotest.test_case "a world-writable entry"  `Quick
+        test_an_entry_anyone_can_write_is_not_read;
       Alcotest.test_case "a world-writable dir"    `Quick test_a_world_writable_dir_is_not_used;
       Alcotest.test_case "turned off"              `Quick test_cache_can_be_turned_off;
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
