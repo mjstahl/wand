@@ -1105,6 +1105,22 @@ holds bytes and a NUL reaches one from a command's output, a file read or
 catches. The byte is rejected, never dropped: nothing runs with the value
 cut short.
 
+**One argument is not one that the command reads as data.** `%{x}` decides
+where the argument ends. It does not decide how the command reads it, and a
+value that begins with `-` is read as an option by most of them:
+
+```ocaml
+let pat = "--version"
+$?(grep %{pat} notes.txt)   -- runs: grep '--version' notes.txt
+                            -- which prints grep's version and matches nothing
+```
+
+The quoting is right — `--version` arrived as exactly one argument. It is
+`grep` that reads a leading dash as a flag. Where the value comes from
+outside the script, end the options first: `$(grep -- %{pat} notes.txt)`.
+Most tools take `--`, and the ones that do not take a path instead
+(`./%{name}` rather than `%{name}`).
+
 Write `%{x}` between quotes of your own, and it becomes part of that word.
 It is not an argument of its own. wand escapes it for the quote it sits in.
 The shell reads nothing in the value as syntax:
@@ -3253,6 +3269,17 @@ match_all   : Regex -> String -> List String
 
 A pattern matches bytes, not characters, so `.` is one byte and `r/^.$/`
 does not match `"é"`. See [A `String` is bytes](#a-string-is-bytes).
+
+Matching is a non-backtracking automaton, so the time it takes is the length
+of the input and nothing else. `r/^(a+)+$/` against five thousand `a`s is
+about 25 ms — the shape that hangs a backtracking engine costs nothing here.
+
+What the pattern does decide is the cost of building it. **A counted repeat
+may not exceed 10,000**, because a repeat is expanded where a pattern becomes
+a `Regex` — `a{999999999}` is minutes of work and the memory to match, from
+the pattern alone. Past the bound, `compile` answers `Error` and a literal
+raises. An escaped `\{`, a `{` inside a character class, and a `{` that no
+digits follow are literal braces, and none of them counts.
 
 ### `Map`
 
@@ -5791,6 +5818,18 @@ Four things stay different from a real run, and no rehearsal can close them:
   else could be true.
 - **Permissions and ownership are not modelled.** A rehearsal answers about
   contents and existence.
+
+Two things happen for real, and each says so on the line that reports it.
+`FS.lock` takes the lock, so a rehearsal cannot run beside a real one; a
+waiting acquire does not wait. And `Proc.exit n` ends the rehearsal with `n`,
+because a run ends there too — carrying on would report writes a run would
+never reach:
+
+```console
+$ wand --dry-run deploy.wand
+would write: ./build/stamp (12 bytes)
+exit: 1 (the rehearsal ends here, as a run would)
+```
 
 `--trace` is a real run that reports. It withholds nothing and remembers
 nothing.
