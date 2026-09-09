@@ -1,5 +1,126 @@
 # Changelog
 
+## [0.68.0] - 2026-09-09
+
+A pre-release security review of the whole tree, and what it found. Six
+areas were read: shell execution, the effect system, the filesystem and the
+cache, the CLI and language server, CI and supply chain, and the standard
+library's parsers. Twenty-six findings are fixed.
+
+### Changed
+
+- **An IPv4 octet may not have a leading zero.** `192.168.001.1` was an
+  address and is not one; `010.8.8.8` was `10.8.8.8`, which is private,
+  while libc and every resolver read `010` as octal and make it `8.8.8.8`,
+  which is not. A script that asked `IPv4.private?` and handed the same text
+  to a command checked one host and reached another. A lex error names the
+  rule, in a literal and in `IPv4.of_string`, `String.to_ipv4` and
+  `CIDR.of_string`
+- **A `JSON` value cannot hold an infinite or NaN number.** `JSON.parse
+  "1e999999"` used to answer `Ok` with a value that could not be written
+  back out. `parse`, `read_file`, `of` and `of_float` refuse at the door,
+  and the `!` forms raise. `YAML` reads into the same value and answers the
+  same way, so `.inf` is an error there
+- **`wand s` does not walk into a symlinked directory.** A run covers what
+  the tree holds. A directory named on the command line is still searched,
+  whatever it is, and a linked *file* is still read
+- **A regex may repeat at most 10,000 times.** `a{999999999}` never
+  finished: a counted repeat is expanded where a pattern becomes a `Regex`,
+  so the count alone decides the cost. Matching is unaffected -- it is a
+  non-backtracking automaton
+- **`Env.clear` takes the name out of the environment** instead of setting
+  it to the empty string. A variable holding nothing is still set, so
+  `${NAME-fallback}` in a child took the empty string and never reached the
+  fallback
+- **`wand f` and `wand t --fix` write the file the way `FS.write_atomic`
+  does.** Beside and renamed into place, mode kept, symlink written through.
+  They truncated the source and then filled it, so a crash part way through
+  left half a file
+- **A release archive built by CI carries a build attestation.** Check one
+  with `gh attestation verify <archive> --repo mjstahl/wand`. The `.sha256`
+  beside an archive is written by the job that builds it, so it
+  authenticates the download and not the publisher
+
+### Fixed
+
+- **`wand t` ran the code it imported.** Typechecking evaluated every
+  imported module under the handler a real run uses, so `wand t victim.wand`
+  on a file importing a hostile one created a file and exited 0. The
+  language server typechecks on every keystroke, so opening a file in an
+  editor ran what it imported. Analysis paths load a module for its types
+  and never evaluate its body; running a script, running a test file and the
+  REPL still do
+- **A newline in a command bypassed the `Shell(...)` allowlist.** The shell
+  reads one as a separator and wand read it as whitespace, so the word after
+  it was never a command position. Under `uses {Shell(echo)}`, `$(echo
+  %!{c})` with a newline in `c` ran whatever followed and exited 0
+- **Two crashes a script could not catch.** A JSON number that read as
+  infinity, and a NUL byte in a shell splice, each ended the program with a
+  fatal error past `try` and past `$?()`. Both are ordinary raises now
+- **`FS.lock` leaked into spawned children.** The lock file was the one
+  descriptor opened without `O_CLOEXEC`, and an flock belongs to the open
+  file description -- so a script that started a background process while
+  holding the lock left the next run reporting `Held` with nothing holding
+  it, which is the cron guard the lock exists for
+- **`Size` and `Duration` addition wrapped.** `4000000000GB + 4000000000GB`
+  answered with a negative `Size`, which passes any threshold a script
+  compares it against. Both use the checked add `Int` addition uses
+- **A corrupt compile-cache entry segfaulted every later run.** Marshal
+  reads what it is given, so a header it accepted and a body it walked into
+  was a fault, which nothing can catch -- the entry stayed and the script
+  died the same way until the cache was deleted by hand. An entry carries a
+  digest of its bytes, checked before anything is unmarshalled, and the
+  write reaches the disk before the rename
+- **One malformed frame killed the language server.** A negative
+  `Content-Length`, a huge one, or a body that was not JSON each ended it,
+  and every later request in that session went unanswered. A bad body is
+  answered with `-32700` and the session goes on
+- **The Rehearse lens ran the file name.** It built a shell command with
+  `JSON.stringify` around the path, and double quotes do not stop a shell
+  reading `$(...)`, so a file named `x$(cmd).wand` ran `cmd` when the lens
+  was clicked. The terminal spawns from an argv
+- **`FS.delete` on a symlink to a directory** answered "Not a directory". It
+  removes the name it is given
+- **`FS.copy_tree` could not be re-run** over a tree holding a link that
+  points nowhere
+- **`FS.copy` read the whole file into memory.** A block at a time: a 1 GB
+  copy peaks at 7.0 MB of resident memory instead of 1.08 GB
+- **`FS.temp_dir` had a window** between removing a unique name and making a
+  directory of it. `mkdtemp` has none
+- **`install.sh` could not resolve "latest" without curl.** The wget
+  fallback never asked wget to print the headers it was scraping, and
+  matched them with a pattern that ignored wget's indent. It is gone rather
+  than repaired: no CI runner lacks curl, so the branch never ran anywhere,
+  and the text it read differs between GNU wget and the busybox one on the
+  machines most likely to lack curl. Without curl the script says so, and
+  names where to get the archive instead
+- **`FS.delete_tree` named every step by path.** `lstat` said a name was a
+  directory, `readdir` listed it, `rmdir` removed it -- three lookups of one
+  name, so something able to write inside the tree could replace a directory
+  with a symlink between two of them and send the deletions elsewhere. It
+  walks by directory descriptor now, which is what `rm -rf` does. Nothing
+  observable changes; the cost is one descriptor per level of depth
+
+### Editor
+
+- **`wand.autoEdit`** turns off the import and manifest edits the server
+  pushes as you type. Default on, and the same fixes stay available as quick
+  fixes
+- **`wand.path` is machine scope**, so a workspace cannot point the language
+  server at a script in the repository
+
+### CI
+
+- The `mjstahl/setup-wand` checkout is pinned to a commit. It runs wand code
+  and wand code runs shell, so a push to that repository was a command
+  running in this one
+- `ci.yml` declares `permissions: contents: read`; `release.yml` declares
+  them per job, so the build job no longer has `contents: write`
+- Every action is pinned to a commit, and `.github/dependabot.yml` bumps
+  them weekly
+- Trigger values reach `run:` blocks through `env:`, and the fuzz step
+  checks its numbers are numbers before arithmetic evaluates them
+
 ## [0.67.0] - 2026-09-08
 
 ### Added
