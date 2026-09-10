@@ -7,7 +7,6 @@ design rationale. It is not a benchmark.
 - [Why ML-style syntax](#why-ml-style-syntax)
 - [What the language does beyond syntax](#what-the-language-does-beyond-syntax)
 - [Errors a machine can act on](#errors-a-machine-can-act-on)
-- [What still goes wrong](#what-still-goes-wrong)
 - [How to check any of this](#how-to-check-any-of-this)
 
 ## Why ML-style syntax
@@ -135,10 +134,6 @@ Several messages exist only for habits carried in from another language:
 Each names the correction. This table exists because a writer arriving with
 habits from another language is the common case, not the exception. That
 describes a model exactly.
-
-## What still goes wrong
-
-Honest list. These are the things that are got wrong in practice.
 
 ## How to check any of this
 
