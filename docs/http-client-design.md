@@ -1,12 +1,19 @@
-# Reading a response as it arrives
+# Reading a response as it arrives, and asking again when it says no
+
+Two things an HTTP client needs that wand does not have, recorded together
+because the same caller needs both and the second depends on a decision the
+first makes.
 
 `HTTP.request!` answers with a whole `HTTPResponse`. Every other source wand
 reads has a streaming form — `FS.stream_lines` for a file, `Shell.stream` for
 a command, `FS.stream_lines_all` for several files as one — and `HTTP` has
-none. This document is the design record for adding one: what a caller gets
-back, what the manifest checks and when, what a test double answers with, and
-what a rehearsal does. It is a record of decisions and their reasons, written
-before the code. It is not a specification.
+none. And nothing in the standard library retries, though `Test` already
+advertises testing one.
+
+This document is the design record for both: what a caller gets back, what the
+manifest checks and when, what a test double answers with, and what a rehearsal
+does. It is a record of decisions and their reasons, written before the code.
+It is not a specification.
 
 Several questions in it are open. They are marked, and each says what turns
 on the answer.
@@ -19,6 +26,11 @@ on the answer.
 - [Stopping early, failing late](#stopping-early-failing-late)
 - [A stream that stalls](#a-stream-that-stalls)
 - [What a rehearsal does](#what-a-rehearsal-does)
+- [Asking again when it says no](#asking-again-when-it-says-no)
+- [Retrying keys on the answer, not on the failure](#retrying-keys-on-the-answer-not-on-the-failure)
+- [The policy is one record with defaults](#the-policy-is-one-record-with-defaults)
+- [A rehearsal withholds the sleep, and sends the GET](#a-rehearsal-withholds-the-sleep-and-sends-the-get)
+- [Where it lives](#where-it-lives)
 - [Open questions](#open-questions)
 - [Left out on purpose](#left-out-on-purpose)
 - [Order](#order)
@@ -184,11 +196,123 @@ bounds the whole read — but not the gap between two items, which is what
 `FS.stream_lines` reads for real under a rehearsal, and by that rule
 `HTTP.stream` on a `GET` should too.
 
-It does not follow for the rest. A streaming `POST` sends a body, which is a
-change to somebody else's machine, and a rehearsal that sent it would be worse
-than none. `HTTP.request` has the same problem today and the record should say
-what it does before this adds a second case. See
-[Q5](#q5-what-does-a-rehearsal-do-with-a-request-that-is-not-a-get).
+`HTTP.request` already draws that line and this follows it. A rehearsal sends
+`GET` and `HEAD` and withholds every other method, answering `202` with no body
+— "the server took it and said nothing", which is the least a caller can read
+into (`runner.ml:817`, `runner.ml:974`). So a streaming `POST` is withheld, and
+the question is only what its *stream* answers with: an empty one is the
+reading consistent with a `202` and no body.
+
+## Asking again when it says no
+
+Nothing in the standard library retries, and `Test` is written as though
+something did. `Test.with_clock` exists so that "a test that exercises an hour
+of backoff runs in microseconds", and the example under it is
+
+```
+let (elapsed, result) = Test.with_clock (fn () -> retry fetch)
+```
+
+`retry` does not exist. The test module advertises a way to test a thing the
+library does not provide, so every caller writes the loop, and each one writes
+it slightly differently.
+
+The case that makes it urgent is the same one that wants streaming. Every LLM
+API answers `429` under load and asks to be asked again, and a client that does
+not retry is a client that fails whenever anyone else is busy. But retry is not
+an HTTP feature: a flaky `$()`, a lock that is held, a mount that is not up yet
+are the same shape. It is a general combinator that HTTP happens to need most.
+
+## Retrying keys on the answer, not on the failure
+
+This is the decision the rest turns on, and it is forced by a choice `HTTP`
+already made.
+
+A retry combinator in most languages wraps a call that *fails* and repeats it.
+That is useless here. `HTTP.request` answers `Ok response` for a `429`, because
+the exchange succeeded and the server said no — `HTTP.wand` says so, and it is
+right. A `Result`-keyed retry would never fire for the one case that motivates
+it.
+
+So what is retried is an *answer the caller judges unacceptable*, and the
+caller supplies the judgement:
+
+```
+Retry.until : ('a -> Bool) -> Policy -> (Unit -> 'a ! 'e) -> 'a ! {Clock | 'e}
+```
+
+```
+Retry.until HTTP.ok? Retry.Policy() (fn () -> HTTP.request! req)
+```
+
+`HTTP.ok?` already exists and reads exactly right at the call site. A caller
+wanting to retry a `503` but not a `404` writes the predicate, and the manifest
+of the retrying file is the thunk's effects plus `Clock`.
+
+A transport failure — a name that does not resolve, a connection refused — is a
+raise rather than an answer, and it is a second axis. Whether one function
+covers both is [R1](#r1-does-one-function-cover-a-bad-answer-and-a-raise).
+
+## The policy is one record with defaults
+
+Backoff has five knobs and nobody wants five arguments. wand has field
+defaults, which is what makes a single record better than a family of
+functions:
+
+```
+type Policy(
+  attempts: Int      = 3,
+  base:     Duration = 1s,
+  factor:   Int      = 2,
+  cap:      Duration = 30s,
+  jitter:   Bool     = true
+)
+```
+
+`Retry.Policy()` is the default and reads as "the usual thing".
+`Retry.Policy(attempts = 5, cap = 2min)` changes two and says which two. No
+overload set, no builder, and the type error names the field.
+
+`jitter` is not free. Spreading the waits needs `Random`, so a script that
+retries with jitter declares `Random` — a label a reader notices, on a script
+that draws no lottery. See [R2](#r2-does-every-retrying-script-declare-random).
+
+## A rehearsal withholds the sleep, and sends the GET
+
+This is the sharpest problem in the retry half, and it is not hypothetical.
+
+`Clock!sleep` is withheld under `--dry-run` (`runner.ml:830`), and a `GET` is
+sent for real (`runner.ml:817`). A retry loop written in wand over
+`Clock.sleep` therefore *spins* under a rehearsal: an hour of planned backoff
+becomes microseconds of hammering a live endpoint. Rehearsing a script that
+retries a read is a small denial-of-service against whoever is on the other
+end.
+
+wand has met this before and wrote down the answer. `FS!lock_wait` is its own
+operation rather than a loop in wand over `FS!lock` and `Clock.sleep`, and the
+reference says why: "a rehearsal withholds a sleep, so such a loop would spin
+against a wall-clock deadline for the whole budget. One operation is also what
+lets a rehearsal decline to wait."
+
+Retry has the same shape and should get the same treatment: the wait inside a
+retry is not a plain `Clock.sleep`, so a rehearsal can decline to retry rather
+than retry instantly. Whether that means the whole combinator is an operation,
+or only its wait, is [R3](#r3-is-the-wait-an-operation-a-rehearsal-can-decline).
+
+Whatever the mechanism, the rehearsal's report should say the thing that is
+true: *would retry up to N times, waiting up to D*.
+
+## Where it lives
+
+A module of its own, `Retry`.
+
+Not `HTTP`, because retrying a command or a lock is the same combinator and
+putting it in `HTTP` hides it from both. Not `Par`, which is about doing
+several things at once and shares nothing with this but the word "thunk". Not
+`Clock`, which tells the time and does not decide when to give up.
+
+`Retry` is a shorter name than the module list's usual nouns, and it is the
+word every caller will search for.
 
 ## Open questions
 
@@ -252,21 +376,79 @@ can carry — which would also close the `Shell.stream` gap in the same stroke.
 general form is buildable, it is worth more than the specific one, and
 `Shell.stream` gets it free.
 
-### Q5: What does a rehearsal do with a request that is not a `GET`?
-
-This is already unanswered for `HTTP.request` and this change should not add a
-second case before the first is settled. Options: withhold and answer a
-synthetic 200, withhold and raise, or send it and be honest that `Net` is not
-rehearsable.
-
-**Turns on:** whether `--dry-run`'s promise is "changes nothing on this
-machine" or "changes nothing anywhere". The manifest record says the second.
-
-### Q6: Does the request body stream too?
+### Q5: Does the request body stream too?
 
 `HTTP.upload` sends a file today. A streamed *request* body — sending while
 generating — has no caller anyone has asked for. Named here so the answer is
 "not now" on purpose rather than by omission.
+
+### R1: Does one function cover a bad answer and a raise?
+
+`Retry.until` keys on the answer. A transport failure never produces one — it
+raises, or comes back `Error` from the non-`!` sibling. Three shapes:
+
+- One function that retries both: it catches, and a predicate that must judge
+  `Result String 'a` rather than `'a` loses the reading of
+  `Retry.until HTTP.ok?`.
+- Two functions, `until` on the answer and something like `Retry.while_raising`
+  on the failure. Honest and doubles the surface.
+- One function, and the caller composes: `Retry.until (fn r -> match r with Ok
+  x -> HTTP.ok? x | Error _ -> false) p (fn () -> try f ())`. Nothing new, and
+  the call site is a mouthful.
+
+**Turns on:** whether the predicate can stay `'a -> Bool`, which is what makes
+`Retry.until HTTP.ok?` read the way it does. Leaning: keep it, and let `try`
+inside the thunk be how a raise becomes an answer.
+
+### R2: Does every retrying script declare `Random`?
+
+Jitter needs entropy, so `jitter = true` puts `Random` in the manifest of any
+script that retries. That is truthful — the script does draw — and it is also
+noise on the first line of a deploy script that draws nothing else, and
+`Random` is a label a reviewer reads as "this run will not repeat".
+
+Options: default `jitter` to false and make spreading opt-in; keep it true and
+accept the label; or derive the spread from something that is not `Random` —
+the attempt number and the process id are already to hand and need no effect,
+at the cost of two processes started together retrying in step.
+
+**Turns on:** whether a `Random` on the first line of every retrying script is
+information or noise. Leaning: default true and accept it, because thundering
+herd is a real failure and a label that says so is the manifest working.
+
+### R3: Is the wait an operation a rehearsal can decline?
+
+A plain `Clock.sleep` inside the loop makes `--dry-run` hammer the endpoint.
+`FS!lock_wait` solved the same problem by being one operation. Candidates:
+
+- The whole combinator is an operation, resuming with the final answer. A test
+  double then stands in for retrying entirely, which is either convenient or a
+  way to seal something you meant to exercise.
+- Only the wait is its own operation — `Clock!backoff`, say — which a rehearsal
+  declines and `Test.with_clock` already knows how to answer. Smaller, and the
+  loop stays readable wand.
+- Leave it a `Clock.sleep` and document that `--dry-run` does not rehearse a
+  retry. Cheapest and worst: the failure is silent and lands on somebody else's
+  server.
+
+**Turns on:** whether a rehearsal must be safe for the *other* machine, not
+just this one. The manifest record says it must. Leaning: the second option.
+
+### R4: How does `Retry-After` reach the policy?
+
+A `429` usually carries `Retry-After`, and honouring it is the difference
+between a polite client and a rude one. `Retry.until`'s predicate answers
+`Bool`, which cannot carry a duration.
+
+Options: the predicate answers `Option Duration` — `None` for "this answer is
+fine", `Some d` for "ask again after d" — which folds the two questions into
+one and reads less well; a second optional field on `Policy` holding a function
+from the answer to a delay; or an `HTTP`-side helper that builds a `Policy`
+from a response.
+
+**Turns on:** whether `Retry` is allowed to know that answers can suggest their
+own delay, without knowing anything about HTTP. The first option is the only
+one that keeps `Retry` general and still honours the header.
 
 ## Left out on purpose
 
@@ -278,6 +460,12 @@ generating — has no caller anyone has asked for. Named here so the answer is
   changes nothing about it.
 - **A connection pool.** One request, one process, today. Worth measuring
   before it is worth designing.
+- **A circuit breaker.** Retry is per call site; a breaker is state shared
+  across them, and wand has no place to keep it. A script that needs one is
+  asking for a supervisor.
+- **Retrying a stream mid-body.** The status is eager, so a `429` is known
+  before there is a stream to retry. A body that fails halfway cannot be
+  resumed without range requests, which is its own record.
 
 ## Order
 
@@ -290,4 +478,13 @@ generating — has no caller anyone has asked for. Named here so the answer is
    lines and no network.
 5. Q4 last, and as a `Stream` feature if it can be one.
 
-Q3, Q5 and Q6 are answers to write down, not code to add.
+Q3 and Q5 are answers to write down, not code to add.
+
+The retry half is independent of all of it and can go first. Its own order:
+
+1. Settle R1 and R4 — together they fix the predicate's type, and everything
+   else is written against that.
+2. `Retry.Policy` and `Retry.until` over a wait that a rehearsal can decline
+   (R3), with `Test.with_clock` proving the backoff in microseconds — the
+   example that module already advertises.
+3. R2 is a default to choose, not code to write.
