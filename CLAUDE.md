@@ -206,6 +206,11 @@ any. `Net` narrows the same way, by host: `Net(api.github.com)` admits one
 and bare `Net` any, and every redirect is held to the list too. wand has no
 TLS of its own, so `HTTP` reaches a host through a `curl` subprocess, and a
 narrowed `Shell` does not bound that one.
+A subprocess is outside every label, `Shell`'s own list included:
+`uses {Shell(curl)}` reaches any host with no `Net`, and `uses {Shell(cat)}`
+reads any file with no `FS.Read`. The labels describe what a file's wand
+code does, and wand reads the file rather than the binary. Never write a
+manifest as though it bounded a subprocess.
 A literal command word the list omits is a type error; a word decided
 at run time is checked at spawn and flagged by `V-SHELL1`. Doing more than
 the manifest says is a type error; declaring more than the file does is an

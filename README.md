@@ -24,13 +24,20 @@ A script cannot get around the declaration. wand quotes each value that goes
 into a shell command. A filename from the environment cannot become a second
 command. A function that runs a command five calls down still needs the first
 line to permit it. wand does not check that a script is correct. It checks that
-a script cannot do what it did not declare.
+a script's own code cannot do what it did not declare.
+
+One label is wider than the rest. `Shell` says a subprocess starts, and names
+which binary. What that binary then does is outside every label: `Shell(curl)`
+reaches any host with no `Net`, and `Shell(cat)` reads any file with no
+`FS.Read`. wand reads the file, not the binary. The manifest tells a reviewer
+which binaries a script starts, on the first line; bounding what they do once
+started is a sandbox's job.
 
 `Net(api.github.com)` says where bytes may go, and every redirect is held to
-it too. One thing that claim does not cover today: wand has no TLS of its
-own, so `HTTP` reaches a host through a `curl` subprocess, and a narrowed
-`Shell` does not bound that one. `Shell(git)` means only `git` runs *from
-this script*.
+it too. So it bounds this file's `HTTP` calls, and wand has no TLS of its
+own, so `HTTP` itself reaches a host through a `curl` subprocess that a
+narrowed `Shell` does not bound either. `Shell(git)` means only `git` runs
+*from this script*.
 
 **[Language reference →](docs/reference.md)**
 

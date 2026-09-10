@@ -1352,7 +1352,7 @@ Everywhere else, write no effects and let wand infer them.
 
 ### The labels
 
-Nine, and a script cannot define more:
+Ten, and a script cannot define more:
 
 | Label | Means |
 |---|---|
@@ -1601,6 +1601,37 @@ flow. A `!` name shows it, and so does each signature. To include it would put
 `Raise` in almost every manifest, and it would say nothing about what a file
 can reach.
 
+### A subprocess is outside every label
+
+The ten labels describe what this file's wand code does. `Shell` says a
+subprocess starts, and names which binary. What that binary then does is
+outside all ten, `Shell` included:
+
+| the file declares | the subprocess can | the label not declared |
+|---|---|---|
+| `Shell(curl)` | send bytes to any host | `Net` |
+| `Shell(cat)` | read any file | `FS.Read` |
+| `Shell(rm)` | remove any file | `FS.Write` |
+| `Shell(printenv)` | read the environment | `Env` |
+| `Shell(sleep)` | wait | `Clock` |
+
+Each of those files typechecks. So a narrowed `Net` bounds where `HTTP`
+sends bytes, not where the script does, and a file with no `Net` still
+reaches the network if it runs something that can. The same holds for every
+other label beside `Shell`.
+
+This is not a gap waiting to be closed. wand reads the file, not the binary:
+there is nothing in `curl` for a typechecker to look at, and a label wand
+cannot infer is a label wand cannot check. Making `Shell` imply the other
+nine would be truthful and useless -- every script that runs `git` would
+declare `Net`, `FS.Read`, `FS.Write` and `Env`, and the labels would stop
+telling a reader anything.
+
+What the manifest gives you is the name of each binary a script starts, on
+the first line, where a reviewer sees it without a search. What bounds what
+those binaries do is the thing that bounds processes: a sandbox, a
+container, a user with no route to the network.
+
 ### Naming the binaries: `Shell(git, curl)`
 
 Bare `Shell` says that the file runs commands. It does not say which ones.
@@ -1617,7 +1648,9 @@ space. Bare `Shell` stays legal and means any binary.
 
 One subprocess is outside this: the `curl` that `HTTP` sends bytes through.
 A narrowed `Shell` bounds what *this script* runs, and the transport is not
-that. See [`Net`](#net). It is the honest
+that. See [`Net`](#net). The list bounds which binaries start, and not what
+they do once they have — see
+[A subprocess is outside every label](#a-subprocess-is-outside-every-label). It is the honest
 spelling for a script that is open-ended. `Shell()` is a parse error: a file
 that runs nothing drops the label.
 
@@ -4080,6 +4113,12 @@ does not stop a connection to an address the script writes out, any more
 than `Shell(git)` peels a wrapper. The manifest bounds the text, and that is
 the whole of what it claims.
 
+**A narrowed `Net` bounds `HTTP`, not the script.** A subprocess sends bytes
+without any `Net` at all: `uses {Shell(curl)}` typechecks and reaches any
+host. So `Net` answers where *this file's* `HTTP` calls go, and a file that
+also declares `Shell` is bounded by whichever of the two is wider. See
+[A subprocess is outside every label](#a-subprocess-is-outside-every-label).
+
 A request is checked against the manifest of the file that wrote its URL,
 and so is every redirect it follows — a 302 is the one thing that can send a
 body to a host nobody wrote down. A host the run decides is checked when the
@@ -5014,7 +5053,7 @@ timeout : Duration -> (Unit -> 'a ! 'e) -> Result String 'a ! {Clock | 'e}
 ```
 
 `run!` and `query` are what `$(cmd)` and `$?(cmd)` are, over a command built
-somewhere else. See [A command as a value](#a-command-as-a-value-cmd).
+somewhere else. See [A command as a value](#a-command-as-a-value).
 
 `stream` reads a command's output as it arrives. See
 [Streaming a command](#streaming-a-command).
