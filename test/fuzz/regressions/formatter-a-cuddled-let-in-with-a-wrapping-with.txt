@@ -1,0 +1,12 @@
+`wand f` wrote source that does not parse: expected ), got in.
+
+A `let ... in` cuddled onto `fn -> ` puts its keyword at the end of that
+line, while its value and its `in` are laid out from the indent the lambda
+was handed -- so every line of the binding sits left of the `let` it
+belongs to. The parser reads a line left of the keyword as something new,
+which ends the binding early and leaves the `in` with nothing to close.
+A `with` body that wrapped was the shape that reached it.
+
+Reduced, and readable, in test_formatter.ml as "a wrapping with inside a
+cuddled let-in". Kept here as the input the daily fuzzer reported
+(issue #24, seed 34476226735, iteration 918161, width 91).

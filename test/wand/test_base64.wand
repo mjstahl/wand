@@ -76,7 +76,8 @@ test "a long value round-trips through every padding phase" (fn t ->
   t.eq
     true
     (List.all?
-      (fn n -> let s = String.slice 0 n (String.repeat 40 "abcdefghij") in
+      (fn n ->
+        let s = String.slice 0 n (String.repeat 40 "abcdefghij") in
         Base64.decode (Base64.encode s) == Ok s
       )
       (List.range 0 64)

@@ -1387,12 +1387,21 @@ let test_a_block_binding_round_trips () =
     {|let f () = (let x = 1 in x + 1; 9)|};
   (* The other spelling in the same place. A `let ... in` chain lays its
      continuation out at the indent it is handed, and level with the `fn`
-     the second binding read as the statement after the lambda. *)
+     the second binding read as the statement after the lambda. Cuddled
+     after the `->` the keyword also sat right of every line below it, so
+     the chain takes the line under the lambda instead. *)
   fmt_eq "a let chain in a lambda wraps under it"
     {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc) paths [])|}
-    {|let plan paths = List.fold_right (fn p acc -> let name = basename p in
+    {|let plan paths = List.fold_right (fn p acc ->
+  let name = basename p in
   let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
 ) paths []|};
+  (* A `let ... in` cuddled onto `fn -> ` puts its keyword right of the
+     value and the `in` below it, and the parser reads a line left of the
+     keyword as something new: this one came back as three statements with
+     the `in` at the top level. Found by test/fuzz. *)
+  assert_idempotent "a wrapping with inside a cuddled let-in"
+    {|let s = (fn -> let t = with a as d -> gggggggggg (hhhhhhhhhh "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") "yyyyyyyyyy" in "")|};
   assert_idempotent "a block is a fixed point"
     {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|};
   assert_idempotent "and so is a block with no sequence in it"

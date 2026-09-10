@@ -24,7 +24,8 @@ group "the forms" (fn () -> [
     t.eq
       5
       (let f =
-        fn () -> let g y = y + 1
+        fn () ->
+          let g y = y + 1
           in g 4
       in
       f ()

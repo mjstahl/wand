@@ -929,9 +929,19 @@ and emit_expr_inner ?col indent e =
       | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> indent + 2
       | _ -> indent
     in
-    head
-    ^ bracket_if_wrapped_app body
+    let cuddled =
+      bracket_if_wrapped_app body
         (emit_expr ~col:(col + String.length head) body_indent body)
+    in
+    (* A `let ... in` lays its value and its `in` out from the indent it was
+       handed, and the keyword itself sits at the end of `fn ... -> `, well
+       right of that. Everything below it then lands left of the `let` it
+       belongs to, where the parser reads it as something new. Given the
+       line to itself the keyword starts at the indent its own lines use. *)
+    if String.contains cuddled '\n' && body_indent <> indent then
+      emit_fn_head ps ^ "\n" ^ String.make body_indent ' '
+      ^ emit_expr body_indent body
+    else head ^ cuddled
   (* A binding written with the `;` of a block belongs to that block, and
      comes back out with the `;`. *)
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) as e ->
