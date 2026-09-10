@@ -1,5 +1,3 @@
-import Result
-
 -- Apply a function to every element of a list, returning a new list.
 --
 -- >> List.map (fn x -> x * 2) [1, 2, 3]
@@ -177,7 +175,7 @@ let indexed xs =
 --
 -- >> List.get 1 [1, 2, 3]
 -- Some(2) : Option Int
-let get n xs = Result.to_option (list_get n xs)
+let get n xs = list_get n xs
 
 -- Return the element at index n.  Raises if out of bounds.
 --
@@ -207,6 +205,18 @@ let sort_by f xs = list_sort_by f xs
 -- >> List.unique [60s, 1min, 2min]
 -- [60s, 2min] : List Duration
 let unique xs = list_unique xs
+-- Count how often each string appears. `Stream.tally` is the same over a
+-- stream, for a list too big to hold.
+--
+-- Entries come back in the order their keys were first seen. Sort by the
+-- count to rank them.
+--
+-- >> List.tally ["a", "b", "a"]
+-- {a = 2, b = 1} : Map Int
+--
+-- >> List.tally []
+-- {} : Map Int
+let tally xs = list_tally xs
 
 -- Generate a list of integers from lo to hi, both included.
 --

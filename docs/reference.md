@@ -3158,6 +3158,7 @@ indexed    : List 'a -> List (Int, 'a)
 sort       : List 'a -> List 'a
 sort_by    : ('a -> 'b) -> List 'a -> List 'a
 unique     : List 'a -> List 'a
+tally      : List String -> Map Int
 range      : Int -> Int -> List Int
 flatten    : List (List 'a) -> List 'a
 concat     : List 'a -> List 'a -> List 'a
@@ -3693,6 +3694,7 @@ find      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Option 'a ! 'e
 sum       : Stream {..} Add -> Option Add ! 'e
 max       : Stream {..} Ord -> Option Ord ! 'e
 min       : Stream {..} Ord -> Option Ord ! 'e
+tally     : Stream {..} String -> Map Int ! 'e
 ```
 
 Read through a file, and do not read it into memory. A stream describes a

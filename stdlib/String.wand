@@ -1,5 +1,4 @@
 import List
-import Result
 
 -- Return the number of characters in a string.
 --
@@ -281,7 +280,7 @@ let words s = str_words s
 --
 -- >> String.word 1 "  a   b  "
 -- Some("b") : Option String
-let word n s = Result.to_option (str_word n s)
+let word n s = str_word n s
 
 -- The word at index `n`, raising where there is none.
 --

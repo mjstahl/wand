@@ -1,6 +1,7 @@
 uses {FS.Read, FS.Write}
 
 import List
+import Map
 import Test
 let {test} = import Test
 import FS
@@ -296,3 +297,29 @@ test "read, filter and write is two calls" (fn t ->
 test "the sink gives back a Result" (fn t ->
   with FS.temp_dir "st_" as d ->
   t.eq ((Ok) ()) (FS.write_lines (Path.join d ./out) (Stream.of_list ["a"])))
+
+-- `tally` is the whole counting loop, so it must answer exactly what the
+-- fold it replaces answers -- including the order, which is first-seen and
+-- not key order.
+test "tally counts each string" (fn t ->
+  t.eq {a = 2, b = 1} (Stream.of_list ["a", "b", "a"] |> Stream.tally))
+
+test "tally keeps first-seen order" (fn t ->
+  t.eq ["b", "a"] (Stream.of_list ["b", "a", "b"] |> Stream.tally |> Map.keys))
+
+test "tally of nothing is the empty map" (fn t ->
+  t.eq Map.empty (Stream.of_list [] |> Stream.tally))
+
+test "tally agrees with the fold it replaces" (fn t ->
+  let xs = ["x", "y", "x", "z", "y", "x"] in
+  let folded = List.fold_left (fn m k -> Map.update k 0 (fn n -> n + 1) m) Map.empty xs in
+  t.eq (Map.to_list folded) (Stream.of_list xs |> Stream.tally |> Map.to_list))
+
+test "tally counts what the stages let through" (fn t ->
+  t.eq
+    {a = 2}
+    (Stream.of_list ["a b", "c d", "a e"]
+      |> Stream.filter_map (String.word 0)
+      |> Stream.filter (fn w -> w == "a")
+      |> Stream.tally
+    ))

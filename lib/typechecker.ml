@@ -3672,7 +3672,7 @@ let stdlib_type_env : env = [
   ("str_slice",      generalize [] ((TInt @-> (TInt @-> (TString @-> TString)))));
   ("str_split",      generalize [] ((TString @-> (TString @-> TList TString))));
   ("str_words",      generalize [] ((TString @-> TList TString)));
-  ("str_word",       generalize [] ((TInt @-> (TString @-> TResult (TString, TString)))));
+  ("str_word",       generalize [] ((TInt @-> (TString @-> TApp (TName "Option", TString)))));
   ("str_word_exn",   generalize [] (TInt @-> effs [Effect_set.Raise] TString TString));
   ("str_contains",   generalize [] ((TString @-> (TString @-> TBool))));
   ("str_starts_with",generalize [] ((TString @-> (TString @-> TBool))));
@@ -3946,6 +3946,9 @@ let stdlib_type_env : env = [
    let a = fresh () in
    let e = Effect_set.unknown () in
    generalize [] (TFun (TStream (e, a), TList a, e)));
+  ("stream_tally",
+   let e = Effect_set.unknown () in
+   generalize [] (TFun (TStream (e, TString), TMap TInt, e)));
   ("regex_compile",     generalize [] ((TString @-> TResult (TString, TRegex))));
   (* Duration primitives *)
   ("dur_zero",    Mono TDuration);
@@ -4228,7 +4231,8 @@ let stdlib_type_env : env = [
   ("env_home",    generalize [] (effs [Effect_set.Env] (TUnit) (TPath)));
   ("env_user",    generalize [] (effs [Effect_set.Env] (TUnit) (TString)));
   (* List primitives *)
-  ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TResult (TString, a)))));
+  ("list_tally",   generalize [] ((TList TString @-> TMap TInt)));
+  ("list_get",     let a = fresh () in generalize [] ((TInt @-> (TList a @-> TApp (TName "Option", a)))));
   ("list_get_exn", let a = fresh () in generalize [] (TInt @-> effs [Effect_set.Raise] (TList a) (a)));
   ("list_sort",    let a = fresh () in generalize [] ((TList a @-> TList a)));
   ("list_sort_by", let a = fresh () in let b = fresh () in
@@ -4239,7 +4243,7 @@ let stdlib_type_env : env = [
   ("list_concat",  let a = fresh () in generalize [] ((TList a @-> (TList a @-> TList a))));
   (* Map builtins *)
   ("map_empty",    let a = fresh () in generalize [] (TMap a));
-  ("map_get",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TResult (TString, a)))));
+  ("map_get",      let a = fresh () in generalize [] ((TString @-> (TMap a @-> TApp (TName "Option", a)))));
   ("map_get_exn",  let a = fresh () in generalize [] (TString @-> effs [Effect_set.Raise] (TMap a) (a)));
   ("map_set",      let a = fresh () in generalize [] ((TString @-> (a @-> (TMap a @-> TMap a)))));
   ("map_delete",   let a = fresh () in generalize [] ((TString @-> (TMap a @-> TMap a))));

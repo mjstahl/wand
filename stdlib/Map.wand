@@ -1,5 +1,3 @@
-import Result
-
 -- A map keeps its entries in the order they were first added, and every
 -- function that hands them back -- `keys`, `values`, `to_list`, and writing
 -- one out -- reads them in that order. It is not key order. Sort the result
@@ -22,7 +20,7 @@ let empty = map_empty
 --
 -- >> Map.get "z" {a = 1, b = 2}
 -- None : Option Int
-let get key m = Result.to_option (map_get key m)
+let get key m = map_get key m
 
 -- Look up a key, raising a runtime error if not found.
 --

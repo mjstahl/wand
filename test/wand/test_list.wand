@@ -3,8 +3,10 @@ uses {FS.Read, FS.Write}
 let {test} = import Test
 import FS
 import List
+import Map
 import Option
 import Path
+import Stream
 import String
 
 -- ── sort ────────────────────────────────────────────────────────────────
@@ -195,3 +197,14 @@ test "max agrees with sort" (fn t ->
 -- known.
 test "an empty sum takes its zero from the caller" (fn t ->
   let empty : List Size = [] in t.eq 0B (List.sum empty |> Option.default 0B))
+
+test "tally counts each string" (fn t -> t.eq {a = 2, b = 1} (List.tally ["a", "b", "a"]))
+
+test "tally keeps first-seen order" (fn t ->
+  t.eq ["b", "a"] (Map.keys (List.tally ["b", "a", "b"])))
+
+test "tally of nothing is the empty map" (fn t -> t.eq Map.empty (List.tally []))
+
+test "tally agrees with Stream.tally" (fn t ->
+  let xs = ["x", "y", "x", "z", "y"] in
+  t.eq (Map.to_list (List.tally xs)) (Stream.of_list xs |> Stream.tally |> Map.to_list))

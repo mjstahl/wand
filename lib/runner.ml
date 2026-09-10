@@ -1472,7 +1472,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                 Effect.Deep.continue k
                   (VConstr (Ctor.Builtin "Some", [VPath key]))
               | None ->
-                Effect.Deep.continue k (VConstr (Ctor.Builtin "None", []))
+                Effect.Deep.continue k Evaluator.v_none
               | exception EvalError m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!lock_wait",
                         VTuple [(VString path | VPath path); VDuration d]) ->
@@ -1482,7 +1482,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
                 Effect.Deep.continue k
                   (VConstr (Ctor.Builtin "Some", [VPath key]))
               | None ->
-                Effect.Deep.continue k (VConstr (Ctor.Builtin "None", []))
+                Effect.Deep.continue k Evaluator.v_none
               | exception EvalError m -> Effect.Deep.discontinue k (EvalError m))
           | WandEffect ("FS!unlock", (VString path | VPath path)) ->
             Some (fun (k : (a, value) Effect.Deep.continuation) ->

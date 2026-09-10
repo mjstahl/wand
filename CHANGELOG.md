@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.71.0] - 2026-09-10
+
+### Added
+
+- **`Stream.tally` and `List.tally`** count how often each string appears.
+  Counting written as a fold applies two functions to every item -- the
+  fold's own and the one `Map.update` increments with -- so the interpreter
+  runs the loop as well as the counting. `tally` is the loop, in OCaml, and
+  enters nothing above it: counting the first field of a 200k-line log went
+  from 379ms to 108ms, against 125ms for the same thing in Python. Counting
+  by something other than the whole line is `Stream.map` or
+  `Stream.filter_map` in front of it, and those stages run in the same loop.
+  A stream that does not fit in memory still tallies -- what it holds is one
+  count per different string, not the stream. Entries come back in the order
+  their keys were first seen, as everywhere a map is built
+
+### Changed
+
+- **`Map.get`, `List.get` and `String.word` answer with the `Option`
+  itself.** Each was `Result.to_option` over a builtin: an `Ok` built, a
+  library closure applied, a match, and a `Some` built, to convert a value
+  the builtin already had. Five steps a lookup, on three of the functions a
+  script reaches for most, and the error string they built was thrown away
+  by every caller. `Map.get` cost 1.22us against 480ns for `Map.get!`, which
+  does the same search. It is 33% off a script that counts by a map key and
+  42% off one that reads a field. `Env.get` is unchanged: it is
+  `try env_get_exn`, so the `Env!get` operation supplies the `String` a
+  handler double stands in with. `None` carries nothing, so one value now
+  serves every absence rather than one being built per miss
+
 ## [0.70.0] - 2026-09-09
 
 Two more of the things the benchmark found, and a directory retired.

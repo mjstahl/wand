@@ -355,6 +355,8 @@ let vrecord_make r_fields =
 
 let vrecord_get label r = Hashtbl.find_opt r.r_index label
 
+let v_none = VConstr (Ctor.Builtin "None", [])
+
 let vmap_empty = { m_entries = StrMap.empty; m_next = 0 }
 
 (* The entries, in the order their keys were first added. Sorting on the
@@ -4155,6 +4157,17 @@ let stream_builtins : env = [
       run_stream_terminal d ~on_item:(fun x -> acc := apply (apply f !acc) x);
       !acc
     | _ -> raise (EvalError "Stream.fold_left: expected Stream")))));
+  ("stream_tally", VBuiltin (function
+    | VStream d ->
+      let acc = ref vmap_empty in
+      run_stream_terminal d ~on_item:(fun x ->
+        match x with
+        | VString k ->
+          acc := vmap_update k
+                   (function Some (VInt n) -> VInt (n + 1) | _ -> VInt 1) !acc
+        | _ -> raise (EvalError "Stream.tally: expected a Stream of String"));
+      VMap !acc
+    | _ -> raise (EvalError "Stream.tally: expected Stream")));
   (* The write half of a stream, and a terminal operation: it opens the file
      once, pulls the source through the stages, writes each line, and closes
      however the run ends. In `FS` rather than in `Stream` because it is
@@ -4316,10 +4329,8 @@ let stdlib_eval_env : env = [
     | VInt n -> VBuiltin (function
       | VString str ->
         (match str_word_impl n str with
-         | (Some w, _) -> VConstr (Ctor.Builtin "Ok", [VString w])
-         | (None, count) ->
-           VConstr (Ctor.Builtin "Error",
-             [VString (Printf.sprintf "no word %d: the string has %d" n count)]))
+         | (Some w, _) -> VConstr (Ctor.Builtin "Some", [VString w])
+         | (None, _)   -> v_none)
       | _ -> raise (EvalError "str_word: expected String"))
     | _ -> raise (EvalError "str_word: expected Int")));
   ("str_word_exn", VBuiltin (function
@@ -4694,13 +4705,13 @@ let stdlib_eval_env : env = [
     | VVersion v ->
       (match snd (version_parts v) with
        | Some p -> VConstr (Ctor.Builtin "Some", [VString p])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "version_prerelease: expected Version")));
   ("version_build", VBuiltin (function
     | VVersion v ->
       (match snd (version_build v) with
        | Some b -> VConstr (Ctor.Builtin "Some", [VString b])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "version_build: expected Version")));
   (* A release, as opposed to something on the way to one. Build metadata
      does not make a version unstable: it names the build, not the state. *)
@@ -4824,13 +4835,13 @@ let stdlib_eval_env : env = [
     | VURL (u, _) ->
       (match fst (url_userinfo_parts (url_authority u)) with
        | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "url_username: expected URL")));
   ("url_password", VBuiltin (function
     | VURL (u, _) ->
       (match snd (url_userinfo_parts (url_authority u)) with
        | Some n -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false n)])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "url_password: expected URL")));
   (* Scheme, host and port -- what two URLs have to share to be same-origin,
      and the reason this is one function rather than three read together.
@@ -4855,7 +4866,7 @@ let stdlib_eval_env : env = [
     | VURL (u, _) ->
       (match (url_authority u).au_port with
        | Some n -> VConstr (Ctor.Builtin "Some", [VPort n])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "url_port: expected URL")));
   (* A Path, so it composes with the module that already knows about
      segments and extensions. `https://x` has no path and answers `/`, which
@@ -4883,7 +4894,7 @@ let stdlib_eval_env : env = [
     | VURL (u, _) ->
       (match (url_parts u).up_fragment with
        | Some f -> VConstr (Ctor.Builtin "Some", [VString (url_decode_text ~plus:false f)])
-       | None   -> VConstr (Ctor.Builtin "None", []))
+       | None   -> v_none)
     | _ -> raise (EvalError "url_fragment: expected URL")));
   ("url_to_str", VBuiltin (function
     | VURL (u, _) -> VString u
@@ -5823,14 +5834,23 @@ let stdlib_eval_env : env = [
     | VInt n -> VBuiltin (function
       | VList xs ->
         let rec nth i = function
-          | []     -> VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "index %d out of bounds" n)])
-          | x :: _ when i = 0 -> VConstr (Ctor.Builtin "Ok", [x])
+          | []     -> v_none
+          | x :: _ when i = 0 -> VConstr (Ctor.Builtin "Some", [x])
           | _ :: t -> nth (i - 1) t
         in
-        if n < 0 then VConstr (Ctor.Builtin "Error", [VString (Printf.sprintf "index %d out of bounds" n)])
+        if n < 0 then v_none
         else nth n xs
       | _ -> raise (EvalError "list_get: expected List"))
     | _ -> raise (EvalError "list_get: expected Int index")));
+  ("list_tally", VBuiltin (function
+    | VList xs ->
+      VMap (List.fold_left (fun m x ->
+        match x with
+        | VString k ->
+          vmap_update k (function Some (VInt n) -> VInt (n + 1) | _ -> VInt 1) m
+        | _ -> raise (EvalError "List.tally: expected a List of String"))
+        vmap_empty xs)
+    | _ -> raise (EvalError "List.tally: expected List")));
   ("list_get_exn", VBuiltin (function
     | VInt n -> VBuiltin (function
       | VList xs ->
@@ -5921,8 +5941,8 @@ let map_builtins : env = [
     | VString key -> VBuiltin (function
       | VMap m ->
         (match vmap_get key m with
-         | Some v -> VConstr (Ctor.Builtin "Ok", [v])
-         | None   -> VConstr (Ctor.Builtin "Error", [VString ("key not found: " ^ key)]))
+         | Some v -> VConstr (Ctor.Builtin "Some", [v])
+         | None   -> v_none)
       | _ -> raise (EvalError "map_get: expected Map"))
     | _ -> raise (EvalError "map_get: expected String key")));
   ("map_get_exn", VBuiltin (function
@@ -6200,7 +6220,7 @@ and read_field venv ?(defaults = []) key te j path =
      | None | Some `Null ->
        (match absent () with
         | Some v -> Ok v
-        | None -> Ok (VConstr (Ctor.Builtin "None", [])))
+        | None -> Ok (v_none))
      | Some v ->
        (match d v (("." ^ key) :: path) with
         | Ok x      -> Ok (VConstr (Ctor.Builtin "Some", [x]))
@@ -6381,7 +6401,7 @@ and reader_value tname =
                    | Error msg -> Error msg)
               in
               (match go [] vs with Ok l -> build l | Error msg -> Error msg)
-            | `Maybe, [] -> build (VConstr (Ctor.Builtin "None", []))
+            | `Maybe, [] -> build (v_none)
             | `Maybe, [v] ->
               (match read_one v with
                | Ok x -> build (VConstr (Ctor.Builtin "Some", [x]))
@@ -6489,7 +6509,7 @@ let decode_builtins : env = [
         match j with
         | `Assoc kvs ->
           (match assoc_last key kvs with
-           | None | Some `Null -> Ok (VConstr (Ctor.Builtin "None", []))
+           | None | Some `Null -> Ok (v_none)
            | Some v ->
              (match inner v (("." ^ key) :: path) with
               | Ok x      -> Ok (VConstr (Ctor.Builtin "Some", [x]))
@@ -6522,7 +6542,7 @@ let decode_builtins : env = [
     let inner = as_decoder "decode_nullable" d in
     VDecoder (fun j path ->
       match j with
-      | `Null -> Ok (VConstr (Ctor.Builtin "None", []))
+      | `Null -> Ok (v_none)
       | _ ->
         (match inner j path with
          | Ok v      -> Ok (VConstr (Ctor.Builtin "Some", [v]))
@@ -6917,7 +6937,7 @@ let stdlib_eval_env =
      it reaches a builtin function rather than by importing the module that
      used to declare the type. *)
   @ [ ("Some", VPartialConstr (Ctor.Builtin "Some", 1, []));
-      ("None", VConstr (Ctor.Builtin "None", [])) ]
+      ("None", v_none) ]
   @ serialise_builtins
 
 (* Every function a file calls comes from a module it imported. These two
@@ -6929,5 +6949,5 @@ let base_eval_env : env = [
   (* `Option` is built in, so its constructors are here beside `Result`'s
      rather than arriving with an import. *)
   ("Some",    VPartialConstr (Ctor.Builtin "Some",  1, []));
-  ("None",    VConstr (Ctor.Builtin "None", []));
+  ("None",    v_none);
 ]

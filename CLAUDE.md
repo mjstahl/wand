@@ -19,7 +19,7 @@ examples. Most tasks need only one part.
 - `lib/` — the pipeline, one stage per module:
   - `token.ml`, `lexer.ml` — tokens and lexing, including domain literals (paths, globs, durations, sizes) and the string/command interpolation forms.
   - `parser.ml`, `ast.ml` — recursive-descent parser. A newline ends a statement unless the line below is indented past it, or opens with an operator; a bracket the statement opened suspends the rule until it closes. `stmt_col`/`stmt_depth` carry that anchor, and `clause_name` is what lets a function's next equation end the body above it.
-  - `typechecker.ml`, `effect_set.ml` — Hindley-Milner inference extended with effect sets (the nine labels below); manifests are checked against inferred effects here.
+  - `typechecker.ml`, `effect_set.ml` — Hindley-Milner inference extended with effect sets (the ten labels below); manifests are checked against inferred effects here.
   - `evaluator.ml` — tree-walking interpreter; effect handlers, `Par`, signals, shell execution.
   - `lint.ml`, `lint_rules.ml` — the `V-*`/`A-*` rules `wand t` reports.
   - `formatter.ml` — `wand f`; comments are never dropped or restyled.
@@ -196,13 +196,17 @@ The first line of a file that touches the world declares what it may do:
 uses {Env, FS.Read, FS.Write, IO, Shell(curl, git)}
 ```
 
-Those are five of the nine effect labels: `Shell` (subprocesses),
-`FS.Read`, `FS.Write`, `Env`, `IO` (own streams), `Proc` (exits), `Raise`,
-`Clock` (waits), `Random` (draws from entropy). `Shell` covers naming a
-command as well as running one.
+Those are five of the ten effect labels: `Shell` (subprocesses),
+`FS.Read`, `FS.Write`, `Env`, `Net` (bytes to a host), `IO` (own streams),
+`Proc` (exits), `Raise`, `Clock` (waits), `Random` (draws from entropy).
+`Shell` covers naming a command as well as running one.
 `Shell` may name the binaries the file runs — written as they are in
 `$()`: `Shell(./probe.sh, docker-compose, git)` — and bare `Shell` means
-any. A literal command word the list omits is a type error; a word decided
+any. `Net` narrows the same way, by host: `Net(api.github.com)` admits one
+and bare `Net` any, and every redirect is held to the list too. wand has no
+TLS of its own, so `HTTP` reaches a host through a `curl` subprocess, and a
+narrowed `Shell` does not bound that one.
+A literal command word the list omits is a type error; a word decided
 at run time is checked at spawn and flagged by `V-SHELL1`. Doing more than
 the manifest says is a type error; declaring more than the file does is an
 `A-USES1` warning. Effects are inferred — never annotated: `wand t`
