@@ -19,7 +19,7 @@ jobs:
     # and setup-ocaml has hung indefinitely (2026-08-19).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
         with:
@@ -116,7 +116,7 @@ jobs:
       # is then a commit here, which is where a change to what CI runs
       # belongs. Bump the SHA when that repository has something this build
       # should be tested against.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mjstahl/setup-wand
           ref: eb3b29225788c6a5669bce3ecc5e73b97dd7968a # main, 2026-09-08
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: The published install script installs the latest release
         run: |
