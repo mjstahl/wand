@@ -1748,6 +1748,33 @@ and derivable_typedef tenv seen (tdef : type_def) : (unit, string) result =
    them twice: as `Status` and as `Foo.Status`. Putting the second set first,
    with the prefix taken off, makes every lookup below resolve inside that
    module without knowing anything about qualification. *)
+(* A built-in type the compiler names, whose constructors are a module's
+   words rather than the language's. `HTTPMethod` is the `Net!http`
+   payload's method field, so it is built in for the reason `HTTPRequest`
+   is; `GET` and `POST` belong to HTTP, so they are written `HTTP.GET`. *)
+let module_only_ctors = [ ("HTTPMethod", "HTTP") ]
+
+(* `POST` alone names nothing, and the fix is the module it belongs to. *)
+let module_only_hint tenv name =
+  match
+    List.find_opt (fun (t, _) ->
+      match List.assoc_opt t tenv with
+      | Some (Variants (_, _, ctors)) ->
+        List.exists (fun c -> c.name = name) ctors
+      | _ -> false) module_only_ctors
+  with
+  | None -> ""
+  | Some (_, m) -> Printf.sprintf " -- write '%s.%s'" m name
+
+let via_module_only_alias tenv own =
+  List.concat_map (fun (_, d) ->
+    match d with
+    | Alias (_, _, TEName target) when List.mem_assoc target module_only_ctors ->
+      (match List.assoc_opt target tenv with
+       | Some td -> [ (target, td) ]
+       | None -> [])
+    | _ -> []) own
+
 let module_first tenv m =
   let pre = m ^ "." in
   let n = String.length pre in
@@ -1769,6 +1796,11 @@ let module_first tenv m =
         | None -> []
       else []) !type_name_map
   in
+  (* A module that aliases one of those built-ins is how its constructors
+     are reached: `HTTP.POST` reads `POST` with `HTTPMethod` visible. An
+     alias forwards a single constructor by name, and a method type has
+     six, so without this the qualified name finds nothing. *)
+  let own = own @ via_module_only_alias tenv own in
   (own, own @ tenv)
 
 (* A type with one constructor names that constructor too, so a name given to
@@ -1801,7 +1833,8 @@ let rec ctor_name_for tenv name =
 let visible_canonical : string list ref = ref []
 
 let nameable key =
-  not (String.contains key '#') || List.mem key !visible_canonical
+  if List.mem_assoc key module_only_ctors then List.mem key !visible_canonical
+  else not (String.contains key '#') || List.mem key !visible_canonical
 
 let with_visible keys f =
   let saved = !visible_canonical in
@@ -2009,7 +2042,8 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     (match (match builtin_result_scheme name with
             | Some _ as s -> s
             | None -> List.assoc_opt name ctor_env) with
-     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s" name
+         (module_only_hint tenv name)))
      | Some s ->
        let ctor_t = instantiate s in
        let (arg_ts, result_t) = unwrap_ctor_type ctor_t in
@@ -2041,7 +2075,8 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
   | PConstrNamed (name, bindings) ->
     let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
-     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'" name))
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s" name
+         (module_only_hint tenv name)))
      | Some (tname, ctor) ->
        (* Field types come from the constructor's own scheme, the same way
           construction reads them. Converting the written type again here
@@ -2431,8 +2466,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
              | Variants (_, _, [c]) -> Printf.sprintf "; its constructor is '%s'" c.name
              | Variants _ -> "")))
         | _ ->
-          raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
-            name (Util.hint name (List.map fst ctor_env))))))
+          raise (TypeError (Printf.sprintf "unknown constructor '%s'%s%s"
+            name (module_only_hint tenv name)
+            (Util.hint name (List.map fst ctor_env))))))
   (* $NAME reads the environment. *)
   | EnvVar _ -> performs (Effect_set.single Effect_set.Env); TString
   | Hole ->
@@ -2712,8 +2748,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
             (match ctors with
              | [c] -> Printf.sprintf "; its constructor is '%s'" c.name
              | _ -> ""))))
-     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s%s"
+         name (module_only_hint tenv name)
+         (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
      | Some (tname, ctor) ->
        (* Types come from the constructor's own scheme rather than from each
           field expression on its own, so a generic type keeps its arguments:
@@ -2780,8 +2817,9 @@ let rec infer tenv (env : env) (e : expr) : typ =
        unknown constructor for a type that builds perfectly well. *)
     let name = ctor_name_for tenv name in
     (match find_ctor_in_tenv tenv name with
-     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s"
-         name (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
+     | None -> raise (TypeError (Printf.sprintf "unknown constructor '%s'%s%s"
+         name (module_only_hint tenv name)
+         (Util.hint name (List.map fst (tenv_to_ctor_env tenv)))))
      | Some (tname, ctor) ->
        let arg_ts, result_t =
          match List.assoc_opt name (tenv_to_ctor_env tenv) with
@@ -4323,11 +4361,17 @@ let command_line_tdef : type_def =
    `Request`, `Response` and `Method` are three names a file has every right
    to want.
 
-   `stdlib/HTTP.wand` does not alias them to `HTTP.Request` and friends.
-   Nothing stops it -- an alias declared in a module resolves inside it and
+   `stdlib/HTTP.wand` aliases all three to `HTTP.Request`, `HTTP.Response`
+   and `HTTP.Method`. An alias declared in a module resolves inside it and
    under the qualified name outside it, in an annotation and in a pattern
-   alike -- but two spellings for one type is what the alias would buy, and
-   the built-in name is the one every script already writes.
+   alike, so the two spellings are one type.
+
+   `HTTPMethod` is in `module_only_ctors`, so its constructors are the one
+   part of this that a file cannot write bare: `GET` and `POST` are HTTP's
+   words rather than the language's, and `HTTP.GET` reads them through the
+   alias. The type stays built in because the compiler names it -- it is a
+   field of the `Net!http` payload -- and a module's types are keyed by a
+   path that moves with `WAND_STDLIB`.
 
    Every field but the URL has a default, so field defaults do the work a
    builder pattern does elsewhere and record update gives the chaining. *)
@@ -4919,6 +4963,11 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
         if written = canon then None
         else Option.map (fun v -> (written, v))
                (List.assoc_opt canon arity_table)) !type_name_map;
+  (* The file that declares the alias reads the target's constructors
+     unqualified: `stdlib/HTTP.wand` writes `method = POST`, and outside it
+     the same constructor is `HTTP.POST`. *)
+  let own_module_only = List.map fst (via_module_only_alias tenv local_tenv) in
+  with_visible own_module_only (fun () ->
   with_known_type_names known (fun () ->
   let base_env = tenv_to_ctor_env tenv @ base_env @ init_env in
   (* A field default is checked once, here, rather than at each construction
@@ -5001,7 +5050,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   let n_own = List.length env - List.length base_env in
   let own_env = List.filteri (fun i _ -> i < n_own) env in
   check_manifest prog own_env;
-  (tenv, env, own_env, last_t))
+  (tenv, env, own_env, last_t)))
 
 (* The string-returning entry points render the position back into the
    message; `infer_program_full_with_own` below hands it over as data. *)

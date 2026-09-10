@@ -20,11 +20,15 @@ import String
 -- against the manifest of the file that built it, and so is every redirect
 -- it follows.
 --
--- `HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so they need
--- no import and no module prefix. `HTTP.Request`, `HTTP.Response` and
+-- `HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so the types
+-- need no import and no module prefix. `HTTP.Request`, `HTTP.Response` and
 -- `HTTP.Method` are those three under the names a reader would reach for
 -- first. They are aliases, so the two spellings are one type: a value built
 -- one way annotates, matches and passes the other.
+--
+-- A method is written with its module -- `HTTP.GET`, `HTTP.POST` -- because
+-- those are HTTP's words rather than the language's. Bare `POST` names
+-- nothing.
 --
 -- The transport runs `curl`. wand has no TLS of its own yet, so bytes reach
 -- a host through a subprocess, and that subprocess is not bounded by a

@@ -45,7 +45,7 @@ test "ok? is the 2xx question" (fn t ->
 -- what differs.
 test "a request fills in what it was not given" (fn t ->
   let r = HTTP.Request(url = https://api.example.com/x) in
-  t.eq (GET, "", 30s, 5) (r.method, r.body, r.timeout, r.redirects))
+  t.eq (HTTP.GET, "", 30s, 5) (r.method, r.body, r.timeout, r.redirects))
 
 -- Record update gives the chaining a builder gives elsewhere, and leaves
 -- everything it does not name alone.
@@ -93,7 +93,7 @@ test "an alias and the built-in name are one type" (fn t ->
     match r with
     | HTTP.Response(status = s) -> s
   in
-  t.eq (true, 204, GET) (
+  t.eq (true, 204, HTTP.GET) (
     HTTP.ok? r,
     status,
     HTTP.Request(url = https://api.example.com/x).method

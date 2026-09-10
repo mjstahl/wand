@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.72.0] - 2026-09-10
+
+### Changed
+
+- **An HTTP method is written with its module.** `HTTP.GET` and `HTTP.POST`
+  rather than bare `GET` and `POST`. The six methods were built-in
+  constructors, in scope in every file the way `Ok` and `Some` are, and they
+  are HTTP's words rather than the language's: that list is `Ok`, `Error`,
+  `Some` and `None`, and six HTTP verbs were sitting in it. A file could
+  always declare its own `PATCH` over the built-in, so what this buys is not
+  a name back but a bare `POST` that says where it comes from. `HTTPMethod`
+  stays a built-in type, because the compiler names it -- it is a field of
+  the `Net!http` payload, and a module's types are keyed by a path that
+  moves with `WAND_STDLIB` -- but its constructors are reached through
+  `HTTP`, in an expression and in a pattern alike. Bare `POST` names nothing
+  and says to write `HTTP.POST`. One position still accepts the bare name
+  and is left alone: `HTTP.Request(method = POST)` typechecks, because a
+  qualified construction reads that module's names for its field values as
+  well as for its own, which is how every module has always read. Write
+  `HTTP.POST` there too -- it is the same value, and it is the spelling that
+  reads the same wherever it appears
+
 ## [0.71.0] - 2026-09-10
 
 ### Added

@@ -4150,23 +4150,29 @@ header_list : String -> HTTPResponse -> List String
 decode   : Decoder 'a -> HTTPResponse -> Result String 'a
 ```
 
-`HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so they need no
-import and no module prefix. `HTTP.Request`, `HTTP.Response` and
+`HTTPRequest`, `HTTPResponse` and `HTTPMethod` are built in, so the types
+need no import and no module prefix. `HTTP.Request`, `HTTP.Response` and
 `HTTP.Method` are aliases of the three, so a file that already imports `HTTP`
 can write the short name; the two spellings are one type, and a value built
 one way annotates, matches and passes the other. Signatures print the
 built-in name.
 
 ```ocaml
-type HTTPMethod = GET | POST | PUT | PATCH | DELETE | HEAD
+type HTTP.Method = HTTP.GET | HTTP.POST | HTTP.PUT
+                 | HTTP.PATCH | HTTP.DELETE | HTTP.HEAD
 ```
+
+A method is written with its module. `GET` and `POST` are HTTP's words
+rather than the language's, so they are reached through `HTTP` the way any
+other module's constructors are -- in an expression and in a pattern alike.
+Bare `POST` names nothing, and says to write `HTTP.POST`.
 
 `HTTPRequest` has one field with no default and five with one:
 
 | field | type | default |
 |---|---|---|
 | `url` | `URL` | — |
-| `method` | `HTTPMethod` | `GET` |
+| `method` | `HTTP.Method` | `HTTP.GET` |
 | `headers` | `Map String` | `{}` |
 | `body` | `String` | `""` |
 | `timeout` | `Duration` | `30s` |
