@@ -30,6 +30,49 @@
   handler double stands in with. `None` carries nothing, so one value now
   serves every absence rather than one being built per miss
 
+### Fixed
+
+- **The docs said a script cannot do what it did not declare, and a
+  subprocess can do anything.** `uses {Shell(curl)}` sends bytes to any host
+  with no `Net`; `uses {Shell(cat)}` reads any file with no `FS.Read`; the
+  same holds for `FS.Write`, `Env` and `Clock`. All five typecheck. The
+  reference covered the hostile case -- a manifest is not a sandbox, and
+  hostile code writes `Shell(sh)` where you can see it -- and not the
+  ordinary one, so a reader narrowing `Net` to bound where a script sends
+  bytes was wrong whenever the file also ran a command. `A subprocess is
+  outside every label`, under Manifests, states it and says why it is not a
+  gap waiting to be closed: wand reads the file rather than the binary, and a
+  label it cannot infer is a label it cannot check. Making `Shell` imply the
+  other nine would be truthful and useless -- every script that runs `git`
+  would declare four more labels and the line would stop meaning anything.
+  The README's claim is now about a script's own code. There is no lint rule
+  for it: flagging `Shell(curl)` without `Net` implies the same for `cat`,
+  `rm` and `printenv`, which is a database of what binaries do, permanently
+  incomplete, and whose real cost is that a clean `wand t` would imply a
+  bound that is not there
+
+- **`wand f` wrote source that does not parse.** A `let ... in` cuddled onto
+  `fn -> ` put its keyword at the end of that line, while its value and its
+  `in` were laid out from the indent the lambda was handed -- so every line
+  of the binding sat left of the `let` it belonged to, and a line left of the
+  keyword reads as something new. Reduced, it is worse than the input
+  reported: `let s = (fn -> let t = with a as d -> g (h "x") "y" in "")` came
+  back as three statements with the `in` at the top level, a formatting that
+  parses, runs, and does something else. A `let ... in` that wraps now takes
+  the line under the lambda, so its keyword starts at the indent its own
+  continuation uses
+
+- **The effect table said "Nine"** above ten rows, two paragraphs above a
+  sentence that already said ten. A cross-reference in the same file pointed
+  at an anchor that does not exist
+
+- **`docs/llm-authoring.md` had a heading that promised a list and gave
+  none.** "What still goes wrong" was two sentences saying an honest list
+  followed, and then the next heading. It is the section a reader checks
+  first to see whether the rest is marketing. Removed rather than filled:
+  what belongs under it is what `wand t` rejects most often across real
+  files, and nobody has measured that
+
 ## [0.70.0] - 2026-09-09
 
 Two more of the things the benchmark found, and a directory retired.
