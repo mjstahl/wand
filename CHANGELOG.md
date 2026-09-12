@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.73.0] - 2026-09-12
+
+### Added
+
+- **`A-BIND1` finds a `let _ =` that binds nothing.** `let _ =` says a
+  failure is being thrown away on purpose. When the value is `Unit` there is
+  no failure, so the binder does nothing. `wand t --fix` takes it off.
+
+  ```
+  let _ = IO.println "done"     -- before
+  IO.println "done"             -- after
+  ```
+
+  Inside a function body it cannot be taken off on its own, because the
+  statements would run together. `wand t` names the line and you write the
+  `;`. A `let _ =` over a `Result` is left alone -- that one is doing its
+  job, and `V-DROP1` is the rule that asks for it.
+
+### Fixed
+
+- **`wand f` pulled apart a call that ends in a constructor.** It leaves it
+  as written now.
+
+  ```
+  -- before
+  let response =
+    (HTTP.request!
+      HTTP.Request(
+        url = endpoint,
+        headers = auth
+      ))
+
+  -- after
+  let response =
+    HTTP.request! HTTP.Request(
+      url = endpoint,
+      headers = auth
+    )
+  ```
+
+- **`wand f` wrote `if` lines past the right margin.** A `then` branch that
+  does not fit moves to its own line now, the way an `else` already did.
+
+  ```
+  -- before, 113 columns
+  if HTTP.ok? response then JSON.parse body |> Result.and_then (JSON.decode d) |> Result.get!
+
+  -- after
+  if HTTP.ok? response then
+    JSON.parse body |> Result.and_then (JSON.decode d) |> Result.get!
+  ```
+
+- **`wand f` dropped the brackets around an `import` used as a value.**
+  `(import O) xs` came back as `import O xs`, which reads as an import and a
+  separate statement rather than one call. Found by the daily fuzzer (#25).
+
 ## [0.72.0] - 2026-09-10
 
 ### Changed

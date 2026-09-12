@@ -155,7 +155,30 @@ let is_clock_now (e : Ast.expr) =
      | _ -> false)
   | _ -> false
 
-let walk_expr start_loc (e : Ast.expr) : finding list =
+(* A `let _ =` over a Unit value. The binder is how a file says a dropped
+   Result does not matter; over Unit there is nothing to drop.
+
+   Whether the binder can simply be struck is a question about the text
+   around it. On a file's own spine the statement stands alone, and inside
+   `( ... ; ... )` the `;` is already there. Newline-joined inside a body it
+   is neither: the statements below would run together, so the finding says
+   what to write and carries no fix. *)
+(* The binder ends where the value begins, so the value's own position is
+   what locates it: `let _ = ` is the eight columns in front. Taking the
+   position from the enclosing expression instead pointed at the `(` of the
+   block a sequence opens with. *)
+let wild_let_unit_at v =
+  match v with
+  | Ast.Located (l, _) when l.Token.col > 8 ->
+    (match List.assoc_opt l !Typechecker.wild_let_types with
+     | Some t when Typechecker.repr t = Typechecker.TUnit ->
+       Some { l with Token.end_line = l.Token.line;
+                     Token.col = l.Token.col - 8;
+                     Token.end_col = l.Token.col }
+     | _ -> None)
+  | _ -> None
+
+let walk_expr ?(spine = false) start_loc (e : Ast.expr) : finding list =
   let acc = ref [] in
   let here = ref start_loc in
   (* Names bound to a reading of the clock, so that the shape a script is
@@ -181,11 +204,11 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     in
     look 0
   in
-  let rec go (e : Ast.expr) =
+  let rec go ?(spine = false) (e : Ast.expr) =
     match e with
     | Ast.Located (l, inner) ->
       let saved = !here in
-      here := l; go inner; here := saved
+      here := l; go ~spine inner; here := saved
     | Ast.RunCmd (inner, allow) | Ast.RunQuery (inner, allow)
     | Ast.MkCommand (inner, allow) ->
       (* A newline inside `$()` separates two commands, exactly as it does
@@ -261,14 +284,25 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
     | Ast.App (a, b) | Ast.BinOp (_, a, b) | Ast.Seq (a, b) -> go a; go b
     | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
     | Ast.Field (a, _) | Ast.Try a -> go a
-    | Ast.Let (p, a, b, _) ->
+    | Ast.Let (p, a, b, style) ->
+      (match p, wild_let_unit_at a with
+       | Ast.Wild, Some loc ->
+         let standalone = spine || style = Ast.LetBlock in
+         let fix =
+           if standalone then
+             Some (Replace { from_ = "let _ = "; to_ = "" })
+           else None
+         in
+         acc := { rule = Lint_rules.A_BIND1; loc;
+                  text = Lint_rules.bind1 ~standalone; fix } :: !acc
+       | _ -> ());
       go a;
       (match p with
        | Ast.PVar name ->
          if is_clock_now a then readings := name :: !readings
          else readings := List.filter (fun n -> n <> name) !readings
        | _ -> ());
-      go b
+      go ~spine b
     | Ast.LetRec (bs, b, _) -> List.iter (fun (_, _, x) -> go x) bs; go b
     | Ast.If (c, t, f) -> go c; go t; go f
     | Ast.Match (s, cases) ->
@@ -290,7 +324,7 @@ let walk_expr start_loc (e : Ast.expr) : finding list =
       List.iter go reqs; List.iter go ens; go body
     | _ -> ()
   in
-  go e;
+  go ~spine e;
   List.rev !acc
 
 (* Every name a file mentions, for the rule that reports an import nothing
@@ -666,7 +700,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
                 (Lint_rules.drop1 ~typ:(Typechecker.string_of_typ t))
             | _ -> ())
          | None -> ());
-      findings := List.rev_append (walk_expr loc body) !findings
+      findings := List.rev_append (walk_expr ~spine:true loc body) !findings
     | Ast.TLLetPat (_, body) ->
       findings := List.rev_append (walk_expr loc body) !findings
     | Ast.TLLetRec bindings ->

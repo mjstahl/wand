@@ -6107,6 +6107,7 @@ punish the safer choice.
 | `V-SHELL1` | the manifest narrows `Shell` to named binaries, but a command word is decided at run time |
 | `V-NET1` | the manifest narrows `Net` to named hosts, but a request is built with a host decided at run time |
 | `V-SHELL2` | a command runs on to a second line, which starts a second command |
+| `A-BIND1` | a `let _ =` binds a value that is `Unit`, so the binder dismisses a failure that is not there — write the statement on its own, sequenced with `;` where it sits in a body |
 | `A-USES1` | a manifest permits an effect the file does not use, or a binary no command runs |
 | `V-USES2` | a file performs effects and declares no manifest |
 

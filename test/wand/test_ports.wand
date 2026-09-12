@@ -139,10 +139,11 @@ group "release-check" (fn () -> [
   test "a release with nothing wrong ships" (fn t ->
     t.eq
       []
-      (blockers
-        1.0.0
-        Release(version = 1.2.0, draft = false, artifacts = ["a", "b", "c", "d"])
-      )),
+      (blockers 1.0.0 Release(
+        version = 1.2.0,
+        draft = false,
+        artifacts = ["a", "b", "c", "d"]
+      ))),
   test "every reason at once, not the first" (fn t ->
     t.eq
       ["still a draft", "0.9.0 is below 1.0.0", "1 artifacts, expected 4"]

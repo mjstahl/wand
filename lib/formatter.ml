@@ -466,6 +466,10 @@ let is_binop_or_unop e = match strip_located e with
   | BinOp _ | UnOp _ -> true
   | _ -> false
 
+let is_import e = match strip_located e with
+  | ImportExpr _ -> true
+  | _ -> false
+
 (* A value that carries its own opening bracket: `(`, `[`, `{`, or the
    parenthesis of a statement sequence. When one of these is what a binding
    binds, the bracket opens on the binding's line and the items carry the
@@ -518,6 +522,13 @@ let emit_fn_head ps =
   match ps with
   | [] -> "fn ->"
   | _ -> "fn " ^ String.concat " " (List.map emit_pat_atom ps) ^ " ->"
+
+let rec is_constr_call e = match strip_located e with
+  | ConstrApp (_, args, _) -> args <> []
+  | ConstrUpdate _ -> true
+  | ConstrBare (_, fs) -> fs <> []
+  | Qualified (_, inner) -> is_constr_call inner
+  | _ -> false
 
 let carries_the_break e =
   opens_a_bracket e
@@ -819,7 +830,7 @@ and emit_splice indent e = with_width 1_000_000 (fun () -> emit_expr indent e)
 and emit_atom indent e =
   let e' = strip_located e in
   let s = emit_expr_inner indent e' in
-  if is_control_expr e' || is_binop_or_unop e' || is_app e'
+  if is_control_expr e' || is_binop_or_unop e' || is_app e' || is_import e'
   then parenthesize indent s else s
 
 (* An argument is an atom. A bare constructor is one hazard on top of that,
@@ -1269,7 +1280,7 @@ and emit_app ?col indent e =
              a line on the bracket alone and push every item two columns
              further in, and would leave the call's first line closed, which
              costs it a pair of parentheses on top. *)
-          | last_v when opens_a_bracket last_v ->
+          | last_v when opens_a_bracket last_v || is_constr_call last_v ->
             let tail = emit_expr ~col:0 indent last_v in
             let prefix =
               String.concat " "
@@ -1369,7 +1380,7 @@ and emit_field indent e l =
      version `1.0.0-a.f`. The field access became a version literal, and the
      file went from a type error to typechecking. Found by test/fuzz. *)
   let lexeme_eats_the_dot = match e' with
-    | Path _ | Glob _ | URL _ | EnvVar _ | ImportExpr _ | Version _ -> true
+    | Path _ | Glob _ | URL _ | EnvVar _ | Version _ -> true
     | _ -> false
   in
   let target =
@@ -1868,9 +1879,18 @@ and emit_if ?col indent c t el =
          below reads as continuing whatever the `if` belongs to. *)
       let rec ladder c t el =
         let clause =
-          Printf.sprintf "if %s then %s"
-            (bracket_if_wrapped_app c (emit_expr cont c))
-            (bracket_if_wrapped_app t (emit_expr cont t)) in
+          let prefix =
+            Printf.sprintf "if %s then "
+              (bracket_if_wrapped_app c (emit_expr cont c)) in
+          let flat =
+            prefix
+            ^ bracket_if_wrapped_app t
+                (emit_expr ~col:(column_after cont prefix) cont t) in
+          if fits cont flat then flat
+          else
+            let body = String.make (cont + 2) ' ' in
+            String.trim prefix ^ "\n" ^ body
+            ^ bracket_if_wrapped_app t (emit_expr (cont + 2) t) in
         match strip_located el with
         | Unit -> [clause]
         | If (c2, t2, el2) -> clause :: ladder c2 t2 el2

@@ -36,7 +36,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.read_file! absent in missed) () with
+      (handle (fn () -> (FS.read_file! absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via FS.read_file" (fn t ->
@@ -48,7 +48,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via JSON.read_file!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = JSON.read_file! absent in missed) () with
+      (handle (fn () -> (JSON.read_file! absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via JSON.read_file" (fn t ->
@@ -60,7 +60,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via CSV.read_file!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = CSV.read_file! absent in missed) () with
+      (handle (fn () -> (CSV.read_file! absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via CSV.read_file" (fn t ->
@@ -72,7 +72,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via TOML.read_file!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = TOML.read_file! absent in missed) () with
+      (handle (fn () -> (TOML.read_file! absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via TOML.read_file" (fn t ->
@@ -84,7 +84,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via Env.read!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.read! absent in missed) () with
+      (handle (fn () -> (Env.read! absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   -- A stream reads nothing until the fold runs it, so the fold is the call.
@@ -103,7 +103,7 @@ group "FS reads" (fn () -> [
   test "FS!list_dir" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.list_dir! absent in missed) () with
+      (handle (fn () -> (FS.list_dir! absent; missed)) () with
       | FS!list_dir _ _ -> caught
       )),
   test "FS!list_dir via FS.list_dir" (fn t ->
@@ -115,37 +115,37 @@ group "FS reads" (fn () -> [
   test "FS!glob" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.glob *.nothing in missed) () with
+      (handle (fn () -> (FS.glob *.nothing; missed)) () with
       | FS!glob _ _ -> caught
       )),
   test "FS!glob via FS.glob_in" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.glob_in *.nothing absent in missed) () with
+      (handle (fn () -> (FS.glob_in *.nothing absent; missed)) () with
       | FS!glob _ _ -> caught
       )),
   test "FS!exists?" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.exists? absent in missed) () with
+      (handle (fn () -> (FS.exists? absent; missed)) () with
       | FS!exists? _ _ -> caught
       )),
   test "FS!file?" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.file? absent in missed) () with
+      (handle (fn () -> (FS.file? absent; missed)) () with
       | FS!file? _ _ -> caught
       )),
   test "FS!dir?" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.dir? absent in missed) () with
+      (handle (fn () -> (FS.dir? absent; missed)) () with
       | FS!dir? _ _ -> caught
       )),
   test "FS!mtime" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.mtime! absent in missed) () with
+      (handle (fn () -> (FS.mtime! absent; missed)) () with
       | FS!mtime _ _ -> caught
       )),
   test "FS!mtime via FS.mtime" (fn t ->
@@ -157,7 +157,7 @@ group "FS reads" (fn () -> [
   test "FS!size" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.size! absent in missed) () with
+      (handle (fn () -> (FS.size! absent; missed)) () with
       | FS!size _ _ -> caught
       )),
   test "FS!size via FS.size" (fn t ->
@@ -169,7 +169,7 @@ group "FS reads" (fn () -> [
   test "FS!cwd" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.cwd () in missed) () with
+      (handle (fn () -> (FS.cwd (); missed)) () with
       | FS!cwd _ _ -> caught
       ))
 ])
@@ -178,19 +178,19 @@ group "FS writes" (fn () -> [
   test "FS!write_lines" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.write_lines! absent (Stream.of_list ["a"]) in missed) () with
+      (handle (fn () -> (FS.write_lines! absent (Stream.of_list ["a"]); missed)) () with
       | FS!write_lines _ _ -> caught
       )),
   test "FS!append_lines" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.append_lines! absent (Stream.of_list ["a"]) in missed) () with
+      (handle (fn () -> (FS.append_lines! absent (Stream.of_list ["a"]); missed)) () with
       | FS!append_lines _ _ -> caught
       )),
   test "FS!write_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.write_file! absent "x" in missed) () with
+      (handle (fn () -> (FS.write_file! absent "x"; missed)) () with
       | FS!write_file _ _ -> caught
       )),
   test "FS!write_file via FS.write_file" (fn t ->
@@ -202,7 +202,7 @@ group "FS writes" (fn () -> [
   test "FS!append" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.append! absent "x" in missed) () with
+      (handle (fn () -> (FS.append! absent "x"; missed)) () with
       | FS!append _ _ -> caught
       )),
   test "FS!append via FS.append" (fn t ->
@@ -214,7 +214,7 @@ group "FS writes" (fn () -> [
   test "FS!create_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.create_file! absent in missed) () with
+      (handle (fn () -> (FS.create_file! absent; missed)) () with
       | FS!create_file _ _ -> caught
       )),
   test "FS!create_file via FS.create_file" (fn t ->
@@ -226,7 +226,7 @@ group "FS writes" (fn () -> [
   test "FS!delete" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.delete! absent in missed) () with
+      (handle (fn () -> (FS.delete! absent; missed)) () with
       | FS!delete _ _ -> caught
       )),
   test "FS!delete via FS.delete" (fn t ->
@@ -238,7 +238,7 @@ group "FS writes" (fn () -> [
   test "FS!mkdir" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.mkdir! absent in missed) () with
+      (handle (fn () -> (FS.mkdir! absent; missed)) () with
       | FS!mkdir _ _ -> caught
       )),
   test "FS!mkdir via FS.mkdir" (fn t ->
@@ -250,7 +250,7 @@ group "FS writes" (fn () -> [
   test "FS!rename" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.rename! absent absent in missed) () with
+      (handle (fn () -> (FS.rename! absent absent; missed)) () with
       | FS!rename _ _ -> caught
       )),
   test "FS!rename via FS.rename" (fn t ->
@@ -262,7 +262,7 @@ group "FS writes" (fn () -> [
   test "FS!copy" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.copy! absent absent in missed) () with
+      (handle (fn () -> (FS.copy! absent absent; missed)) () with
       | FS!copy _ _ -> caught
       )),
   test "FS!copy via FS.copy" (fn t ->
@@ -274,7 +274,7 @@ group "FS writes" (fn () -> [
   test "FS!copy_tree" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.copy_tree! absent absent in missed) () with
+      (handle (fn () -> (FS.copy_tree! absent absent; missed)) () with
       | FS!copy_tree _ _ -> caught
       )),
   test "FS!copy_tree via FS.copy_tree" (fn t ->
@@ -286,7 +286,7 @@ group "FS writes" (fn () -> [
   test "FS!delete_tree" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.delete_tree! absent in missed) () with
+      (handle (fn () -> (FS.delete_tree! absent; missed)) () with
       | FS!delete_tree _ _ -> caught
       )),
   test "FS!delete_tree via FS.delete_tree" (fn t ->
@@ -326,43 +326,43 @@ group "the program's own streams" (fn () -> [
   test "IO!print" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.print "x" in missed) () with
+      (handle (fn () -> (IO.print "x"; missed)) () with
       | IO!print _ _ -> caught
       )),
   test "IO!print via IO.print" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.print "x" in missed) () with
+      (handle (fn () -> (IO.print "x"; missed)) () with
       | IO!print _ _ -> caught
       )),
   test "IO!println" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.println "x" in missed) () with
+      (handle (fn () -> (IO.println "x"; missed)) () with
       | IO!println _ _ -> caught
       )),
   test "IO!println via IO.println" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.println "x" in missed) () with
+      (handle (fn () -> (IO.println "x"; missed)) () with
       | IO!println _ _ -> caught
       )),
   test "IO!print_err" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.print_err "x" in missed) () with
+      (handle (fn () -> (IO.print_err "x"; missed)) () with
       | IO!print_err _ _ -> caught
       )),
   test "IO!println_err" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.println_err "x" in missed) () with
+      (handle (fn () -> (IO.println_err "x"; missed)) () with
       | IO!println_err _ _ -> caught
       )),
   test "IO!read_line" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.read_line! () in missed) () with
+      (handle (fn () -> (IO.read_line! (); missed)) () with
       | IO!read_line _ _ -> caught
       )),
   test "IO!read_line via IO.read_line" (fn t ->
@@ -374,7 +374,7 @@ group "the program's own streams" (fn () -> [
   test "IO!read_all" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.read_all! () in missed) () with
+      (handle (fn () -> (IO.read_all! (); missed)) () with
       | IO!read_all _ _ -> caught
       )),
   test "IO!read_all via IO.read_all" (fn t ->
@@ -386,7 +386,7 @@ group "the program's own streams" (fn () -> [
   test "IO!flush" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.flush () in missed) () with
+      (handle (fn () -> (IO.flush (); missed)) () with
       | IO!flush _ _ -> caught
       )),
   test "IO!stdin_lines" (fn t ->
@@ -401,56 +401,56 @@ group "the environment" (fn () -> [
   test "Env!get" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.get! "WAND_TEST_OPS" in missed) () with
+      (handle (fn () -> (Env.get! "WAND_TEST_OPS"; missed)) () with
       | Env!get _ _ -> caught
       )),
   test "Env!get via Env.get" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.get "WAND_TEST_OPS" in missed) () with
+      (handle (fn () -> (Env.get "WAND_TEST_OPS"; missed)) () with
       | Env!get _ _ -> caught
       )),
   test "Env!set" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.set "WAND_TEST_OPS" "1" in missed) () with
+      (handle (fn () -> (Env.set "WAND_TEST_OPS" "1"; missed)) () with
       | Env!set _ _ -> caught
       )),
   test "Env!set via Env.load!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.load! absent in missed) () with
+      (handle (fn () -> (Env.load! absent; missed)) () with
       | FS!read_file _ k -> k "WAND_TEST_OPS=1\n"
       | Env!set _ _ -> caught
       )),
   test "Env!clear" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.clear "WAND_TEST_OPS" in missed) () with
+      (handle (fn () -> (Env.clear "WAND_TEST_OPS"; missed)) () with
       | Env!clear _ _ -> caught
       )),
   test "Env!all" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.all () in missed) () with
+      (handle (fn () -> (Env.all (); missed)) () with
       | Env!all _ _ -> caught
       )),
   test "Env!home" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.home () in missed) () with
+      (handle (fn () -> (Env.home (); missed)) () with
       | Env!home _ _ -> caught
       )),
   test "Env!user" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.user () in missed) () with
+      (handle (fn () -> (Env.user (); missed)) () with
       | Env!user _ _ -> caught
       )),
   test "Env!read via Env.read!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Env.read! absent in missed) () with
+      (handle (fn () -> (Env.read! absent; missed)) () with
       | FS!read_file _ k -> k "WAND_TEST_OPS=1\n"
       | Env!read _ _ -> caught
       ))
@@ -460,43 +460,43 @@ group "subprocesses and exit" (fn () -> [
   test "Shell!command is performed by $*(...)" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = $*(echo hi) in missed) () with
+      (handle (fn () -> ($*(echo hi); missed)) () with
       | Shell!command _ _ -> caught
       )),
   test "Shell!stream is performed by Shell.stream" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Stream.to_list (Shell.stream $*(echo hi)) in missed) () with
+      (handle (fn () -> (Stream.to_list (Shell.stream $*(echo hi)); missed)) () with
       | Shell!stream _ _ -> caught
       )),
   test "Shell!run is performed by Shell.run!" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Shell.run! $*(echo hi) in missed) () with
+      (handle (fn () -> (Shell.run! $*(echo hi); missed)) () with
       | Shell!run _ _ -> caught
       )),
   test "Shell!capture is performed by Shell.query" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Shell.query $*(echo hi) in missed) () with
+      (handle (fn () -> (Shell.query $*(echo hi); missed)) () with
       | Shell!capture _ _ -> caught
       )),
   test "Shell!run is performed by $(...)" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = $(echo hi) in missed) () with
+      (handle (fn () -> ($(echo hi); missed)) () with
       | Shell!run _ _ -> caught
       )),
   test "Shell!capture is performed by $?(...)" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = $?(echo hi) in missed) () with
+      (handle (fn () -> ($?(echo hi); missed)) () with
       | Shell!capture _ _ -> caught
       )),
   test "Proc!exit" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = Proc.exit 0 in missed) () with
+      (handle (fn () -> (Proc.exit 0; missed)) () with
       | Proc!exit _ _ -> caught
       ))
 ])

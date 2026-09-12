@@ -99,7 +99,7 @@ let every_write! () = (
 )
 
 test "every write of contents is held back" (fn t -> (
-  let _ = Test.without_writes every_write!;
+  Test.without_writes every_write!;
   -- The directory is never made either, so a write that got through would
   -- have raised rather than landed. Either way it did not happen.
   t.eq false (FS.exists? ./seal)
@@ -118,7 +118,7 @@ test "moving a file is not a write of contents" (fn t -> (
   let src = Path.of_string "%{dir}/src";
   let dst = Path.of_string "%{dir}/dst";
   FS.write_file! src "x";
-  let _ = Test.without_writes (fn () -> FS.rename! src dst);
+  Test.without_writes (fn () -> FS.rename! src dst);
   let moved = FS.exists? dst;
   FS.delete_tree! (Path.of_string dir);
   t.eq true moved

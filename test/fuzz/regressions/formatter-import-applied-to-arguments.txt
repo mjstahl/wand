@@ -1,0 +1,20 @@
+found:     Daily Fuzz, seed 34598346061, iteration 347312, 2026-09-11
+verdict:   format:unstable -- wand f is not idempotent here
+fixed in:  lib/formatter.ml, emit_atom
+
+An `import` renders as the keyword and then a module name or a path, so
+whatever follows it runs into that name instead of standing beside it.
+`emit_atom` bracketed a control expression, a binop and an application,
+and left `import` out, so `(import O) xs` came back as `import O xs`.
+
+That reparses as a top-level import and a separate statement -- two items
+where there was one application. The formatter's next pass then had two
+plain imports next to each other at the head of the file and sorted them,
+so the file moved on the second pass as well as the first, and the two
+imports came back in the other order. The program that came out reported
+a missing module `O` where the one that went in reported a missing `P`.
+
+The `.` target had its own guard for the same reason: `(import FS).s`
+written as `import FS.s` names a different module. `emit_atom` now covers
+both positions, so that guard lists only the literals. It is the
+rendering's last token that decides, not the node.

@@ -85,7 +85,8 @@ let algorithm (digest: Digest) = digest.algorithm
 let of_hex algorithm text =
   let want = _hex_length algorithm in
   let lower = String.lower text in
-  if String.length lower != want then Error "a %{algorithm} digest is %{want} hex digits, and this is %{String.length lower}"
+  if String.length lower != want then
+    Error "a %{algorithm} digest is %{want} hex digits, and this is %{String.length lower}"
   else Result.map (fn _ -> Digest(algorithm = algorithm, hex = lower)) (hex_decode lower)
 
 -- Read a digest out of hex text. Raises on text the algorithm rejects.

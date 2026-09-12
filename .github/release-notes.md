@@ -1,59 +1,75 @@
-## 0.72.0 - 2026-09-10
+## 0.73.0 - 2026-09-12
 
-Six names go back to the files that want them.
+`wand f` leaves more of your layout alone, and a new lint rule finds a
+binder that does nothing.
 
-### An HTTP method is written with its module
+### `wand f` keeps a call that ends in a constructor
 
-`GET`, `POST`, `PUT`, `PATCH`, `DELETE` and `HEAD` were built-in
-constructors, in scope in every file the way `Ok`, `Error`, `Some` and
-`None` are. That list is the language's own vocabulary, and six HTTP verbs
-were sitting in it. A file could still declare its own `PATCH`, and the
-declaration shadowed the built-in correctly — the cost was not a name taken
-away, it was that a bare `POST` said nothing about where it came from, and
-that a reader looking up what the language provides found HTTP in the
-answer.
-
-They are now reached through the module:
+A call whose last argument is a constructor was pulled apart, one argument
+per line, and wrapped in brackets it did not need:
 
 ```ocaml
-HTTP.Request(url = https://api.example.com/x, method = HTTP.POST)
+-- before
+let response =
+  (HTTP.request!
+    HTTP.Request(
+      url = endpoint,
+      headers = auth
+    ))
+
+-- after
+let response =
+  HTTP.request! HTTP.Request(
+    url = endpoint,
+    headers = auth
+  )
 ```
 
-Bare `POST` names nothing, and says what to write instead:
+A list or a map in that position always kept its shape. A constructor now
+does too.
 
-```
-Error: type error: 2:1: unknown constructor 'POST' -- write 'HTTP.POST'
-```
+### `wand f` keeps `if` inside the margin
 
-The type stays built in. The compiler names it — it is a field of the
-`Net!http` payload — and a module's types are keyed by a path that moves
-with `WAND_STDLIB`, which is the same reason `HTTPRequest` and
-`HTTPResponse` are built in. What changed is where its constructors can be
-read: `HTTP.Method` is the type, and `HTTP.GET` its constructors, in an
-expression and in a pattern alike.
-
-One position still accepts the bare name. `Mod.X(...)` reads that module's
-names for the whole construction, field values included, which is how every
-module has always read — so `HTTP.Request(method = POST)` typechecks, and
-this release does not make it an error:
+A `then` branch that did not fit was written past the right margin instead
+of moving down a line:
 
 ```ocaml
-HTTP.Request(url = u, method = POST)        -- accepted, in this position only
-HTTP.Request(url = u, method = HTTP.POST)   -- write this
+-- before, 113 columns
+if HTTP.ok? response then JSON.parse body |> Result.and_then (JSON.decode d) |> Result.get!
+
+-- after
+if HTTP.ok? response then
+  JSON.parse body |> Result.and_then (JSON.decode d) |> Result.get!
 ```
 
-Both build the same value. The qualified spelling is the one that reads the
-same wherever it appears, and whether that position should keep its
-exception is a question about every module rather than about HTTP.
+`else` already did this. Both branches do now.
+
+### `A-BIND1` finds a `let _ =` that binds nothing
+
+`let _ =` says a failure is being thrown away on purpose. When the value is
+`Unit` there is no failure, so the binder does nothing:
+
+```ocaml
+let _ = IO.println "done"     -- before
+IO.println "done"             -- after
+```
+
+`wand t --fix` takes it off at the top level of a file and inside
+`( ... ; ... )`. Inside a function body it cannot come off on its own,
+because the statements would run together — `wand t` names the line and you
+write the `;`.
+
+A `let _ =` over a `Result` is left alone. That one is doing its job, and
+`V-DROP1` is the rule that asks for it.
+
+### Also fixed
+
+`wand f` dropped the brackets around an `import` used as a value, so
+`(import O) xs` came back as `import O xs` — an import and a separate
+statement rather than one call. Found by the daily fuzzer (#25).
 
 ### Upgrading
 
-A file that builds a request without naming the module needs the prefix:
-
-```ocaml
-HTTPRequest(url = u, method = POST)        -- before
-HTTPRequest(url = u, method = HTTP.POST)   -- after
-```
-
-`wand t` names each one and the correction. Requests written as
-`HTTP.Request(...)` need no change.
+Nothing to change. `wand f` output shifts where the cases above applied, so
+a file formatted by an older wand may show a diff on its first run.
+`A-BIND1` is advisory and never fails a build.

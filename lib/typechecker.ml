@@ -100,6 +100,12 @@ let holes : typ list ref = ref []
    top-level statements. *)
 let seq_discard_types : (Token.loc * typ) list ref = ref []
 
+(* The type a `let _ = ...` binds, with the location of the bound
+   expression. A binder that names nothing is how a file says a failure does
+   not matter; where the value is Unit there is no failure to dismiss, and
+   the lint that says so needs the type to tell the two apart. *)
+let wild_let_types : (Token.loc * typ) list ref = ref []
+
 (* `effect_of_operation` and `operation_types` are derived from the
    operations table, which needs `fresh` -- see "Effect operations" below. *)
 
@@ -2599,6 +2605,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
        infer tenv ((name, generalize env t1) :: env) e2
      | _ ->
        let t1     = infer tenv env e1 in
+       (match p, e1 with
+        | Wild, Located (loc, _) ->
+          wild_let_types := (loc, t1) :: !wild_let_types
+        | _ -> ());
        (* A binding whose pattern can fail raises where it stands, the same
           way a parameter's does -- `let Ok v = r in ...` has nothing to do
           with an Error but raise. *)
@@ -4770,6 +4780,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   local_binders := [];
   current_item := -1;
   seq_discard_types := [];
+  wild_let_types := [];
   last_shell_words := [];
   last_shell_static := true;
   last_shell_allow := None;

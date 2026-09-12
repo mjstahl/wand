@@ -28,6 +28,7 @@ type id =
   | V_IMP2     (* an import binds a name the file never mentions *)
   | V_CLOCK1   (* two readings of the civil clock subtracted: a step spoils it *)
   | V_SHADOW1  (* a top-level name is bound twice, so its meaning depends on the line *)
+  | A_BIND1    (* `let _ =` over a Unit value dismisses a failure that is not there *)
 
 (* The prefix says what a finding will do to you, so a rule ID printed in a
    terminal answers that on its own -- the same reason a raising function is
@@ -141,6 +142,13 @@ let all = [
   { id = V_SHELL2; code = "V-SHELL2";
     summary = "a command runs on to a second line, which starts a second command";
     kind = Violation };
+  (* `let _ =` says the value is being dropped on purpose, which is what
+     V-DROP1 asks for over a Result. Over a Unit there is no failure to
+     dismiss, so the binder says nothing and the statement below it reads
+     the same without it. Advisory: the file is correct either way. *)
+  { id = A_BIND1;  code = "A-BIND1";
+    summary = "a `let _ =` binds a Unit value, so the binder says nothing";
+    kind = Advisory };
   { id = V_SHADOW1; code = "V-SHADOW1";
     summary = "a top-level name is bound twice in one file";
     kind = Violation };
@@ -318,3 +326,9 @@ let shell1 ~stages =
   Printf.sprintf
     "this $() is a %d-operator shell pipeline; stages moved into wand are \
      typed, and appear individually under --trace" stages
+
+let bind1 ~standalone =
+  "`let _ =` says a dropped failure does not matter, and this value is Unit, \
+   so there is no failure to drop -- "
+  ^ (if standalone then "write the statement on its own"
+     else "write the statement on its own, sequenced with `;`")
