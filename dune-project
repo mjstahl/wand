@@ -5,7 +5,7 @@
 (generate_opam_files true)
 
 (source
- (github mjstahl/wand))
+ (github wand-lang/wand))
 
 (authors "Mark Stahl <mark@technicallycorrect.company>")
 

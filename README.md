@@ -116,10 +116,10 @@ test "deploy pushes exactly once" (fn t ->
 ## Install and run
 
 **In GitHub Actions.** One step. It verifies the checksum and reuses the tool
-cache. See [mjstahl/setup-wand](https://github.com/mjstahl/setup-wand):
+cache. See [wand-lang/setup-wand](https://github.com/wand-lang/setup-wand):
 
 ```yaml
-- uses: mjstahl/setup-wand@v1
+- uses: wand-lang/setup-wand@v1
 - run: wand ci/deploy.wand
 ```
 
@@ -129,14 +129,14 @@ the checksum, runs the binary once, and installs it in `~/.local/bin`. Set
 directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wand-lang/wand/main/install.sh | sh
 ```
 
 The script needs curl — which the line above already uses. Without it, take
 the archive for your platform from the releases page below and unpack it: it
 holds a single binary and nothing else.
 
-Each [release](https://github.com/mjstahl/wand/releases) has static Linux
+Each [release](https://github.com/wand-lang/wand/releases) has static Linux
 builds (x86_64, aarch64) and macOS builds (aarch64, x86_64), and a `.sha256`
 file beside each one. That file says the download arrived whole. It does not
 say who built it — it is uploaded beside the archive, so whoever can write the
@@ -147,7 +147,7 @@ archive its runners build, with a token that workflow cannot pass on, over
 the archive's digest and the commit it came from. From 0.68.0 on:
 
 ```sh
-gh attestation verify wand-<version>-linux-x86_64.tar.gz --repo mjstahl/wand
+gh attestation verify wand-<version>-linux-x86_64.tar.gz --repo wand-lang/wand
 ```
 
 It covers the three archives CI builds. The macOS x86_64 archive is built by

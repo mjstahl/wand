@@ -653,7 +653,7 @@ library's parsers. Twenty-six findings are fixed.
   They truncated the source and then filled it, so a crash part way through
   left half a file
 - **A release archive built by CI carries a build attestation.** Check one
-  with `gh attestation verify <archive> --repo mjstahl/wand`. The `.sha256`
+  with `gh attestation verify <archive> --repo wand-lang/wand`. The `.sha256`
   beside an archive is written by the job that builds it, so it
   authenticates the download and not the publisher
 
@@ -727,7 +727,7 @@ library's parsers. Twenty-six findings are fixed.
 
 ### CI
 
-- The `mjstahl/setup-wand` checkout is pinned to a commit. It runs wand code
+- The `wand-lang/setup-wand` checkout is pinned to a commit. It runs wand code
   and wand code runs shell, so a push to that repository was a command
   running in this one
 - `ci.yml` declares `permissions: contents: read`; `release.yml` declares
@@ -3429,77 +3429,90 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/mjstahl/wand/compare/v0.63.0...HEAD
-[0.65.0]: https://github.com/mjstahl/wand/compare/v0.64.0...v0.65.0
-[0.64.0]: https://github.com/mjstahl/wand/compare/v0.63.0...v0.64.0
-[0.63.0]: https://github.com/mjstahl/wand/compare/v0.62.1...v0.63.0
-[0.62.1]: https://github.com/mjstahl/wand/compare/v0.62.0...v0.62.1
-[0.62.0]: https://github.com/mjstahl/wand/compare/v0.61.0...v0.62.0
-[0.61.0]: https://github.com/mjstahl/wand/compare/v0.60.0...v0.61.0
-[0.60.0]: https://github.com/mjstahl/wand/compare/v0.59.4...v0.60.0
-[0.59.4]: https://github.com/mjstahl/wand/compare/v0.59.3...v0.59.4
-[0.59.3]: https://github.com/mjstahl/wand/compare/v0.59.2...v0.59.3
-[0.59.2]: https://github.com/mjstahl/wand/compare/v0.59.1...v0.59.2
-[0.59.1]: https://github.com/mjstahl/wand/compare/v0.59.0...v0.59.1
-[0.59.0]: https://github.com/mjstahl/wand/compare/v0.58.0...v0.59.0
-[0.58.0]: https://github.com/mjstahl/wand/compare/v0.57.1...v0.58.0
-[0.57.1]: https://github.com/mjstahl/wand/compare/v0.57.0...v0.57.1
-[0.57.0]: https://github.com/mjstahl/wand/compare/v0.56.0...v0.57.0
-[0.56.0]: https://github.com/mjstahl/wand/compare/v0.55.5...v0.56.0
-[0.55.5]: https://github.com/mjstahl/wand/compare/v0.55.4...v0.55.5
-[0.55.4]: https://github.com/mjstahl/wand/compare/v0.55.3...v0.55.4
-[0.55.3]: https://github.com/mjstahl/wand/compare/v0.55.2...v0.55.3
-[0.55.2]: https://github.com/mjstahl/wand/compare/v0.55.1...v0.55.2
-[0.55.1]: https://github.com/mjstahl/wand/compare/v0.55.0...v0.55.1
-[0.55.0]: https://github.com/mjstahl/wand/compare/v0.54.0...v0.55.0
-[0.54.0]: https://github.com/mjstahl/wand/compare/v0.53.2...v0.54.0
-[0.53.2]: https://github.com/mjstahl/wand/compare/v0.53.1...v0.53.2
-[0.53.1]: https://github.com/mjstahl/wand/compare/v0.53.0...v0.53.1
-[0.53.0]: https://github.com/mjstahl/wand/compare/v0.52.0...v0.53.0
-[0.52.0]: https://github.com/mjstahl/wand/compare/v0.51.0...v0.52.0
-[0.51.0]: https://github.com/mjstahl/wand/compare/v0.50.0...v0.51.0
-[0.50.0]: https://github.com/mjstahl/wand/compare/v0.49.0...v0.50.0
-[0.49.0]: https://github.com/mjstahl/wand/compare/v0.48.1...v0.49.0
-[0.48.1]: https://github.com/mjstahl/wand/compare/v0.48.0...v0.48.1
-[0.48.0]: https://github.com/mjstahl/wand/compare/v0.47.0...v0.48.0
-[0.47.0]: https://github.com/mjstahl/wand/compare/v0.46.0...v0.47.0
-[0.46.0]: https://github.com/mjstahl/wand/compare/v0.45.0...v0.46.0
-[0.45.0]: https://github.com/mjstahl/wand/compare/v0.44.0...v0.45.0
-[0.44.0]: https://github.com/mjstahl/wand/compare/v0.43.1...v0.44.0
-[0.43.1]: https://github.com/mjstahl/wand/compare/v0.43.0...v0.43.1
-[0.43.0]: https://github.com/mjstahl/wand/compare/v0.42.0...v0.43.0
-[0.42.0]: https://github.com/mjstahl/wand/compare/v0.41.0...v0.42.0
-[0.41.0]: https://github.com/mjstahl/wand/compare/v0.40.0...v0.41.0
-[0.40.0]: https://github.com/mjstahl/wand/compare/v0.39.0...v0.40.0
-[0.39.0]: https://github.com/mjstahl/wand/compare/v0.38.0...v0.39.0
-[0.38.0]: https://github.com/mjstahl/wand/compare/v0.37.0...v0.38.0
-[0.37.0]: https://github.com/mjstahl/wand/compare/v0.36.0...v0.37.0
-[0.36.0]: https://github.com/mjstahl/wand/compare/v0.35.0...v0.36.0
-[0.35.0]: https://github.com/mjstahl/wand/compare/v0.34.0...v0.35.0
-[0.34.0]: https://github.com/mjstahl/wand/compare/v0.33.0...v0.34.0
-[0.33.0]: https://github.com/mjstahl/wand/compare/v0.32.0...v0.33.0
-[0.32.0]: https://github.com/mjstahl/wand/compare/v0.31.0...v0.32.0
-[0.31.0]: https://github.com/mjstahl/wand/compare/v0.30.0...v0.31.0
-[0.30.0]: https://github.com/mjstahl/wand/compare/v0.29.0...v0.30.0
-[0.29.0]: https://github.com/mjstahl/wand/compare/v0.28.0...v0.29.0
-[0.28.0]: https://github.com/mjstahl/wand/compare/v0.27.0...v0.28.0
-[0.27.0]: https://github.com/mjstahl/wand/compare/v0.26.0...v0.27.0
-[0.26.0]: https://github.com/mjstahl/wand/compare/v0.25.0...v0.26.0
-[0.25.0]: https://github.com/mjstahl/wand/compare/v0.24.0...v0.25.0
-[0.24.0]: https://github.com/mjstahl/wand/compare/v0.23.0...v0.24.0
-[0.23.0]: https://github.com/mjstahl/wand/compare/v0.22.0...v0.23.0
-[0.22.0]: https://github.com/mjstahl/wand/compare/v0.21.0...v0.22.0
-[0.21.0]: https://github.com/mjstahl/wand/compare/v0.20.1...v0.21.0
-[0.20.1]: https://github.com/mjstahl/wand/compare/v0.20.0...v0.20.1
-[0.20.0]: https://github.com/mjstahl/wand/compare/v0.19.0...v0.20.0
-[0.19.0]: https://github.com/mjstahl/wand/compare/v0.18.1...v0.19.0
-[0.18.1]: https://github.com/mjstahl/wand/compare/v0.18.0...v0.18.1
-[0.18.0]: https://github.com/mjstahl/wand/compare/v0.17.0...v0.18.0
-[0.17.0]: https://github.com/mjstahl/wand/compare/v0.16.0...v0.17.0
-[0.16.0]: https://github.com/mjstahl/wand/compare/v0.15.0...v0.16.0
-[0.15.0]: https://github.com/mjstahl/wand/compare/v0.14.0...v0.15.0
-[0.14.0]: https://github.com/mjstahl/wand/compare/v0.13.1...v0.14.0
-[0.13.1]: https://github.com/mjstahl/wand/compare/v0.13.0...v0.13.1
-[0.13.0]: https://github.com/mjstahl/wand/compare/v0.12.0...v0.13.0
-[0.12.0]: https://github.com/mjstahl/wand/compare/v0.11.0...v0.12.0
-[0.11.0]: https://github.com/mjstahl/wand/releases/tag/v0.11.0
+[unreleased]: https://github.com/wand-lang/wand/compare/v0.77.0...HEAD
+[0.77.0]: https://github.com/wand-lang/wand/compare/v0.76.0...v0.77.0
+[0.76.0]: https://github.com/wand-lang/wand/compare/v0.75.0...v0.76.0
+[0.75.0]: https://github.com/wand-lang/wand/compare/v0.74.0...v0.75.0
+[0.74.0]: https://github.com/wand-lang/wand/compare/v0.73.0...v0.74.0
+[0.73.0]: https://github.com/wand-lang/wand/compare/v0.72.0...v0.73.0
+[0.72.0]: https://github.com/wand-lang/wand/compare/v0.71.0...v0.72.0
+[0.71.0]: https://github.com/wand-lang/wand/compare/v0.70.0...v0.71.0
+[0.70.0]: https://github.com/wand-lang/wand/compare/v0.69.0...v0.70.0
+[0.69.0]: https://github.com/wand-lang/wand/compare/v0.68.0...v0.69.0
+[0.68.0]: https://github.com/wand-lang/wand/compare/v0.67.0...v0.68.0
+[0.67.0]: https://github.com/wand-lang/wand/compare/v0.66.1...v0.67.0
+[0.66.1]: https://github.com/wand-lang/wand/compare/v0.66.0...v0.66.1
+[0.66.0]: https://github.com/wand-lang/wand/compare/v0.65.0...v0.66.0
+[0.65.0]: https://github.com/wand-lang/wand/compare/v0.64.0...v0.65.0
+[0.64.0]: https://github.com/wand-lang/wand/compare/v0.63.0...v0.64.0
+[0.63.0]: https://github.com/wand-lang/wand/compare/v0.62.1...v0.63.0
+[0.62.1]: https://github.com/wand-lang/wand/compare/v0.62.0...v0.62.1
+[0.62.0]: https://github.com/wand-lang/wand/compare/v0.61.0...v0.62.0
+[0.61.0]: https://github.com/wand-lang/wand/compare/v0.60.0...v0.61.0
+[0.60.0]: https://github.com/wand-lang/wand/compare/v0.59.4...v0.60.0
+[0.59.4]: https://github.com/wand-lang/wand/compare/v0.59.3...v0.59.4
+[0.59.3]: https://github.com/wand-lang/wand/compare/v0.59.2...v0.59.3
+[0.59.2]: https://github.com/wand-lang/wand/compare/v0.59.1...v0.59.2
+[0.59.1]: https://github.com/wand-lang/wand/compare/v0.59.0...v0.59.1
+[0.59.0]: https://github.com/wand-lang/wand/compare/v0.58.0...v0.59.0
+[0.58.0]: https://github.com/wand-lang/wand/compare/v0.57.1...v0.58.0
+[0.57.1]: https://github.com/wand-lang/wand/compare/v0.57.0...v0.57.1
+[0.57.0]: https://github.com/wand-lang/wand/compare/v0.56.0...v0.57.0
+[0.56.0]: https://github.com/wand-lang/wand/compare/v0.55.5...v0.56.0
+[0.55.5]: https://github.com/wand-lang/wand/compare/v0.55.4...v0.55.5
+[0.55.4]: https://github.com/wand-lang/wand/compare/v0.55.3...v0.55.4
+[0.55.3]: https://github.com/wand-lang/wand/compare/v0.55.2...v0.55.3
+[0.55.2]: https://github.com/wand-lang/wand/compare/v0.55.1...v0.55.2
+[0.55.1]: https://github.com/wand-lang/wand/compare/v0.55.0...v0.55.1
+[0.55.0]: https://github.com/wand-lang/wand/compare/v0.54.0...v0.55.0
+[0.54.0]: https://github.com/wand-lang/wand/compare/v0.53.2...v0.54.0
+[0.53.2]: https://github.com/wand-lang/wand/compare/v0.53.1...v0.53.2
+[0.53.1]: https://github.com/wand-lang/wand/compare/v0.53.0...v0.53.1
+[0.53.0]: https://github.com/wand-lang/wand/compare/v0.52.0...v0.53.0
+[0.52.0]: https://github.com/wand-lang/wand/compare/v0.51.0...v0.52.0
+[0.51.0]: https://github.com/wand-lang/wand/compare/v0.50.0...v0.51.0
+[0.50.0]: https://github.com/wand-lang/wand/compare/v0.49.0...v0.50.0
+[0.49.0]: https://github.com/wand-lang/wand/compare/v0.48.1...v0.49.0
+[0.48.1]: https://github.com/wand-lang/wand/compare/v0.48.0...v0.48.1
+[0.48.0]: https://github.com/wand-lang/wand/compare/v0.47.0...v0.48.0
+[0.47.0]: https://github.com/wand-lang/wand/compare/v0.46.0...v0.47.0
+[0.46.0]: https://github.com/wand-lang/wand/compare/v0.45.0...v0.46.0
+[0.45.0]: https://github.com/wand-lang/wand/compare/v0.44.0...v0.45.0
+[0.44.0]: https://github.com/wand-lang/wand/compare/v0.43.1...v0.44.0
+[0.43.1]: https://github.com/wand-lang/wand/compare/v0.43.0...v0.43.1
+[0.43.0]: https://github.com/wand-lang/wand/compare/v0.42.0...v0.43.0
+[0.42.0]: https://github.com/wand-lang/wand/compare/v0.41.0...v0.42.0
+[0.41.0]: https://github.com/wand-lang/wand/compare/v0.40.0...v0.41.0
+[0.40.0]: https://github.com/wand-lang/wand/compare/v0.39.0...v0.40.0
+[0.39.0]: https://github.com/wand-lang/wand/compare/v0.38.0...v0.39.0
+[0.38.0]: https://github.com/wand-lang/wand/compare/v0.37.0...v0.38.0
+[0.37.0]: https://github.com/wand-lang/wand/compare/v0.36.0...v0.37.0
+[0.36.0]: https://github.com/wand-lang/wand/compare/v0.35.0...v0.36.0
+[0.35.0]: https://github.com/wand-lang/wand/compare/v0.34.0...v0.35.0
+[0.34.0]: https://github.com/wand-lang/wand/compare/v0.33.0...v0.34.0
+[0.33.0]: https://github.com/wand-lang/wand/compare/v0.32.0...v0.33.0
+[0.32.0]: https://github.com/wand-lang/wand/compare/v0.31.0...v0.32.0
+[0.31.0]: https://github.com/wand-lang/wand/compare/v0.30.0...v0.31.0
+[0.30.0]: https://github.com/wand-lang/wand/compare/v0.29.0...v0.30.0
+[0.29.0]: https://github.com/wand-lang/wand/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/wand-lang/wand/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/wand-lang/wand/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/wand-lang/wand/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/wand-lang/wand/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/wand-lang/wand/compare/v0.23.0...v0.24.0
+[0.23.0]: https://github.com/wand-lang/wand/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/wand-lang/wand/compare/v0.21.0...v0.22.0
+[0.21.0]: https://github.com/wand-lang/wand/compare/v0.20.1...v0.21.0
+[0.20.1]: https://github.com/wand-lang/wand/compare/v0.20.0...v0.20.1
+[0.20.0]: https://github.com/wand-lang/wand/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/wand-lang/wand/compare/v0.18.1...v0.19.0
+[0.18.1]: https://github.com/wand-lang/wand/compare/v0.18.0...v0.18.1
+[0.18.0]: https://github.com/wand-lang/wand/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/wand-lang/wand/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/wand-lang/wand/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/wand-lang/wand/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/wand-lang/wand/compare/v0.13.1...v0.14.0
+[0.13.1]: https://github.com/wand-lang/wand/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/wand-lang/wand/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/wand-lang/wand/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/wand-lang/wand/releases/tag/v0.11.0

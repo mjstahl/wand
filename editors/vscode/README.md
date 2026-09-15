@@ -1,6 +1,6 @@
 # wand for VS Code
 
-Language support for [wand](https://github.com/mjstahl/wand). The language
+Language support for [wand](https://github.com/wand-lang/wand). The language
 server is `wand lsp`, a subcommand on the wand binary itself — the extension
 spawns it and stays out of the way, so the editor can never disagree with
 the compiler.

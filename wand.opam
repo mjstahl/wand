@@ -7,8 +7,8 @@ maintainer: ["Mark Stahl <mark@technicallycorrect.company>"]
 authors: ["Mark Stahl <mark@technicallycorrect.company>"]
 license: "MIT"
 tags: ["scripting-language" "type-inference" "ml" "interpreter"]
-homepage: "https://github.com/mjstahl/wand"
-bug-reports: "https://github.com/mjstahl/wand/issues"
+homepage: "https://github.com/wand-lang/wand"
+bug-reports: "https://github.com/wand-lang/wand/issues"
 depends: [
   "dune" {>= "3.23"}
   "ocaml"
@@ -36,5 +36,5 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/mjstahl/wand.git"
+dev-repo: "git+https://github.com/wand-lang/wand.git"
 x-maintenance-intent: ["(latest)"]

@@ -151,7 +151,7 @@ disagrees with.
 CI also signs a build attestation for each archive it builds, which is what
 says who built one — the `.sha256` beside an archive is written by the same
 job and says only that the download arrived whole. Check one with
-`gh attestation verify <archive> --repo mjstahl/wand`. The macOS x86_64
+`gh attestation verify <archive> --repo wand-lang/wand`. The macOS x86_64
 archive is built here, so it has no attestation; `make release-archive` says
 so when it finishes.
 

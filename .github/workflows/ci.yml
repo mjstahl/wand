@@ -118,7 +118,7 @@ jobs:
       # should be tested against.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: mjstahl/setup-wand
+          repository: wand-lang/setup-wand
           ref: eb3b29225788c6a5669bce3ecc5e73b97dd7968a # main, 2026-09-08
           path: .setup-wand
 

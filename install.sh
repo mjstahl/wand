@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install a released wand binary:
 #
-#     curl -fsSL https://raw.githubusercontent.com/mjstahl/wand/main/install.sh | sh
+#     curl -fsSL https://raw.githubusercontent.com/wand-lang/wand/main/install.sh | sh
 #
 # Detects the platform, downloads the matching archive from the latest
 # release, verifies its sha256 against the checksum published beside it,
@@ -16,7 +16,7 @@
 
 set -eu
 
-repo="mjstahl/wand"
+repo="wand-lang/wand"
 install_dir="${WAND_INSTALL_DIR:-$HOME/.local/bin}"
 
 say()  { printf '%s\n' "$*"; }

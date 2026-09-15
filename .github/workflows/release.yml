@@ -225,7 +225,7 @@ jobs:
       # cannot pass on, and it records the repository, the workflow, the
       # commit and the archive's digest. A reader checks it with
       #
-      #   gh attestation verify wand-X.Y.Z-<target>.tar.gz --repo mjstahl/wand
+      #   gh attestation verify wand-X.Y.Z-<target>.tar.gz --repo wand-lang/wand
       #
       # which fails if the bytes are not the bytes this workflow built, at
       # this commit -- whoever attached them.
