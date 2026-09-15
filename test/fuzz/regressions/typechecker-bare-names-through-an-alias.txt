@@ -1,0 +1,13 @@
+found:     Daily Fuzz, seed 34855194321, iteration 502334, 2026-09-14
+reported:  format:retyped:was Unit, now E-TYPE
+fixed in:  lib/typechecker.ml, the `ConstrBare` and `PConstrBare` cases
+
+A list of bare names inside a constructor's brackets is read by the
+declaration: fields where the constructor has named ones, a payload where
+it does not. The lookup asked for the name as written, and an alias has no
+constructor under its own name, so `Request(url, body)` through
+`type Request = HTTPRequest` was read as a tuple payload.
+
+The formatter writes `T(a = a, b = b)` as `T(a, b)`, which is the same
+construction -- so a file that typechecked came back rejected. The lookup
+now resolves the alias first, the way `ConstrApp` already did.

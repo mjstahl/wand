@@ -23,9 +23,16 @@ let path_for fixture =
   let under = Filename.remove_extension fixture ^ ".under" in
   if Sys.file_exists under then
     let rel = String.trim (read under) in
-    (* The suite runs in `_build/default/test`, and the tree it needs is
-       declared as a dep of this stanza, so the root is two levels up. *)
-    Filename.concat (Filename.concat Filename.parent_dir_name Filename.parent_dir_name) rel
+    (* The suite runs in the `test` directory of the build tree, and what the
+       path names is declared as a dep of this stanza, so it sits beside that
+       directory -- one level up, not two. Checked rather than assumed: a
+       path that is not there leaves the fixture checked as an ordinary
+       script, which is not the question it was filed over, and it passes. *)
+    let under_root = Filename.concat Filename.parent_dir_name rel in
+    if not (Sys.file_exists under_root) then
+      Alcotest.failf "%s names %s, and it is not there: the stanza's deps \
+                      are wrong" under rel;
+    under_root
   else fixture
 
 let fixtures () =

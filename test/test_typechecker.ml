@@ -1004,6 +1004,17 @@ let test_type_aliases () =
     "'S' is a type, not a value";
   err_contains "a variant's own name" "type Shape = Circle Int | Rect Int\nShape"
     "'Shape' is a type, not a value";
+  (* A list of bare names is read by the declaration, and the declaration an
+     alias reaches is its target's. Asked of the alias's own name, the
+     lookup found no constructor and the list stayed a payload, so
+     `This(i, j)` was a tuple where `That(i, j)` was two fields. Found by
+     test/fuzz, over `type Request = HTTPRequest`. *)
+  ok "an alias reads bare names as fields"
+    "type That(i: Int, j: Int)\ntype This = That\nlet f i j = This(i, j).j\nf 1 9"
+    "9";
+  prog_is "and matches them"
+    "type That(i: Int, j: Int)\ntype This = That\nmatch This(i = 1, j = 2) with | This(i, j) -> i + j"
+    "Int";
   (* An update through an alias reads the same constructor a construction
      through it does. It used to report an unknown constructor. *)
   ok "an alias updates what it builds"

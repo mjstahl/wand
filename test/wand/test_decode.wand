@@ -45,9 +45,9 @@ test "a wrong type names the field and what was there" (fn t ->
 
 test "the path is the whole path" (fn t ->
   let name = Decode.field "metadata" (Decode.field "name" Decode.string) in
-  (t.eq
+  t.eq
     ".items[1].metadata.name: expected String, got Int"
-    (failure (Decode.field "items" (Decode.list name)))))
+    (failure (Decode.field "items" (Decode.list name))))
 
 test "a list decodes every element" (fn t ->
   let counts = JSON.parse! `{"counts": [1, 2, 3]}` in
@@ -56,26 +56,26 @@ test "a list decodes every element" (fn t ->
 -- Two fields into a record. Wider records go through and_then.
 test "map2 builds a record" (fn t ->
   let pod =
-    (Decode.map2
+    Decode.map2
       (fn n r -> Pod(name = n, restarts = r))
       (Decode.field "name" Decode.string)
-      (Decode.field "restarts" Decode.int))
+      (Decode.field "restarts" Decode.int)
   in
   t.eq (Ok Pod(name = "web-01", restarts = 4)) (decoded pod))
 
 test "and_then chooses what to read next" (fn t ->
   let checked =
-    (Decode.and_then
+    Decode.and_then
       (fn n -> if n > 3 then Decode.succeed n else Decode.fail "too few")
-      (Decode.field "restarts" Decode.int))
+      (Decode.field "restarts" Decode.int)
   in
   t.eq (Ok 4) (decoded checked))
 
 test "and_then can refuse, and says where" (fn t ->
   let checked =
-    (Decode.and_then
+    Decode.and_then
       (fn n -> if n > 9 then Decode.succeed n else Decode.fail "too few")
-      (Decode.field "restarts" Decode.int))
+      (Decode.field "restarts" Decode.int)
   in
   t.eq "too few" (failure checked))
 
@@ -89,8 +89,7 @@ test "one_of takes the first that works" (fn t ->
       (Decode.one_of [
         Decode.field "restarts" Decode.string,
         Decode.field "name" Decode.string
-      ])
-    ))
+      ])))
 
 -- Which alternative was the real one is not the decoder's to guess, so it
 -- reports all of them rather than picking.
@@ -154,9 +153,9 @@ test "TOML decodes by field, and nests" (fn t ->
 
 test "TOML names a missing field with its path" (fn t ->
   let cfg = TOML.parse! "[server]\nport = 8080" in
-  (t.eq
+  t.eq
     (Error ".server.prt: no such field")
-    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg)))
+    (TOML.decode (Decode.field "server" (Decode.field "prt" Decode.int)) cfg))
 
 -- A CSV's first row names the columns, so a row is read by field like any
 -- other record -- and the cells are text, which `int` reads.
@@ -166,9 +165,9 @@ test "CSV reads rows by column name" (fn t ->
 
 test "CSV says which row was wrong" (fn t ->
   let src = "host,restarts\nweb-01,4" in
-  (t.eq
+  t.eq
     (Error "[0].hosts: no such field")
-    (CSV.rows (Decode.field "hosts" Decode.string) src)))
+    (CSV.rows (Decode.field "hosts" Decode.string) src))
 
 test "one line, one value" (fn t -> t.eq (Ok [1, 2, 3]) (Shell.lines Decode.int "1\n2\n3"))
 
@@ -203,8 +202,8 @@ test "a present field that will not decode is still a failure" (fn t ->
 
 test "the remaining domain literals" (fn t ->
   let doc =
-    (JSON.parse!
-      `{"at": "2024-01-15", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`)
+    JSON.parse!
+      `{"at": "2024-01-15", "when": "2024-01-15T09:00:00Z", "ip": "10.0.0.4", "net": "10.0.0.0/8"}`
   in
   -- A bare day and a full instant both read as `DateTime`; the day is
   -- midnight UTC.
@@ -251,9 +250,9 @@ test "and what is not a port is not a port, written either way" (fn t ->
 
 test "an object with dynamic keys reads as a Map" (fn t ->
   let counts = JSON.parse! `{"web-01": 3, "db-01": 12}` in
-  (t.eq
+  t.eq
     (Ok (Map.from_list [("web-01", 3), ("db-01", 12)]))
-    (JSON.decode (Decode.dict Decode.int) counts)))
+    (JSON.decode (Decode.dict Decode.int) counts))
 
 test "and a bad value names the key it was under" (fn t ->
   let counts = JSON.parse! `{"a": 1, "b": "x"}` in
@@ -279,22 +278,22 @@ type Release(version: Version, draft: Bool, count: Int)
 
 test "map3 reads three fields" (fn t -> (
   let d =
-    (Decode.map3
+    Decode.map3
       (fn v dr c -> Release(version = v, draft = dr, count = c))
       (Decode.field "version" Decode.version)
       (Decode.field "draft" Decode.bool)
-      (Decode.field "count" Decode.int));
+      (Decode.field "count" Decode.int);
   let doc = JSON.parse! `{"version": "1.2.0", "draft": false, "count": 4}`;
   t.eq (Ok Release(version = 1.2.0, draft = false, count = 4)) (JSON.decode d doc)
 ))
 
 test "map3 names the field that failed" (fn t -> (
   let d =
-    (Decode.map3
+    Decode.map3
       (fn v dr c -> Release(version = v, draft = dr, count = c))
       (Decode.field "version" Decode.version)
       (Decode.field "draft" Decode.bool)
-      (Decode.field "count" Decode.int));
+      (Decode.field "count" Decode.int);
   let doc = JSON.parse! `{"version": "1.2.0", "draft": false}`;
   match JSON.decode d doc with
   | Ok _ -> t.ok false

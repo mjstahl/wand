@@ -73,8 +73,7 @@ test "a result stands in for the failure" (fn t ->
     "failed 2: broke"
     (Test.with_shell_results
       [("dune build", ShellResult(stdout = "", stderr = "broke", code = 2))]
-      gate
-    ))
+      gate))
 
 test "and a command the table misses succeeded" (fn t ->
   t.eq "built " (Test.with_shell_results [] gate))

@@ -2073,7 +2073,7 @@ let rec infer_pat tenv (p : pat) t (env : env) : env =
     with_visible (List.map fst own) (fun () -> infer_pat tenv' inner t env)
   | PConstrBare (name, ids) ->
     let named_fields =
-      match find_ctor_in_tenv tenv name with
+      match find_ctor_in_tenv tenv (ctor_name_for tenv name) with
       | Some (_, ctor) -> List.exists (fun (dn, _) -> dn <> None) ctor.fields
       | None -> false
     in
@@ -2737,7 +2737,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     with_visible (List.map fst own) (fun () -> infer tenv' env inner)
   | ConstrBare (name, ids) ->
     let named_fields =
-      match find_ctor_in_tenv tenv name with
+      match find_ctor_in_tenv tenv (ctor_name_for tenv name) with
       | Some (_, ctor) -> List.exists (fun (dn, _) -> dn <> None) ctor.fields
       | None -> false
     in
@@ -5040,6 +5040,13 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
       (env, last_t)  (* pre-loaded by load_imports_for *)
     | TLLetPat (pat, e) ->
       let t = infer tenv env e in
+      (* A top-level `let _ = ...` is this item, not the `Let` expression
+         below, so the type the A-BIND1 lint reads has to be recorded here
+         too. Keyed by the value's position, exactly as the expression case
+         records it. *)
+      (match pat, e with
+       | Wild, Located (loc, _) -> wild_let_types := (loc, t) :: !wild_let_types
+       | _ -> ());
       if pat_is_refutable tenv pat then
         performs (Effect_set.single Effect_set.Raise);
       let env' = infer_pat tenv pat t env in

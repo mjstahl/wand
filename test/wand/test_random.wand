@@ -49,8 +49,7 @@ group "any draw" (fn () -> [
     t.ok
       (List.all?
         (fn xs -> List.sort xs == [1, 2, 3, 4, 5])
-        (draws 50 (fn () -> Random.shuffle [1, 2, 3, 4, 5]))
-      ))
+        (draws 50 (fn () -> Random.shuffle [1, 2, 3, 4, 5]))))
 ])
 
 -- The ends of `chance?`, which are the two a caller is entitled to be

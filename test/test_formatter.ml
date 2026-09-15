@@ -302,7 +302,7 @@ let test_a_float_reads_back_as_itself () =
    was read as a subtraction on the next pass. Found by test/fuzz. *)
 let test_an_item_opening_with_an_operator_is_bracketed () =
   assert_idempotent "an item that opens with a minus"
-    "let{}=import T\nimport N-1\n";
+    "let{}=import T; -1\n";
   let out = fmt "let a = 1\n(-1)\n" in
   if not (Lint.contains out "(-1)") then
     Alcotest.failf "the brackets that make it its own statement went:\n%s" out
@@ -760,22 +760,36 @@ let test_manifest_is_followed_by_a_blank_line () =
    `match` is its final case, where a `)` is easiest of all to misread as
    part of the case. *)
 let test_a_multiline_paren_closes_on_its_own_line () =
+  (* The call itself takes no brackets. Its continuation lines are indented
+     past the `let`, so the application does not end at the first line end
+     and nothing has to say so -- see `bracket_if_wrapped_app_at`. What this
+     is about is the inner `)`, which still closes on a line of its own. *)
   fmt_eq "a handler argument closes below its last case"
     "let f thunk = check (handle thunk () with | FS!read_file _ _ -> \"caught\" | FS!write_file _ _ -> \"wrote\")"
-    "let f thunk =\n  (check\n    (handle thunk () with\n    | FS!read_file _ _ -> \"caught\"\n    | FS!write_file _ _ -> \"wrote\"\n    ))";
+    "let f thunk =\n  check\n    (handle thunk () with\n    | FS!read_file _ _ -> \"caught\"\n    | FS!write_file _ _ -> \"wrote\"\n    )";
   assert_idempotent "closing on its own line is a fixed point"
     "let f thunk = check (handle thunk () with | FS!read_file _ _ -> \"caught\" | FS!write_file _ _ -> \"wrote\")";
   (* One that still fits on a line keeps its bracket where it was. *)
   fmt_eq "a parenthesis that did not wrap is left alone"
-    "let g x = check (x + 1)" "let g x = check (x + 1)"
+    "let g x = check (x + 1)" "let g x = check (x + 1)";
+  (* A binding's value that wrapped takes no brackets either, and the output
+     runs: the lines under it are indented past the `let`, so they are the
+     continuation they look like. The guard that used to bracket this was
+     written when a newline ended a definition whatever the indent. *)
+  ok_after_format "a wrapped value needs no brackets"
+    "import List\nimport String\n     let total xs =\n  List.fold_left (fn acc s -> acc + String.length s) 0 xs\n     String.of_int (total [\"aaaaaaaaaaaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbbbbbbbb\"])"
+    "51"
 
-(* A case body wide enough to wrap needs its parentheses back, for the same
-   reason a binding's does: the application ends where its first line does,
-   and the argument left below is read as continuing the definition the
-   whole match belongs to. Without them `wand f` turned tools/check_fmt.wand
-   into a file that would not parse -- the worst thing a formatter can do,
-   so this checks the output runs and not merely that it reads a certain
-   way. *)
+(* A case body wide enough to wrap has to come back as a program. It once
+   did not: `wand f` turned tools/check_fmt.wand into a file that would not
+   parse, which is the worst thing a formatter can do, so this runs the
+   output rather than reading it.
+
+   Brackets were the answer then, because a newline ended a definition
+   whatever the indent. Indentation decides now, and the continuation sits
+   past the arm, so the body carries no brackets and still runs. What is
+   pinned here is the running, which is the part that matters and the part
+   that did not change. *)
 let test_a_wrapped_case_body_keeps_its_brackets () =
   ok_after_format "a wrapped application in a case body still parses"
     "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf []"
@@ -783,8 +797,13 @@ let test_a_wrapped_case_body_keeps_its_brackets () =
   ok_after_format "and the other arm is unaffected"
     "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf [1]"
     "some";
-  assert_idempotent "bracketing a wrapped case body is a fixed point"
-    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf []"
+  assert_idempotent "a wrapped case body is a fixed point"
+    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, quite long enough to wrap past the margin\"\n  | _ -> \"some\"\nf []";
+  (* The arm below it is still an arm, and a definition after the match is
+     still its own: a wrapped body reaches neither. *)
+  ok_after_format "an arm and a definition below it both survive"
+    "import String\nlet f xs =\n  match xs with\n  | [] -> String.upper \"a considerable message here, long enough to wrap past\"\n  | _ -> \"some\"\nlet g = 9\nf [] ++ String.of_int g"
+    "A CONSIDERABLE MESSAGE HERE, LONG ENOUGH TO WRAP PAST9"
 
 (* The block of plain imports stands off from whatever follows it, whether
    that is a destructured import or the first definition. *)
@@ -1106,7 +1125,15 @@ let test_contract_clauses_keep_their_indent () =
     ["  requires n % 2 == 0"; "  ensures result * 2 == n"];
   ok_after_format "and the contract still holds" 
     "let half n =\n  requires n % 2 == 0\n  n / 2\nhalf 10"
-    "5"
+    "5";
+  (* A body on the line under the last clause has to start something new,
+     and a line that opens with an operator continues the line above it
+     instead. `requires p (-1)` came back as `requires p` over `-1`, which
+     re-read as `requires p - 1` with no body left, and the output did not
+     parse. Found by test/fuzz. *)
+  ok_after_format "a body that opens with an operator keeps its brackets"
+    "let f n =\n  requires n > 0\n  (-n)\nf 3"
+    "-3"
 
 let test_handle_and_regex_round_trip () =
   ok_after_format "a handler"
@@ -1725,7 +1752,7 @@ let () =
       Alcotest.test_case "mid-line breaks step in" `Quick test_midline_breaks_step_in;
       Alcotest.test_case "manifest blank line" `Quick test_manifest_is_followed_by_a_blank_line;
       Alcotest.test_case "import block blank line" `Quick test_import_block_is_followed_by_a_blank_line;
-      Alcotest.test_case "wrapped case body brackets" `Quick test_a_wrapped_case_body_keeps_its_brackets;
+      Alcotest.test_case "wrapped case body runs" `Quick test_a_wrapped_case_body_keeps_its_brackets;
       Alcotest.test_case "multiline paren closes alone" `Quick test_a_multiline_paren_closes_on_its_own_line;
       Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;

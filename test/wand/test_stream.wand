@@ -33,8 +33,7 @@ test "stages fuse in order" (fn t ->
       |> Stream.map (fn x -> x * 2)
       |> Stream.filter (fn x -> x > 2)
       |> Stream.take 2
-      |> Stream.to_list
-    ))
+      |> Stream.to_list))
 
 test "fold_left folds every element" (fn t ->
   t.eq 10 (Stream.of_list [1, 2, 3, 4] |> Stream.fold_left (fn a x -> a + x) 0))
@@ -60,12 +59,12 @@ test "each fold reads the source afresh" (fn t ->
 
 test "a missing file raises at the fold, catchably" (fn t ->
   let go () = FS.stream_lines ./does-not-exist.log |> Stream.fold_left (fn n _ -> n + 1) 0
-  in (t.eq
+  in t.eq
     true
     (match try go () with
     | Ok _ -> false
     | Error why -> String.contains? "does-not-exist" why
-    )))
+    ))
 
 -- ── the terminals that fold ─────────────────────────────────────────────
 
@@ -146,16 +145,14 @@ test "filter_map maps and filters in one step" (fn t ->
     [20, 40]
     (Stream.of_list [1, 2, 3, 4]
       |> Stream.filter_map (fn x -> if x % 2 == 0 then Some (x * 10) else None)
-      |> Stream.to_list
-    ))
+      |> Stream.to_list))
 
 test "flat_map emits several per element" (fn t ->
   t.eq
     ["a", "b", "c"]
     (Stream.of_list ["a b", "c"]
       |> Stream.flat_map (fn l -> String.split " " l)
-      |> Stream.to_list
-    ))
+      |> Stream.to_list))
 
 test "flat_map can emit nothing" (fn t ->
   t.eq [] (Stream.of_list [1, 2] |> Stream.flat_map (fn _ -> []) |> Stream.to_list))
@@ -225,8 +222,7 @@ test "the stages compose in the order written" (fn t ->
       |> Stream.indexed
       |> Stream.map (fn p -> let (i, x) = p in i + x - 1)
       |> Stream.chunks 2
-      |> Stream.to_list
-    ))
+      |> Stream.to_list))
 
 -- ── Several files as one stream ─────────────────────────────────────────
 
@@ -321,5 +317,4 @@ test "tally counts what the stages let through" (fn t ->
     (Stream.of_list ["a b", "c d", "a e"]
       |> Stream.filter_map (String.word 0)
       |> Stream.filter (fn w -> w == "a")
-      |> Stream.tally
-    ))
+      |> Stream.tally))

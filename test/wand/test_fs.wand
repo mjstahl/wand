@@ -389,9 +389,9 @@ test "delete_tree on a path that is not there" (fn t ->
   | Error _ -> t.ok false)
 
 test "copy_tree error names the operation" (fn t ->
-  match (FS.copy_tree
+  match FS.copy_tree
     (Path.of_string "/no/such/path/wand_test_xyz")
-    (Path.of_string "%{scratch}/x")) with
+    (Path.of_string "%{scratch}/x") with
   | Ok _ -> t.ok false
   | Error e -> t.ok (String.starts_with? "copy_tree:" e))
 

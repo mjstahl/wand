@@ -177,6 +177,27 @@ let test_brace_import_destructure () =
   | [TLLetPat (PMap [("test", PVar "test")], _); TLExpr _] -> ()
   | _ -> Alcotest.fail "expected a TLLetPat with a punned PMap"
 
+(* An import statement is the keyword and the name, and the line ends there.
+   What followed on the same line used to become a second top-level item:
+   `import S(import S)` parsed as two imports where one application was
+   written, and the formatter then sorted the pair and moved the file on
+   every pass. Found by test/fuzz. *)
+let test_an_import_statement_ends_at_its_name () =
+  refuses "applied on the same line" "import S(import S)\n"
+    "an import statement ends with the module name";
+  (* The message names the way to the module, which differs by import: a
+     stdlib module binds its own name, a path has to be bound. *)
+  refuses "a stdlib module says what it binds" "import S(1)\n"
+    "it binds 'S', so 'S.member' reaches into it";
+  refuses "a path says to bind it" "import ./p(1)\n"
+    "write 'let name = import ./p' to bind it";
+  refuses "an operator on the same line" "import N-1\n"
+    "an import statement ends with the module name";
+  (* A trailing comment is not something on the line. *)
+  (match (parse_program "import IO -- why\n1\n").items with
+   | [TLImport (StdlibModule "IO"); TLExpr _] -> ()
+   | _ -> Alcotest.fail "a comment after an import ends the statement")
+
 (* ── Literals ────────────────────────────────────────────────────────────── *)
 
 let test_lits () =
@@ -905,7 +926,26 @@ let test_semicolon_body_without_parens () =
   ok "; separates items on one line"
     "let f b = match b with | true -> 1 | false -> 0; f true\n";
   ok "; then an item at the same column"
-    "let a = 1;\nlet b = 2\nb\n"
+    "let a = 1;\nlet b = 2\nb\n";
+  (* A binding is the case the newline already joined to its body, and the
+     `;` now spells the same thing. The statements below it sit at the
+     binding's own column, exactly as they do when a newline ends the
+     value. *)
+  ok "a binding's ; hands the rest to its body"
+    "import String\nlet of_hex text =\n  let want = 4;\n  let lower = String.lower text;\n  String.length lower == want\n";
+  (* One binding, and one item: what follows the `;` went into the body
+     rather than becoming an item of the file. *)
+  (match (parse
+            "import String\nlet f t =\n  let a = 1;\n  let b = 2;\n  a + b\n").Ast.items with
+   | [TLImport _; TLLet ("f", [_], _)] -> ()
+   | items ->
+     Alcotest.failf "expected the import and one binding, got %d items"
+       (List.length items));
+  (* A line that falls back inside the binding's column is not its body, so
+     the `;` goes on ending the statement. *)
+  parse_error "a dedented line after ; is still not the body"
+    "import IO\nlet go () =\n  let a = IO.println \"one\";\n IO.println \"two\"\ngo ()\n"
+    "put the body in parentheses"
 
 let test_indented_continuation () =
   let parse src = Lexer.tokenize src |> Parser.parse_program in
@@ -1037,6 +1077,8 @@ let () =
       Alcotest.test_case "brace map literal" `Quick test_brace_map_literal;
       Alcotest.test_case "brace map pattern" `Quick test_brace_map_pattern;
       Alcotest.test_case "brace import destructure" `Quick test_brace_import_destructure;
+      Alcotest.test_case "an import ends at its name" `Quick
+        test_an_import_statement_ends_at_its_name;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "constr positional" `Quick test_constr_positional;
       Alcotest.test_case "constr bracket holds a block" `Quick

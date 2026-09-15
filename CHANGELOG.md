@@ -1,5 +1,146 @@
 # Changelog
 
+## [0.74.0] - 2026-09-15
+
+### Added
+
+- **A binding in a function body can end with `;`.** A `;` after a binding
+  ends its right-hand side and hands the rest to its body, which is what a
+  newline already did. The brackets are no longer needed for this:
+
+  ```
+  let of_hex algorithm text =
+    let want = _hex_length algorithm;
+    let lower = String.lower text;
+    String.length lower == want
+  ```
+
+  Indentation decides, as it does for a newline: at or past the binding's
+  column the rest is the body, and back inside it the `;` ends the
+  statement. Two statements that bind nothing still want the brackets -- a
+  newline does not join those either.
+
+  `wand f` still writes `in` here.
+
+### Fixed
+
+- **A type alias read a list of bare field names as a payload.** An alias
+  names its target's constructor, so it builds and matches what the target
+  does -- the punned form included, where a bare name is the field of that
+  name.
+
+  ```
+  type Pod(name: String, tries: Int)
+  type Target = Pod
+  let mk name tries = Target(name, tries)
+  ```
+
+  This reported `expected String, got ('a, 'b)`. It builds a `Pod` now, and
+  the pattern `Target(name, tries)` matches one. The named form always
+  worked, and it is what `wand f` shortens to the punned one -- so a file
+  that typechecked could come back rejected after a format.
+
+- **`A-BIND1` missed a `let _ =` whose value is on the next line.** Only a
+  value on the binder's own line was reported, and the warning landed on the
+  wrong line when it did fire.
+
+  ```
+  let _ =
+    IO.println "a"
+  ```
+
+  This said nothing. It is reported now, at the binder. `wand t --fix` takes
+  the binder off where the value shares its line; where it does not, the
+  message asks you to write the statement out.
+
+- **A top-level `let _ =` took the rest of the file as its body.** Every
+  statement below it became part of one binding, and `wand f` wrote them
+  back as a single bracketed block. A named binding was never affected.
+
+  ```
+  let _ =
+    FS.copy ./a ./b
+
+  IO.println "done"
+  ```
+
+  Those are two statements again.
+
+- **`wand f` wrote a contract body that did not parse.** A body that opens
+  with an operator lost the brackets that told it apart from the clause
+  above it.
+
+  ```
+  let f n =
+    requires n > 0
+    (-n)
+  ```
+
+  The brackets went, and `-n` under `requires n > 0` re-read as
+  `requires n > 0 - n`, which leaves the contract with no body. They stay
+  now.
+
+- **`wand f` put brackets around a call that wrapped.** A line indented past
+  the statement above it continues that statement, so a call that runs onto
+  more lines is still one call and needs nothing to say so.
+
+  ```
+  -- before
+  let seconds =
+    (List.fold_left
+      (fn total (_, duration, _) -> total + Result.default 0 (String.to_int duration))
+      0
+      calls)
+
+  -- after
+  let seconds =
+    List.fold_left
+      (fn total (_, duration, _) -> total + Result.default 0 (String.to_int duration))
+      0
+      calls
+  ```
+
+  The brackets are still written where a line does fall back to the
+  statement's own column, which is where they are the difference between one
+  statement and two.
+
+- **A closing bracket took a line of its own more often than it earned
+  one.** It now does so in the two places it says something: where the last
+  line is a `match` or `handle` arm, and where more arguments follow the
+  bracket.
+
+  ```
+  -- before
+  (Shell.stream $*(printf "a\nb\n")
+    |> Stream.filter (fn l -> l == "b")
+    |> Stream.to_list
+  ))
+
+  -- after
+  (Shell.stream $*(printf "a\nb\n")
+    |> Stream.filter (fn l -> l == "b")
+    |> Stream.to_list))
+  ```
+
+  An arm keeps the line, because a bracket sitting on one reads as part of
+  it. So does a bracket with arguments after it, because the break is what
+  puts them at the start of a line. A chain of decoders or of pipeline
+  stages has neither, and loses a line per level.
+
+### Changed
+
+- **An import statement ends with the module name.** Anything else on the
+  line is a parse error, and the message names the way to the module:
+
+  ```
+  import Config(x)
+  -- error: put this on a line of its own; it binds 'Config',
+  --        so 'Config.member' reaches into it
+  ```
+
+  What followed the name used to become a second statement on the same line,
+  so `import A(import B)` parsed as two imports where one was written.
+
 ## [0.73.0] - 2026-09-12
 
 ### Added

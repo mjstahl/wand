@@ -132,13 +132,13 @@ let find p s = List.head (s |> filter p |> take 1 |> to_list)
 -- one. Private: it exists so sum, max and min are one line each, and the
 -- public spelling of "fold from the head" is not yet decided.
 let _reduce f s =
-  (fold_left
+  fold_left
     (fn a x -> match a with
       | None -> Some x
       | Some v -> Some (f v x)
     )
     None
-    s)
+    s
 
 -- Total the elements, or None when the source is empty.
 --

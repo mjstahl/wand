@@ -592,6 +592,89 @@ let test_shadow1 () =
   silent "renamed apart"
     "let limit = 100\nlet check = fn n -> n + limit\nlet ceiling = 500\ncheck ceiling"
 
+(* `let _ =` says a dropped failure does not matter. Where the value is Unit
+   there is no failure, so the binder does nothing.
+
+   Every shape is checked here because the rule shipped with none, and the
+   one it could not see is the one that mattered: a value on the line below
+   the binder. That went unreported on a file's own spine -- and a top-level
+   `let _ =` takes the statements under it as its body, so the whole tail of
+   a file rode along inside it, unmentioned. *)
+let test_bind1 () =
+  let at src line =
+    let f =
+      List.find (fun (f : Lint.finding) -> f.Lint.rule = Lint_rules.A_BIND1)
+        (findings src)
+    in
+    Alcotest.(check int) "reports the binder's own line" line
+      f.Lint.loc.Token.line
+  in
+  let same_line = "import IO
+
+let _ = IO.println \"a\"
+
+IO.println \"b\"" in
+  fires "a value on the binder's line" same_line "A-BIND1";
+  at same_line 3;
+  let next_line = "import IO
+
+let _ =
+  IO.println \"a\"
+
+IO.println \"b\"" in
+  fires "a value on the line below" next_line "A-BIND1";
+  at next_line 3;
+  (* Indented past the eight columns `let _ = ` occupies, which is where the
+     reconstructed position used to land on a line the binder does not sit
+     on at all. *)
+  let far_in = "import IO
+
+let _ =
+            IO.println \"a\"
+
+IO.println \"b\"" in
+  fires "a value indented past the binder" far_in "A-BIND1";
+  at far_in 3;
+  (* Inside a body, where the statements would run together if the binder
+     simply came off. Reported, and the message asks for the `;`. *)
+  let in_body =
+    "import IO
+
+let go () = (
+  let _ = IO.println \"a\";
+  IO.println \"b\"
+)
+go ()"
+  in
+  fires "a binder inside a block" in_body "A-BIND1";
+  (* A `Result` is what the binder is for, and saying so is not a finding. *)
+  not_fired "a dropped Result keeps its binder"
+    "import FS
+
+let _ = FS.copy /a /b
+
+FS.exists? /a" "A-BIND1"
+
+(* A top-level `let _ =` is a binding like any other: the statements below it
+   are items of their own, not its body. Read as a `let ... in`, one file's
+   last three statements came back as a single parenthesized block. *)
+let test_a_top_level_wildcard_binds_one_value () =
+  let src = "import IO
+
+let _ =
+  IO.println \"a\"
+
+IO.println \"b\"
+
+IO.println \"c\"" in
+  let prog = Lexer.tokenize src |> Parser.parse_program in
+  Alcotest.(check int) "four items, not one" 4 (List.length prog.Ast.items);
+  (* `let _ = e in body` is still an expression, and still one item. *)
+  let inline = Lexer.tokenize "let r = let _ = 1 in 2
+r" |> Parser.parse_program in
+  Alcotest.(check int) "a let-in is one binding and its use" 2
+    (List.length inline.Ast.items)
+
 (* An inner binding shadows freely. It is visible on one screen, which is
    exactly what two top-level bindings cannot be assumed to be. *)
 let test_shadow1_is_top_level_only () =
@@ -634,6 +717,9 @@ let () =
       Alcotest.test_case "A-USES1 binaries" `Quick test_uses1_shell_binaries;
       Alcotest.test_case "V-USES2"  `Quick test_uses2;
       Alcotest.test_case "V-SHELL1" `Quick test_shell1_dynamic;
+      Alcotest.test_case "A-BIND1"  `Quick test_bind1;
+      Alcotest.test_case "A-BIND1 top-level binder" `Quick
+        test_a_top_level_wildcard_binds_one_value;
       Alcotest.test_case "V-SHADOW1" `Quick test_shadow1;
       Alcotest.test_case "V-SHADOW1 top level only" `Quick
         test_shadow1_is_top_level_only;

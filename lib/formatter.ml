@@ -466,6 +466,12 @@ let is_binop_or_unop e = match strip_located e with
   | BinOp _ | UnOp _ -> true
   | _ -> false
 
+let opens_with_an_operator text =
+  text <> ""
+  && (match text.[0] with
+      | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
+      | _ -> false)
+
 let is_import e = match strip_located e with
   | ImportExpr _ -> true
   | _ -> false
@@ -724,15 +730,44 @@ let head_needs_a_bracket e =
   | Qualified (_, inner) -> absorbs_a_bracket inner
   | _ -> false
 
-let bracket_if_wrapped_app body emitted =
-    (* Both conditions, and only together. A `match` or an `if` is safe
-       wherever it breaks, because its parse is not finished there -- the
-       cases are still owed. An application's is: it ends at the first line
-       end that leaves nothing open, and what follows is read as something
-       new. *)
-    if breaks_at_depth_zero emitted && wrapping_ends_it body
-    then bracket emitted
-    else emitted
+(* Where a wrapped layout puts its continuation lines, against the column the
+   statement is anchored at. A line indented past the anchor continues the
+   statement, so an application that wraps that way is still one expression
+   and needs no bracket. A line back at the anchor, or left of it, starts
+   something new -- which is what the bracket is for. A raw string's content
+   is the case that reaches column 0 from a wrapped argument. *)
+let dedents_to col text =
+  let lines = String.split_on_char '\n' text in
+  let indent_of l =
+    let n = String.length l in
+    let rec go i = if i < n && l.[i] = ' ' then go (i + 1) else i in
+    go 0
+  in
+  List.exists
+    (fun l -> String.trim l <> "" && indent_of l <= col)
+    (match lines with [] -> [] | _ :: tl -> tl)
+
+(* Whether a wrapped application needs brackets round it, asked against the
+   column its statement is anchored at.
+
+   Three conditions, and only together. A `match` or an `if` is safe wherever
+   it breaks, because its parse is not finished there -- the cases are still
+   owed. An application's is: it ends at a line end that leaves nothing open.
+
+   And it ends there only if the next line starts something new. A line
+   indented past the anchor continues the statement, which is the rule the
+   parser has read newlines by since the layout rule arrived; the guard was
+   written a fortnight before that and went on asking whether a break
+   existed rather than whether it ended anything. Every wrapped layout the
+   emitters produce is indented, so the answer was almost always yes when it
+   should have been no. A raw string's own content is what still reaches the
+   anchor, and it is what the brackets are for. *)
+let bracket_if_wrapped_app_at ~anchor body emitted =
+  if wrapping_ends_it body
+     && breaks_at_depth_zero emitted
+     && dedents_to anchor emitted
+  then bracket emitted
+  else emitted
 
 (* Every layout this file has produced for the item being written, keyed by
    where the expression came from and where it is being put.
@@ -803,8 +838,24 @@ let rec emit_expr ?col indent e =
    Two closing lines in a row are the same noise one column over, so a
    bracket whose content already closed at this indent joins that line
    instead of opening another. *)
-and parenthesize indent s =
+and parenthesize ?(close_alone = false) indent s =
   if not (String.contains s '\n') then bracket s
+  (* A closing bracket earns a line of its own in two places, and used to
+     take one everywhere.
+
+     The first is where the last line is a `match` or `handle` arm. The arm
+     runs to the next `|` or to the end of the construct, so a bracket
+     sitting on it reads as part of it.
+
+     The second is where the bracket is not the last thing on its line --
+     an argument with more arguments after it. The break is what puts those
+     at the start of a line, where they can be seen; run on, they arrive at
+     the end of a long line belonging to something three lines up.
+
+     Everywhere else the line said nothing the last line did not: an `if`
+     argument closing under its own `else`, or a bracket closing a column
+     left of the one inside it. *)
+  else if not close_alone then bracket s
   else
     let ind = String.make indent ' ' in
     (* Unless what is being wrapped already closed on a line of its own, at
@@ -827,11 +878,11 @@ and parenthesize indent s =
    line however long it is. *)
 and emit_splice indent e = with_width 1_000_000 (fun () -> emit_expr indent e)
 
-and emit_atom indent e =
+and emit_atom ?(followed = false) indent e =
   let e' = strip_located e in
   let s = emit_expr_inner indent e' in
   if is_control_expr e' || is_binop_or_unop e' || is_app e' || is_import e'
-  then parenthesize indent s else s
+  then parenthesize ~close_alone:(ends_in_an_arm e' || followed) indent s else s
 
 (* An argument is an atom. A bare constructor is one hazard on top of that,
    and the hazard is narrower than it looks: a constructor absorbs a
@@ -902,7 +953,7 @@ and guard_spine head head_s args rendered following =
   in
   head_s :: guarded
 
-and emit_arg indent e = emit_atom indent e
+and emit_arg ?(followed = false) indent e = emit_atom ~followed indent e
 
 and emit_expr_inner ?col indent e =
   let col = match col with Some c -> c | None -> indent in
@@ -941,7 +992,7 @@ and emit_expr_inner ?col indent e =
       | _ -> indent
     in
     let cuddled =
-      bracket_if_wrapped_app body
+      bracket_if_wrapped_app_at ~anchor:body_indent body
         (emit_expr ~col:(col + String.length head) body_indent body)
     in
     (* A `let ... in` lays its value and its `in` out from the indent it was
@@ -1065,13 +1116,26 @@ and emit_expr_inner ?col indent e =
   | Located (_, e) -> emit_expr_inner indent e
   | Contract (reqs, ens, body) ->
     (* Each clause sits on its own line at the body's indent; the first is
-       already placed by whatever emitted the binding. *)
+       already placed by whatever emitted the binding.
+
+       A body that opens with an operator continues the clause above it
+       instead of standing under it: `requires q (-1)` came back as
+       `requires q` and `-1`, which re-read as `requires q - 1` with no
+       body left, so the output did not parse. The brackets the source had
+       are what says where the clause ends, so they are written back.
+       Found by test/fuzz. *)
     let ind = String.make indent ' ' in
     let clause kw e = kw ^ " " ^ emit_expr indent e in
+    let has_clauses = reqs <> [] || ens <> [] in
+    let body_text = emit_expr indent body in
+    let body_text =
+      if has_clauses && opens_with_an_operator body_text
+      then "(" ^ body_text ^ ")" else body_text
+    in
     String.concat ("\n" ^ ind)
       (List.map (clause "requires") reqs @ List.map (clause "ensures") ens)
-    ^ (if reqs = [] && ens = [] then "" else "\n" ^ ind)
-    ^ emit_expr indent body
+    ^ (if has_clauses then "\n" ^ ind else "")
+    ^ body_text
   (* The text inside $() is a command, not a string literal: quoting it
      would hand the whole thing to the shell as one word.
 
@@ -1191,7 +1255,7 @@ and emit_expr_inner ?col indent e =
        out of the parser's reach. *)
     let head =
       Printf.sprintf "with %s as %s ->"
-        (bracket_if_wrapped_app r (emit_expr indent r)) (emit_pat p) in
+        (bracket_if_wrapped_app_at ~anchor:indent r (emit_expr indent r)) (emit_pat p) in
     (* A body that opens a bracket of its own opens it on the `->` line and
        lets the items carry the break, as a binding's value does. Given a
        line to itself the bracket says nothing: the items sit at the same
@@ -1235,16 +1299,22 @@ and emit_app ?col indent e =
   else
     (* The head travels with the arguments: guarding one of them can put a
        bracket in front of the head, so the two cannot be joined afterwards. *)
-    let spine ?(following = "") ind =
+    (* `inline` says the pieces are about to be joined with spaces, so an
+       argument that is not the last has text after it on its own last line.
+       Joined with newlines instead, every argument ends its line whatever
+       follows, and none of them needs the break. *)
+    let spine ?(following = "") ?(inline = false) ind =
+      let n = List.length args in
       guard_spine head (emit_atom indent head) args
-        (List.map (emit_arg ind) args) following
+        (List.mapi (fun i a -> emit_arg ~followed:(inline && i < n - 1) ind a)
+           args) following
     in
     (* Asked at an unbounded margin, where nothing can choose to wrap. This
        is the one shape the cache cannot help on its own: the two questions
        are asked at two different indents, so neither answer is the other's.
        Asked flat, the question costs one pass over the subtree. *)
     let oneline =
-      with_width max_int (fun () -> String.concat " " (spine indent))
+      with_width max_int (fun () -> String.concat " " (spine ~inline:true indent))
     in
     if fits col oneline then oneline
     else
@@ -1264,7 +1334,7 @@ and emit_app ?col indent e =
             let prefix =
               String.concat " "
                 (guard_spine head (emit_atom indent head) before
-                   (List.map (emit_arg indent) before) "(")
+                   (List.map (emit_arg ~followed:true indent) before) "(")
             in
             let head_s =
               prefix ^ " (" ^ emit_fn_head ps in
@@ -1285,7 +1355,7 @@ and emit_app ?col indent e =
             let prefix =
               String.concat " "
                 (guard_spine head (emit_atom indent head) before
-                   (List.map (emit_arg indent) before) tail)
+                   (List.map (emit_arg ~followed:true indent) before) tail)
             in
             prefix ^ " "
             ^ emit_expr ~col:(column_after col prefix + 1) indent last_v
@@ -1472,11 +1542,11 @@ and emit_pipeline indent a b =
       let prec = bin_prec "|>" and cp = bin_prec op2 in
       let rendered = emit_expr (indent + 2) inner in
       if cp > prec || (cp = prec && side = `Left)
-      then bracket_if_wrapped_app e rendered
+      then bracket_if_wrapped_app_at ~anchor:(indent + 2) e rendered
       else bracket rendered
     (* A stage that wrapped ends at its first line; the `|>` leading the
        next stage says nothing about the argument left below this one. *)
-    | _ -> bracket_if_wrapped_app e (emit_expr (indent + 2) e)
+    | _ -> bracket_if_wrapped_app_at ~anchor:(indent + 2) e (emit_expr (indent + 2) e)
   in
   match all with
   | [] -> ""
@@ -1506,7 +1576,7 @@ and emit_binop ?col indent op a b =
     (* An operand that wrapped ends at its first line, so the rest of it
        reads as something new -- the operator having said nothing about how
        far its right side goes. *)
-    | _ -> bracket_if_wrapped_app e (emit_expr indent e)
+    | _ -> bracket_if_wrapped_app_at ~anchor:indent e (emit_expr indent e)
   in
   let oneline = Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b) in
   if op = "|>" && not (fits col oneline) then emit_pipeline indent a b
@@ -1727,7 +1797,7 @@ and emit_binding ?col indent p e1 =
     else
       "let " ^ emit_pat p ^ " =\n" ^ String.make (indent + 2) ' '
       ^ (if arm then value (indent + 2) e1
-         else bracket_if_wrapped_app e1 (emit_expr (indent + 2) e1))
+         else bracket_if_wrapped_app_at ~anchor:(indent + 2) e1 (emit_expr (indent + 2) e1))
 
 and emit_let ?col indent p e1 e2 =
   let col = match col with Some c -> c | None -> indent in
@@ -1757,7 +1827,7 @@ and emit_let ?col indent p e1 e2 =
        the group from the keyword's own column, so the block reads as one
        shape rather than a stack of unrelated lines. *)
     let ind = String.make indent ' ' in
-    let tail = bracket_if_wrapped_app e2 (emit_expr indent e2) in
+    let tail = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
     (* `in ` opens the tail three columns right of the keyword below it, but
        a `let ... in` chain lays its own continuation out at the indent it
        was handed. So a value that wrapped, and the `and` line under it,
@@ -1790,9 +1860,9 @@ and emit_let ?col indent p e1 e2 =
        around the guard. Found by test/fuzz. *)
     let bodys =
       let emitted = emit_expr indent body in
-      bracket_if_wrapped_app body emitted
+      bracket_if_wrapped_app_at ~anchor:indent body emitted
     in
-    let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
+    let e2s = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
     if (not commented) && fits col oneline then oneline
@@ -1804,7 +1874,7 @@ and emit_let ?col indent p e1 e2 =
   (* A wrapped application after `in` needs its brackets for the same reason
      one after `=` does: it ends where its first line ends, and the argument
      below reads as continuing the definition this `let` belongs to. *)
-  let e2s = bracket_if_wrapped_app e2 (emit_expr indent e2) in
+  let e2s = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
   let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
   let ind = String.make indent ' ' in
   if (not commented) && fits col oneline then oneline
@@ -1844,7 +1914,7 @@ and emit_letrec_bindings indent bindings =
 and emit_letrec indent bindings e2 =
   let ind = String.make indent ' ' in
   emit_letrec_bindings indent bindings ^ "\n" ^ ind ^ "in "
-  ^ bracket_if_wrapped_app e2 (emit_expr indent e2)
+  ^ bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2)
 
 and emit_if ?col indent c t el =
   let col = match col with Some c -> c | None -> indent in
@@ -1852,7 +1922,7 @@ and emit_if ?col indent c t el =
      `then` has to follow it, and an application that wrapped is over by the
      time the next line starts -- so the parser arrives at the argument
      below still owed a `then`. Found by test/fuzz. *)
-  let cs = bracket_if_wrapped_app c (emit_expr indent c)
+  let cs = bracket_if_wrapped_app_at ~anchor:indent c (emit_expr indent c)
   and ts = emit_expr indent t in
   (* A branch that does nothing is written by leaving it out, so `else ()` --
      however it was written -- comes back as the one-armed form. *)
@@ -1862,7 +1932,7 @@ and emit_if ?col indent c t el =
     if fits col oneline then oneline
     else
       Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ')
-        (bracket_if_wrapped_app t ts)
+        (bracket_if_wrapped_app_at ~anchor:indent t ts)
   | _ ->
     let es = emit_expr indent el in
     let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
@@ -1881,22 +1951,22 @@ and emit_if ?col indent c t el =
         let clause =
           let prefix =
             Printf.sprintf "if %s then "
-              (bracket_if_wrapped_app c (emit_expr cont c)) in
+              (bracket_if_wrapped_app_at ~anchor:cont c (emit_expr cont c)) in
           let flat =
             prefix
-            ^ bracket_if_wrapped_app t
+            ^ bracket_if_wrapped_app_at ~anchor:cont t
                 (emit_expr ~col:(column_after cont prefix) cont t) in
           if fits cont flat then flat
           else
             let body = String.make (cont + 2) ' ' in
             String.trim prefix ^ "\n" ^ body
-            ^ bracket_if_wrapped_app t (emit_expr (cont + 2) t) in
+            ^ bracket_if_wrapped_app_at ~anchor:(cont + 2) t (emit_expr (cont + 2) t) in
         match strip_located el with
         | Unit -> [clause]
         | If (c2, t2, el2) -> clause :: ladder c2 t2 el2
         | _ ->
           [clause;
-           bracket_if_wrapped_app el (emit_expr ~col:(cont + 5) cont el)]
+           bracket_if_wrapped_app_at ~anchor:cont el (emit_expr ~col:(cont + 5) cont el)]
       in
       String.concat ("\n" ^ ind ^ "else ") (ladder c t el)
 
@@ -1964,7 +2034,7 @@ and emit_case_body ?col indent body =
       let ind = String.make indent ' ' in
       let inner = String.make (indent + 2) ' ' in
       "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
-    end else bracket_if_wrapped_app body flat
+    end else bracket_if_wrapped_app_at ~anchor:indent body flat
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's
    "with", so an unparenthesized nested Match there is fragile even when
@@ -1975,7 +2045,7 @@ and emit_scrutinee indent scr =
   (* `with` has to follow the scrutinee, and an application that wrapped has
      already ended by the time the next line starts -- the parser reaches the
      argument below expecting the keyword. *)
-  | _ -> bracket_if_wrapped_app scr (emit_expr indent scr)
+  | _ -> bracket_if_wrapped_app_at ~anchor:indent scr (emit_expr indent scr)
 
 and emit_match ?col indent scr cases =
   let col = match col with Some c -> c | None -> indent in
@@ -2035,7 +2105,7 @@ and emit_bound_value ~col indent head body =
        down. *)
     if not (String.contains indented '\n') then head ^ " =" ^ below ^ indented
     else if not (carries_the_break body) then
-      head ^ " =" ^ below ^ bracket_if_wrapped_app body indented
+      head ^ " =" ^ below ^ bracket_if_wrapped_app_at ~anchor:col body indented
     else
       (* The shape says the call ends in a bracket; this says the bracket is
          still open where the first line ends, which is the whole reason the
@@ -2046,7 +2116,7 @@ and emit_bound_value ~col indent head body =
          costs nothing, while `cuddled ()` lays the whole value out again. *)
       let c = cuddled () in
       if depth_after_first_line c > 0 then head ^ " = " ^ c
-      else head ^ " =" ^ below ^ bracket_if_wrapped_app body indented
+      else head ^ " =" ^ below ^ bracket_if_wrapped_app_at ~anchor:col body indented
 
 let emit_one_equation head_kw pats body =
   let (annot_s, body) = split_clause_annot body in
@@ -2159,7 +2229,7 @@ let emit_top_item_pretty_uncached = function
     if fits 0 oneline then oneline
     else
       Printf.sprintf "let %s =\n  %s" (emit_pat_binder p)
-        (bracket_if_wrapped_app e (emit_expr 2 e))
+        (bracket_if_wrapped_app_at ~anchor:0 e (emit_expr 2 e))
   | TLLet (name, [], Annot (te, body)) ->
     (* Same ambiguity as the local-`let` case: reprinting via inline
        `expr : Type` would re-parse as cons, not ascription -- keep the
@@ -2210,7 +2280,9 @@ let emit_top_item_pretty_uncached = function
   | TLExpr e ->
     (* A top-level expression is subject to the same rule as a binding's
        value: wrapped as a bare application it stops being one expression. *)
-    let text = bracket_if_wrapped_app e (emit_expr 0 e) in
+    let emitted = emit_expr 0 e in
+    let text =
+      bracket_if_wrapped_app_at ~anchor:0 e emitted in
     (* And to one more. A line that opens with an operator continues the
        line above it -- that is how a pipeline is written, and the reference
        warns that `-` surprises people the same way. An item of its own that
@@ -2403,12 +2475,6 @@ let ends_in_a_comment text =
     in
     last (List.rev tokens)
   | exception _ -> false
-
-let opens_with_an_operator text =
-  text <> ""
-  && (match text.[0] with
-      | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
-      | _ -> false)
 
 let assemble pieces =
   (* Source order, not line order: an item and a comment can start on the

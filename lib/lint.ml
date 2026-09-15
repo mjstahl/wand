@@ -163,20 +163,35 @@ let is_clock_now (e : Ast.expr) =
    `( ... ; ... )` the `;` is already there. Newline-joined inside a body it
    is neither: the statements below would run together, so the finding says
    what to write and carries no fix. *)
-(* The binder ends where the value begins, so the value's own position is
-   what locates it: `let _ = ` is the eight columns in front. Taking the
-   position from the enclosing expression instead pointed at the `(` of the
-   block a sequence opens with. *)
-let wild_let_unit_at v =
+(* Whether a `let _ = ` binds a value of type Unit -- the question the rule
+   asks, kept apart from where it is reported. *)
+let wild_let_is_unit v =
   match v with
-  | Ast.Located (l, _) when l.Token.col > 8 ->
+  | Ast.Located (l, _) ->
     (match List.assoc_opt l !Typechecker.wild_let_types with
-     | Some t when Typechecker.repr t = Typechecker.TUnit ->
-       Some { l with Token.end_line = l.Token.line;
-                     Token.col = l.Token.col - 8;
-                     Token.end_col = l.Token.col }
-     | _ -> None)
-  | _ -> None
+     | Some t -> Typechecker.repr t = Typechecker.TUnit
+     | None -> false)
+  | _ -> false
+
+(* The span to report, and whether `let _ = ` sits whole on one line in
+   front of the value.
+
+   The binder ends where the value begins, so a value on the binder's own
+   line locates it: `let _ = ` is the eight columns in front. That was the
+   only case the rule could see. A value on the *next* line is the same
+   mistake and was reported not at all below column 9, and at a
+   reconstructed position on a line it does not occupy above it -- a
+   four-line file put the finding on line 6. So the binder's own position
+   is the fallback, and the fix is offered only where the eight columns are
+   really there for it to replace. *)
+let wild_let_span ~binder v =
+  match v with
+  | Ast.Located (l, _)
+    when l.Token.line = binder.Token.line && l.Token.col > 8 ->
+    ({ l with Token.end_line = l.Token.line;
+              Token.col = l.Token.col - 8;
+              Token.end_col = l.Token.col }, true)
+  | _ -> (binder, false)
 
 let walk_expr ?(spine = false) start_loc (e : Ast.expr) : finding list =
   let acc = ref [] in
@@ -285,11 +300,12 @@ let walk_expr ?(spine = false) start_loc (e : Ast.expr) : finding list =
     | Ast.UnOp (_, a) | Ast.Fn (_, a) | Ast.Annot (_, a)
     | Ast.Field (a, _) | Ast.Try a -> go a
     | Ast.Let (p, a, b, style) ->
-      (match p, wild_let_unit_at a with
-       | Ast.Wild, Some loc ->
+      (match p with
+       | Ast.Wild when wild_let_is_unit a ->
          let standalone = spine || style = Ast.LetBlock in
+         let (loc, replaceable) = wild_let_span ~binder:!here a in
          let fix =
-           if standalone then
+           if standalone && replaceable then
              Some (Replace { from_ = "let _ = "; to_ = "" })
            else None
          in
@@ -701,7 +717,19 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
             | _ -> ())
          | None -> ());
       findings := List.rev_append (walk_expr ~spine:true loc body) !findings
-    | Ast.TLLetPat (_, body) ->
+    | Ast.TLLetPat (pat, body) ->
+      (* A top-level `let _ = ...` is an item, so the walk over expressions
+         never reaches it. It is the shape the rule was written for -- a
+         file's own spine, where the statement stands alone and the binder
+         can simply come off. *)
+      (match pat with
+       | Ast.Wild when wild_let_is_unit body ->
+         let (bloc, replaceable) = wild_let_span ~binder:loc body in
+         add ?fix:(if replaceable then
+                     Some (Replace { from_ = "let _ = "; to_ = "" })
+                   else None)
+           Lint_rules.A_BIND1 bloc (Lint_rules.bind1 ~standalone:true)
+       | _ -> ());
       findings := List.rev_append (walk_expr loc body) !findings
     | Ast.TLLetRec bindings ->
       List.iter (fun (_, _, b) ->

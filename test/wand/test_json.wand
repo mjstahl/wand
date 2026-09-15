@@ -125,21 +125,21 @@ test "get_object then field" (fn t ->
 
 test "field exists" (fn t ->
   let j = JSON.parse! `{"name":"Alice","age":30}` in
-  (t.eq
+  t.eq
     `"Alice"`
     (match JSON.field "name" j with
     | Ok v -> JSON.stringify v
     | Error _ -> ""
-    )))
+    ))
 
 test "field missing" (fn t ->
   let j = JSON.parse! `{"a":1}` in
-  (t.eq
+  t.eq
     "error"
     (match JSON.field "z" j with
     | Ok _ -> "ok"
     | Error _ -> "error"
-    )))
+    ))
 
 test "field! exists" (fn t ->
   let j = JSON.parse! `{"x":42}` in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
@@ -162,12 +162,12 @@ test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 test "pretty round-trips" (fn t ->
   let j = JSON.parse! `{"a":1}` in
   let s = JSON.stringify_pretty j in
-  (t.eq
+  t.eq
     "ok"
     (match JSON.parse s with
     | Ok _ -> "ok"
     | Error _ -> "error"
-    )))
+    ))
 
 -- ── read_file ───────────────────────────────────────────────────────────
 
@@ -204,8 +204,7 @@ test "a key that is not an identifier is written quoted" (fn t ->
   t.eq
     `{"content-type":"json","@type":1}`
     (JSON.stringify
-      (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})
-    ))
+      (JSON.of_map {"content-type" = JSON.of_string "json", "@type" = JSON.of_int 1})))
 
 -- Nothing to guard against here: a Map holds a key once, so a repeat was
 -- resolved before it reached the writer.
@@ -222,8 +221,7 @@ test "objects nest, and hold arrays" (fn t ->
       (JSON.of_map {
         meta = JSON.of_map {n = JSON.of_int 1},
         xs = JSON.of_list [JSON.of_int 1]
-      })
-    ))
+      })))
 
 test "and what was read can be written back" (fn t ->
   let doc = `{"a":1,"b":"two"}` in

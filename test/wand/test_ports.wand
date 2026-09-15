@@ -88,14 +88,12 @@ group "ci-gate" (fn () -> [
     t.eq
       []
       (Test.with_shell_results [] (fn () ->
-        failed [stage "build" $?(dune build), stage "test" $?(dune test)])
-      )),
+        failed [stage "build" $?(dune build), stage "test" $?(dune test)]))),
   test "the failing stage is named" (fn t ->
     t.eq
       [("test", false)]
       (Test.with_shell_results [failing "dune test"] (fn () ->
-        failed [stage "build" $?(dune build), stage "test" $?(dune test)])
-      ))
+        failed [stage "build" $?(dune build), stage "test" $?(dune test)])))
 ])
 
 -- `Env!get` supplies the String its raising builtin returns, so a handler
@@ -180,8 +178,8 @@ group "pod-restarts" (fn () -> [
     | _ -> t.ok false),
   -- A document that does not match names the field it stopped at.
   test "a missing field is named" (fn t ->
-    match (pods
-      `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}`) with
+    match pods
+      `{"items":[{"metadata":{"name":"a"},"status":{"phase":"R","containerStatuses":[]}}]}` with
     | Ok _ -> t.ok false
     | Error e -> t.ok (String.contains? "namespace" e))
 ])
@@ -239,8 +237,7 @@ group "wait-for-port" (fn () -> [
     t.eq
       false
       (Test.with_shell_results [failing "nc -z 'localhost' '8080'"] (fn () ->
-        answering? "localhost" :8080)
-      )),
+        answering? "localhost" :8080))),
   -- The port goes in as a number and each splice is one argument, which is
   -- what keeps a host with a space in it from becoming two.
   test "the command as it is run" (fn t ->
@@ -292,8 +289,7 @@ group "verify-archives" (fn () -> [
           (./b.sha256, Ok (Ok false)),
           (./c.sha256, Ok (Ok true)),
           (./d.sha256, Error "exited 1")
-        ])
-      )),
+        ]))),
   -- The name in a `.sha256` is bare, so it is read against the directory
   -- the file sits in and not against wherever the script runs.
   test "the archive is found beside its checksum" (fn t ->

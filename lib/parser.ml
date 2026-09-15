@@ -470,6 +470,22 @@ let is_expr_start = function
   | Token.Minus | Token.Bang -> true
   | t -> is_atom_start t
 
+(* Whether the `;` just ahead hands the rest to a binding's body rather than
+   ending the statement the binding sits in. The token after it has to start
+   an expression and to sit at or past `anchor` -- the binding's own column,
+   which is what `parse_body` measures the newline against. A statement of a
+   chain sits level with the one above it, so the test is `>=`, exactly as
+   it is there. *)
+let semicolon_joins_the_body s anchor =
+  let n = Array.length s.tokens in
+  let i = ref s.pos in
+  (* Past the `;` itself, then past whatever `peek` steps over. *)
+  if !i < n && fst s.tokens.(!i) = Token.Semicolon then incr i;
+  while !i < n && is_skippable (fst s.tokens.(!i)) do incr i done;
+  !i < n
+  && is_expr_start (fst s.tokens.(!i))
+  && (snd s.tokens.(!i)).Token.col >= anchor
+
 let is_pat_atom_start = function
   | Token.Int _ | Token.Float _ | Token.String _ | Token.RawStr _ | Token.Bool _
   | Token.Ident _ | Token.Underscore | Token.Upper _
@@ -1540,6 +1556,29 @@ and let_ ?(block = false) s =
       fail_at (peek_loc s)
         "this binding has no body: a block cannot end with a `let`, \
          because nothing would read the name"
+    (* Outside a block, a `;` ends the binding's value exactly as a newline
+       does, and what follows is the body. The two spellings were one rule
+       everywhere but here: a file is a block and takes the `;`, a `( ... )`
+       is a block and takes it, and a bare body took only the newline -- so
+       the `;` fell through to the file, ended the whole definition, and the
+       indented lines below it became items of their own.
+
+       Indentation decides, the way it decides for a newline: what follows
+       the `;` is the body when it sits at or past the binding's column, and
+       ends the statement when it falls back inside it. A file's own
+       `let a = 1; let b = 2` is untouched -- a top-level binding is read by
+       the loop below rather than here, so its `;` never reaches this.
+
+       Sequencing two bare statements is unaffected and still wants
+       parentheses: a newline does not join those either, and this is the
+       newline's rule, not a new one. *)
+    else if (not block) && peek s = Token.Semicolon
+            && s.paren_depth = s.stmt_depth
+            && semicolon_joins_the_body s s.stmt_col then begin
+      ignore (advance s);
+      let body = parse_body s in
+      (body, if body_is_a_block body then Ast.LetBlock else Ast.LetIn)
+    end
     else if is_expr_start (peek s) then begin
       (* Neither `in` nor `;`: the newline ended the right-hand side, and
          what follows is the body. That is a third way to write a binding,
@@ -2222,7 +2261,15 @@ let parse_program_generic ~on_item tokens =
       let saved = mark s in
       ignore (advance s);
       (match peek s with
-       | Token.LBracket | Token.LParen | Token.LBrace ->
+       (* `_` is a binder like any other here. Left out, it fell through to
+          the expression parser, where `let _ = e` takes everything below it
+          as its body -- so a file's remaining statements became the tail of
+          one `let ... in` rather than items of their own. `wand f` then
+          wrote them back as a single parenthesized block, and the rule that
+          reports a `let _ =` binding Unit never saw one, because it looks at
+          a file's items. A named binder was never affected: only `_` missed
+          this branch. *)
+       | Token.LBracket | Token.LParen | Token.LBrace | Token.Underscore ->
          (* Top-level pattern destructuring: let <pat> = <expr> *)
          let p = pat_ s in
          expect s Token.Eq;
@@ -2340,11 +2387,34 @@ let parse_program_generic ~on_item tokens =
          items := !items @ [Ast.TLExpr e])
     | Token.Import ->
       ignore (advance s);
-      (match advance s with
-       | Token.Upper name -> items := !items @ [Ast.TLImport (Ast.StdlibModule name)]
-       | Token.Path path  -> items := !items @ [Ast.TLImport (Ast.UserPath path)]
-       | t -> fail (Format.asprintf
-           "expected module name or path after import, got %a" Token.pp t))
+      let reach = match advance s with
+        | Token.Upper name ->
+          items := !items @ [Ast.TLImport (Ast.StdlibModule name)];
+          Printf.sprintf "it binds '%s', so '%s.member' reaches into it" name name
+        | Token.Path path  ->
+          items := !items @ [Ast.TLImport (Ast.UserPath path)];
+          Printf.sprintf
+            "write 'let name = import %s' to bind it, then 'name.member'" path
+        | t -> fail (Format.asprintf
+            "expected module name or path after import, got %a" Token.pp t)
+      in
+      (* An import statement is the keyword and the name, and the line ends
+         there. What followed on the same line used to become a second
+         top-level item, so `import S(import S)` parsed as two imports where
+         one application was written -- and the formatter, seeing two plain
+         imports at the head of the file, sorted them. Asked of the raw next
+         token, because the ordinary `peek` steps over the newline that ends
+         the statement. Found by test/fuzz. *)
+      let trailing =
+        if s.pos < Array.length s.tokens then fst s.tokens.(s.pos) else Token.EOF
+      in
+      (match trailing with
+       | Token.Newline | Token.LineComment _ | Token.Semicolon | Token.EOF -> ()
+       | t ->
+         fail_at (peek_loc s) (Format.asprintf
+           "an import statement ends with the module name, so '%a' cannot \
+            follow it here -- put this on a line of its own; %s"
+           Token.pp t reach))
     | Token.Type ->
       ignore (advance s);
       (* The type's own name, which is what a declaration error is about. *)

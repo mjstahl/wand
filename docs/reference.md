@@ -794,6 +794,25 @@ let deploy! release work = (
 level of a file. So a block and a file read the same way, and naming two
 values costs no indentation.
 
+A function body needs no brackets for this. A `;` after a binding ends its
+right-hand side there too, and what follows — indented to the binding's own
+column — is the body:
+
+```ocaml
+let of_hex algorithm text =
+  let want = _hex_length algorithm;
+  let lower = String.lower text;
+  String.length lower == want
+```
+
+That is the newline's rule, written with a `;`: both end the value and hand
+the rest to the body. A line that falls back inside the binding's column is
+not its body, and there the `;` ends the statement as before.
+
+Sequencing two statements that bind nothing still wants the brackets, for
+the same reason a newline does not join them: `f (); g ()` on two lines is
+an application, not a sequence.
+
 A block cannot end with a binding. Nothing would read the name, so it is a
 parse error:
 
@@ -3045,6 +3064,17 @@ import List
 List.map    (fn x -> x * 2) [1, 2, 3]    -- [2, 4, 6]
 List.filter (fn x -> x > 2) [1, 2, 3]    -- [3]
 List.length [1, 2, 3]                     -- 3
+```
+
+An `import` statement is the keyword and the name, and the line ends there.
+Anything else on the line is a parse error. The module is reached through the
+name the import binds, on a line of its own:
+
+```ocaml
+import List
+let conf = import ./config
+
+List.length conf.hosts
 ```
 
 ### User modules

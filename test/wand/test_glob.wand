@@ -110,8 +110,8 @@ test "over files, FS.glob answers exactly what matches? accepts" (fn t ->
     -- Every path the walk answered is one the predicate accepts, read
     -- relative to the directory the walk was given.
     let relative =
-      fn p -> (Path.of_string
-        (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p)));
+      fn p -> Path.of_string
+        (String.replace (Path.to_string dir ++ "/") "" (Path.to_string p));
     let all_match = found |> List.all? (fn p -> Glob.matches? **.wand (relative p));
     -- And every file it did not answer is one the predicate rejects.
     let found_names = found |> List.map (fn p -> Path.to_string (relative p));

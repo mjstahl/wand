@@ -1,0 +1,18 @@
+found:     Daily Fuzz, seed 34758140565, iteration 347018, 2026-09-13
+reported:  format:unstable -- wand f is not idempotent here
+fixed in:  lib/parser.ml, the top-level `Token.Import` branch
+
+A top-level import read the keyword and the name and stopped, leaving
+whatever else was on the line to be parsed as an item of its own. So
+`import S(import S)` came in as one application and parsed as two
+imports.
+
+Two plain imports at the head of a file are a region the formatter sorts,
+and the sort put the pair in the other order. The output then parsed as
+three plain imports rather than two, which is a longer region, so the
+second pass sorted a third line into it and the file moved again.
+
+The parser now reports what is on the line, and names the way to the
+module: a stdlib module binds its own name, and a path has to be bound
+with a `let`. There is no bracketed form to point at -- an `import`
+anywhere but a `let` binding is a type error whatever brackets it wears.

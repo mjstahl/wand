@@ -38,10 +38,10 @@ IO.println (JSON.decode Pod.decoder (JSON.parse! wrong_type))
 type Flat(name: String, restarts: Int)
 
 let flat =
-  (Decode.map2
+  Decode.map2
     (fn n r -> Flat(name = n, restarts = r))
     (Decode.field "metadata" (Decode.field "name" Decode.string))
-    (Decode.field "status" (Decode.field "restarts" Decode.int)))
+    (Decode.field "status" (Decode.field "restarts" Decode.int))
 
 IO.println (JSON.decode flat (JSON.parse! document))
 

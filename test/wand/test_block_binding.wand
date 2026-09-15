@@ -28,8 +28,7 @@ group "the forms" (fn () -> [
           let g y = y + 1
           in g 4
       in
-      f ()
-      )),
+      f ())),
   test "a tuple pattern" (fn t ->
     t.eq 3 (let f = fn () -> let (a, b) = (1, 2) in a + b in f ()))
 ])

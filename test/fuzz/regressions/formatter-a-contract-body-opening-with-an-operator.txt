@@ -1,0 +1,12 @@
+found:     Daily Fuzz, seed 34855194323, iteration 1062773, 2026-09-14
+reported:  format:unparses:unexpected token: )
+fixed in:  lib/formatter.ml, the `Contract` case of emit_expr_inner
+
+A contract's clauses each take a line, and the body goes on the line
+under the last of them. A line that opens with an operator continues the
+line above it instead of starting something new, so the body of
+`requires q (-1)` came back as `-1` under `requires q` and re-read as
+`requires q - 1` -- a clause with no body after it, which does not parse.
+
+The brackets the source had are what said where the clause ended, so the
+formatter writes them back around a body that opens with an operator.
