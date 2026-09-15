@@ -2264,6 +2264,21 @@ Fields may hold lists, other derivable types, and the type being defined:
 type Node (label : String, children : List Node)
 ```
 
+A type reached through its module carries its derived members with it:
+
+```ocaml
+let Apps = import ./k8s/apps/v1
+let Core = import ./k8s/core/v1
+
+JSON.decode Apps.Deployment.decoder doc
+JSON.decode Core.Deployment.decoder doc
+```
+
+Each reads the type its own module declares. Two modules may name one type
+alike, and the qualified form is what says which of them is meant -- both
+for the type's own fields and for a field holding another of that module's
+types.
+
 A type with parameters takes one decoder for each parameter, in the order
 that the type declares them:
 

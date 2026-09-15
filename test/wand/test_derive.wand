@@ -201,3 +201,35 @@ test "and that encoder is the one that runs" (fn t ->
 test "a generic round trip" (fn t ->
   let p = Paged(items = [1, 2], total = 2);
   t.eq (Ok p) (JSON.decode (Paged.decoder Decode.int) (Paged.encoder JSON.of_int p)))
+
+-- A derived member through the module that declares the type. The table of
+-- derivable types holds one entry per short name, so two modules that each
+-- declare an `Item` share it; the qualified form has to reach the one whose
+-- module was named.
+let A = import ./derive_fixture_a
+let B = import ./derive_fixture_b
+
+test "a decoder is reached through its module" (fn t ->
+  t.eq
+    (Ok A.Item(name = "a", count = 2))
+    (JSON.decode A.Item.decoder (JSON.parse! `{"name":"a","count":2}`)))
+
+test "and it is that module's type, not the other's" (fn t ->
+  t.eq
+    (Ok B.Item(name = "a", tag = "x", weight = 2))
+    (JSON.decode B.Item.decoder (JSON.parse! `{"name":"a","tag":"x","weight":2}`)))
+
+test "an encoder is reached the same way" (fn t ->
+  t.eq
+    `{"name":"a","count":2}`
+    (JSON.stringify (A.Item.encoder A.Item(name = "a", count = 2))))
+
+test "a nested field reads the declaring module's type" (fn t ->
+  let boxed = A.Boxed(tag = A.Tag(label = "L"), size = 2);
+  t.eq
+    (Ok boxed)
+    (JSON.decode A.Boxed.decoder (JSON.parse! `{"tag":{"label":"L"},"size":2}`)))
+
+test "and the other module's is its own" (fn t ->
+  let boxed = B.Boxed(tag = B.Tag(label = "L"));
+  t.eq (Ok boxed) (JSON.decode B.Boxed.decoder (JSON.parse! `{"tag":{"label":"L"}}`)))

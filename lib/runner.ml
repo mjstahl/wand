@@ -1855,7 +1855,12 @@ let run_item ?modul env item =
                        && List.for_all (fun (n, _) -> n <> None) ctor.Ast.fields ->
        (* Under the canonical name, which a field type mentions, and under the
           short one, which a file writes as `T.decoder`. *)
-       let entry = (ctor.Ast.name, params, ctor.Ast.fields) in
+       let ident =
+         match modul with
+         | Some m -> Ctor.Owned (m, ctor.Ast.name)
+         | None -> Ctor.Local ctor.Ast.name
+       in
+       let entry = (ident, params, ctor.Ast.fields) in
        Hashtbl.replace Evaluator.derivable tname entry;
        (match modul with
         | Some m ->
@@ -2293,6 +2298,23 @@ and load_module src_ref ~cache ~loading ~evaluate =
        let own_type = List.filter (fun (n, _) -> not (is_private n)) own_type in
        let own = local_tenv_of prog in
        let own_names = List.map fst own in
+       (* A derived decoder reads the field types off the declaration, and a
+          field that names one of the module's own types has to name it
+          canonically: two modules may each declare a `Meta`, and the
+          bare-name index holds one of them. `run_item` registered these from
+          the raw declaration, where the field still says `Meta`, so a nested
+          field decoded to whichever module was loaded last. Registered again
+          here, where the canonicalised declaration is. *)
+       if evaluate then
+         List.iter (fun (n, d) ->
+           match Module_types.canonicalise_tdef ~modul:path own_names d with
+           | Ast.Variants (_, params, [ctor])
+             when ctor.Ast.fields <> []
+                  && List.for_all (fun (fn, _) -> fn <> None) ctor.Ast.fields ->
+             Hashtbl.replace Evaluator.derivable
+               (Module_types.canonical_type ~modul:path n)
+               (Ctor.Owned (path, ctor.Ast.name), params, ctor.Ast.fields)
+           | _ -> ()) own;
        let full_import =
          { tenv = List.map (fun (n, d) ->
                     (Module_types.canonical_type ~modul:path n,

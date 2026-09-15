@@ -1,0 +1,13 @@
+-- Fixture for test_derive.wand: a module whose derived members are reached
+-- through it. Paired with derive_fixture_b.wand, which declares a type of
+-- the same name and a different shape -- which is what says a qualified
+-- derived member reads the declaring module's type and not whichever was
+-- registered last.
+type Item(name: String, count: Int)
+type Phase = Running | Stopped
+
+-- A type both fixtures declare, held in a field of another. A derived
+-- decoder reads the field's type name off the declaration, so this is what
+-- says it reads the declaring module's `Tag` and not the other's.
+type Tag(label: String)
+type Boxed(tag: Tag, size: Int)

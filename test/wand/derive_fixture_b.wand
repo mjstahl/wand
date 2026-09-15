@@ -1,0 +1,5 @@
+-- The other half of derive_fixture_a.wand: one type name, two modules.
+type Item(name: String, tag: String, weight: Int)
+
+type Tag(label: String)
+type Boxed(tag: Tag)

@@ -1809,6 +1809,18 @@ let module_first tenv m =
   let own = own @ via_module_only_alias tenv own in
   (own, own @ tenv)
 
+(* `Apps.Deployment` where `Deployment` is one of `Apps`'s types, rather than
+   a construction of it. The map holds the written name, so its presence is
+   what says this is a type reached through a module. *)
+let qualified_type_head e =
+  match Ast.strip_located e with
+  | Ast.Qualified (m, inner) ->
+    (match Ast.strip_located inner with
+     | Ast.Constr t when List.mem_assoc (m ^ "." ^ t) !type_name_map ->
+       Some (m, t)
+     | _ -> None)
+  | _ -> None
+
 (* A type with one constructor names that constructor too, so a name given to
    such a type -- by an alias, or by renaming it on import -- builds and
    matches one. A type with several has no single constructor to forward. *)
@@ -2926,6 +2938,23 @@ let rec infer tenv (env : env) (e : expr) : typ =
            unify (infer tenv env e) expected
        ) fields;
        result_t)
+  (* `Apps.Deployment.decoder`: a type named through its module. The derived
+     members are read off the declaration, and the declaration is the
+     module's, so it is looked up with that module's types in scope and under
+     the canonical name -- two modules may each declare a `Deployment`, and
+     the short name does not say which. Only the derived members take this
+     path; every other label reads as the field it is. *)
+  | Field (e, label)
+    when (match qualified_type_head e with
+          | Some _ ->
+            List.mem label ["decoder"; "encoder"; "usage"; "parser";
+                            "spec"; "reader"]
+          | None -> false) ->
+    let (m, tname) = Option.get (qualified_type_head e) in
+    let (own, tenv') = module_first tenv m in
+    let canon = canonical_type_name (m ^ "." ^ tname) in
+    with_visible (List.map fst own)
+      (fun () -> infer tenv' env (Field (Constr canon, label)))
   | Field (e, label) ->
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let lookup_ns ns_name =
@@ -2965,13 +2994,14 @@ let rec infer tenv (env : env) (e : expr) : typ =
         when List.mem_assoc (canonical_type_name tname) tenv ->
         raise (TypeError (Printf.sprintf
           "'spec' and 'reader' are one member now: write '%s.parser', which \
-           holds both and the usage line" tname))
+           holds both and the usage line" (short_type_name tname)))
       | None, Constr tname, (("usage" | "parser") as which) ->
         (match List.assoc_opt (canonical_type_name tname) tenv with
          | Some tdef ->
            let refuse why =
              raise (TypeError (Printf.sprintf
-               "type '%s' has no derived %s: %s" tname which why))
+               "type '%s' has no derived %s: %s"
+               (short_type_name tname) which why))
            in
            (match derivable_typedef tenv [tname] tdef with
             | Error why -> refuse why
@@ -3023,7 +3053,8 @@ let rec infer tenv (env : env) (e : expr) : typ =
                 TFun (arg, acc, Effect_set.pure)) vars result)
             | Error why ->
               raise (TypeError (Printf.sprintf
-                "type '%s' has no derived %s: %s" tname which why)))
+                "type '%s' has no derived %s: %s"
+                (short_type_name tname) which why)))
          | None -> None)
       | _ -> None
     in

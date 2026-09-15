@@ -110,7 +110,7 @@ let defaults_of name =
    `type Node (label : String, children : List Node)` have a decoder at all
    -- built eagerly, deriving one would not terminate. *)
 let derivable :
-  (string, string * string list * (string option * type_expr) list) Hashtbl.t =
+  (string, Ctor.t * string list * (string option * type_expr) list) Hashtbl.t =
   Hashtbl.create 16
 
 (* A Map holds a key once.
@@ -2102,7 +2102,39 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
     (* A type's derived decoder: `Pod.decoder`. Resolved from the type's own
        definition rather than bound as a value, so it costs nothing until it
        is named and a recursive type can still have one. *)
+    (* `Apps.Deployment.decoder`: the same member, reached through the module
+       that declares the type. The table holds one entry per short name, so
+       two modules that each declare a `Deployment` share it -- the key that
+       tells them apart is the declaring module's path, which the module's
+       own constructor carries. *)
+    let qualified_key m inner =
+      match strip_located inner with
+      | Constr tname ->
+        let owned =
+          match lookup_var m env with
+          | Some (VRecord vr) ->
+            (match vrecord_get tname vr with
+             | Some (VConstr (c, _)) | Some (VPartialConstr (c, _, _)) ->
+               (match Ctor.modul c with
+                | Some path -> Some (Module_types.canonical_type ~modul:path tname)
+                | None -> None)
+             | _ -> None)
+          | _ -> None
+        in
+        (match owned with
+         | Some k when Hashtbl.mem derivable k -> Some k
+         | _ -> if Hashtbl.mem derivable tname then Some tname else None)
+      | _ -> None
+    in
     (match strip_located e, label with
+     | Qualified (m, inner), ("decoder" | "encoder" | "usage" | "parser")
+       when qualified_key m inner <> None ->
+       let k = Option.get (qualified_key m inner) in
+       (match label with
+        | "decoder" -> !derive_decoder k
+        | "encoder" -> !derive_encoder k
+        | "usage"   -> !derive_usage k
+        | _         -> !derive_parser k)
      | Constr tname, "decoder" when Hashtbl.mem derivable tname ->
        !derive_decoder tname
      | Constr tname, "encoder" when Hashtbl.mem derivable tname ->
@@ -6176,9 +6208,9 @@ and derived_decoder tname arg_decoders j path =
         raise (EvalError (Printf.sprintf
           "'%s' takes %d type argument(s)" tname (List.length params)))
     in
-    let defaults = defaults_of (ctor_named ctor) in
+    let defaults = defaults_of ctor in
     let rec go acc = function
-      | [] -> Ok (VConstr ((ctor_named ctor), List.rev acc))
+      | [] -> Ok (VConstr (ctor, List.rev acc))
       | (fname, te) :: rest ->
         let key = match fname with Some n -> n | None -> "" in
         (match read_field venv ~defaults key te j path with
@@ -6387,7 +6419,7 @@ and reader_value tname =
            let d = decoder_of_type_expr [] inner in
            let here = ("." ^ aname) :: path in
            let read_one v = d v here in
-           let build v = Ok (VConstr ((ctor_named ctor),
+           let build v = Ok (VConstr (ctor,
              List.map (fun (n, _) ->
                if n = Some fname then flags else v) fields))
            in
@@ -6781,7 +6813,7 @@ let rec usage_value tname =
        in
        VString (if flags = "" then arg else flags ^ " " ^ arg)
      | None ->
-    let defaults = defaults_of (ctor_named ctor) in
+    let defaults = defaults_of ctor in
     let part (fname, te) =
       match fname with
       | None -> ""

@@ -38,6 +38,32 @@
 
 ### Fixed
 
+- **A type's derived decoder is reachable through its module.**
+  `Apps.Deployment.decoder` read as a construction of `Deployment` and
+  reported that the type was missing its fields. The workaround was to
+  rename the type on import, which defeats the qualifier when several
+  modules declare a `Deployment`.
+
+  ```
+  let Apps = import ./k8s/apps/v1
+  let Core = import ./k8s/core/v1
+
+  JSON.decode Apps.Deployment.decoder doc   -- reads Apps's type
+  JSON.decode Core.Deployment.decoder doc   -- reads Core's
+  ```
+
+  `encoder`, `usage` and `parser` are reached the same way.
+
+- **A derived decoder builds the type of the module that declared it.** A
+  field holding another of the module's own types decoded into whichever
+  module was loaded last, so two modules that each declare a `Meta` gave
+  values that printed alike and were not equal. The one loaded first was
+  the one that broke.
+
+- **A type with no derived member says so under the name written.** The
+  message named the type by its internal key, which carries the module's
+  full path.
+
 - **Importing a module no longer costs more the larger it is.** The cost grew
   with the square of the module, so a file that imported a large one spent
   its run deciding which constructors were in scope rather than checking
