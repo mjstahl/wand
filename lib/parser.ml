@@ -1723,7 +1723,46 @@ and parse_contract_body s =
       ens := !ens @ [locate s (fun () -> contract_expr_ s)]
     | _ -> continue_ := false
   done;
-  let body = locate s (fun () -> expr_ 0 s) in
+  (* Statements, not one expression. A binding's body has sequenced them
+     since the layout rule arrived -- `parse_body` loops -- and a
+     definition's body did not, so the same two lines ran or did not
+     depending on whether a binding happened to come first.
+
+     Indented past the definition, not level with it: a definition anchors at
+     its own column and the next one starts back there, so `>=` would make
+     every definition swallow the file below it. A binding anchors at its
+     `let` and its body sits level with that, which is why `parse_body` asks
+     the other question. *)
+  (* The body anchors at its own column, the way a binding's does. Measured
+     against the definition's column instead, a line one indent in is past
+     it and so continues the expression -- which is why two statements under
+     a definition ran together as an application while the same two under a
+     binding sequenced. The definition's own column is restored on the way
+     out, so the item below it still starts something new. *)
+  let outer = s.stmt_col in
+  let outer_depth = s.stmt_depth in
+  (* Only where the body begins a line of its own. Cuddled after the `=` or
+     the `->` it starts well right of the lines below it, and anchoring there
+     would make its own continuation -- indented less than the first token,
+     because the first token is out at the end of the head -- read as a new
+     statement. `fn p -> Path.of_string` over an indented argument is the
+     shape that says so. *)
+  let anchored = has_newline_before_next s in
+  if anchored then begin
+    s.stmt_col <- peek_col s;
+    s.stmt_depth <- s.paren_depth
+  end;
+  let body =
+    Fun.protect
+      ~finally:(fun () ->
+        if anchored then (s.stmt_col <- outer; s.stmt_depth <- outer_depth))
+      (fun () ->
+         let e = ref (locate s (fun () -> expr_ 0 s)) in
+         while anchored && is_expr_start (peek s) && peek_col s >= s.stmt_col do
+           e := Ast.Seq (!e, locate s (fun () -> expr_ 0 s))
+         done;
+         !e)
+  in
   if !reqs = [] && !ens = [] then body
   else Ast.Contract (!reqs, !ens, body)
 

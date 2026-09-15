@@ -1,92 +1,49 @@
-## 0.75.0 - 2026-09-15
+## 0.76.0 - 2026-09-15
 
-`wand f` writes `;` where it wrote `in`, and a stray `in` now says what it
-is for.
+A definition's body takes statements, as a binding's body already did.
 
-### One separator for a binding's body
-
-`in`, a block's `;`, and the newline that ends a right-hand side all bind the
-name over the same body. They are one thing to the compiler, and they now
-come back one way:
+### The same two lines, two answers
 
 ```ocaml
--- before
-let of_hex algorithm text =
-  let want = _hex_length algorithm in
-  let lower = String.lower text in
-  String.length lower == want
+-- this was a type error
+let go () =
+  IO.println "one"
+  IO.println "two"
 
--- after
-let of_hex algorithm text =
-  let want = _hex_length algorithm;
-  let lower = String.lower text;
-  String.length lower == want
+-- this ran, and still does
+let go () =
+  let a = 1;
+  IO.println "one"
+  IO.println "two"
 ```
 
-A chain of bindings needs no brackets either, so a body written as a block
-loses them:
+Whether a body sequenced depended on whether a binding happened to come
+first, which is nothing a reader could see.
+
+A binding anchors at its own `let`, so a line level with it starts a new
+statement. A definition's body kept the definition's column, so a line one
+indent in was past it and read as more of the same expression -- which is
+how two `IO.println`s became one applied to the other. The body anchors at
+its own column now, where it begins a line of its own.
+
+Cuddled after the `=` or an arrow it keeps the outer anchor, because there
+the body starts right of the lines below it:
 
 ```ocaml
--- before
-let timed thunk = (
-  let before = clock_elapsed ();
-  let answer = thunk ();
-  (clock_elapsed () - before, answer)
-)
-
--- after
-let timed thunk =
-  let before = clock_elapsed ();
-  let answer = thunk ();
-  (clock_elapsed () - before, answer)
+let f =
+  fn p -> String.replace
+    "a" "b" p
 ```
 
-Across the standard library, the tests and the examples this took out 140
-dangling `in`s, 27 `in`s that had a line to themselves, and 10 pairs of
-brackets.
-
-### What `in` still says
-
-Two spellings survive, and each says something the `;` cannot.
-
-`in` stays where the value ends on a `match` or `handle` arm. An arm runs to
-the next `|`, so a `;` sitting on one is read as part of it; `in` is a
-keyword no arm can swallow, and it needs no brackets to hold the two apart:
+Both spellings of a body now print the same way, which is the point of the
+fix. `wand f` writes the block form for either:
 
 ```ocaml
-let release =
-  fn taken -> match taken with
-    | Ok taken -> fs_unlock taken
-    | Error _ -> ()
-in
-Resource.make acquire release
+let go () = (IO.println "one"; IO.println "two")
 ```
 
-`in` also stays where it narrows. Written ahead of a `;` it keeps the name
-off the statements below, which is meaning rather than spelling:
-`(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing after it.
-
-The brackets stay where the statements are not all bindings. A `;` outside
-them ends a binding's right-hand side and hands the rest to its body, and
-that is the whole of what it does there -- a statement that binds nothing is
-not joined to what follows by a `;` any more than by a newline.
-
-Nothing you have written stops working. All three spellings still parse, and
-only what `wand f` prints has changed.
-
-### A stray `in` says what it is for
-
-`in` belongs to a `let`. Reached without one, the message named the bracket
-or the token and left the reader to work out which of the three parts was
-wrong:
-
-```
-(fn () -> g x in y)
--- before: expected ), got in
--- after:  'in' closes a 'let' and there is none open here; a binding is
---         'let name = value in body', or 'let name = value;' with the
---         body below
-```
+Nothing that parsed before parses differently: no file in the standard
+library, the tests, the examples or the demos moved.
 
 See the [CHANGELOG](https://github.com/mjstahl/wand/blob/main/CHANGELOG.md)
 for the full list.

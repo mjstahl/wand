@@ -681,6 +681,10 @@ let is_bare_chain e = match strip_located e with
    Asked because a `;` after an arm is read as part of it. Found by
    test/fuzz: a chain whose last statement ended on an arm took the `;` of
    the block above it, and the next pass bracketed what this one had not. *)
+(* Every caller outside this definition wants this one, not `ends_in_an_arm`:
+   the question is always whether a `;` or a bracket will land on an arm, and
+   that is about the page. `ends_in_an_arm` is the recursion underneath, and
+   answers for the node. *)
 let printed_ends_in_an_arm e = match e with
   | Fn (params, fbody) ->
     (match try_multi_equation params fbody with
@@ -946,7 +950,8 @@ and emit_atom ?(followed = false) indent e =
   in
   if (not already_bracketed)
      && (is_control_expr e' || is_binop_or_unop e' || is_app e' || is_import e')
-  then parenthesize ~close_alone:(ends_in_an_arm e' || followed) indent s else s
+  then parenthesize ~close_alone:(printed_ends_in_an_arm e' || followed) indent s
+  else s
 
 (* An argument is an atom. A bare constructor is one hazard on top of that,
    and the hazard is narrower than it looks: a constructor absorbs a
@@ -1746,7 +1751,7 @@ and emit_block ?col ?(bare = false) indent e =
          column further in, because the bracket takes that column and the
          arms belong under the `match` rather than under its `(`. *)
       let a_text =
-        if ends_in_an_arm a then bracket (emit_expr (ind + 1) a)
+        if printed_ends_in_an_arm a then bracket (emit_expr (ind + 1) a)
         else emit_expr ind a
       in
       advance_past (loc_of a);
@@ -1890,7 +1895,7 @@ and emit_binding ?col ?(in_terminated = false) indent p e1 =
      An `in` after the value needs none of this. It is a keyword, so an arm
      cannot swallow it the way it swallows a `;`, and the value keeps the
      shape it would have had on its own. *)
-  let arm = ends_in_an_arm e1 && not in_terminated in
+  let arm = printed_ends_in_an_arm e1 && not in_terminated in
   let value ind e = if arm then bracket (emit_expr (ind + 1) e) else emit_expr ind e in
   match e1 with
   | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody

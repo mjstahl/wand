@@ -36,6 +36,17 @@ let test_idempotent_stdlib () =
    first pass mangled is how the damage usually shows. *)
 let corpus_dirs = ["../stdlib"; "../test/wand"; "../examples"]
 
+(* Every margin, not a handful of them. A wrapping bug is a bug about what
+   fits, so it is reachable at the widths where one particular line crosses
+   the edge and nowhere else -- five sampled margins miss most of those. The
+   widths this has actually caught things at are 20, 30, 40, 91, 104 and
+   107, which is both ends of the range and no pattern in between.
+
+   It costs a second or so over the whole corpus, which is the reason to
+   sweep rather than sample. Above the default margin matters as much as
+   below: two of those six are wider than 92. *)
+let margins = List.init 99 (fun i -> i + 12)
+
 let corpus_files () =
   List.concat_map (fun dir ->
     if not (Sys.file_exists dir) then []
@@ -367,7 +378,7 @@ let test_output_parses_at_any_margin () =
         Alcotest.failf
           "%s formatted at a margin of %d is not a fixed point"
           (Filename.basename path) width)
-      [20; 30; 40; 60; 92])
+      margins)
     files
 
 let test_idempotent_snippets () =
@@ -780,7 +791,7 @@ let test_a_multiline_paren_closes_on_its_own_line () =
      continuation they look like. The guard that used to bracket this was
      written when a newline ended a definition whatever the indent. *)
   ok_after_format "a wrapped value needs no brackets"
-    "import List\nimport String\n     let total xs =\n  List.fold_left (fn acc s -> acc + String.length s) 0 xs\n     String.of_int (total [\"aaaaaaaaaaaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbbbbbbbb\"])"
+    "import List\nimport String\nlet total xs =\n  List.fold_left (fn acc s -> acc + String.length s) 0 xs\nString.of_int (total [\"aaaaaaaaaaaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbbbbbbbb\"])"
     "51"
 
 (* A case body wide enough to wrap has to come back as a program. It once
