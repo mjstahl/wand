@@ -262,8 +262,19 @@ two `Duration`s (`Add` in a signature); `*` and `/` do not. A `Duration`
 also moves a `DateTime`, and two `DateTime`s subtract to the `Duration`
 between them — two instants do not add.
 
-Statements: one per line at the top level, nothing else needed. Inside a
-function body, sequence with `;` in parentheses:
+Statements: one per line at the top level, nothing else needed. A `;` after
+a binding ends its right-hand side and hands the rest to its body, and needs
+no brackets to do it:
+
+```
+let of_hex algorithm text =
+  let want = _hex_length algorithm;
+  let lower = String.lower text;
+  String.length lower == want
+```
+
+A statement that binds nothing is joined to what follows by neither a `;`
+nor a newline, so sequencing those still wants the parentheses:
 
 ```
 let deploy! target = (
@@ -273,13 +284,14 @@ let deploy! target = (
 )
 ```
 
-`let x = e in body` names a value for `body` — use it for naming, not
-sequencing. A newline also joins a binding to its body, and `wand f` writes
-that back as whichever of the two the position calls for, so the separator is
-the formatter's business rather than yours. What it does not rewrite is
-`let () = e in body`, a binder standing in for a `;` — write the `;`.
-Prefer one `match` over multi-equation definitions. Pattern
-matching must be exhaustive or it is a type error.
+`in`, the block's `;` and the newline that ends a right-hand side all bind
+the name over the same body, so they are one thing and `wand f` writes the
+`;`. The separator is the formatter's business rather than yours. Two
+spellings survive it, and both say what the `;` cannot: `in` where the value
+ends on a `match` or `handle` arm, since an arm reads a `;` on it as part of
+itself, and `in` where it narrows — `(let x = 1 in x + 1; 9)` gives `x` to
+`x + 1` and to nothing after it. Prefer one `match` over multi-equation
+definitions. Pattern matching must be exhaustive or it is a type error.
 
 ### Domain literals
 
