@@ -10,6 +10,10 @@ exception LexError of Token.loc * string
 type state = {
   src  : string;
   mutable pos  : int;
+  (* Added to every offset this state reports. An interpolation's body is
+     lexed as a string of its own, so its `pos` counts from that string;
+     the base is where the body sits in the file. *)
+  base : int;
   mutable line : int;
   mutable col  : int;
   (* where the token being scanned began -- the position a failure inside
@@ -21,9 +25,9 @@ type state = {
   file : string;
 }
 
-let make ?(file = "") src =
-  { src; pos = 0; line = 1; col = 1; file;
-    tok_start = Token.point ~file 1 1 0 }
+let make ?(file = "") ?(line = 1) ?(col = 1) ?(base = 0) src =
+  { src; pos = 0; base; line; col; file;
+    tok_start = Token.point ~file line col base }
 
 let len s = String.length s.src
 let is_at_end s = s.pos >= len s
@@ -161,9 +165,10 @@ let read_string s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
+      let at = { Token.p_line = s.line; p_col = s.col; p_offset = s.pos + s.base } in
       let body =
         read_interp_body s ~unterminated:"unterminated string interpolation" in
-      parts := !parts @ [(lit, body)];
+      parts := !parts @ [(lit, body, at)];
       loop ()
     (* `$NAME` is text here. Reading the environment is an expression like
        any other, so it goes through the one interpolation form -- write
@@ -212,13 +217,14 @@ let read_raw_string s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
+      let at = { Token.p_line = s.line; p_col = s.col; p_offset = s.pos + s.base } in
       let body =
         read_interp_body s
           ~unterminated:"unterminated %{...} interpolation in a `...` \
                          string. A `...` string cannot hold a literal %{ \
                          -- for that text, use an ordinary \"...\" string \
                          and write \\%{" in
-      parts := !parts @ [(lit, body)];
+      parts := !parts @ [(lit, body, at)];
       loop ()
     | c -> Buffer.add_char buf c; loop ()
   in
@@ -268,6 +274,7 @@ let read_run_cmd ?(form = "$()") s =
       ignore (advance s);
       let lit = Buffer.contents buf in
       Buffer.clear buf;
+      let at = { Token.p_line = s.line; p_col = s.col; p_offset = s.pos + s.base } in
       let expr_buf_contents =
         read_interp_body s ~unterminated:"unterminated command interpolation" in
       (* Backticks are not a quote the value has to be escaped for: what is
@@ -279,7 +286,7 @@ let read_run_cmd ?(form = "$()") s =
           | '\'' | '"' as q -> Token.Inside q
           | _ -> Token.Arg
       in
-      parts := !parts @ [(lit, expr_buf_contents, hole)];
+      parts := !parts @ [(lit, expr_buf_contents, hole, at)];
       loop ()
     | '\\' when peek s = '\n' -> ignore (advance s); loop ()
     (* A backslash spends the next character wherever the shell would let it
@@ -874,14 +881,14 @@ let read_port s =
 
 let next_token s =
   let rec scan () =
-    let l = s.line and c = s.col and o = s.pos in
+    let l = s.line and c = s.col and o = s.pos + s.base in
     let loc = Token.point ~file:s.file l c o in
     s.tok_start <- loc;
     (* `ret` runs after its argument is scanned, so the state now sits just
        past the token -- exactly the exclusive end the loc records. *)
     let ret tok =
       (tok, { loc with Token.end_line = s.line; end_col = s.col;
-                       end_offset = s.pos }) in
+                       end_offset = s.pos + s.base }) in
     if is_at_end s then ret EOF
     else match advance s with
     | ' ' | '\t' | '\r' -> scan ()
@@ -1041,8 +1048,8 @@ let next_token s =
   in
   scan ()
 
-let tokenize ?(file = "") src =
-  let s = make ~file src in
+let tokenize ?(file = "") ?(line = 1) ?(col = 1) ?(base = 0) src =
+  let s = make ~file ~line ~col ~base src in
   (* skip shebang line if present *)
   if String.length src >= 2 && src.[0] = '#' && src.[1] = '!' then
     while not (is_at_end s) && peek s <> '\n' do ignore (advance s) done;
@@ -1054,7 +1061,7 @@ let tokenize ?(file = "") src =
         (* The range runs from the failing token's start to wherever the
            scan stopped, so the whole partial token is marked. *)
         raise (LexError ({ s.tok_start with Token.end_line = s.line;
-                           end_col = s.col; end_offset = s.pos }, msg))
+                           end_col = s.col; end_offset = s.pos + s.base }, msg))
     in
     toks := (t, loc) :: !toks;
     if t <> EOF then loop ()

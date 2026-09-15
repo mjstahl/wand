@@ -24,6 +24,29 @@ let err_contains label input needle =
       Alcotest.failf "%s: expected '%s' in error, got: %s" label needle msg
   | Ok s -> Alcotest.failf "%s: expected error but got: %s" label s
 
+(* An interpolation's body is lexed on its own, and used to start counting
+   again from 1:1 -- so an error inside a `%{...}` was reported at line 1 of
+   a file the string may sit a hundred lines below. Every form that holds
+   one is checked: a string, a backtick string, and a command. *)
+let test_interpolation_error_position () =
+  let at label src needle =
+    match run src with
+    | Ok out -> Alcotest.failf "%s: expected error but got: %s" label out
+    | Error msg ->
+      if not (contains msg needle) then
+        Alcotest.failf "%s: expected position '%s', got: %s" label needle msg
+  in
+  (* `Point` opens at column 15 of line 5 in each, bar the ones that differ. *)
+  at "a string"
+    "import IO\ntype Point(x: Int, y: Int)\nlet a = 1\nlet b = 2\nIO.println \"%{Point}\"\n"
+    "5:15";
+  at "a backtick string"
+    "import IO\ntype Point(x: Int, y: Int)\nlet a = 1\nlet b = 2\nlet s = `%{Point}`\n"
+    "5:12";
+  at "a command"
+    "import IO\ntype Point(x: Int, y: Int)\nlet a = 1\nlet b = 2\nlet o = $(echo %{Point})\n"
+    "5:18"
+
 (* ── Dot access is checked field access ──────────────────────────────────── *)
 
 (* `p.x` on a named type is verified against the type's fields. Key presence
@@ -2023,6 +2046,7 @@ let () =
       Alcotest.test_case "Constructor field grouping" `Quick test_constructor_field_grouping;
     ];
     "field access", [
+      Alcotest.test_case "interpolation error position" `Quick test_interpolation_error_position;
       Alcotest.test_case "map dot access rejected" `Quick test_map_dot_access_rejected;
       Alcotest.test_case "named fields checked"    `Quick test_named_field_access_checked;
       Alcotest.test_case "recursion + effects"     `Quick test_recursion_may_perform_effects;

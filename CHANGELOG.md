@@ -6,8 +6,7 @@
 
 - **A keyword names a field.** A field name is not a name any scope can see,
   so `type`, `when` and the rest read as themselves after a `.` and inside a
-  constructor's brackets. The field in every Kubernetes condition and every
-  JSON Schema node is called `type`, and a wand type could not spell it.
+  constructor's brackets.
 
   ```
   type Condition(type: String, status: String)
@@ -63,6 +62,21 @@
 - **A type with no derived member says so under the name written.** The
   message named the type by its internal key, which carries the module's
   full path.
+
+- **An error inside a `%{...}` points at where it was written.** The body of
+  an interpolation is read on its own, and its positions started again at
+  1:1 -- so a mistake in a string near the bottom of a file was reported at
+  line 1, at a column that line may not have had.
+
+  ```
+  10 |  IO.println "%{Point}"
+
+  was:  Error: type error: 1:1:   constructor 'Point' has named fields
+  now:  Error: type error: 10:15: constructor 'Point' has named fields
+  ```
+
+  Every form that holds one is fixed: `"..."`, a backtick string, `$()`,
+  `$?()` and `$*()`.
 
 - **Importing a module no longer costs more the larger it is.** The cost grew
   with the square of the module, so a file that imported a large one spent

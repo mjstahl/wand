@@ -1064,6 +1064,14 @@ and infix_ left op s =
   | Token.Dot       -> Field (left, expect_field_name s)
   | t -> fail (Format.asprintf "unexpected infix: %a" Token.pp t)
 
+(* An interpolation's body is lexed on its own, so it is told where it sits
+   in the file and in which file. Without it a body's positions start at 1:1,
+   and an error inside a `%{...}` pointed at line 1 of a file the string is
+   nowhere near. *)
+and interp_tokens loc src (at : Token.pos) =
+  Lexer.tokenize ~file:loc.Token.file ~line:at.Token.p_line
+    ~col:at.Token.p_col ~base:at.Token.p_offset src
+
 and atom_base_ s =
   let loc = peek_loc s in
   match advance s with
@@ -1159,24 +1167,24 @@ and atom_base_ s =
     expect s Token.RParen;
     RunCmd (e, s.shell_allow)
   | Token.RunCmdRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src, hole) ->
-      let toks = Lexer.tokenize src in
+    let parse_parts = List.map (fun (lit, src, hole, at) ->
+      let toks = interp_tokens loc src at in
       let s2 = make toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunCmd (String tail, s.shell_allow)
     else RunCmd (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.RunQueryRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src, hole) ->
-      let toks = Lexer.tokenize src in
+    let parse_parts = List.map (fun (lit, src, hole, at) ->
+      let toks = interp_tokens loc src at in
       let s2 = make toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunQuery (String tail, s.shell_allow)
     else RunQuery (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.CommandRaw (parts, tail) ->
-    let parse_parts = List.map (fun (lit, src, hole) ->
-      let toks = Lexer.tokenize src in
+    let parse_parts = List.map (fun (lit, src, hole, at) ->
+      let toks = interp_tokens loc src at in
       let s2 = make toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
@@ -1184,16 +1192,16 @@ and atom_base_ s =
     else MkCommand (CmdInterp (parse_parts, tail), s.shell_allow)
   | Token.Regex (pat, flags) -> RegexLit (pat, flags)
   | Token.InterpStr (parts, tail) ->
-    let parsed = List.map (fun (lit, src) ->
-      let toks = Lexer.tokenize src in
+    let parsed = List.map (fun (lit, src, at) ->
+      let toks = interp_tokens loc src at in
       let s2 = make toks in
       (lit, expr_ 0 s2)
     ) parts in
     Interp (parsed, tail)
   | Token.RawStr str -> RawString str
   | Token.RawInterpStr (parts, tail) ->
-    let parsed = List.map (fun (lit, src) ->
-      let toks = Lexer.tokenize src in
+    let parsed = List.map (fun (lit, src, at) ->
+      let toks = interp_tokens loc src at in
       let s2 = make toks in
       (lit, expr_ 0 s2)
     ) parts in

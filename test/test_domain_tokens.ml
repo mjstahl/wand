@@ -5,8 +5,24 @@ let tokens s =
   |> List.map fst
   |> List.filter (fun t -> t <> Token.EOF && t <> Token.Newline)
 
+(* An interpolation carries where its body sits in the file, which these
+   tests do not fix and do not care about: they are about what was lexed,
+   not where. Flattened to one value on both sides. *)
+let z = { Token.p_line = 0; p_col = 0; p_offset = 0 }
+
+let nopos (t : Token.t) : Token.t =
+  let two ps = List.map (fun (a, b, _) -> (a, b, z)) ps in
+  let three ps = List.map (fun (a, b, h, _) -> (a, b, h, z)) ps in
+  match t with
+  | Token.InterpStr (ps, tail)    -> Token.InterpStr (two ps, tail)
+  | Token.RawInterpStr (ps, tail) -> Token.RawInterpStr (two ps, tail)
+  | Token.RunCmdRaw (ps, tail)    -> Token.RunCmdRaw (three ps, tail)
+  | Token.RunQueryRaw (ps, tail)  -> Token.RunQueryRaw (three ps, tail)
+  | Token.CommandRaw (ps, tail)   -> Token.CommandRaw (three ps, tail)
+  | other -> other
+
 let check label input expected =
-  let got = tokens input in
+  let got = List.map nopos (tokens input) in
   Alcotest.(check (list (testable Token.pp Token.equal))) label expected got
 
 (* ── Paths ──────────────────────────────────────────────────────────────── *)
@@ -245,20 +261,20 @@ let test_envvars () =
     [RunCmdRaw ([], "(cd /tmp) && ls")];
   (* Where a hole sits decides what its value is quoted for. *)
   check "a bare hole is an argument" "$(echo %{x})"
-    [RunCmdRaw ([("echo ", "x", Token.Arg)], "")];
+    [RunCmdRaw ([("echo ", "x", Token.Arg, z)], "")];
   check "a hole in double quotes is escaped for them" {|$(echo "hi %{x}")|}
-    [RunCmdRaw ([({|echo "hi |}, "x", Token.Inside '"')], "\"")];
+    [RunCmdRaw ([({|echo "hi |}, "x", Token.Inside '"', z)], "\"")];
   check "a hole in single quotes is escaped for them" "$(echo 'hi %{x}')"
-    [RunCmdRaw ([("echo 'hi ", "x", Token.Inside '\'')], "'")];
+    [RunCmdRaw ([("echo 'hi ", "x", Token.Inside '\'', z)], "'")];
   check "a raw hole is shell source" "$(echo %!{x})"
-    [RunCmdRaw ([("echo ", "x", Token.Source)], "")];
+    [RunCmdRaw ([("echo ", "x", Token.Source, z)], "")];
   (* `$*(` is the command itself. It reads exactly as `$(` does -- same
      quoting, same holes -- and differs only in the token it comes back as. *)
   check "cmd value raw" "$*(x)" [CommandRaw ([], "x")];
   check "a quoted paren is text in one too" {|$*(echo "a)b")|}
     [CommandRaw ([], {|echo "a)b"|})];
   check "and a hole is quoted the same way" "$*(echo %{x})"
-    [CommandRaw ([("echo ", "x", Token.Arg)], "")];
+    [CommandRaw ([("echo ", "x", Token.Arg, z)], "")];
   (* $ followed by lowercase is not an env var *)
   check "lowercase not env" "$home"     [Dollar; Ident "home"]
 

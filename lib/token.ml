@@ -15,6 +15,12 @@ type hole =
   | Inside of char   (* the quote character it sits between *)
   | Source
 
+(* Where an interpolation's body begins in the file it was written in. The
+   body is lexed on its own, so without this its positions start again at
+   1:1 and an error inside a `%{...}` points at the wrong place -- a line
+   that may not exist, when the string sits far down a file. *)
+type pos = { p_line : int; p_col : int; p_offset : int }
+
 type t =
   (* Literals *)
   | Int of int
@@ -93,16 +99,16 @@ type t =
   | Dollar             (* $ *)
   | EnvVar of string   (* $HOME, $PATH, $MY_VAR — uppercase only *)
   | PlusPlus           (* ++ *)
-  | InterpStr    of (string * string) list * string  (* "lit %{src} ... tail" *)
+  | InterpStr    of (string * string * pos) list * string  (* "lit %{src} ... tail" *)
   (* A backtick string. Kept apart from `String`/`InterpStr` all the way to
      the formatter, which has to give one back as one: rendered as `"..."`
      it would come back escaped, and a newline inside it would not read at
      all. *)
   | RawStr       of string
-  | RawInterpStr of (string * string) list * string
-  | RunCmdRaw    of (string * string * hole) list * string  (* $(cmd %{var} ...) *)
-  | RunQueryRaw  of (string * string * hole) list * string  (* $?(cmd %{var} ...) *)
-  | CommandRaw   of (string * string * hole) list * string  (* $*(cmd %{var} ...) *)
+  | RawInterpStr of (string * string * pos) list * string
+  | RunCmdRaw    of (string * string * hole * pos) list * string  (* $(cmd %{var} ...) *)
+  | RunQueryRaw  of (string * string * hole * pos) list * string  (* $?(cmd %{var} ...) *)
+  | CommandRaw   of (string * string * hole * pos) list * string  (* $*(cmd %{var} ...) *)
   | Regex        of string * string                  (* r/pattern/flags *)
   (* Delimiters *)
   | LParen             (* ( *)
