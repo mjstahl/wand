@@ -144,7 +144,7 @@ release can write both.
 
 What says who built it is a build attestation. GitHub signs one for each
 archive its runners build, with a token that workflow cannot pass on, over
-the archive's digest and the commit it came from. From 0.68.0 on:
+the archive's digest and the commit it came from. From 0.77.0 on:
 
 ```sh
 gh attestation verify wand-<version>-linux-x86_64.tar.gz --repo wand-lang/wand
@@ -153,6 +153,11 @@ gh attestation verify wand-<version>-linux-x86_64.tar.gz --repo wand-lang/wand
 It covers the three archives CI builds. The macOS x86_64 archive is built by
 hand on an Intel Mac, because GitHub's Intel runner never leaves the queue, so
 that one has the `.sha256` and no attestation.
+
+Releases from 0.68.0 to 0.76.0 were signed under the repository's earlier
+name, and those signatures did not survive the move to `wand-lang`. For those
+versions the `.sha256` is what you have: it says the download arrived whole,
+and nothing about who built it.
 
 **From source.** This is the contributor path. It needs OCaml 5.x and opam:
 

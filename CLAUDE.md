@@ -155,6 +155,13 @@ job and says only that the download arrived whole. Check one with
 archive is built here, so it has no attestation; `make release-archive` says
 so when it finishes.
 
+An attestation is bound to the repository that signed it, and moving the
+repository does not carry it: 0.68.0 to 0.76.0 were signed under the earlier
+name and verify under neither, since the old path is now an alias for the new
+one rather than a place of its own. 0.77.0 was signed again from here after
+the move, which rebuilt its three CI archives -- so their digests, and the
+`.sha256` beside each, are not the ones the first build published.
+
 The musl build is retried up to three times. It compiles dune from source,
 and that has twice died with `Failed to allocate signal stack for domain 0` --
 the OCaml runtime failing to start, before any of wand is reached. It does
