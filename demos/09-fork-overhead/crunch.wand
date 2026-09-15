@@ -18,7 +18,7 @@ let path =
 let tally acc line =
   match String.words line with
   | [_ :: level :: component :: _] -> (
-    let acc = Map.update level 0 (fn n -> n + 1) acc in
+    let acc = Map.update level 0 (fn n -> n + 1) acc;
     if level == "ERROR" then Map.set "c:%{component}" 1 acc else acc
   )
   | _ -> acc

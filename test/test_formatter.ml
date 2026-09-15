@@ -402,9 +402,12 @@ let test_a_multiline_backtick_string_cuddles () =
   fmt_eq "a top-level binding"
     "let a =\n  `\none\n  two`\na"
     "let a = `\none\n  two`\na";
-  fmt_eq "a binding in a block, where every other wrapped value takes a line"
+  (* The brackets go: a chain of bindings is the body, and its statements sit
+     at the indent the parser looks for a body at. What this pins is the
+     string, which still starts on the line of its `=`. *)
+  fmt_eq "a binding in a body, where every other wrapped value takes a line"
     "let f! () = (\n  let a =\n    `\none\n  two`;\n  a\n)\nf! ()"
-    "let f! () = (\n  let a = `\none\n  two`;\n  a\n)\nf! ()";
+    "let f! () =\n  let a = `\none\n  two`;\n  a\nf! ()";
   fmt_eq "a trailing argument"
     "t.eq \"x\"\n  `\none\n  two`"
     "(t.eq \"x\" `\none\n  two`)";
@@ -734,7 +737,7 @@ let test_midline_breaks_step_in () =
     "type TestOutcome = Pass String | Fail String\nlet make label =\n  Testing(\n    not_ok = fn cond -> if cond then Fail \"%{label}: expected the assertion to fail here\"\n      else Pass label,\n    raises = fn thunk -> match try thunk () with\n      | Ok _ -> Fail \"%{label}: expected a raise, but it completed normally\"\n      | Error _ -> Pass label\n  )";
   fmt_eq "a ladder that starts its own line stays flush"
     "let grade score = let describe s = if s > 90 then \"an excellent score, top marks all around\" else if s > 75 then \"a good score, comfortably above the line\" else \"a score that needs another attempt\" in describe score"
-    "let grade score =\n  let describe s =\n    if s > 90 then \"an excellent score, top marks all around\"\n    else if s > 75 then \"a good score, comfortably above the line\"\n    else \"a score that needs another attempt\"\n  in describe score";
+    "let grade score =\n  let describe s =\n    if s > 90 then \"an excellent score, top marks all around\"\n    else if s > 75 then \"a good score, comfortably above the line\"\n    else \"a score that needs another attempt\";\n  describe score";
   fmt_eq "a mid-line ladder steps in once and holds"
     "let pick = (fn kind -> if kind == \"circle\" then \"a shape with no corners at all\" else if kind == \"rect\" then \"a shape with four of them\" else \"a shape nobody here has heard of\")"
     "let pick =\n  fn kind -> if kind == \"circle\" then \"a shape with no corners at all\"\n    else if kind == \"rect\" then \"a shape with four of them\"\n    else \"a shape nobody here has heard of\""
@@ -835,9 +838,11 @@ let test_bracketed_values_cuddle_their_opener () =
     "let a_tuple = (\n  \"a considerable string here\",\n  \"another considerable string\",\n  \"and a third one\"\n)";
   (* The two positions a group body puts it in: after `in`, and as the
      body of a trailing lambda. *)
-  fmt_eq "a bracketed tail after `in`, and a trailing lambda's bracketed body"
+  (* The chain takes the line below the arrow and its statements share that
+     indent, so the lambda's body needs no brackets and the `in` is a `;`. *)
+  fmt_eq "a binding chain as a trailing lambda's body"
     "import String\nlet build = group \"the report\" (fn () -> let lines = String.lines report in [check \"a considerable assertion here\", check \"another considerable one\"])"
-    "import String\n\nlet build =\n  group \"the report\" (fn () ->\n    let lines = String.lines report in [\n      check \"a considerable assertion here\",\n      check \"another considerable one\"\n    ])"
+    "import String\n\nlet build =\n  group \"the report\" (fn () ->\n    let lines = String.lines report;\n    [check \"a considerable assertion here\", check \"another considerable one\"])"
 
 (* An item is placed two columns in, so that is the indent it wraps to.
    Rendered at the sequence's own indent, an item's continuation lines
@@ -1162,8 +1167,8 @@ let test_let_clause_alignment () =
     lines [ "let answer =";
             "  let fib 0 = 0";
             "  let fib 1 = 1";
-            "  let fib n = fib (n - 1) + fib (n - 2)";
-            "  in fib 10";
+            "  let fib n = fib (n - 1) + fib (n - 2);";
+            "  fib 10";
             "";
             "answer" ]
   in
@@ -1324,7 +1329,8 @@ let test_a_comment_in_a_let_in_chain () =
   filter   spaced|}
     {|let words s =
   -- why it is done this way
-  let spaced = replace s in filter spaced|};
+  let spaced = replace s;
+  filter spaced|};
   fmt_eq "between a binding and what reads it"
     {|let f () =
   let out = compute_something_here () in
@@ -1332,13 +1338,14 @@ let test_a_comment_in_a_let_in_chain () =
   let () = cleanup () in
   out|}
     {|let f () =
-  let out = compute_something_here () in
+  let out = compute_something_here ();
   -- why the next step is needed
-  let () = cleanup () in out|};
+  let () = cleanup ();
+  out|};
   assert_idempotent "a let-in chain with a comment is a fixed point"
     {|let words s =
   -- why it is done this way
-  let spaced = replace s in filter spaced|}
+  let spaced = replace s; filter spaced|}
 
 (* A bare date is a spelling of midnight UTC, and an offset form names a
    moment in a timezone. Both keep the text they were written with: the
@@ -1380,7 +1387,7 @@ let test_a_wrapping_let_in_arm_body () =
   match xs with
   | [] -> 0
   | [h :: t] -> (
-    let k = some_quite_long_helper_name h in
+    let k = some_quite_long_helper_name h;
     another_long_function k (with_more_arguments h) (and_yet_another t) 12345
   )|}
 
@@ -1391,22 +1398,28 @@ let test_a_block_binding_round_trips () =
   fmt_eq "two bindings"
     {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|}
     {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|};
-  (* One statement after the binding: still the block that was written. *)
+  (* A binding and the one statement that reads it. Both spellings build the
+     same node -- `in` and the block's `;` bind the name over the same body
+     -- so both come back the same way, and brackets are not part of it. *)
   fmt_eq "a block whose last statement is the only one"
     {|let f () = (let x = 1; x + 2)|}
-    {|let f () = (let x = 1; x + 2)|};
+    {|let f () =
+  let x = 1;
+  x + 2|};
   fmt_eq "and the in form beside it"
     {|let f () = let x = 1 in x + 2|}
-    {|let f () = let x = 1 in x + 2|};
+    {|let f () =
+  let x = 1;
+  x + 2|};
   (* The shape that sent this to the formatter: two bindings and an `if`,
      inside a lambda, inside a call. *)
   fmt_eq "a block in a lambda in a call"
     {|let plan paths = (List.fold_right (fn p acc -> (let name = basename p; let wanted = tidy name; if wanted == name then acc else (p, wanted) :: acc)) paths [])|}
-    {|let plan paths = List.fold_right (fn p acc -> (
+    {|let plan paths = List.fold_right (fn p acc ->
   let name = basename p;
   let wanted = tidy name;
   if wanted == name then acc else (p, wanted) :: acc
-)) paths []|};
+) paths []|};
   (* A binding written with `in` inside a sequence is a statement like any
      other and stays where it is. *)
   fmt_eq "the in form inside a sequence"
@@ -1420,8 +1433,9 @@ let test_a_block_binding_round_trips () =
   fmt_eq "a let chain in a lambda wraps under it"
     {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc) paths [])|}
     {|let plan paths = List.fold_right (fn p acc ->
-  let name = basename p in
-  let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc
+  let name = basename p;
+  let wanted = tidy name;
+  if wanted == name then acc else (p, wanted) :: acc
 ) paths []|};
   (* A `let ... in` cuddled onto `fn -> ` puts its keyword right of the
      value and the `in` below it, and the parser reads a line left of the
@@ -1438,28 +1452,39 @@ let test_a_block_binding_round_trips () =
 f ()|}
     "3"
 
-(* A binding may also be joined to its body by nothing but the newline that
-   ends its right-hand side, which is a third way to write what `;` and `in`
-   already write. It comes back as one of those two, chosen by where it
-   stands: the `;` of the block it is in, and `in` where there is no block.
-   It used to come back as a `let ... in` chain wearing the block's own
-   parentheses, so a function written one way was printed two ways. *)
+(* `in`, the block's `;`, and the newline that ends a right-hand side all
+   bind the name over the same body, so they build one node and come back
+   one way: the `;`. Brackets are not part of it -- they are the formatter's
+   to put in and take out, and a style read off them disagrees with itself
+   on the next pass.
+
+   What decides the brackets is what the chain holds. Every statement a
+   binding means the `;` is doing the only thing it does outside brackets --
+   ending a right-hand side and handing the rest to a body -- so the chain
+   stands bare. One statement that binds nothing is joined to what follows
+   by neither a `;` nor a newline, so that chain keeps the brackets that
+   make it a block. *)
 let test_a_newline_binding_takes_the_block_spelling () =
-  fmt_eq "in a block, with statements under it"
+  fmt_eq "a statement among the bindings keeps the brackets"
     "let f () = (\n  let x = 1\n  IO.println \"a\"\n  x + 1\n)"
     {|let f () = (let x = 1; IO.println "a"; x + 1)|};
-  fmt_eq "in a block, two bindings"
+  fmt_eq "bindings alone need none"
     "let f () = (\n  let x = 1\n  let y = 2\n  x + y\n)"
-    {|let f () = (let x = 1; let y = 2; x + y)|};
-  (* The parentheses are the block. Without them the binding names a value
-     for one expression, which is what `in` says. *)
-  fmt_eq "no block, one expression under it"
+    {|let f () =
+  let x = 1;
+  let y = 2;
+  x + y|};
+  fmt_eq "one expression under it, written with no brackets"
     "let f () =\n  let x = 1\n  x + 2"
-    {|let f () = let x = 1 in x + 2|};
-  (* Several statements are a block whether or not they were bracketed, so
-     the parentheses are supplied rather than the `in` chain that used to
-     be printed around a `(...)` of its own. *)
-  fmt_eq "no block, several statements under it"
+    {|let f () =
+  let x = 1;
+  x + 2|};
+  fmt_eq "and the same written with them"
+    "let f () = (\n  let x = 1\n  x + 2\n)"
+    {|let f () =
+  let x = 1;
+  x + 2|};
+  fmt_eq "a statement among them, written with no brackets"
     "let f () =\n  let x = 1\n  IO.println \"a\"\n  x + 2"
     {|let f () = (let x = 1; IO.println "a"; x + 2)|};
   assert_idempotent "the printed form is a fixed point"
@@ -1522,15 +1547,20 @@ let test_an_in_among_statements_takes_the_semicolon () =
   fmt_eq "brackets of its own do not keep it out of the block"
     {|let f () = (g (); (let x = 1 in x + 1))|}
     {|let f () = (g (); let x = 1; x + 1)|};
-  (* A binding that is not in a block is not reached: `emit_block` runs for a
-     `Seq` or a block binding, so a bare `let ... in` never arrives there. *)
-  fmt_eq "a lone binding in brackets keeps its in"
+  (* One binding and the expression that reads it: a chain of bindings, so
+     the brackets it was written with are not needed and do not come back. *)
+  fmt_eq "a lone binding loses the brackets"
     {|let f () = (let x = 1 in x + 1)|}
-    {|let f () = let x = 1 in x + 1|};
-  (* Grouping brackets around one binding stay one pair. *)
+    {|let f () =
+  let x = 1;
+  x + 1|};
+  (* Grouping brackets around one binding stay one pair. The chain brings
+     its own here -- an argument is not a statement position -- and the one
+     inside it is the lambda's body, cuddled after the arrow and so needing
+     brackets of its own. *)
   fmt_eq "a parenthesised binding as an argument"
     {|let a = t.eq 3 (let f = fn () -> let x = 1 in x + 1 in f ())|}
-    {|let a = t.eq 3 (let f = fn () -> let x = 1 in x + 1 in f ())|};
+    {|let a = t.eq 3 (let f = fn () -> (let x = 1; x + 1); f ())|};
   (* The `in` that narrows is still the exception, in either position. *)
   fmt_eq "an in before a semicolon narrows and stays"
     {|let f () = (let x = 1 in x + 1; 9)|}
@@ -1595,11 +1625,11 @@ let test_an_arm_before_a_semicolon_is_bracketed () =
     "let f x = (\n  (match x with\n   | true -> g ()\n   | false -> ());\n  h ()\n)";
   fmt_eq "a match as a binding's value"
     "let f x = (\n  let y = match x with | true -> 1 | false -> 2;\n  g y\n)"
-    "let f x = (\n  let y =\n    (match x with\n     | true -> 1\n     | false -> 2);\n  g y\n)";
+    "let f x =\n  let y =\n    match x with\n    | true -> 1\n    | false -> 2\n  in\n  g y";
   (* The arm may be under a lambda, or anything else that ends on one. *)
   fmt_eq "a lambda whose body ends on an arm"
     "let f x = (\n  let r = fn v -> match v with | Ok w -> w | Error _ -> 0;\n  g r\n)"
-    "let f x = (\n  let r =\n    (fn v -> match v with\n       | Ok w -> w\n       | Error _ -> 0);\n  g r\n)";
+    "let f x =\n  let r =\n    fn v -> match v with\n      | Ok w -> w\n      | Error _ -> 0\n  in\n  g r";
   (* The last statement has no `;` after it and takes no bracket. *)
   fmt_eq "the last statement is left alone"
     "let f x = (\n  g ();\n  match x with\n  | true -> 1\n  | false -> 2\n)"
@@ -1610,7 +1640,7 @@ let test_an_arm_before_a_semicolon_is_bracketed () =
 let test_a_newline_binding_stops_at_the_next_definition () =
   fmt_eq "the definition below stays its own"
     "let f () =\n  let a = 1\n  a + 1\n\nlet g () = 2"
-    "let f () = let a = 1 in a + 1\n\nlet g () = 2";
+    "let f () =\n  let a = 1;\n  a + 1\n\nlet g () = 2";
   ok_after_format "and the file below the binding still runs"
     "let f () =\n  let a = 1\n  a + 1\n\nlet g () = 2\n\nf () + g ()"
     "4"

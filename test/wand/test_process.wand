@@ -19,13 +19,14 @@ test "strips trailing newline" (fn t -> t.eq "hello" $(printf hello))
 -- `%{cmd}` it would be quoted into a single argument and `sh` would look
 -- for a program named "echo world".
 test "dynamic cmd via raw interpolation" (fn t ->
-  let cmd = "echo world" in t.eq "world" $(%!{cmd}))
+  let cmd = "echo world";
+  t.eq "world" $(%!{cmd}))
 
-test "result in binding" (fn t -> let out = $(echo hello) in t.eq "hello" out)
+test "result in binding" (fn t -> (let out = $(echo hello); t.eq "hello" out))
 
-test "result in expression" (fn t -> let out = $(echo 3) in t.eq true (out == "3"))
+test "result in expression" (fn t -> (let out = $(echo 3); t.eq true (out == "3")))
 
-test "interpolated command" (fn t -> let word = "hello" in t.eq "hello" $(echo %{word}))
+test "interpolated command" (fn t -> (let word = "hello"; t.eq "hello" $(echo %{word})))
 
 -- ── Error handling ──────────────────────────────────────────────────────
 
@@ -35,13 +36,13 @@ test "error shows exit code" (fn t ->
 
 -- ── $?() ────────────────────────────────────────────────────────────────
 
-test "stdout field" (fn t -> let r = $?(echo hello) in t.eq "hello" r.stdout)
+test "stdout field" (fn t -> (let r = $?(echo hello); t.eq "hello" r.stdout))
 
-test "code zero" (fn t -> let r = $?(true) in t.eq 0 r.code)
+test "code zero" (fn t -> (let r = $?(true); t.eq 0 r.code))
 
-test "code non-zero" (fn t -> let r = $?(false) in t.eq 1 r.code)
+test "code non-zero" (fn t -> (let r = $?(false); t.eq 1 r.code))
 
-test "never raises" (fn t -> let r = $?(exit 42) in t.eq true (r.code == 42))
+test "never raises" (fn t -> (let r = $?(exit 42); t.eq true (r.code == 42)))
 
 -- The first question a script asks of a ShellResult.
 test "ok? on a command that worked" (fn t -> t.eq true (Shell.ok? $?(true)))
@@ -55,7 +56,7 @@ test "failed? on one that did not work" (fn t -> t.eq true (Shell.failed? $?(exi
 test "pipe into cat" (fn t -> t.eq "hello" ("hello" |> $(cat)))
 test "pipe into wc -w" (fn t -> t.eq "2" ("hello world" |> $(wc -w | tr -d " ")))
 
-test "pipe into $?()" (fn t -> let r = "hello" |> $?(cat) in t.eq "hello" r.stdout)
+test "pipe into $?()" (fn t -> (let r = "hello" |> $?(cat); t.eq "hello" r.stdout))
 
 -- ── mock handlers ───────────────────────────────────────────────────────
 
@@ -77,9 +78,11 @@ test "a plain command runs without the shell" (fn t ->
   t.eq "hi there" $(/bin/echo hi there))
 
 test "an interpolated value is still one argument on the fast path" (fn t ->
-  let v = "a b" in t.eq "a b" $(/bin/echo %{v}))
+  let v = "a b";
+  t.eq "a b" $(/bin/echo %{v}))
 
 test "stdin still arrives on the fast path" (fn t -> t.eq "hello" ("hello" |> $(cat)))
 
 test "a missing program is exit 127 on either path" (fn t ->
-  let r = $?(/usr/bin/wand-no-such-program) in t.eq 127 r.code)
+  let r = $?(/usr/bin/wand-no-such-program);
+  t.eq 127 r.code)

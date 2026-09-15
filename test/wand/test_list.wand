@@ -14,7 +14,7 @@ import String
 test "sort ints" (fn t -> t.eq [1, 2, 3] (List.sort [3, 1, 2]))
 test "sort strings" (fn t ->
   t.eq ["apple", "banana", "cherry"] (List.sort ["banana", "apple", "cherry"]))
-test "sort empty" (fn t -> let empty : List Int = [] in t.eq [] (List.sort empty))
+test "sort empty" (fn t -> (let empty : List Int = []; t.eq [] (List.sort empty)))
 
 -- ── sort_by ─────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ test "sort_by negate (descending)" (fn t ->
 test "unique ints" (fn t -> t.eq [1, 2, 3] (List.unique [1, 2, 1, 3, 2]))
 test "unique preserves order" (fn t ->
   t.eq ["c", "a", "b"] (List.unique ["c", "a", "b", "a", "c"]))
-test "unique empty" (fn t -> let empty : List Int = [] in t.eq [] (List.unique empty))
+test "unique empty" (fn t -> (let empty : List Int = []; t.eq [] (List.unique empty)))
 
 -- `unique` answers with the same equality `==` does. It read the stored
 -- value before, so two spellings of one instant both survived a list that
@@ -55,17 +55,21 @@ test "range empty (hi < lo)" (fn t -> t.eq [] (List.range 5 1))
 
 test "flatten basic" (fn t -> t.eq [1, 2, 3, 4, 5] (List.flatten [[1, 2], [3], [4, 5]]))
 test "flatten empty lists" (fn t ->
-  let empty : List Int = [] in t.eq [1] (List.flatten [empty, [1], []]))
+  let empty : List Int = [];
+  t.eq [1] (List.flatten [empty, [1], []]))
 test "flatten empty" (fn t ->
-  let empty : List (List Int) = [] in t.eq [] (List.flatten empty))
+  let empty : List (List Int) = [];
+  t.eq [] (List.flatten empty))
 
 -- ── concat ──────────────────────────────────────────────────────────────
 
 test "concat basic" (fn t -> t.eq [1, 2, 3, 4] (List.concat [1, 2] [3, 4]))
 test "concat with empty" (fn t ->
-  let empty : List Int = [] in t.eq [1, 2] (List.concat empty [1, 2]))
+  let empty : List Int = [];
+  t.eq [1, 2] (List.concat empty [1, 2]))
 test "concat both empty" (fn t ->
-  let empty : List Int = [] in t.eq [] (List.concat empty empty))
+  let empty : List Int = [];
+  t.eq [] (List.concat empty empty))
 
 -- ── filter_map ──────────────────────────────────────────────────────────
 
@@ -74,7 +78,8 @@ test "filter_map keeps what answered Some" (fn t ->
     [4, 8]
     (List.filter_map (fn x -> if x % 2 == 0 then Some (x * 2) else None) [1, 2, 3, 4]))
 test "filter_map on an empty list" (fn t ->
-  let empty : List Int = [] in t.eq [] (List.filter_map (fn x -> Some x) empty))
+  let empty : List Int = [];
+  t.eq [] (List.filter_map (fn x -> Some x) empty))
 test "filter_map that keeps nothing" (fn t ->
   t.eq [] (List.filter_map (fn _ -> None) [1, 2, 3]))
 test "filter_map changes the element type" (fn t ->
@@ -84,11 +89,10 @@ test "filter_map changes the element type" (fn t ->
 
 test "range |> filter |> sort_by" (fn t ->
   let got =
-    List.range 1 10 |> List.filter (fn x -> x % 2 == 0) |> List.sort_by (fn x -> 0 - x)
-  in
+    List.range 1 10 |> List.filter (fn x -> x % 2 == 0) |> List.sort_by (fn x -> 0 - x);
   t.eq [10, 8, 6, 4, 2] got)
 test "flatten after map" (fn t ->
-  let got = List.range 1 3 |> List.map (fn x -> [x, x * 2]) |> List.flatten in
+  let got = List.range 1 3 |> List.map (fn x -> [x, x * 2]) |> List.flatten;
   t.eq [1, 2, 2, 4, 3, 6] got)
 
 -- ── get / get! ──────────────────────────────────────────────────────────
@@ -156,7 +160,7 @@ test "each on an empty list does nothing" (fn t ->
 
 test "indexed counts from zero" (fn t ->
   t.eq [(0, "a"), (1, "b"), (2, "c")] (List.indexed ["a", "b", "c"]))
-test "indexed empty" (fn t -> let empty : List Int = [] in t.eq [] (List.indexed empty))
+test "indexed empty" (fn t -> (let empty : List Int = []; t.eq [] (List.indexed empty)))
 
 -- The position, when it is wanted, is one call away rather than in every
 -- signature that never uses it.
@@ -179,15 +183,15 @@ test "sum of one element" (fn t -> t.eq (Some 5) (List.sum [5]))
 test "sum totals Sizes" (fn t -> t.eq (Some 1500B) (List.sum [1KB, 500B]))
 test "sum totals Durations" (fn t -> t.eq (Some 1h30m) (List.sum [1h, 30min]))
 test "sum totals Floats" (fn t -> t.eq (Some 3.5) (List.sum [1.5, 2.0]))
-test "sum of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.sum empty))
+test "sum of empty" (fn t -> (let empty : List Int = []; t.eq (None) (List.sum empty)))
 
 test "max of Ints" (fn t -> t.eq (Some 3) (List.max [3, 1, 2]))
 test "min of Ints" (fn t -> t.eq (Some 1) (List.min [3, 1, 2]))
 test "max of Versions reads the numbers" (fn t ->
   t.eq (Some 1.10.0) (List.max [1.9.0, 1.10.0]))
 test "min of Durations" (fn t -> t.eq (Some 30s) (List.min [2min, 30s, 1h]))
-test "max of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.max empty))
-test "min of empty" (fn t -> let empty : List Int = [] in t.eq (None) (List.min empty))
+test "max of empty" (fn t -> (let empty : List Int = []; t.eq (None) (List.max empty)))
+test "min of empty" (fn t -> (let empty : List Int = []; t.eq (None) (List.min empty)))
 
 -- The aggregates agree with the sort they stand in for.
 test "max agrees with sort" (fn t ->
@@ -196,7 +200,8 @@ test "max agrees with sort" (fn t ->
 -- An empty total is supplied at the call site, which is where the unit is
 -- known.
 test "an empty sum takes its zero from the caller" (fn t ->
-  let empty : List Size = [] in t.eq 0B (List.sum empty |> Option.default 0B))
+  let empty : List Size = [];
+  t.eq 0B (List.sum empty |> Option.default 0B))
 
 test "tally counts each string" (fn t -> t.eq {a = 2, b = 1} (List.tally ["a", "b", "a"]))
 
@@ -206,5 +211,5 @@ test "tally keeps first-seen order" (fn t ->
 test "tally of nothing is the empty map" (fn t -> t.eq Map.empty (List.tally []))
 
 test "tally agrees with Stream.tally" (fn t ->
-  let xs = ["x", "y", "x", "z", "y"] in
+  let xs = ["x", "y", "x", "z", "y"];
   t.eq (Map.to_list (List.tally xs)) (Stream.of_list xs |> Stream.tally |> Map.to_list))

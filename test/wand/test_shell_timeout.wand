@@ -25,7 +25,7 @@ group "a command that finishes in time" (fn () -> [
   test "comes back as Ok" (fn t ->
     t.eq (Ok "quick") (Shell.timeout 5s (fn () -> $(sh -c 'echo quick')))),
   test "and the deadline does not outlive the thunk" (fn t ->
-    let _ = Shell.timeout 1ms (fn () -> $(sh -c 'echo a')) in
+    let _ = Shell.timeout 1ms (fn () -> $(sh -c 'echo a'));
     t.eq "b" $(sh -c 'sleep 0.2; echo b'))
 ])
 

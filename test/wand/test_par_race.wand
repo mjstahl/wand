@@ -23,8 +23,8 @@ group "the first to finish wins" (fn () -> [
         fn () -> $(sh -c 'sleep 0.1; echo quick')
       ])),
   test "over wand work" (fn t ->
-    let spin n = if n == 0 then "slow" else spin (n - 1)
-    in t.eq (Ok "fast") (Par.race [fn () -> spin 200000000, fn () -> "fast"]))
+    let spin n = if n == 0 then "slow" else spin (n - 1);
+    t.eq (Ok "fast") (Par.race [fn () -> spin 200000000, fn () -> "fast"]))
 ])
 
 -- First to finish, not first to succeed.
@@ -45,15 +45,15 @@ group "what comes back" (fn () -> [
 
 -- A loser stops where it stands, and gives back what it holds.
 test "a cancelled loser releases" (fn t ->
-  with FS.temp_dir "race_" as d ->
-  let held = Path.join d (Path.of_string "held") in
-  let spin n = if n == 0 then 0 else spin (n - 1)
-  in
-  let holder =
-    Resource.make (fn () -> FS.write_file! held "yes") (fn _ -> FS.delete! held)
-  in
-  let loser = fn () -> with holder as _ -> spin 400000000 in
-  let _ = Par.race [loser, fn () -> 1] in t.eq false (FS.exists? held))
+  with FS.temp_dir "race_" as d -> (
+    let held = Path.join d (Path.of_string "held");
+    let spin n = if n == 0 then 0 else spin (n - 1);
+    let holder =
+      Resource.make (fn () -> FS.write_file! held "yes") (fn _ -> FS.delete! held);
+    let loser = fn () -> with holder as _ -> spin 400000000;
+    let _ = Par.race [loser, fn () -> 1];
+    t.eq false (FS.exists? held)
+  ))
 
 -- A branch cannot run where the handler is, so a race inside one would
 -- answer with its first thunk and say nothing. Refused instead, whatever
@@ -101,10 +101,10 @@ group "Par.timeout" (fn () -> [
 
 -- Work that is stopped gives back what it holds, as a losing racer does.
 test "work stopped by a deadline releases" (fn t ->
-  with FS.temp_dir "timeout_" as d ->
-  let held = Path.join d (Path.of_string "held") in
-  let spin n = if n == 0 then 0 else spin (n - 1)
-  in
-  let holder = Resource.make (fn () -> FS.write_file! held "y") (fn _ -> FS.delete! held) in
-  let _ = Par.timeout 200ms (fn () -> with holder as _ -> spin 900000000) in
-  t.eq false (FS.exists? held))
+  with FS.temp_dir "timeout_" as d -> (
+    let held = Path.join d (Path.of_string "held");
+    let spin n = if n == 0 then 0 else spin (n - 1);
+    let holder = Resource.make (fn () -> FS.write_file! held "y") (fn _ -> FS.delete! held);
+    let _ = Par.timeout 200ms (fn () -> with holder as _ -> spin 900000000);
+    t.eq false (FS.exists? held)
+  ))

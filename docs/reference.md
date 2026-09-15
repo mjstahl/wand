@@ -829,16 +829,42 @@ a `;` after that expression starts the next statement. In
 `let () = e1 in e2` still works and means the same thing. It also guarantees
 that `e1` is `Unit`.
 
-`wand f` writes back `;` or `in`, whichever the binding's position calls for.
-A binding inside a block gets the `;`; one that names a value for a single
-expression gets `in`. A binding written with neither — joined to its body by
-the newline alone — comes back as one of those two. So one function is never
-printed two ways, and `(let x = 1; x + 2)` and `let x = 1 in x + 2` each stay
-as they are: the first is in a block, the second is not.
+`in`, the block's `;`, and the newline that ends a right-hand side all bind
+the name over the same body, so they are one thing to the compiler. `wand f`
+writes the `;`, and a function written any of the three ways comes back the
+same way:
 
-A binding written `in` ahead of a `;` is left alone, because there the `in` is
-what keeps the name off the statements below it — `(let x = 1 in x + 1; 9)`
-again. That is a difference in meaning, so the formatter does not remove it.
+```ocaml
+let of_hex algorithm text =
+  let want = _hex_length algorithm;
+  let lower = String.lower text;
+  String.length lower == want
+```
+
+Two spellings survive that, and each says something the `;` cannot.
+
+`in` stays where the value ends on a `match` or `handle` arm. An arm runs to
+the next `|`, so a `;` sitting on one is read as part of it; `in` is a keyword
+no arm can swallow, and it needs no brackets to hold the two apart:
+
+```ocaml
+let release =
+  fn taken -> match taken with
+    | Ok taken -> fs_unlock taken
+    | Error _ -> ()
+in
+Resource.make acquire release
+```
+
+`in` also stays where it narrows — written ahead of a `;`, it keeps the name
+off the statements below, which is meaning rather than spelling:
+`(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing after it.
+
+The brackets stay where the statements are not all bindings. A `;` ends a
+binding's right-hand side and hands the rest to its body, and that is the
+whole of what it does outside brackets — a statement that binds nothing is
+not joined to what follows by a `;` any more than by a newline, so a block
+holding one keeps the brackets that make it a block.
 
 ---
 

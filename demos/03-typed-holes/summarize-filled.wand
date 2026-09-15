@@ -7,11 +7,12 @@ import Stream
 
 -- The hole said: Map 'a -> String -> Map 'a
 -- so the reducer takes the tally so far and one line, and returns the tally.
-let count tally line =
-  let level = String.word 0 line in
+let count tally line = (
+  let level = String.word 0 line;
   match level with
   | None -> tally
   | Some l -> Map.update l 0 (fn n -> n + 1) tally
+)
 
 let levels = Stream.fold_left count Map.empty (IO.stdin_lines ())
 

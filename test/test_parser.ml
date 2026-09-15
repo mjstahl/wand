@@ -182,6 +182,20 @@ let test_brace_import_destructure () =
    `import S(import S)` parsed as two imports where one application was
    written, and the formatter then sorted the pair and moved the file on
    every pass. Found by test/fuzz. *)
+(* `in` is a `let`'s own keyword and means nothing without one. Reached with
+   no binding open, the message used to name the bracket or the token and
+   leave the reader to work out which of the three parts was wrong. *)
+let test_a_stray_in_names_the_binding_it_wants () =
+  refuses "inside brackets" "let f = (fn () -> g x in y)\nf\n"
+    "'in' closes a 'let' and there is none open here";
+  refuses "at the top level" "let g x = x\ng 1 in 2\n"
+    "'in' closes a 'let' and there is none open here";
+  (* The binding it asks for is the fix, and it parses. *)
+  (match parse_program "let f = (fn () -> let _ = g x in y)\nf\n" with
+   | _ -> ()
+   | exception Parser.ParseError (_, m) ->
+     Alcotest.failf "the corrected form should parse: %s" m)
+
 let test_an_import_statement_ends_at_its_name () =
   refuses "applied on the same line" "import S(import S)\n"
     "an import statement ends with the module name";
@@ -495,15 +509,21 @@ let test_field () =
 (* ── Let ─────────────────────────────────────────────────────────────────── *)
 
 let test_let () =
+  (* `in` and a block's `;` bind the name over the same body, so they build
+     one node. `LetIn` is kept for the one place the spelling is meaning: a
+     `;` waiting after the body, which stops the name reaching past it. *)
   e "simple"
     "let x = 1 in x"
-    (Let (PVar "x", Int 1, Var "x", LetIn));
+    (Let (PVar "x", Int 1, Var "x", LetBlock));
+  e "narrowing keeps its own node"
+    "(let x = 1 in x; 9)"
+    (Seq (Let (PVar "x", Int 1, Var "x", LetIn), Int 9));
   e "wildcard"
     "let _ = f () in 0"
-    (Let (Wild, App (Var "f", Unit), Int 0, LetIn));
+    (Let (Wild, App (Var "f", Unit), Int 0, LetBlock));
   e "tuple pattern"
     "let (a, b) = p in a"
-    (Let (PTuple [PVar "a"; PVar "b"], Var "p", Var "a", LetIn))
+    (Let (PTuple [PVar "a"; PVar "b"], Var "p", Var "a", LetBlock))
 
 (* Local multi-equation continuation clauses accept either a bare repeated
    name or a repeated `let` (matching the top-level `let f 0 = .. / let
@@ -1079,6 +1099,8 @@ let () =
       Alcotest.test_case "brace import destructure" `Quick test_brace_import_destructure;
       Alcotest.test_case "an import ends at its name" `Quick
         test_an_import_statement_ends_at_its_name;
+      Alcotest.test_case "a stray in names its binding" `Quick
+        test_a_stray_in_names_the_binding_it_wants;
       Alcotest.test_case "constr app"    `Quick test_constr_app;
       Alcotest.test_case "constr positional" `Quick test_constr_positional;
       Alcotest.test_case "constr bracket holds a block" `Quick

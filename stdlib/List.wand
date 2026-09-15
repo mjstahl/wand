@@ -160,7 +160,9 @@ let drop_while p [h :: t] = if p h then drop_while p t else h :: t
 -- 1
 -- 2
 let each _ [] = ()
-let each f [h :: t] = let _ = f h in each f t
+let each f [h :: t] =
+  let _ = f h;
+  each f t
 
 -- Pair each element with its position, counting from zero.
 --
@@ -168,8 +170,8 @@ let each f [h :: t] = let _ = f h in each f t
 -- [(0, "a"), (1, "b")] : List (Int, String)
 let indexed xs =
   let go _ [] = []
-  let go i [h :: t] = (i, h) :: go (i + 1) t
-  in go 0 xs
+  let go i [h :: t] = (i, h) :: go (i + 1) t;
+  go 0 xs
 
 -- Return the element at index n, or None if out of bounds.
 --

@@ -1,5 +1,73 @@
 # Changelog
 
+## [0.75.0] - 2026-09-15
+
+### Changed
+
+- **`wand f` writes `;` where it wrote `in`.** `in`, a block's `;`, and the
+  newline that ends a right-hand side all bind the name over the same body,
+  so they are one thing to the compiler and come back one way.
+
+  ```
+  -- before
+  let of_hex algorithm text =
+    let want = _hex_length algorithm in
+    let lower = String.lower text in
+    String.length lower == want
+
+  -- after
+  let of_hex algorithm text =
+    let want = _hex_length algorithm;
+    let lower = String.lower text;
+    String.length lower == want
+  ```
+
+  A chain of bindings needs no brackets either, so a body written as a block
+  loses them:
+
+  ```
+  -- before
+  let timed thunk = (
+    let before = clock_elapsed ();
+    let answer = thunk ();
+    (clock_elapsed () - before, answer)
+  )
+
+  -- after
+  let timed thunk =
+    let before = clock_elapsed ();
+    let answer = thunk ();
+    (clock_elapsed () - before, answer)
+  ```
+
+  Two spellings survive, and each says something the `;` cannot. `in` stays
+  where the value ends on a `match` or `handle` arm -- an arm runs to the
+  next `|`, so a `;` on one is read as part of it, and `in` is a keyword no
+  arm can swallow. `in` also stays where it narrows: written ahead of a `;`
+  it keeps the name off the statements below, which is meaning rather than
+  spelling.
+
+  The brackets stay where the statements are not all bindings. A `;` outside
+  them ends a binding's right-hand side and hands the rest to its body, and
+  that is the whole of what it does there -- a statement that binds nothing
+  is not joined to what follows by a `;` any more than by a newline.
+
+  Nothing you have written stops working: all three spellings still parse,
+  and only what `wand f` prints has changed.
+
+### Fixed
+
+- **A stray `in` says what it is for.** `in` belongs to a `let`, and reached
+  without one the message named the bracket or the token instead:
+
+  ```
+  (fn () -> g x in y)
+  -- before: expected ), got in
+  -- after:  'in' closes a 'let' and there is none open here; a binding is
+  --         'let name = value in body', or 'let name = value;' with the
+  --         body below
+  ```
+
 ## [0.74.0] - 2026-09-15
 
 ### Added

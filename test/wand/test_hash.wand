@@ -65,7 +65,7 @@ test "hmac sha1, RFC 2202 case 2" (fn t ->
 
 -- The key is first so a partial application is the thing being built.
 test "a bound key signs several messages" (fn t ->
-  let sign = Hash.hmac Sha256 "key" in
+  let sign = Hash.hmac Sha256 "key";
   t.eq (Digest.hex (sign "a")) (Digest.hex (Hash.hmac Sha256 "key" "a")))
 
 -- ── Hash.file ───────────────────────────────────────────────────────────
@@ -119,8 +119,9 @@ test "equal? on different digests" (fn t ->
 test "equal? across algorithms" (fn t ->
   t.eq false (Hash.equal? (Hash.string Sha256 "abc") (Hash.string Sha512 "abc")))
 test "equal? agrees with == where == is safe" (fn t ->
-  let a = Hash.string Sha256 "abc" in
-  let b = Hash.string Sha256 "abc" in t.eq (a == b) (Hash.equal? a b))
+  let a = Hash.string Sha256 "abc";
+  let b = Hash.string Sha256 "abc";
+  t.eq (a == b) (Hash.equal? a b))
 
 -- ── Digest ──────────────────────────────────────────────────────────────
 
@@ -139,7 +140,8 @@ test "base64 of the sha256 of abc" (fn t ->
     (Digest.base64 (Hash.string Sha256 "abc")))
 
 test "of_hex round-trips a digest" (fn t ->
-  let d = Hash.string Sha256 "abc" in t.eq (Ok d) (Digest.of_hex (Sha256 (Digest.hex d))))
+  let d = Hash.string Sha256 "abc";
+  t.eq (Ok d) (Digest.of_hex (Sha256 (Digest.hex d))))
 test "of_hex accepts uppercase" (fn t ->
   t.eq
     (Ok (Hash.string Md5 "abc"))

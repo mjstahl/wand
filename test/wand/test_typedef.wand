@@ -40,17 +40,18 @@ test "match payload" (fn t -> t.eq 12 (area (Rect 3 4)))
 type Point(x: Int, y: Int)
 type Circle(radius: Int)
 
-test "construct and access" (fn t -> let p = Point(x = 1, y = 2) in t.eq 1 p.x)
+test "construct and access" (fn t -> (let p = Point(x = 1, y = 2); t.eq 1 p.x))
 
-test "second field" (fn t -> let origin = Point(x = 0, y = 0) in t.eq 0 origin.y)
+test "second field" (fn t -> (let origin = Point(x = 0, y = 0); t.eq 0 origin.y))
 
 test "field on function result" (fn t ->
-  let unit_circle = Circle(radius = 1) in t.eq 1 unit_circle.radius)
+  let unit_circle = Circle(radius = 1);
+  t.eq 1 unit_circle.radius)
 
 -- ── Named constructor patterns ─────────────────────────────────────────
 
 test "destructure named fields" (fn t ->
-  let p = Point(x = 3, y = 4) in
+  let p = Point(x = 3, y = 4);
   let sum =
     match p with
     | Point(x = a, y = b) -> a + b
@@ -58,33 +59,41 @@ test "destructure named fields" (fn t ->
   t.eq 7 sum)
 
 test "wildcard field" (fn t ->
-  let p = Point(x = 5, y = 99) in
+  let p = Point(x = 5, y = 99);
   let get_x =
     match p with
     | Point(x = v, y = _) -> v
   in
   t.eq 5 get_x)
 
-let add_coords p = let Point(x = a, y = b) = p in a + b
+let add_coords p =
+  let Point(x = a, y = b) = p;
+  a + b
 test "in local let binding" (fn t -> t.eq 15 (add_coords Point(x = 7, y = 8)))
 
 -- ── Named-field types are destructured by name ──────────────────────────
 
 test "single field by name" (fn t ->
-  let c = Circle(radius = 7) in let Circle(radius = r) = c in t.eq 7 r)
+  let c = Circle(radius = 7);
+  let Circle(radius = r) = c;
+  t.eq 7 r)
 
 test "multi field by name" (fn t ->
-  let p = Point(x = 3, y = 4) in let Point(x = a, y = b) = p in t.eq "3, 4" "%{a}, %{b}")
+  let p = Point(x = 3, y = 4);
+  let Point(x = a, y = b) = p;
+  t.eq "3, 4" "%{a}, %{b}")
 
 test "match case by name" (fn t ->
-  let c = Circle(radius = 9) in
+  let c = Circle(radius = 9);
   t.eq
     9
     (match c with
     | Circle(radius = r) -> r
     ))
 
-let circle_area c = let Circle(radius = r) = c in r * r
+let circle_area c =
+  let Circle(radius = r) = c;
+  r * r
 test "in local let inside fn" (fn t -> t.eq 25 (circle_area Circle(radius = 5)))
 
 -- ── Errors ──────────────────────────────────────────────────────────────
@@ -125,7 +134,9 @@ test "several fields at once" (fn t ->
   t.eq Tally(ok = 8, failed = 9, label = "x") Tally(base, ok = 8, failed = 9))
 test "naming every field is a construction" (fn t ->
   t.eq Tally(ok = 8, failed = 9, label = "y") Tally(base, ok = 8, failed = 9, label = "y"))
-test "the base is left alone" (fn t -> (let _ = Tally(base, failed = 9); t.eq 2 base.failed))
+test "the base is left alone" (fn t ->
+  let _ = Tally(base, failed = 9);
+  t.eq 2 base.failed)
 test "the base is any expression" (fn t ->
   t.eq 9 Tally(Tally(base, ok = 3), failed = 9).failed)
 
@@ -135,21 +146,21 @@ test "the base is any expression" (fn t ->
 -- already known and most often still worth writing.
 type Boxed(n: Int)
 
-test "a payload carries its type" (fn t -> (
+test "a payload carries its type" (fn t ->
   let read =
-    (fn r -> match r with
-       | Ok (b: Boxed) -> b.n
-       | Error _ -> 0);
-  t.eq 7 (read (Ok Boxed(n = 7)))
-))
+    fn r -> match r with
+      | Ok (b: Boxed) -> b.n
+      | Error _ -> 0
+  in
+  t.eq 7 (read (Ok Boxed(n = 7))))
 
-test "and so does one inside a tuple payload" (fn t -> (
+test "and so does one inside a tuple payload" (fn t ->
   let read =
-    (fn r -> match r with
-       | Ok((b: Boxed), extra) -> b.n + extra
-       | Error _ -> 0);
-  t.eq 9 (read (Ok (Boxed(n = 7), 2)))
-))
+    fn r -> match r with
+      | Ok((b: Boxed), extra) -> b.n + extra
+      | Error _ -> 0
+  in
+  t.eq 9 (read (Ok (Boxed(n = 7), 2))))
 
 -- ── Field puns ─────────────────────────────────────────────────────────
 
@@ -195,10 +206,9 @@ test "the order of the fields is the pattern's own" (fn t ->
     | Pod(restarts, name) -> "%{restarts}/%{name}"
     ))
 
-test "a pun works as a parameter" (fn t -> (
+test "a pun works as a parameter" (fn t ->
   let describe = fn (Pod(name, restarts)) -> "%{name} %{restarts}";
-  t.eq "api 3" (describe pod)
-))
+  t.eq "api 3" (describe pod))
 
 test "a pun nests under another constructor" (fn t ->
   t.eq
@@ -225,10 +235,9 @@ let name = "web"
 
 let restarts = 5
 
-test "a construction puns from names in scope" (fn t -> (
+test "a construction puns from names in scope" (fn t ->
   let p = Pod(name, restarts);
-  t.eq "web/5" "%{p.name}/%{p.restarts}"
-))
+  t.eq "web/5" "%{p.name}/%{p.restarts}")
 
 -- A pun beside a named field parses, and `wand f` writes it out again: the
 -- pun form is all-or-nothing on this side, because a bare name in front of a
@@ -239,23 +248,21 @@ test "a construction puns from names in scope" (fn t -> (
 -- that spelling has always meant.
 let pod_base = Pod(name = "db", restarts = 1)
 
-test "a name before a named field is still the base of an update" (fn t -> (
+test "a name before a named field is still the base of an update" (fn t ->
   let p = Pod(pod_base, restarts = 7);
-  t.eq "db/7" "%{p.name}/%{p.restarts}"
-))
+  t.eq "db/7" "%{p.name}/%{p.restarts}")
 
 let one = 1
 
 let two = 2
 
-test "a construction of a tuple payload is unchanged" (fn t -> (
+test "a construction of a tuple payload is unchanged" (fn t ->
   let s = Span(one, two);
   t.eq
     3
     (match s with
     | Span(a, b) -> a + b
-    )
-))
+    ))
 
 -- ── Field defaults ─────────────────────────────────────────────────────
 
@@ -264,37 +271,31 @@ test "a construction of a tuple payload is unchanged" (fn t -> (
 -- the field.
 type Conf(host: String, port: Port = :8080, retries: Int = 3)
 
-test "a field with a default may be left out" (fn t -> (
+test "a field with a default may be left out" (fn t ->
   let c = Conf(host = "a");
-  t.eq "a:8080/3" "%{c.host}%{c.port}/%{c.retries}"
-))
+  t.eq "a:8080/3" "%{c.host}%{c.port}/%{c.retries}")
 
-test "and may still be given" (fn t -> (
+test "and may still be given" (fn t ->
   let c = Conf(host = "a", port = :90);
-  t.eq "a:90/3" "%{c.host}%{c.port}/%{c.retries}"
-))
+  t.eq "a:90/3" "%{c.host}%{c.port}/%{c.retries}")
 
 type Defaulted(n: Int = 3, label: String = "on")
 
-test "every field defaulted needs no fields at all" (fn t -> (
+test "every field defaulted needs no fields at all" (fn t ->
   let c = Defaulted();
-  t.eq "3/on" "%{c.n}/%{c.label}"
-))
+  t.eq "3/on" "%{c.n}/%{c.label}")
 
-test "a default reaches a derived decoder" (fn t -> (
+test "a default reaches a derived decoder" (fn t ->
   let doc = JSON.parse! `{"host": "a", "port": 90}`;
-  t.eq (Ok Conf(host = "a", port = :90, retries = 3)) (JSON.decode Conf.decoder doc)
-))
+  t.eq (Ok Conf(host = "a", port = :90, retries = 3)) (JSON.decode Conf.decoder doc))
 
-test "a document that gives the field wins over the default" (fn t -> (
+test "a document that gives the field wins over the default" (fn t ->
   let doc = JSON.parse! `{"host": "a", "retries": 9}`;
-  t.eq (Ok Conf(host = "a", port = :8080, retries = 9)) (JSON.decode Conf.decoder doc)
-))
+  t.eq (Ok Conf(host = "a", port = :8080, retries = 9)) (JSON.decode Conf.decoder doc))
 
-test "a field with no default is still required of a document" (fn t -> (
+test "a field with no default is still required of a document" (fn t ->
   let doc = JSON.parse! `{"port": 90}`;
-  t.eq true (Result.error? (JSON.decode Conf.decoder doc))
-))
+  t.eq true (Result.error? (JSON.decode Conf.decoder doc)))
 
 -- ── Reaching a type through its module ──────────────────────────────────
 
@@ -303,10 +304,9 @@ test "a field with no default is still required of a document" (fn t -> (
 -- type.
 type Held(o: Test.TestOutcome)
 
-test "a qualified type names the same type as the bare one" (fn t -> (
+test "a qualified type names the same type as the bare one" (fn t ->
   let held = Held(o = Test.Pass "x");
-  t.eq `Pass("x")` "%{held.o}"
-))
+  t.eq `Pass("x")` "%{held.o}")
 
 test "a qualified constructor matches" (fn t ->
   t.eq

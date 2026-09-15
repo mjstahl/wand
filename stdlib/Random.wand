@@ -53,11 +53,10 @@ let seed n = random_seed n
 -- >> let roll = Random.int 1 6
 -- >> roll >= 1 && roll <= 6
 -- true : Bool
-let int lo hi = (
+let int lo hi =
   let low = if hi < lo then hi else lo;
   let high = if hi < lo then lo else hi;
   low + random_below (high - low + 1)
-)
 
 -- A fraction at least 0.0 and below 1.0.
 --
@@ -108,12 +107,11 @@ let choose xs = List.head (List.drop (random_below (List.length xs)) xs)
 -- >> List.length (Random.shuffle [1, 2, 3, 4])
 -- 4 : Int
 let shuffle [] = []
-let shuffle xs = (
+let shuffle xs =
   let i = random_below (List.length xs);
   let taken = List.take 1 (List.drop i xs);
   let rest = List.append (List.take i xs) (List.drop (i + 1) xs);
   List.append taken (shuffle rest)
-)
 
 let _hex_digits = "0123456789abcdef"
 

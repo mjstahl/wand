@@ -37,7 +37,7 @@ group "any draw" (fn () -> [
   test "int stays inside its range" (fn t ->
     t.ok (List.all? (fn x -> x >= 1 && x <= 6) (draws 200 (fn () -> Random.int 1 6)))),
   test "int reaches both ends" (fn t ->
-    let rolls = draws 200 (fn () -> Random.int 1 2) in
+    let rolls = draws 200 (fn () -> Random.int 1 2);
     t.ok (List.any? (fn x -> x == 1) rolls && List.any? (fn x -> x == 2) rolls)),
   test "a range of one is that one" (fn t ->
     t.ok (List.all? (fn x -> x == 7) (draws 20 (fn () -> Random.int 7 7)))),
@@ -77,10 +77,11 @@ group "nothing to draw from" (fn () -> [
 
 group "a pinned seed" (fn () -> [
   test "the same seed draws the same run" (fn t ->
-    let once = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000)) in
-    let twice = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000)) in
+    let once = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000));
+    let twice = (Random.seed 99; draws 20 (fn () -> Random.int 0 1000000));
     t.eq once twice),
   test "a different seed draws a different run" (fn t ->
-    let a = (Random.seed 1; draws 20 (fn () -> Random.int 0 1000000)) in
-    let b = (Random.seed 2; draws 20 (fn () -> Random.int 0 1000000)) in t.ok (a != b))
+    let a = (Random.seed 1; draws 20 (fn () -> Random.int 0 1000000));
+    let b = (Random.seed 2; draws 20 (fn () -> Random.int 0 1000000));
+    t.ok (a != b))
 ])

@@ -38,7 +38,7 @@ let count_into (tally: Tally) line =
     else Tally(tally, ok = tally.ok + 1)
 
 let share (tally: Tally) =
-  let served = tally.ok + tally.failed in
+  let served = tally.ok + tally.failed;
   if served == 0 then 0.0 else Float.of_int tally.failed * 100.0 / Float.of_int served
 
 let report limit (tally: Tally) = (

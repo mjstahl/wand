@@ -40,14 +40,12 @@ let hosts = [
 let leases = "/tmp/wand-demo-08-leases"
 
 let lease host =
-  let acquire =
-    fn () -> (FS.write_file! (Path.of_string "%{leases}/%{host}") "held"; host)
-  in
-  let release = fn h -> FS.delete! (Path.of_string "%{leases}/%{h}") in
+  let acquire = fn () -> (FS.write_file! (Path.of_string "%{leases}/%{host}") "held"; host);
+  let release = fn h -> FS.delete! (Path.of_string "%{leases}/%{h}");
   Resource.make acquire release
 
 let check! host =
-  with lease host as h -> let out = $(demos/08-fan-out/probe.sh %{h}) in String.trim out
+  with lease host as h -> (let out = $(demos/08-fan-out/probe.sh %{h}); String.trim out)
 
 let failed? r =
   match r with

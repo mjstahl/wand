@@ -14,14 +14,14 @@ import Test
 
 group "the virtual clock" (fn () -> [
   test "an hour costs nothing" (fn t ->
-    let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 1h) in t.eq 1h elapsed),
+    let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 1h);
+    t.eq 1h elapsed),
   test "several sleeps add up" (fn t ->
-    let (elapsed, v) =
-      Test.with_clock (fn () -> (Clock.sleep 30s; Clock.sleep 90s; "done"))
-    in
+    let (elapsed, v) = Test.with_clock (fn () -> (Clock.sleep 30s; Clock.sleep 90s; "done"));
     t.eq (2min, "done") (elapsed, v)),
   test "a thunk that never sleeps waits no time" (fn t ->
-    let (elapsed, v) = Test.with_clock (fn () -> 42) in t.eq (0ms, 42) (elapsed, v))
+    let (elapsed, v) = Test.with_clock (fn () -> 42);
+    t.eq (0ms, 42) (elapsed, v))
 ])
 
 -- A zero sleep still performs the effect, so a handler sees it and a trace
@@ -29,9 +29,10 @@ group "the virtual clock" (fn () -> [
 -- zero.
 group "the edges" (fn () -> [
   test "zero is still a sleep" (fn t ->
-    let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 0ms) in t.eq 0ms elapsed),
+    let (elapsed, _) = Test.with_clock (fn () -> Clock.sleep 0ms);
+    t.eq 0ms elapsed),
   test "and it is counted" (fn t ->
-    let (elapsed, _) = Test.with_clock (fn () -> (Clock.sleep 0ms; Clock.sleep 5s)) in
+    let (elapsed, _) = Test.with_clock (fn () -> (Clock.sleep 0ms; Clock.sleep 5s));
     t.eq 5s elapsed)
 ])
 
@@ -43,15 +44,17 @@ let backoff attempts =
       let capped = if d > 30s then 30s else d;
       Clock.sleep capped;
       Duration.add capped (step (Duration.add d d) (n - 1))
-    )
-  in step 1s attempts
+    );
+  step 1s attempts
 
 group "a capped backoff" (fn () -> [
   test "doubles until the cap" (fn t ->
-    let (elapsed, _) = Test.with_clock (fn () -> backoff 3) in t.eq 7s elapsed),
+    let (elapsed, _) = Test.with_clock (fn () -> backoff 3);
+    t.eq 7s elapsed),
   -- 1 + 2 + 4 + 8 + 16 + 30 + 30 + 30: the last three are the cap.
   test "and never sleeps longer than the cap" (fn t ->
-    let (elapsed, _) = Test.with_clock (fn () -> backoff 8) in t.eq 121s elapsed)
+    let (elapsed, _) = Test.with_clock (fn () -> backoff 8);
+    t.eq 121s elapsed)
 ])
 
 -- Reading the clock is an effect as well, so a test pins the instant
@@ -100,11 +103,14 @@ group "instant arithmetic" (fn () -> [
 
 group "measuring" (fn () -> [
   test "a sleep takes at least its length" (fn t ->
-    let (took, _) = Clock.timed (fn () -> Clock.sleep 120ms) in t.ok (took >= 120ms)),
+    let (took, _) = Clock.timed (fn () -> Clock.sleep 120ms);
+    t.ok (took >= 120ms)),
   test "and the thunk's answer comes back with it" (fn t ->
-    let (_, answer) = Clock.timed (fn () -> "built") in t.eq "built" answer),
+    let (_, answer) = Clock.timed (fn () -> "built");
+    t.eq "built" answer),
   test "work that does nothing takes almost none" (fn t ->
-    let (took, _) = Clock.timed (fn () -> 1 + 1) in t.ok (took < 100ms)),
+    let (took, _) = Clock.timed (fn () -> 1 + 1);
+    t.ok (took < 100ms)),
   -- The reading is an effect, so a handler catches it. One that answers
   -- every reading with the same value reports no time passing.
   test "a handler answers the reading" (fn t ->

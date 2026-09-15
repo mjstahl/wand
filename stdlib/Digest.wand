@@ -83,8 +83,8 @@ let algorithm (digest: Digest) = digest.algorithm
 -- >> Digest.of_hex Digest.Sha256 "abc"
 -- Error("a Sha256 digest is 64 hex digits, and this is 3") : Result String Digest
 let of_hex algorithm text =
-  let want = _hex_length algorithm in
-  let lower = String.lower text in
+  let want = _hex_length algorithm;
+  let lower = String.lower text;
   if String.length lower != want then
     Error "a %{algorithm} digest is %{want} hex digits, and this is %{String.length lower}"
   else Result.map (fn _ -> Digest(algorithm = algorithm, hex = lower)) (hex_decode lower)

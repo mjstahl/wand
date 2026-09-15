@@ -49,12 +49,11 @@ let worth_retrying? (r: HTTP.Response) = r.status >= 500
 -- command line. `ps` could read it out of the bash above.
 let ask! req = HTTP.request! req
 
-let attempt tries wait thunk = (
+let attempt tries wait thunk =
   let r = thunk ();
   if HTTP.ok? r then Ok r.body
   else if tries <= 1 || !(worth_retrying? r) then Error "answered %{r.status}"
   else (Clock.sleep wait; attempt (tries - 1) (Duration.scale 2 wait) thunk)
-)
 
 let read out = JSON.parse out |> Result.and_then (JSON.decode Health.decoder)
 
@@ -68,8 +67,7 @@ let main! () =
       HTTP.Request(
         url = https://example.com/health,
         headers = {authorization = "Bearer %{token}"}
-      )
-    in
+      );
     match attempt 3 1s (fn () -> ask! req) with
     | Error why -> (IO.println_err why; Proc.exit 1)
     | Ok body -> (

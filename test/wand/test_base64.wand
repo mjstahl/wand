@@ -64,11 +64,12 @@ test "neither alphabet decodes the other's characters" (fn t ->
 -- ── round trips ─────────────────────────────────────────────────────────
 
 test "encode then decode is the original" (fn t ->
-  let text = "the quick brown fox\n\tand a tab" in
+  let text = "the quick brown fox\n\tand a tab";
   t.eq (Ok text) (Base64.decode (Base64.encode text)))
 
 test "a String holds bytes, so binary round-trips" (fn t ->
-  let raw = Base64.decode! "+/8AAQID" in t.eq (Ok raw) (Base64.decode (Base64.encode raw)))
+  let raw = Base64.decode! "+/8AAQID";
+  t.eq (Ok raw) (Base64.decode (Base64.encode raw)))
 
 test "url round trip" (fn t -> t.eq (Ok high) (Base64.decode_url (Base64.encode_url high)))
 
@@ -77,7 +78,7 @@ test "a long value round-trips through every padding phase" (fn t ->
     true
     (List.all?
       (fn n ->
-        let s = String.slice 0 n (String.repeat 40 "abcdefghij") in
+        let s = String.slice 0 n (String.repeat 40 "abcdefghij");
         Base64.decode (Base64.encode s) == Ok s)
       (List.range 0 64)))
 

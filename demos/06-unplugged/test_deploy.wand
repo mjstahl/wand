@@ -16,15 +16,16 @@ let sealed thunk =
 test "it runs, on a plane" (fn t -> t.eq "deployed v2.1.0" (sealed deploy!))
 
 test "it pushes exactly once" (fn t ->
-  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!) in
+  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!);
   t.eq 1 (List.length (List.filter (fn c -> String.contains? "push" c) cmds)))
 
 test "and nothing before the push touches prod" (fn t ->
-  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!) in
+  let cmds = Test.shell_calls (fn () -> Test.without_writes deploy!);
   t.eq (Some "git describe --tags") (List.head cmds))
 
 test "it would write exactly one file" (fn t ->
   t.eq [/etc/app/config.toml] (Test.with_shell [] (fn () -> Test.writes deploy!)))
 
 test "which was never written" (fn t ->
-  let _ = sealed deploy! in t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))
+  let _ = sealed deploy!;
+  t.eq false (FS.exists? (Path.of_string "/etc/app/config.toml")))

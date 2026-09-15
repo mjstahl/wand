@@ -25,9 +25,7 @@ test "size" (fn t -> t.eq "10MB" "%{10MB}")
 
 test "seq values the last statement" (fn t -> t.eq 3 (1; 2; 3))
 test "seq allows a trailing semicolon" (fn t -> t.eq 2 (1; 2))
-test "seq in a function body" (fn t ->
-  let f x = (x + 1; x * 2)
-  in t.eq 6 (f 3))
+test "seq in a function body" (fn t -> (let f x = (x + 1; x * 2); t.eq 6 (f 3)))
 
 -- ── Arithmetic ──────────────────────────────────────────────────────────
 
@@ -97,11 +95,11 @@ test "cond expr" (fn t -> t.eq "yes" (if 1 == 1 then "yes" else "no"))
 
 -- ── Let ─────────────────────────────────────────────────────────────────
 
-test "simple" (fn t -> t.eq 42 (let x = 42 in x))
-test "arith" (fn t -> t.eq 15 (let x = 10 in x + 5))
-test "shadow" (fn t -> t.eq 2 (let x = 1 in let x = 2 in x))
-test "wildcard" (fn t -> t.eq 99 (let _ = 1 in 99))
-test "tuple pat" (fn t -> t.eq 7 (let (a, b) = (3, 4) in a + b))
+test "simple" (fn t -> t.eq 42 (let x = 42; x))
+test "arith" (fn t -> t.eq 15 (let x = 10; x + 5))
+test "shadow" (fn t -> t.eq 2 (let x = 1; let x = 2; x))
+test "wildcard" (fn t -> t.eq 99 (let _ = 1; 99))
+test "tuple pat" (fn t -> t.eq 7 (let (a, b) = (3, 4); a + b))
 
 -- ── Functions ───────────────────────────────────────────────────────────
 
@@ -109,13 +107,13 @@ test "identity" (fn t -> t.eq 42 ((fn x -> x) 42))
 test "add one" (fn t -> t.eq 6 ((fn x -> x + 1) 5))
 test "two args" (fn t -> t.eq 7 ((fn x -> fn y -> x + y) 3 4))
 test "wildcard fn" (fn t -> t.eq 99 ((fn _ -> 99) true))
-test "closure" (fn t -> t.eq 15 (let n = 10 in (fn x -> x + n) 5))
+test "closure" (fn t -> t.eq 15 (let n = 10; (fn x -> x + n) 5))
 
 -- ── Higher-order ────────────────────────────────────────────────────────
 
-test "apply" (fn t -> let apply = fn f -> fn x -> f x in t.eq 10 (apply (fn x -> x * 2) 5))
+test "apply" (fn t -> (let apply = fn f -> fn x -> f x; t.eq 10 (apply (fn x -> x * 2) 5)))
 
-test "compose" (fn t -> let f = fn x -> x + 1 in let g = fn x -> x * 2 in t.eq 7 (f (g 3)))
+test "compose" (fn t -> (let f = fn x -> x + 1; let g = fn x -> x * 2; t.eq 7 (f (g 3))))
 
 -- ── Match ───────────────────────────────────────────────────────────────
 
@@ -177,18 +175,18 @@ test "computed" (fn t -> t.eq [2, 4] [1 + 1, 2 + 2])
 
 test "pipeline" (fn t -> t.eq 6 (5 |> (fn x -> x + 1)))
 test "double pipe" (fn t -> t.eq 12 (5 |> (fn x -> x + 1 |> (fn x -> x * 2))))
-test "with let" (fn t -> let double = fn x -> x * 2 in t.eq 6 (3 |> double))
+test "with let" (fn t -> (let double = fn x -> x * 2; t.eq 6 (3 |> double)))
 
 -- ── Recursive let ───────────────────────────────────────────────────────
 
 test "factorial" (fn t ->
-  let fact n = if n <= 0 then 1 else n * fact (n - 1)
-  in t.eq 120 (fact 5))
+  let fact n = if n <= 0 then 1 else n * fact (n - 1);
+  t.eq 120 (fact 5))
 
 test "fibonacci" (fn t ->
-  let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2)
-  in t.eq 55 (fib 10))
+  let fib n = if n <= 1 then n else fib (n - 1) + fib (n - 2);
+  t.eq 55 (fib 10))
 
 test "countdown" (fn t ->
-  let count n = if n == 0 then 0 else count (n - 1)
-  in t.eq 0 (count 100))
+  let count n = if n == 0 then 0 else count (n - 1);
+  t.eq 0 (count 100))

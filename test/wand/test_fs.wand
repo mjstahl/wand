@@ -22,13 +22,13 @@ let () = FS.mkdir! (Path.of_string scratch)
 test "temp_file gives a unique file that exists while it is held" (fn t ->
   let inner =
     with FS.temp_file "wand_" ".txt" as a ->
-    with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b)
-  in
+    with FS.temp_file "wand_" ".txt" as b -> (FS.exists? a, FS.exists? b, a != b);
   t.eq (true, true, true) inner)
 
 -- The point of the bracket: nobody has to remember the delete.
 test "temp_file removes the file when the bracket ends" (fn t ->
-  let p = with FS.temp_file "wand_" ".txt" as p -> p in t.eq false (FS.exists? p))
+  let p = with FS.temp_file "wand_" ".txt" as p -> p;
+  t.eq false (FS.exists? p))
 
 -- A body may publish the file by renaming it; cleanup then has nothing to
 -- do and must not fail on the way out.
@@ -107,16 +107,16 @@ test "lock is given back when the bracket ends" (fn t -> (
 -- A lock that could not be asked for at all is a broken script, not a busy
 -- one, and the two exit differently. Telling them apart is why the acquire
 -- answers a Result.
-test "a lock that cannot be opened is Denied, not Held" (fn t -> (
+test "a lock that cannot be opened is Denied, not Held" (fn t ->
   let p = Path.of_string "%{scratch}/no_such_dir/x.lock";
   let outcome =
-    (with FS.lock p as taken ->
-     match taken with
-     | Ok _ -> "took it"
-     | Error (FS.Held) -> "held"
-     | Error (FS.Denied _) -> "denied");
-  t.eq "denied" outcome
-))
+    with FS.lock p as taken ->
+    match taken with
+    | Ok _ -> "took it"
+    | Error (FS.Held) -> "held"
+    | Error (FS.Denied _) -> "denied"
+  in
+  t.eq "denied" outcome)
 
 -- A wait on a lock this same bracket holds can never end, so it is answered
 -- now rather than after the budget. Ten seconds of budget, and this test
@@ -147,16 +147,16 @@ test "a wait on a free lock takes it" (fn t -> (
 
 -- A lock that cannot be opened ends the wait rather than spending it. Ten
 -- seconds of budget against a directory that does not exist.
-test "a wait on an impossible lock is Denied at once" (fn t -> (
+test "a wait on an impossible lock is Denied at once" (fn t ->
   let p = Path.of_string "%{scratch}/no_such_dir/x.lock";
   let outcome =
-    (with FS.lock_wait 10s p as taken ->
-     match taken with
-     | Ok _ -> "took it"
-     | Error (FS.Held) -> "held"
-     | Error (FS.Denied _) -> "denied");
-  t.eq "denied" outcome
-))
+    with FS.lock_wait 10s p as taken ->
+    match taken with
+    | Ok _ -> "took it"
+    | Error (FS.Held) -> "held"
+    | Error (FS.Denied _) -> "denied"
+  in
+  t.eq "denied" outcome)
 
 -- The lock file is never deleted. It looks like a leak and is the safe half
 -- of the trade -- deleting it is the race the lock exists to prevent.
@@ -271,7 +271,8 @@ test "glob ** recurses into subdirectories" (fn t -> (
   FS.write_file! (Path.of_string "%{base}/sub/plain") "p";
   let entries = FS.glob_in ** (Path.of_string base);
   let strip p =
-    let s = Path.to_string p in String.slice (String.length base + 1) (String.length s) s;
+    let s = Path.to_string p;
+    String.slice (String.length base + 1) (String.length s) s;
   let names = List.sort (List.map strip entries);
   FS.delete! (Path.of_string "%{base}/a.txt");
   FS.delete! (Path.of_string "%{base}/sub/b.txt");

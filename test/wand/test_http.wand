@@ -42,20 +42,20 @@ test "ok? is the 2xx question" (fn t ->
 -- Every field but the URL has a default, so a request is written by naming
 -- what differs.
 test "a request fills in what it was not given" (fn t ->
-  let r = HTTP.Request(url = https://api.example.com/x) in
+  let r = HTTP.Request(url = https://api.example.com/x);
   t.eq (HTTP.GET, "", 30s, 5) (r.method, r.body, r.timeout, r.redirects))
 
 -- Record update gives the chaining a builder gives elsewhere, and leaves
 -- everything it does not name alone.
 test "an update keeps the fields it does not name" (fn t ->
-  let base = HTTP.Request(url = https://api.example.com/x, timeout = 2min) in
-  let slow = HTTP.Request(base, redirects = 0) in
+  let base = HTTP.Request(url = https://api.example.com/x, timeout = 2min);
+  let slow = HTTP.Request(base, redirects = 0);
   t.eq (2min, 0) (slow.timeout, slow.redirects))
 
 -- Header names are case-insensitive on the wire and a Map is not, so the
 -- module lowercases and matches without regard to case.
 test "a header is found whatever case it is asked for" (fn t ->
-  let r = HTTP.Response(status = 200, headers = {accept = "text/plain"}, body = "") in
+  let r = HTTP.Response(status = 200, headers = {accept = "text/plain"}, body = "");
   t.eq (Some "text/plain", Some "text/plain", None) (
     HTTP.header "Accept" r,
     HTTP.header "accept" r,
@@ -65,7 +65,7 @@ test "a header is found whatever case it is asked for" (fn t ->
 -- Reading a body happens in one place, with a message that says what was
 -- wrong, rather than a chain of scrapes that each assume the last worked.
 test "a body is read by a decoder" (fn t ->
-  let r = HTTP.Response(status = 200, headers = {}, body = "42") in
+  let r = HTTP.Response(status = 200, headers = {}, body = "42");
   t.eq (Ok 42, true) (
     HTTP.decode Decode.int r,
     Result.error?
@@ -76,16 +76,15 @@ test "a body is read by a decoder" (fn t ->
 test "http_calls reports the requests a body would send" (fn t ->
   t.eq
     [https://api.example.com/a, https://api.example.com/b]
-    (Test.http_calls (fn () -> (
+    (Test.http_calls (fn () ->
       let _ = HTTP.get https://api.example.com/a;
       let _ = HTTP.get https://api.example.com/b;
-      ()
-    ))))
+      ())))
 
 -- The short names are aliases, so the two spellings are one type: a value
 -- built one way annotates, matches and passes the other.
 test "an alias and the built-in name are one type" (fn t ->
-  let r = HTTPResponse(status = 204, headers = {}, body = "") in
+  let r = HTTPResponse(status = 204, headers = {}, body = "");
   let status =
     match r with
     | HTTP.Response(status = s) -> s

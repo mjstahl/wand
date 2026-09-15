@@ -12,12 +12,10 @@ test "float divide" (fn t -> t.eq 0.75 (1.5 / 2.0))
 test "unary minus at Float" (fn t -> t.eq (-1.5) (0.0 - 1.5))
 
 test "a Num function serves both types" (fn t ->
-  let double x = x + x
-  in t.eq (4, 3.0) (double 2, double 1.5))
+  let double x = x + x;
+  t.eq (4, 3.0) (double 2, double 1.5))
 
-test "a literal pins the type" (fn t ->
-  let bump x = x + 1
-  in t.eq 3 (bump 2))
+test "a literal pins the type" (fn t -> (let bump x = x + 1; t.eq 3 (bump 2)))
 
 -- Int keeps its checked behavior; Float keeps IEEE values.
 test "int division by zero still raises" (fn t -> t.raises (fn () -> 1 / 0))

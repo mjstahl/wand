@@ -72,7 +72,9 @@ test "equality normalizes too" (fn t -> t.ok (60s == 1min))
 test "two hours in minutes" (fn t -> t.ok (2h == 120min))
 test "and inequality" (fn t -> t.ok (30s != 45s))
 test "the three relations agree" (fn t ->
-  let a = 60s in let b = 1min in t.ok (a == b && !(a < b) && !(a > b)))
+  let a = 60s;
+  let b = 1min;
+  t.ok (a == b && !(a < b) && !(a > b)))
 
 -- ── + and - ─────────────────────────────────────────────────────────────
 

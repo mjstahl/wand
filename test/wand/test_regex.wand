@@ -7,7 +7,7 @@ import Par
 
 -- ── Literals ────────────────────────────────────────────────────────────
 
-test "regex has type Regex" (fn t -> let re = r/\d+/ in t.ok (Regex.match? re "abc123"))
+test "regex has type Regex" (fn t -> (let re = r/\d+/; t.ok (Regex.match? re "abc123")))
 test "regex literal inline" (fn t -> t.ok (Regex.match? r/hello/ "say hello"))
 
 -- ── Regex.match? ───────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ test "match_all digit runs" (fn t ->
   t.eq ["1", "22", "333"] (Regex.match_all r/\d+/ "a1b22c333"))
 test "match_all no matches" (fn t -> t.eq [] (Regex.match_all r/\d+/ "abc"))
 test "match_all tokenizer-style alternation" (fn t ->
-  let got = Regex.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ `block{x="1"}` in
+  let got = Regex.match_all r/[a-zA-Z_]\w*|[{}=]|"[^"]*"/ `block{x="1"}`;
   t.eq ["block", "{", "x", "=", `"1"`, "}"] got)
 
 -- ── Regex module ────────────────────────────────────────────────────────
@@ -139,12 +139,11 @@ test "an oversized repeat still raises on every evaluation" (fn t ->
     [true, true]
     (List.map (fn i -> Result.error? (try Regex.match? r/a{999999}/ "x")) [1, 2]))
 
-test "a literal in a loop answers the same as one hoisted out" (fn t -> (
+test "a literal in a loop answers the same as one hoisted out" (fn t ->
   let hoisted = r/(\d+)/;
   let inline = List.map (fn s -> Regex.capture r/(\d+)/ s) ["a1", "b22", "c"];
   let out = List.map (fn s -> Regex.capture hoisted s) ["a1", "b22", "c"];
-  t.eq out inline
-))
+  t.eq out inline)
 
 -- Par workers evaluate on domains of their own, which is why the cache is
 -- per domain rather than shared.

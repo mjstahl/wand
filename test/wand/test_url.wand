@@ -331,7 +331,7 @@ test "the username" (fn t ->
 -- `@` and `:` delimit the authority, so a password holding one is escaped
 -- rather than moving the host.
 test "a password holding a delimiter is escaped, and reads back whole" (fn t ->
-  let u = URL.with_password (Some "p@ss") https://ann@a.com/x in
+  let u = URL.with_password (Some "p@ss") https://ann@a.com/x;
   t.eq ("a.com", Some "p@ss") (URL.hostname u, URL.password u))
 
 test "setting one leaves the other" (fn t ->

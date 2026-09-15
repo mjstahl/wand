@@ -62,8 +62,7 @@ let now () = clock_now ()
 -- >> let (took, answer) = Clock.timed (fn () -> 1 + 1)
 -- >> answer
 -- 2 : Int
-let timed thunk = (
+let timed thunk =
   let before = clock_elapsed ();
   let answer = thunk ();
   (clock_elapsed () - before, answer)
-)

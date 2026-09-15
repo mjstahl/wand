@@ -112,10 +112,9 @@ let out_of seed = Path.join archive_dir (Path.of_string "seed%{seed}")
 -- Nothing is printed here: parallel seeds finish in any order, and lines
 -- from six of them interleaved are not a log anyone can read.
 let run_seed pinned (seed: Int) =
-  let out = out_of seed in
+  let out = out_of seed;
   let r =
-    $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000 --seconds %{seconds} --timeout 20 --shrink 2000 --out %{Path.to_string out})
-  in
+    $?(%{Path.to_string pinned} --seed %{seed} --iterations 100000000 --seconds %{seconds} --timeout 20 --shrink 2000 --out %{Path.to_string out});
   let found =
     match FS.exists? out with
     | true -> FS.glob_in **.wand out
@@ -145,14 +144,15 @@ let report_seed (seed, code, output, found) = (
   | false -> found
 )
 
-let report kept =
-  let n = kept |> List.map List.length |> List.fold_left (fn a b -> a + b) 0 in
+let report kept = (
+  let n = kept |> List.map List.length |> List.fold_left (fn a b -> a + b) 0;
   match n with
   | 0 -> IO.println "no new findings in %{seeds} seed(s)"
   | _ -> (
     IO.println_err "%{n} finding(s), kept under %{Path.to_string archive_dir}";
     Proc.exit 1
   )
+)
 
 let main! () = (
   (match FS.exists? archive_dir with

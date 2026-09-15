@@ -124,7 +124,7 @@ test "get_object then field" (fn t ->
 -- ── field / field! ──────────────────────────────────────────────────────
 
 test "field exists" (fn t ->
-  let j = JSON.parse! `{"name":"Alice","age":30}` in
+  let j = JSON.parse! `{"name":"Alice","age":30}`;
   t.eq
     `"Alice"`
     (match JSON.field "name" j with
@@ -133,7 +133,7 @@ test "field exists" (fn t ->
     ))
 
 test "field missing" (fn t ->
-  let j = JSON.parse! `{"a":1}` in
+  let j = JSON.parse! `{"a":1}`;
   t.eq
     "error"
     (match JSON.field "z" j with
@@ -142,10 +142,12 @@ test "field missing" (fn t ->
     ))
 
 test "field! exists" (fn t ->
-  let j = JSON.parse! `{"x":42}` in t.eq "42" (JSON.stringify (JSON.field! "x" j)))
+  let j = JSON.parse! `{"x":42}`;
+  t.eq "42" (JSON.stringify (JSON.field! "x" j)))
 
 test "field! missing raises" (fn t ->
-  let j = JSON.parse! `{"a":1}` in t.raises (fn () -> JSON.field! "z" j))
+  let j = JSON.parse! `{"a":1}`;
+  t.raises (fn () -> JSON.field! "z" j))
 
 -- ── construction ────────────────────────────────────────────────────────
 
@@ -160,8 +162,8 @@ test "null and is_null" (fn t -> t.eq true (JSON.null? JSON.null))
 -- ── stringify_pretty ────────────────────────────────────────────────────
 
 test "pretty round-trips" (fn t ->
-  let j = JSON.parse! `{"a":1}` in
-  let s = JSON.stringify_pretty j in
+  let j = JSON.parse! `{"a":1}`;
+  let s = JSON.stringify_pretty j;
   t.eq
     "ok"
     (match JSON.parse s with
@@ -223,26 +225,26 @@ test "objects nest, and hold arrays" (fn t ->
         xs = JSON.of_list [JSON.of_int 1]
       })))
 
-test "and what was read can be written back" (fn t ->
-  let doc = `{"a":1,"b":"two"}` in
+test "and what was read can be written back" (fn t -> (
+  let doc = `{"a":1,"b":"two"}`;
   match JSON.get_object (JSON.parse! doc) with
   | Ok m -> t.eq doc (JSON.stringify (JSON.of_map m))
-  | Error why -> t.eq doc why)
+  | Error why -> t.eq doc why
+))
 
 -- A document may name a key twice even though a Map cannot hold one twice.
 -- Every reader here takes the later one -- which is what the parsers
 -- everywhere else do -- so no two readers of the same document in the same
 -- program can disagree about it.
 test "a document that names a key twice reads the later one, whichever way it is read" (fn t ->
-  let doc = JSON.parse! `{"a": 1, "a": 9}` in
-  let via_field = JSON.field "a" doc |> Result.and_then JSON.get_int in
+  let doc = JSON.parse! `{"a": 1, "a": 9}`;
+  let via_field = JSON.field "a" doc |> Result.and_then JSON.get_int;
   let via_object =
     JSON.get_object doc
       |> Result.and_then (fn m ->
         match Map.get "a" m with
         | Some v -> JSON.get_int v
-        | None -> Error "missing")
-  in
+        | None -> Error "missing");
   t.eq (Ok 9, Ok 9, Ok 9) (
     via_field,
     via_object,

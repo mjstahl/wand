@@ -649,6 +649,48 @@ let rec ends_in_an_arm e =
   | Seq (_, b) -> ends_in_an_arm b
   | _ -> false
 
+(* Whether a chain of bindings can stand without brackets. Every statement
+   in it has to be a binding: a `;` ends a binding's right-hand side and
+   hands the rest to its body, and that is the whole of what it does outside
+   brackets. A statement that binds nothing is not joined to what follows by
+   a `;` any more than it is by a newline, so a chain holding one keeps the
+   brackets that make it a block. *)
+let rec chain_is_bindings e = match strip_located e with
+  | Let (_, _, body, LetBlock) | LetRec (_, body, LetBlock) -> chain_is_bindings body
+  | Seq _ -> false
+  (* The last statement is the chain's own value, and whatever encloses the
+     chain may put a `;` after it -- a block's separator, say. Ending on a
+     `match` or `handle` arm, it cannot take one: the arm reads the `;` as
+     part of itself. The brackets a block wears keep them apart, so such a
+     chain stays a block. Found by test/fuzz. *)
+  | last -> not (ends_in_an_arm last)
+
+(* And that it is a chain at all: anything else is one expression, which a
+   statement position neither helps nor hinders. *)
+let is_bare_chain e = match strip_located e with
+  | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> chain_is_bindings e
+  | _ -> false
+
+(* Whether what gets *printed* for a binding's value ends on a `match` or
+   `handle` arm. The node is not always the answer: a raw `Fn` here is the
+   `let name params = body` shorthand, which comes back as its equations, so
+   it is the last equation's body that lands on the page -- and a
+   multi-equation group collapses to a match inside while printing clauses,
+   which is an arm the reader never sees.
+
+   Asked because a `;` after an arm is read as part of it. Found by
+   test/fuzz: a chain whose last statement ended on an arm took the `;` of
+   the block above it, and the next pass bracketed what this one had not. *)
+let printed_ends_in_an_arm e = match e with
+  | Fn (params, fbody) ->
+    (match try_multi_equation params fbody with
+     | Some clauses ->
+       (match List.rev clauses with
+        | (_, b) :: _ -> ends_in_an_arm b
+        | [] -> false)
+     | None -> ends_in_an_arm fbody)
+  | _ -> ends_in_an_arm e
+
 (* An opening bracket, kept off a star.
 
    A glob literal opens with one, and a bracket written straight onto it
@@ -815,12 +857,25 @@ module Layouts = Hashtbl.Make (Layout_key)
 
 let layouts : string Layouts.t = Layouts.create 1024
 
-let rec emit_expr ?col indent e =
-  let key = (e, indent, (match col with Some c -> c | None -> indent), !max_width) in
+(* `stmt` says this expression stands where a statement may: a body, an arm,
+   a branch. A binding chain written there is the body itself, so it needs no
+   brackets round it; anywhere else it is one expression among others and
+   does. The default is the bracketed reading, so a position that has not
+   been told gets a bracket it may not need rather than source that does not
+   parse.
+
+   It is in the layout key because the same node laid out both ways is two
+   answers, and handing one back for the other is how a cache turns a
+   position question into a wrong one. *)
+let rec emit_expr ?col ?(stmt = false) indent e =
+  let key =
+    (e, indent, (match col with Some c -> c | None -> indent),
+     !max_width + (if stmt then 1 lsl 24 else 0))
+  in
   match Layouts.find_opt layouts key with
   | Some text -> text
   | None ->
-    let text = emit_expr_inner ?col indent (strip_located e) in
+    let text = emit_expr_inner ?col ~stmt indent (strip_located e) in
     Layouts.replace layouts key text;
     text
 
@@ -881,7 +936,16 @@ and emit_splice indent e = with_width 1_000_000 (fun () -> emit_expr indent e)
 and emit_atom ?(followed = false) indent e =
   let e' = strip_located e in
   let s = emit_expr_inner indent e' in
-  if is_control_expr e' || is_binop_or_unop e' || is_app e' || is_import e'
+  (* A chain of bindings brings its own brackets here -- this is not a
+     statement position, so `emit_block` wrote them. A second pair says
+     nothing the first does not. *)
+  let already_bracketed =
+    match e' with
+    | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> true
+    | _ -> false
+  in
+  if (not already_bracketed)
+     && (is_control_expr e' || is_binop_or_unop e' || is_app e' || is_import e')
   then parenthesize ~close_alone:(ends_in_an_arm e' || followed) indent s else s
 
 (* An argument is an atom. A bare constructor is one hazard on top of that,
@@ -955,7 +1019,7 @@ and guard_spine head head_s args rendered following =
 
 and emit_arg ?(followed = false) indent e = emit_atom ~followed indent e
 
-and emit_expr_inner ?col indent e =
+and emit_expr_inner ?col ?(stmt = false) indent e =
   let col = match col with Some c -> c | None -> indent in
   match e with
   | Int n      -> string_of_int n
@@ -988,7 +1052,8 @@ and emit_expr_inner ?col indent e =
        column it starts at and already sits where it should. *)
     let body_indent =
       match strip_located body with
-      | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> indent + 2
+      | Let (_, _, _, (LetIn | LetBlock))
+      | LetRec (_, _, (LetIn | LetBlock)) -> indent + 2
       | _ -> indent
     in
     let cuddled =
@@ -1001,13 +1066,17 @@ and emit_expr_inner ?col indent e =
        belongs to, where the parser reads it as something new. Given the
        line to itself the keyword starts at the indent its own lines use. *)
     if String.contains cuddled '\n' && body_indent <> indent then
+      (* On its own line the chain and its statements share an indent, which
+         is where the parser looks for a binding's body -- so it needs no
+         brackets. Cuddled after the arrow it starts right of that, and
+         there it does. *)
       emit_fn_head ps ^ "\n" ^ String.make body_indent ' '
-      ^ emit_expr body_indent body
+      ^ emit_expr ~stmt:(is_bare_chain body) body_indent body
     else head ^ cuddled
   (* A binding written with the `;` of a block belongs to that block, and
      comes back out with the `;`. *)
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) as e ->
-    emit_block ~col indent e
+    emit_block ~col ~bare:stmt indent e
   | Let (p, e1, e2, LetIn) -> emit_let ~col indent p e1 e2
   | LetRec (bindings, e2, LetIn) -> emit_letrec indent bindings e2
   | If (c, t, el) -> emit_if ~col indent c t el
@@ -1340,9 +1409,12 @@ and emit_app ?col indent e =
               prefix ^ " (" ^ emit_fn_head ps in
             (* A bracketed body opens on the arrow's line, as it does after
                an `=`, rather than spending a line on a bracket alone. *)
-            if opens_a_bracket body then
+            if opens_a_bracket body && not (is_bare_chain body) then
               head_s ^ " " ^ emit_expr ~col:(indent + String.length head_s + 1) indent body ^ ")"
-            else head_s ^ "\n" ^ inner ^ emit_expr (indent + 2) body ^ ")"
+            (* A chain of bindings takes the line below the arrow, where its
+               statements share an indent with the `let` that opens them. *)
+            else head_s ^ "\n" ^ inner
+                 ^ emit_expr ~stmt:(is_bare_chain body) (indent + 2) body ^ ")"
           (* A trailing bracket is the other common shape -- `report [...]`,
              `handle {...}` -- and reads the way a trailing lambda does: the
              bracket opens on the call's own line and the items carry the
@@ -1625,7 +1697,7 @@ and is_block e =
   | Seq _ | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> true
   | _ -> false
 
-and emit_block ?col indent e =
+and emit_block ?col ?(bare = false) indent e =
   let col = match col with Some c -> c | None -> indent in
   (* Statements are the other boundary a comment sits at. Each carries a
      location, so the same previous-sibling window applies. A statement is
@@ -1657,6 +1729,14 @@ and emit_block ?col indent e =
     | Some (l : Token.loc) -> prev_end := l.Token.end_offset
     | None -> prev_end := max_int
   in
+  (* Each statement and how it ends. A `;` is the block's separator and the
+     body binding's, and the one place it reads badly is after a `match` or
+     `handle` arm -- the arm runs to the next `|`, so a `;` on it is read as
+     part of it. Bracketing the value keeps them apart, and that is what a
+     block does. Bare, there is a better terminator to hand: `in`, which is
+     a keyword no arm can swallow, and which needs no brackets and no extra
+     column. So an arm-ended binding keeps the `in` it was written with, and
+     every other statement takes the `;`. *)
   let rec items ind e =
     match strip_located e with
     | Seq (a, b) ->
@@ -1670,7 +1750,7 @@ and emit_block ?col indent e =
         else emit_expr ind a
       in
       advance_past (loc_of a);
-      (above, a_text) :: items ind b
+      (above, a_text, false) :: items ind b
     (* A binding reached here is one of the block's statements, so it takes
        the block's `;` whatever joined it to its body in the source. The tag
        cannot decide this on its own: `(t; (let f = e in ()))` loses the
@@ -1686,9 +1766,10 @@ and emit_block ?col indent e =
        `let ... in`. *)
     | Let (p, e1, body, _) ->
       let above = match starts_at (loc_of e1) with Some hi -> lead hi | None -> [] in
-      let text = emit_binding ~col:ind ind p e1 in
+      let in_term = bare && printed_ends_in_an_arm e1 in
+      let text = emit_binding ~col:ind ~in_terminated:in_term ind p e1 in
       advance_past (loc_of e1);
-      (above, text) :: items ind body
+      (above, text, in_term) :: items ind body
     | LetRec (bindings, body, _) ->
       let above =
         match bindings with
@@ -1700,10 +1781,10 @@ and emit_block ?col indent e =
       (match List.rev bindings with
        | (_, _, last) :: _ -> advance_past (loc_of last)
        | [] -> prev_end := max_int);
-      (above, text) :: items ind body
+      (above, text, false) :: items ind body
     | other ->
       let above = match starts_at (loc_of e) with Some hi -> lead hi | None -> [] in
-      [(above, emit_expr ind other)]
+      [(above, emit_expr ind other, false)]
   in
   (* The one-line form is measured at this indent and the wrapped one two
      further in, so the walk runs twice. Reading comments does not consume
@@ -1716,9 +1797,36 @@ and emit_block ?col indent e =
   let probe = with_width max_int (fun () -> items indent e) in
   let probe_claimed = !claimed in
   prev_end := max_int; claimed := false;
-  let oneline = bracket (String.concat "; " (List.map snd probe)) in
-  if not probe_claimed && fits col oneline && not (String.contains oneline '\n')
+  let oneline =
+    bracket (String.concat "; " (List.map (fun (_, t, _) -> t) probe)) in
+  (* Bracketed, a block may run along one line: the brackets say where it
+     starts and ends. Bare, nothing does but the lines themselves, so each
+     statement takes one. `let before = ...; let answer = ...; (...)` on a
+     single line is three statements wearing no punctuation a reader can
+     see from the left margin. *)
+  if (not bare) && not probe_claimed && fits col oneline
+     && not (String.contains oneline '\n')
   then oneline
+  else if bare then begin
+    (* A statement position: the statements are the body, so they sit at the
+       body's own indent and no bracket goes round them. That is what the
+       parser reads back -- a `;` at the binding's column hands the rest to
+       its body -- so the node that comes back is the node that went in. *)
+    let stmts = items indent e in
+    let ind = String.make indent ' ' in
+    let buf = Buffer.create 128 in
+    let n = List.length stmts in
+    List.iteri (fun i (above, text, in_term) ->
+      List.iter (fun c -> Buffer.add_string buf (ind ^ c ^ "\n")) above;
+      Buffer.add_string buf (if i = 0 then text else ind ^ text);
+      if i < n - 1 then
+        (* `in` takes a line of its own at the statement's indent, where the
+           old chain put it. Written onto the end of the value it would land
+           on an arm, which is the thing the `;` could not do either. *)
+        Buffer.add_string buf (if in_term then "\n" ^ ind ^ "in\n" else ";\n")
+    ) stmts;
+    Buffer.contents buf
+  end
   else begin
     let stmts = items (indent + 2) e in
     let ind = String.make indent ' ' in
@@ -1726,7 +1834,7 @@ and emit_block ?col indent e =
     let buf = Buffer.create 128 in
     let n = List.length stmts in
     Buffer.add_string buf "(\n";
-    List.iteri (fun i (above, text) ->
+    List.iteri (fun i (above, text, _) ->
       List.iter (fun c -> Buffer.add_string buf (inner ^ c ^ "\n")) above;
       Buffer.add_string buf (inner ^ text);
       if i < n - 1 then Buffer.add_string buf ";\n"
@@ -1761,7 +1869,7 @@ and emit_fn_clauses ~col indent p params fbody =
     (* The first clause starts where the caller left the cursor; the rest
        start their own line at the indent. *)
     let clause_col = if i = 0 then col else indent in
-    let oneline = head ^ " = " ^ emit_expr indent body in
+    let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) indent body in
     if fits clause_col oneline then oneline
     else emit_bound_value ~col:clause_col indent head body
   ) clauses in
@@ -1774,11 +1882,15 @@ and emit_fn_clauses ~col indent p params fbody =
    a block cannot end with a `let`, so there is always something after it --
    which is why a value ending in an arm is bracketed here and not asked
    about. *)
-and emit_binding ?col indent p e1 =
+and emit_binding ?col ?(in_terminated = false) indent p e1 =
   let col = match col with Some c -> c | None -> indent in
   (* One column further in inside the bracket, so the arms sit under the
-     `match` and not under its `(`. *)
-  let arm = ends_in_an_arm e1 in
+     `match` and not under its `(`.
+
+     An `in` after the value needs none of this. It is a keyword, so an arm
+     cannot swallow it the way it swallows a `;`, and the value keeps the
+     shape it would have had on its own. *)
+  let arm = ends_in_an_arm e1 && not in_terminated in
   let value ind e = if arm then bracket (emit_expr (ind + 1) e) else emit_expr ind e in
   match e1 with
   | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody
@@ -2004,6 +2116,15 @@ and case_body_tail e = match strip_located e with
   | e -> e
 
 and emit_case_body ?col indent body =
+  (* A chain of bindings brings the block shape with it -- `emit_block`
+     writes the brackets and puts the statements between them -- so it needs
+     nothing here, whatever its last statement is. Asked first, because a
+     chain ending on a `match` is the common shape and the branch below
+     would wrap it a second time, one pair inside the other with nothing in
+     between. *)
+  match strip_located body with
+  | Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock) -> emit_expr ?col indent body
+  | _ ->
   match case_body_tail body with
   | Match _ | Handle _ ->
     (* The parentheses are load-bearing (a bare nested match would swallow
@@ -2092,13 +2213,28 @@ and emit_match ?col indent scr cases =
    that wrapped there gets its parentheses. *)
 and emit_bound_value ~col indent head body =
   let below = "\n" ^ String.make (indent + 2) ' ' in
+  (* Cuddled onto the `=` line, the chain starts well right of the indent its
+     own statements would take, so they would land left of the binding they
+     belong to and stop being its body. Bracketed there, as before. *)
   let cuddled () = emit_expr ~col:(col + String.length head + 3) indent body in
+  (* A chain of bindings is the value, and given a line of its own it needs
+     no bracket: its statements and the `let` that opens them share an
+     indent, which is where the parser looks for a body. Asked before
+     `opens_a_bracket`, which answers for the bracketed reading and would
+     cuddle it onto the `=` line -- where the statements would fall left of
+     the binding they belong to. *)
+  match strip_located body with
+  | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) when is_bare_chain body ->
+    head ^ " =" ^ below ^ emit_expr ~stmt:true (indent + 2) body
+  | _ ->
   (* The value's own bracket goes here whatever it costs: given a line of
      its own it says nothing, since the items sit at the same column either
      way. *)
   if opens_a_bracket body then head ^ " = " ^ cuddled ()
   else
-    let indented = emit_expr (indent + 2) body in
+    (* Given a line of its own, the chain and its statements share an indent,
+       which is where the parser looks for a binding's body. *)
+    let indented = emit_expr ~stmt:true (indent + 2) body in
     (* A call is not its bracket, so the choice is open. Its own line is
        what it was denied, and the room may be all it needed -- one line
        under the head beats a bracket opened here and closed three lines
@@ -2121,7 +2257,7 @@ and emit_bound_value ~col indent head body =
 let emit_one_equation head_kw pats body =
   let (annot_s, body) = split_clause_annot body in
   let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
-  let oneline = head ^ " = " ^ emit_expr 0 body in
+  let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) 0 body in
   if fits 0 oneline then oneline
   else emit_bound_value ~col:0 0 head body
 
@@ -2229,19 +2365,20 @@ let emit_top_item_pretty_uncached = function
     if fits 0 oneline then oneline
     else
       Printf.sprintf "let %s =\n  %s" (emit_pat_binder p)
-        (bracket_if_wrapped_app_at ~anchor:0 e (emit_expr 2 e))
+        (bracket_if_wrapped_app_at ~anchor:0 e
+           (emit_expr ~stmt:(is_bare_chain e) 2 e))
   | TLLet (name, [], Annot (te, body)) ->
     (* Same ambiguity as the local-`let` case: reprinting via inline
        `expr : Type` would re-parse as cons, not ascription -- keep the
        dedicated `let name : T = e` syntax. *)
-    let bodys = emit_expr 0 body in
+    let bodys = emit_expr ~stmt:(is_bare_chain body) 0 body in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys in
     if fits 0 oneline then oneline
     else emit_bound_value ~col:0 0 head body
   | TLLet (name, [], e) ->
     with_body_lead ("let " ^ name) 0 e (fun () ->
-      let body = emit_expr 0 e in
+      let body = emit_expr ~stmt:(is_bare_chain e) 0 e in
       let oneline = Printf.sprintf "let %s = %s" name body in
       if fits 0 oneline then oneline
       else emit_bound_value ~col:0 0 ("let " ^ name) e)
@@ -2256,20 +2393,23 @@ let emit_top_item_pretty_uncached = function
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        (match lead with
         | [] ->
-          let oneline = head ^ " = " ^ emit_expr 0 e in
+          let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain e) 0 e in
           if fits 0 oneline then oneline
           else emit_bound_value ~col:0 0 head e
         | cs ->
+          (* The comments take the lines above the value, and the value then
+             starts its own line at the body's indent -- a statement position
+             like any other. *)
           head ^ " =\n"
           ^ String.concat "" (List.map (fun c -> "  " ^ c.c_text ^ "\n") cs)
-          ^ "  " ^ emit_expr 2 e))
+          ^ "  " ^ emit_expr ~stmt:(is_bare_chain e) 2 e))
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
       let head = kw ^ " " ^ name
         ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat_atom params))
         ^ annot_s in
-      let oneline = head ^ " = " ^ emit_expr 0 body in
+      let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) 0 body in
       if fits 0 oneline then oneline
       else emit_bound_value ~col:0 0 head body
     in

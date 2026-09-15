@@ -42,7 +42,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via FS.read_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.read_file absent in missed) () with
+      (handle (fn () -> (let _ = FS.read_file absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via JSON.read_file!" (fn t ->
@@ -54,7 +54,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via JSON.read_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = JSON.read_file absent in missed) () with
+      (handle (fn () -> (let _ = JSON.read_file absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via CSV.read_file!" (fn t ->
@@ -66,7 +66,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via CSV.read_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = CSV.read_file absent in missed) () with
+      (handle (fn () -> (let _ = CSV.read_file absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via TOML.read_file!" (fn t ->
@@ -78,7 +78,7 @@ group "FS reads" (fn () -> [
   test "FS!read_file via TOML.read_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = TOML.read_file absent in missed) () with
+      (handle (fn () -> (let _ = TOML.read_file absent; missed)) () with
       | FS!read_file _ _ -> caught
       )),
   test "FS!read_file via Env.read!" (fn t ->
@@ -109,7 +109,7 @@ group "FS reads" (fn () -> [
   test "FS!list_dir via FS.list_dir" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.list_dir absent in missed) () with
+      (handle (fn () -> (let _ = FS.list_dir absent; missed)) () with
       | FS!list_dir _ _ -> caught
       )),
   test "FS!glob" (fn t ->
@@ -151,7 +151,7 @@ group "FS reads" (fn () -> [
   test "FS!mtime via FS.mtime" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.mtime absent in missed) () with
+      (handle (fn () -> (let _ = FS.mtime absent; missed)) () with
       | FS!mtime _ _ -> caught
       )),
   test "FS!size" (fn t ->
@@ -163,7 +163,7 @@ group "FS reads" (fn () -> [
   test "FS!size via FS.size" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.size absent in missed) () with
+      (handle (fn () -> (let _ = FS.size absent; missed)) () with
       | FS!size _ _ -> caught
       )),
   test "FS!cwd" (fn t ->
@@ -196,7 +196,7 @@ group "FS writes" (fn () -> [
   test "FS!write_file via FS.write_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.write_file absent "x" in missed) () with
+      (handle (fn () -> (let _ = FS.write_file absent "x"; missed)) () with
       | FS!write_file _ _ -> caught
       )),
   test "FS!append" (fn t ->
@@ -208,7 +208,7 @@ group "FS writes" (fn () -> [
   test "FS!append via FS.append" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.append absent "x" in missed) () with
+      (handle (fn () -> (let _ = FS.append absent "x"; missed)) () with
       | FS!append _ _ -> caught
       )),
   test "FS!create_file" (fn t ->
@@ -220,7 +220,7 @@ group "FS writes" (fn () -> [
   test "FS!create_file via FS.create_file" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.create_file absent in missed) () with
+      (handle (fn () -> (let _ = FS.create_file absent; missed)) () with
       | FS!create_file _ _ -> caught
       )),
   test "FS!delete" (fn t ->
@@ -232,7 +232,7 @@ group "FS writes" (fn () -> [
   test "FS!delete via FS.delete" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.delete absent in missed) () with
+      (handle (fn () -> (let _ = FS.delete absent; missed)) () with
       | FS!delete _ _ -> caught
       )),
   test "FS!mkdir" (fn t ->
@@ -244,7 +244,7 @@ group "FS writes" (fn () -> [
   test "FS!mkdir via FS.mkdir" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.mkdir absent in missed) () with
+      (handle (fn () -> (let _ = FS.mkdir absent; missed)) () with
       | FS!mkdir _ _ -> caught
       )),
   test "FS!rename" (fn t ->
@@ -256,7 +256,7 @@ group "FS writes" (fn () -> [
   test "FS!rename via FS.rename" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.rename absent absent in missed) () with
+      (handle (fn () -> (let _ = FS.rename absent absent; missed)) () with
       | FS!rename _ _ -> caught
       )),
   test "FS!copy" (fn t ->
@@ -268,7 +268,7 @@ group "FS writes" (fn () -> [
   test "FS!copy via FS.copy" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.copy absent absent in missed) () with
+      (handle (fn () -> (let _ = FS.copy absent absent; missed)) () with
       | FS!copy _ _ -> caught
       )),
   test "FS!copy_tree" (fn t ->
@@ -280,7 +280,7 @@ group "FS writes" (fn () -> [
   test "FS!copy_tree via FS.copy_tree" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.copy_tree absent absent in missed) () with
+      (handle (fn () -> (let _ = FS.copy_tree absent absent; missed)) () with
       | FS!copy_tree _ _ -> caught
       )),
   test "FS!delete_tree" (fn t ->
@@ -292,7 +292,7 @@ group "FS writes" (fn () -> [
   test "FS!delete_tree via FS.delete_tree" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = FS.delete_tree absent in missed) () with
+      (handle (fn () -> (let _ = FS.delete_tree absent; missed)) () with
       | FS!delete_tree _ _ -> caught
       )),
   -- A bracket acquires when the body starts, so naming one performs nothing
@@ -368,7 +368,7 @@ group "the program's own streams" (fn () -> [
   test "IO!read_line via IO.read_line" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.read_line () in missed) () with
+      (handle (fn () -> (let _ = IO.read_line (); missed)) () with
       | IO!read_line _ _ -> caught
       )),
   test "IO!read_all" (fn t ->
@@ -380,7 +380,7 @@ group "the program's own streams" (fn () -> [
   test "IO!read_all via IO.read_all" (fn t ->
     t.eq
       caught
-      (handle (fn () -> let _ = IO.read_all () in missed) () with
+      (handle (fn () -> (let _ = IO.read_all (); missed)) () with
       | IO!read_all _ _ -> caught
       )),
   test "IO!flush" (fn t ->

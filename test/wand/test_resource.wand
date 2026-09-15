@@ -18,22 +18,24 @@ import Path
 let marker name = Path.of_string "/tmp/wand_res_%{name}"
 
 let tracked name =
-  let acquire = fn () -> (FS.write_file! (marker name) "held"; name) in
-  let release = fn n -> FS.delete! (marker n) in Resource.make acquire release
+  let acquire = fn () -> (FS.write_file! (marker name) "held"; name);
+  let release = fn n -> FS.delete! (marker n);
+  Resource.make acquire release
 
 let held? name = FS.exists? (marker name)
 
 test "the body sees what was acquired" (fn t -> t.eq "a" (with tracked "a" as x -> x))
 
 test "released after the body returns" (fn t ->
-  let _ = with tracked "b" as x -> x in t.eq false (held? "b"))
+  let _ = with tracked "b" as x -> x;
+  t.eq false (held? "b"))
 
 test "held while the body runs" (fn t -> t.eq true (with tracked "c" as _ -> held? "c"))
 
 -- Release has to happen before `try` turns the raise into a value, or a
 -- failing script leaves its lock behind.
 test "released when the body raises" (fn t ->
-  let r = try with tracked "d" as _ -> List.get! 9 [1] in
+  let r = try with tracked "d" as _ -> List.get! 9 [1];
   let failed =
     match r with
     | Error _ -> true
@@ -46,7 +48,7 @@ test "the raise still reaches the caller" (fn t ->
 
 -- Innermost first: the order things were acquired, reversed.
 test "nested brackets release inside out" (fn t ->
-  let _ = with tracked "f" as _ -> with tracked "g" as _ -> 1 in
+  let _ = with tracked "f" as _ -> with tracked "g" as _ -> 1;
   t.eq [false, false] [held? "f", held? "g"])
 
 test "the outer one is still held inside the inner" (fn t ->
@@ -59,14 +61,14 @@ test "the outer one is still held inside the inner" (fn t ->
 -- code it stands in for had taken.
 test "released when a handler does not resume" (fn t ->
   let out =
-    handle with tracked "j" as _ -> let c = $(echo hi) in c with
+    handle with tracked "j" as _ -> (let c = $(echo hi); c) with
     | Shell!run _ _ -> "mocked"
   in
   t.eq ("mocked", false) (out, held? "j"))
 
 test "released when a handler does resume" (fn t ->
   let out =
-    handle with tracked "k" as _ -> let c = $(echo hi) in c with
+    handle with tracked "k" as _ -> (let c = $(echo hi); c) with
     | Shell!run _ k -> k "mocked"
   in
   t.eq ("mocked", false) (out, held? "k"))
@@ -98,12 +100,14 @@ test "and through two brackets" (fn t -> (
 -- A resource is a description, not something already open, so naming one
 -- acquires nothing and using it twice acquires twice.
 test "naming a resource acquires nothing" (fn t ->
-  let r = tracked "l" in t.eq false (held? "l"))
+  let r = tracked "l";
+  t.eq false (held? "l"))
 
 test "one resource used twice" (fn t ->
-  let r = tracked "m" in
-  let first = with r as x -> x in
-  let second = with r as x -> x in t.eq ["m", "m"] [first, second])
+  let r = tracked "m";
+  let first = with r as x -> x;
+  let second = with r as x -> x;
+  t.eq ["m", "m"] [first, second])
 
 -- ── FS.temp_dir ─────────────────────────────────────────────────────────
 
@@ -118,17 +122,14 @@ test "temp_dir removes a directory that is not empty" (fn t ->
       FS.mkdir! (Path.of_string "%{dir}/sub");
       FS.write_file! (Path.of_string "%{dir}/sub/b.txt") "y";
       dir
-    )
-  in
+    );
   t.eq false (FS.exists? (Path.of_string kept)))
 
 test "temp_dir is a directory that exists while it is held" (fn t ->
   t.eq (true, true) (with FS.temp_dir "wand_td_" as d -> (FS.exists? d, FS.dir? d)))
 
 test "two temp_dirs do not collide" (fn t ->
-  let both =
-    with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b
-  in
+  let both = with FS.temp_dir "wand_td_" as a -> with FS.temp_dir "wand_td_" as b -> a != b;
   t.eq true both)
 
 -- The tree goes even when the body leaves by raising. The directory's name

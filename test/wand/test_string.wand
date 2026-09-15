@@ -91,7 +91,7 @@ test "truncate keeps a three-byte character that fits" (fn t ->
 -- the é on its own, which is a continuation byte with no lead in front of
 -- it, and four of those are not a character in any encoding.
 test "truncate cuts bytes that are not UTF-8 at the budget" (fn t ->
-  let stray = String.repeat 4 (String.slice 4 5 "café") in
+  let stray = String.repeat 4 (String.slice 4 5 "café");
   t.eq 3 (String.length (String.truncate 3 stray)))
 
 -- The budget is never exceeded, whatever the input.
@@ -157,7 +157,8 @@ test "words of blank text is empty" (fn t -> t.eq [] (String.words "   "))
 -- ── pipeline ────────────────────────────────────────────────────────────
 
 test "pipe" (fn t ->
-  let s = "  Hello, World!  " in t.eq "hello, world!" (s |> String.trim |> String.lower))
+  let s = "  Hello, World!  ";
+  t.eq "hello, world!" (s |> String.trim |> String.lower))
 
 -- ── to_bool / to_path ──────────────────────────────────────────────────
 
@@ -253,13 +254,12 @@ test "to_duration err" (fn t ->
 -- than against a literal, and cover the places the two rules could part:
 -- runs of whitespace, a tab, and leading and trailing space.
 
-test "word agrees with words at every index" (fn t -> (
+test "word agrees with words at every index" (fn t ->
   let s = "  a\tbb   ccc  ";
   let ws = String.words s;
   t.eq
     (List.map (fn i -> List.get i ws) [0, 1, 2, 3])
-    (List.map (fn i -> String.word i s) [0, 1, 2, 3])
-))
+    (List.map (fn i -> String.word i s) [0, 1, 2, 3]))
 
 test "word is None past the end" (fn t -> t.eq (None (String.word 9 "a b")))
 

@@ -68,10 +68,9 @@ group "normalize-names" (fn () -> [
     t.eq [] (plan [./fine.txt])),
   -- A path literal holds no space, so a name with one is written as a
   -- string and converted.
-  test "and one that is not, is" (fn t -> (
+  test "and one that is not, is" (fn t ->
     let messy = Path.of_string "./A File.txt";
-    t.eq [(messy, ./a-file.txt)] (plan [messy])
-  ))
+    t.eq [(messy, ./a-file.txt)] (plan [messy]))
 ])
 
 -- The effectful half is testable too: `Test.with_shell_results` answers the three
@@ -200,15 +199,13 @@ group "http-retry" (fn () -> [
   test "a server error gives up after the last try" (fn t ->
     t.eq (Error "answered 503") (attempt 3 1s (fn () -> answering 503))),
   -- The whole point of the port: bash retried this one too.
-  test "a request error is not retried at all" (fn t -> (
+  test "a request error is not retried at all" (fn t ->
     let (waited, outcome) = with_clock (fn () -> attempt 3 1s (fn () -> answering 404));
-    t.eq (0ms, Error "answered 404") (waited, outcome)
-  )),
+    t.eq (0ms, Error "answered 404") (waited, outcome)),
   -- 1s then 2s: the backoff doubles, and three tries wait twice.
-  test "the backoff doubles and the tries are capped" (fn t -> (
+  test "the backoff doubles and the tries are capped" (fn t ->
     let (waited, _) = with_clock (fn () -> attempt 3 1s (fn () -> answering 503));
-    t.eq 3s waited
-  )),
+    t.eq 3s waited),
   test "a body reads into the type" (fn t ->
     t.eq
       (Ok Health(status = "ok", version = 1.2.0))

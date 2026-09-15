@@ -47,7 +47,7 @@ type Testing 'a 'b(
 --
 -- >> Test.test "it adds" (fn t -> t.eq 5 (2 + 2))
 -- Fail("it adds: expected 5, got 4") : TestOutcome
-let test label f =
+let test label f = (
   let t =
     Testing(
       ok = fn cond -> if cond then Pass label else Fail "%{label}: assertion failed",
@@ -61,11 +61,11 @@ let test label f =
         | Ok _ -> Fail "%{label}: expected to raise, but completed normally"
         | Error _ -> Pass label,
       fail = fn why -> Fail "%{label}: %{why}"
-    )
-  in
+    );
   match try f t with
   | Ok outcome -> outcome
   | Error why -> Fail "%{label}: raised: %{why}"
+)
 
 -- Run child tests that share this label and whatever the body binds:
 --
@@ -158,8 +158,8 @@ let with_shell_results mocks thunk =
 -- ["git describe"] : List 'a
 let shell_calls thunk =
   handle thunk () with
-  | Shell!run cmd k -> let rest = k "" in cmd :: rest
-  | Shell!capture cmd k -> let rest = k ShellResult(stdout = "", stderr = "", code = 0) in cmd :: rest
+  | Shell!run cmd k -> (let rest = k ""; cmd :: rest)
+  | Shell!capture cmd k -> (let rest = k ShellResult(stdout = "", stderr = "", code = 0); cmd :: rest)
   | return _ -> []
 
 -- Run `thunk` with every write of a file's contents swallowed, returning
@@ -212,13 +212,13 @@ let without_writes thunk =
 -- [./pub.txt] : List Path
 let writes thunk =
   handle thunk () with
-  | FS!write_file arg k -> let (path, _) = arg in let rest = k () in path :: rest
-  | FS!write_atomic arg k -> let (path, _) = arg in let rest = k () in path :: rest
-  | FS!append arg k -> let (path, _) = arg in let rest = k () in path :: rest
-  | FS!create_file path k -> let rest = k () in path :: rest
-  | FS!write_lines path k -> let rest = k () in path :: rest
-  | FS!append_lines path k -> let rest = k () in path :: rest
-  | FS!write_lines_atomic path k -> let rest = k () in path :: rest
+  | FS!write_file arg k -> (let (path, _) = arg; let rest = k (); path :: rest)
+  | FS!write_atomic arg k -> (let (path, _) = arg; let rest = k (); path :: rest)
+  | FS!append arg k -> (let (path, _) = arg; let rest = k (); path :: rest)
+  | FS!create_file path k -> (let rest = k (); path :: rest)
+  | FS!write_lines path k -> (let rest = k (); path :: rest)
+  | FS!append_lines path k -> (let rest = k (); path :: rest)
+  | FS!write_lines_atomic path k -> (let rest = k (); path :: rest)
   | return _ -> []
 
 -- Run `thunk` with streamed files answered from `lines` instead of the
@@ -265,7 +265,7 @@ let at instant thunk =
 -- (5s, ()) : (Duration, Unit)
 let with_clock thunk =
   handle (fn () -> (0ms, thunk ())) () with
-  | Clock!sleep d k -> let (so_far, v) = k () in (Duration.add so_far d, v)
+  | Clock!sleep d k -> (let (so_far, v) = k (); (Duration.add so_far d, v))
 
 -- Run `thunk` with every lock taken, without touching the filesystem.
 -- `FS.lock` answers `Ok`, `FS.lock!` returns the path, and nothing is
@@ -280,7 +280,7 @@ let with_clock thunk =
 let with_lock thunk =
   handle thunk () with
   | FS!lock path k -> k (Some path)
-  | FS!lock_wait arg k -> let (path, _) = arg in k (Some path)
+  | FS!lock_wait arg k -> (let (path, _) = arg; k (Some path))
   | FS!unlock _ k -> k ()
 
 -- Run `thunk` with every lock already held by somebody else. `FS.lock`
@@ -311,8 +311,8 @@ let with_lock_held thunk =
 -- [/var/run/x.lock] : List Path
 let lock_calls thunk =
   handle thunk () with
-  | FS!lock path k -> let rest = k (Some path) in path :: rest
-  | FS!lock_wait arg k -> let (path, _) = arg in let rest = k (Some path) in path :: rest
+  | FS!lock path k -> (let rest = k (Some path); path :: rest)
+  | FS!lock_wait arg k -> (let (path, _) = arg; let rest = k (Some path); path :: rest)
   | FS!unlock _ k -> k ()
   | return _ -> []
 
@@ -350,6 +350,6 @@ let with_http mocks thunk =
 -- [https://example.com/x] : List URL
 let http_calls thunk =
   handle thunk () with
-  | Net!download arg k -> let (url, _) = arg in let rest = k () in url :: rest
-  | Net!http req k -> let rest = k HTTPResponse(status = 200, headers = {}, body = "") in req.url :: rest
+  | Net!download arg k -> (let (url, _) = arg; let rest = k (); url :: rest)
+  | Net!http req k -> (let rest = k HTTPResponse(status = 200, headers = {}, body = ""); req.url :: rest)
   | return _ -> []

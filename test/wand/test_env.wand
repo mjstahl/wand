@@ -48,7 +48,8 @@ test "and it is gone from all ()" (fn t -> (
 
 let () = Env.set "WAND_TEST_ALL" "present"
 test "all contains set var" (fn t ->
-  let pairs = Env.all () in t.ok (List.any? (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
+  let pairs = Env.all ();
+  t.ok (List.any? (fn (k, _) -> k == "WAND_TEST_ALL") pairs))
 
 -- ── home ────────────────────────────────────────────────────────────────
 

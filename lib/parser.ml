@@ -398,6 +398,14 @@ let keyword_hint = function
   | Token.Or -> " -- the boolean operator is '||'"
   | Token.End ->
     " -- expressions group with parentheses, not 'begin ... end'"
+  (* `in` is a `let`'s own keyword and means nothing without one. Reached
+     here, the binding it would close is missing: `g x in y` is an
+     expression, a keyword, and another expression. The message used to name
+     the bracket or the token and leave the reader to work out which of the
+     three was wrong. *)
+  | Token.In ->
+    " -- 'in' closes a 'let' and there is none open here; a binding is \
+     'let name = value in body', or 'let name = value;' with the body below"
   | _ -> ""
 
 let expect s tok =
@@ -1519,29 +1527,30 @@ and let_ ?(block = false) s =
      over everything that follows, so what is recorded is not which was
      written but which `wand f` writes -- the `;` where the binding is a
      block's, `in` where it names a value for one expression. *)
-  (* A body of several statements is a block, whatever joined it to the
-     binding. Written `in` it used to come back as a `let ... in` wearing a
-     `( ... )`, which is both spellings in the one binding and the shape the
-     style guide keeps `;` for. The one `in` that stays is the one that
-     narrows: `(let x = 1 in x + 1; 9)` gives `x` to `x + 1` and to nothing
-     below it, which is meaning rather than spelling, and a `;` waiting
-     after the body is how that reads here. *)
-  let body_is_a_block e =
-    let rec go e = match e with
-      | Located (_, e) -> go e
-      | Seq _ -> true
-      | Let (_, _, _, Ast.LetBlock) | LetRec (_, _, Ast.LetBlock) -> true
-      | _ -> false
-    in
-    go e
-  in
+  (* Which spelling the binding comes back as, and the only thing that
+     decides it is meaning.
+
+     `LetIn` narrows: a `;` waiting after the body says the name belongs to
+     that body and to nothing below it. Everything else binds for the rest
+     of what encloses it, which is `LetBlock`, whether brackets were written
+     round it or not.
+
+     Brackets are deliberately not part of this. They are the formatter's to
+     put in and take out -- it drops the ones a construct no longer needs --
+     so a style read off them disagrees with itself on the next pass. Read
+     the same node either way and the formatter is free to choose. *)
+  let style_for ~narrows = if narrows then Ast.LetIn else Ast.LetBlock in
   let consume_rest () =
     if peek s = Token.In then begin
       ignore (advance s);
       let body = locate s (fun () -> expr_ 0 s) in
-      let narrows = peek s = Token.Semicolon in
-      (body, if body_is_a_block body && not narrows then Ast.LetBlock
-             else Ast.LetIn)
+      (* A `;` narrows only inside a block, where it is the block's own
+         separator and the statements after it are the ones the name must
+         not reach. At the top level a `;` ends the item, and the formatter
+         does not write it back -- so reading it as a narrowing one made the
+         binding a `let ... in` whose reprint parsed as something else.
+         Found by test/fuzz. *)
+      (body, style_for ~narrows:(block && peek s = Token.Semicolon))
     end
     else if block && peek s = Token.Semicolon then begin
       (* The binding's body is everything after the `;`. *)
@@ -1577,7 +1586,7 @@ and let_ ?(block = false) s =
             && semicolon_joins_the_body s s.stmt_col then begin
       ignore (advance s);
       let body = parse_body s in
-      (body, if body_is_a_block body then Ast.LetBlock else Ast.LetIn)
+      (body, style_for ~narrows:false)
     end
     else if is_expr_start (peek s) then begin
       (* Neither `in` nor `;`: the newline ended the right-hand side, and
@@ -1590,9 +1599,13 @@ and let_ ?(block = false) s =
       if block then (paren_seq s, Ast.LetBlock)
       else
         let body = parse_body s in
-        (body, if body_is_a_block body then Ast.LetBlock else Ast.LetIn)
+        (body, style_for ~narrows:false)
     end
-    else (Unit, Ast.LetIn)
+    (* A binding with nothing after it. The body is written out as `()`, and
+       that is a body like any other: spelt the way the position spells one,
+       or the next pass reads back a style other than the one just
+       printed. *)
+    else (Unit, style_for ~narrows:false)
   in
   match p with
   | PVar "rec" when is_pat_atom_start (peek s) ->

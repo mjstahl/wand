@@ -186,8 +186,9 @@ let delete path = try delete! path
 -- ..   (FS.write_file! p "hi"; FS.read_file! p)
 -- "hi" : String
 let temp_file prefix suffix =
-  let acquire = fn () -> fs_temp_file prefix suffix in
-  let release = fn p -> if exists? p then delete! p in Resource.make acquire release
+  let acquire = fn () -> fs_temp_file prefix suffix;
+  let release = fn p -> if exists? p then delete! p;
+  Resource.make acquire release
 
 -- A new, uniquely-named empty directory in the OS temp directory, removed
 -- with everything in it when the `with` that holds it ends:
@@ -203,8 +204,9 @@ let temp_file prefix suffix =
 -- ..   FS.dir? d
 -- true : Bool
 let temp_dir prefix =
-  let acquire = fn () -> fs_temp_dir prefix in
-  let release = fn p -> if exists? p then fs_delete_tree p in Resource.make acquire release
+  let acquire = fn () -> fs_temp_dir prefix;
+  let release = fn p -> if exists? p then fs_delete_tree p;
+  Resource.make acquire release
 
 -- Why an acquire did not get the lock.
 --
@@ -345,7 +347,8 @@ let lock_wait! budget path =
       | Some taken -> taken
       | None -> fail_exn "lock: %{path} is held by another process"
   in
-  let release = fn taken -> fs_unlock taken in Resource.make acquire release
+  let release = fn taken -> fs_unlock taken;
+  Resource.make acquire release
 
 -- Take a lock on `path` for as long as the `with` holds it. Raises if it
 -- cannot be taken.
@@ -368,7 +371,8 @@ let lock! path =
       | Some taken -> taken
       | None -> fail_exn "lock: %{path} is held by another process"
   in
-  let release = fn taken -> fs_unlock taken in Resource.make acquire release
+  let release = fn taken -> fs_unlock taken;
+  Resource.make acquire release
 
 -- Delete a directory and everything under it. Raises on failure.
 --
