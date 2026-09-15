@@ -294,3 +294,35 @@ test "map3 names the field that failed" (fn t -> (
   | Ok _ -> t.ok false
   | Error e -> t.ok (String.contains? "count" e)
 ))
+
+type Wide(a: Int, b: Int, c: Int, d: Int, e: Int)
+
+test "and_map reads a record wider than map3" (fn t ->
+  let d =
+    Decode.succeed (fn a b c e f -> Wide(a = a, b = b, c = c, d = e, e = f))
+      |> Decode.and_map (Decode.field "a" Decode.int)
+      |> Decode.and_map (Decode.field "b" Decode.int)
+      |> Decode.and_map (Decode.field "c" Decode.int)
+      |> Decode.and_map (Decode.field "d" Decode.int)
+      |> Decode.and_map (Decode.field "e" Decode.int);
+  let doc = JSON.parse! `{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}`;
+  t.eq (Ok Wide(a = 1, b = 2, c = 3, d = 4, e = 5)) (JSON.decode d doc))
+
+test "and_map reads a field wand cannot name" (fn t ->
+  let d =
+    Decode.succeed (fn n r -> Pod(name = n, restarts = r))
+      |> Decode.and_map (Decode.field "$ref" Decode.string)
+      |> Decode.and_map (Decode.field "restarts" Decode.int);
+  let doc = JSON.parse! `{"$ref": "web-01", "restarts": 4}`;
+  t.eq (Ok Pod(name = "web-01", restarts = 4)) (JSON.decode d doc))
+
+test "and_map names the field that failed" (fn t -> (
+  let d =
+    Decode.succeed (fn n r -> Pod(name = n, restarts = r))
+      |> Decode.and_map (Decode.field "name" Decode.string)
+      |> Decode.and_map (Decode.field "restarts" Decode.int);
+  let doc = JSON.parse! `{"name": "web-01"}`;
+  match JSON.decode d doc with
+  | Ok _ -> t.ok false
+  | Error e -> t.ok (String.contains? "restarts" e)
+))

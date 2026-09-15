@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.77.0] - 2026-09-15
+
+### Added
+
+- **A keyword names a field.** A field name is not a name any scope can see,
+  so `type`, `when` and the rest read as themselves after a `.` and inside a
+  constructor's brackets. The field in every Kubernetes condition and every
+  JSON Schema node is called `type`, and a wand type could not spell it.
+
+  ```
+  type Condition(type: String, status: String)
+
+  let c = Condition(type = "Ready", status = "True")
+  c.type                              -- "Ready"
+  Condition(c, type = "Available")
+  ```
+
+  A derived `T.decoder` reads such a document, and `JSON.of` writes the word
+  back out unchanged. The short form is the one position this does not
+  reach: `Condition(type, status = s)` says to write `type = type_`.
+
+- **`Decode.and_map`** reads a record of any width as a pipeline, where
+  `map2` and `map3` stopped at three.
+
+  ```
+  Decode.succeed (fn a b c -> T(a = a, b = b, c = c))
+    |> Decode.and_map (Decode.field "a" Decode.int)
+    |> Decode.and_map (Decode.field "b" Decode.int)
+    |> Decode.and_map (Decode.field "c" Decode.int)
+  ```
+
+  A type whose field names match the document needs none of this --
+  `T.decoder` is derived and reads any width. Reach for `and_map` when the
+  names differ, or when the document spells a field something wand cannot,
+  like `$ref`.
+
+### Fixed
+
+- **Importing a module no longer costs more the larger it is.** The cost grew
+  with the square of the module, so a file that imported a large one spent
+  its run deciding which constructors were in scope rather than checking
+  itself. A module of 700 types took 52.7s to import and now takes 1.45s --
+  the module alone typechecks in 1.23s, so importing it costs 0.22s on top
+  rather than 51s. Startup is unchanged.
+
 ## [0.76.0] - 2026-09-15
 
 ### Fixed

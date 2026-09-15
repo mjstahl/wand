@@ -2085,13 +2085,29 @@ Decode.dict inner              -- read an object whose keys are data
 Decode.nullable inner          -- read a value that may be null
 Decode.map f d                 -- change what came back
 Decode.map2 f a b              -- read two things and combine them
+Decode.and_map d df            -- hand one more decoder to a waiting function
 Decode.and_then f d            -- choose what to read next from what was read
 Decode.succeed v  Decode.fail msg
 Decode.one_of [a, b, ...]      -- the first that works
 ```
 
-`map2` covers a record with two fields. For a wider record, chain through
-`and_then`. Validation also goes there:
+`map2` covers a record with two fields and `map3` a third. For a wider one,
+`and_map` reads it as a pipeline, one field per line:
+
+```ocaml
+let pod =
+  Decode.succeed (fn n r -> Pod (name = n, restarts = r))
+  |> Decode.and_map (Decode.field "name" Decode.string)
+  |> Decode.and_map (Decode.field "restarts" Decode.int)
+```
+
+Start with `succeed` holding a function of as many arguments as there are
+fields, then feed it one decoder at a time. A type whose field names are the
+document's needs none of this -- [its own decoder](#a-type-is-its-own-decoder)
+is derived and reads any width.
+
+Validation goes through `and_then`, which is what chooses a decoder from a
+value already read:
 
 ```ocaml
 let pod =
@@ -2710,6 +2726,39 @@ to settle. Write `B(n = n)`.
 field carries its name. Both spellings that a mixed one can be read as -- the
 update above, and the payload here -- are why. A pattern is not written under
 that rule, because it has no update form to be confused with.
+
+#### A keyword names a field
+
+A field name is not a name any scope can see. It sits after a `.`, or
+before the `:` or `=` that follows it inside a constructor's brackets, and
+nothing else can stand in those places. So a word the language has taken
+reads as itself there:
+
+```ocaml
+type Condition (type : String, status : String, when : String = "now")
+
+let c = Condition (type = "Ready", status = "True")
+
+c.type                              -- "Ready"
+Condition (c, type = "Available")   -- an update names one too
+
+match c with
+| Condition (type = k) -> k
+```
+
+This is what lets a type match the document it was written for. `type` is
+the field name in every Kubernetes condition, every JSON Schema node and a
+long list of web APIs, so a derived `T.decoder` reads those documents and
+`JSON.of` writes the word back out unchanged.
+
+A pun is the one field position this does not reach, since the bare name
+binds as well as names:
+
+```ocaml
+Condition (type, status = "True")
+-- parse error: 'type' is a keyword, so this field cannot take the short
+--   form: write 'type = type_'
+```
 
 #### Update
 
@@ -5306,6 +5355,7 @@ nullable : Decoder 'a -> Decoder (Option 'a)
 map      : ('a -> 'b) -> Decoder 'a -> Decoder 'b
 map2     : ('a -> 'b -> 'c) -> Decoder 'a -> Decoder 'b -> Decoder 'c
 map3     : ('a -> 'b -> 'c -> 'd) -> Decoder 'a -> Decoder 'b -> Decoder 'c -> Decoder 'd
+and_map  : Decoder 'a -> Decoder ('a -> 'b) -> Decoder 'b
 and_then : ('a -> Decoder 'b) -> Decoder 'a -> Decoder 'b
 succeed  : 'a -> Decoder 'a
 fail     : String -> Decoder 'a

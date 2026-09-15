@@ -328,3 +328,41 @@ test "a constructor named in the import is used bare" (fn t ->
     | Fail s -> s
     | Suite s _ -> s
     ))
+
+-- A field name is not a name a scope can see, so a word the language has
+-- taken reads as itself there. Half the JSON a script decodes spells a
+-- field `type`, and wand calling it a keyword does not change the document.
+type Condition(type: String, status: String, when: String = "now")
+
+test "a keyword names a field" (fn t ->
+  let c = Condition(type = "Ready", status = "True");
+  t.eq "Ready" c.type)
+
+test "a default fills one in" (fn t ->
+  let c = Condition(type = "Ready", status = "True");
+  t.eq "now" c.when)
+
+test "an update names one" (fn t ->
+  let c = Condition(type = "Ready", status = "True");
+  t.eq "Available" Condition(c, type = "Available").type)
+
+test "a pattern matches on one" (fn t ->
+  let c = Condition(type = "Ready", status = "True");
+  t.eq
+    "Ready holds"
+    (match c with
+    | Condition(type = k, status = "True") -> "%{k} holds"
+    | Condition(type = k) -> "%{k} does not"
+    ))
+
+test "it is written out as itself" (fn t ->
+  let c = Condition(type = "Ready", status = "False");
+  t.eq
+    (Ok `{"type":"Ready","status":"False","when":"now"}`)
+    (Result.map JSON.stringify (JSON.of c)))
+
+test "and read back from itself" (fn t ->
+  let doc = JSON.parse! `{"type":"Ready","status":"False","when":"then"}`;
+  t.eq
+    (Ok Condition(type = "Ready", status = "False", when = "then"))
+    (JSON.decode Condition.decoder doc))

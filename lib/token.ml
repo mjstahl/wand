@@ -218,3 +218,22 @@ let is_keyword = function
   | Requires | Ensures | Result | Fn | For | Do | End | Class | Instance
   | Orphan | When | As | And | Or | Handle | Return | Try -> true
   | _ -> false
+
+(* The word a keyword was written as, for the positions that hold a field
+   name rather than a name any scope can see. `let*` has no spelling a field
+   could take, so it answers None with the rest. *)
+let keyword_text = function
+  | Let -> Some "let"           | In -> Some "in"
+  | Match -> Some "match"       | With -> Some "with"
+  | If -> Some "if"             | Then -> Some "then"
+  | Else -> Some "else"         | Type -> Some "type"
+  | Import -> Some "import"     | Requires -> Some "requires"
+  | Ensures -> Some "ensures"   | Result -> Some "result"
+  | Fn -> Some "fn"             | For -> Some "for"
+  | Do -> Some "do"             | End -> Some "end"
+  | Class -> Some "class"       | Instance -> Some "instance"
+  | Orphan -> Some "orphan"     | When -> Some "when"
+  | As -> Some "as"             | And -> Some "and"
+  | Or -> Some "or"             | Handle -> Some "handle"
+  | Return -> Some "return"     | Try -> Some "try"
+  | _ -> None

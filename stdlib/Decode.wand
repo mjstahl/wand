@@ -137,13 +137,30 @@ let map f d = and_then (fn x -> succeed (f x)) d
 
 -- Read three things from the same value and combine them.
 --
--- Three is where this stops. A wider record is `and_then` and `succeed`,
--- or a derived `T.decoder` if the field names match the type's.
+-- Three is where the numbered ones stop. A wider record is `and_map`, or a
+-- derived `T.decoder` if the field names match the type's.
 --
 -- >> let three = Decode.map3 (fn a b c -> (a, b, c)) Decode.int Decode.int Decode.int
 -- >> JSON.decode three (JSON.parse! "1")
 -- Ok((1, 1, 1)) : Result String (Int, Int, Int)
 let map3 f a b c = and_then (fn g -> map g c) (map2 f a b)
+
+-- Hand one more decoder to a function that is waiting for it. Start with
+-- `succeed` holding a function of as many arguments as there are fields,
+-- then pipe a decoder in for each one. Any width reads the same way, and
+-- adding a field is one more line rather than a different combinator.
+--
+-- A type whose field names match the document's needs none of this:
+-- `T.decoder` is derived and reads any width. Reach for `and_map` when the
+-- names differ, when a field needs work on the way in, or when the
+-- document spells a field something wand cannot -- `$ref`, `x-linked`.
+--
+-- >> let doc = JSON.parse! `{"x": 1, "y": 2, "z": 3}`
+-- >> let triple = Decode.succeed (fn a b c -> (a, b, c))
+-- >> let read = triple |> Decode.and_map (Decode.field "x" Decode.int) |> Decode.and_map (Decode.field "y" Decode.int) |> Decode.and_map (Decode.field "z" Decode.int)
+-- >> JSON.decode read doc
+-- Ok((1, 2, 3)) : Result String (Int, Int, Int)
+let and_map d df = map2 (fn f v -> f v) df d
 
 -- Try each decoder in turn and take the first that succeeds. If none does,
 -- every alternative's complaint is reported, since which one is the real

@@ -555,6 +555,41 @@ let test_record_update () =
     "T(a, [b])"
     (App (Constr "T", Tuple [Var "a"; List [Var "b"]]))
 
+(* A field name is not a name any scope can see, so a word the language has
+   taken reads as itself there. `type` is what the API a script decodes
+   calls the field, whatever wand calls the keyword. *)
+let test_keyword_field_names () =
+  e "named field"
+    "C(type = 1)"
+    (ConstrApp ("C", [(Some "type", Int 1)], None));
+  e "beside an ordinary one"
+    "C(type = 1, n = 2)"
+    (ConstrApp ("C", [(Some "type", Int 1); (Some "n", Int 2)], None));
+  e "update"
+    "C(r, type = 1)"
+    (ConstrUpdate ("C", Var "r", [("type", Int 1)], None));
+  e "read back off a value"
+    "c.type"
+    (Field (Var "c", "type"));
+  e "and again through one"
+    "c.spec.type"
+    (Field (Field (Var "c", "spec"), "type"));
+  (* Every keyword but `result` reaches this, and `result` is an expression
+     of its own inside a contract. *)
+  e "another one"
+    "C(when = 1)"
+    (ConstrApp ("C", [(Some "when", Int 1)], None));
+  ignore (parse_program "type C(type: String, when: Int)");
+  ignore (parse_program "let f c = match c with | C(type = t) -> t");
+  (* The short form is the one field position this cannot reach: it would
+     have to bind the word as well as name the field. *)
+  refuses "no short form in a construction"
+    "type C(type: Int, n: Int)\nlet c = C(1, 2)\nlet d = C(type, n = 2)"
+    "cannot take the short form";
+  refuses "nor in a pattern"
+    "type C(type: Int, n: Int)\nlet f c = match c with | C(type, n = 2) -> n"
+    "cannot take the short form"
+
 (* A pattern carries a type wherever a pattern is written, including inside
    a constructor's payload -- which is where a decoder's result lands. *)
 let test_annotated_payload_pattern () =
@@ -1130,6 +1165,7 @@ let () =
       Alcotest.test_case "match"        `Quick test_match;
       Alcotest.test_case "constr pats"       `Quick test_constr_pats;
       Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
+      Alcotest.test_case "keyword field names" `Quick test_keyword_field_names;
       Alcotest.test_case "qualified names"  `Quick test_qualified_names;
       Alcotest.test_case "fn"           `Quick test_fn;
       Alcotest.test_case "paren seq"    `Quick test_paren_seq;

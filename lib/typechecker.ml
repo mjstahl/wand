@@ -1838,9 +1838,31 @@ let rec ctor_name_for tenv name =
    qualified forms lift this for the module they name. *)
 let visible_canonical : string list ref = ref []
 
+(* `nameable` is asked once per type in scope, for every constructor the
+   file mentions, so a list membership test here is the whole cost of
+   importing a large module: 700 types put 490,000 string comparisons behind
+   one constructor. The set is built from whichever list is current and kept
+   while that list is, which `with_visible` makes cheap -- it restores the
+   list it saved, so entering and leaving a scope each rebuild once and
+   every test between them is a lookup. *)
+let visible_set : (string list * (string, unit) Hashtbl.t) option ref = ref None
+
+let visible_mem key =
+  let current = !visible_canonical in
+  let tbl =
+    match !visible_set with
+    | Some (cached, tbl) when cached == current -> tbl
+    | _ ->
+      let tbl = Hashtbl.create (2 * List.length current + 1) in
+      List.iter (fun k -> Hashtbl.replace tbl k ()) current;
+      visible_set := Some (current, tbl);
+      tbl
+  in
+  Hashtbl.mem tbl key
+
 let nameable key =
-  if List.mem_assoc key module_only_ctors then List.mem key !visible_canonical
-  else not (String.contains key '#') || List.mem key !visible_canonical
+  if List.mem_assoc key module_only_ctors then visible_mem key
+  else not (String.contains key '#') || visible_mem key
 
 let with_visible keys f =
   let saved = !visible_canonical in
@@ -1958,9 +1980,28 @@ let ctor_schemes_for tname tdef =
     Hashtbl.replace ctor_scheme_cache (tname, tdef) schemes;
     schemes
 
+(* Inference asks for this at every constructor it meets, and the answer
+   only changes when the type environment does. Keyed on the environment's
+   identity: a `typedef_env` is an immutable list, so the same one is the
+   same answer, and a different one rebuilds.
+
+   Without it, a file importing a module of 700 types spent its run walking
+   that list once per constructor -- 52.7s where the module alone typechecks
+   in 1.2s.
+
+   Cleared with the rest of the per-program state in `infer_program_`. *)
+let ctor_env_memo : (typedef_env * env) option ref = ref None
+
 let tenv_to_ctor_env (tenv : typedef_env) : env =
-  List.concat_map (fun (tname, tdef) ->
-    if nameable tname then ctor_schemes_for tname tdef else []) tenv
+  match !ctor_env_memo with
+  | Some (cached, result) when cached == tenv -> result
+  | _ ->
+    let result =
+      List.concat_map (fun (tname, tdef) ->
+        if nameable tname then ctor_schemes_for tname tdef else []) tenv
+    in
+    ctor_env_memo := Some (tenv, result);
+    result
 
 (* ── Pattern inference ────────────────────────────────────────────────────── *)
 
@@ -4787,6 +4828,8 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   pending_fix := None;
   current_eff := Effect_set.unknown ();
   Hashtbl.reset ctor_scheme_cache;
+  ctor_env_memo := None;
+  visible_set := None;
   holes := [];
   let prog = settle_aliases ~init_tenv prog in
   let local_tenv = List.filter_map (function

@@ -273,6 +273,21 @@ let rewind s (pos, depth, col, sdepth, cname) =
   s.pos <- pos; s.paren_depth <- depth; s.stmt_col <- col;
   s.stmt_depth <- sdepth; s.clause_name <- cname
 
+(* A field name sits where no scope reaches it: after a `.`, or before the
+   `:` or `=` that follows it inside a constructor's brackets. A word the
+   language has taken reads as itself in those three places. `type` is a
+   field of half the JSON any script decodes -- every Kubernetes condition,
+   every JSON Schema node -- and a name wand refuses is a name the document
+   still spells that way.
+
+   A pun is the one field position this does not reach, since `T(type)`
+   would have to bind a variable. Those say to write the field out. *)
+let field_name_of = function
+  | Token.Ident name -> Some name
+  | t -> Token.keyword_text t
+
+let is_field_name t = field_name_of t <> None
+
 (* Whether a lowercase module name starts a type after a `:`. A user
    module's namespace is its file name, and only the dot after it tells
    `(c : one.Status)` from `(x : xs)`, the cons mistake. *)
@@ -291,10 +306,33 @@ let peek_named_args s =
   else begin
     incr i; skip ();
     if !i >= n then false
-    else match fst arr.(!i) with
-    | Token.Ident _ ->
+    else if is_field_name (fst arr.(!i)) then begin
       incr i; skip ();
       !i < n && fst arr.(!i) = Token.Eq
+    end else false
+  end
+
+(* `T(type, status = s)` -- a keyword standing where a field's short form
+   would go. Reading it as a field list is what lets the message name the
+   fix, and costs nothing: a keyword alone in brackets is a parse error
+   either way. `result` is the exception, being an expression of its own
+   inside a contract, so it stays a payload. *)
+let peek_keyword_pun s =
+  let arr = s.tokens in
+  let n = Array.length arr in
+  let i = ref s.pos in
+  let skip () = while !i < n && is_skippable (fst arr.(!i)) do incr i done in
+  skip ();
+  if !i >= n || fst arr.(!i) <> Token.LParen then false
+  else begin
+    incr i; skip ();
+    if !i >= n then false
+    else match fst arr.(!i) with
+    | Token.Result -> false
+    | t when Token.keyword_text t <> None ->
+      let j = ref (!i + 1) in
+      while !j < n && is_skippable (fst arr.(!j)) do incr j done;
+      !j < n && (fst arr.(!j) = Token.Comma || fst arr.(!j) = Token.RParen)
     | _ -> false
   end
 
@@ -319,7 +357,7 @@ let peek_named_pat_args s =
       (match fst arr.(!i) with
        | Token.LParen | Token.LBracket | Token.LBrace -> incr depth
        | Token.RParen | Token.RBracket | Token.RBrace -> decr depth
-       | Token.Ident _ when !depth = 1 ->
+       | t when !depth = 1 && is_field_name t ->
          let j = ref (!i + 1) in
          while !j < n && is_skippable (fst arr.(!j)) do incr j done;
          if !j < n && fst arr.(!j) = Token.Eq then found := true
@@ -371,11 +409,10 @@ let peek_field_after_comma s =
   else begin
     incr i; skip ();
     if !i >= n then false
-    else match fst arr.(!i) with
-    | Token.Ident _ ->
+    else if is_field_name (fst arr.(!i)) then begin
       incr i; skip ();
       !i < n && fst arr.(!i) = Token.Eq
-    | _ -> false
+    end else false
   end
 
 let keywords = [
@@ -414,6 +451,24 @@ let expect s tok =
   if not (Token.equal t tok) then
     fail_at loc (Format.asprintf "expected %a, got %a%s"
       Token.pp tok Token.pp t (keyword_hint t))
+
+(* `puns` says whether the short form is available where this is read. It
+   is in a construction and in a pattern, where a bare field also binds a
+   name -- so a keyword there has to carry its `=`, and the message says
+   that rather than refusing the word. *)
+let expect_field_name ?(puns = false) s =
+  let loc = peek_loc s in
+  match advance s with
+  | Token.Ident name -> name
+  | t ->
+    (match Token.keyword_text t with
+     | Some name when (not puns) || peek s = Token.Eq -> name
+     | Some name ->
+       fail_at loc (Printf.sprintf
+         "'%s' is a keyword, so this field cannot take the short form: write '%s = %s_'"
+         name name name)
+     | None ->
+       fail_at loc (Format.asprintf "expected a field name, got %a" Token.pp t))
 
 let expect_ident s =
   let loc = peek_loc s in
@@ -746,14 +801,14 @@ and pat_base_ s =
       Token.pp t (keyword_hint t))
 
 and pconstr_body_ s name =
-  if peek_named_pat_args s then begin
+  if peek_named_pat_args s || peek_keyword_pun s then begin
     ignore (advance s); (* consume LParen *)
     let fields = ref [] in
     if peek s <> Token.RParen then begin
       (* A bare identifier puns, the way it does in a map pattern: the
          field binds a variable of its own name. *)
       let parse_field () =
-        let fname = expect_ident s in
+        let fname = expect_field_name ~puns:true s in
         if peek s = Token.Eq then begin
           ignore (advance s);
           fields := !fields @ [(fname, pat_ s)]
@@ -1006,7 +1061,7 @@ and infix_ left op s =
           "a constructor is reached through a module's name"
     in
     Qualified (m, constr_atom_ s)
-  | Token.Dot       -> Field (left, expect_ident s)
+  | Token.Dot       -> Field (left, expect_field_name s)
   | t -> fail (Format.asprintf "unexpected infix: %a" Token.pp t)
 
 and atom_base_ s =
@@ -1199,7 +1254,7 @@ and constr_body_ s name =
      All three shapes below need it, and all three want the same `(`, so the
      question is asked once. *)
   let takes_a_bracket = peek s = Token.LParen && not (newline_breaks_expr s) in
-  if takes_a_bracket && peek_named_args s then begin
+  if takes_a_bracket && (peek_named_args s || peek_keyword_pun s) then begin
     ignore (advance s); (* consume LParen *)
     let fields = ref [] in
     if peek s <> Token.RParen then begin
@@ -1207,7 +1262,7 @@ and constr_body_ s name =
          already has. Safe here because the first field carried an `=`, so
          this cannot be the base of an update. *)
       let parse_field () =
-        let fname = expect_ident s in
+        let fname = expect_field_name ~puns:true s in
         if peek s = Token.Eq then begin
           ignore (advance s);
           fields := !fields @ [(Some fname, expr_ 0 s)]
@@ -1263,7 +1318,7 @@ and constr_body_ s name =
         let fields = ref [] in
         while peek s = Token.Comma do
           ignore (advance s);
-          let fname = expect_ident s in
+          let fname = expect_field_name s in
           expect s Token.Eq;
           fields := !fields @ [(fname, expr_ 0 s)]
         done;
@@ -1308,7 +1363,7 @@ and postfix_field_ s e =
              "a constructor is reached through a module's name"
        in
        e := Qualified (m, constr_atom_ s)
-     | _ -> e := Field (!e, expect_ident s))
+     | _ -> e := Field (!e, expect_field_name s))
   done;
   !e
 
@@ -1963,9 +2018,9 @@ let parse_type_def s =
       let saved = mark s in
       ignore (advance s);
       (match peek s with
-       | Token.Ident _ ->
+       | t when is_field_name t && peek2 s = Token.Colon ->
          let parse_named () =
-           let fname = expect_ident s in
+           let fname = expect_field_name s in
            expect s Token.Colon;
            (* An applied type -- `List String`, `Option Node` -- reads as one
               field type. The comma and the closing paren are not type atoms,
