@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.77.1] - 2026-09-16
+
+### Fixed
+
+- **`wand f` wrote a contract body that opened with a glob.** The brackets
+  that keep such a body apart from the clause above it went straight onto
+  the glob's star.
+
+  ```
+  let f n =
+    requires n > 0
+    **/*.wand
+  ```
+
+  The body came back as `(**)`, which the lexer reads as an attempt at a
+  block comment, so the file stopped parsing. The bracket now takes the
+  space the three earlier findings of this shape already had. Found by the
+  daily fuzzer.
+
 ## [0.77.0] - 2026-09-15
 
 ### Added
@@ -3430,6 +3449,7 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
 [unreleased]: https://github.com/wand-lang/wand/compare/v0.77.0...HEAD
+[0.77.1]: https://github.com/wand-lang/wand/compare/v0.77.0...v0.77.1
 [0.77.0]: https://github.com/wand-lang/wand/compare/v0.76.0...v0.77.0
 [0.76.0]: https://github.com/wand-lang/wand/compare/v0.75.0...v0.76.0
 [0.75.0]: https://github.com/wand-lang/wand/compare/v0.74.0...v0.75.0

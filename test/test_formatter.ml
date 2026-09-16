@@ -1149,7 +1149,14 @@ let test_contract_clauses_keep_their_indent () =
      parse. Found by test/fuzz. *)
   ok_after_format "a body that opens with an operator keeps its brackets"
     "let f n =\n  requires n > 0\n  (-n)\nf 3"
-    "-3"
+    "-3";
+  (* And the bracket goes on through `opener`, because a glob opens with a
+     star: written straight onto one, `(` and `*` are what the lexer reads
+     as an attempt at a block comment, and the body was saved while the
+     file stopped parsing. Found by test/fuzz. *)
+  ok_after_format "a body that opens with a glob keeps its brackets too"
+    "let f n =\n  requires n > 0\n  **/*.wand\nf 3"
+    "**/*.wand"
 
 let test_handle_and_regex_round_trip () =
   ok_after_format "a handler"

@@ -705,7 +705,9 @@ let printed_ends_in_an_arm e = match e with
    in `parenthesize` first, then turned up again from a case body, and again
    from a tuple, a `;` block and a record update, none of which wrap anything
    -- they open a bracket and put the first item after it, which is the same
-   two characters. Found by test/fuzz, three times.
+   two characters, and again from a contract body, which brackets a body that
+   opens with an operator and a glob's star is one. Found by test/fuzz, four
+   times.
 
    `(` only: `[*` and `{*` are not the comment opener and need no space, and
    a space written where none is needed is a diff nobody meant. *)
@@ -1204,7 +1206,7 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
     let body_text = emit_expr indent body in
     let body_text =
       if has_clauses && opens_with_an_operator body_text
-      then "(" ^ body_text ^ ")" else body_text
+      then bracket body_text else body_text
     in
     String.concat ("\n" ^ ind)
       (List.map (clause "requires") reqs @ List.map (clause "ensures") ens)

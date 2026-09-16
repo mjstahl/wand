@@ -1,0 +1,17 @@
+found:     Daily Fuzz, seed 35097920149, iteration 27066, 2026-09-16 (issue #29)
+reported:  format:unparses:a comment is _ to the end of the line
+fixed in:  lib/formatter.ml, the `Contract` case of emit_expr_inner
+
+The sibling of formatter-a-contract-body-opening-with-an-operator. That fix
+brackets a contract body that opens with an operator, so the line does not
+read as a continuation of the clause above it:
+
+  let x = ensures s **
+
+`**` is a glob literal, and a glob opens with a star. The bracket went
+straight onto it and wrote `(**)`, which the lexer reads as an attempt at a
+block comment. The body was saved and the file stopped parsing anyway.
+
+`opener` has held the space for this since three earlier findings. The
+contract case wrote its bracket by hand instead of going through it. It now
+uses `bracket`.
