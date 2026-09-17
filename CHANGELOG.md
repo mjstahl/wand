@@ -575,8 +575,8 @@
 - **`Stream.tally` and `List.tally`** count how often each string appears.
   Counting written as a fold applies two functions to every item -- the
   fold's own and the one `Map.update` increments with -- so the interpreter
-  runs the loop as well as the counting. `tally` is the loop, in OCaml, and
-  enters nothing above it: counting the first field of a 200k-line log went
+  runs the loop as well as the counting. `tally` is the loop itself, built
+  in, and enters nothing above it: counting the first field of a 200k-line log went
   from 379ms to 108ms, against 125ms for the same thing in Python. Counting
   by something other than the whole line is `Stream.map` or
   `Stream.filter_map` in front of it, and those stages run in the same loop.
@@ -587,16 +587,16 @@
 ### Changed
 
 - **`Map.get`, `List.get` and `String.word` answer with the `Option`
-  itself.** Each was `Result.to_option` over a builtin: an `Ok` built, a
-  library closure applied, a match, and a `Some` built, to convert a value
-  the builtin already had. Five steps a lookup, on three of the functions a
-  script reaches for most, and the error string they built was thrown away
-  by every caller. `Map.get` cost 1.22us against 480ns for `Map.get!`, which
-  does the same search. It is 33% off a script that counts by a map key and
-  42% off one that reads a field. `Env.get` is unchanged: it is
-  `try env_get_exn`, so the `Env!get` operation supplies the `String` a
-  handler double stands in with. `None` carries nothing, so one value now
-  serves every absence rather than one being built per miss
+  itself.** Each was `Result.to_option` over the primitive underneath: an
+  `Ok` built, a wand function called, a match, and a `Some` built, to
+  convert a value the primitive already had. Five steps a lookup, on three
+  of the functions a script reaches for most, and the error string they
+  built was thrown away by every caller. `Map.get` cost 1.22us against 480ns
+  for `Map.get!`, which does the same search. It is 33% off a script that
+  counts by a map key and 42% off one that reads a field. `Env.get` is
+  unchanged: it is `try env_get_exn`, so the `Env!get` operation supplies
+  the `String` a handler double stands in with. `None` carries nothing, so
+  one value now serves every absence rather than one being built per miss
 
 ### Fixed
 
@@ -720,10 +720,10 @@ Two more of the things the benchmark found, and a directory retired.
   declared first in a file was the last one found: 584ns to resolve, against
   74ns for the one declared last. Both are 92ns now
 
-- **A standard library definition that only forwards to a builtin is that
-  builtin.** `let trim s = str_trim s` hands its argument on unchanged, so
-  the closure around it existed only to pass one value along. 289 of the
-  library's 530 definitions have that shape
+- **A standard library definition that only passes its argument on is the
+  thing it passes to.** `let trim s = str_trim s` hands `s` over unchanged,
+  so the wrapper around it existed to do nothing else. 289 of the library's
+  530 definitions have that shape
 
 ### Fixed
 
@@ -1447,7 +1447,7 @@ performs FS!read_file
   *byte* and called them characters, so `String.chars "café"` came back with
   five elements and the last two were the halves of the é. The name was the
   defect: a caller reading it had no reason to look. Nothing about the
-  behaviour changes, and the builtin behind it is `str_bytes` to match.
+  behaviour changes.
   Three occurrences in this repository, and this is a breaking change the
   moment anyone outside it writes a script, which is why it lands now rather
   than after a first release
@@ -1467,9 +1467,10 @@ performs FS!read_file
 - **A constructor that takes no payload hands the bracket back to the
   call.** `Hash.string Sha256 (body ++ "\n")` was an error: a bracket after
   a constructor is its payload, and the parser attaches one without reading
-  arity so that `Ctor (a, b)` means the same thing in every file. A nullary
+  how many fields it has, so that `Ctor (a, b)` means the same thing in
+  every file. A nullary
   constructor cannot own it, so it belongs to the call around it, and both
-  the checker and the evaluator now read it that way. Nothing that compiled
+  `wand t` and a run now read it that way. Nothing that compiled
   before changes meaning, because a nullary constructor is not a function
   and applying it was always an error. Where there is no call to hand the
   argument to -- `let r = Red (1)` -- it is still an error, and the message
@@ -1559,9 +1560,9 @@ performs FS!read_file
 
 - **A `match`/`handle` arm whose body ends in a nested match keeps its
   bracket.** An arm ends only where the next `|` begins, so a bare match
-  printed at the end of one takes the arms below it. `emit_case_body` asked
-  whether the body ends in a match by following `Let` and `LetRec` tails
-  only. `With`, `Fn` and `If` print their tails just as unguarded, so
+  printed at the end of one takes the arms below it. Whether the body ends
+  in a match was decided by following `let` tails only. `with`, `fn` and
+  `if` end just as openly, so
   `| S!n d k -> with k as _ -> match ... with | e -> ""` gave the handler's
   next operation to the nested match. The result is a different program that
   the formatter prints as a fixed point, so a check that only asks whether
@@ -1616,9 +1617,9 @@ performs FS!read_file
 
 ### Fixed
 
-- **A version keeps its brackets before a field access.** `emit_field`
-  brackets a literal that the `.` after it would run into. It asked that of
-  a version by the version's last character. A prerelease is dot-separated,
+- **A version keeps its brackets before a field access.** A literal that
+  the `.` after it would run into is bracketed, and whether a version needed
+  that was decided by its last character. A prerelease is dot-separated,
   so `1.0.0` was bracketed and `1.0.0-a` was not. `(1.0.0-a).f` became
   `1.0.0-a.f`, which is one version literal. The field access became a
   literal, and a file that was a type error typechecked. A version is now
@@ -1632,8 +1633,8 @@ performs FS!read_file
   `foo`. So every `p.M(N)` was written as `p.M N`, and the payload changed
   scope. The formatter also did not settle: `n d.M(N)(s [])` became
   `n d.M N (s [])`, then `n (d.M) (N (s []))`. That is what the fuzzer
-  reported. The bracket is kept now, and `emit_app` does not flatten through
-  a module's name. Daily Fuzz #21
+  reported. The bracket is kept now, and a call is no longer flattened
+  through a module's name. Daily Fuzz #21
 
 ## [0.59.0] - 2026-09-04
 
@@ -1760,8 +1761,8 @@ performs FS!read_file
   effect passed straight through the handler that existed to stop it. The
   tail is split instead: `(Unit -> 'a ! {Proc | 'e}) -> 'a ! 'e`, which is
   the shape `Par.timeout` has been written by hand with all along. A thunk
-  that performs nothing still passes, since a generalized row instantiates
-  fresh
+  that performs nothing still passes: a row that stands for any effects
+  stands for none of them too
 - **A demand is not a deed.** An effect on an argument's arrow is something
   the caller may bring, and the manifest counted it, so a file could not say
   it had mocked an effect away without declaring the effect it had mocked.
@@ -1817,9 +1818,9 @@ performs FS!read_file
 ### Fixed
 
 - **A constructor can build every value of its own type.** `String.to_url`
-  and `String.to_version` decided by handing the text back to the lexer and
-  asking whether it came out as one token, which made a rule about writing a
-  literal into a rule about the values. A URL literal ends at a `,` and a
+  and `String.to_version` decided by asking whether the text would read as a
+  single literal in source, which made a rule about writing one into a rule
+  about the values. A URL literal ends at a `,` and a
   `;` because they are the punctuation around it, and both are legal in a
   URL -- so `https://x/s?tags=a,b` could not be built, nor an IPv6 host,
   whose brackets end a literal too, nor a version carrying build metadata,
@@ -1829,13 +1830,13 @@ performs FS!read_file
   one place now, checked by the literal, the constructor and the decoder
   alike, as the port range has always been
 - **A version with build metadata compares instead of raising.** The
-  prerelease was found by splitting on `-`, so `1.2.3+b` put a `+` in front
-  of `int_of_string`. Nothing had reached it, because no constructor could
-  build such a value. Build metadata is taken off first now, and takes no
-  part in precedence, which is rule 10
+  prerelease was found by splitting on `-`, so `1.2.3+b` left a `+` where a
+  number was expected and the read failed. Nothing had reached it, because no
+  constructor could build such a value. Build metadata is taken off first
+  now, and takes no part in precedence, which is rule 10
 - **`String.to_url` answers about the URL.** `ftp://x` came back "a comment
-  is `-- ...` to the end of the line, not `//`" -- true of the scanner, and
-  nothing to do with the URL
+  is `-- ...` to the end of the line, not `//`" -- true of wand's comments,
+  and nothing to do with the URL
 - **A malformed glob reports rather than raising.** `FS.glob` compiled its
   pattern with an engine that raises on an unclosed character class. A
   literal cannot hold one, so nothing had reached it; `Glob.of_string`
@@ -1876,8 +1877,8 @@ performs FS!read_file
   it. The rendering is lexed now
 - **A nested pipeline keeps its brackets.** A `|>` chain too wide for one
   line breaks into a stage per line, and is read back as one
-  left-associative chain -- so a stage that is itself an operator needs the
-  brackets `emit_binop` would have given it and was not getting them.
+  left-associative chain -- so a stage that is itself an operator needs
+  brackets, and was not getting them.
   `5 |> (f |> g)` came back as `(5 |> f) |> g`, a different program, and the
   reprint of that differed again
 
@@ -2215,10 +2216,9 @@ Each removed spelling reports what is wrong and names the one that works.
   at the line and the language server could not underline it. Found by the
   fuzzer, eight ways
 - A type with more than 26 type variables prints them all as type variables.
-  `string_of_typ` added the count to `'a`, so the 27th printed as `'{` and
-  the 159th raised `Invalid_argument`. A function of 180 arguments turned
-  `wand t` into a backtrace. Names now wrap: `'a` to `'z`, then `'a1`. Found
-  by the fuzzer
+  The count was added to `'a`, so the 27th printed as `'{` and the 159th
+  crashed. A function of 180 arguments turned `wand t` into a crash report.
+  Names wrap now: `'a` to `'z`, then `'a1`. Found by the fuzzer
 
 ## [0.51.0] - 2026-08-26
 
@@ -2268,12 +2268,12 @@ Each removed spelling reports what is wrong and names the one that works.
 
 - **A call that nests deeper than 1,000,000 is refused.** A call with work
   waiting on it keeps a stack frame, so nesting without end used to exhaust
-  the stack and end the run with OCaml's `Fatal error: exception Stack
-  overflow` — which cannot be caught: a handler that matches it, even one
-  whose guard rejects it, hangs rather than unwinds, because the guard runs
-  on the stack that just ran out. The depth is bounded before the stack goes,
-  and the refusal is a wand error a script can catch. Only `apply` is bounded
-  and never `apply_tail`, so a tail-recursive loop still runs to any depth.
+  the stack and kill the run with `Fatal error: exception Stack overflow` —
+  which cannot be caught: a handler that matches it, even one whose guard
+  rejects it, hangs rather than unwinds, because the guard runs on the stack
+  that just ran out. The depth is bounded before the stack goes, and the
+  refusal is a wand error a script can catch. Only a call with work waiting
+  on it counts, so a call in tail position still runs to any depth.
   A non-tail recursion deeper than the bound ran before and does not now;
   reaching that depth costs time quadratic in it, because the frames are live
   roots and every minor collection rescans them, so the code this rejects was
@@ -2289,22 +2289,22 @@ Each removed spelling reports what is wrong and names the one that works.
   has the same value as one a call handed back. It now keys off the effects
   the expression performed, which is the question actually being asked
 - An effect in an imported module's top-level binding runs. `let greeting =
-  $(hostname)` at the top of a module ended the program with OCaml's
-  `Unhandled(WandEffect ...)`. The cause was ordering, not policy: imports
+  $(hostname)` at the top of a module killed the run with a crash naming an
+  unhandled effect. The cause was ordering, not policy: imports
   were evaluated before the handler was installed, in every run path. The
   module's bindings now run under the handler a script's own body runs under.
   Manifests are unchanged — a module whose `uses` is narrower than what it
   does is still refused
 - An operation with no handler comes back as a wand error naming it, rather
-  than as OCaml's `Effect.Unhandled` printed raw. The handler's cases end in
-  a fallthrough, so an unknown name or a payload of the wrong shape reached it
+  than as a raw crash report. The handler's cases end in a catch-all, so an
+  unknown name or a payload of the wrong shape reached it
 - A bare constructor that swallowed an argument is corrected, not just
   reported. Parentheses after a constructor are its payload whatever its
-  arity, so `f None (1)` is `f (None 1)` and the argument meant for the call
-  went to `None`. The checker knew the arity and said to write `(None)`;
-  `wand t --fix` and the editor's code action now write it. The parse is
-  unchanged — reading arity there is what made `Ctor (a, b)` mean different
-  things in different files
+  number of fields, so `f None (1)` is `f (None 1)` and the argument meant
+  for the call went to `None`. `wand t` knew it took none and said to write
+  `(None)`; `wand t --fix` and the editor's code action now write it. What
+  is parsed is unchanged — counting the fields there is what made
+  `Ctor (a, b)` mean different things in different files
 
 ## [0.49.0] - 2026-08-25
 
@@ -2616,19 +2616,19 @@ Each removed spelling reports what is wrong and names the one that works.
 
 ### Changed
 
-- A wand tail call is an OCaml tail call. A function whose body ends in a
-  call runs in a stack that does not grow, however deep it goes. `Located`
-  nodes wrapped evaluation in an exception handler to stamp a position onto
-  an error, and a handler is a frame that stays; the position now travels in
+- A tail call does not grow the stack. A function whose body ends in a call
+  runs to any depth. Every step used to be wrapped in an error handler so a
+  failure could be stamped with its position, and such a handler is a frame
+  that stays; the position now travels in
   a cell. A tail-recursive loop over 1.6M items goes from 11,642 ms to
   323 ms, `List.fold_left` over 200k from 449 ms to 100 ms
 - Deciding not to stop costs two atomic loads. Every step of evaluation asks
-  whether it should stop, and the answer used to read two pieces of
-  domain-local state — more, on the shapes a script runs, than resolving all
-  of its names. Ctrl-C still stops a script in about a millisecond, and a
-  losing racer still stops where it stands
-- A recursive call binds the closure it already has, rather than building a
-  second copy of it and a wrapper to carry it in, on every call
+  whether it should stop, and the answer used to take two reads — more, on
+  the shapes a script runs, than resolving all of its names. Ctrl-C still
+  stops a script in about a millisecond, and a losing racer still stops
+  where it stands
+- A recursive call reuses the function it already has, rather than building
+  a second copy of it and a wrapper to carry it in, on every call
 
 ### Fixed
 
@@ -3116,8 +3116,8 @@ of the whole definition instead: `let f : 'a -> 'a = ...`.
 - **Breaking (text):** A type error names what it expected and what it got.
   It said `cannot unify Glob with Path`, and it now says
   `expected Glob, got Path`. "Unify" is a word from the type checker, not
-  from a script. `unify` has no fixed argument order, so 37 call sites now
-  state which side the reader wrote: an annotation, an application, an `if`,
+  from a script. Which type came from where was not recorded, so 37 places
+  now state which side the reader wrote: an annotation, an application, an `if`,
   an arm of a `match`, a pattern, an element of a list or a map, a `$()`
   payload, a `|>` stage, a contract clause, a `with` resource, an operand.
   A site that cannot know says `Glob and Path are not the same type`
@@ -3129,8 +3129,8 @@ of the whole definition instead: `let f : 'a -> 'a = ...`.
   Shell` (`f8437a2`)
 - **Breaking (text):** Three more messages drop the word: a non-number in
   arithmetic reads `expected a number, got Bool`, the two members of `Num`
-  read `Int and Float do not mix`, and the occurs check reads
-  `this value would have to contain itself` (`f8437a2`)
+  read `Int and Float do not mix`, and a type that would contain itself
+  reads `this value would have to contain itself` (`f8437a2`)
 - `README.md` and `docs/reference.md` are written in Simplified Technical
   English: short sentences, active voice, one idea in each. The reference
   went from 692 sentences with a median of 14 words to 1158 with a median of
@@ -3243,7 +3243,8 @@ that did not report a raise, an exit code that did not match the finding.
 ### Added
 
 - Add written effects to type annotations: `! {Shell}`, `! {Shell | 'e}`
-  and `! 'e` all parse, on the innermost arrow of a curried type as an
+  and `! 'e` all parse, on the innermost arrow of a multi-argument type as
+  an
   inferred one carries them. They are checked rather than assumed, so an
   annotation cannot quietly narrow what a function does. This is what lets
   a declaration state that a field's effects are the caller's —
@@ -3341,10 +3342,10 @@ corpus files gain parentheses they do not strictly need.
   what appeared came from the editor's own guess at words in the buffer
   (`6bb3f40`)
 - Add an operations table as one definition of what a handler can catch.
-  `effect_of_operation` and `operation_types` read from it, and it can
-  be enumerated, which is what the editor needed. `test_operations.wand`
-  proves every claim in it by running each performer under a handler for
-  its operation (`6bb3f40`)
+  Which effect an operation belongs to, and the types it carries, are read
+  from it, and it can be listed, which is what the editor needed.
+  `test_operations.wand` proves every claim in it by running each performer
+  under a handler for its operation (`6bb3f40`)
 
 ### Fixed
 
