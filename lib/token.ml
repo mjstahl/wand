@@ -45,7 +45,6 @@ type t =
   | Hole               (* ? *)
   (* Keywords *)
   | Let
-  | LetStar            (* let* *)
   | In
   | Match
   | With
@@ -61,9 +60,6 @@ type t =
   | For
   | Do
   | End
-  | Class
-  | Instance
-  | Orphan
   | When
   | As                 (* as — binds the value a `with` acquires *)
   | And                (* and — keyword, not && *)
@@ -169,7 +165,7 @@ let pp ppf tok =
     | Upper s    -> Printf.sprintf "Upper(%s)" s
     | TypeVar s  -> Printf.sprintf "'%s" s
     | Hole       -> "Hole"
-    | Let        -> "let"    | LetStar    -> "let*"
+    | Let        -> "let"
     | In         -> "in"     | Match      -> "match"
     | With       -> "with"   | If         -> "if"
     | Then       -> "then"   | Else       -> "else"
@@ -179,8 +175,7 @@ let pp ppf tok =
     | Result     -> "result" | Fn         -> "fn"
     | For        -> "for"
     | Do         -> "do"     | End        -> "end"
-    | Class      -> "class"  | Instance   -> "instance"
-    | Orphan     -> "orphan" | When       -> "when"
+    | When       -> "when"
     | As         -> "as"
     | And        -> "and"   | Or         -> "or"
     | Handle     -> "handle" | Return    -> "return"  | Try    -> "try"
@@ -220,9 +215,9 @@ let equal a b = a = b
 (* A word the language has taken. Used where a name is expected, so the
    message can say why a perfectly ordinary-looking word was refused. *)
 let is_keyword = function
-  | Let | LetStar | In | Match | With | If | Then | Else | Type | Import
-  | Requires | Ensures | Result | Fn | For | Do | End | Class | Instance
-  | Orphan | When | As | And | Or | Handle | Return | Try -> true
+  | Let | In | Match | With | If | Then | Else | Type | Import
+  | Requires | Ensures | Result | Fn | For | Do | End
+  | When | As | And | Or | Handle | Return | Try -> true
   | _ -> false
 
 (* The word a keyword was written as, for the positions that hold a field
@@ -237,8 +232,7 @@ let keyword_text = function
   | Ensures -> Some "ensures"   | Result -> Some "result"
   | Fn -> Some "fn"             | For -> Some "for"
   | Do -> Some "do"             | End -> Some "end"
-  | Class -> Some "class"       | Instance -> Some "instance"
-  | Orphan -> Some "orphan"     | When -> Some "when"
+  | When -> Some "when"
   | As -> Some "as"             | And -> Some "and"
   | Or -> Some "or"             | Handle -> Some "handle"
   | Return -> Some "return"     | Try -> Some "try"

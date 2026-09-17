@@ -63,8 +63,7 @@ let keyword_or_ident word = match word with
   | "ensures"  -> Ensures  | "result"   -> Result
   | "fn"       -> Fn       | "fun"      -> Fn
   | "for"      -> For      | "do"       -> Do
-  | "end"      -> End      | "class"    -> Class
-  | "instance" -> Instance | "orphan"   -> Orphan
+  | "end"      -> End
   | "when"     -> When     | "and"      -> And
   | "as"       -> As
   | "or"       -> Or       | "handle"   -> Handle
@@ -850,10 +849,8 @@ let read_ident s first_char =
   else if not (is_at_end s) && peek s = '!' && peek2 s <> '=' then
     Buffer.add_char buf (advance s);
   let word = Buffer.contents buf in
-  (* let* *)
-  if word = "let" && peek s = '*' then (ignore (advance s); LetStar)
   (* Regex literal: r/pattern/flags — only when r is followed immediately by / *)
-  else if word = "r" && peek s = '/' then read_regex s
+  if word = "r" && peek s = '/' then read_regex s
   (* URL: http:// or https:// *)
   else if (word = "http" || word = "https")
        && peek s = ':' && peek2 s = '/' && char_at s 2 = '/' then

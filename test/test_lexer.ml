@@ -62,17 +62,16 @@ let test_keywords () =
     "for",      For;
     "do",       Do;
     "end",      End;
-    "class",    Class;
-    "instance", Instance;
-    "orphan",   Orphan;
     "when",     When;
     "and",      And;
     "or",       Or;
   ] in
   List.iter (fun (src, tok) -> check_tokens src src [tok]) cases
 
+(* `let*` is OCaml's binding operator and not wand's. `let` is a keyword and
+   `*` is the operator, which is what these two tokens say. *)
 let test_let_star () =
-  check_tokens "let*" "let*" [LetStar]
+  check_tokens "let*" "let*" [Let; Star]
 
 let test_underscore () =
   check_tokens "wildcard _" "_" [Underscore]

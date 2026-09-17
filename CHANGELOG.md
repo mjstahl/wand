@@ -93,6 +93,11 @@
   They took a command as a `String` and spawned it without consulting any
   manifest. Nothing could reach them, and nothing should have been able to.
 
+- **`class`, `instance`, `orphan` and `let*` are no longer reserved.** The
+  lexer took all four; the parser, the evaluator and the formatter used none
+  of them, and none appears in the reference. They are ordinary names now.
+  `let*` is `let` and `*`, which is what the two tokens say.
+
 - **`examples/ports/stage-release.wand` takes a real lock** with `FS.lock`
   rather than writing a file two runs would both write, and stages every
   file it says a release needs -- it exited 1 on every run.
