@@ -4,29 +4,6 @@ What is known to be worth doing and is not done. An item leaves this file
 when it ships, in the release that ships it. Nothing here is a commitment to
 an order.
 
-## Bugs
-
-### A lexer error names one byte of a character, and is not valid UTF-8
-
-The lexer reports an unexpected character by byte, so a non-ASCII character
-produces a diagnostic that is not valid UTF-8 and does not say what it saw:
-
-```
-$ printf 'let x = 1 \u2014 2\n' > emdash.wand      # an em dash
-$ wand t emdash.wand
-Error: lex error: 1:11: unexpected character '\342'
-```
-
-`\342` is the first byte of the em dash. Two things are wrong. A caller that
-decodes the output strictly dies rather than reporting -- which is how this
-was found, on 2026-09-10, by a harness reading diagnostics as text. And the
-message names a byte nobody can act on: it should print the character and
-name the fix, which for an em dash, a curly quote or a non-breaking space is
-the ASCII one that was meant.
-
-Those three are what a document pasted into a script actually carries, so
-this is the first thing a file from outside hits.
-
 ## Compiler and CLI
 
 ### `wand t` reports one error per run
@@ -78,15 +55,6 @@ the way a local open reads. Narrowing it to the constructor name alone
 would make the spelling uniform and would touch every qualified
 construction in the language. It is a decision about which reading is
 right, and it should be made once rather than per module.
-
-## Editors
-
-### The VS Code extension says "effect rows"
-
-`editors/vscode/package.json` describes hover as showing "effect rows".
-That phrasing was removed from the documentation on purpose -- the word is
-effects. It is public text on the marketplace, so correcting it means an
-extension version rather than a compiler one.
 
 ## Beyond the compiler
 

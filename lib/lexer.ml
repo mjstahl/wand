@@ -51,6 +51,55 @@ let is_alnum_or_under c = is_alpha c || is_digit c || c = '_'
 let is_path_body_char c = is_alnum_or_under c || c = '-' || c = '.' || c = '/'
 let is_glob_char c = c = '*' || c = '?' || c = '['
 
+(* ── A character wand has no use for ────────────────────────────────────── *)
+
+(* How many bytes the character starting with this one takes. A byte that
+   starts no character answers 1, and the caller says so rather than
+   printing it. *)
+let utf8_width lead =
+  let b = Char.code lead in
+  if b < 0x80 then 1
+  else if b land 0xE0 = 0xC0 then 2
+  else if b land 0xF0 = 0xE0 then 3
+  else if b land 0xF8 = 0xF0 then 4
+  else 1
+
+(* What to write instead. These are what a document pasted into a script
+   carries -- a word processor's dashes and quotes, and the space a browser
+   leaves behind -- so they are the first thing a file from outside hits. *)
+let write_instead = function
+  | "\xe2\x80\x94" | "\xe2\x80\x93" -> Some "a hyphen, -"
+  | "\xe2\x80\x98" | "\xe2\x80\x99" -> Some "an apostrophe, '"
+  | "\xe2\x80\x9c" | "\xe2\x80\x9d" -> Some "a double quote, \""
+  | "\xc2\xa0"                      -> Some "an ordinary space"
+  | "\xe2\x80\xa6"                  -> Some "three dots, ..."
+  | _ -> None
+
+(* The character, not the byte it starts with. Naming the byte gave
+   `unexpected character '\342'`, which says nothing a reader can act on --
+   and the byte alone is not valid UTF-8, so a caller decoding the
+   diagnostic strictly died rather than reporting. *)
+let unexpected_character char_at_offset lead =
+  let width = utf8_width lead in
+  let buf = Buffer.create 4 in
+  Buffer.add_char buf lead;
+  for k = 0 to width - 2 do
+    let b = char_at_offset k in
+    if Char.code b land 0xC0 = 0x80 then Buffer.add_char buf b
+  done;
+  let text = Buffer.contents buf in
+  if String.length text <> width then
+    (* The continuation bytes are not there, so this starts no character. *)
+    Printf.sprintf "unexpected byte 0x%02X, which begins no character"
+      (Char.code lead)
+  else if width = 1 && Char.code lead >= 0x80 then
+    Printf.sprintf "unexpected byte 0x%02X, which begins no character"
+      (Char.code lead)
+  else
+    match write_instead text with
+    | Some what -> Printf.sprintf "unexpected character '%s' -- write %s" text what
+    | None -> Printf.sprintf "unexpected character '%s'" text
+
 (* ── Keywords & identifiers ─────────────────────────────────────────────── *)
 
 let keyword_or_ident word = match word with
@@ -1044,7 +1093,7 @@ let next_token s =
        comment reflex from bash or Python. *)
     | '#' ->
       raise (Fail "a comment is '-- ...' to the end of the line, not '# ...'")
-    | c -> raise (Fail (Printf.sprintf "unexpected character '%c'" c))
+    | c -> raise (Fail (unexpected_character (char_at s) c))
   in
   scan ()
 

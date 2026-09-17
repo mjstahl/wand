@@ -9,7 +9,7 @@ the compiler.
 
 - **Diagnostics** as you type: the same errors and `V-*`/`A-*` findings
   `wand t` reports, with real ranges.
-- **Hover**: the inferred signature *with its effect row* — hovering
+- **Hover**: the inferred signature *with its effects* — hovering
   `deploy!` shows `String -> String ! {FS.Write, Shell(git, rsync)}` — plus
   the doc string, its examples kept as the transcripts they are. On a
   manifest label it describes the effect the label admits, which is what

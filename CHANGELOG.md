@@ -70,6 +70,19 @@
   Error("10000 is outside the years wand writes: 0000 to 9999")
   ```
 
+- **A lex error named one byte of a character, and was not valid UTF-8.**
+  A harness reading diagnostics as text died rather than reporting, and the
+  byte said nothing anyone could act on. The characters a pasted document
+  carries now name the one to write instead:
+
+  ```
+  >> let x = 1 — 2
+  lex error: 1:11: unexpected character '—' -- write a hyphen, -
+  ```
+
+  Curly quotes, an en dash, an ellipsis and a no-break space say the same.
+  A byte that begins no character is named rather than printed.
+
 - **A directory it could not read killed a `FS.glob_in`**, with a failure
   no `try` could catch. `try` catches it now.
 
@@ -113,6 +126,9 @@
   keywords. Every one of those is an error when you run it. Three of the ten
   effect names -- `Net`, `Clock` and `Random` -- were left uncoloured inside
   the `uses` line that declares them.
+
+- **The VS Code extension described hover as showing "effect rows".** The
+  word is effects; the marketplace text said otherwise.
 
 - **The VS Code extension said nothing useful when it could not start.** A
   missing `wand` showed up as "extension failed to activate". It names the

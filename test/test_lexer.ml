@@ -135,6 +135,43 @@ let test_comments () =
   refuses "slash comment" "// nope\n1" "'-- ...'";
   refuses "hash comment" "# nope\n1" "'-- ...'"
 
+(* A character wand has no use for is reported as the character, and the
+   message is text a caller can decode.
+
+   Naming the byte it starts with gave `unexpected character '\342'`: not
+   valid UTF-8, so a harness reading diagnostics as text died rather than
+   reporting, and a byte is nothing a reader can act on. The three that
+   matter are what a pasted document carries. *)
+let test_a_character_outside_the_language () =
+  let message src =
+    match Lexer.tokenize src with
+    | _ -> Alcotest.failf "%S lexed without an error" src
+    | exception Lexer.LexError (_, msg) -> msg
+  in
+  let holds msg needle =
+    let n = String.length needle and m = String.length msg in
+    let rec at i = i + n <= m && (String.sub msg i n = needle || at (i + 1)) in
+    at 0
+  in
+  let names label src character fix =
+    let msg = message src in
+    Alcotest.(check bool) (label ^ ": names the character") true
+      (holds msg character);
+    Alcotest.(check bool) (label ^ ": names the fix") true (holds msg fix)
+  in
+  names "em dash"      "1 \xe2\x80\x94 2" "\xe2\x80\x94" "a hyphen";
+  names "en dash"      "1 \xe2\x80\x93 2" "\xe2\x80\x93" "a hyphen";
+  names "curly quote"  "\xe2\x80\x98hi\xe2\x80\x99" "\xe2\x80\x98" "an apostrophe";
+  names "curly double" "\xe2\x80\x9chi\xe2\x80\x9d" "\xe2\x80\x9c" "a double quote";
+  names "no-break space" "let x =\xc2\xa01" "\xc2\xa0" "an ordinary space";
+  names "ellipsis"     "x \xe2\x80\xa6" "\xe2\x80\xa6" "three dots";
+  (* One with no ASCII to suggest still arrives whole. *)
+  Alcotest.(check bool) "a wide character is printed whole" true
+    (holds (message "let x = \xe4\xb8\xad") "\xe4\xb8\xad");
+  (* A byte that starts no character has nothing to print, so it is named. *)
+  Alcotest.(check bool) "a lone byte is named, not printed" true
+    (holds (message "let x = \xff") "0xFF")
+
 (* The hint above is a courtesy for OCaml drift, and a manifest pattern
    needs the same two characters: a narrowed label puts its paren directly
    before the star. What follows the star is what tells them apart, so these
@@ -224,6 +261,8 @@ let () =
       Alcotest.test_case "uppercase"    `Quick test_upper;
       Alcotest.test_case "keywords"     `Quick test_keywords;
       Alcotest.test_case "let*"         `Quick test_let_star;
+      Alcotest.test_case "a character outside the language" `Quick
+        test_a_character_outside_the_language;
       Alcotest.test_case "underscore"   `Quick test_underscore;
       Alcotest.test_case "hole"         `Quick test_hole;
       Alcotest.test_case "? and ! suffix" `Quick test_suffix_idents;

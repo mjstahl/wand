@@ -41,6 +41,21 @@ checked. The manifest of the file that is running answers for both now:
 this request reaches 'anywhere.test', which Net(api.github.com) does not allow
 ```
 
+### A lex error named one byte of a character
+
+A character wand has no use for was reported by the byte it starts with, so
+the message was not valid UTF-8 — a harness reading diagnostics as text died
+rather than reporting it — and `\342` said nothing anyone could act on. It
+names the character now, and for the ones a pasted document carries it names
+the fix:
+
+```
+lex error: 1:11: unexpected character '—' -- write a hyphen, -
+```
+
+Curly quotes, an en dash, an ellipsis and a no-break space say the same. A
+byte that begins no character is named rather than printed.
+
 ### Five crashes `try` could not catch
 
 An instant is written with four digits for the year, so `DateTime.on 10000 1
