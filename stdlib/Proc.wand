@@ -7,7 +7,6 @@ uses {Proc}
 -- whatever the caller needs, since nothing follows it:
 --
 -- if broken? then Proc.exit 1 else continue! ()
-
 let exit code = proc_exit code
 
 -- Return the command-line arguments the process was started with.

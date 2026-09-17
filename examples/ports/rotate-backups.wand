@@ -5,6 +5,7 @@ import FS
 import IO
 import List
 import Path
+import String
 
 -- Take a backup named after the instant, and delete the ones past the
 -- retention window.
@@ -35,9 +36,12 @@ import Path
 -- comment that can disagree with the number.
 let window = 30d
 
--- Only what this script writes is its to remove. `find` was told the same
--- thing by a glob it could not check.
-let ours? path = Path.extension path == ".tgz"
+-- Only what this script writes is its to remove, which is the name this
+-- script writes and not every archive in the directory. `find` was told the
+-- same thing by a glob it could not check.
+let ours? path =
+  let name = Path.to_string (Path.basename path);
+  String.starts_with? "backup-" name && String.ends_with? ".tgz" name
 
 -- Age is one instant minus another. `Clock.now () - mtime` is sound in a
 -- way that two readings of the clock are not: the file's instant does not

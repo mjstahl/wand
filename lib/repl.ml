@@ -8,10 +8,6 @@ let session_ref : Runner.session ref = ref (Runner.make_session ())
 
 (* ── Multi-line detection ─────────────────────────────────────────────────── *)
 
-let starts_with s prefix =
-  let ls = String.length s and lp = String.length prefix in
-  ls >= lp && String.sub s 0 lp = prefix
-
 let is_ident_char = Complete.is_ident_char
 
 (* A local binding chain has no closing token of its own: it ends when a
@@ -107,7 +103,8 @@ let is_complete src =
       (* `|` opens an arm; `|>` and `||` are operators continuing a line. *)
       let opens_arm =
         String.length last_line > 0 && last_line.[0] = '|'
-        && not (starts_with last_line "|>" || starts_with last_line "||")
+        && not (String.starts_with ~prefix:"|>" last_line
+                || String.starts_with ~prefix:"||" last_line)
       in
       (* The open-binding rule holds only mid-entry: a single-line binding
          is an ordinary complete definition. A blank line still ends the
@@ -228,6 +225,15 @@ let load_file (sess : Runner.session) path =
   | Error m ->
     Printf.eprintf "Error: cannot load '%s': %s\n%!" path m; sess
   | Ok src ->
+    (* A load reads the file from disk, and so must read what the file
+       imports from disk. The cache holds a module under the path it was
+       loaded from, and a `:reload` after editing a dependency answered from
+       it -- the reload said it had reloaded and served the old module. A
+       stdlib module cannot change between two loads, so only the modules
+       that came from a file are dropped. *)
+    Hashtbl.iter (fun key _ ->
+      if String.contains key '/' then Hashtbl.remove sess.s_cache key)
+      (Hashtbl.copy sess.s_cache);
     match Runner.run_session { sess with s_last_load = Some full } src with
     | Error msg ->
       Printf.eprintf "Error: %s\n%!" msg; sess

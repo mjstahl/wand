@@ -56,6 +56,15 @@ let make tokens =
     clause_name = None; stmt_depth = 0; stmt_col = 1; shell_allow = None;
     net_allow = None }
 
+(* A parser for the source inside an interpolation hole. It is the same
+   file, so a URL literal or a `$()` in the hole carries the file's manifest
+   bound the way one outside it does. *)
+let sub_parser s tokens =
+  let s2 = make tokens in
+  s2.shell_allow <- s.shell_allow;
+  s2.net_allow <- s.net_allow;
+  s2
+
 (* Comments are invisible to the real parser, exactly like `Newline`. A run
    of them above a definition is that definition's documentation, which
    `doc_run_before` reads straight from the token array. *)
@@ -1169,7 +1178,7 @@ and atom_base_ s =
   | Token.RunCmdRaw (parts, tail) ->
     let parse_parts = List.map (fun (lit, src, hole, at) ->
       let toks = interp_tokens loc src at in
-      let s2 = make toks in
+      let s2 = sub_parser s toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunCmd (String tail, s.shell_allow)
@@ -1177,7 +1186,7 @@ and atom_base_ s =
   | Token.RunQueryRaw (parts, tail) ->
     let parse_parts = List.map (fun (lit, src, hole, at) ->
       let toks = interp_tokens loc src at in
-      let s2 = make toks in
+      let s2 = sub_parser s toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then RunQuery (String tail, s.shell_allow)
@@ -1185,7 +1194,7 @@ and atom_base_ s =
   | Token.CommandRaw (parts, tail) ->
     let parse_parts = List.map (fun (lit, src, hole, at) ->
       let toks = interp_tokens loc src at in
-      let s2 = make toks in
+      let s2 = sub_parser s toks in
       (lit, expr_ 0 s2, hole)
     ) parts in
     if parse_parts = [] then MkCommand (String tail, s.shell_allow)
@@ -1194,7 +1203,7 @@ and atom_base_ s =
   | Token.InterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src, at) ->
       let toks = interp_tokens loc src at in
-      let s2 = make toks in
+      let s2 = sub_parser s toks in
       (lit, expr_ 0 s2)
     ) parts in
     Interp (parsed, tail)
@@ -1202,7 +1211,7 @@ and atom_base_ s =
   | Token.RawInterpStr (parts, tail) ->
     let parsed = List.map (fun (lit, src, at) ->
       let toks = interp_tokens loc src at in
-      let s2 = make toks in
+      let s2 = sub_parser s toks in
       (lit, expr_ 0 s2)
     ) parts in
     RawInterp (parsed, tail)
@@ -1804,8 +1813,8 @@ and parse_contract_body s =
      out, so the item below it still starts something new. *)
   let outer = s.stmt_col in
   let outer_depth = s.stmt_depth in
-  (* Only where the body begins a line of its own. Cuddled after the `=` or
-     the `->` it starts well right of the lines below it, and anchoring there
+  (* Only where the body begins a line of its own. Written on the `=` or
+     `->` line it starts well right of the lines below it, and anchoring there
      would make its own continuation -- indented less than the first token,
      because the first token is out at the end of the head -- read as a new
      statement. `fn p -> Path.of_string` over an indented argument is the

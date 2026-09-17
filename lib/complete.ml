@@ -9,9 +9,7 @@ let is_ident_char = function
   | 'a'..'z' | 'A'..'Z' | '0'..'9' | '_' | '!' | '?' | '.' -> true
   | _ -> false
 
-let has_prefix ~prefix s =
-  let lp = String.length prefix in
-  String.length s >= lp && String.sub s 0 lp = prefix
+let has_prefix = String.starts_with
 
 (* Names that exist without an import. *)
 let builtin_names = ["Ok"; "Error"]

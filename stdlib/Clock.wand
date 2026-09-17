@@ -1,7 +1,5 @@
 uses {Clock}
 
--- Waiting.
---
 -- Waiting, and reading the current instant.
 --
 -- `sleep` waits at least the duration it is given. A loaded machine, a

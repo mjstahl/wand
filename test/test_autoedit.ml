@@ -1,7 +1,7 @@
 open Wand
 
 (* The lexical tier as a pure function: buffer text in, edits out. Each
-   deliberate limit in LSP.md §2.1 gets a case, because those limits are
+   deliberate limit of that tier gets a case, because those limits are
    the judgments a future change is most likely to erode by accident. *)
 
 let show = function

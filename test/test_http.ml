@@ -137,6 +137,52 @@ let () = IO.println r.status|}
   if not (contains out "202") then
     Alcotest.failf "the rehearsal did not answer the withheld request:\n%s" out
 
+(* A URL the run computed carries no literal to take a bound from, and the
+   request `HTTP.get` builds is built inside the standard library, where the
+   manifest is the standard library's. So the bound of the file that is
+   running answers for it, checked at the send -- or a narrowed `Net` bounds
+   only the hosts a file happened to write down. *)
+let computed_url_source manifest text =
+  Printf.sprintf
+    {|uses {IO, Raise, %s}
+import HTTP
+import IO
+import String
+let () =
+  match String.to_url "%s" with
+  | Ok u -> IO.println "%%{try HTTP.get u}"
+  | Error e -> IO.println e|} manifest text
+
+let test_a_computed_host_is_refused () =
+  let out = run_source
+    (computed_url_source "Net(api.example.com)" "https://evil.test/x") in
+  if not (contains out "does not allow") then
+    Alcotest.failf "a computed host reached past the manifest:\n%s" out;
+  if not (contains out "evil.test") then
+    Alcotest.failf "the message does not name the host:\n%s" out
+
+(* Bare `Net` bounds nothing, so the same file with no narrowing is admitted
+   and fails at the transport instead. *)
+let test_a_computed_host_under_bare_net_is_admitted () =
+  let out = run_source (computed_url_source "Net" "https://api.example.com/x") in
+  if contains out "does not allow" then
+    Alcotest.failf "bare Net refused a host:\n%s" out
+
+(* A URL the run built from another URL keeps that URL's bound. *)
+let test_a_rebuilt_url_keeps_its_bound () =
+  let out = run_source
+    {|uses {IO, Net(api.example.com)}
+import HTTP
+import IO
+import URL
+let () =
+  match URL.with_hostname "evil.test" https://api.example.com/x with
+  | Ok u -> IO.println "%{try HTTP.get u}"
+  | Error e -> IO.println e|}
+  in
+  if not (contains out "does not allow") then
+    Alcotest.failf "a rebuilt URL reached past the manifest:\n%s" out
+
 let () =
   Alcotest.run "HTTP" [
     "what a manifest admits", [
@@ -152,6 +198,12 @@ let () =
       Alcotest.test_case "an update is checked" `Slow test_an_update_is_checked;
       Alcotest.test_case "the convenience functions are bounded" `Slow
         test_the_convenience_functions_are_bounded;
+      Alcotest.test_case "a computed host is refused" `Slow
+        test_a_computed_host_is_refused;
+      Alcotest.test_case "bare Net admits a computed host" `Slow
+        test_a_computed_host_under_bare_net_is_admitted;
+      Alcotest.test_case "a rebuilt URL keeps its bound" `Slow
+        test_a_rebuilt_url_keeps_its_bound;
     ];
     "a rehearsal", [
       Alcotest.test_case "withholds an unsafe method" `Slow

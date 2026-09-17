@@ -110,8 +110,13 @@ let scan (segs : seg list) : scan =
       expecting := false
     in
     (* `$((...))` is arithmetic, not a command: sh evaluates it and runs
-       nothing, so there is nothing here to check. *)
+       nothing, so there is nothing here to check -- when it closes with
+       `))`. When the parentheses balance before that, sh reads the same
+       text as a command substitution around a subshell: `$((whoami) )`
+       runs whoami. That form is scanned as `$(` followed by `(`, so the
+       word inside is a command position like any other. *)
     let skip_arithmetic () =
+      let start = !i in
       i := !i + 3;
       let depth = ref 2 in
       while !depth > 0 && !i < n do
@@ -121,7 +126,14 @@ let scan (segs : seg list) : scan =
          | _ -> ());
         incr i
       done;
-      has_hole := true
+      let closed_as_arithmetic =
+        !depth = 0 && !i >= 2 && text.[!i - 1] = ')' && text.[!i - 2] = ')'
+      in
+      if closed_as_arithmetic then has_hole := true
+      else begin
+        i := start + 2;
+        enter ()
+      end
     in
     while !i < n do
       let c = text.[!i] in

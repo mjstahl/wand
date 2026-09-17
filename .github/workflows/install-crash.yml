@@ -123,7 +123,7 @@ jobs:
         run: |
           set +e
           name="wand-$V-linux-x86_64"
-          url="https://github.com/${{ github.repository }}/releases/download/v$V/$name.tar.gz"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/$name.tar.gz"
           curl -fsSL "$url" -o "$name.tar.gz" || { echo "download failed"; exit 1; }
           tar -xzf "$name.tar.gz"
           chmod +x "$name/wand"
@@ -291,7 +291,7 @@ jobs:
           src=${PIPESTATUS[0]}
           echo "--- the released 0.65.0 binary on this same machine, for contrast:"
           curl -fsSL -o old.tar.gz \
-            "https://github.com/${{ github.repository }}/releases/download/v0.65.0/wand-0.65.0-linux-x86_64.tar.gz" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v0.65.0/wand-0.65.0-linux-x86_64.tar.gz" \
             && tar -xzf old.tar.gz \
             && (./wand-0.65.0-linux-x86_64/wand -e '1 + 1' 2>&1; echo "old exit=$?")
           if [ "$out" = "2 : Int" ] && [ "$src" -eq 0 ]; then

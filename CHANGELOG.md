@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.78.0] - 2026-09-17
+
+### Fixed
+
+- **A narrowed `Shell` did not bound a word inside `$((`.** The scanner read
+  every `$((` as arithmetic and looked no further, but `sh` reads the same
+  text as a command substitution around a subshell when the parentheses
+  balance before the `))`.
+
+  ```
+  uses {Shell(echo), IO}
+  IO.println $(echo $((whoami) ))
+  ```
+
+  That typechecked and ran `whoami`. The scan now decides by how the form
+  closes, so a word in that position is checked like any other -- at the
+  manifest and again at the spawn.
+
+- **A narrowed `Net` did not bound a URL the run computed.** The bound rode
+  on the URL literal, and a URL from `String.to_url`, `URL.join` or a
+  `URL.with_*` setter had none; `HTTP.get` builds its request inside the
+  standard library, so nothing else carried one either. A file declaring
+  `uses {Net(api.github.com)}` reached any host it computed a URL for. The
+  running file's bound now answers where no literal can, and a `Par` worker
+  carries it across the domain.
+
+- **`Proc.exit` ended `wand -e`, `wand s` and `wand d -t` with an OCaml
+  backtrace** and exit 2, rather than the code it was given. A test file or
+  a doc example that exits deliberately now reports its own code, and an
+  interrupt reports 130.
+
+- **`--lint` and `--strict` were ignored when the mode came first.**
+  `wand --dry-run deploy.wand --strict` ran the script and handed it
+  `--strict`, while `wand deploy.wand --strict` refused a violation. One
+  parser now reads both spellings, so a gate is a gate on either side of the
+  path.
+
+- **A script with no `.wand` extension could not be run.** `wand deploy`
+  opened `deploy.wand`, so an executable with a shebang and no extension was
+  unreachable through its own name. The name as written wins when a file is
+  there.
+
+- **`DateTime` past the year 9999 ended the program**, uncatchably, from
+  `int_of_string`. An instant is written with a four-digit year, so `on`
+  answers `Error` outside 0..9999 and a `Duration` that moves one past the
+  range raises where `try` can hold it.
+
+- **An unreadable directory ended a `FS.glob_in`** with a `Sys_error` that
+  no `try` could catch. It is a wand error now.
+
+- **`Env.set` corrupted the environment** when the name held an `=` or was
+  empty: `Env.set "A=B" "x"` set `A` to `B=x`. Both are refused.
+
+- **`Duration.seconds` and its siblings wrapped silently** past the range of
+  an `Int`, where the `+` operator has always said so.
+
+- **The YAML reader had no bound on nesting.** The alias limit covers the
+  billion-laughs shape, and a document that simply nests fifty thousand deep
+  took seconds and risked the stack. Nesting stops at 200.
+
+- **The language server exited on a position outside the document**, taking
+  the session's diagnostics with it. A request that fails is answered and
+  the loop goes on.
+
+- **`:reload` in the REPL served a stale dependency.** A module was kept
+  under the path it was loaded from and never dropped, so editing an
+  imported file and reloading reported success and ran the old code.
+
+- **`Map.map` refused a constructor.** `Map.map Some m` failed at run time
+  where `List.map Some xs` worked: the map builtins went through a second,
+  narrower `apply`.
+
+### Changed
+
+- **`process_run`, `process_run_quiet` and `process_exit_code` are gone.**
+  They took a command as a `String` and spawned it without consulting any
+  manifest. Nothing could reach them, and nothing should have been able to.
+
+- **`examples/ports/stage-release.wand` takes a real lock** with `FS.lock`
+  rather than writing a file two runs would both write, and stages every
+  file it says a release needs -- it exited 1 on every run.
+
+- **`examples/ports/dir-budget.wand` counts files with no dot in the name**,
+  which `**.*` skipped, and `rotate-backups.wand` deletes only the
+  `backup-*.tgz` its comment promised rather than every `.tgz` in the
+  directory. `normalize-names.wand` refuses a rename onto a name that is
+  already taken instead of replacing that file.
+
 ## [0.77.1] - 2026-09-16
 
 ### Fixed
@@ -3448,7 +3536,8 @@ With these, every command whose output a tool might read — `t`, `d`, `v`, `s` 
 - Add discovery pointers to unbound-name errors: `'wand env' lists the modules, 'wand env List' one module's members` (`35379bf`)
 - Add `install.sh`: one-line install with platform detection and checksum verification (`a871d73`)
 
-[unreleased]: https://github.com/wand-lang/wand/compare/v0.77.0...HEAD
+[unreleased]: https://github.com/wand-lang/wand/compare/v0.78.0...HEAD
+[0.78.0]: https://github.com/wand-lang/wand/compare/v0.77.1...v0.78.0
 [0.77.1]: https://github.com/wand-lang/wand/compare/v0.77.0...v0.77.1
 [0.77.0]: https://github.com/wand-lang/wand/compare/v0.76.0...v0.77.0
 [0.76.0]: https://github.com/wand-lang/wand/compare/v0.75.0...v0.76.0

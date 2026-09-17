@@ -1,4 +1,4 @@
-(* The editor's lexical tier (LSP.md §2.1): edits provable from the token
+(* The editor's lexical tier: edits provable from the token
    stream alone. When a change completes a qualified name `N.member` --
    `List.map!` followed by a space, a paren, a newline -- and N is an
    unimported standard library module with that member, the fix is

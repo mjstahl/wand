@@ -5,7 +5,6 @@ import IO
 import List
 import Path
 import Proc
-import Resource
 
 -- Build a release in a scratch directory, under a lock, and clean up both
 -- however it ends.
@@ -33,26 +32,32 @@ let missing staged =
   let names = staged |> List.map (fn p -> Path.to_string (Path.basename p));
   required |> List.filter (fn want -> !(List.any? (fn got -> got == want) names))
 
-let lock_at path =
-  Resource.make (fn () -> FS.write_file! path "held") (fn _ -> FS.delete! path)
-
 let stage! dir = (
   FS.write_file! (Path.join dir (Path.of_string "VERSION")) "0.31.0\n";
   FS.write_file! (Path.join dir (Path.of_string "LICENSE")) "MIT\n";
+  FS.write_file! (Path.join dir (Path.of_string "wand")) "#!/bin/sh\n";
   FS.list_dir! dir
 )
 
 -- The lock is outside the scratch directory on purpose: two cleanups that
 -- have nothing to do with each other are what the bash cannot write.
+--
+-- `FS.lock` is the operating system's lock on an open file, so a second run
+-- is told the lock is held rather than writing over it. A lock file written
+-- with `write_file!` is not a lock: both runs write it and both proceed.
 let main! () =
   with FS.temp_dir "release_" as dir ->
-  with lock_at ./release.lock as _ ->
-  match missing (stage! dir) with
-  | [] -> IO.println "staged %{Path.to_string dir}"
-  | gaps -> (
-    IO.println_err "not a release, %{List.length gaps} file(s) short:";
-    gaps |> List.each (fn name -> IO.println_err "  %{name}");
-    Proc.exit 1
+  with FS.lock ./release.lock as taken ->
+  match taken with
+  | Error why -> (IO.println_err "another release is staging: %{why}"; Proc.exit 1)
+  | Ok _ -> (
+    match missing (stage! dir) with
+    | [] -> IO.println "staged %{Path.to_string dir}"
+    | gaps -> (
+      IO.println_err "not a release, %{List.length gaps} file(s) short:";
+      gaps |> List.each (fn name -> IO.println_err "  %{name}");
+      Proc.exit 1
+    )
   )
 
 main! ()

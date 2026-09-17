@@ -12,7 +12,7 @@ let {blockers, Release = Release} = import ../../examples/ports/release-check
 let {flapping, pods, restarts, summary} = import ../../examples/ports/pod-restarts
 let {attempt, read, Health = Health} = import ../../examples/ports/http-retry
 let {answering?, wait_for} = import ../../examples/ports/wait-for-port
-let {lock_at, missing} = import ../../examples/ports/stage-release
+let {missing} = import ../../examples/ports/stage-release
 let {failures, stated} = import ../../examples/ports/verify-archives
 let {render, Opts = Opts, Flags = Flags} = import ../../examples/ports/probe-args
 let {age, backup_name, expired, expired?, ours?, window} =
@@ -29,6 +29,7 @@ import List
 import Map
 import Option
 import Path
+import Result
 import String
 
 -- The ports in examples/ports/, checked without a machine to read.
@@ -254,13 +255,16 @@ group "stage-release" (fn () -> [
     t.eq [] (missing [./VERSION, ./LICENSE, ./wand, ./notes.md])),
   test "a path is read by its last element" (fn t ->
     t.eq [] (missing [./dist/VERSION, ./dist/LICENSE, ./dist/wand])),
-  -- The lock exists for the body and not after it, which is the half of
-  -- `trap ... EXIT` that a second trap used to take away.
+  -- The lock the port takes is held for the body and released after, which
+  -- is the half of `trap ... EXIT` that a second trap takes away. A lock is
+  -- not re-entrant, so asking for it inside the body is refused and asking
+  -- after it is not -- which is the release, said in what a caller can see.
   test "the lock is held for the body and released after" (fn t ->
     with FS.temp_dir "lock_" as dir -> (
       let path = Path.join dir (Path.of_string "held.lock");
-      let inside = with lock_at path as _ -> FS.exists? path;
-      t.eq (true, false) (inside, FS.exists? path)
+      let inside = with FS.lock path as _ -> with FS.lock path as again -> Result.ok? again;
+      let after = with FS.lock path as again -> Result.ok? again;
+      t.eq (false, true) (inside, after)
     ))
 ])
 

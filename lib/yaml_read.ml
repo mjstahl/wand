@@ -26,6 +26,13 @@
    that unfolds into millions of nodes is not. *)
 let alias_node_limit = 100_000
 
+(* The same question asked of plain nesting, which no alias is needed to
+   reach: `[[[[...]]]]` costs more than its length, and deep enough it ends
+   the program on a stack that no `try` can catch. Real documents nest a
+   handful of levels; this is far above anything a person writes and far
+   below where either cost begins. *)
+let nesting_limit = 200
+
 exception Bad of string
 
 (* libyaml counts lines and columns from zero and people count from one. *)
@@ -57,8 +64,7 @@ let rest_all p s i =
   let rec go j = j >= n || (p s.[j] && go (j + 1)) in
   i < n && go i
 
-let has_prefix p s =
-  String.length s >= String.length p && String.sub s 0 (String.length p) = p
+let has_prefix p s = String.starts_with ~prefix:p s
 
 (* `[-+]? [0-9]+` or `0o [0-7]+` or `0x [0-9a-fA-F]+`. OCaml's own
    `int_of_string` is wider than this -- it takes `_` separators, `0b` and
@@ -203,6 +209,18 @@ let documents_of (src : string) : Yojson.Basic.t list =
     let remember anchor v =
       match anchor with Some a -> Hashtbl.replace anchors a v | None -> ()
     in
+    let depth = ref 0 in
+    let deeper pos f =
+      incr depth;
+      if !depth > nesting_limit then
+        bad pos
+          (Printf.sprintf
+             "this document nests more than %d deep, which is past what a \
+              value here may do" nesting_limit);
+      let v = f () in
+      decr depth;
+      v
+    in
     let rec node (ev, pos) : Yojson.Basic.t =
       match (ev : Yaml.Stream.Event.t) with
       | Scalar s ->
@@ -218,11 +236,11 @@ let documents_of (src : string) : Yojson.Basic.t list =
                 anchor anchor))
       | Sequence_start { anchor; tag; _ } ->
         collection_tag pos tag;
-        let v = `List (items []) in
+        let v = deeper pos (fun () -> `List (items [])) in
         remember anchor v; v
       | Mapping_start { anchor; tag; _ } ->
         collection_tag pos tag;
-        let v = `Assoc (fields [] []) in
+        let v = deeper pos (fun () -> `Assoc (fields [] [])) in
         remember anchor v; v
       | Sequence_end | Mapping_end | Document_end _ ->
         bad pos "a value was expected here, and the collection ended instead"

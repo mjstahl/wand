@@ -24,6 +24,28 @@ exception ImportErrorAt of Token.loc * string
 
 let add_ext p = if Filename.check_suffix p ".wand" then p else p ^ ".wand"
 
+(* The file a command was handed, made absolute. `add_ext` is for an import,
+   which names a module rather than a file -- `import ./util` reaches
+   `util.wand`. A command is handed a path, and an executable script with a
+   shebang and no extension is a path that is there, so the name as written
+   wins whenever there is a file under it. *)
+let entry_path path =
+  let full =
+    if Filename.is_relative path
+    then Filename.concat (Sys.getcwd ()) path
+    else path
+  in
+  let is_file p =
+    match Sys.is_directory p with
+    | false -> true
+    | true -> false
+    | exception Sys_error _ -> false
+  in
+  if is_file full then full
+  else if Filename.is_relative path
+  then Filename.concat (Sys.getcwd ()) (add_ext path)
+  else add_ext path
+
 (* Where a module's source comes from. The standard library is carried in
    the binary, so it has no path and no directory to be found in; a user
    module is a file. Keeping the two apart in the type is what lets one

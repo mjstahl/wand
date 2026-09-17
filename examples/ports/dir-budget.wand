@@ -24,8 +24,10 @@ import Size
 -- A `Size` is both. `500MB` is the literal, `+` sums the files, and
 -- `Size.format` prints it.
 
+-- `**` and not `**.*`: a name without a dot is still a file, and a budget
+-- that skipped `Makefile` and `LICENSE` would answer under what `du` says.
 let used dir =
-  FS.glob_in **.* dir
+  FS.glob_in ** dir
     |> List.filter_map (fn p ->
       match FS.size p with
       | Ok size -> Some size

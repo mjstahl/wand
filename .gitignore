@@ -45,3 +45,4 @@ _opam/
 # Reproducers the fuzzer writes, a sweep's under `sweep/`. Anything worth
 # keeping is moved into test/fuzz/regressions/ by hand.
 _fuzz-findings/
+.DS_Store

@@ -409,7 +409,7 @@ let fmt_eq label src expected =
    above them says nothing the `=` did not. So a multi-line backtick string
    starts on the line of its `=`, as a bracket does -- which is what it is
    here. *)
-let test_a_multiline_backtick_string_cuddles () =
+let test_a_multiline_backtick_string_opens_on_the_eq_line () =
   fmt_eq "a top-level binding"
     "let a =\n  `\none\n  two`\na"
     "let a = `\none\n  two`\na";
@@ -837,7 +837,7 @@ let test_import_block_is_followed_by_a_blank_line () =
    bracket says nothing -- the items sit at the same column either way --
    while costing a line at the top of every list, map and tuple wide enough
    to wrap. All three bracket forms follow the rule. *)
-let test_bracketed_values_cuddle_their_opener () =
+let test_bracketed_values_open_on_the_binding_line () =
   fmt_eq "a list opens on the binding's line"
     "let a_list = [\"a considerable string here\", \"another considerable string\", \"and a third one\"]"
     "let a_list = [\n  \"a considerable string here\",\n  \"another considerable string\",\n  \"and a third one\"\n]";
@@ -1445,8 +1445,8 @@ let test_a_block_binding_round_trips () =
     {|let f () = (let x = 1 in x + 1; 9)|};
   (* The other spelling in the same place. A `let ... in` chain lays its
      continuation out at the indent it is handed, and level with the `fn`
-     the second binding read as the statement after the lambda. Cuddled
-     after the `->` the keyword also sat right of every line below it, so
+     the second binding read as the statement after the lambda. On the
+     `->` line the keyword also sat right of every line below it, so
      the chain takes the line under the lambda instead. *)
   fmt_eq "a let chain in a lambda wraps under it"
     {|let plan paths = (List.fold_right (fn p acc -> let name = basename p in let wanted = tidy name in if wanted == name then acc else (p, wanted) :: acc) paths [])|}
@@ -1455,11 +1455,11 @@ let test_a_block_binding_round_trips () =
   let wanted = tidy name;
   if wanted == name then acc else (p, wanted) :: acc
 ) paths []|};
-  (* A `let ... in` cuddled onto `fn -> ` puts its keyword right of the
+  (* A `let ... in` written on the `fn -> ` line puts its keyword right of the
      value and the `in` below it, and the parser reads a line left of the
      keyword as something new: this one came back as three statements with
      the `in` at the top level. Found by test/fuzz. *)
-  assert_idempotent "a wrapping with inside a cuddled let-in"
+  assert_idempotent "a wrapping with inside a let-in on the arrow line"
     {|let s = (fn -> let t = with a as d -> gggggggggg (hhhhhhhhhh "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") "yyyyyyyyyy" in "")|};
   assert_idempotent "a block is a fixed point"
     {|let f () = (let x = 1; let y = 2; IO.println "a"; x + y)|};
@@ -1540,7 +1540,7 @@ let test_a_with_body_opens_its_bracket_on_the_arrow_line () =
     {|let c! () =
   with FS.temp_dir "wand_fmt_check_" as dir ->
   report_the_whole_thing dir dir dir dir dir dir dir|};
-  assert_idempotent "the cuddled bracket is a fixed point"
+  assert_idempotent "the bracket on the arrow line is a fixed point"
     {|let a! () =
   with FS.temp_dir "wand_fmt_check_" as dir -> (
     copy_into! dir;
@@ -1574,8 +1574,8 @@ let test_an_in_among_statements_takes_the_semicolon () =
   x + 1|};
   (* Grouping brackets around one binding stay one pair. The chain brings
      its own here -- an argument is not a statement position -- and the one
-     inside it is the lambda's body, cuddled after the arrow and so needing
-     brackets of its own. *)
+     inside it is the lambda's body, written on the arrow's line and so
+     needing brackets of its own. *)
   fmt_eq "a parenthesised binding as an argument"
     {|let a = t.eq 3 (let f = fn () -> let x = 1 in x + 1 in f ())|}
     {|let a = t.eq 3 (let f = fn () -> (let x = 1; x + 1); f ())|};
@@ -1781,7 +1781,8 @@ let () =
         test_an_item_opening_with_an_operator_is_bracketed;
     ];
     "canonicalization", [
-      Alcotest.test_case "multi-line backticks cuddle" `Quick test_a_multiline_backtick_string_cuddles;
+      Alcotest.test_case "multi-line backticks open on the = line" `Quick
+        test_a_multiline_backtick_string_opens_on_the_eq_line;
       Alcotest.test_case "escaped quotes prefer backticks" `Quick test_escaped_quotes_prefer_backticks;
       Alcotest.test_case "single-constructor shorthand" `Quick test_single_ctor_shorthand;
       Alcotest.test_case "maps canonicalize to braces" `Quick test_maps_canonicalize_to_braces;
@@ -1802,7 +1803,8 @@ let () =
       Alcotest.test_case "import block blank line" `Quick test_import_block_is_followed_by_a_blank_line;
       Alcotest.test_case "wrapped case body runs" `Quick test_a_wrapped_case_body_keeps_its_brackets;
       Alcotest.test_case "multiline paren closes alone" `Quick test_a_multiline_paren_closes_on_its_own_line;
-      Alcotest.test_case "bracketed values cuddle" `Quick test_bracketed_values_cuddle_their_opener;
+      Alcotest.test_case "bracketed values open on the binding line" `Quick
+        test_bracketed_values_open_on_the_binding_line;
       Alcotest.test_case "sequence item wrap column" `Quick test_sequence_items_wrap_to_their_own_column;
       Alcotest.test_case "wrapped application brackets" `Quick test_a_wrapped_application_keeps_its_brackets;
       Alcotest.test_case "separator not written twice" `Quick
@@ -1828,7 +1830,7 @@ let () =
         test_a_newline_binding_stops_at_the_next_definition;
       Alcotest.test_case "an in among statements" `Quick
         test_an_in_among_statements_takes_the_semicolon;
-      Alcotest.test_case "a with body cuddles its bracket" `Quick
+      Alcotest.test_case "a with body opens its bracket on the arrow line" `Quick
         test_a_with_body_opens_its_bracket_on_the_arrow_line;
       Alcotest.test_case "a pun reads back" `Quick
         test_a_pun_reads_back_as_the_field_it_came_from;

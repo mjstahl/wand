@@ -493,7 +493,7 @@ let test_stdlib_source_request () =
   Alcotest.(check bool) "unknown module is null" true
     (response_for 26 outs = `Null)
 
-(* ── Auto-edits on didChange (LSP.md §2.1) ───────────────────────────────── *)
+(* ── Auto-edits on didChange ─────────────────────────────────────────────── *)
 
 let apply_edits_of outs =
   List.filter_map (fun o ->

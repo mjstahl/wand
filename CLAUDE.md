@@ -354,9 +354,10 @@ let {helper} = import ./util    -- another file, by path
 ```
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
-Float, Int, Ord, Proc, Env, CSV, JSON, TOML, Duration, Clock, Par, Shell,
-Decode, Args, Test, Option, Result, DateTime, Hash, Digest, Base64, HTTP,
-YAML. Every function comes from a module: printing is
+Float, Int, Ord, Proc, Env, CSV, JSON, TOML, YAML, Duration, Size, Clock,
+DateTime, Par, Shell, Decode, Args, Test, Option, Result, Hash, Digest,
+Base64, HTTP, URL, Glob, IPv4, CIDR, Port, Version, Random. Every function
+comes from a module: printing is
 `IO.println`, and a file that prints writes `import IO`.
 
 Big files stream instead of loading (and `Shell.stream` reads a command the

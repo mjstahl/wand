@@ -34,10 +34,6 @@ let is_manifest_text s =
   && String.trim (String.sub t 4 (String.length t - 4)) <> ""
   && (String.trim (String.sub t 4 (String.length t - 4))).[0] = '{'
 
-let ends_with s suffix =
-  let n = String.length s and m = String.length suffix in
-  n >= m && String.sub s (n - m) m = suffix
-
 (* Replace the 1-based line [n]. *)
 let replace_line lines n text =
   List.mapi (fun i l -> if i = n - 1 then text else l) lines
@@ -151,7 +147,7 @@ let apply_fix lines (d : Diag.t) : (string list * applied) option =
   | Some (Diag.AppendToLine text) ->
     (match List.nth_opt lines (d.Diag.loc |> Option.map (fun (l : Token.loc) ->
              l.Token.line) |> Option.value ~default:0 |> fun n -> n - 1) with
-     | Some old when not (ends_with old text) ->
+     | Some old when not (String.ends_with ~suffix:text old) ->
        let n = match d.Diag.loc with Some l -> l.Token.line | None -> 0 in
        at n (Printf.sprintf "appended %s" (quote text))
          (replace_line lines n (old ^ text))

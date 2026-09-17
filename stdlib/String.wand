@@ -1,6 +1,7 @@
 import List
 
--- Return the number of characters in a string.
+-- Return the number of bytes in a string. A character outside ASCII takes
+-- more than one, so this is a size rather than a count of letters.
 --
 -- >> String.length "wand"
 -- 4 : Int

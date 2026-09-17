@@ -148,7 +148,7 @@ let test_sigkill_cannot_release () =
    it would leave workers running and their brackets unreleased. *)
 (* The worker prefix carries this run's pid: the leftover scan below reads
    the shared temp directory, and an unscoped prefix would count another
-   concurrently running copy of this suite's workers as our leak. *)
+   concurrently running copy of this suite's workers as this run's leak. *)
 let worker_prefix = Printf.sprintf "wand_sigw_%d_" (Unix.getpid ())
 
 let par_script marker =

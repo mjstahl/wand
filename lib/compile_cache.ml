@@ -41,8 +41,8 @@ let disabled =
 
 (* Bumped when the shape of what is written changes. An old entry then has a
    different key rather than being read back as the wrong shape -- Marshal
-   will happily hand back nonsense typed as whatever the reader expected.
-   "5" is the digest an entry now carries in front of its bytes. *)
+   returns the bytes typed as whatever the reader expects, whatever they
+   hold. "5" is the digest an entry carries in front of its bytes. *)
 let format_version = "5"
 
 (* Where the entries live, most specific first.

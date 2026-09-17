@@ -173,8 +173,8 @@ let rec forget pid =
   let now = List.filter (fun p -> p <> pid) old in
   if not (Atomic.compare_and_set children old now) then forget pid
 
-(* Stop what we started. Failures are ignored on purpose: a child that has
-   already exited is exactly the case this is racing with. *)
+(* Stop every process wand started. Failures are ignored on purpose: a
+   child that has already exited is exactly the case this is racing with. *)
 let stop_children signal =
   List.iter (fun pid -> try Unix.kill pid signal with Unix.Unix_error _ -> ())
     (Atomic.get children)
@@ -1737,6 +1737,7 @@ let run_with_default_handler (thunk : unit -> value) : value =
    evaluating them). Only the parts that need `Evaluator.value`/`eval` stay
    here. *)
 let add_ext          = Module_types.add_ext
+let entry_path       = Module_types.entry_path
 let resolve_import    = Module_types.resolve_import
 let namespace_name_of = Module_types.namespace_name_of
 let local_tenv_of     = Module_types.local_tenv_of
@@ -2022,8 +2023,9 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       in
       (entries, names)
     in
-    (* `extra_tenv` is what a destructuring selected, under the names it gave
-       them. `own_tenv` is the module's own, for reaching them through it. *)
+    (* `extra_names` is what a destructuring selected, under the names it
+       gave them. `own_tenv` is the module's own, for reaching them through
+       it. *)
     let add_import ~modul ?alias ?(own_tenv = []) ?(extra_names = [])
         modul_import type_entries eval_entries mod_docs =
       let (own_entries, qual_names) = qualified_types ~modul alias own_tenv in
@@ -2288,7 +2290,8 @@ and load_module src_ref ~cache ~loading ~evaluate =
               module may do; this decides only that it is asked. *)
            let out = ref base in
            ignore (run_with_default_handler (fun () ->
-             out := fold_items (run_item ~modul:path) base prog.Ast.items;
+             with_file_net (net_bound_of_manifest prog.Ast.manifest) (fun () ->
+               out := fold_items (run_item ~modul:path) base prog.Ast.items);
              VUnit));
            !out
        in
@@ -2914,6 +2917,7 @@ let run_program ?(mode = Normal) ~base_dir prog =
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
      let result = run_in_mode mode (fun () ->
+       with_file_net (net_bound_of_manifest prog.Ast.manifest) (fun () ->
        let ((_, last), _) = List.fold_left (fun ((env, last), since) item ->
          (* Each statement starts without a position, so a failure before it
             reaches one is not reported against the statement before it. *)
@@ -2929,7 +2933,7 @@ let run_program ?(mode = Normal) ~base_dir prog =
          if since >= Evaluator.index_every then ((Evaluator.index_env env, last), 0)
          else ((env, last), since + 1)
        ) ((index_env (base_eval_env @ imp.eval_env), VUnit), 0) prog.Ast.items
-       in last
+       in last)
      ) in
      (* A request that arrived with nothing left to evaluate would otherwise
         be dropped, and the script would report success after being asked to
@@ -3007,11 +3011,7 @@ let rearm_signal_handlers () =
   install_signal_handlers ()
 
 let run_file ?(mode = Normal) path =
-  let full =
-    if Filename.is_relative path
-    then Filename.concat (Sys.getcwd ()) (add_ext path)
-    else add_ext path
-  in
+  let full = entry_path path in
   try
     let src      = In_channel.with_open_text full In_channel.input_all in
     (* The file the run was asked for. A position in it is reported bare,
@@ -3078,6 +3078,7 @@ let run_test_program ~base_dir ?(item_locs = []) prog
     (* Nothing is discarded, so the outcomes below are the whole verdict. *)
     let outcomes = ref [] in
     ignore (run_with_default_handler (fun () ->
+      with_file_net (net_bound_of_manifest prog.Ast.manifest) (fun () ->
       ignore (List.fold_left (fun env item ->
         Evaluator.forget_loc ();
         match item with
@@ -3108,7 +3109,7 @@ let run_test_program ~base_dir ?(item_locs = []) prog
            | Error m -> outcomes := !outcomes @ [TError m]);
           env
         | _ -> run_item env item
-      ) (index_env (base_eval_env @ imp.eval_env)) prog.Ast.items);
+      ) (index_env (base_eval_env @ imp.eval_env)) prog.Ast.items));
       VUnit
     ));
     Ok !outcomes
@@ -3169,11 +3170,7 @@ let find_test_files root =
   List.rev !found
 
 let run_test_file path : (test_outcome list, string) result =
-  let full =
-    if Filename.is_relative path
-    then Filename.concat (Sys.getcwd ()) (add_ext path)
-    else add_ext path
-  in
+  let full = entry_path path in
   try
     let src      = In_channel.with_open_text full In_channel.input_all in
     let tokens   = Lexer.tokenize src in
@@ -3458,6 +3455,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
         let env_ref  = ref base_eval in
         let last_ref = ref VUnit in
         ignore (run_with_default_handler (fun () ->
+          with_file_net (net_bound_of_manifest prog.Ast.manifest) (fun () ->
           List.iter (fun item ->
             Evaluator.forget_loc ();
             match item with
@@ -3496,7 +3494,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLExpr e ->
               last_ref := eval !env_ref e
             | Ast.TLImport _ -> ()
-          ) prog.Ast.items;
+          ) prog.Ast.items);
           VUnit));
         let new_eval_env = !env_ref in
         let last_v       = !last_ref in
@@ -3624,11 +3622,7 @@ type source_check = {
    and whether it is checked as a stdlib module. A failure comes back as a
    structured diagnostic; `Diag.legacy` recovers the old error string. *)
 let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
-  let full =
-    if Filename.is_relative path
-    then Filename.concat (Sys.getcwd ()) (add_ext path)
-    else add_ext path
-  in
+  let full = entry_path path in
   try
     let tokens   = Lexer.tokenize src in
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
@@ -3636,10 +3630,6 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     let cache = Hashtbl.create 8 in
     let loading = ref [] in
     let (imp, imp_docs) = load_imports_for ~item_locs ~base_dir ~cache ~loading ~evaluate:false prog in
-    (* Settled before anything reads the program's own declarations: an
-       alias parses as a variant with one nullary constructor, and a lint
-       or a tenv built from that has the alias declaring a constructor over
-       the very name it aliases. *)
     let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
     (* A file in the stdlib is checked as what it is: a module, whose body
        calls the raw builtins the modules are built from. Checked as a
@@ -3681,11 +3671,7 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
 
 let typecheck_file path : (source_check, Diag.t) result =
   try
-    let full =
-      if Filename.is_relative path
-      then Filename.concat (Sys.getcwd ()) (add_ext path)
-      else add_ext path
-    in
+    let full = entry_path path in
     let src = In_channel.with_open_text full In_channel.input_all in
     typecheck_source ~path src
   with Sys_error msg ->
@@ -3703,10 +3689,6 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let loading = ref [] in
     let base_dir = Module_types.stdlib_base_dir in
     let (imp, _) = load_imports_for ~item_locs ~base_dir ~cache ~loading ~evaluate:false prog in
-    (* Settled before anything reads the program's own declarations: an
-       alias parses as a variant with one nullary constructor, and a lint
-       or a tenv built from that has the alias declaring a constructor over
-       the very name it aliases. *)
     let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)
@@ -3727,10 +3709,6 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let (prog, item_locs) = Parser.parse_program_with_locs tokens in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~item_locs ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading ~evaluate:false prog in
-    (* Settled before anything reads the program's own declarations: an
-       alias parses as a variant with one nullary constructor, and a lint
-       or a tenv built from that has the alias declaring a constructor over
-       the very name it aliases. *)
     let prog =
       Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
@@ -3754,10 +3732,6 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let prog   = Parser.parse_program tokens in
     let loading = ref [] in
     let (imp, _) = load_imports_for ~base_dir:sess.s_base_dir ~cache:sess.s_cache ~loading ~evaluate:false prog in
-    (* Settled before anything reads the program's own declarations: an
-       alias parses as a variant with one nullary constructor, and a lint
-       or a tenv built from that has the alias declaring a constructor over
-       the very name it aliases. *)
     let prog =
       Typechecker.settle_aliases ~init_tenv:(imp.tenv @ sess.s_tenv) prog in
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in

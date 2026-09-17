@@ -60,7 +60,7 @@ test "pipe into $?()" (fn t -> (let r = "hello" |> $?(cat); t.eq "hello" r.stdou
 
 -- ── mock handlers ───────────────────────────────────────────────────────
 
-test "mock process_run" (fn t ->
+test "mock Shell!run" (fn t ->
   let outcome =
     handle $(echo hello) with
     | Shell!run _ k -> k "mocked"

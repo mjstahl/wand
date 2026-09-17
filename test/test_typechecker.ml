@@ -1866,8 +1866,8 @@ let test_manifest_rejects_unknown_labels () =
     "is not an effect"
 
 (* What using a member commits a file's manifest to -- the query the
-   editor's auto-import tier asks before extending `uses {...}`
-   (LSP.md §2.1). Asked of the schemes an import binds, exactly as the
+   editor's auto-import tier asks before extending `uses {...}`.
+   Asked of the schemes an import binds, exactly as the
    server will ask it. *)
 let test_manifest_labels_of_member () =
   let env =

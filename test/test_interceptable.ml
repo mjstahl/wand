@@ -91,8 +91,8 @@ let test_effectful_builtins_are_interceptable () =
     | Some t ->
       let effects = claimed_effects t in
       if effects <> [] then begin
-        (* Try applying one argument at a time: a builtin performs as soon as
-           it has what it needs, and we only care that it performs at all. *)
+        (* One argument at a time: a builtin performs as soon as it has what
+           it needs, and the question here is only whether it performs. *)
         let performed =
           List.exists (fun arity ->
             match performs_an_effect name arity with

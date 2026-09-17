@@ -368,6 +368,10 @@ let load_files ?(sources = []) loads =
    `--dry-run` had the flag read as wand's -- the run became a rehearsal that
    changed nothing, said nothing about why, and the script never saw the
    argument it was passed. *)
+(* wand's own flags on a script run. Each is taken wherever it appears
+   before `--`, because getting one of them wrong runs a deploy for real. *)
+let own_flags = ["--dry-run"; "--trace"; "--lint"; "--strict"]
+
 let split_own args =
   let rec go acc = function
     | "--" :: after -> (List.rev acc, after)
@@ -449,6 +453,37 @@ let wants_help args =
   in
   go None args
 
+(* One script run, however the line was written. The flags are wand's
+   wherever they appear before `--`: a mode written first reads better
+   (`wand --dry-run deploy.wand`) and has to mean the same thing, or one
+   spelling is a gate and the other is a deploy.
+
+   `--strict` asks for the findings and refuses to run on a violation, so it
+   implies `--lint` rather than needing it. A script with a `--strict` of its
+   own is given it after `--`. *)
+let run_script path args =
+  let (before, after) = split_own args in
+  let has f = List.mem f before in
+  let strict = has "--strict" in
+  let lint = has "--lint" || strict in
+  let mode =
+    if has "--dry-run" then Wand.Runner.DryRun
+    else if has "--trace" then Wand.Runner.Trace
+    else Wand.Runner.Normal
+  in
+  let strip =
+    List.filter (fun a -> not (List.mem a own_flags)) before @ after
+  in
+  Wand.Evaluator.exe_args_ref := strip;
+  if lint then lint_before_running ~strict path;
+  (* A running script can be stopped by a signal or by `exit`. Both unwind,
+     so whatever the script is holding is released first, and the code it
+     stops with is the one the caller expects. *)
+  Wand.Runner.install_signal_handlers ();
+  (match Wand.Runner.run_file ~mode path with
+   | Ok v    -> if v <> "()" then print_endline v
+   | Error e -> Printf.eprintf "Error: %s\n" e; exit 1)
+
 let main () =
   let args = Array.to_list Sys.argv |> List.tl in
   (* `--load` may come either side of the expression, so the loads come out
@@ -466,6 +501,10 @@ let main () =
        exit 1
      | _ :: [expr] ->
        let sess = load_files ~sources:[expr] top_loads in
+       (* An expression runs the same code a script does, so it is stopped
+          the same way: a `with` releases, and the exit code is the one the
+          caller expects. *)
+       Wand.Runner.install_signal_handlers ();
        (match Wand.Runner.run_session sess expr with
         | Error msg -> Printf.eprintf "Error: %s\n" msg; exit 1
         | Ok (_, r) -> Wand.Repl.print_result r)
@@ -477,7 +516,10 @@ let main () =
   | ["v"] | ["version"] ->
     print_endline ("wand " ^ Wand.Version.value)
   | sub :: rest when sub = "--dry-run" || sub = "--trace" ->
-    (* The mode can come first, which reads better: wand --dry-run deploy.wand *)
+    (* The mode can come first, which reads better: wand --dry-run
+       deploy.wand. The path is lifted out and everything else, this flag
+       included, goes to the one parser -- so `--strict` is a gate on either
+       side of the path rather than an argument the script is handed. *)
     (match rest with
      | ("-e" | "--expr") :: _ ->
        (* Rehearsing and tracing are built around a script's effects and
@@ -486,17 +528,20 @@ let main () =
           the one mistake this flag exists to prevent. *)
        Printf.eprintf "Error: %s applies to a script, not to an expression\n" sub;
        exit 1
-     | path :: args ->
-       let mode = if sub = "--dry-run" then Wand.Runner.DryRun else Wand.Runner.Trace in
-       let (before, after) = split_own args in
-       Wand.Evaluator.exe_args_ref := before @ after;
-       Wand.Runner.install_signal_handlers ();
-       (match Wand.Runner.run_file ~mode path with
-        | Ok v    -> if v <> "()" then print_endline v
-        | Error e -> Printf.eprintf "Error: %s\n" e; exit 1
-        | exception Wand.Evaluator.Interrupted code -> exit code)
-     | [] ->
-       Printf.eprintf "Error: expected a script after %s\n" sub; exit 1)
+     | _ ->
+       let (before, after) = split_own rest in
+       let rec lift flags = function
+         | a :: tl when List.mem a own_flags -> lift (a :: flags) tl
+         | path :: tl -> Some (path, List.rev flags @ tl)
+         | [] -> None
+       in
+       (match lift [] before with
+        | None ->
+          Printf.eprintf "Error: expected a script after %s\n" sub; exit 1
+        | Some (path, rest) ->
+          if not (Sys.file_exists path) then no_such_file path;
+          let tail = match after with [] -> [] | _ -> "--" :: after in
+          run_script path ((sub :: rest) @ tail)))
   (* Asked for before anything is done with it. `wand i --help` started a
      session and `wand lsp --help` started a server, both of which hang
      rather than answer; `wand d --help` looked up a doc for `--help` and
@@ -845,7 +890,9 @@ let main () =
          command is taken as a script to run. `wand e "1 + 2"` is the one
          worth naming: it is a hyphen away from right, and the argument it
          was given is the expression to put in the hint. *)
-      if not (Sys.file_exists path) then begin
+      (* `wand deploy.wand` and `wand deploy` name the same script when only
+         one of the two is on disk, which is what the runner resolves to. *)
+      if not (Sys.file_exists path || Sys.file_exists (path ^ ".wand")) then begin
         let hint =
           match path, rest with
           | ("e" | "eval"), [expr] -> Some ("wand -e " ^ requote expr)
@@ -858,47 +905,17 @@ let main () =
         in
         no_such_file ?hint path
       end;
-      (* Legacy: wand <file.wand> [args] *)
-      let mode, lint, strict, rest =
-        (* Only what precedes `--` can be wand's. *)
-        let (before, after) = split_own rest in
-        let has f = List.mem f before in
-        (* `--strict` asks for the findings and refuses to run on a
-           violation, so it implies `--lint` rather than needing it. It is
-           taken unconditionally, like `--dry-run` and `--trace` and for the
-           same reason: getting one of those wrong runs a deploy for real.
-           `--strict` alone used to reach the script untouched, so someone
-           who typed it before a deploy asked for a gate, got an ordinary
-           run, and was told nothing -- the failure this flag exists to
-           prevent, wearing the flag's own name.
-
-           A script with a `--strict` of its own is given it after `--`,
-           which is the same trade already made for `--dry-run`. *)
-        let strict = has "--strict" in
-        let lint = has "--lint" || strict in
-        let own = ["--dry-run"; "--trace"; "--lint"; "--strict"] in
-        let strip = List.filter (fun a -> not (List.mem a own)) before @ after in
-        let mode =
-          if has "--dry-run" then Wand.Runner.DryRun
-          else if has "--trace" then Wand.Runner.Trace
-          else Wand.Runner.Normal
-        in
-        (mode, lint, strict, strip)
-      in
-      Wand.Evaluator.exe_args_ref := rest;
-      if lint then lint_before_running ~strict path;
-      (* A running script can be stopped by a signal or by `exit`. Both
-         unwind, so whatever the script is holding is released first, and
-         the code it stops with is the one the caller expects. *)
-      Wand.Runner.install_signal_handlers ();
-      (match Wand.Runner.run_file ~mode path with
-       | Ok v    -> if v <> "()" then print_endline v
-       | Error e -> Printf.eprintf "Error: %s\n" e; exit 1
-       | exception Wand.Evaluator.Interrupted code -> exit code)
+      run_script path rest
 
 (* The last write of a run can be the one that finds the reader gone -- the
    verdict line of `wand s | head`. It is not the script's failure to report,
    and it is not worth a stack trace: 141 is what the shell reports for a
    command that ended on a closed pipe. *)
 let () =
-  try main () with Sys_error m when Wand.Runner.broken_pipe m -> exit 141
+  try main () with
+  | Sys_error m when Wand.Runner.broken_pipe m -> exit 141
+  (* `Proc.exit` and a signal both unwind to here. Every command can reach
+     one: a test file that exits deliberately, a doc example, an expression
+     under `-e`. The code they carry is the code to leave with, rather than
+     OCaml's 2 for an exception nobody caught. *)
+  | Wand.Evaluator.Interrupted code -> exit code

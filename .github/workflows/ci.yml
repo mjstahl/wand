@@ -79,9 +79,8 @@ jobs:
 
       # 09 at a tenth of its usual input. Its point -- a bash loop losing to
       # everything by orders of magnitude -- is visible at any size; the big
-      # number is for a human reading it. Ninety-six seconds was why it was
-      # skipped, and being skipped is why it rotted under a signature change
-      # with nothing noticing.
+      # number is for a human reading it. Run small, so a signature change
+      # here fails in CI rather than in the demo nobody ran.
       - name: Run demo 09 at a size CI can afford
         run: N=500 demos/09-fork-overhead/run.sh
 

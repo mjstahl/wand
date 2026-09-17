@@ -134,6 +134,9 @@ let read_string s =
       if !parts = [] then String (Buffer.contents buf)
       else InterpStr (!parts, Buffer.contents buf)
     | '\\' ->
+      (* The file ending on the backslash is an unterminated string, not an
+         escape of whatever `advance` answers past the end. *)
+      if is_at_end s then raise (Fail "unterminated string literal");
       let c = match advance s with
         | 'n' -> '\n' | 't' -> '\t' | 'r' -> '\r'
         | '\\' -> '\\' | '"' -> '"' | '$' -> '$' | '%' -> '%' | '#' -> '#'
@@ -367,7 +370,7 @@ let read_path_body s prefix =
 (* ── Globs ──────────────────────────────────────────────────────────────── *)
 
 (* What separates a glob from a path, held here so `String.to_glob` and the
-   scanner answer the same question. `read_path_or_glob` decides between the
+   scanner answer the same question. `read_path_body` decides between the
    two by whether it saw a `*`, `?` or `[`, and this is that rule read from
    the other side: text with none of them is a path, and calling it a glob
    would give a pattern that matches one name -- a Path already says that,

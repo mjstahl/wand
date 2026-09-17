@@ -650,8 +650,6 @@ let string_of_typ t =
     | TYaml     -> "YAML"
     (* A type carries the module that declares it. A reader wrote the short
        name, so that is what a message shows. *)
-    (* A type carries the module that declares it. A reader wrote the short
-       name, so that is what a message shows. *)
     | TName n   ->
       (match String.rindex_opt n '#' with
        | Some i -> String.sub n (i + 1) (String.length n - i - 1)
@@ -4160,7 +4158,8 @@ let stdlib_type_env : env = [
      rather than a String on purpose: the quoting a command needs is done by
      the literal that wrote it, so a function that took text would be an
      injection where `$(...)` is safe. There is no way to make a `Command`
-     out of a String, which is what makes these two safe. *)
+     out of a String, which is what makes these two safe -- and why no
+     builtin here takes a command as text. *)
   ("shell_run",   generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TCommand) (TString)));
   ("shell_query", generalize [] (effs [Effect_set.Shell] (TCommand) (TName "ShellResult")));
   (* A 404 is not a failure of this call: the exchange succeeded and the
@@ -4168,9 +4167,6 @@ let stdlib_type_env : env = [
      connect, TLS, a timeout -- which is the same line `$()` draws. *)
   ("net_http", generalize [] (effs [Effect_set.Net; Effect_set.Raise] (TName "HTTPRequest") (TName "HTTPResponse")));
   ("net_download", generalize [] (effs [Effect_set.Net; Effect_set.FsWrite; Effect_set.Raise] (TURL) ((TPath @-> TUnit))));
-  ("process_run",       generalize [] (effs [Effect_set.Shell; Effect_set.Raise] (TString) (TString)));
-  ("process_run_quiet", generalize [] (effs [Effect_set.Shell] (TString) (TUnit)));
-  ("process_exit_code", generalize [] (effs [Effect_set.Shell] (TString) (TInt)));
   (* Env primitives *)
   ("env_read_dotenv", generalize [] (effs [Effect_set.Env; Effect_set.Raise] (TString) (TList (TTuple [TString; TString]))));
   (* Reads the file and sets each variable, so it performs FS.Read as well as
@@ -4567,7 +4563,7 @@ let manifest_relevant labels = Effect_set.EffSet.remove Effect_set.Raise labels
    a polymorphic set means the function passes its argument's effects
    through, which commits the caller to nothing by itself. `Raise` is
    excluded like everywhere manifests are concerned. Serves the editor's
-   auto-import tier (LSP.md §2.1) and the manifest check below, so the two
+   auto-import tier and the manifest check below, so the two
    cannot disagree about what a member implies. *)
 let manifest_labels_of_scheme (s : scheme) : Effect_set.EffSet.t =
   match s with
@@ -4811,7 +4807,9 @@ let expr_item_effects : (int * Effect_set.EffSet.t) list ref = ref []
 
    This runs before the typechecker and before the evaluator, over the same
    program, because the two disagreeing about what a declaration means is
-   the bug this whole area already had once. *)
+   the bug this whole area already had once. Every caller settles first for
+   the same reason: a lint or a tenv built from an unsettled program has the
+   alias declaring a constructor over the very name it aliases. *)
 let settle_aliases ?(init_tenv=[]) (prog : program) : program =
   let declared =
     List.filter_map (function

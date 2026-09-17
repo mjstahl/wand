@@ -3,18 +3,12 @@ name: Installs
 # The install script, against a release that is actually downloadable.
 #
 # install.sh proves the downloaded binary runs before it installs it, and
-# that check has to be spelled the way the binary answers. 0.55.0 removed
-# `wand e`, install.sh still asked for it, and every install failed with
-# "the downloaded binary did not run". A person reported it, hours later.
+# that check has to be spelled the way the binary answers -- a spelling the
+# script asks for and the binary no longer has fails every install.
 #
-# This first lived in release.yml, running after the archives were attached
-# and before anyone published. It could never have worked there: a release
-# is a draft until it is published, a draft's assets are not served from
-# the public download URL, and install.sh downloads from that URL. Every run
-# 404'd. Testing the path a user takes means waiting until that path is open.
-#
-# So it fires on publication instead. It is a minute later than the draft,
-# and a minute is not the hours it took last time.
+# It fires on publication, not on the draft: a draft's assets are not served
+# from the public download URL, and install.sh downloads from that URL.
+# Testing the path a user takes means waiting until that path is open.
 on:
   release:
     types: [published]

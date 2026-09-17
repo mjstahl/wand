@@ -26,9 +26,8 @@ jobs:
       id-token: write
       attestations: write
     # See ci.yml: a hung runner fails in minutes, not GitHub's six hours.
-    # Raised from 30 when the static builds started compiling OCaml 5.5.1
-    # from source: one attempt is about eight minutes and the step retries
-    # up to three times, which did not fit.
+    # 45: one musl attempt is about eight minutes and the step retries
+    # up to three times.
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -154,7 +153,7 @@ jobs:
 
       # What the release claims is that the binary runs where it is put. It
       # is checked here, from a directory with no wand tree above it, because
-      # that is exactly what P4.1 fixed and exactly what a download does.
+      # that is what a download does.
       - name: Check it runs where it is put
         run: |
           set -euo pipefail
@@ -200,6 +199,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
+          # The archive is named after the tag; the binary must agree, or
+          # the box says one number and the tool inside it another.
+          got="$(_build/default/bin/wand.exe version)"
+          test "$got" = "wand $VERSION" \
+            || { echo "the built binary reports '$got', not 'wand $VERSION'" >&2; exit 1; }
           NAME="wand-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/$NAME"
           cp _build/default/bin/wand.exe "dist/$NAME/wand"

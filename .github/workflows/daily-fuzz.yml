@@ -12,20 +12,8 @@ name: Daily Fuzz
 on:
   schedule:
     # 07:37 UTC. Nothing depends on the exact time; it is early enough that a
-    # finding is waiting rather than arriving mid-morning.
-    #
-    # This schedule does not currently fire, and the time of day is not why.
-    # 07:00 was asked for first and produced no run. 07:37 produced no run.
-    # A probe workflow at `*/10 * * * *` then produced no run in five slots,
-    # while pushes to the same repository built normally. So the fault is in
-    # `schedule` for this repository, not in the hour chosen. Nothing here
-    # accounts for it: the repository is public, it is not a fork, Actions
-    # is enabled, and this file is on the default branch. Only GitHub can
-    # say more; ask their support.
-    #
-    # Until a run appears here on its own, treat the schedule as manual: use
-    # `workflow_dispatch`, driven by a scheduler outside GitHub. Dispatch
-    # works, so a finding is still one command away.
+    # finding is waiting rather than arriving mid-morning. GitHub runs it
+    # hours late under load; `workflow_dispatch` is there for a run now.
     - cron: "37 7 * * *"
   workflow_dispatch:
     inputs:
@@ -175,13 +163,11 @@ jobs:
           # Every title with an issue still open, read once, from the
           # issues endpoint.
           #
-          # This used to ask the search endpoint per signature, and search is
-          # indexed asynchronously: two shards hitting one signature four
-          # seconds apart both found nothing and both filed, which is how
-          # this repository got two issues with one title. Listing is
-          # read-your-writes, and a title filed in this run is added below,
-          # so the second shard sees the first shard's issue whatever the
-          # index is doing.
+          # Listing, not search: search is indexed asynchronously, so two
+          # shards hitting one signature seconds apart both find nothing and
+          # both file. Listing is read-your-writes, and a title filed in this
+          # run is added below, so the second shard sees the first shard's
+          # issue whatever the index is doing.
           #
           # Open, not all. A closed issue says the bug is fixed, so the same
           # signature arriving again is a regression or a second bug wearing

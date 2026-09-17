@@ -134,6 +134,28 @@ let test_anchors_do_not_cross_documents () =
   | Ok _ -> Alcotest.fail "an alias reached into the document above it"
   | Error _ -> ()
 
+(* Nesting is bounded the way alias expansion is, and for the same reason: a
+   script reading a file it did not write should not be where a document
+   that nests fifty thousand deep is discovered. A handful of levels is what
+   a real document uses, and that side of the limit still reads. *)
+let test_deep_nesting_is_refused () =
+  let n = 5_000 in
+  let src = String.concat "" [String.make n '['; String.make n ']'] in
+  match Yaml_read.parse src with
+  | Ok _ -> Alcotest.fail "a document nested 5000 deep was read"
+  | Error e ->
+    Alcotest.(check bool)
+      (Printf.sprintf "the message says how deep it may go: %S" e)
+      true
+      (Option.is_some (String.index_opt e 'n'))
+
+let test_ordinary_nesting_still_reads () =
+  let n = 20 in
+  let src = String.concat "" [String.make n '['; "1"; String.make n ']'] in
+  match Yaml_read.parse src with
+  | Ok _ -> ()
+  | Error e -> Alcotest.failf "a document nested 20 deep was refused: %s" e
+
 let () =
   let case (name, src, expected) =
     Alcotest.test_case name `Quick (parses src expected)
@@ -150,5 +172,12 @@ let () =
             test_parse_refuses_many;
           Alcotest.test_case "anchors are per document" `Quick
             test_anchors_do_not_cross_documents;
+        ] );
+      ( "limits",
+        [
+          Alcotest.test_case "deep nesting is refused" `Quick
+            test_deep_nesting_is_refused;
+          Alcotest.test_case "ordinary nesting reads" `Quick
+            test_ordinary_nesting_still_reads;
         ] );
     ]

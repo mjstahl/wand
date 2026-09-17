@@ -40,7 +40,7 @@ let int = decode_int
 -- Ok(3) : Result String Float
 let float = decode_float
 
--- Read a string, a boolean.
+-- Read a string.
 --
 -- >> JSON.decode Decode.string (JSON.parse! `"hi"`)
 -- Ok("hi") : Result String String

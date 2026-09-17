@@ -68,7 +68,10 @@ let request! req = net_http req
 -- true : Bool
 let request req = try request! req
 
--- Fetch a URL.
+-- Fetch a URL. A status the server answered with is on the response, so a
+-- 404 is `Ok` -- the exchange happened. `Error` is the transport failing.
+-- The raising sibling draws the line one step further in: `get!` raises on
+-- a status outside 2xx as well.
 --
 -- >> Test.with_http [] (fn () -> Result.ok? (HTTP.get https://example.com/))
 -- true : Bool

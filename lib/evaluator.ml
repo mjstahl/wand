@@ -533,6 +533,10 @@ let forwarding_builtin env params body =
         | _ -> None)
      | _ -> None)
 
+(* ── Runtime error ────────────────────────────────────────────────────────── *)
+
+exception EvalError of string
+
 (* ── Instants ───────────────────────────────────────────────────────────── *)
 
 (* Days from 1970-01-01 to a civil date, by Howard Hinnant's algorithm. It
@@ -596,8 +600,17 @@ let seconds_into_day secs = secs - epoch_days secs * 86400
 (* A day at midnight UTC, or why it is not a day. `days_from_civil` maps
    any three numbers to some day, so `2026-02-30` would come back as March
    the 2nd; converting back and comparing is what refuses it. *)
+(* A `DateTime` is written with a four-digit year, so a year outside
+   0..9999 has no spelling: the value would print as text nothing can read
+   back. Refused here, where a caller is holding a Result to be told in. *)
+let year_min = 0
+let year_max = 9999
+
 let day_at y m d =
-  if m < 1 || m > 12 || d < 1 || d > 31 then
+  if y < year_min || y > year_max then
+    Error (Printf.sprintf
+      "%d is outside the years wand writes: %04d to %04d" y year_min year_max)
+  else if m < 1 || m > 12 || d < 1 || d > 31 then
     Error (Printf.sprintf "%04d-%02d-%02d is not a day" y m d)
   else
     let days = days_from_civil y m d in
@@ -609,6 +622,13 @@ let datetime_of_epoch secs =
   let days = if secs >= 0 then secs / 86400 else (secs - 86399) / 86400 in
   let rest = secs - days * 86400 in
   let (y, m, d) = civil_from_days days in
+  (* Every instant wand produces is written here, so this is the one place
+     that has to answer for the four-digit year. A moved instant that leaves
+     the range raises rather than printing a year nothing can read back. *)
+  if y < year_min || y > year_max then
+    raise (EvalError (Printf.sprintf
+      "this instant falls in the year %d, outside the years wand writes: \
+       %04d to %04d" y year_min year_max));
   Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
     y m d (rest / 3600) (rest mod 3600 / 60) (rest mod 60)
 
@@ -752,10 +772,6 @@ let to_text v =
   | VToml (Toml.Types.TTable tbl) -> Toml.Printer.string_of_table tbl
   | v                            -> show_value v
 
-(* ── Runtime error ────────────────────────────────────────────────────────── *)
-
-exception EvalError of string
-
 (* ── Checked Int arithmetic ───────────────────────────────────────────────── *)
 
 (* Int is a machine word, 63 bits on a 64-bit platform, and wrapping past its
@@ -871,6 +887,35 @@ let ambient_shell_allow : string list option Domain.DLS.key =
 let ambient_net_allow : string list option Domain.DLS.key =
   Domain.DLS.new_key (fun () -> None)
 
+(* The `Net(...)` bound of the file whose top level is running. A URL
+   literal carries the bound of the file it was written in; a URL the run
+   computed -- `String.to_url`, `URL.join` -- has no literal to carry one,
+   so it takes this one when it is made, and a request built from an
+   unbounded URL at an unbounded site (the standard library's `HTTP.get`)
+   is checked against it at the send. The runner sets it around a program's
+   items and around each module's, so the standard library's own functions
+   run under the bound of the file that called them. *)
+let ambient_file_net : string list option Domain.DLS.key =
+  Domain.DLS.new_key (fun () -> None)
+
+let with_file_net allow f =
+  let saved = Domain.DLS.get ambient_file_net in
+  Domain.DLS.set ambient_file_net allow;
+  Fun.protect ~finally:(fun () -> Domain.DLS.set ambient_file_net saved) f
+
+let net_bound_of_manifest = function
+  | Some (labels, _) -> Option.join (List.assoc_opt "Net" labels)
+  | None -> None
+
+(* A URL the run computed. It keeps the bound of the URL it was made from,
+   and a URL made from text takes the running file's. *)
+let computed_url ?(from = None) text =
+  let bound = match from with
+    | Some _ -> from
+    | None -> Domain.DLS.get ambient_file_net
+  in
+  VURL (text, bound)
+
 (* How long a command may run, in milliseconds, or None for as long as it
    takes. `Shell.timeout` sets it for the extent of the thunk it is given,
    and the default handler reads it when it waits for a child.
@@ -886,10 +931,6 @@ let shell_deadline : int option Domain.DLS.key =
    picks its own out of the raises it may catch by this prefix. Nothing
    else produces it, because nothing else sets a deadline. *)
 let timeout_prefix = "wand:timeout"
-
-let starts_with prefix s =
-  String.length s >= String.length prefix
-  && String.sub s 0 (String.length prefix) = prefix
 
 let drop_prefix prefix s =
   let n = String.length prefix + 2 in   (* the prefix, then ": " *)
@@ -1859,9 +1900,10 @@ let derive_reader : (string -> value) ref =
    carries nothing and only the literal can say whose manifest applies. A
    request the caller builds itself has the same bound on both. *)
 let request_bound allow value =
-  match value with
-  | VConstr (_, VURL (_, (Some _ as from_url)) :: _) -> from_url
-  | _ -> allow
+  match value, allow with
+  | VConstr (_, VURL (_, (Some _ as from_url)) :: _), _ -> from_url
+  | _, Some _ -> allow
+  | _, None -> Domain.DLS.get ambient_file_net
 
 let check_request_host allow value =
   match request_bound allow value with
@@ -2233,7 +2275,7 @@ and eval_at (tail : bool) (env : env) (e : expr) : value =
                     | None -> try_cases rest
                     | Some env' ->
                       Some (fun (k : (a, value) Effect.Deep.continuation) ->
-                        (* An case that answers without resuming ends the body
+                        (* A case that answers without resuming ends the body
                            it was handling. The body may be holding something
                            that has to be given back -- a lock, a temp file --
                            and a continuation that is simply dropped runs no
@@ -3662,7 +3704,9 @@ let par_run limit f items ~collect =
   let live = Atomic.make 0 in
   let m = Mutex.create () in
   let ready = Condition.create () in
-  let pending : (string * value * string list option) option ref = ref None in
+  let pending
+    : (string * value * string list option * string list option) option ref =
+    ref None in
   let reply : (value, exn) result option ref = ref None in
 
   (* One worker at a time may have a request outstanding. There is a single
@@ -3680,7 +3724,8 @@ let par_run limit f items ~collect =
         (* The worker's ambient allowlist rides along: the pump re-performs
            on the main domain, where the worker's domain-local value is
            invisible. *)
-        pending := Some (name, arg, Domain.DLS.get ambient_shell_allow);
+        pending := Some (name, arg, Domain.DLS.get ambient_shell_allow,
+                         Domain.DLS.get ambient_net_allow);
         Condition.broadcast ready;
         while !reply = None do Condition.wait ready m done;
         let answer = Option.get !reply in
@@ -3753,7 +3798,12 @@ let par_run limit f items ~collect =
      and buys the guarantee that moving work into Par cannot escape whoever
      is watching. Nobody rehearses for speed. *)
   let watched = Atomic.get observers > 0 in
+  (* Domain-local state starts empty on a new domain, so the file bound
+     comes across by hand: a URL computed inside a worker is the calling
+     file's as much as one computed outside it. *)
+  let file_net = Domain.DLS.get ambient_file_net in
   let worker () =
+    Domain.DLS.set ambient_file_net file_net;
     if watched then worker_forwarding ()
     else ignore (!with_default_handler (fun () -> worker_direct (); VUnit))
   in
@@ -3767,13 +3817,18 @@ let par_run limit f items ~collect =
       while !pending = None && Atomic.get live > 0 do Condition.wait ready m done;
       match !pending with
       | None -> Mutex.unlock m
-      | Some (name, arg, allow) ->
+      | Some (name, arg, allow, net_allow) ->
         pending := None;
         Mutex.unlock m;
+        (* Every exception becomes the worker's answer. One that escaped here
+           would leave the worker waiting on a reply that never comes, with
+           `speaking` held, and the domain never joined. *)
         let answer =
+          let saved = Domain.DLS.get ambient_net_allow in
+          Domain.DLS.set ambient_net_allow net_allow;
           match perform_shell name allow arg with
-          | v -> Ok v
-          | exception (EvalError _ as e) -> Error e
+          | v -> Domain.DLS.set ambient_net_allow saved; Ok v
+          | exception e -> Domain.DLS.set ambient_net_allow saved; Error e
         in
         Mutex.lock m;
         reply := Some answer;
@@ -3793,7 +3848,8 @@ let par_run limit f items ~collect =
     List.iter (fun d ->
       match Domain.join d with
       | () -> ()
-      | exception Interrupted _ -> ()) domains);
+      | exception (Interrupted _ | Fun.Finally_raised (Interrupted _)) -> ())
+      domains);
     if collect then VList (Array.to_list (Array.sub results 0 n)) else VUnit
   end
 
@@ -3849,7 +3905,9 @@ let par_race thunks =
     let m = Mutex.create () in
     let done_ = Condition.create () in
     let winner = ref None in
+    let file_net = Domain.DLS.get ambient_file_net in
     let worker i () =
+      Domain.DLS.set ambient_file_net file_net;
       cancel_this_domain flags.(i);
       let result =
         ignore (!with_default_handler (fun () ->
@@ -4259,7 +4317,7 @@ let stdlib_eval_env : env = [
        (* The raise carries a position by the time it gets here, and the
           marker sits after it. *)
        | exception EvalError msg
-         when starts_with timeout_prefix (Util.strip_loc_prefix msg) ->
+         when String.starts_with ~prefix:timeout_prefix (Util.strip_loc_prefix msg) ->
          VConstr (Ctor.Builtin "Error",
                   [VString (drop_prefix timeout_prefix
                               (Util.strip_loc_prefix msg))])))
@@ -4385,15 +4443,13 @@ let stdlib_eval_env : env = [
   ("str_starts_with", VBuiltin (function
     | VString prefix -> VBuiltin (function
       | VString s ->
-        let plen = String.length prefix in
-        VBool (String.length s >= plen && String.sub s 0 plen = prefix)
+        VBool (String.starts_with ~prefix s)
       | _ -> raise (EvalError "str_starts_with: expected String"))
     | _ -> raise (EvalError "str_starts_with: expected String")));
   ("str_ends_with", VBuiltin (function
     | VString suffix -> VBuiltin (function
       | VString s ->
-        let suf = String.length suffix and slen = String.length s in
-        VBool (slen >= suf && String.sub s (slen - suf) suf = suffix)
+        VBool (String.ends_with ~suffix s)
       | _ -> raise (EvalError "str_ends_with: expected String"))
     | _ -> raise (EvalError "str_ends_with: expected String")));
   ("str_replace", VBuiltin (function
@@ -4577,7 +4633,7 @@ let stdlib_eval_env : env = [
     | VString s ->
       let text = String.trim s in
       (match Lexer.url_error text with
-       | None -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
+       | None -> VConstr (Ctor.Builtin "Ok", [computed_url text])
        | Some why -> VConstr (Ctor.Builtin "Error", [VString
            (Printf.sprintf "cannot parse %S as URL: %s" s why)]))
     | _ -> raise (EvalError "str_to_url: expected String")));
@@ -4690,7 +4746,10 @@ let stdlib_eval_env : env = [
   (* The ends of the range, host bits all clear and all set. Not "the first
      usable host" and "the broadcast address": those are conventions of
      particular network sizes, and a /31 on a point-to-point link has
-     neither. These are the two addresses the prefix actually bounds. *)
+     neither. These are the two addresses the prefix actually bounds.
+
+     The first of them is the network address, so `first` and `network` are
+     two names a reader reaches for over one answer. *)
   ("cidr_first", VBuiltin (function
     | VCIDR net ->
       let base, bits = cidr_key net in
@@ -4941,7 +5000,7 @@ let stdlib_eval_env : env = [
      value from becoming a separator. *)
   ("url_with_query", VBuiltin (function
     | VMap m -> VBuiltin (function
-      | VURL (u, _) ->
+      | VURL (u, from) ->
         let kvs = vmap_list m in
         let parts = url_parts u in
         let q =
@@ -4956,7 +5015,7 @@ let stdlib_eval_env : env = [
                  url_encode_text k ^ "=" ^ url_encode_text text)
                kvs)
         in
-        VURL (url_rebuild { parts with up_query = q }, None)
+        computed_url ~from (url_rebuild { parts with up_query = q })
       | _ -> raise (EvalError "url_with_query: expected URL"))
     | _ -> raise (EvalError "url_with_query: expected Map")));
 
@@ -4965,7 +5024,7 @@ let stdlib_eval_env : env = [
      without this the module could read a `?x=1&x=2` it had no way to build. *)
   ("url_with_query_list", VBuiltin (function
     | VList pairs -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let parts = url_parts u in
         let q =
           String.concat "&"
@@ -4976,7 +5035,7 @@ let stdlib_eval_env : env = [
                  | _ -> raise (EvalError "url_with_query_list: expected List (String, String)"))
                pairs)
         in
-        VURL (url_rebuild { parts with up_query = q }, None)
+        computed_url ~from (url_rebuild { parts with up_query = q })
       | _ -> raise (EvalError "url_with_query_list: expected URL"))
     | _ -> raise (EvalError "url_with_query_list: expected List (String, String)")));
 
@@ -4989,16 +5048,16 @@ let stdlib_eval_env : env = [
      changing what it means, the setter is total instead. *)
   ("url_with_scheme", VBuiltin (function
     | VString sch -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let parts = url_parts u in
         (match url_checked (url_rebuild { parts with up_scheme = sch }) with
-         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [computed_url ~from text])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_with_scheme: expected URL"))
     | _ -> raise (EvalError "url_with_scheme: expected String")));
   ("url_with_hostname", VBuiltin (function
     | VString h -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let parts = url_parts u in
         let au = url_authority_of parts.up_authority in
         let text =
@@ -5006,7 +5065,7 @@ let stdlib_eval_env : env = [
             up_authority = url_authority_text { au with au_hostname = h } }
         in
         (match url_checked text with
-         | Ok text -> VConstr (Ctor.Builtin "Ok", [VURL (text, None)])
+         | Ok text -> VConstr (Ctor.Builtin "Ok", [computed_url ~from text])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_with_hostname: expected URL"))
     | _ -> raise (EvalError "url_with_hostname: expected String")));
@@ -5014,7 +5073,7 @@ let stdlib_eval_env : env = [
      already a port, so nothing here can fail. *)
   ("url_with_port", VBuiltin (function
     | port -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let n = match port with
           | VConstr (Ctor.Builtin "Some", [VPort n]) -> Some n
           | VConstr (Ctor.Builtin "None", []) -> None
@@ -5022,8 +5081,8 @@ let stdlib_eval_env : env = [
         in
         let parts = url_parts u in
         let au = url_authority_of parts.up_authority in
-        VURL (url_rebuild { parts with
-                up_authority = url_authority_text { au with au_port = n } }, None)
+        computed_url ~from (url_rebuild { parts with
+                up_authority = url_authority_text { au with au_port = n } })
       | _ -> raise (EvalError "url_with_port: expected URL"))));
   (* A Path is made of `/`, so its separators are kept and only what cannot
      appear in a URL is escaped. A path that does not start with `/` gets
@@ -5031,23 +5090,23 @@ let stdlib_eval_env : env = [
      meaning `/a/b` is the only reading that addresses anything. *)
   ("url_with_path", VBuiltin (function
     | VPath p -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let p = if p = "" then "/" else if p.[0] = '/' then p else "/" ^ p in
         let parts = url_parts u in
-        VURL (url_rebuild { parts with up_path = url_encode_keep p }, None)
+        computed_url ~from (url_rebuild { parts with up_path = url_encode_keep p })
       | _ -> raise (EvalError "url_with_path: expected URL"))
     | _ -> raise (EvalError "url_with_path: expected Path")));
   (* An Option, because an empty fragment is not a missing one: `page#`
      names the top of the page and `page` does not. *)
   ("url_with_fragment", VBuiltin (function
     | frag -> VBuiltin (function
-      | VURL (u, None) ->
+      | VURL (u, from) ->
         let f = match frag with
           | VConstr (Ctor.Builtin "Some", [VString f]) -> Some (url_encode_keep f)
           | VConstr (Ctor.Builtin "None", []) -> None
           | _ -> raise (EvalError "url_with_fragment: expected Option String")
         in
-        VURL (url_rebuild { (url_parts u) with up_fragment = f }, None)
+        computed_url ~from (url_rebuild { (url_parts u) with up_fragment = f })
       | _ -> raise (EvalError "url_with_fragment: expected URL"))));
   (* The credentials, strictly encoded: `@` and `:` are the delimiters of the
      authority, so a password holding one has to be escaped or it moves the
@@ -5055,22 +5114,22 @@ let stdlib_eval_env : env = [
      with a password and no username, and dropping the password because the
      username went away would lose something the caller did not touch. *)
   ("url_with_username", VBuiltin (fun name -> VBuiltin (function
-    | VURL (u, None) ->
+    | VURL (u, from) ->
       let n = match name with
         | VConstr (Ctor.Builtin "Some", [VString n]) -> Some n
         | VConstr (Ctor.Builtin "None", []) -> None
         | _ -> raise (EvalError "url_with_username: expected Option String")
       in
-      VURL (url_set_userinfo u (fun (_, pw) -> (n, pw)), None)
+      computed_url ~from (url_set_userinfo u (fun (_, pw) -> (n, pw)))
     | _ -> raise (EvalError "url_with_username: expected URL"))));
   ("url_with_password", VBuiltin (fun pass -> VBuiltin (function
-    | VURL (u, None) ->
+    | VURL (u, from) ->
       let p = match pass with
         | VConstr (Ctor.Builtin "Some", [VString p]) -> Some p
         | VConstr (Ctor.Builtin "None", []) -> None
         | _ -> raise (EvalError "url_with_password: expected Option String")
       in
-      VURL (url_set_userinfo u (fun (n, _) -> (n, p)), None)
+      computed_url ~from (url_set_userinfo u (fun (n, _) -> (n, p)))
     | _ -> raise (EvalError "url_with_password: expected URL"))));
 
   (* Resolving a reference against a base, RFC 3986 section 5. An absolute
@@ -5081,9 +5140,9 @@ let stdlib_eval_env : env = [
      wrong, which is why this is here rather than in a script. *)
   ("url_join", VBuiltin (function
     | VString r -> VBuiltin (function
-      | VURL (base, None) ->
+      | VURL (base, from) ->
         (match url_resolve base r with
-         | Ok u -> VConstr (Ctor.Builtin "Ok", [VURL (u, None)])
+         | Ok u -> VConstr (Ctor.Builtin "Ok", [computed_url ~from u])
          | Error why -> VConstr (Ctor.Builtin "Error", [VString why]))
       | _ -> raise (EvalError "url_join: expected URL"))
     | _ -> raise (EvalError "url_join: expected String")));
@@ -5262,30 +5321,38 @@ let stdlib_eval_env : env = [
             end else if Re.execp re rel then VPath path :: acc
             else acc
           in
-          let results = List.rev (collect ~walk_link:true base "" []) in
+          (* A directory the walk cannot read is the filesystem answering,
+             not wand failing: it arrives as `Sys_error`, which no `try`
+             can hold. Said as a wand error instead, so a caller can catch
+             it like any other. *)
+          let results =
+            match collect ~walk_link:true base "" [] with
+            | acc -> List.rev acc
+            | exception Sys_error why -> raise (EvalError ("fs_glob: " ^ why))
+          in
           VList results
         | _ -> raise (EvalError "fs_glob: second argument must be Path"))
     | _ -> raise (EvalError "fs_glob: first argument must be Glob or String")));
   (* Duration primitives *)
   ("dur_zero",    VDuration "0s");
   ("dur_seconds", VBuiltin (function
-    | VInt n -> VDuration (format_dur_ms (n * 1000))
+    | VInt n -> VDuration (format_dur_ms (mul_ovf n 1000))
     | _ -> raise (EvalError "dur_seconds: expected Int")));
   ("dur_minutes", VBuiltin (function
-    | VInt n -> VDuration (format_dur_ms (n * 60000))
+    | VInt n -> VDuration (format_dur_ms (mul_ovf n 60000))
     | _ -> raise (EvalError "dur_minutes: expected Int")));
   ("dur_hours",   VBuiltin (function
-    | VInt n -> VDuration (format_dur_ms (n * 3600000))
+    | VInt n -> VDuration (format_dur_ms (mul_ovf n 3600000))
     | _ -> raise (EvalError "dur_hours: expected Int")));
   ("dur_days",    VBuiltin (function
-    | VInt n -> VDuration (format_dur_ms (n * 24 * 3600000))
+    | VInt n -> VDuration (format_dur_ms (mul_ovf n 86400000))
     | _ -> raise (EvalError "dur_days: expected Int")));
   ("dur_weeks",   VBuiltin (function
-    | VInt n -> VDuration (format_dur_ms (n * 7 * 24 * 3600000))
+    | VInt n -> VDuration (format_dur_ms (mul_ovf n 604800000))
     | _ -> raise (EvalError "dur_weeks: expected Int")));
   ("dur_add", VBuiltin (function
     | VDuration a -> VBuiltin (function
-      | VDuration b -> VDuration (format_dur_ms (parse_dur_ms a + parse_dur_ms b))
+      | VDuration b -> VDuration (format_dur_ms (add_ovf (parse_dur_ms a) (parse_dur_ms b)))
       | _ -> raise (EvalError "dur_add: expected Duration"))
     | _ -> raise (EvalError "dur_add: expected Duration")));
   ("dur_sub", VBuiltin (function
@@ -5295,7 +5362,7 @@ let stdlib_eval_env : env = [
     | _ -> raise (EvalError "dur_sub: expected Duration")));
   ("dur_scale", VBuiltin (function
     | VInt n -> VBuiltin (function
-      | VDuration d -> VDuration (format_dur_ms (n * parse_dur_ms d))
+      | VDuration d -> VDuration (format_dur_ms (mul_ovf n (parse_dur_ms d)))
       | _ -> raise (EvalError "dur_scale: expected Duration"))
     | _ -> raise (EvalError "dur_scale: expected Int")));
   ("dur_format", VBuiltin (function
@@ -5504,12 +5571,6 @@ let stdlib_eval_env : env = [
     | VCommand (cmd, allow) -> perform_shell "Shell!capture" allow (VString cmd)
     | _ -> raise (EvalError "shell_query: expected a Command")));
   (* Process primitives *)
-  ("process_run", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("Shell!run", v))));
-  ("process_run_quiet", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("Shell!run_quiet", v))));
-  ("process_exit_code", VBuiltin (fun v ->
-    Effect.perform (WandEffect ("Shell!exit_code", v))));
   (* Env primitives *)
   ("env_read_dotenv", performing "Env!read" (function
     | VString src | VPath src ->
@@ -5545,6 +5606,19 @@ let stdlib_eval_env : env = [
      rehearsal that still edited the environment would be worse than none. *)
   ("env_set", VBuiltin (fun name ->
     VBuiltin (fun value ->
+      (* A name is what stands left of the `=` in the environment, so a name
+         holding one names something else: `Env.set "A=B" "x"` set `A` to
+         `B=x`, and an empty name added an entry nothing can read. Refused
+         here rather than passed on, so a rehearsal refuses it too. *)
+      (match name with
+       | VString n ->
+         if n = "" then
+           raise (EvalError "Env.set: the name is empty")
+         else if String.contains n '=' then
+           raise (EvalError (Printf.sprintf
+             "Env.set: %S holds '=', which separates a name from its value"
+             n))
+       | _ -> ());
       Effect.perform (WandEffect ("Env!set", VTuple [name; value])))));
   ("env_clear", VBuiltin (fun name ->
     Effect.perform (WandEffect ("Env!clear", name))));
@@ -5954,19 +6028,6 @@ let stdlib_eval_env : env = [
 
 (* ── Map builtins ─────────────────────────────────────────────────────────── *)
 
-let apply_fn f v = match f with
-  | VBuiltin g  -> g v
-  | VFun (env, [p], body) ->
-    (match try_match p v env with
-     | Some env' -> eval env' body
-     | None      -> raise (EvalError "apply_fn: pattern mismatch"))
-  | VFix (name, env, [p], body) ->
-    let rec self = lazy (VFix (name, (name, Lazy.force self) :: env, [p], body)) in
-    (match try_match p v ((name, Lazy.force self) :: env) with
-     | Some env' -> eval env' body
-     | None      -> raise (EvalError "apply_fn: pattern mismatch"))
-  | _ -> raise (EvalError "apply_fn: not a function")
-
 let map_builtins : env = [
   ("map_empty",  VMap vmap_empty);
   ("map_get", VBuiltin (function
@@ -5997,7 +6058,7 @@ let map_builtins : env = [
     | VString key -> VBuiltin (fun dflt -> VBuiltin (fun f -> VBuiltin (function
       | VMap m ->
         VMap (vmap_update key
-                (fun cur -> apply_fn f (match cur with Some v -> v | None -> dflt)) m)
+                (fun cur -> apply f (match cur with Some v -> v | None -> dflt)) m)
       | _ -> raise (EvalError "map_update: expected Map"))))
     | _ -> raise (EvalError "map_update: expected String key")));
   ("map_delete", VBuiltin (function
@@ -6041,13 +6102,13 @@ let map_builtins : env = [
     | _ -> raise (EvalError "map_merge: expected Map")));
   ("map_map", VBuiltin (function
     | f -> VBuiltin (function
-      | VMap m -> VMap (vmap_map (fun v -> apply_fn f v) m)
+      | VMap m -> VMap (vmap_map (fun v -> apply f v) m)
       | _ -> raise (EvalError "map_map: expected Map"))));
   ("map_filter", VBuiltin (function
     | f -> VBuiltin (function
       | VMap m ->
         VMap (vmap_filter (fun v ->
-          match apply_fn f v with VBool b -> b | _ -> false) m)
+          match apply f v with VBool b -> b | _ -> false) m)
       | _ -> raise (EvalError "map_filter: expected Map"))));
 ]
 

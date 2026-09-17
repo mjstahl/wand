@@ -1,12 +1,12 @@
 open Wand
 
-(* The examples are the first thing a visitor runs, so a broken one costs more
-   than a broken test. Four of eight were broken at once -- a removed module, a
-   stale import form, a stale $() form, and a Result used as an Int -- and
-   nothing noticed, because nothing ran them.
+(* The examples are the first thing a visitor runs, so a broken one costs
+   more than a broken test: a removed module, a stale import form, a stale
+   $() form and a Result used as an Int all reached the tree at once, because
+   nothing ran them.
 
-   Every example is typechecked, which is what would have caught three of those
-   four. Examples that only compute are also executed; the ones that shell out
+   Every example is typechecked, which is what catches all but the last of
+   those. Examples that only compute are also executed; the ones that shell out
    to git/whoami/uname are not, since the sandbox is not a git repository and a
    test that depends on the host's tools fails for reasons that have nothing to
    do with the example. *)

@@ -2,7 +2,7 @@
    framing plus JSON-RPC. Hand-rolled over yojson on purpose -- the v1
    surface is a handful of methods, and the opam `lsp` package would be
    the largest dependency in the tree, moving with ocaml-lsp's needs
-   rather than ours (LSP.md §1).
+   rather than ours.
 
    One loop, single-threaded: read a message, handle it, write what it
    produced. Every answer costs milliseconds (the whole buffer is
@@ -67,10 +67,10 @@ let content_length_of line =
    ended, or a header named a length this will not read -- has lost the
    framing, and a transport that has lost framing cannot be resynchronized.
 
-   These used to be one `None`. A single unparseable body was read as the
-   client having gone away, and the server exited: every later request went
-   unanswered, and the editor showed no diagnostics for the rest of the
-   session with nothing to say why. *)
+   Three cases, not two: read as one, an unparseable body is the client
+   having gone away, and the server exits -- every later request goes
+   unanswered and the editor shows no diagnostics for the rest of the
+   session, with nothing to say why. *)
 type frame =
   | Frame of J.t
   | Bad_body
@@ -181,7 +181,7 @@ let path_of_uri uri =
     | None -> uri
 
 (* What the Problems pane shows for one buffer: the check's single error,
-   or its findings. Holes wait for locations (LSP.md §5.1); a diagnostic
+   or its findings. Holes wait for locations; a diagnostic
    that cannot point anywhere is noise, not information. *)
 let analyze uri text : Runner.source_check option * Diag.t list =
   match Runner.typecheck_source ~path:(path_of_uri uri) text with
@@ -245,7 +245,7 @@ let capabilities : J.t =
   `Assoc [
     ("capabilities", `Assoc [
        (* Full-text sync: the whole buffer per change, which is what the
-          checker consumes anyway (LSP.md §1: no incrementality). *)
+          checker consumes anyway. Nothing here is incremental. *)
        ("textDocumentSync", `Assoc [("openClose", `Bool true);
                                     ("change", `Int 1)]);
        ("hoverProvider", `Bool true);
@@ -266,7 +266,10 @@ let capabilities : J.t =
    approximation the published diagnostics have always made. *)
 let lines_of = String.split_on_char '\n'
 
-let line_at lines l = List.nth_opt lines l
+(* `List.nth_opt` answers None for a line past the end and raises for a
+   negative one. A position is whatever the client sent, so both are just a
+   line that is not there. *)
+let line_at lines l = if l < 0 then None else List.nth_opt lines l
 
 let pos0 line character : J.t =
   `Assoc [("line", `Int line); ("character", `Int character)]
@@ -574,7 +577,7 @@ let kind_value = 12
    qualified prefix whose namespace is unimported completes from the
    standard library's signature, and accepting such an item carries the
    auto-import (and manifest) edits the lexical tier would have made --
-   `additionalTextEdits`, so the edit happens on accept (LSP.md §2.1). *)
+   `additionalTextEdits`, so the edit happens on accept. *)
 let completion_items (d : doc) line_idx line_text character : J.t list =
   let prefix_line = String.sub line_text 0 (min character (String.length line_text)) in
   let scope = scope_of d in
@@ -810,7 +813,7 @@ let handle (st : state) (msg : J.t) : state * J.t list =
      | Some uri, Some text ->
        let prev = doc_of uri in
        let (st, out) = check_and_publish st uri ?prev text in
-       (* The lexical tier (LSP.md §2.1): a change that completed a
+       (* The lexical tier: a change that completed a
           resolvable qualified name earns its import -- and its manifest
           labels -- as an applyEdit, no gesture. Compared against the text
           as it stood, so nothing fires twice and an undo is respected. *)
@@ -940,7 +943,19 @@ let serve ic oc : int =
         write_message oc (error_response `Null (-32700) "parse error");
         loop st
       | Frame msg ->
-        let (st, outgoing) = handle st msg in
+        (* An editor is a long-lived client, and a request it phrases oddly
+           is not a reason to take its diagnostics away for the rest of the
+           session: the request fails and the loop goes on. *)
+        let (st, outgoing) =
+          try handle st msg with
+          | Out_of_memory as e -> raise e
+          | e ->
+            (* A notification carries no id and so has nothing to answer
+               under; the failure is swallowed rather than sent nowhere. *)
+            (match mem "id" msg with
+             | `Null -> (st, [])
+             | id -> (st, [error_response id (-32603) (Printexc.to_string e)]))
+        in
         List.iter (write_message oc) outgoing;
         loop st
   in

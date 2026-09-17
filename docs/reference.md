@@ -36,7 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [Net](#net) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -1693,7 +1693,7 @@ space. Bare `Shell` stays legal and means any binary.
 
 One subprocess is outside this: the `curl` that `HTTP` sends bytes through.
 A narrowed `Shell` bounds what *this script* runs, and the transport is not
-that. See [`Net`](#net). The list bounds which binaries start, and not what
+that. See [Naming the hosts](#naming-the-hosts-netapigithubcom). The list bounds which binaries start, and not what
 they do once they have — see
 [A subprocess is outside every label](#a-subprocess-is-outside-every-label). It is the honest
 spelling for a script that is open-ended. `Shell()` is a parse error: a file
@@ -1793,6 +1793,52 @@ its words. The raw process builtins are reachable only from the module
 bodies of the standard library.
 
 ---
+
+### Naming the hosts: `Net(api.github.com)`
+
+`Net` says that the file sends bytes to a host outside this machine. Bare
+`Net` admits any host; the manifest can narrow it to the ones the file may
+reach:
+
+```ocaml
+uses {Net(api.github.com, hooks.slack.com)}
+uses {Net(*.internal.example.com)}
+```
+
+The narrowing unit is the **host**, not a path. The host is what answers the
+question a reviewer is asking, which is where the data goes. A path list
+grows long, drifts on the first API change, and invites a manifest to be
+read as an authorization boundary, which it is not.
+
+A word may be a pattern, on the same rule every narrowed label uses, with
+`.` as the separator: `*.example.com` admits `api.example.com` and refuses
+both `a.b.example.com` and the bare `example.com`, which is what a TLS
+certificate does with the same spelling. `Net(*)` is an error — write bare
+`Net`.
+
+**The host is checked as written. wand resolves no DNS.** `Net(example.com)`
+does not stop a connection to an address the script writes out, any more
+than `Shell(git)` peels a wrapper. The manifest bounds the text, and that is
+the whole of what it claims.
+
+**A narrowed `Net` bounds `HTTP`, not the script.** A subprocess sends bytes
+without any `Net` at all: `uses {Shell(curl)}` typechecks and reaches any
+host. So `Net` answers where *this file's* `HTTP` calls go, and a file that
+also declares `Shell` is bounded by whichever of the two is wider. See
+[A subprocess is outside every label](#a-subprocess-is-outside-every-label).
+
+A request is checked against the manifest of the file that wrote its URL,
+and so is every redirect it follows — a 302 is the one thing that can send a
+body to a host nobody wrote down. A host the run decides is checked when the
+request is made rather than at `wand t`; `V-NET1` reports a request built
+that way, as `V-SHELL1` reports a command word decided the same way.
+
+> **The transport runs `curl`.** wand has no TLS of its own yet, so bytes
+> reach a host through a subprocess. That subprocess is not bounded by a
+> narrowed `Shell`: `Shell(git)` means only `git` runs *from this script*,
+> not that only `git` runs. `--trace` reports the request, and moving TLS
+> in-process later will change no script.
+
 
 ## Effect handlers
 
@@ -2457,7 +2503,7 @@ must be true. For input that you expect to be wrong, validate it and return a
 ## Typed holes
 
 `?` stands for an expression that you have not written yet. A program with a
-hole typechecks, and it does not run. `wand t` and `wand e` report the type
+hole typechecks, and it does not run. `wand t` and `wand t -e` report the type
 that belongs there:
 
 ```console
@@ -3134,8 +3180,8 @@ import FS
 
 A script that you run with `wand file.wand` must `import` a stdlib module
 before it uses one. `List.map` without `import List` fails with an
-unbound-name error, although the module comes with wand. The REPL and the
-one-shot `e`, `t`, `d` and `env` subcommands are the exception. They load every
+unbound-name error, although the module comes with wand. The REPL, `-e`,
+`wand t` and `wand d` are the exception. They load every
 stdlib module for you — every one listed under
 [Current standard library](#current-standard-library), and a module added
 there is loaded the day it is added.
@@ -4205,51 +4251,6 @@ Neither carries an effect. Both are handed to the process before it starts
 and never change, so reading either reaches nothing and answers the same
 twice — see [What earns a label](#what-earns-a-label). A `Par` worker is a
 domain rather than a second process, so every branch reads one pid.
-
-### `Net`
-
-`Net` says that the file sends bytes to a host outside this machine. Bare
-`Net` admits any host; the manifest can narrow it to the ones the file may
-reach:
-
-```ocaml
-uses {Net(api.github.com, hooks.slack.com)}
-uses {Net(*.internal.example.com)}
-```
-
-The narrowing unit is the **host**, not a path. The host is what answers the
-question a reviewer is asking, which is where the data goes. A path list
-grows long, drifts on the first API change, and invites a manifest to be
-read as an authorization boundary, which it is not.
-
-A word may be a pattern, on the same rule every narrowed label uses, with
-`.` as the separator: `*.example.com` admits `api.example.com` and refuses
-both `a.b.example.com` and the bare `example.com`, which is what a TLS
-certificate does with the same spelling. `Net(*)` is an error — write bare
-`Net`.
-
-**The host is checked as written. wand resolves no DNS.** `Net(example.com)`
-does not stop a connection to an address the script writes out, any more
-than `Shell(git)` peels a wrapper. The manifest bounds the text, and that is
-the whole of what it claims.
-
-**A narrowed `Net` bounds `HTTP`, not the script.** A subprocess sends bytes
-without any `Net` at all: `uses {Shell(curl)}` typechecks and reaches any
-host. So `Net` answers where *this file's* `HTTP` calls go, and a file that
-also declares `Shell` is bounded by whichever of the two is wider. See
-[A subprocess is outside every label](#a-subprocess-is-outside-every-label).
-
-A request is checked against the manifest of the file that wrote its URL,
-and so is every redirect it follows — a 302 is the one thing that can send a
-body to a host nobody wrote down. A host the run decides is checked when the
-request is made rather than at `wand t`; `V-NET1` reports a request built
-that way, as `V-SHELL1` reports a command word decided the same way.
-
-> **The transport runs `curl`.** wand has no TLS of its own yet, so bytes
-> reach a host through a subprocess. That subprocess is not bounded by a
-> narrowed `Shell`: `Shell(git)` means only `git` runs *from this script*,
-> not that only `git` runs. `--trace` reports the request, and moving TLS
-> in-process later will change no script.
 
 ### `HTTP`
 

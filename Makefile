@@ -103,8 +103,12 @@ release-archive:
 # Three questions, asked before anything is built. What is checked out has
 # to be the tag being released, the tree has to be clean, and the binary
 # that comes out has to say the number on the box.
-	@test -z "$$(git status --porcelain)" || 	  { echo "working tree is dirty; commit before building an archive"; exit 1; }
-	@at=$$(git describe --tags --exact-match 2>/dev/null || echo none); 	  test "$$at" = "v$(VERSION)" || 	  { echo "HEAD is at $$at, not v$(VERSION);"; 	    echo "check out the tag you are building: git checkout v$(VERSION)"; exit 1; }
+	@test -z "$$(git status --porcelain)" || \
+	  { echo "working tree is dirty; commit before building an archive"; exit 1; }
+	@at=$$(git describe --tags --exact-match 2>/dev/null || echo none); \
+	  test "$$at" = "v$(VERSION)" || \
+	  { echo "HEAD is at $$at, not v$(VERSION);"; \
+	    echo "check out the tag you are building: git checkout v$(VERSION)"; exit 1; }
 	dune build --profile release bin/wand.exe
 	@got=$$(_build/default/bin/wand.exe version 2>/dev/null \
 	          || _build/default/bin/wand.exe V 2>/dev/null); \

@@ -104,6 +104,13 @@ let test_subshells () =
   check "arithmetic is not a command" "echo $((1 + 2))" [Literal "echo"];
   check "arithmetic with parens of its own" "echo $(( (3 + 1) / 2 ))"
     [Literal "echo"];
+  (* Parentheses that balance before a `))` are not arithmetic to sh: it
+     reads `$((whoami) )` as a substitution around a subshell, and runs
+     whoami. *)
+  check "arithmetic that closes early is a substitution" "echo $((whoami) )"
+    [Literal "echo"; Literal "whoami"];
+  check "an unclosed arithmetic is a substitution" "echo $((whoami"
+    [Literal "echo"; Literal "whoami"];
   (* What a substitution yields is text, so the word it lands in cannot be
      read from the source -- it is checked at spawn instead. *)
   check "a word built from a substitution is dynamic"
@@ -250,6 +257,9 @@ let test_no_spawn_by_string () =
     | Error m -> Alcotest.failf "%s: wrong error: %s" label m
     | Ok v -> Alcotest.failf "%s: expected a rejection, got %s" label v
   in
+  (* No builtin takes a command as text. `shell_run` and `shell_query` take
+     a `Command`, which only `$(...)` builds, so the quoting is done by the
+     literal that wrote it. *)
   rejected "raw builtin" "process_run \"curl x\""
     "unbound variable 'process_run'";
   rejected "Shell module" "import Shell\nShell.run! \"curl x\""
@@ -257,8 +267,23 @@ let test_no_spawn_by_string () =
   rejected "Proc module" "import Proc\nProc.run \"curl x\""
     "no member 'run'"
 
+(* `$((` is arithmetic only when it closes with `))`. Where the parentheses
+   balance first, sh reads a command substitution around a subshell and runs
+   what is inside, so the manifest has to see that word. *)
+let test_arithmetic_that_closes_early_is_checked () =
+  let src =
+    "uses {IO, Shell(echo)}\nimport IO\nIO.println $(echo $((whoami) ))" in
+  match Runner.run_string src with
+  | Error m when Lint.contains m "whoami" -> ()
+  | Error m -> Alcotest.failf "wrong error: %s" m
+  | Ok v -> Alcotest.failf "expected a refusal, got %s" v
+
 let () =
   Alcotest.run "shell scan" [
+    "arithmetic", [
+      Alcotest.test_case "closing early is a command" `Quick
+        test_arithmetic_that_closes_early_is_checked;
+    ];
     "positions", [
       Alcotest.test_case "single"       `Quick test_single;
       Alcotest.test_case "operators"    `Quick test_operators;

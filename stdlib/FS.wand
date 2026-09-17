@@ -298,8 +298,8 @@ let lock path =
 -- is not going to get it.
 --
 -- `Denied` ends the wait immediately. A directory that is not there will not
--- appear because we kept asking, and a broken script should not spend the
--- budget finding that out.
+-- appear because the poll continued, and a broken script should not spend
+-- the budget finding that out.
 --
 -- The wait is a poll, so the lock is taken within a moment of being freed
 -- rather than the instant it is freed. It carries `Clock`, because it

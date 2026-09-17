@@ -81,11 +81,6 @@ let get_bool t = toml_get_bool t
 
 -- >> TOML.get_int (TOML.field! "port" (TOML.parse! "port = 8080"))
 -- Ok(8080) : Result String Int
---
--- A value of the wrong shape is the Error:
---
--- >> TOML.get_string (TOML.field! "port" (TOML.parse! "port = 8080"))
--- Error("expected string") : Result String String
 let get_int t = toml_get_int t
 --
 -- >> TOML.get_float (TOML.field! "x" (TOML.parse! "x = 1.5"))
@@ -94,6 +89,11 @@ let get_float t = toml_get_float t
 --
 -- >> TOML.get_string (TOML.field! "s" (TOML.parse! `s = "hi"`))
 -- Ok("hi") : Result String String
+--
+-- A value of the wrong shape is the Error:
+--
+-- >> TOML.get_string (TOML.field! "port" (TOML.parse! "port = 8080"))
+-- Error("expected string") : Result String String
 let get_string t = toml_get_string t
 --
 -- >> TOML.get_array (TOML.field! "xs" (TOML.parse! "xs = [1, 2]"))

@@ -121,7 +121,12 @@ let with_width w f =
    a `reserve` threaded alongside `col`, and it is a second concept through
    every emitter for three columns, so it waits until the count grows. *)
 let fits col s =
-  not (String.contains s '\n') && col + String.length s <= !max_width
+  (* Length first, and the scan for a newline only if it passes. A string
+     carries its length, so the first test is free, while the scan reads
+     every byte -- and a candidate layout that is already too wide is the
+     common answer. Asked the other way round, every level of a nested
+     literal scanned the whole of what its children had built. *)
+  col + String.length s <= !max_width && not (String.contains s '\n')
 
 (* The keyword a binding opens with, and the column its name starts at. A
    binding's later clauses line up under the first one's name rather than at
@@ -856,7 +861,19 @@ module Layout_key = struct
   type t = expr * int * int * int
   let equal (a, i1, c1, w1) (b, i2, c2, w2) =
     a == b && i1 = i2 && c1 = c2 && w1 = w2
-  let hash (e, i, c, w) = Hashtbl.hash (Hashtbl.hash_param 8 32 e, i, c, w)
+  (* A node's source offset tells it from every other node in constant
+     time, and equality here is physical, so one offset is one bucket.
+     Hashing the tree reads a bounded number of nodes from the top instead,
+     which is the same reading for every level of a nested literal, so all
+     of them land in one bucket and each lookup walks it. A node the parser
+     left unplaced falls back to the tree. *)
+  let hash (e, i, c, w) =
+    let tag =
+      match e with
+      | Located (l, _) -> l.Token.offset
+      | _ -> Hashtbl.hash_param 8 32 e
+    in
+    Hashtbl.hash (tag, i, c, w)
 end
 
 module Layouts = Hashtbl.Make (Layout_key)
@@ -1063,7 +1080,7 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
       | LetRec (_, _, (LetIn | LetBlock)) -> indent + 2
       | _ -> indent
     in
-    let cuddled =
+    let on_head_line =
       bracket_if_wrapped_app_at ~anchor:body_indent body
         (emit_expr ~col:(col + String.length head) body_indent body)
     in
@@ -1072,14 +1089,14 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        right of that. Everything below it then lands left of the `let` it
        belongs to, where the parser reads it as something new. Given the
        line to itself the keyword starts at the indent its own lines use. *)
-    if String.contains cuddled '\n' && body_indent <> indent then
+    if String.contains on_head_line '\n' && body_indent <> indent then
       (* On its own line the chain and its statements share an indent, which
          is where the parser looks for a binding's body -- so it needs no
-         brackets. Cuddled after the arrow it starts right of that, and
+         brackets. On the arrow's own line it starts right of that, and
          there it does. *)
       emit_fn_head ps ^ "\n" ^ String.make body_indent ' '
       ^ emit_expr ~stmt:(is_bare_chain body) body_indent body
-    else head ^ cuddled
+    else head ^ on_head_line
   (* A binding written with the `;` of a block belongs to that block, and
      comes back out with the `;`. *)
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) as e ->
@@ -1273,7 +1290,7 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
     Buffer.add_string buf (lit_body tail);
     Buffer.add_string buf quote;
     Buffer.contents buf
-  (* Only reachable inside `$()`, which `emit_cmd` handles; rendered here so
+  (* Only reachable inside `$()`, which `emit_command` handles; rendered here so
      the match is total and so a stray one is still legible. *)
   | CmdInterp (parts, tail) ->
     let buf = Buffer.create 32 in
@@ -1347,7 +1364,7 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
   | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
   | MapLit kvs ->
     (* Measured from where the brace actually lands, as the other two
-       bracket forms are: a map cuddled onto a binding's line starts well
+       bracket forms are: a map opened on a binding's line starts well
        right of the indent it wraps to. *)
     emit_sequence ~col indent "{" "}"
       (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
@@ -1904,7 +1921,7 @@ and emit_binding ?col ?(in_terminated = false) indent p e1 =
   | Annot (te, body) ->
     "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = " ^ value indent body
   | _ when is_multiline_raw_string e1 ->
-    (* Cuddled here as at the top level. A block binding gives every other
+    (* On the `=` line here as at the top level. A block binding gives every other
        wrapped value a line of its own, and that is the shape the corpus is
        written in -- but a line of its own is exactly what this one cannot
        have without indenting text that is content. *)
@@ -2220,15 +2237,15 @@ and emit_match ?col indent scr cases =
    that wrapped there gets its parentheses. *)
 and emit_bound_value ~col indent head body =
   let below = "\n" ^ String.make (indent + 2) ' ' in
-  (* Cuddled onto the `=` line, the chain starts well right of the indent its
+  (* Opened on the `=` line, the chain starts well right of the indent its
      own statements would take, so they would land left of the binding they
      belong to and stop being its body. Bracketed there, as before. *)
-  let cuddled () = emit_expr ~col:(col + String.length head + 3) indent body in
+  let on_eq_line () = emit_expr ~col:(col + String.length head + 3) indent body in
   (* A chain of bindings is the value, and given a line of its own it needs
      no bracket: its statements and the `let` that opens them share an
      indent, which is where the parser looks for a body. Asked before
      `opens_a_bracket`, which answers for the bracketed reading and would
-     cuddle it onto the `=` line -- where the statements would fall left of
+     open it on the `=` line -- where the statements would fall left of
      the binding they belong to. *)
   match strip_located body with
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) when is_bare_chain body ->
@@ -2237,7 +2254,7 @@ and emit_bound_value ~col indent head body =
   (* The value's own bracket goes here whatever it costs: given a line of
      its own it says nothing, since the items sit at the same column either
      way. *)
-  if opens_a_bracket body then head ^ " = " ^ cuddled ()
+  if opens_a_bracket body then head ^ " = " ^ on_eq_line ()
   else
     (* Given a line of its own, the chain and its statements share an indent,
        which is where the parser looks for a binding's body. *)
@@ -2256,8 +2273,8 @@ and emit_bound_value ~col indent head body =
          it, and then the definition would end there.
 
          `carries_the_break` is asked first because it reads the shape and
-         costs nothing, while `cuddled ()` lays the whole value out again. *)
-      let c = cuddled () in
+         costs nothing, while `on_eq_line ()` lays the whole value out again. *)
+      let c = on_eq_line () in
       if depth_after_first_line c > 0 then head ^ " = " ^ c
       else head ^ " =" ^ below ^ bracket_if_wrapped_app_at ~anchor:col body indented
 
@@ -2359,9 +2376,6 @@ let emit_type_def = function
 
 (* ── Top-level items ──────────────────────────────────────────────────────── *)
 
-(* One item's layouts belong to that item. `interior` and `item_start` are
-   set around this call and read while it runs, so a layout produced under
-   one item's comments must not be handed to the next. *)
 let emit_top_item_pretty_uncached = function
   | TLImport (StdlibModule n) -> "import " ^ n
   | TLImport (UserPath p)     -> "import " ^ p

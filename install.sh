@@ -41,23 +41,11 @@ esac
 
 # ── Download tooling ──────────────────────────────────────────────────────
 
-# curl, and only curl. There used to be a wget fallback; it could not have
-# worked, and nothing here could have told you. Resolving "latest" means
-# reading the URL that /releases/latest redirects to, which curl prints
-# outright and wget does not -- so the wget path scraped the `Location:`
-# header out of wget's diagnostic output, without asking wget to print
-# headers at all, with a pattern that could not have matched the indented
-# lines if it had. It failed closed, and it failed for everyone who reached
-# it.
-#
-# Two reasons it is gone rather than fixed. Every CI runner has curl, so the
-# branch never ran anywhere and a fix would have shipped unexercised. And the
-# output it read is diagnostic text, which differs between GNU wget and the
-# busybox one on the machines most likely to lack curl -- so a fix aimed at
-# either would still be a guess about the other.
-#
-# The install line at the top of this file is a curl pipeline, so anyone
-# following it has curl already.
+# curl, and only curl. Resolving "latest" means reading the URL that
+# /releases/latest redirects to, which curl prints outright and wget does
+# not: a wget path has to scrape `Location:` out of diagnostic text that
+# differs between GNU wget and the busybox one. The install line at the top
+# of this file is a curl pipeline, so anyone following it has curl already.
 
 command -v curl >/dev/null 2>&1 || fail \
   "curl is needed to install wand.
@@ -114,11 +102,9 @@ tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 # and a broken download fails now rather than in your first script.
 # `wand -e` is the spelling from 0.55.0 on and `wand e` the one before it.
 # WAND_VERSION installs whatever it is given, so both are asked and an older
-# release is not a failure.
-# Both spellings are asked, and stderr is kept. A binary that dies at
-# startup prints why and then aborts; discarding that left "did not run" as
-# the whole report, and a run-time abort on the linux-x86_64 build has twice
-# been diagnosed from nothing else.
+# release is not a failure. stderr is kept: a binary that dies at startup
+# prints why and then aborts, and a run-time abort on the linux-x86_64 build
+# has twice been diagnosed from nothing else.
 err="$tmp/run.err"
 got=$(cd "$tmp" && { "./$name/wand" -e '1 + 1' 2>"$err" \
                      || "./$name/wand" e '1 + 1' 2>"$err"; }) || {
