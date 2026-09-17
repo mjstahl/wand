@@ -10,7 +10,7 @@ import {
   commands, languages, window, workspace,
 } from 'vscode';
 import {
-  LanguageClient, LanguageClientOptions, ServerOptions,
+  LanguageClient, LanguageClientOptions,
 } from 'vscode-languageclient/node';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
@@ -42,8 +42,27 @@ const wandPath = () => {
 const autoEdit = () =>
   workspace.getConfiguration('wand').get<boolean>('autoEdit', true);
 
+// The server is the compiler, so a client that cannot spawn it has nothing
+// to offer and the reason is almost always one of two things: no wand on
+// PATH, or a `wand.path` pointing somewhere it is not. Said here, because
+// the alternative is VS Code reporting that an extension failed to activate.
+const start = async (): Promise<void> => {
+  try {
+    await client!.start();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const open = 'Open settings';
+    const chosen = await window.showErrorMessage(
+      `wand: cannot start the language server at '${wandPath()}' (${message}). `
+      + 'Install wand, or set `wand.path` to the binary.', open);
+    if (chosen === open) {
+      await commands.executeCommand(
+        'workbench.action.openSettings', 'wand.path');
+    }
+  }
+};
+
 export async function activate(context: ExtensionContext) {
-  const serverOptions: ServerOptions = { command: wandPath(), args: ['lsp'] };
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ language: 'wand' }],
     // The server pushes an import and its manifest labels on a change that
@@ -52,13 +71,24 @@ export async function activate(context: ExtensionContext) {
     // whenever it changes, because the server holds it rather than asking.
     initializationOptions: { autoEdit: autoEdit() },
   };
-  client = new LanguageClient('wand', 'wand', serverOptions, clientOptions);
+  const build = () => new LanguageClient('wand', 'wand',
+    { command: wandPath(), args: ['lsp'] }, clientOptions);
+  client = build();
 
   context.subscriptions.push(
-    workspace.onDidChangeConfiguration((e) => {
+    workspace.onDidChangeConfiguration(async (e) => {
       if (e.affectsConfiguration('wand.autoEdit')) {
         client?.sendNotification('workspace/didChangeConfiguration',
           { settings: { wand: { autoEdit: autoEdit() } } });
+      }
+      // The path is read once, when the client is built, so a new one means
+      // a new server. Without this the setting appeared to do nothing until
+      // the window was reloaded -- and a reader who has just corrected the
+      // path is the one person most in need of it taking effect.
+      if (e.affectsConfiguration('wand.path')) {
+        await client?.stop().catch(() => undefined);
+        client = build();
+        await start();
       }
     }));
 
@@ -129,9 +159,11 @@ export async function activate(context: ExtensionContext) {
       term.show(true);
     }));
 
-  await client.start();
+  await start();
 }
 
 export function deactivate(): Thenable<void> | undefined {
-  return client?.stop();
+  // A client that never started has nothing to stop, and a window closing
+  // is not the place to raise about it.
+  return client?.stop().catch(() => undefined);
 }

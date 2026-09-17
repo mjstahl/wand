@@ -87,6 +87,21 @@
   where `List.map Some xs` worked: the map builtins went through a second,
   narrower `apply`.
 
+- **The VS Code grammar highlighted syntax wand does not have.** `(* ... *)`
+  was painted as a documentation comment, `14:30:00` as a time literal, and
+  `and` / `or` as boolean operators. Each of those is a compiler error
+  naming the wand spelling, so the editor said one thing and the build said
+  another. `return`, `for`, `do`, `end`, `class`, `instance`, `orphan` and
+  `of` were painted as keywords; only `return` is one. The manifest rule
+  knew seven of the ten effect labels, so `Net`, `Clock` and `Random` did
+  not highlight inside a `uses` line.
+
+- **The VS Code extension said nothing useful when it could not start.** A
+  missing binary reached the user as VS Code's own "extension failed to
+  activate". It now names the path it tried and offers to open the setting.
+  Changing `wand.path` restarts the server rather than waiting for a window
+  reload, and the extension's `Makefile` no longer ships inside the package.
+
 ### Changed
 
 - **`process_run`, `process_run_quiet` and `process_exit_code` are gone.**

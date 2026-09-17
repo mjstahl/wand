@@ -19,25 +19,13 @@
   ],
   "repository": {
     "comments": {
+      "comment": "One form. `(* ... *)` is a lex error naming this one, so it is not a comment here either.",
       "patterns": [
-        {
-          "name": "comment.block.documentation.wand",
-          "begin": "\\(\\*\\*",
-          "end": "\\*\\)",
-          "patterns": [{ "include": "#block-comment" }]
-        },
-        { "include": "#block-comment" },
         {
           "name": "comment.line.double-dash.wand",
           "match": "--.*$"
         }
       ]
-    },
-    "block-comment": {
-      "name": "comment.block.wand",
-      "begin": "\\(\\*",
-      "end": "\\*\\)",
-      "patterns": [{ "include": "#block-comment" }]
     },
     "manifest": {
       "comment": "uses {Env, FS.Write, Shell(git)} — the file's declared bound",
@@ -53,7 +41,7 @@
       "patterns": [
         {
           "name": "constant.language.effect.wand",
-          "match": "\\b(FS\\.Read|FS\\.Write|Shell|Env|IO|Proc|Raise)\\b"
+          "match": "\\b(FS\\.Read|FS\\.Write|Shell|Net|Env|IO|Proc|Raise|Clock|Random)\\b"
         },
         { "include": "#comments" },
         { "include": "#strings" }
@@ -149,10 +137,6 @@
           "match": "\\b\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?\\b"
         },
         {
-          "name": "constant.other.time.wand",
-          "match": "\\b\\d{2}:\\d{2}:\\d{2}\\b"
-        },
-        {
           "name": "constant.other.ipv4.wand",
           "match": "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(/\\d{1,2})?\\b"
         },
@@ -189,16 +173,14 @@
     "keywords": {
       "patterns": [
         {
+          "comment": "`return` names a handler's return case. `for`, `do`, `end`, `class` and `of` are not wand's, and painting them as keywords says they are.",
           "name": "keyword.control.wand",
-          "match": "\\b(if|then|else|match|with|when|try|handle|return|for|do|end)\\b"
+          "match": "\\b(if|then|else|match|with|when|try|handle|return)\\b"
         },
         {
+          "comment": "`and` joins mutually recursive bindings; it is not the boolean operator, which is `&&`.",
           "name": "keyword.declaration.wand",
-          "match": "\\b(let\\*?|in|type|import|fn|of|as|requires|ensures|class|instance|orphan)\\b"
-        },
-        {
-          "name": "keyword.operator.word.wand",
-          "match": "\\b(and|or)\\b"
+          "match": "\\b(let|in|type|import|fn|as|requires|ensures|and)\\b"
         }
       ]
     },

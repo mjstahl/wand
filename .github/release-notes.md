@@ -84,6 +84,26 @@ A module was kept under the path it was loaded from and never dropped, so
 editing an imported file and reloading reported success and ran the old
 code.
 
+### The VS Code grammar described a language wand does not have
+
+`(* ... *)` was painted as a documentation comment, `14:30:00` as a time
+literal, `and` and `or` as boolean operators. Each of those is a compiler
+error that names the wand spelling, so the editor said one thing and the
+build said another. `return`, `for`, `do`, `end`, `class`, `instance`,
+`orphan` and `of` were painted as keywords; of those only `return` is one.
+The manifest rule knew seven of the ten effect labels, so `Net`, `Clock` and
+`Random` went unhighlighted inside a `uses` line.
+
+The extension also said nothing useful when it could not start: a missing
+binary arrived as VS Code's own "extension failed to activate". It names the
+path it tried now, and offers to open the setting. Changing `wand.path`
+restarts the server instead of waiting for a window reload.
+
+Four words the lexer reserved are ordinary names again -- `class`,
+`instance`, `orphan` and `let*`. The parser, the evaluator and the formatter
+used none of them, and none appears in the reference. That list is where the
+grammar's keywords had been drawn from.
+
 ### Three builtins that spawned a command from a `String`
 
 `process_run`, `process_run_quiet` and `process_exit_code` took a command as
