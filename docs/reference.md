@@ -32,7 +32,7 @@ For what wand is and why, see the [README](../README.md).
 - [Typed holes](#typed-holes)
 - [Type definitions](#type-definitions)
 - [Generics](#generics)
-- [Type inference and unification](#type-inference-and-unification)
+- [Type inference](#type-inference)
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
@@ -636,9 +636,9 @@ if ready then 1
 ## Pipeline
 
 The pipeline operator `|>` has two meanings. The shape of the right operand
-decides which one. This is the only operator in wand that the parser decides,
-rather than the value. To know which meaning applies, read the right side. You
-never need a value from the run.
+decides which one. This is the only operator in wand decided by what is
+written rather than by what it answers with. To know which meaning applies,
+read the right side. You never need a value from the run.
 
 **Form 1 — application.** When the right operand is any ordinary expression,
 `x |> f` is exactly `f x`:
@@ -1374,9 +1374,9 @@ Unit -> String ! {Shell | 'e}     at least Shell, plus whatever 'e is
 Int -> Int                        nothing written: inferred, as usual
 ```
 
-Only the innermost arrow of a curried type carries them. An inferred type
-does the same. One argument of several does nothing until the last one
-arrives.
+Where a type takes several arguments, only the innermost arrow carries
+them. An inferred type does the same. One argument of several does nothing
+until the last one arrives.
 
 wand **checks** written effects. It does not assume them. Declare fewer
 effects than the body performs, and you get a type error. An annotation cannot
@@ -1772,7 +1772,7 @@ What counts as the binary:
 - **An entry without a slash matches the word's final path component**
   (`git` admits `/usr/bin/git`); an entry with a slash matches exactly.
 - **The bound is per file.** The manifest of a file governs the `$()` sites
-  written in that file, however far a closure travels. The commands of an
+  written in that file, however far the function is passed. The commands of an
   imported helper answer to the first line of the helper. A manifest is an
   audit surface against drift and accident. It is not a sandbox. Hostile
   code writes `Shell(sh)`, where you can see it.
@@ -2221,7 +2221,7 @@ the type that the rest of the program uses. You do not convert a `String`
 later. Each of the twelve domain types has a decoder.
 
 Each decoder reads what the source could hold, and nothing that the source
-would refuse. The same lexer decides both. `port` shows this best. A script
+would refuse. One rule decides both. `port` shows this best. A script
 writes `:8080`, and a document usually holds the bare number. `8080`, `"8080"`
 and `":8080"` all read. A port is 0 to 65535, so `65536` and `-1` do not. The
 failure gives the rule, not only the refusal:
@@ -2230,9 +2230,9 @@ failure gives the rule, not only the refusal:
 .port: invalid port :65536: must be 0-65535
 ```
 
-That sentence comes from the lexer. The lexer is the only place that knows
-it. `String.to_port` and `String.to_ipv4` report it the same way, and
-`String.to_port` accepts the same two spellings.
+That rule lives in one place, so a literal, `String.to_port` and
+`String.to_ipv4` all report it the same way, and `String.to_port` accepts
+the same two spellings.
 
 ### Text is read, never written
 
@@ -2992,11 +2992,10 @@ let parse s : Result ParseError Int =
 
 ---
 
-## Type inference and unification
+## Type inference
 
-wand uses Hindley-Milner type inference. It infers types without an
-annotation. The type checker compares the constraints of the whole
-expression.
+wand infers types without an annotation. The type checker reads the whole
+expression, so a name gets the type its uses require.
 
 ```ocaml
 let identity x = x
@@ -3153,7 +3152,7 @@ let xs = 1 :: [2, 3]        -- cons is `::`, and takes no `:`
 ```
 
 - **A port literal** is a `:` directly against a digit: `:80`, `:8080`. The
-  lexer decides this one. No space, and a digit after it, make one token.
+  shape decides it: no space, and a digit after the colon.
 - **A type annotation** is every other `:`. After a binding's name and
   parameters in a `let`: `let x : Int = ...`, `let f a b : Int = ...`.
   Inside the parentheses of a pattern: `(p: Pod)`, `Ok (p: Pod)`. In a type
@@ -6104,16 +6103,15 @@ The cache goes in the first of these that is set: `WAND_CACHE_HOME`, then
 
 A call with work waiting on it keeps a stack frame; a call in tail position
 does not. So a tail-recursive loop runs to any depth, and nesting calls
-without end runs out of stack. That used to end the run with OCaml's own
+without end runs out of stack. That used to kill the run with
 `Fatal error: exception Stack overflow`, which cannot be caught: a handler
 that matches it hangs rather than unwinds, because the handler's own guard
 runs on the stack that just ran out. wand bounds the depth instead, and
 refuses with an error a script can catch.
 
-The default bound is above what any measured run reaches. Lower it when the
-stack is smaller than the default -- under `OCAMLRUNPARAM=l=...`, or a small
-`ulimit -s` -- because a bound above what the stack can carry never fires
-and the fatal comes back.
+The default bound is above what any measured run reaches. Lower it where the
+stack is smaller than usual -- under a small `ulimit -s`, say -- because a
+bound above what the stack can carry never fires and the crash comes back.
 
 The standard library is compiled into the binary. So wand runs the same way
 from any directory, and a `stdlib/` folder is only a folder. `WAND_STDLIB`
