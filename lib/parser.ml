@@ -537,8 +537,13 @@ let is_atom_start = function
   | Token.Handle | Token.Try -> true
   | _ -> false
 
+(* `with` belongs here and not in `is_atom_start`: it starts an expression,
+   the way `let` and `match` do, but it is not an argument without brackets.
+   Left out, a binding's body could not be a `with` -- `let _ = 1;` followed
+   by one fell through to the file, and the formatter wrote that shape from
+   a program that meant the other. Found by the daily fuzzer. *)
 let is_expr_start = function
-  | Token.Let | Token.If | Token.Match | Token.Fn
+  | Token.Let | Token.If | Token.Match | Token.Fn | Token.With
   | Token.Minus | Token.Bang -> true
   | t -> is_atom_start t
 

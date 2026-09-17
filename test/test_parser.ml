@@ -988,6 +988,15 @@ let test_semicolon_body_without_parens () =
      value. *)
   ok "a binding's ; hands the rest to its body"
     "import String\nlet of_hex text =\n  let want = 4;\n  let lower = String.lower text;\n  String.length lower == want\n";
+  (* A `with` opens an expression the way `let` and `match` do, so it is a
+     body like any other. It was in neither `is_expr_start` nor
+     `is_atom_start`, so the `;` above it ended the definition and the line
+     fell through to the file -- and the formatter writes this shape. Found
+     by the daily fuzzer. *)
+  ok "a binding's ; hands the rest to a with"
+    "import FS\nlet f! () =\n  let n = 1;\n  with FS.temp_dir \"t_\" as d -> n\n";
+  ok "and to a with under a with"
+    "import FS\nlet f! () =\n  let n = 1;\n  with FS.temp_dir \"a_\" as a ->\n  with FS.temp_dir \"b_\" as b -> n\n";
   (* One binding, and one item: what follows the `;` went into the body
      rather than becoming an item of the file. *)
   (match (parse

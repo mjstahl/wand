@@ -68,6 +68,21 @@
   under the path it was loaded from and never dropped, so editing an
   imported file and reloading reported success and ran the old code.
 
+- **A `with` could not be a binding's body after a `;`.** The forms that
+  open an expression where a statement may stand carried `let`, `if`,
+  `match`, `fn`, `handle` and `try`, and not `with`. So the `;` ended the
+  definition instead of handing the rest to the body, and the line below
+  fell through to the file:
+
+  ```
+  let f! () =
+    let n = 1;
+    with FS.temp_dir "t_" as d -> n
+  ```
+
+  That is the shape `wand f` writes for such a chain, and it did not parse.
+  Found by the daily fuzzer (issue #30).
+
 - **`Map.map` refused a constructor.** `Map.map Some m` failed at run time
   where `List.map Some xs` worked: the map builtins went through a second,
   narrower `apply`.

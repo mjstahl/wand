@@ -1,0 +1,28 @@
+found:     Daily Fuzz, seed 35222942483, iteration 781357, 2026-09-17
+reported:  format:unstable -- wand f is not idempotent here
+fixed in:  lib/parser.ml, is_expr_start
+
+A `with` could not be a binding's body after a `;`. `is_expr_start` lists
+the forms that open an expression where a statement may stand, and it
+carried `let`, `if`, `match`, `fn` and -- through `is_atom_start` -- `handle`
+and `try`. `with` was in neither.
+
+So `semicolon_joins_the_body` answered no, the `;` ended the item rather
+than handing the rest to the body, and the line below fell through to the
+file:
+
+  let f () =
+    let _ = 1;
+    with b as _ -> body
+
+That is the shape the formatter writes for a chain whose body is a `with`,
+and it did not parse: "the ';' above ended the definition". The program the
+fuzzer started from meant the other reading, and the second pass bracketed
+what the first had not.
+
+`with` belongs in `is_expr_start` rather than `is_atom_start`. It opens an
+expression the way `let` and `match` do, and like them it is not an argument
+without brackets -- `f with r as x -> y` is not an application of `f`.
+
+The hand-writable half is held by a case in test_parser.ml. This file is the
+byte sequence the fuzzer reduced to, which nobody would write.
