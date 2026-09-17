@@ -4,18 +4,26 @@
 
 ### Fixed
 
-- **A narrowed `Shell` did not bound a word inside `$((`.** `sh` reads a
-  substitution around a subshell where the parens close early. This
-  typechecked, and ran `whoami`:
+- **`Shell(echo)` let a script run `whoami`.** wand read every `$((` as
+  arithmetic and stopped looking. Where the brackets close early, `sh` reads
+  it as a command and runs what is inside. This typechecked, and printed the
+  user name:
 
   ```
   uses {Shell(echo), IO}
   IO.println $(echo $((whoami) ))
   ```
 
-- **A narrowed `Net` did not bound a URL the run computed.** The bound rode
-  on the literal, and `String.to_url`, `URL.join` and the `URL.with_*`
-  setters produce none. This reached the host:
+  It is refused now:
+
+  ```
+  this command runs 'whoami', which Shell(echo) does not allow
+  ```
+
+- **`Net(api.github.com)` let a script reach any other host.** A URL written
+  out carried the manifest with it. One the script worked out at run time --
+  from `String.to_url`, `URL.join` or a `URL.with_*` setter -- carried
+  nothing, so nothing was checked. This sent the request and said nothing:
 
   ```
   uses {Net(api.github.com), IO}
@@ -24,12 +32,16 @@
   | Error e -> IO.println e
   ```
 
-  The running file's bound answers now, and a `Par` worker carries it.
+  It is refused now, at the send and at every redirect:
 
-- **A `with` could not be a binding's body after a `;`.** `is_expr_start`
-  carried `let`, `if`, `match`, `fn`, `handle` and `try`, not `with`, so the
-  `;` ended the definition and the line below fell through to the file. This
-  is what `wand f` writes, and it did not parse:
+  ```
+  this request reaches 'anywhere.test', which Net(api.github.com) does not allow
+  ```
+
+- **A `with` could not be a binding's body after a `;`.** Every other block
+  form could. The `;` ended the definition instead, and the line below fell
+  through to the file. This is what `wand f` writes for such a chain, and it
+  did not parse:
 
   ```
   let f! () =
@@ -37,30 +49,29 @@
     with FS.temp_dir "t_" as d -> n
   ```
 
-  Found by the daily fuzzer (issue #30).
-
-- **`Proc.exit` left an OCaml backtrace and exit 2** under `wand -e`,
-  `wand s` and `wand d -t`. A test file that exits reports its own code now;
-  an interrupt reports 130.
+- **`Proc.exit` crashed instead of exiting**, under `wand -e`, `wand s` and
+  `wand d -t`. A test file that exits on purpose reported a crash and the
+  code 2. It reports its own code now, and an interrupt reports 130.
 
 - **`--lint` and `--strict` were dropped when the mode came first.**
-  `wand deploy.wand --strict` refused a violation; `wand --dry-run
-  deploy.wand --strict` ran the script and handed it the flag. One parser
-  reads both spellings.
+  `wand deploy.wand --strict` refused a violation. `wand --dry-run
+  deploy.wand --strict` ran the script and passed `--strict` on to it as an
+  argument. Both spellings are a gate now.
 
 - **A script with no `.wand` extension could not be run.** `wand deploy`
   opened `deploy.wand`, so a shebang file was unreachable through its name.
 
-- **`DateTime` outside the years 0 to 9999 ended the program** in
-  `int_of_string`, past any `try`:
+- **A `DateTime` outside the years 0 to 9999 killed the run**, past any
+  `try`. An instant is written with four digits for the year, so there was
+  no way to write one down:
 
   ```
   >> DateTime.on 10000 1 1
   Error("10000 is outside the years wand writes: 0000 to 9999")
   ```
 
-- **An unreadable directory ended a `FS.glob_in`** with a `Sys_error` no
-  `try` could hold. It is a wand error now.
+- **A directory it could not read killed a `FS.glob_in`**, with a failure
+  no `try` could catch. `try` catches it now.
 
 - **`Env.set` corrupted the environment** rather than refusing a name that
   is not one:
@@ -72,43 +83,50 @@
 
   It set `A` to `B=x` before. An empty name is refused too.
 
-- **`Duration.seconds` and its siblings wrapped silently** past an `Int`,
-  where `+` has always said so.
+- **`Duration.seconds` and its siblings wrapped round silently** on a
+  number too big to hold, where `+` has always said so.
 
-- **The YAML reader bounded alias expansion and not nesting.** A document
-  fifty thousand deep took seconds and risked the stack. Nesting stops at
-  200, as expansion stops at 100,000 nodes.
+- **The YAML reader had a limit on alias expansion and none on nesting.** A
+  document fifty thousand deep took seconds and could end the run:
 
-- **The language server exited on a position outside the document**, taking
-  the session's diagnostics with it. A failed request is answered instead.
+  ```
+  this document nests more than 200 deep, which is past what a value here may do
+  ```
 
-- **`:reload` served a stale dependency.** A module was kept under the path
-  it loaded from and never dropped, so editing an import and reloading ran
-  the old code.
+- **The editor stopped reporting anything** after one bad request. A
+  position outside the file ended the language server for the session.
 
-- **`Map.map` refused a constructor.** `Map.map Some m` failed at run time
-  where `List.map Some xs` worked: the map builtins used a second, narrower
-  `apply`.
+- **`:reload` ran the old code.** Editing a file the script imports and
+  reloading said it had reloaded, and used the version from before the
+  edit.
 
-- **The VS Code grammar painted syntax wand does not have** -- `(* ... *)`
-  as a comment, `14:30:00` as a literal, `and` and `or` as boolean
-  operators, and `for`, `do`, `end`, `class`, `instance`, `orphan` and `of`
-  as keywords. Each is a compiler error. Its manifest rule knew seven of the
-  ten effect labels, so `Net`, `Clock` and `Random` went unpainted.
+- **`Map.map` refused a constructor** where `List.map` took one:
 
-- **The VS Code extension said nothing useful when it could not start.** It
-  names the path it tried now and offers the setting. Changing `wand.path`
-  restarts the server, and the extension's `Makefile` no longer ships.
+  ```
+  >> Map.map Some {a = 1}
+  {a = Some(1)}
+  ```
+
+- **The VS Code extension coloured code wand rejects.** `(* ... *)` looked
+  like a comment, `14:30:00` like a value, `and` and `or` like operators,
+  and `for`, `do`, `end`, `class`, `instance`, `orphan` and `of` like
+  keywords. Every one of those is an error when you run it. Three of the ten
+  effect names -- `Net`, `Clock` and `Random` -- were left uncoloured inside
+  the `uses` line that declares them.
+
+- **The VS Code extension said nothing useful when it could not start.** A
+  missing `wand` showed up as "extension failed to activate". It names the
+  path it tried now, and offers to open the setting that fixes it. Changing
+  `wand.path` takes effect at once rather than after a window reload.
 
 ### Changed
 
-- **`process_run`, `process_run_quiet` and `process_exit_code` are gone.**
-  They took a command as a `String` and spawned it past every manifest.
-  Nothing could reach them.
+- **Three names that ran a command without checking the manifest are gone:**
+  `process_run`, `process_run_quiet` and `process_exit_code`. No wand
+  program could reach them.
 
-- **`class`, `instance`, `orphan` and `let*` are no longer reserved.** The
-  parser, the evaluator and the formatter used none of them. `let*` is `let`
-  and `*`.
+- **`class`, `instance`, `orphan` and `let*` are names you can use.** They
+  were reserved for nothing: no part of wand read them.
 
 - **Four ported examples were wrong.** `stage-release.wand` exited 1 every
   run and its lock was a file two runs would both write; it uses `FS.lock`.
