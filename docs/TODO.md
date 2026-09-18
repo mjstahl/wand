@@ -78,16 +78,17 @@ waits on `wand t` taking a directory, above.
 
 ### A signature does not show that a constraint is one type
 
-`Ord.max` takes two of the same type and answers with that type. The
+`List.max` takes a list of one ordered type and answers with that type. The
 signature does not say so:
 
 ```
-Ord.max : Ord -> Ord -> Ord
+List.max : List Ord -> Option Ord
 ```
 
-Read cold, `Ord` looks like a type, and the three uses of it look
-independent. They are one type, decided per call: `Ord.max 1 "a"` is a type
-error. `Add` and `Num` print the same way.
+Read cold, `Ord` looks like a type, and the two uses of it look independent.
+They are one type, decided per call. `Add` and `Num` print the same way.
+Six signatures are left with this shape, all in `List` and `Stream`: `max`,
+`min` and `sum`.
 
 The short form is worth a lot and a longer one would say more. This is a
 decision about which, not a defect to fix.
@@ -113,12 +114,7 @@ command. It exists today only as a shell loop:
 for m in $(wand d); do wand d "$m"; done
 ```
 
-This is also the answer to a second problem: you cannot find a function
-from the value in your hand. Holding two `Int`s, `Int` is where you look,
-and the function is `Ord.max`, because it serves all eleven ordered types
-from one definition. Nothing about an `Int` points there.
-
-That is 534 lines, and it is what a model needs in front of it to write
+That is 535 lines, and it is what a model needs in front of it to write
 wand at all: given the language guide alone a model cleared 7 of 20 tasks,
 and given the guide plus this index it cleared 18. A build artefact rather
 than a loop, so the tools that need it can depend on it.

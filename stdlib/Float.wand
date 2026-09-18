@@ -58,3 +58,30 @@ let abs f = float_abs f
 -- >> Float.format 2 1.5
 -- "1.50" : String
 let format digits f = float_format digits f
+
+-- The larger of two Floats.
+--
+-- >> Float.max 1.5 2.25
+-- 2.25 : Float
+let max : Float -> Float -> Float = fn a b -> if a > b then a else b
+
+-- The smaller of two Floats.
+--
+-- >> Float.min 1.5 2.25
+-- 1.5 : Float
+let min : Float -> Float -> Float = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> Float.clamp 0.5 1.5 2.5
+-- 1.5 : Float
+let clamp : Float -> Float -> Float -> Float =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> Float.between? 0.5 1.5 1.0
+-- true : Bool
+let between? : Float -> Float -> Float -> Bool = fn lo hi v -> v >= lo && v <= hi

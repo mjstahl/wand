@@ -21,6 +21,26 @@
   Formatting is unchanged: the corpus, the tools, the demos and every
   regression input come back byte for byte as before.
 
+- **`max`, `min`, `clamp` and `between?` moved onto the ordered types.** The
+  `Ord` module is gone. Each of the eleven types wand orders carries the four
+  itself, so the place to look for one is the type in your hand.
+
+  ```
+  Ord.max 3 7            ->  Int.max 3 7
+  Ord.min 4KB 100MB      ->  Size.min 4KB 100MB
+  Ord.clamp 1s 30s 5min  ->  Duration.clamp 1s 30s 5min
+  ```
+
+  The old spelling says where its function went:
+
+  ```
+  'Ord' is not a module: the comparisons sit on each ordered type. Write
+  'Int.max', 'Duration.min', 'Path.between?' etc.
+  ```
+
+  `List.max`, `List.min`, `List.sum` and the three on `Stream` are unchanged --
+  a list is where you already look for those.
+
 ## [0.78.0] - 2026-09-17
 
 ### Fixed

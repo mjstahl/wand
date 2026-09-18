@@ -67,3 +67,32 @@ let to_string a = ipv4_to_str a
 -- >> IPv4.of_string "256.0.0.1"
 -- Error("invalid IPv4 address: each octet must be 0–255") : Result String IPv4
 let of_string s = str_to_ipv4 s
+
+-- The larger of two addresses.
+--
+-- Address order, as the numbers read.
+--
+-- >> IPv4.max 10.0.0.9 10.0.0.10
+-- 10.0.0.10 : IPv4
+let max : IPv4 -> IPv4 -> IPv4 = fn a b -> if a > b then a else b
+
+-- The smaller of two addresses.
+--
+-- >> IPv4.min 10.0.0.9 10.0.0.10
+-- 10.0.0.9 : IPv4
+let min : IPv4 -> IPv4 -> IPv4 = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> IPv4.clamp 10.0.0.1 10.0.0.9 10.0.0.99
+-- 10.0.0.9 : IPv4
+let clamp : IPv4 -> IPv4 -> IPv4 -> IPv4 =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> IPv4.between? 10.0.0.1 10.0.0.9 10.0.0.5
+-- true : Bool
+let between? : IPv4 -> IPv4 -> IPv4 -> Bool = fn lo hi v -> v >= lo && v <= hi

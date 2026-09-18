@@ -354,7 +354,7 @@ let {helper} = import ./util    -- another file, by path
 ```
 
 Stdlib modules: List, String, Regex, Map, FS, Resource, Stream, Path, IO,
-Float, Int, Ord, Proc, Env, CSV, JSON, TOML, YAML, Duration, Size, Clock,
+Float, Int, Proc, Env, CSV, JSON, TOML, YAML, Duration, Size, Clock,
 DateTime, Par, Shell, Decode, Args, Test, Option, Result, Hash, Digest,
 Base64, HTTP, URL, Glob, IPv4, CIDR, Port, Version, Random. Every function
 comes from a module: printing is

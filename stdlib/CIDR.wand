@@ -88,3 +88,32 @@ let of_string s = str_to_cidr s
 -- >> CIDR.of_parts 10.0.0.0 33
 -- Error("invalid CIDR prefix 33: must be 0-32") : Result String CIDR
 let of_parts a bits = cidr_of_parts a bits
+
+-- The larger of two ranges.
+--
+-- Address order, by the range's first address and then its prefix.
+--
+-- >> CIDR.max 10.0.0.0/8 192.168.0.0/16
+-- 192.168.0.0/16 : CIDR
+let max : CIDR -> CIDR -> CIDR = fn a b -> if a > b then a else b
+
+-- The smaller of two ranges.
+--
+-- >> CIDR.min 10.0.0.0/8 192.168.0.0/16
+-- 10.0.0.0/8 : CIDR
+let min : CIDR -> CIDR -> CIDR = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> CIDR.clamp 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+-- 172.16.0.0/12 : CIDR
+let clamp : CIDR -> CIDR -> CIDR -> CIDR =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> CIDR.between? 10.0.0.0/8 192.168.0.0/16 172.16.0.0/12
+-- true : Bool
+let between? : CIDR -> CIDR -> CIDR -> Bool = fn lo hi v -> v >= lo && v <= hi

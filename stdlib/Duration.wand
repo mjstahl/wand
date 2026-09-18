@@ -78,3 +78,33 @@ let format d = dur_format d
 -- >> Duration.to_ms 2min
 -- 120000 : Int
 let to_ms d = dur_to_ms d
+
+-- The larger of two Durations.
+--
+-- The value is compared, not the spelling: `60s` and `1min` are
+-- one Duration.
+--
+-- >> Duration.max 30s 2min
+-- 2min : Duration
+let max : Duration -> Duration -> Duration = fn a b -> if a > b then a else b
+
+-- The smaller of two Durations.
+--
+-- >> Duration.min 30s 2min
+-- 30s : Duration
+let min : Duration -> Duration -> Duration = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> Duration.clamp 1s 30s 5min
+-- 30s : Duration
+let clamp : Duration -> Duration -> Duration -> Duration =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> Duration.between? 1s 1min 30s
+-- true : Bool
+let between? : Duration -> Duration -> Duration -> Bool = fn lo hi v -> v >= lo && v <= hi

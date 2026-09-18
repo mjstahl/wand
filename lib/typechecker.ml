@@ -11,7 +11,14 @@ let stdlib_module_names =
     "Regex"; "JSON"; "TOML"; "CSV"; "Option"; "Par"; "Resource"; "Stream";
     "Proc"; "Decode"; "Shell"; "Test"; "Args"; "Clock"; "Size"; "Port";
     "DateTime"; "Result"; "URL"; "Version"; "Glob"; "IPv4"; "CIDR";
-    "Random"; "Int"; "Ord"; "Hash"; "Digest"; "Base64"; "HTTP"; "YAML" ]
+    "Random"; "Int"; "Hash"; "Digest"; "Base64"; "HTTP"; "YAML" ]
+
+(* A module that was one and is not. The name is not unknown to anyone
+   holding a script from an earlier release, so the error says what to write
+   instead of it. *)
+let moved_module_names =
+  [ "Ord", "the comparisons sit on each ordered type. Write 'Int.max', \
+            'Duration.min', 'Path.between?' etc." ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -2502,6 +2509,10 @@ let rec infer tenv (env : env) (e : expr) : typ =
           pending_fix := Some (Diag.InsertLine ("import " ^ name));
           raise (TypeError (Printf.sprintf
             "did you forget to import the standard library %s?" name))
+        | _ when List.mem_assoc name moved_module_names ->
+          raise (TypeError (Printf.sprintf
+            "'%s' is not a module: %s" name
+            (List.assoc name moved_module_names)))
         (* A type with one constructor names that constructor too. So a name
            given to such a type -- by an alias, or by renaming it on import --
            builds one, and the rename is whole rather than half. A type with

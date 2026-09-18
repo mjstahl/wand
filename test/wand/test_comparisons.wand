@@ -1,0 +1,57 @@
+let {test} = import Test
+import CIDR
+import DateTime
+import Duration
+import Float
+import IPv4
+import Int
+import Path
+import Port
+import Size
+import String
+import Version
+
+-- `max`, `min`, `clamp` and `between?`, on each of the eleven ordered
+-- types. They are written per type rather than once over the constraint,
+-- so a reader holding an Int finds them under `Int`.
+
+-- ── one per ordered type ────────────────────────────────────────────────
+
+test "Int" (fn t -> t.eq 7 (Int.max 3 7))
+test "Float" (fn t -> t.eq 2.25 (Float.max 1.5 2.25))
+test "String" (fn t -> t.eq "b" (String.max "a" "b"))
+test "Duration" (fn t -> t.eq 2min (Duration.max 30s 2min))
+test "DateTime" (fn t -> t.eq 2024-01-15 (DateTime.min 2024-06-01 2024-01-15))
+test "Size" (fn t -> t.eq 4KB (Size.min 4KB 100MB))
+test "Version reads the numbers" (fn t -> t.eq 1.10.0 (Version.max 1.9.0 1.10.0))
+test "Port" (fn t -> t.eq :8080 (Port.max :80 :8080))
+test "IPv4 reads the address" (fn t -> t.eq 10.0.0.10 (IPv4.max 10.0.0.9 10.0.0.10))
+test "CIDR" (fn t -> t.eq 192.168.0.0/16 (CIDR.max 10.0.0.0/8 192.168.0.0/16))
+test "Path" (fn t -> t.eq /a/c (Path.max /a/b /a/c))
+
+-- ── max and min ─────────────────────────────────────────────────────────
+
+test "max of equals is that value" (fn t -> t.eq 4 (Int.max 4 4))
+test "min of equals is that value" (fn t -> t.eq 4 (Int.min 4 4))
+
+-- A comparison reads the value, not the text it was written as, so two
+-- spellings of one Duration are one value and either may come back.
+test "max of two spellings of one value" (fn t -> t.eq 60s (Duration.max 60s 1min))
+
+-- ── clamp ───────────────────────────────────────────────────────────────
+
+test "clamp holds at the high bound" (fn t -> t.eq 10 (Int.clamp 0 10 42))
+test "clamp holds at the low bound" (fn t -> t.eq 0 (Int.clamp 0 10 (-5)))
+test "clamp passes a value inside" (fn t -> t.eq 5 (Int.clamp 0 10 5))
+test "clamp includes its bounds" (fn t -> t.eq 10 (Int.clamp 0 10 10))
+test "clamp on Durations" (fn t -> t.eq 30s (Duration.clamp 1s 30s 5min))
+
+-- ── between? ────────────────────────────────────────────────────────────
+
+test "between? inside" (fn t -> t.eq true (Int.between? 1 10 5))
+test "between? at the low bound" (fn t -> t.eq true (Int.between? 1 10 1))
+test "between? at the high bound" (fn t -> t.eq true (Int.between? 1 10 10))
+test "between? below" (fn t -> t.eq false (Int.between? 1 10 0))
+test "between? above" (fn t -> t.eq false (Int.between? 1 10 11))
+test "between? on DateTimes" (fn t ->
+  t.eq false (DateTime.between? 2024-01-01 2024-12-31 2025-06-15))

@@ -16,3 +16,33 @@ let of_bytes n = size_of_bytes n
 -- >> Size.format 6466B
 -- "6.5KB" : String
 let format s = size_format s
+
+-- The larger of two Sizes.
+--
+-- The value is compared, not the spelling: `1000B` and `1KB` are
+-- one Size.
+--
+-- >> Size.max 4KB 100MB
+-- 100MB : Size
+let max : Size -> Size -> Size = fn a b -> if a > b then a else b
+
+-- The smaller of two Sizes.
+--
+-- >> Size.min 4KB 100MB
+-- 4KB : Size
+let min : Size -> Size -> Size = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> Size.clamp 1KB 1MB 5MB
+-- 1MB : Size
+let clamp : Size -> Size -> Size -> Size =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> Size.between? 1KB 1MB 4KB
+-- true : Bool
+let between? : Size -> Size -> Size -> Bool = fn lo hi v -> v >= lo && v <= hi

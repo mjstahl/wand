@@ -37,7 +37,7 @@ For what wand is and why, see the [README](../README.md).
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
   - [Three collections, and where they differ](#three-collections-and-where-they-differ)
-  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
+  - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
 - [Style for scripts](#style-for-scripts)
@@ -160,9 +160,31 @@ polymorphic:
 let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
 ```
 
-That one is already written, and [`Ord`](#ord) is where it lives: `Ord.max`,
-`Ord.min`, `Ord.clamp` and `Ord.between?` are one definition each, serving
-all eleven types.
+The four functions people write out of those operators -- `max`, `min`,
+`clamp` and `between?` -- are on each of the eleven types rather than in a
+module of their own, so the place you look for one is the type in your
+hand:
+
+```ocaml
+Int.max 3 7                     -- 7
+Duration.max 30s 2min           -- 2min
+Version.max 1.9.0 1.10.0        -- 1.10.0, by precedence
+Size.min 4KB 100MB              -- 4KB
+```
+
+`clamp` and `between?` take the low bound, then the high, then the value, so
+the value can arrive from a pipeline. Both bounds are included:
+
+```ocaml
+Int.clamp 0 10 42               -- 10
+Duration.clamp 1s 30s 5min      -- 30s
+Int.between? 1 10 10            -- true
+```
+
+Each reads the value rather than the text it was written as, so they answer
+about instants, byte counts and version precedence rather than about
+spelling. For the largest of a list rather than of two values,
+[`List.max`](#list) is the same idea folded.
 
 The constraints nest: every `Num` is an `Add`, and every `Add` is an `Ord`.
 A variable that is more than one of them is the narrowest.
@@ -3419,7 +3441,8 @@ List.max [1.9.0, 1.10.0]                    -- Some(1.10.0), by precedence
 
 `max` and `min` read the value, not the text it was written as, exactly as
 [`<`](#comparison-and-ord) does. For the larger of two values rather than of
-a list, [`Ord`](#ord) has the same pair.
+a list, each ordered type has the same pair: `Int.max`, `Duration.max`, and
+so on.
 
 `each` takes the element, as `map` and `filter` do, and returns `Unit`. Use
 it for effects. wand drops what the function returns. So a command that you run
@@ -3470,6 +3493,10 @@ to_version   : String -> Result String Version
 to_size      : String -> Result String Size
 to_datetime  : String -> Result String DateTime
 to_duration  : String -> Result String Duration
+max          : String -> String -> String
+min          : String -> String -> String
+clamp        : String -> String -> String -> String
+between?     : String -> String -> String -> Bool
 ```
 
 `word` reads one of what `words` would return, and follows the same rule: a
@@ -3871,6 +3898,10 @@ normalize      : Path -> Path
 to_string      : Path -> String
 of_string      : String -> Path
 components     : Path -> List String
+max            : Path -> Path -> Path
+min            : Path -> Path -> Path
+clamp          : Path -> Path -> Path -> Path
+between?       : Path -> Path -> Path -> Bool
 ```
 
 `basename` returns a `Path`, as `parent` and `dirname` do. A basename is a
@@ -4077,6 +4108,10 @@ on          : Int -> Int -> Int -> Result String DateTime
 on!         : Int -> Int -> Int -> DateTime ! {Raise}
 date_string : DateTime -> String
 time_string : DateTime -> String
+max         : DateTime -> DateTime -> DateTime
+min         : DateTime -> DateTime -> DateTime
+clamp       : DateTime -> DateTime -> DateTime -> DateTime
+between?    : DateTime -> DateTime -> DateTime -> Bool
 ```
 
 There is one instant type and one resolution, the second. `2024-01-15` is a
@@ -4667,12 +4702,16 @@ type Spec(replicas: Int, containers: List Container)
 ### `Float`
 
 ```ocaml
-of_int : Int -> Float
-round  : Float -> Int
-floor  : Float -> Int
-ceil   : Float -> Int
-abs    : Float -> Float
-format : Int -> Float -> String
+of_int   : Int -> Float
+round    : Float -> Int
+floor    : Float -> Int
+ceil     : Float -> Int
+abs      : Float -> Float
+format   : Int -> Float -> String
+max      : Float -> Float -> Float
+min      : Float -> Float -> Float
+clamp    : Float -> Float -> Float -> Float
+between? : Float -> Float -> Float -> Bool
 ```
 
 `Float.format` writes a fixed number of digits after the point, and fills
@@ -4705,6 +4744,10 @@ pow       : Int -> Int -> Int ! 'e
 divmod    : Int -> Int -> (Int, Int)
 max_value : Int
 min_value : Int
+max       : Int -> Int -> Int
+min       : Int -> Int -> Int
+clamp     : Int -> Int -> Int -> Int
+between?  : Int -> Int -> Int -> Bool
 ```
 
 What an operator does not spell. Arithmetic is `+ - * / %`, so this module
@@ -4739,59 +4782,24 @@ the type it produces, so those are `String.of_int` and `Float.of_int`.
 `Int.of_string` is `String.to_int` under the same rule, and drawing a number
 is `Random.int`, which carries the effect that belongs with it.
 
-### `Ord`
-
-```ocaml
-max      : Ord -> Ord -> Ord
-min      : Ord -> Ord -> Ord
-clamp    : Ord -> Ord -> Ord -> Ord
-between? : Ord -> Ord -> Ord -> Bool
-```
-
-The functions people write out of `<` and `>`. The module is named for the
-constraint that appears in the signature, as `Option` and `Result` are, so a
-reader who sees `Ord -> Ord -> Ord` and reaches for `Ord.max` finds it where
-they looked.
-
-One definition serves all eleven [ordered types](#comparison-and-ord). There
-is no `Int.max` beside a `Duration.max` beside nine more, which is the point
-of having a constraint at all:
-
-```ocaml
-Ord.max 3 7                     -- 7
-Ord.max 30s 2min                -- 2min
-Ord.max 1.9.0 1.10.0            -- 1.10.0, by precedence
-Ord.min 4KB 100MB               -- 4KB
-```
-
-`clamp` and `between?` take the low bound, then the high, then the value, so
-the value can arrive from a pipeline. Both bounds are included:
-
-```ocaml
-Ord.clamp 0 10 42               -- 10
-Ord.clamp 1s 30s 5min           -- 30s
-Ord.between? 1 10 10            -- true
-```
-
-Comparison reads the value rather than the text it was written as, so these
-answer about instants, byte counts and version precedence rather than about
-spelling. For the largest of a list rather than of two values,
-[`List.max`](#list) is the same idea folded.
-
 ### `Duration`
 
 ```ocaml
-zero    : Duration
-seconds : Int -> Duration
-minutes : Int -> Duration
-hours   : Int -> Duration
-days    : Int -> Duration
-weeks   : Int -> Duration
-add     : Duration -> Duration -> Duration
-sub     : Duration -> Duration -> Duration
-scale   : Int -> Duration -> Duration
-format  : Duration -> String
-to_ms   : Duration -> Int
+zero     : Duration
+seconds  : Int -> Duration
+minutes  : Int -> Duration
+hours    : Int -> Duration
+days     : Int -> Duration
+weeks    : Int -> Duration
+add      : Duration -> Duration -> Duration
+sub      : Duration -> Duration -> Duration
+scale    : Int -> Duration -> Duration
+format   : Duration -> String
+to_ms    : Duration -> Int
+max      : Duration -> Duration -> Duration
+min      : Duration -> Duration -> Duration
+clamp    : Duration -> Duration -> Duration -> Duration
+between? : Duration -> Duration -> Duration -> Bool
 ```
 
 ### `Size`
@@ -4800,6 +4808,10 @@ to_ms   : Duration -> Int
 to_bytes : Size -> Int
 of_bytes : Int -> Size
 format   : Size -> String
+max      : Size -> Size -> Size
+min      : Size -> Size -> Size
+clamp    : Size -> Size -> Size -> Size
+between? : Size -> Size -> Size -> Bool
 ```
 
 A size literal carries the units it was written in, and `to_bytes` reads
@@ -4815,8 +4827,12 @@ it is: `FS.size! p < 4KB`.
 ### `Port`
 
 ```ocaml
-to_int : Port -> Int
-of_int : Int -> Result String Port
+to_int   : Port -> Int
+of_int   : Int -> Result String Port
+max      : Port -> Port -> Port
+min      : Port -> Port -> Port
+clamp    : Port -> Port -> Port -> Port
+between? : Port -> Port -> Port -> Bool
 ```
 
 The colon is the literal's punctuation and stays in every string a port
@@ -4838,6 +4854,10 @@ private?  : IPv4 -> Bool
 loopback? : IPv4 -> Bool
 to_string : IPv4 -> String
 of_string : String -> Result String IPv4
+max       : IPv4 -> IPv4 -> IPv4
+min       : IPv4 -> IPv4 -> IPv4
+clamp     : IPv4 -> IPv4 -> IPv4 -> IPv4
+between?  : IPv4 -> IPv4 -> IPv4 -> Bool
 ```
 
 The literal checks itself — each octet is 0 to 255, and no octet has a
@@ -4874,6 +4894,10 @@ count     : CIDR -> Int
 to_string : CIDR -> String
 of_string : String -> Result String CIDR
 of_parts  : IPv4 -> Int -> Result String CIDR
+max       : CIDR -> CIDR -> CIDR
+min       : CIDR -> CIDR -> CIDR
+clamp     : CIDR -> CIDR -> CIDR -> CIDR
+between?  : CIDR -> CIDR -> CIDR -> Bool
 ```
 
 `contains?` is what the type was missing. A network may be written from an
@@ -4948,6 +4972,10 @@ bump_minor      : Version -> Version
 bump_patch      : Version -> Version
 with_prerelease : Option String -> Version -> Result String Version
 with_build      : Option String -> Version -> Result String Version
+max             : Version -> Version -> Version
+min             : Version -> Version -> Version
+clamp           : Version -> Version -> Version -> Version
+between?        : Version -> Version -> Version -> Bool
 ```
 
 The type is [Semantic Versioning 2.0.0][semver], and the spec's grammar is

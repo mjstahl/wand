@@ -109,3 +109,33 @@ let date_string d = dt_date_string d
 -- >> DateTime.time_string 2026-08-22T14:30:00Z
 -- "14:30:00" : String
 let time_string d = dt_time_string d
+
+-- The larger of two instants.
+--
+-- Instants are compared, so the spelling a value was written in
+-- does not matter.
+--
+-- >> DateTime.max 2024-01-15 2024-06-01
+-- 2024-06-01T00:00:00Z : DateTime
+let max : DateTime -> DateTime -> DateTime = fn a b -> if a > b then a else b
+
+-- The smaller of two instants.
+--
+-- >> DateTime.min 2024-01-15 2024-06-01
+-- 2024-01-15T00:00:00Z : DateTime
+let min : DateTime -> DateTime -> DateTime = fn a b -> if a < b then a else b
+
+-- The value, held between a low and a high bound, both included.
+--
+-- The bounds come first so the value can arrive from a pipeline.
+--
+-- >> DateTime.clamp 2024-01-01 2024-12-31 2025-06-15
+-- 2024-12-31T00:00:00Z : DateTime
+let clamp : DateTime -> DateTime -> DateTime -> DateTime =
+  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
+
+-- True when the value is at or between the two bounds.
+--
+-- >> DateTime.between? 2024-01-01 2024-12-31 2025-06-15
+-- false : Bool
+let between? : DateTime -> DateTime -> DateTime -> Bool = fn lo hi v -> v >= lo && v <= hi
