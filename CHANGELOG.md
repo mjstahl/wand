@@ -2,6 +2,21 @@
 
 ## [0.79.0] - 2026-09-18
 
+### Added
+
+- **`wand d --index`** prints every module's members with their signatures in
+  one listing -- 535 lines, the whole standard library surface. It is what a
+  shell loop over `wand d <module>` produced, as a command that stays in step
+  with what is on disk.
+
+  ```
+  $ wand d --index | head -2
+  Args.help? : List String -> Bool
+  Args.parse : Decoder 'a -> List String -> Result String 'a
+  ```
+
+  `--json` gives the same as an array of `{name, type}`.
+
 ### Changed
 
 - **`wand f` no longer crawls on deeply nested code.** Two things cost it.

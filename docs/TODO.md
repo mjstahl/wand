@@ -105,20 +105,6 @@ mean of 1.95 attempts with `--fix` applied first, and the attempts that
 needed three or more were files with several unknown names and nothing else
 wrong.
 
-### `wand d --index`
-
-Print every stdlib function with its type, for every module, in one
-command. It exists today only as a shell loop:
-
-```
-for m in $(wand d); do wand d "$m"; done
-```
-
-That is 535 lines, and it is what a model needs in front of it to write
-wand at all: given the language guide alone a model cleared 7 of 20 tasks,
-and given the guide plus this index it cleared 18. A build artefact rather
-than a loop, so the tools that need it can depend on it.
-
 ### `wand t --effects`
 
 Print a file's inferred effect set as data, so a check can compare it with

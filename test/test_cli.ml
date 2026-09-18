@@ -107,6 +107,35 @@ let test_doc () =
        Alcotest.fail "doc: Map.get type is empty"
    | None -> Alcotest.fail "doc: Map.get not found")
 
+(* The listing behind `wand d --index`: every module's members, and the same
+   answer `wand d <module>` gives one module at a time. *)
+let test_doc_index () =
+  let sess = make_sess () in
+  let index = Runner.index sess in
+  Alcotest.(check bool) "the index is not empty" true (index <> []);
+  (* Every entry is a module member, and every module is in it. *)
+  List.iter (fun (name, _) ->
+    Alcotest.(check bool) (name ^ " is qualified") true
+      (String.contains name '.')) index;
+  let modules =
+    List.sort_uniq String.compare
+      (List.filter_map (fun (n, s) ->
+         match s with Typechecker.Namespace _ -> Some n | _ -> None)
+        sess.Runner.s_type_env)
+  in
+  List.iter (fun modname ->
+    match Runner.module_members sess modname with
+    | None -> ()
+    | Some members ->
+      List.iter (fun m ->
+        let qualified = modname ^ "." ^ m in
+        Alcotest.(check bool) (qualified ^ " is in the index") true
+          (List.mem_assoc qualified index)) members) modules;
+  (* A module that is gone stays gone. *)
+  Alcotest.(check bool) "no Ord module" false (List.mem "Ord" modules);
+  Alcotest.(check bool) "Int.max is in the index" true
+    (List.mem_assoc "Int.max" index)
+
 let test_doc_strings () =
   let sess = make_sess () in
   (* A run of comment lines above a definition is its documentation. *)
@@ -594,6 +623,9 @@ let test_fix_rewrites_in_place () = check_rewrite "wand t --fix" ["t"; "--fix"]
 
 let () =
   Alcotest.run "CLI" [
+    "wand d --index", [
+      Alcotest.test_case "every module's members, once each" `Quick test_doc_index;
+    ];
     "the REPL's :d", [
       Alcotest.test_case "a module lists its members" `Quick test_repl_doc_of_a_module;
       Alcotest.test_case "a member shows its doc"     `Quick test_repl_doc_of_a_member;

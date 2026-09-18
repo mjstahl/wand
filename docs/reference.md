@@ -56,7 +56,8 @@ wand i                  # interactive session
 wand -e "1 + 2"         # evaluate an expression
 wand t script.wand      # typecheck a file without running it
 wand d "List.map"       # show doc string
-wand d                  # list all names in scope
+wand d                  # list the modules in scope
+wand d --index          # every module's members, with signatures
 wand f script.wand      # format a file in place
 wand s                  # run every test_*.wand from here down
 wand h                  # help
@@ -5943,6 +5944,21 @@ where the naming rule stops holding: `JSON.read_file` performs
 `FS!read_file`, not `JSON!read_file`. A function that performs nothing has
 no such line.
 
+`wand d --index` prints every module's members with their signatures, in one
+listing — the answer `wand d <Module>` gives, for each module in turn. It is
+the whole of the standard library's surface in 535 lines, which is what a
+reader who does not know the library yet needs in front of them:
+
+```console
+$ wand d --index | head -3
+Args.help? : List String -> Bool
+Args.parse : Decoder 'a -> List String -> Result String 'a
+Args.parse_with : List String -> Decoder 'a -> List String -> Result String 'a
+```
+
+`--json` gives the same listing as an array of `{name, type}`, and `--load`
+adds a file's own names to it. It takes no name, since it lists them all.
+
 `wand d -x <name>` prints the doc with its examples run where they stand, so
 what each one produces now sits where the file says it should. `wand d -t`
 asks the other question: it reports only what does not hold, says nothing
@@ -6241,6 +6257,7 @@ History is saved to `~/.wand_history` between sessions.
 wand d "List.map"                     # show doc string
 wand d -x "List.map"                  # print the doc with its examples run
 wand d -t List                        # check a module's examples; silent if right
+wand d --index                        # every module's members, with signatures
 wand d --json "List.map"              # the same, as JSON for tools
 wand -e "1 + 2"                       # evaluate and print result
 wand --load config.wand -e "host"     # evaluate in context of a file

@@ -3405,6 +3405,30 @@ let module_json (sess : session) (modname : string) : (string, string) result =
   | Some _ -> Error (modname ^ " is a binding, not a module")
   | None   -> Error ("Unknown module '" ^ modname ^ "'")
 
+(* Every module's members in one listing. `wand d <module>` answers for one
+   module; this is that answer for all of them, in module order and then by
+   name, so a tool that wants the whole surface makes one call rather than a
+   loop over the module list -- and a loop's output cannot be depended on to
+   stay in step with what is on disk. *)
+let index (sess : session) : (string * Typechecker.scheme) list =
+  let modules =
+    List.sort String.compare
+      (List.filter_map (fun (n, s) ->
+         match s with Typechecker.Namespace _ -> Some n | _ -> None)
+        sess.s_type_env)
+  in
+  List.concat_map (fun modname ->
+    match List.assoc_opt modname sess.s_type_env with
+    | Some (Typechecker.Namespace members) ->
+      List.map (fun (n, s) -> (modname ^ "." ^ n, s))
+        (List.sort (fun (a, _) (b, _) -> String.compare a b) members)
+    | _ -> []) modules
+
+let index_json (sess : session) : string =
+  "[" ^ String.concat ","
+          (List.map (fun (n, s) -> binding_json n s) (index sess))
+  ^ "]"
+
 let last_non_import prog =
   List.fold_left (fun acc item ->
     match item with Ast.TLImport _ -> acc | other -> Some other

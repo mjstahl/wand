@@ -76,11 +76,13 @@ let usage_for sub =
     print_endline "--strict promotes them to errors; A- rules are advisory and";
     print_endline "always stay warnings."
   | "d" | "doc" ->
-    print_endline "Usage: wand d [-x|-t] [--load <file>]... [name]";
+    print_endline "Usage: wand d [-x|-t|--index] [--load <file>]... [name]";
     print_endline "";
     print_endline "What a name is. A function or a value gives its type and";
     print_endline "doc; a module gives every name in it with its signature;";
-    print_endline "no name at all gives everything in scope.";
+    print_endline "no name at all gives what is in scope -- the modules by";
+    print_endline "name, and any bindings --load brought. --index gives every";
+    print_endline "name inside those modules as well.";
     print_endline "";
     print_endline "`--load` puts a file's own names in scope first, so";
     print_endline "`wand d --load mine.wand` says what that file defines.";
@@ -91,6 +93,8 @@ let usage_for sub =
     print_endline "  -t, --test      Run the examples and report only what does not produce";
     print_endline "                  what it says. Silent and 0 when they all hold, 1 if any";
     print_endline "                  does not, so it can gate a build";
+    print_endline "  --index         Every module's members with their signatures, in";
+    print_endline "                  one listing. Takes no name";
     print_endline "  --json          Emit the name, type, and doc as JSON";
     print_endline "  --load <file>   Load a .wand file before looking up the name (repeatable)"
   | "f" | "fmt" ->
@@ -133,6 +137,10 @@ let parse_json_flag args =
 let parse_execute_flag args =
   (List.mem "--execute" args || List.mem "-x" args,
    List.filter (fun a -> a <> "--execute" && a <> "-x") args)
+
+let parse_index_flag args =
+  (List.mem "--index" args,
+   List.filter (fun a -> a <> "--index") args)
 
 let parse_test_flag args =
   (List.mem "--test" args || List.mem "-t" args,
@@ -679,7 +687,14 @@ let main () =
       let (json, rest) = parse_json_flag rest in
       let (execute, rest) = parse_execute_flag rest in
       let (test, rest) = parse_test_flag rest in
+      let (index, rest) = parse_index_flag rest in
       reject_unknown_options "d" (snd (parse_loads rest));
+      if index && (execute || test) then begin
+        Printf.eprintf
+          "Error: --index lists every name; -x and -t run one name's \
+           examples. Pick one.\n";
+        exit 1
+      end;
       if execute && test then begin
         Printf.eprintf
           "Error: -x runs the examples and shows what they do; -t runs them \
@@ -687,7 +702,24 @@ let main () =
         exit 1
       end;
       let (loads, rest') = parse_loads rest in
+      if index && rest' <> [] then begin
+        Printf.eprintf
+          "Error: --index lists every name, so it takes no name\n\
+           Run 'wand h d' for usage.\n";
+        exit 1
+      end;
       (match rest' with
+       | [] when index ->
+         (* Every module's members at once. The same listing `wand d <module>`
+            gives, for each module in turn, so what a tool reads is what the
+            command already answers one module at a time. *)
+         let sess = load_files ~sources:[all_stdlib_imports] loads in
+         if json then print_endline (Wand.Runner.index_json sess)
+         else
+           List.iter (fun (name, scheme) ->
+             Printf.printf "%s : %s\n" name
+               (Wand.Typechecker.string_of_scheme scheme))
+             (Wand.Runner.index sess)
        | [] when execute || test ->
          Printf.eprintf
            "Error: -x and -t run one name's examples, so they need a name\n\
