@@ -65,6 +65,23 @@ type typ =
   | TToml
   | TYaml
   | TName of string
+  (* The type of a module that implements an interface: the contract's name
+     and what its parameters were bound to. `Ord Int` is the type of a module
+     providing `max` and `min` at `Int`.
+
+     It is a type for a *module*, not for a value of the type it orders.
+     Nothing is dispatched from it: the caller passes the module, so this is
+     the annotation a parameter carries and nothing more. *)
+  | TIface of string * typ list
+  (* A module used as a value, carrying the interfaces it claims. Conformance
+     is nominal -- `implement` is what makes a module fit, and a module with
+     the right members by accident does not -- so what travels here is the
+     claims rather than the members.
+
+     They ride in the module's own type environment, so an imported module
+     brings them with it and a cached one keeps them, with no table to hold
+     consistent. *)
+  | TModule of (string * typ list) list
 
 and tv = {
   id  : int;
@@ -751,6 +768,23 @@ let string_of_typ t =
     | TApp (f, a) ->
       let sa = if wants_brackets (repr a) then "(" ^ go a ^ ")" else go a in
       go f ^ " " ^ sa
+    (* `Ord Int` -- the interface and what its parameters were bound to,
+       written the way the annotation is written. *)
+    | TIface (n, []) -> n
+    | TIface (n, args) ->
+      n ^ " " ^ String.concat " "
+        (List.map (fun a ->
+           if wants_brackets (repr a) then "(" ^ go a ^ ")" else go a) args)
+    (* A module has no spelling in a signature -- an interface is what a
+       parameter is annotated with -- so it prints as what it is, and says
+       what it answers to. *)
+    | TModule [] -> "a module implementing nothing"
+    | TModule claims ->
+      "a module implementing "
+      ^ String.concat ", "
+          (List.map (fun (n, args) ->
+             if args = [] then n
+             else n ^ " " ^ String.concat " " (List.map go args)) claims)
   in
   go t
 
@@ -889,6 +923,29 @@ let rec unify_ t1 t2 =
   | TDecoder t1, TDecoder t2 -> unify_ t1 t2
   | TMap t1,    TMap t2    -> unify_ t1 t2
   | TApp (f1, a1), TApp (f2, a2) -> unify_ f1 f2; unify_ a1 a2
+  | TIface (n1, a1), TIface (n2, a2)
+    when n1 = n2 && List.length a1 = List.length a2 ->
+    List.iter2 unify_ a1 a2
+  (* A module meeting an interface. Conformance is nominal, so this asks
+     what the module claimed rather than what members it happens to have:
+     `implement` is the whole of what makes a module fit. *)
+  | (TModule claims, TIface (n, args)) | (TIface (n, args), TModule claims) ->
+    let matching =
+      List.filter (fun (cn, cargs) ->
+        cn = n && List.length cargs = List.length args) claims
+    in
+    (match matching with
+     | [] ->
+       raise (TypeError (Printf.sprintf
+         "this module does not implement %s, which it would have to declare \
+          with 'implement %s %s' in its own file%s"
+         n n
+         (String.concat " " (List.map string_of_typ args))
+         (if claims = [] then ""
+          else Printf.sprintf ". It implements %s"
+                 (String.concat ", " (List.map fst claims)))))
+     | (_, cargs) :: _ -> List.iter2 unify_ cargs args)
+  | TModule c1, TModule c2 when c1 == c2 -> ()
   | t1, t2 -> raise (Mismatch (t1, t2))
 
 (* What a failed unification says.
@@ -963,6 +1020,11 @@ type scheme =
   | Namespace of env
 
 and env = (string * scheme) list
+
+(* The entry a module's own environment carries its claims under. The space
+   is what keeps it out of reach: no file can write this name, so it is not
+   a member and cannot be selected, shadowed or reported. *)
+let implements_key = "implements claims"
 
 (* Names a reader of another language reaches for. wand has no training-data
    presence, so a model writing it drifts toward OCaml, Python, Ruby, and
@@ -1206,7 +1268,14 @@ let refresh_scheme (sch : scheme) : scheme =
     Poly (ids', evar_ids', body)
 
 let instantiate = function
-  | Namespace _ -> TUnit
+  (* A module used as a value. What it is, for typing purposes, is what it
+     says it implements: that is the only question anything asks of it, since
+     a parameter is annotated with an interface and never with a module. A
+     module claiming nothing is a value nothing accepts. *)
+  | Namespace ns ->
+    (match List.assoc_opt implements_key ns with
+     | Some (Mono (TModule _ as t)) -> t
+     | _ -> TModule [])
   | Mono t -> t
   | Poly (ids, evar_ids, t) ->
     (* Replacements are made per variable rather than precomputed per id,
@@ -1351,6 +1420,29 @@ let written_evars : int list ref = ref []
    the value that later met it. A name whose arity is unknown -- a type
    variable in head position, or any name where there is no file to declare
    it -- is left alone: this reports what it is sure of. *)
+(* Every interface in scope, by the name a file writes for it. A contract
+   declares no value, so this is the whole of what an interface is: a list of
+   members and their types, read where a module claims it and where a
+   parameter is annotated with it. *)
+let iface_defs : (string, Ast.interface_def) Hashtbl.t = Hashtbl.create 8
+
+let is_iface name = Hashtbl.mem iface_defs name
+
+(* The qualified spellings of an interface written bare. An imported one is
+   reached only through the module that declares it, so a bare name that
+   names one is answered with the spellings that work rather than with a
+   complaint about an unknown type. Several modules may declare the name,
+   and each is a different contract, so all of them are offered. *)
+let qualified_ifaces_named n =
+  let suffix = "." ^ n in
+  let k = String.length suffix in
+  List.sort compare
+    (Hashtbl.fold (fun key _ acc ->
+       if String.length key > k
+       && String.sub key (String.length key - k) k = suffix
+       then key :: acc else acc) iface_defs [])
+
+
 let check_te_arity (te : type_expr) =
   let arity_of name =
     match List.assoc_opt name !known_aliases with
@@ -1361,6 +1453,12 @@ let check_te_arity (te : type_expr) =
        | None   -> builtin_type_arity name)
   in
   let check name got =
+    (* An interface is not a type, and its arity is its own: it is checked
+       where the annotation is read, against what the interface declares. A
+       name that is one only when qualified is left alone too, or `Ord` --
+       which is also a constraint -- would be answered about the constraint
+       rather than told how to reach the interface. *)
+    if is_iface name || qualified_ifaces_named name <> [] then () else
     match arity_of name with
     | Some want when want <> got ->
       raise (TypeError (
@@ -1459,6 +1557,16 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        under its bare name. The key says the qualifier is right; the type is
        the one the bare name gives, so the two spellings are one type. Step 4
        makes them tell two modules' types apart. *)
+    | TEQual (m, n) when is_iface (m ^ "." ^ n) ->
+      let name = m ^ "." ^ n in
+      let idef = Hashtbl.find iface_defs name in
+      let want = List.length idef.Ast.if_params in
+      if want <> 0 then
+        raise (TypeError (Printf.sprintf
+          "'%s' takes %d type argument%s, and this names none: write '%s %s'"
+          name want (if want = 1 then "" else "s") name
+          (String.concat " " (List.map (fun p -> "'" ^ p) idef.Ast.if_params))));
+      TIface (name, [])
     (* `Foo.Status`: the module says which `Status` this is. *)
     | TEQual (m, n) ->
       (match !known_type_names with
@@ -1473,6 +1581,49 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
       if List.mem_assoc canon !known_aliases && not (List.mem canon !resolving)
       then apply_alias canon []
       else TName canon
+    (* `ord.Ord Int`: the interface, said with the module that declares it.
+       Read before the cases that take a qualified name for a type. *)
+    | TEApp _ as te when (
+        let rec head = function
+          | TEApp (f, _) -> head f
+          | TEQual (m, n) -> Some (m ^ "." ^ n)
+          | _ -> None
+        in
+        match head te with Some n -> is_iface n | None -> false) ->
+      let rec peel acc = function
+        | TEApp (f, a) -> peel (a :: acc) f
+        | TEQual (m, n) -> (m ^ "." ^ n, acc)
+        | _ -> assert false
+      in
+      let (name, args) = peel [] te in
+      let idef = Hashtbl.find iface_defs name in
+      let want = List.length idef.Ast.if_params and got = List.length args in
+      if want <> got then
+        raise (TypeError (Printf.sprintf
+          "'%s' takes %d type argument%s, and this names %d"
+          name want (if want = 1 then "" else "s") got));
+      TIface (name, List.map go args)
+    (* An imported interface has no bare form, so a bare name that is one
+       says what to write. Read before every case that would take the name
+       for a type -- `Ord` is also a constraint, and answering about that
+       tells the reader nothing they can act on. *)
+    | TEName n when qualified_ifaces_named n <> [] ->
+      raise (TypeError (Printf.sprintf
+        "'%s' is an interface, and one is reached through the module that \
+         declares it: write %s" n
+        (String.concat " or "
+           (List.map (fun q -> "'" ^ q ^ "'") (qualified_ifaces_named n)))))
+    (* An interface names a module's contract, not a type, so it is read
+       before any of the cases that take a bare name for one. *)
+    | TEName n when is_iface n ->
+      let idef = Hashtbl.find iface_defs n in
+      let want = List.length idef.Ast.if_params in
+      if want <> 0 then
+        raise (TypeError (Printf.sprintf
+          "'%s' takes %d type argument%s, and this names none: write '%s %s'"
+          n want (if want = 1 then "" else "s") n
+          (String.concat " " (List.map (fun p -> "'" ^ p) idef.Ast.if_params))));
+      TIface (n, [])
     | TEName name when List.mem_assoc name !known_aliases
                     && not (List.mem name !resolving) ->
       (* The name is kept over what it names, for the message. Everything
@@ -1508,8 +1659,19 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
        | n          ->
          (match !known_type_names with
           | Some known when not (builtin_type_name n || List.mem n known) ->
-            raise (TypeError (Printf.sprintf "unknown type '%s'%s"
-              n (Util.hint n (known @ builtin_type_names))))
+            (* An interface is reached through the module that declares it,
+               so a bare name that is one names the spelling that works
+               rather than saying the type is unknown. Several modules may
+               declare the name, and each is a different contract, so all of
+               them are offered. *)
+            raise (TypeError (
+              match qualified_ifaces_named n with
+              | [] -> Printf.sprintf "unknown type '%s'%s"
+                        n (Util.hint n (known @ builtin_type_names))
+              | qs -> Printf.sprintf
+                  "'%s' is an interface, and one is reached through the \
+                   module that declares it: write %s"
+                  n (String.concat " or " (List.map (fun q -> "'" ^ q ^ "'") qs))))
           (* The name a file writes; the type is the one it stands for. *)
           | _ -> TName (canonical_type_name n)))
     (* The constraint is applied to the variable wherever it is written,
@@ -1543,6 +1705,29 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
          Hashtbl.add vars name t; t)
     | TEFun (a, b, eff) -> TFun (go a, go b, effects_of eff)
     | TETuple ts    -> TTuple (List.map go ts)
+    (* `Ord Int` in a parameter's annotation: the type of a module providing
+       what `Ord` declares, at `Int`. Read before the generic application
+       below, which would take `Ord` for a type. *)
+    | TEApp _ as te when (
+        let rec head = function
+          | TEApp (f, _) -> head f
+          | TEName n -> Some n
+          | _ -> None
+        in
+        match head te with Some n -> is_iface n | None -> false) ->
+      let rec peel acc = function
+        | TEApp (f, a) -> peel (a :: acc) f
+        | TEName n -> (n, acc)
+        | _ -> assert false
+      in
+      let (name, args) = peel [] te in
+      let idef = Hashtbl.find iface_defs name in
+      let want = List.length idef.Ast.if_params and got = List.length args in
+      if want <> got then
+        raise (TypeError (Printf.sprintf
+          "'%s' takes %d type argument%s, and this names %d"
+          name want (if want = 1 then "" else "s") got));
+      TIface (name, List.map go args)
     (* A parameterised alias applied to its arguments, written bare or
        written with the module it came from. `Args.Parser Opts` reached the
        generic application below, which read the head on its own -- an alias
@@ -1584,6 +1769,14 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
   (t, named)
 
 let type_of_te_bound bound te = fst (type_of_te_bound_with_vars bound te)
+
+(* The members an implementation has to answer for, with the interface's
+   parameters bound to what the claim named them at: `implement Ord Int`
+   binds `'a` to `Int`, so `max` comes out `Int -> Int -> Int`. That is
+   instantiation, not dispatch -- nothing is looked up from a value. *)
+let iface_members (idef : Ast.interface_def) (args : typ list) =
+  let bound = List.combine idef.Ast.if_params args in
+  List.map (fun (n, te) -> (n, type_of_te_bound bound te)) idef.Ast.if_members
 
 let type_of_te (te : type_expr) : typ = type_of_te_bound [] te
 
@@ -2356,7 +2549,7 @@ let rec ctors_of_type tenv (ctor_env : env) (t : typ) : (string * typ list) list
   | TInt | TFloat | TString | TPath | TGlob | TDateTime
   | TDuration | TURL | TIPv4 | TCIDR | TPort | TVersion | TSize
   | TRegex | TJson | TToml | TYaml | TCommand | TFun _ | TResource _ | TStream _
-  | TDecoder _ ->
+  | TDecoder _ | TIface _ | TModule _ ->
     []  (* infinite/opaque domains: only a wildcard row can cover these *)
 
 let is_infinite_domain t =
@@ -3170,6 +3363,21 @@ let rec infer tenv (env : env) (e : expr) : typ =
        in
        let scrut_t = infer tenv env e in
        (match head_and_args scrut_t with
+        (* A parameter annotated with an interface is a module, and its
+           members are the ones the interface declares, at the types the
+           annotation bound them to. Nothing is dispatched: the member's
+           type is read off the contract. *)
+        | (TIface (iname, iargs), _) ->
+          (match Hashtbl.find_opt iface_defs iname with
+           | None -> raise (TypeError (Printf.sprintf
+               "'%s' is not an interface in scope" iname))
+           | Some idef ->
+             let members = iface_members idef iargs in
+             (match List.assoc_opt label members with
+              | Some t -> t
+              | None -> raise (TypeError (Printf.sprintf
+                  "'%s' declares no member '%s'%s" iname label
+                  (Util.hint label (List.map fst members))))))
         | (TName tname, args) ->
           (match List.assoc_opt tname tenv with
            | Some (Variants (_, params, ctors)) ->
@@ -4749,7 +4957,9 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
     | TLLetPat (_, b) -> go no_loc b
     | TLLetRec bs -> List.iter (fun (_, _, b) -> go no_loc b) bs
     | TLExpr b -> go no_loc b
-    | TLImport _ | TLType _ -> ()) prog.items;
+    | TLImplement (im, _) ->
+      List.iter (fun (_, _, b) -> go no_loc b) im.Ast.im_binds
+    | TLImport _ | TLType _ | TLInterface _ -> ()) prog.items;
   List.rev !sites
 
 let check_shell_words (prog : program) =
@@ -4954,8 +5164,12 @@ let settle_aliases ?(init_tenv=[]) (prog : program) : program =
   { prog with items = List.map settle prog.items }
 
 let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[])
-    (prog : program) : typedef_env * env * env * typ =
+    ?(init_ifaces=[]) (prog : program) : typedef_env * env * env * typ =
   next_id := 0;
+  (* Seeded per file rather than accumulated: an interface is in scope where
+     it is declared and where it is imported, and nowhere else. *)
+  Hashtbl.reset iface_defs;
+  List.iter (fun (n, i) -> Hashtbl.replace iface_defs n i) init_ifaces;
   expr_item_types := [];
   expr_item_effects := [];
   local_binders := [];
@@ -4972,6 +5186,17 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   visible_set := None;
   holes := [];
   let prog = settle_aliases ~init_tenv prog in
+  (* Read before the items are walked, so an implementation can precede the
+     interface it answers to, the way a function may call one defined below
+     it. *)
+  List.iter (function
+    | TLInterface (i, loc) ->
+      if List.mem_assoc i.Ast.if_name init_ifaces then
+        fail_at_opt loc (Printf.sprintf
+          "'%s' is already an interface this file imports: a name declares \
+           one thing" i.Ast.if_name);
+      Hashtbl.replace iface_defs i.Ast.if_name i
+    | _ -> ()) prog.items;
   let local_tenv = List.filter_map (function
     | TLType (((Variants (n, _, _) | Alias (n, _, _)) as tdef), _) -> Some (n, tdef)
     | _ -> None) prog.items
@@ -5245,11 +5470,94 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
       expr_item_effects :=
         (!item_index, Effect_set.labels_of eff) :: !expr_item_effects;
       (env, t)
-    | TLType _ | TLImport _ -> (env, last_t)
+    | TLImplement (im, loc) ->
+      let idef =
+        match Hashtbl.find_opt iface_defs im.Ast.im_iface with
+        | Some i -> i
+        | None ->
+          (* Reached through the module that declares it, so a bare name
+             that names one gets the spelling that works. *)
+          fail_at_opt loc (
+            match qualified_ifaces_named im.Ast.im_iface with
+            | [] -> Printf.sprintf
+                "'%s' is not an interface in scope. An implementation \
+                 answers to one that is declared, here or in a module this \
+                 file imports" im.Ast.im_iface
+            | qs -> Printf.sprintf
+                "'%s' is reached through the module that declares it: write \
+                 %s" im.Ast.im_iface
+                (String.concat " or "
+                   (List.map (fun q -> "'implement " ^ q ^ "'") qs)))
+      in
+      let want = List.length idef.Ast.if_params
+      and got = List.length im.Ast.im_args in
+      if want <> got then
+        fail_at_opt loc (Printf.sprintf
+          "'%s' takes %d type argument%s, and this names %d: write \
+           'implement %s %s'"
+          im.Ast.im_iface want (if want = 1 then "" else "s") got
+          im.Ast.im_iface
+          (String.concat " " (List.init want (fun i ->
+             "'" ^ List.nth idef.Ast.if_params i))));
+      let declared = iface_members idef (List.map type_of_te im.Ast.im_args) in
+      (* A member the interface does not declare is not part of the contract,
+         so the block is the wrong place for it: it would read as though the
+         interface asked for it. *)
+      List.iter (fun (n, _, _) ->
+        if not (List.mem_assoc n declared) then
+          fail_at_opt loc (Printf.sprintf
+            "'%s' declares no member '%s', so this belongs outside the \
+             block, as a binding of its own. Its members are %s"
+            im.Ast.im_iface n
+            (String.concat ", " (List.map fst declared)))) im.Ast.im_binds;
+      List.iter (fun (n, _) ->
+        if not (List.exists (fun (b, _, _) -> b = n) im.Ast.im_binds) then
+          fail_at_opt loc (Printf.sprintf
+            "'%s' declares '%s', which this implementation does not provide"
+            im.Ast.im_iface n)) declared;
+      (* Each binding is the module's own, and lands where writing it as a
+         top-level `let` would put it. What the block adds is the check
+         against the type the interface declared. *)
+      let env' =
+        List.fold_left (fun env (name, params, body) ->
+          let want = List.assoc name declared in
+          let placeholder = fresh () in
+          let env_rec = (name, Mono placeholder) :: env in
+          let t =
+            with_current_fn name (fun () ->
+              match params with
+              | [] -> infer tenv env_rec body
+              | _  -> infer tenv env_rec (Fn (params, body)))
+          in
+          unify placeholder t;
+          (* Located at the binding rather than at the block: the member that
+             does not fit is the line to look at. *)
+          (try unify_expected ~expected:want ~got:t
+           with TypeError msg ->
+             fail_at_opt (loc_of_expr body) (Printf.sprintf
+               "'%s' does not match what '%s' declares for it: %s"
+               name im.Ast.im_iface msg));
+          ((name, generalize env want) :: env)) env im.Ast.im_binds
+      in
+      (env', last_t)
+    | TLType _ | TLImport _ | TLInterface _ -> (env, last_t)
   ) (base_env, TUnit) prog.items
   in
   let n_own = List.length env - List.length base_env in
   let own_env = List.filteri (fun i _ -> i < n_own) env in
+  (* What this module claims, under a name no file can write, so it rides in
+     the module's own environment: an import brings it along and a cached
+     module keeps it, with no table to hold consistent. *)
+  let claims =
+    List.filter_map (function
+      | TLImplement (im, _) ->
+        Some (im.Ast.im_iface, List.map type_of_te im.Ast.im_args)
+      | _ -> None) prog.items
+  in
+  let own_env =
+    if claims = [] then own_env
+    else (implements_key, Mono (TModule claims)) :: own_env
+  in
   check_manifest prog own_env;
   (tenv, env, own_env, last_t)))
 
@@ -5261,7 +5569,8 @@ let error_message = function
     Printf.sprintf "%d:%d: %s" loc.Token.line loc.Token.col msg
   | _ -> assert false
 
-let infer_program_ ?base_env ?init_tenv ?init_env ?(type_names = []) prog =
+let infer_program_ ?base_env ?init_tenv ?init_env ?init_ifaces
+    ?(type_names = []) prog =
   (* A name with no dot is one this file may write: its own declarations, and
      what it selected in an import. `Foo.Status` is written with the module,
      and its constructors are reached the same way. *)
@@ -5273,33 +5582,39 @@ let infer_program_ ?base_env ?init_tenv ?init_env ?(type_names = []) prog =
   let result =
     with_type_name_map type_names (fun () ->
       with_visible visible (fun () ->
-        infer_program_body ?base_env ?init_tenv ?init_env prog))
+        infer_program_body ?base_env ?init_tenv ?init_env ?init_ifaces prog))
   in
   raise_first_unbound ();
   result
 
-let infer_program_full ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[]) (prog : program)
+let infer_program_full ?(init_tenv=[]) ?(init_env=[]) ?init_ifaces
+    ?(type_names=[]) (prog : program)
     : (env * typ, string) result =
   try
-    let (_, env, _, last_t) = infer_program_ ~init_tenv ~init_env ~type_names prog in
+    let (_, env, _, last_t) =
+      infer_program_ ~init_tenv ~init_env ?init_ifaces ~type_names prog in
     Ok (env, last_t)
   with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 (* Returns (full_env, own_env); uses stdlib_type_env as base (for module loading). *)
-let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[])
+let infer_program_env_with_own ?(init_tenv=[]) ?(init_env=[]) ?init_ifaces
+    ?(type_names=[])
     (prog : program) : (env * env, string) result =
   try
     let (_, env, own, _) =
-      infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env ~type_names prog in
+      infer_program_ ~base_env:stdlib_type_env ~init_tenv ~init_env ?init_ifaces
+        ~type_names prog in
     Ok (env, own)
   with (TypeError _ | TypeErrorAt _) as e -> Error (error_message e)
 
 let infer_program (prog : program) : (typ, string) result =
   Result.map snd (infer_program_full prog)
 
-let infer_program_env ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[])
+let infer_program_env ?(init_tenv=[]) ?(init_env=[]) ?init_ifaces
+    ?(type_names=[])
     (prog : program) : (env, string) result =
-  Result.map fst (infer_program_full ~init_tenv ~init_env ~type_names prog)
+  Result.map fst
+    (infer_program_full ~init_tenv ~init_env ?init_ifaces ~type_names prog)
 
 let string_of_scheme = function
   | Mono t | Poly (_, _, t) -> string_of_typ t
@@ -5308,7 +5623,7 @@ let string_of_scheme = function
 (* The Error side is (position, message, correction): everything the raise
    site knew, as data. *)
 let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
-    ?(init_env=[]) ?(type_names=[]) (prog : program)
+    ?(init_env=[]) ?init_ifaces ?(type_names=[]) (prog : program)
     : (env * env * typ * typ list,
        Token.loc option * string * Diag.fix option) result =
   (* An unbound name is recorded rather than raised, so the check reaches the
@@ -5323,7 +5638,7 @@ let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
   in
   try
     let (_, full_env, own_env, last_t) =
-      infer_program_ ~base_env ~init_tenv ~init_env ~type_names prog in
+      infer_program_ ~base_env ~init_tenv ~init_env ?init_ifaces ~type_names prog in
     match answer_with_unbound () with
     | Some (loc, msg) -> Error (loc, msg, None)
     | None ->

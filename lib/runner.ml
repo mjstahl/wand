@@ -1752,9 +1752,14 @@ type import_env = {
   (* What a type name written in this file means: the short name a reader
      writes, and the canonical name it stands for. *)
   type_names : (string * string) list;
+  (* The interfaces in scope, travelling the way type definitions do: a
+     contract is read where a module claims it and where a parameter is
+     annotated with it, and both can be in a file that only imports it. *)
+  ifaces : (string * Ast.interface_def) list;
 }
 
-let empty_import_env = { tenv = []; type_env = []; eval_env = []; type_names = [] }
+let empty_import_env =
+  { tenv = []; type_env = []; eval_env = []; type_names = []; ifaces = [] }
 
 (* ── Multi-clause merging ─────────────────────────────────────────────────── *)
 
@@ -1822,6 +1827,20 @@ let run_item ?modul env item =
   | Ast.TLLetPat (pat, e) ->
     Evaluator.bind_pat ~prefix:true pat (eval env e) env
   | Ast.TLImport _ -> env  (* already loaded by load_imports_for *)
+  (* An implementation declares the module's own bindings, so each one lands
+     exactly where writing it as a top-level `let` would put it. Nothing is
+     hoisted or registered: the block is a claim over bindings, and the
+     bindings are ordinary. *)
+  | Ast.TLImplement (im, _) ->
+    List.fold_left (fun env (name, params, body) ->
+      match params with
+      | [] -> (name, eval env body) :: env
+      | _ ->
+        (match Evaluator.forwarding_builtin env params body with
+         | Some v -> (name, v) :: env
+         | None   -> (name, VFix (name, env, params, body)) :: env))
+      env im.Ast.im_binds
+  | Ast.TLInterface _ -> env  (* a contract declares no value *)
   (* An alias to a type with one constructor names that constructor too, so
      the alias binds it. An alias to anything else binds nothing. *)
   | Ast.TLType (Ast.Alias (aname, _, target), _) ->
@@ -2037,7 +2056,17 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       ({ tenv     = own_entries @ modul_import.tenv @ acc.tenv;
          type_env = type_entries @ acc.type_env;
          eval_env = eval_entries @ acc.eval_env;
-         type_names = extra_names @ qual_names @ acc.type_names },
+         type_names = extra_names @ qual_names @ acc.type_names;
+         (* Reached the way an imported type is: through the name this file
+            bound, and only that way. `ord.Ord` says which module's `Ord` it
+            means, which is the whole of what the qualifier is for. A
+            destructuring binds no namespace, so it brings none. *)
+         ifaces =
+           (match alias with
+            | None -> []
+            | Some a ->
+              List.map (fun (n, i) -> (a ^ "." ^ n, i)) modul_import.ifaces)
+           @ acc.ifaces },
        mod_docs @ acc_docs)
     in
     at_import @@ fun () ->
@@ -2241,6 +2270,7 @@ and load_module src_ref ~cache ~loading ~evaluate =
     | None ->
       (match Typechecker.infer_program_env_with_own
                ~init_tenv:imported.tenv ~init_env:imported.type_env
+               ~init_ifaces:imported.ifaces
                ~type_names:(own_type_names @ imported.type_names) prog with
        | Ok (type_env, own_type) as ok ->
          let n_own = List.length type_env - tail_len in
@@ -2326,7 +2356,16 @@ and load_module src_ref ~cache ~loading ~evaluate =
                   @ imported.tenv;
            type_env;
            eval_env = full_eval;
-           type_names = own_type_names @ imported.type_names } in
+           type_names = own_type_names @ imported.type_names;
+           (* This module's own, under the names it declared them with, for
+              its importer to qualify. Its imports' are deliberately not
+              here: an interface belongs to the module that declares it, and
+              reaching one through a module that merely imported it would
+              put a name in scope that no file asked for. *)
+           ifaces =
+             List.filter_map (function
+               | Ast.TLInterface (i, _) -> Some (i.Ast.if_name, i)
+               | _ -> None) prog.Ast.items } in
        (full_import, own_type, own_eval,
         List.map (fun (n, d) ->
           (n, Module_types.canonicalise_tdef ~modul:path own_names d)) own,
@@ -2385,6 +2424,8 @@ let defs_of_program (prog : Ast.program)
          | Ast.TLType (Ast.Alias (tname, _, _), _) -> [tname]
          | Ast.TLType (Ast.Variants (tname, _, ctors), _) ->
            tname :: List.map (fun (c : Ast.ctor_def) -> c.Ast.name) ctors
+         | Ast.TLInterface (i, _) -> [i.Ast.if_name]
+         | Ast.TLImplement (im, _) -> List.map (fun (n, _, _) -> n) im.Ast.im_binds
          | Ast.TLImport _ | Ast.TLExpr _ -> []
        in
        List.map (fun n -> (n, loc)) names)
@@ -2913,7 +2954,7 @@ let run_program ?(mode = Normal) ~base_dir prog =
      variant to both, never one to each. *)
   let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
   (match Typechecker.infer_program_env ~init_tenv:imp.tenv ~init_env:imp.type_env
-           ~type_names:imp.type_names prog with
+           ~init_ifaces:imp.ifaces ~type_names:imp.type_names prog with
    | Error msg -> Error ("type error: " ^ msg)
    | Ok _ ->
      let result = run_in_mode mode (fun () ->
@@ -3069,7 +3110,7 @@ let run_test_program ~base_dir ?(item_locs = []) prog
   let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
   match Typechecker.infer_program_env_with_own
           ~init_tenv:imp.tenv ~init_env:imp.type_env
-          ~type_names:imp.type_names prog with
+          ~init_ifaces:imp.ifaces ~type_names:imp.type_names prog with
   | Error msg -> Error ("type error: " ^ msg)
   | Ok (_, own_type_env) ->
     match drop2_refusals (Lint.check prog item_locs own_type_env) with
@@ -3281,6 +3322,10 @@ type session = {
      step that imported it, which is why every stdlib module that declares
      a type was unusable from the REPL and from `-e`. *)
   s_type_names : (string * string) list;
+  (* Kept across steps for the same reason, and with the same problem behind
+     it: the step that writes `(m: ord.Ord Int)` is usually not the step that
+     wrote `import ./ord`. *)
+  s_ifaces : (string * Ast.interface_def) list;
 }
 
 let make_session ?(base_dir = Sys.getcwd ()) () = {
@@ -3293,6 +3338,7 @@ let make_session ?(base_dir = Sys.getcwd ()) () = {
   s_sources   = [];
   s_docs      = [];
   s_type_names = [];
+  s_ifaces    = [];
 }
 
 let lookup_type (sess : session) (name : string) : string option =
@@ -3458,9 +3504,10 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     let merged_type_names = imp.type_names @ sess.s_type_names in
+    let merged_ifaces = imp.ifaces @ sess.s_ifaces in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:merged_type_names prog with
+            ~init_ifaces:merged_ifaces ~type_names:merged_type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (full_type_env, own_type_env, last_t, hole_types) ->
       let dedup lst =
@@ -3482,6 +3529,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
           s_type_names = dedup merged_type_names;
+          s_ifaces     = dedup merged_ifaces;
         } in
         let hole_strs = List.map Typechecker.string_of_typ hole_types in
         Ok (new_sess, RHoles hole_strs)
@@ -3512,6 +3560,14 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLLetPat (_, body) when Option.is_some (import_kind_of body) -> ()  (* pre-loaded *)
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat ~prefix:true pat (eval !env_ref e) !env_ref
+            | Ast.TLImplement (im, _) ->
+              List.iter (fun (name, params, body) ->
+                let v = match params with
+                  | [] -> eval !env_ref body
+                  | _  -> VFix (name, !env_ref, params, body)
+                in
+                env_ref := (name, v) :: !env_ref) im.Ast.im_binds
+            | Ast.TLInterface _ -> ()
             | Ast.TLType (Ast.Alias _, _) -> ()
             | Ast.TLType (Ast.Variants (_, _, ctors), _) ->
               List.iter (fun ctor ->
@@ -3549,6 +3605,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
           s_sources  = new_sources @ sess.s_sources;
           s_docs     = prog.Ast.docs @ imp_docs @ sess.s_docs;
           s_type_names = dedup merged_type_names;
+          s_ifaces     = dedup merged_ifaces;
         } in
         (* The REPL edits definitions; files declare them. A new clause for an
            existing function merges into it here (merge_clause above), which
@@ -3685,7 +3742,7 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     in
     match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env
-            ~type_names:imp.type_names prog with
+            ~init_ifaces:imp.ifaces ~type_names:imp.type_names prog with
     | Error (loc, msg, fix) ->
       (* An unbound name is the one error a check carries on past, so there
          may be several. They travel with the first, which is what every
@@ -3753,7 +3810,8 @@ let lint_module_source (src : string) : (Lint.finding list, string) result =
     let prog = Typechecker.settle_aliases ~init_tenv:imp.tenv prog in
     match Typechecker.infer_program_env_with_own
             ~init_tenv:(local_tenv_of prog @ imp.tenv)
-            ~init_env:imp.type_env ~type_names:imp.type_names prog with
+            ~init_env:imp.type_env ~init_ifaces:imp.ifaces
+            ~type_names:imp.type_names prog with
     | Error msg -> Error ("type error: " ^ msg)
     | Ok (_, own_type_env) -> Ok (Lint.check prog item_locs own_type_env)
   with
@@ -3775,9 +3833,10 @@ let lint_session (sess : session) (src : string) : (Lint.finding list, string) r
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     let merged_type_names = imp.type_names @ sess.s_type_names in
+    let merged_ifaces = imp.ifaces @ sess.s_ifaces in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:merged_type_names prog with
+            ~init_ifaces:merged_ifaces ~type_names:merged_type_names prog with
     | Error (loc, msg, _) -> Error (Diag.legacy (Diag.error ~code:"E-TYPE" ?loc msg))
     | Ok (_, own_type_env, _, _) ->
       Ok (Lint.check prog item_locs own_type_env)
@@ -3798,9 +3857,10 @@ let typecheck_session (sess : session) (src : string) : (repl_result, Diag.t) re
     let merged_tenv     = local_tenv_of prog @ imp.tenv @ sess.s_tenv in
     let merged_type_env = imp.type_env @ sess.s_type_env in
     let merged_type_names = imp.type_names @ sess.s_type_names in
+    let merged_ifaces = imp.ifaces @ sess.s_ifaces in
     match Typechecker.infer_program_full_with_own
             ~init_tenv:merged_tenv ~init_env:merged_type_env
-            ~type_names:merged_type_names prog with
+            ~init_ifaces:merged_ifaces ~type_names:merged_type_names prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, _, last_t, hole_types) ->
       if hole_types <> [] then

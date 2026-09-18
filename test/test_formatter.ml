@@ -1020,6 +1020,37 @@ let test_named_field_arrow_loses_brackets () =
   assert_contains "an application is untouched" out "plain: List Int";
   assert_idempotent "arrow fields" src
 
+(* An interface declares its members the way a record declares its fields,
+   and an implementation writes each binding on its own line with the `;`
+   that says they are siblings. A member's doc is a run of comments above it,
+   exactly as it is above a top-level binding. *)
+let test_interface_and_implement_settle () =
+  let src =
+    "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n\n\
+     implement Ord Int =\n\
+     \  -- The larger of two.\n\
+     \  let max a b = if a > b then a else b;\n\
+     \  let min a b = if a < b then a else b\n"
+  in
+  Alcotest.(check string) "written back as it was" src (fmt src);
+  assert_idempotent "interface and implementation" src
+
+(* Past the margin the members go one to a line, with the closing bracket on
+   its own -- the shape a record already wraps into. *)
+let test_a_wide_interface_wraps () =
+  let src =
+    "interface Comparing 'a(maximum: 'a -> 'a -> 'a, minimum: 'a -> 'a -> 'a, \
+     clamped: 'a -> 'a -> 'a -> 'a, within?: 'a -> 'a -> 'a -> Bool)\nlet f x = x\nf 1"
+  in
+  let out = fmt src in
+  List.iter (fun l ->
+    if String.length l > 92 then
+      Alcotest.failf "formatted line exceeds the 92-column margin (%d):\n%s"
+        (String.length l) l)
+    (String.split_on_char '\n' out);
+  assert_contains "the members survive" out "within?:";
+  assert_idempotent "wrapped interface" src
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -1884,5 +1915,7 @@ let () =
       Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;
       Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
       Alcotest.test_case "named field arrow" `Quick test_named_field_arrow_loses_brackets;
+      Alcotest.test_case "interface settles" `Quick test_interface_and_implement_settle;
+      Alcotest.test_case "a wide interface wraps" `Quick test_a_wide_interface_wraps;
     ];
   ]

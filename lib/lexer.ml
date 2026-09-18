@@ -108,6 +108,8 @@ let keyword_or_ident word = match word with
   | "if"       -> If       | "then"     -> Then
   | "else"     -> Else     | "type"     -> Type
   | "import"   -> Import
+  | "interface" -> Interface
+  | "implement" -> Implement
   | "requires" -> Requires
   | "ensures"  -> Ensures  | "result"   -> Result
   | "fn"       -> Fn       | "fun"      -> Fn

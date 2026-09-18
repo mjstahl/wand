@@ -2515,12 +2515,49 @@ let emit_type_def = function
           (List.map (fun c ->
              c.name ^ emit_ctor_fields ~defaults:c.defaults c.fields) ctors)
 
+(* An interface declares its members the way a record declares its fields,
+   so it wraps the same way: one to a line past the margin, with the closing
+   bracket on its own. *)
+let emit_interface (i : Ast.interface_def) =
+  let head =
+    "interface " ^ i.Ast.if_name
+    ^ (if i.Ast.if_params = [] then ""
+       else " " ^ String.concat " " (List.map (fun p -> "'" ^ p) i.Ast.if_params))
+  in
+  let member (n, t) = n ^ ": " ^ emit_type_expr t in
+  let oneline =
+    head ^ "(" ^ String.concat ", " (List.map member i.Ast.if_members) ^ ")" in
+  if fits_text 0 oneline then oneline
+  else
+    head ^ "(\n  "
+    ^ String.concat ",\n  " (List.map member i.Ast.if_members)
+    ^ "\n)"
+
 (* ── Top-level items ──────────────────────────────────────────────────────── *)
 
 let emit_top_item_pretty_uncached = function
   | TLImport (StdlibModule n) -> "import " ^ n
   | TLImport (UserPath p)     -> "import " ^ p
   | TLType (tdef, _) -> emit_type_def tdef
+  | TLInterface (i, _) -> emit_interface i
+  | TLImplement (im, _) ->
+    (* Each binding on its own line, separated by the `;` that says they are
+       siblings rather than one nested in the next. *)
+    let head =
+      "implement " ^ im.Ast.im_iface
+      ^ (if im.Ast.im_args = [] then ""
+         else " " ^ String.concat " " (List.map emit_type_atom im.Ast.im_args))
+      ^ " ="
+    in
+    head ^ "\n  "
+    ^ String.concat ";\n  "
+        (List.map (fun (n, params, body) ->
+           Doc.to_string (emit_expr 2 body) |> fun b ->
+           "let " ^ n
+           ^ (if params = [] then ""
+              else " " ^ String.concat " " (List.map emit_pat_atom params))
+           ^ " = " ^ b)
+          im.Ast.im_binds)
   | TLLetPat (p, e) ->
     let body = Doc.to_string (emit_expr 0 e) in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat_binder p) body in

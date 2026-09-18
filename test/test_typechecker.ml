@@ -2022,8 +2022,97 @@ let test_the_collection_does_not_leak () =
   Alcotest.(check int) "a clean file after a broken one"
     0 (List.length (unbound_of "let a x = x + 1\n"))
 
+(* ── Interfaces ───────────────────────────────────────────────────────────── *)
+
+(* A contract on a module: the functions it must provide. The type parameter
+   is instantiation rather than dispatch -- `implement Ord Int` binds `'a` to
+   `Int`, so `max` in that implementation has to be `Int -> Int -> Int`. *)
+
+let iface_error src =
+  let prog = Lexer.tokenize src |> Parser.parse_program in
+  match Typechecker.infer_program_full_with_own prog with
+  | Ok _ -> None
+  | Error (_, msg, _) -> Some msg
+
+let iface_ok src =
+  match iface_error src with
+  | None -> ()
+  | Some m -> Alcotest.failf "expected this to check out: %s" m
+
+let iface_refuses label src needle =
+  match iface_error src with
+  | None -> Alcotest.failf "%s: expected a type error" label
+  | Some m ->
+    if not (Lint.contains m needle) then
+      Alcotest.failf "%s: expected %S in: %s" label needle m
+
+let ord = "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n\n"
+
+let both = "implement Ord Int =\n\
+            \  let max a b = if a > b then a else b;\n\
+            \  let min a b = if a < b then a else b\n"
+
+let test_an_implementation_is_checked () =
+  iface_ok (ord ^ both);
+  (* The bindings are the module's own, so they are in scope below the
+     block the way a top-level `let` is. *)
+  iface_ok (ord ^ both ^ "\nmax 3 7\n")
+
+let test_every_member_is_answered_for () =
+  iface_refuses "a member the interface declares and this does not"
+    (ord ^ "implement Ord Int =\n  let max a b = a\n")
+    "declares 'min', which this implementation does not provide";
+  (* A member the interface does not declare is not part of the contract, so
+     the block is the wrong place for it. *)
+  iface_refuses "a member the interface does not declare"
+    (ord ^ both ^ "  ;let mid a b = a\n")
+    "declares no member 'mid'"
+
+let test_a_member_is_held_to_its_declared_type () =
+  iface_refuses "the wrong type"
+    (ord ^ "implement Ord Int =\n\
+            \  let max a b = \"x\";\n\
+            \  let min a b = if a < b then a else b\n")
+    "does not match what 'Ord' declares for it"
+
+let test_the_type_arguments_are_counted () =
+  iface_refuses "none where one is wanted"
+    (ord ^ "implement Ord =\n  let max a b = a;\n  let min a b = a\n")
+    "takes 1 type argument, and this names 0";
+  iface_refuses "an interface that is not in scope"
+    "implement Nope Int =\n  let max a b = a\n"
+    "is not an interface in scope"
+
+(* A parameter annotated with an interface is a module, and its members are
+   read off the contract at the types the annotation bound them to. Nothing
+   is dispatched. *)
+let test_a_parameter_can_be_a_module () =
+  iface_ok (ord ^ "let biggest (m: Ord Int) a b = m.max a b\n\nbiggest\n");
+  iface_refuses "a member the interface does not declare"
+    (ord ^ "let f (m: Ord Int) a b = m.nope a b\n\nf\n")
+    "declares no member 'nope'";
+  (* An interface is not a type, and its own arity is what counts. *)
+  iface_refuses "the wrong number of arguments in an annotation"
+    (ord ^ "let f (m: Ord Int String) = m\n\nf\n")
+    "takes 1 type argument, and this names 2"
+
+(* Conformance is nominal: `implement` is what makes a module fit, and a
+   module with the right members by accident does not. *)
+let test_conformance_is_nominal () =
+  iface_refuses "a module that claims nothing"
+    (ord ^ "let f (m: Ord Int) = m.max 1 2\n\nf 3\n")
+    "expected"
+
 let () =
   Alcotest.run "Typechecker" [
+    "interfaces", [
+      Alcotest.test_case "an implementation is checked" `Quick test_an_implementation_is_checked;
+      Alcotest.test_case "every member answered for"    `Quick test_every_member_is_answered_for;
+      Alcotest.test_case "held to its declared type"    `Quick test_a_member_is_held_to_its_declared_type;
+      Alcotest.test_case "type arguments counted"       `Quick test_the_type_arguments_are_counted;
+      Alcotest.test_case "a parameter can be a module"  `Quick test_a_parameter_can_be_a_module;
+      Alcotest.test_case "conformance is nominal"       `Quick test_conformance_is_nominal;
+    ];
     "unbound names", [
       Alcotest.test_case "several in one pass"  `Quick test_several_unbound_names;
       Alcotest.test_case "one reads as before"  `Quick test_one_unbound_name_reads_as_before;

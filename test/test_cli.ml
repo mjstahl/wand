@@ -712,6 +712,104 @@ let test_every_unbound_name_reported () =
     in
     Alcotest.(check int) "three objects" 3 count)
 
+(* ── Interfaces across files ─────────────────────────────────────────────── *)
+
+(* An interface belongs to the module that declares it and is reached through
+   the name a file bound for that module -- the rule a type already follows.
+   There is no bare form for an imported one, so `ord.Ord` says which
+   module's `Ord` it means and two modules declaring the name cannot
+   collide. *)
+
+let iface_files d =
+  write_file (Filename.concat d "ord.wand")
+    "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n";
+  write_file (Filename.concat d "ints.wand")
+    "let ord = import ./ord\n\n\
+     implement ord.Ord Int =\n\
+     \  let max a b = if a > b then a else b;\n\
+     \  let min a b = if a < b then a else b\n"
+
+let test_a_module_is_passed_to_generic_code () =
+  in_scratch (fun d ->
+    iface_files d;
+    write_file (Filename.concat d "main.wand")
+      "uses {IO}\n\nimport IO\n\n\
+       let ord = import ./ord\n\
+       let ints = import ./ints\n\n\
+       let biggest (m: ord.Ord Int) a b = m.max a b\n\n\
+       IO.println \"%{biggest ints 3 7}\"\n";
+    let (code, out) = wand_out ~dir:d ["main.wand"] in
+    Alcotest.(check int) "it runs" 0 code;
+    Alcotest.(check string) "and answers" "7\n" out)
+
+let test_an_imported_interface_has_no_bare_form () =
+  in_scratch (fun d ->
+    iface_files d;
+    write_file (Filename.concat d "main.wand")
+      "let ord = import ./ord\n\
+       let ints = import ./ints\n\n\
+       let biggest (m: Ord Int) a b = m.max a b\n\n\
+       biggest ints 3 7\n";
+    let (code, out) = wand_out ~dir:d ["t"; "main.wand"] in
+    Alcotest.(check int) "the bare name is refused" 1 code;
+    (* And the message names the spelling that works, rather than saying the
+       type is unknown. *)
+    Alcotest.(check bool) "it says what to write" true
+      (contains_sub out "write 'ord.Ord'"))
+
+let test_two_modules_may_declare_one_name () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "alpha.wand")
+      "interface Shown 'a(show: 'a -> String)\n";
+    write_file (Filename.concat d "beta.wand")
+      "interface Shown 'a(render: 'a -> String)\n";
+    write_file (Filename.concat d "main.wand")
+      "let a = import ./alpha\n\
+       let b = import ./beta\n\n\
+       let f (m: a.Shown Int) = m.show 1\n\
+       let g (m: b.Shown Int) = m.render 1\n\n\
+       f\n";
+    let (code, _) = wand_out ~dir:d ["t"; "main.wand"] in
+    Alcotest.(check int) "both are usable in one file" 0 code;
+    (* Before the qualifier was required these overwrote each other by
+       import order, and nothing was reported. *)
+    write_file (Filename.concat d "bare.wand")
+      "let a = import ./alpha\n\
+       let b = import ./beta\n\n\
+       let f (m: Shown Int) = m.show 1\n\n\
+       f\n";
+    let (code, out) = wand_out ~dir:d ["t"; "bare.wand"] in
+    Alcotest.(check int) "and the bare name is refused" 1 code;
+    Alcotest.(check bool) "naming both" true
+      (contains_sub out "'a.Shown'" && contains_sub out "'b.Shown'"))
+
+(* A module that did not claim the interface does not fit, however many of
+   its members happen to line up. *)
+let test_a_module_must_have_claimed_it () =
+  in_scratch (fun d ->
+    iface_files d;
+    write_file (Filename.concat d "other.wand") "let greet n = \"hi %{n}\"\n";
+    write_file (Filename.concat d "main.wand")
+      "let ord = import ./ord\n\
+       let other = import ./other\n\n\
+       let biggest (m: ord.Ord Int) a b = m.max a b\n\n\
+       biggest other 3 7\n";
+    let (code, out) = wand_out ~dir:d ["t"; "main.wand"] in
+    Alcotest.(check int) "it is refused" 1 code;
+    Alcotest.(check bool) "and says what the module would have to declare" true
+      (contains_sub out "does not implement ord.Ord"))
+
+(* Reaching an interface through the module that declares it is a use of
+   that import. The dead-import rule did not look at the qualifier, and
+   reported a file that plainly used it. *)
+let test_a_qualified_interface_uses_its_import () =
+  in_scratch (fun d ->
+    iface_files d;
+    let (code, out) = wand_out ~dir:d ["t"; "ints.wand"] in
+    Alcotest.(check int) "it checks out" 0 code;
+    Alcotest.(check bool) "with no dead-import warning" false
+      (contains_sub out "V-IMP2"))
+
 (* ── wand t --effects ────────────────────────────────────────────────────── *)
 
 (* What a file reaches outside itself, as data, so a check can compare it
@@ -854,6 +952,11 @@ let () =
       Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
       Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
       Alcotest.test_case "every unbound name" `Quick test_every_unbound_name_reported;
+      Alcotest.test_case "a module passed as a value" `Quick test_a_module_is_passed_to_generic_code;
+      Alcotest.test_case "no bare imported interface" `Quick test_an_imported_interface_has_no_bare_form;
+      Alcotest.test_case "two modules, one name" `Quick test_two_modules_may_declare_one_name;
+      Alcotest.test_case "conformance is claimed" `Quick test_a_module_must_have_claimed_it;
+      Alcotest.test_case "a qualifier uses its import" `Quick test_a_qualified_interface_uses_its_import;
       Alcotest.test_case "wand t --effects" `Quick test_effects_of_one_file;
       Alcotest.test_case "--effects is inferred" `Quick test_effects_ignore_the_manifest;
       Alcotest.test_case "--effects over a tree" `Quick test_effects_over_a_tree;

@@ -448,6 +448,25 @@ type type_def =
      ones whose constructor names a type into this. *)
   | Alias of string * string list * type_expr
 
+(* A contract on a module: the functions it must provide. The type parameter
+   is instantiation rather than dispatch -- in `implement Ord Int` the `Int`
+   is what `'a` is bound to, so `max` in that implementation has to be
+   `Int -> Int -> Int`. *)
+type interface_def = {
+  if_name    : string;
+  if_params  : string list;
+  if_members : (string * type_expr) list;
+}
+
+(* A module's claim to an interface, and the bindings that answer for it.
+   The names are the module's own: nothing is hoisted or registered, so an
+   implementation cannot be written anywhere but the file it is about. *)
+type implement_def = {
+  im_iface : string;          (* as written: `Ord`, or `Foo.Ord` *)
+  im_args  : type_expr list;  (* the `Int` in `implement Ord Int` *)
+  im_binds : (string * pat list * expr) list;
+}
+
 type top_item =
   | TLLet    of string * pat list * expr
   | TLLetRec of (string * pat list * expr) list
@@ -458,6 +477,11 @@ type top_item =
      into, so the location belongs to the item rather than to the definition
      it carries. *)
   | TLType   of type_def * Token.loc option
+  (* Both carry where they were written, for the same reason a `type_def`
+     does: one arrives from an import, where there is no file to point
+     into. *)
+  | TLInterface of interface_def * Token.loc option
+  | TLImplement of implement_def * Token.loc option
   | TLExpr   of expr
 
 type program = {

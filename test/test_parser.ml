@@ -591,6 +591,61 @@ let test_keyword_field_names () =
     "type C(type: Int, n: Int)\nlet f c = match c with | C(type, n = 2) -> n"
     "cannot take the short form"
 
+(* ── Interfaces ───────────────────────────────────────────────────────────── *)
+
+(* An interface is declared the way a type is -- a name, its parameters, and
+   a list of named things with their types -- because wand already has that
+   shape and it means the same thing here. An implementation is a run of
+   `let` bindings, where a `;` separates siblings rather than nesting one
+   inside the next. *)
+let test_interface_and_implement () =
+  let items src = (parse_program src).items in
+  (match items "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)" with
+   | [Ast.TLInterface (i, _)] ->
+     Alcotest.(check string) "its name" "Ord" i.Ast.if_name;
+     Alcotest.(check (list string)) "its parameters" ["a"] i.Ast.if_params;
+     Alcotest.(check (list string)) "its members" ["max"; "min"]
+       (List.map fst i.Ast.if_members)
+   | _ -> Alcotest.fail "expected one interface");
+  (* A member's type is ended by the comma or the closing parenthesis, so an
+     arrow needs no parentheses of its own -- the same rule a named field
+     follows. *)
+  (match items "interface Eq 'a(same?: 'a -> 'a -> Bool)" with
+   | [Ast.TLInterface (i, _)] ->
+     Alcotest.(check int) "one member" 1 (List.length i.Ast.if_members)
+   | _ -> Alcotest.fail "expected one interface");
+  (match items "implement Ord Int =\n  let max a b = a;\n  let min a b = b" with
+   | [Ast.TLImplement (im, _)] ->
+     Alcotest.(check string) "the interface" "Ord" im.Ast.im_iface;
+     Alcotest.(check int) "one type argument" 1 (List.length im.Ast.im_args);
+     Alcotest.(check (list string)) "two siblings, not one nested in the next"
+       ["max"; "min"] (List.map (fun (n, _, _) -> n) im.Ast.im_binds)
+   | _ -> Alcotest.fail "expected one implementation");
+  (* Reached through the module that declares it. *)
+  (match items "implement ord.Ord Int =\n  let max a b = a" with
+   | [Ast.TLImplement (im, _)] ->
+     Alcotest.(check string) "qualified" "ord.Ord" im.Ast.im_iface
+   | _ -> Alcotest.fail "expected one implementation");
+  refuses "an implementation is let bindings"
+    "implement Ord Int =\n  max a b = a"
+    "run of 'let' bindings";
+  refuses "an interface lists its members"
+    "interface Ord 'a"
+    "lists its members"
+
+(* A run of comments above a member is its doc, exactly as it is above a
+   top-level binding. Without this every member moved into a block would
+   lose its documentation. *)
+let test_a_member_carries_its_doc () =
+  let prog = parse_program
+    "interface Ord 'a(max: 'a -> 'a -> 'a)\n\n\
+     implement Ord Int =\n\
+     \  -- The larger of two.\n\
+     \  let max a b = a" in
+  match List.assoc_opt "max" prog.Ast.docs with
+  | Some d -> Alcotest.(check string) "the member's doc" "The larger of two." d
+  | None -> Alcotest.fail "the member lost its doc"
+
 (* A named field is ended by the comma or the closing parenthesis, so its
    type may be a function with no parentheses of its own. A positional field
    is ended by nothing, which is why `type P = P List Int` stays two
@@ -1201,6 +1256,8 @@ let () =
       Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
       Alcotest.test_case "keyword field names" `Quick test_keyword_field_names;
       Alcotest.test_case "named field arrow" `Quick test_named_field_arrow;
+      Alcotest.test_case "interface/implement" `Quick test_interface_and_implement;
+      Alcotest.test_case "a member's doc" `Quick test_a_member_carries_its_doc;
       Alcotest.test_case "qualified names"  `Quick test_qualified_names;
       Alcotest.test_case "fn"           `Quick test_fn;
       Alcotest.test_case "paren seq"    `Quick test_paren_seq;

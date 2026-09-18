@@ -1996,6 +1996,147 @@ let parse_top_fn_binding s name =
   done;
   collapse_multi_equation arity !eqs
 
+(* Documentation is a run of `--` lines directly above a definition, the way
+   a reader already writes it. Each line stands alone -- a comment after code
+   on the same line documents nothing -- the lines are consecutive, and the
+   last one sits on the line above the definition. A blank line between the
+   run and the definition separates them, which is how a file header stays a
+   file header. *)
+let doc_run_before s =
+  let n = Array.length s.tokens in
+  let j = ref s.pos in
+  while !j < n && is_skippable (fst s.tokens.(!j)) do incr j done;
+  if !j >= n then None
+  else begin
+    (* Standalone: nothing but the line's indentation before it, which the
+       lexer reports as a `Newline` immediately behind it. *)
+    let standalone i = i = 0 || (match fst s.tokens.(i - 1) with
+      | Token.Newline -> true | _ -> false) in
+    let line_of i = (snd s.tokens.(i)).Token.line in
+    let want = ref (line_of !j) in
+    let lines = ref [] in
+    let i = ref (!j - 1) in
+    let continue_ = ref true in
+    while !continue_ && !i >= 0 do
+      (match fst s.tokens.(!i) with
+       | Token.Newline -> decr i
+       | Token.LineComment text when line_of !i = !want - 1 && standalone !i ->
+         lines := String.trim text :: !lines;
+         want := line_of !i;
+         decr i
+       | _ -> continue_ := false)
+    done;
+    match !lines with [] -> None | ls -> Some (String.concat "\n" ls)
+  end
+
+(* ── Interfaces ───────────────────────────────────────────────────────────── *)
+
+(* `Ord`, or `Foo.Ord` where the module declares more than one. A module
+   declaring exactly one lends it its name, which is why the short spelling
+   is the one anybody writes. *)
+let parse_iface_name s =
+  let loc = peek_loc s in
+  match advance s with
+  | Token.Upper n when peek s = Token.Dot ->
+    ignore (advance s);
+    (match advance s with
+     | Token.Upper b -> n ^ "." ^ b
+     | t -> fail_at loc (Format.asprintf
+         "expected an interface name after '%s.', got %a" n Token.pp t))
+  | Token.Ident m when peek s = Token.Dot
+                    && (match peek2 s with Token.Upper _ -> true | _ -> false) ->
+    (* A user module's namespace is its file name, which is lowercase. *)
+    ignore (advance s);
+    (match advance s with
+     | Token.Upper b -> m ^ "." ^ b
+     | t -> fail_at loc (Format.asprintf
+         "expected an interface name after '%s.', got %a" m Token.pp t))
+  | Token.Upper n -> n
+  | t -> fail_at loc (Format.asprintf
+      "expected an interface name, got %a" Token.pp t)
+
+(* `interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)`. The shape a
+   type declaration already has, and it means the same thing: a name, its
+   parameters, and a list of named things with their types. *)
+let parse_interface s =
+  (* `interface` already consumed *)
+  let loc = peek_loc s in
+  let name = match advance s with
+    | Token.Upper n -> n
+    | t -> fail_at loc (Format.asprintf
+        "expected an interface name, got %a" Token.pp t)
+  in
+  let params = ref [] in
+  while (match peek s with Token.TypeVar _ -> true | _ -> false) do
+    (match advance s with
+     | Token.TypeVar n -> params := !params @ [n]
+     | _ -> assert false)
+  done;
+  if peek s <> Token.LParen then
+    fail_at (peek_loc s) (Format.asprintf
+      "an interface lists its members in brackets, as in \
+       'interface Ord 'a(max: 'a -> 'a -> 'a)'");
+  ignore (advance s);
+  let parse_member () =
+    let mname = expect_field_name s in
+    expect s Token.Colon;
+    (* The same rule a named field follows: the comma or the closing bracket
+       ends the member, so its type needs no brackets of its own. *)
+    (mname, parse_type_expr s)
+  in
+  let members = ref [parse_member ()] in
+  while peek s = Token.Comma do
+    ignore (advance s);
+    members := !members @ [parse_member ()]
+  done;
+  expect s Token.RParen;
+  { Ast.if_name = name; if_params = !params; if_members = !members }
+
+(* `implement Ord Int = let max a b = ...; let min a b = ...`.
+
+   A `;` separates siblings here rather than nesting one binding inside the
+   next: an implementation declares a run of the module's own bindings, and
+   they are the module's, not each other's. *)
+let parse_implement s =
+  (* `implement` already consumed *)
+  let iface = parse_iface_name s in
+  let args = ref [] in
+  while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
+    args := !args @ [parse_type_atom s]
+  done;
+  expect s Token.Eq;
+  let parse_binding () =
+    (* A run of comments above a member is its doc, exactly as it is above a
+       top-level binding: an implementation declares the module's bindings,
+       so they are documented where they are written. *)
+    let doc = doc_run_before s in
+    let loc = peek_loc s in
+    (match peek s with
+     | Token.Let -> ignore (advance s)
+     | t -> fail_at loc (Format.asprintf
+         "an implementation is a run of 'let' bindings, so '%a' cannot open \
+          one" Token.pp t));
+    let nloc = peek_loc s in
+    let name = match advance s with
+      | Token.Ident n -> n
+      | t -> fail_at nloc (Format.asprintf
+          "expected a name after 'let', got %a" Token.pp t)
+    in
+    let params = ref [] in
+    while is_pat_atom_start (peek s) do params := !params @ [pat_atom_ s] done;
+    expect s Token.Eq;
+    let body = locate s (fun () -> parse_contract_body s) in
+    ((name, !params, body), Option.map (fun d -> (name, d)) doc)
+  in
+  let binds = ref [parse_binding ()] in
+  while peek s = Token.Semicolon do
+    ignore (advance s);
+    binds := !binds @ [parse_binding ()]
+  done;
+  ({ Ast.im_iface = iface; im_args = !args;
+     im_binds = List.map fst !binds },
+   List.filter_map snd !binds)
+
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
 let parse_expr tokens =
@@ -2278,38 +2419,7 @@ let looks_like_manifest s =
     is_manifest
   | _ -> false
 
-(* Documentation is a run of `--` lines directly above a definition, the way
-   a reader already writes it. Each line stands alone -- a comment after code
-   on the same line documents nothing -- the lines are consecutive, and the
-   last one sits on the line above the definition. A blank line between the
-   run and the definition separates them, which is how a file header stays a
-   file header. *)
-let doc_run_before s =
-  let n = Array.length s.tokens in
-  let j = ref s.pos in
-  while !j < n && is_skippable (fst s.tokens.(!j)) do incr j done;
-  if !j >= n then None
-  else begin
-    (* Standalone: nothing but the line's indentation before it, which the
-       lexer reports as a `Newline` immediately behind it. *)
-    let standalone i = i = 0 || (match fst s.tokens.(i - 1) with
-      | Token.Newline -> true | _ -> false) in
-    let line_of i = (snd s.tokens.(i)).Token.line in
-    let want = ref (line_of !j) in
-    let lines = ref [] in
-    let i = ref (!j - 1) in
-    let continue_ = ref true in
-    while !continue_ && !i >= 0 do
-      (match fst s.tokens.(!i) with
-       | Token.Newline -> decr i
-       | Token.LineComment text when line_of !i = !want - 1 && standalone !i ->
-         lines := String.trim text :: !lines;
-         want := line_of !i;
-         decr i
-       | _ -> continue_ := false)
-    done;
-    match !lines with [] -> None | ls -> Some (String.concat "\n" ls)
-  end
+
 
 let parse_program_generic ~on_item tokens =
   let s = make tokens in
@@ -2562,6 +2672,18 @@ let parse_program_generic ~on_item tokens =
       (match tdef with
        | Ast.Variants (name, _, _) | Ast.Alias (name, _, _) -> attach_doc name);
       items := !items @ [Ast.TLType (tdef, Some tdef_loc)]
+    | Token.Interface ->
+      ignore (advance s);
+      let loc = peek_loc s in
+      let idef = parse_interface s in
+      attach_doc idef.Ast.if_name;
+      items := !items @ [Ast.TLInterface (idef, Some loc)]
+    | Token.Implement ->
+      ignore (advance s);
+      let loc = peek_loc s in
+      let (idef, member_docs) = parse_implement s in
+      List.iter (fun (n, d) -> docs := (n, d) :: !docs) member_docs;
+      items := !items @ [Ast.TLImplement (idef, Some loc)]
     | _ ->
       let e = locate s (fun () -> expr_ 0 s) in
       items := !items @ [Ast.TLExpr e];

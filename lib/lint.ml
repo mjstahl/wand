@@ -423,6 +423,13 @@ and names_of_type_expr (te : Ast.type_expr) : string list =
   | Ast.TETuple ts -> List.concat_map names_of_type_expr ts
   | Ast.TEFun (a, b, _) -> names_of_type_expr a @ names_of_type_expr b
 
+(* The module an interface is reached through, where one is written:
+   `ord.Ord` mentions `ord`. *)
+let iface_qualifier name =
+  match String.index_opt name '.' with
+  | Some i -> [String.sub name 0 i]
+  | None -> []
+
 let names_of_item (item : Ast.top_item) : string list =
   match item with
   | Ast.TLExpr e -> names_of_expr e
@@ -439,6 +446,15 @@ let names_of_item (item : Ast.top_item) : string list =
        List.concat_map (fun c ->
          List.concat_map (fun (_, te) -> names_of_type_expr te) c.Ast.fields
          @ List.concat_map (fun (_, d) -> names_of_expr d) c.Ast.defaults) ctors)
+  | Ast.TLInterface (i, _) ->
+    List.concat_map (fun (_, te) -> names_of_type_expr te) i.Ast.if_members
+  | Ast.TLImplement (im, _) ->
+    (* `implement ord.Ord Int` reaches the interface through the module it
+       bound, so the qualifier is a use of that import like any other. *)
+    iface_qualifier im.Ast.im_iface
+    @ List.concat_map names_of_type_expr im.Ast.im_args
+    @ List.concat_map (fun (_, ps, b) ->
+        List.concat_map names_of_pat ps @ names_of_expr b) im.Ast.im_binds
   | Ast.TLImport _ -> []
 
 (* The names an item mentions in type position, which is what tells a type
@@ -500,6 +516,13 @@ let names_of_item_types (item : Ast.top_item) : string list =
      | Ast.Variants (_, _, ctors) ->
        List.concat_map (fun c ->
          List.concat_map (fun (_, te) -> names_of_type_expr te) c.Ast.fields) ctors)
+  | Ast.TLInterface (i, _) ->
+    List.concat_map (fun (_, te) -> names_of_type_expr te) i.Ast.if_members
+  | Ast.TLImplement (im, _) ->
+    iface_qualifier im.Ast.im_iface
+    @ List.concat_map names_of_type_expr im.Ast.im_args
+    @ List.concat_map (fun (_, ps, b) ->
+        List.concat_map te_of_pat ps @ te_of_expr b) im.Ast.im_binds
   | Ast.TLImport _ -> []
 
 (* `own_env` holds the program's own top-level bindings, already inferred, so
@@ -734,7 +757,10 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
     | Ast.TLLetRec bindings ->
       List.iter (fun (_, _, b) ->
         findings := List.rev_append (walk_expr loc b) !findings) bindings
-    | Ast.TLImport _ | Ast.TLType _ -> ()
+    | Ast.TLImplement (im, _) ->
+      List.iter (fun (_, _, b) ->
+        findings := List.rev_append (walk_expr loc b) !findings) im.Ast.im_binds
+    | Ast.TLImport _ | Ast.TLType _ | Ast.TLInterface _ -> ()
   ) prog.Ast.items;
   (* The same rule for `(e1; e2)` sequences: every expression before the
      last is discarded, and one whose value is a Result throws away the
