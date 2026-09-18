@@ -206,7 +206,18 @@ instances, and no call that has to work out where to go.
    an arrow needs them wherever it appears. The formatter must print a named
    field bare once the parser accepts it, or a writer puts one thing in and
    `wand f` gives another back.
-10. **A module that declares one interface resolves to it.** `Ord.wand`
+10. **An implementation must perform no more than the interface declares.**
+    A member's grammar is a type, so it carries an effect set already, and
+    the implementation is held to it the way a file is held to its manifest:
+    performing more than was declared is an error.
+
+    Performing *less* is ordinary and says nothing, which is where this
+    parts from `A-USES1`. A manifest and its file are one thing, so a
+    manifest wider than the file is imprecise and worth a warning. An
+    interface is shared by every module that implements it, so a member
+    declared `! {FS.Read}` and implemented over memory is the interface
+    doing its job, not a mistake.
+11. **A module that declares one interface resolves to it.** `Ord.wand`
    declaring `interface Ord 'a(...)` is reached as `Ord`, so the first thing
    anyone writes is `implement Ord Int` rather than `implement Ord.Ord Int`.
    The qualified spelling still works, and a module declaring two interfaces
@@ -226,13 +237,6 @@ instances, and no call that has to work out where to go.
 `implement Foo.Ord Float` in one module both need a `max`, and a module has
 one namespace. So at most one instantiation per interface per module, and the
 second is an error naming the first.
-
-**What does a member's signature say about effects?** `max` performs nothing,
-but a member that reads a file or runs a command has an effect set, and the
-interface must be able to write it. A member's grammar is a type, so it
-carries one already. What needs deciding is whether an implementation may
-perform less than the interface allows, which is the question a manifest
-answers with `A-USES1`.
 
 **What does `wand d Int` show?** A module's bindings are already listed. Does
 the listing say which interfaces the module implements, and does `--index`
