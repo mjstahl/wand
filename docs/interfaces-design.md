@@ -188,12 +188,20 @@ answers with `A-USES1`.
 
 **How is a standard library interface named and reached?** An interface is
 reached through the module that declares it, so an `Ord` interface declared
-in `stdlib/Ord.wand` is written `implement Ord.Ord Int`, which reads badly
-and is the first thing anyone will type. The options are a module whose name
-is not the interface's, a stdlib interface reachable unqualified the way a
-built-in type is, or a rule that a module declaring one interface lends it
-its own name. `Ord` is also a name the checker owns for the constraint, so
-whatever is chosen has to keep the two apart.
+in `stdlib/Ord.wand` is written `implement Ord.Ord Int`. That reads badly and
+it is the first thing anyone will type. Three ways out:
+
+- Name the module something the interface is not, so the two halves differ.
+- Let a standard library interface be reached unqualified, the way a built-in
+  type is.
+- Let a module that declares exactly one interface resolve to it by its own
+  name, so `Ord` alone means the interface in `Ord.wand` and
+  `implement Ord Int` is what anyone writes. wand has this rule one step
+  down already: a type with one constructor names that constructor too, which
+  is what `ctor_name_for` is for.
+
+`Ord` is also the checker's name for the constraint, so whatever is chosen
+has to keep the two apart.
 
 **What does `wand d Int` show?** A module's bindings are already listed. Does
 the listing say which interfaces the module implements, and does `--index`
