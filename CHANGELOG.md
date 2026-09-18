@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.79.0] - 2026-09-18
+
+### Changed
+
+- **`wand f` no longer crawls on deeply nested code.** The formatter joins
+  the pieces of a layout and writes them out once, where it used to copy
+  every level's text into the level above it.
+
+  ```
+                         before    after
+  400 nested calls        5.9s     0.20s
+  200 nested if/else      5.6s     0.38s
+  1000 nested lists       5.1s     0.04s
+  ```
+
+  Formatting is unchanged: the corpus, the tools, the demos and every
+  regression input come back byte for byte as before.
+
 ## [0.78.0] - 2026-09-17
 
 ### Fixed

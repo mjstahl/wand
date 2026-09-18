@@ -52,22 +52,46 @@ gap between a file a model wrote and a file anyone should run, so it is the
 command a deploy gate would be built from, and it has to be a shell loop
 today.
 
-### `wand f` costs more than the square of nesting depth
+### `--fix` does not carry the naming corrections
 
-Formatting a deeply nested literal is slow enough to matter:
+`V-BANG2` and `V-PRED3` each name one correction to one name:
 
 ```
-depth  500    0.6s
-depth 1000    4.6s
-depth 2000     48s
+warning: 5:1: V-BANG2: 'safe!' cannot raise, so the `!` promises a risk that
+  is not there; it is 'safe'
+warning: 7:1: V-PRED3: 'big' returns Bool but is not named as a predicate
 ```
 
-Measured, not guessed: the layout cache works and the emitter is called once
-per node. The cost is that each level builds its own text by copying what
-its children built, and the output of a deeply nested literal is genuinely
-large, so the copying is the square of the depth and the whole is worse.
-Fixing it means an emitter that tracks how wide a thing is rather than
-measuring the text it already built.
+Both are determined, so `--fix` could apply them, and it does not. The other
+two rules in the family cannot be applied and should stay reports.
+`V-BANG1` asks for two functions rather than a new name -- "call it `boom!`
+and give the plain name to a version that returns a Result". `V-PRED1` is a
+name and a type that disagree, and nothing in the file says which of them is
+the mistake.
+
+What blocks the two that are determined is that all four fire on top-level
+names only -- a local `let inner y = y > 0` is not flagged -- so every one
+of them is on a module's public surface. Renaming there changes call sites
+in files the command never opened, and `Fix.fix_file` takes one path. The
+tree would stop building until every importer was edited by hand. So this
+waits on `wand t` taking a directory, above.
+
+### `wand f` lays a nested `if` out once per column
+
+An else-ladder is still slow, and it is now the only shape that is:
+
+```
+depth 200    0.4s
+depth 400    2.6s
+depth 800   17.8s
+```
+
+Text is no longer the cost -- the time is in `emit_if` and `emit_expr_inner`
+themselves. The layout cache is keyed by the node, the indent, the column
+and the margin, and a ladder asks for the same node at a new column on every
+level, so nothing is reused: 9,217 layouts at depth 50, 36,042 at 100,
+142,204 at 200. The count is the square of the depth, and the walk that
+produces it is the whole of the remaining cost.
 
 It needs input no one writes by hand, which is why it is here rather than
 fixed.

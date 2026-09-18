@@ -17,6 +17,9 @@ open Ast
    percentile follows the limit within a column or two -- 87 at a margin of
    88, 97 at 100, 111 at 120. Whatever room is given gets used, by the
    handful of lines that end up in the diff. *)
+(* Emitted text is a `Doc`, joined rather than copied. *)
+let ( ^^ ) = Doc.( ^^ )
+
 let max_width = ref 92
 
 type comment_tok = {
@@ -120,12 +123,12 @@ let with_width w f =
    corpus run one to three columns past the margin because of it. The fix is
    a `reserve` threaded alongside `col`, and it is a second concept through
    every emitter for three columns, so it waits until the count grows. *)
-let fits col s =
-  (* Length first, and the scan for a newline only if it passes. A string
-     carries its length, so the first test is free, while the scan reads
-     every byte -- and a candidate layout that is already too wide is the
-     common answer. Asked the other way round, every level of a nested
-     literal scanned the whole of what its children had built. *)
+let fits col d =
+  col + Doc.width d <= !max_width && not (Doc.has_newline d)
+
+(* The same reading of finished text, for the item emitters, which join one
+   item's lines and never nest. *)
+let fits_text col s =
   col + String.length s <= !max_width && not (String.contains s '\n')
 
 (* The keyword a binding opens with, and the column its name starts at. A
@@ -471,11 +474,14 @@ let is_binop_or_unop e = match strip_located e with
   | BinOp _ | UnOp _ -> true
   | _ -> false
 
-let opens_with_an_operator text =
-  text <> ""
-  && (match text.[0] with
-      | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
-      | _ -> false)
+let an_operator = function
+  | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
+  | _ -> false
+
+let opens_with_an_operator text = text <> "" && an_operator text.[0]
+
+let doc_opens_with_an_operator d =
+  match Doc.head_char d with Some c -> an_operator c | None -> false
 
 let is_import e = match strip_located e with
   | ImportExpr _ -> true
@@ -522,10 +528,8 @@ let opens_a_bracket e = match strip_located e with
 (* Where text leaves the cursor. A prefix that wrapped carries its own
    indentation in its last line, so that line's length is the column
    outright; one that did not starts wherever the caller said. *)
-let column_after col s =
-  match String.rindex_opt s '\n' with
-  | None -> col + String.length s
-  | Some i -> String.length s - i - 1
+let column_after col d =
+  if Doc.has_newline d then Doc.tail_width d else col + Doc.width d
 
 (* `fn a b ->`, and `fn ->` when it binds nothing. Joining an empty
    parameter list with spaces on both sides wrote `fn  ->`. *)
@@ -716,9 +720,11 @@ let printed_ends_in_an_arm e = match e with
 
    `(` only: `[*` and `{*` are not the comment opener and need no space, and
    a space written where none is needed is a diff nobody meant. *)
-let opener o s = if o = "(" && s <> "" && s.[0] = '*' then "( " else o
+let opener o d =
+  if o = "(" && (match Doc.head_char d with Some '*' -> true | _ -> false)
+  then "( " else o
 
-let bracket s = opener "(" s ^ s ^ ")"
+let bracket = Doc.bracket
 
 (* Which atoms take a following bracket as their own. `constr_body_` reads
    one straight after a constructor name, qualified or not, and nothing else
@@ -773,6 +779,17 @@ let bracket_holds_all s =
      | _ -> go 0 rest)
   | _ -> false
 
+(* A piece built as one bracket says so; anything else is read back, which
+   only a leaf ever is. *)
+let holds_a_whole_bracket d =
+  match d with
+  | Doc.Node _ -> Doc.holds_all d
+  | _ -> bracket_holds_all (Doc.to_string d)
+
+(* Not a rendering: the signal from the trailing-lambda branch that a wholly
+   bracketed argument is coming. Told apart by identity, not by its text. *)
+let a_whole_bracket_follows = Doc.text "("
+
 (* Absorption at the head of a spine is harmless while the name is bare:
    `S (x)` and `S x` both build `App (S, x)`, so there is nothing to guard
    against. Qualified, it is not -- `l.A (x)` puts the application inside
@@ -816,10 +833,12 @@ let dedents_to col text =
    should have been no. A raw string's own content is what still reaches the
    anchor, and it is what the brackets are for. *)
 let bracket_if_wrapped_app_at ~anchor body emitted =
-  if wrapping_ends_it body
-     && breaks_at_depth_zero emitted
-     && dedents_to anchor emitted
-  then bracket emitted
+  (* Both readings need a line end to find, so a piece that did not wrap is
+     answered without its characters being looked at. *)
+  if Doc.has_newline emitted && wrapping_ends_it body then
+    let laid_out = Doc.to_string emitted in
+    if breaks_at_depth_zero laid_out && dedents_to anchor laid_out
+    then bracket emitted else emitted
   else emitted
 
 (* Every layout this file has produced for the item being written, keyed by
@@ -878,7 +897,7 @@ end
 
 module Layouts = Hashtbl.Make (Layout_key)
 
-let layouts : string Layouts.t = Layouts.create 1024
+let layouts : Doc.t Layouts.t = Layouts.create 1024
 
 (* `stmt` says this expression stands where a statement may: a body, an arm,
    a branch. A binding chain written there is the body itself, so it needs no
@@ -917,7 +936,7 @@ let rec emit_expr ?col ?(stmt = false) indent e =
    bracket whose content already closed at this indent joins that line
    instead of opening another. *)
 and parenthesize ?(close_alone = false) indent s =
-  if not (String.contains s '\n') then bracket s
+  if not (Doc.has_newline s) then bracket s
   (* A closing bracket earns a line of its own in two places, and used to
      take one everywhere.
 
@@ -935,19 +954,20 @@ and parenthesize ?(close_alone = false) indent s =
      left of the one inside it. *)
   else if not close_alone then bracket s
   else
-    let ind = String.make indent ' ' in
+    let ind = Doc.spaces indent in
     (* Unless what is being wrapped already closed on a line of its own, at
        the same indent -- a lambda around a block opens both brackets on one
        line, and closing them on two says nothing the one line does not.
        Which bracket closed there does not matter: `]` at this indent ends a
        line as plainly as `)` does, and a `)` alone on the next one repeats
        it a column over. *)
+    let ind_text = String.make indent ' ' in
     let closed_here =
-      List.exists (fun c -> String.ends_with ~suffix:("\n" ^ ind ^ c) s)
+      List.exists (fun c -> Doc.ends_with s ("\n" ^ ind_text ^ c))
         [")"; "]"; "}"]
     in
     if closed_here then bracket s
-    else bracket (s ^ "\n" ^ ind)
+    else bracket (s ^^ Doc.text "\n" ^^ ind)
 
 (* What goes between `%{` and `}`. A newline in there ends the string as far
    as the lexer is concerned, and the rest of the splice is then read as
@@ -1005,10 +1025,10 @@ and emit_atom ?(followed = false) indent e =
 and guard_constructors args rendered following =
   let args = Array.of_list args and rendered = Array.of_list rendered in
   let n = Array.length rendered in
-  let out = Array.make n "" in
+  let out = Array.make n Doc.empty in
   for i = n - 1 downto 0 do
     let next = if i + 1 < n then out.(i + 1) else following in
-    let absorbs = next <> "" && next.[0] = '(' in
+    let absorbs = Doc.head_char next = Some '(' in
     out.(i) <-
       (if absorbs && absorbs_a_bracket args.(i) then bracket rendered.(i)
        else rendered.(i))
@@ -1032,8 +1052,9 @@ and guard_spine head head_s args rendered following =
        reading it as one made `bracket_holds_all` answer no to a bracket
        that does hold everything -- so `Kach (fn ...)` came back as
        `(Kach) (fn ...)` and, qualified, as the unparseable `t.(Kach)`. *)
-    let whole_bracket_follows = next = "(" || bracket_holds_all next in
-    if next <> "" && next.[0] = '('
+    let whole_bracket_follows =
+      next == a_whole_bracket_follows || holds_a_whole_bracket next in
+    if Doc.head_char next = Some '('
        && (head_needs_a_bracket head
            || (absorbs_a_bracket head && not whole_bracket_follows))
     then bracket head_s
@@ -1046,26 +1067,27 @@ and emit_arg ?(followed = false) indent e = emit_atom ~followed indent e
 and emit_expr_inner ?col ?(stmt = false) indent e =
   let col = match col with Some c -> c | None -> indent in
   match e with
-  | Int n      -> string_of_int n
-  | Float f    -> string_of_wand_float f
+  | Int n      -> Doc.text (string_of_int n)
+  | Float f    -> Doc.text (string_of_wand_float f)
   | String s   ->
-    if prefers_raw s then "`" ^ s ^ "`"
-    else "\"" ^ escape_string_body s ^ "\""
-  | Bool b     -> string_of_bool b
-  | Unit       -> "()"
+    Doc.text
+      (if prefers_raw s then "`" ^ s ^ "`"
+       else "\"" ^ escape_string_body s ^ "\"")
+  | Bool b     -> Doc.text (string_of_bool b)
+  | Unit       -> Doc.text "()"
   | Path s | Glob s | DateTime s | Duration s
-  | URL (s, _) -> s
-  | CIDR s | Version s | Size s | IPv4 s -> s
-  | Port n     -> ":" ^ string_of_int n
-  | Var x      -> x
-  | Constr x   -> x
-  | EnvVar x   -> "$" ^ x
-  | Hole       -> "?"
+  | URL (s, _) -> Doc.text s
+  | CIDR s | Version s | Size s | IPv4 s -> Doc.text s
+  | Port n     -> Doc.text (":" ^ string_of_int n)
+  | Var x      -> Doc.text x
+  | Constr x   -> Doc.text x
+  | EnvVar x   -> Doc.text ("$" ^ x)
+  | Hole       -> Doc.text "?"
   | App _      -> emit_app ~col indent e
   | Fn (ps, body) ->
     (* The body is written after `fn params -> `, so that is where it
        starts -- an `if` in here was the other half of this bug. *)
-    let head = emit_fn_head ps ^ " " in
+    let head = Doc.text (emit_fn_head ps ^ " ") in
     (* A wrapped application as the body ends at its first line, and what is
        left below it reads as something new -- the same hazard a binding's
        body has, and the lambda gives it no bracket of its own. *)
@@ -1082,21 +1104,21 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
     in
     let on_head_line =
       bracket_if_wrapped_app_at ~anchor:body_indent body
-        (emit_expr ~col:(col + String.length head) body_indent body)
+        (emit_expr ~col:(col + Doc.width head) body_indent body)
     in
     (* A `let ... in` lays its value and its `in` out from the indent it was
        handed, and the keyword itself sits at the end of `fn ... -> `, well
        right of that. Everything below it then lands left of the `let` it
        belongs to, where the parser reads it as something new. Given the
        line to itself the keyword starts at the indent its own lines use. *)
-    if String.contains on_head_line '\n' && body_indent <> indent then
+    if Doc.has_newline on_head_line && body_indent <> indent then
       (* On its own line the chain and its statements share an indent, which
          is where the parser looks for a binding's body -- so it needs no
          brackets. On the arrow's own line it starts right of that, and
          there it does. *)
-      emit_fn_head ps ^ "\n" ^ String.make body_indent ' '
-      ^ emit_expr ~stmt:(is_bare_chain body) body_indent body
-    else head ^ on_head_line
+      Doc.text (emit_fn_head ps) ^^ Doc.text "\n" ^^ Doc.spaces body_indent
+      ^^ emit_expr ~stmt:(is_bare_chain body) body_indent body
+    else head ^^ on_head_line
   (* A binding written with the `;` of a block belongs to that block, and
      comes back out with the `;`. *)
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) as e ->
@@ -1114,19 +1136,19 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        needed, so `-x` and `!ok` are untouched. Found by test/fuzz. *)
     let arg = emit_atom indent e in
     let glues =
-      arg <> ""
-      && (match op, arg.[0] with
-          | "-", ('.' | '-') -> true
-          | "!", '=' -> true
-          | _ -> false)
+      match op, Doc.head_char arg with
+      | "-", Some ('.' | '-') -> true
+      | "!", Some '=' -> true
+      | _ -> false
     in
-    op ^ (if glues then " " else "") ^ arg
+    Doc.text (op ^ (if glues then " " else "")) ^^ arg
   (* An item is placed two columns in, so that is the indent it wraps to --
      rendering it at the sequence's own indent puts an item's continuation
      lines to the left of the item itself. *)
   | Tuple es -> emit_sequence ~col indent "(" ")" (List.map (emit_expr (indent + 2)) es)
   | List es  -> emit_list ~col indent es
-  | ConstrBare (name, ids) -> name ^ "(" ^ String.concat ", " ids ^ ")"
+  | ConstrBare (name, ids) ->
+    Doc.text (name ^ "(" ^ String.concat ", " ids ^ ")")
   | Qualified (m, e) ->
     (* A constructor reached through its module takes the bracket written
        after it. That bracket puts the payload inside the module. `d.M(N)`
@@ -1142,11 +1164,12 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        let payload = match strip_located arg with
          (* The tuple's own brackets serve as the constructor's, as in
             `M(a, b)`. *)
-         | Tuple es -> String.concat ", " (List.map (emit_expr indent) es)
+         | Tuple es -> Doc.concat (Doc.text ", ") (List.map (emit_expr indent) es)
          | _ -> emit_expr indent arg
        in
-       m ^ "." ^ emit_expr indent f ^ "(" ^ payload ^ ")"
-     | _ -> m ^ "." ^ emit_expr indent e)
+       Doc.text (m ^ ".") ^^ emit_expr indent f
+       ^^ Doc.text "(" ^^ payload ^^ Doc.text ")"
+     | _ -> Doc.text (m ^ ".") ^^ emit_expr indent e)
   | ConstrApp (name, kvs, _) ->
     (* Punned only where every field puns, and there are two or more of
        them. That is the whole of what reads back as a construction: one
@@ -1164,46 +1187,52 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
     in
     let all_pun = List.length kvs >= 2 && List.for_all puns kvs in
     let field (k, v) =
-      if all_pun then (match k with Some n -> n | None -> "")
+      if all_pun then Doc.text (match k with Some n -> n | None -> "")
       else
-        (match k with Some n -> n ^ " = " | None -> "") ^ emit_expr indent v in
-    let oneline = name ^ "(" ^ String.concat ", " (List.map field kvs) ^ ")" in
+        Doc.text (match k with Some n -> n ^ " = " | None -> "")
+        ^^ emit_expr indent v in
+    let oneline =
+      Doc.text (name ^ "(") ^^ Doc.concat (Doc.text ", ") (List.map field kvs)
+      ^^ Doc.text ")" in
     if fits col oneline then oneline
     else
       (* Too wide for a line: one field per line, as a record reads. *)
-      let ind = String.make indent ' ' in
-      let inner = String.make (indent + 2) ' ' in
-      name ^ "(\n" ^ inner
-      ^ String.concat (",\n" ^ inner)
+      let ind = Doc.spaces indent in
+      let inner = Doc.spaces (indent + 2) in
+      Doc.text (name ^ "(\n") ^^ inner
+      ^^ Doc.concat (Doc.text ",\n" ^^ inner)
           (List.map (fun (k, v) ->
-             if all_pun then (match k with Some n -> n | None -> "")
+             if all_pun then Doc.text (match k with Some n -> n | None -> "")
              else
-               let label = match k with Some n -> n ^ " = " | None -> "" in
+               let label =
+                 Doc.text (match k with Some n -> n ^ " = " | None -> "") in
                (* The value is written after its field name, so that is where
                   it starts. *)
-               label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs)
-      ^ "\n" ^ ind ^ ")"
+               label ^^ emit_expr ~col:(indent + 2 + Doc.width label) (indent + 2) v) kvs)
+      ^^ Doc.text "\n" ^^ ind ^^ Doc.text ")"
   (* `T(r, a = 1)`: the base reads as the first item, and the fields that
      change follow it, so the one-per-line form puts the base on its own
      line as well. *)
   | ConstrUpdate (name, base, kvs, _) ->
     let items =
       emit_expr indent base
-      :: List.map (fun (k, v) -> k ^ " = " ^ emit_expr indent v) kvs
+      :: List.map (fun (k, v) -> Doc.text (k ^ " = ") ^^ emit_expr indent v) kvs
     in
-    let body = String.concat ", " items in
-    let oneline = name ^ opener "(" body ^ body ^ ")" in
+    let body = Doc.concat (Doc.text ", ") items in
+    let oneline = Doc.text (name ^ opener "(" body) ^^ body ^^ Doc.text ")" in
     if fits col oneline then oneline
     else
-      let ind = String.make indent ' ' in
-      let inner = String.make (indent + 2) ' ' in
+      let ind = Doc.spaces indent in
+      let inner = Doc.spaces (indent + 2) in
       let lines =
         emit_expr (indent + 2) base
         :: List.map (fun (k, v) ->
-             let label = k ^ " = " in
-             label ^ emit_expr ~col:(indent + 2 + String.length label) (indent + 2) v) kvs
+             let label = Doc.text (k ^ " = ") in
+             label ^^ emit_expr ~col:(indent + 2 + Doc.width label) (indent + 2) v) kvs
       in
-      name ^ "(\n" ^ inner ^ String.concat (",\n" ^ inner) lines ^ "\n" ^ ind ^ ")"
+      Doc.text (name ^ "(\n") ^^ inner
+      ^^ Doc.concat (Doc.text ",\n" ^^ inner) lines
+      ^^ Doc.text "\n" ^^ ind ^^ Doc.text ")"
   | Field (e, l) -> emit_field indent e l
   | Seq _ as e -> emit_block ~col indent e
   | Located (_, e) -> emit_expr_inner indent e
@@ -1217,18 +1246,18 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        body left, so the output did not parse. The brackets the source had
        are what says where the clause ends, so they are written back.
        Found by test/fuzz. *)
-    let ind = String.make indent ' ' in
-    let clause kw e = kw ^ " " ^ emit_expr indent e in
+    let ind = Doc.spaces indent in
+    let clause kw e = Doc.text (kw ^ " ") ^^ emit_expr indent e in
     let has_clauses = reqs <> [] || ens <> [] in
     let body_text = emit_expr indent body in
     let body_text =
-      if has_clauses && opens_with_an_operator body_text
+      if has_clauses && doc_opens_with_an_operator body_text
       then bracket body_text else body_text
     in
-    String.concat ("\n" ^ ind)
+    Doc.concat (Doc.text "\n" ^^ ind)
       (List.map (clause "requires") reqs @ List.map (clause "ensures") ens)
-    ^ (if has_clauses then "\n" ^ ind else "")
-    ^ body_text
+    ^^ (if has_clauses then Doc.text "\n" ^^ ind else Doc.empty)
+    ^^ body_text
   (* The text inside $() is a command, not a string literal: quoting it
      would hand the whole thing to the shell as one word.
 
@@ -1239,34 +1268,34 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
      written back where the body is an expression, and withheld where it is
      the text. Printing both as `$(...)` turned the second into the first,
      silently. Found by test/fuzz. *)
-  | RunCmd (e, _)   -> "$" ^ command_body indent e
+  | RunCmd (e, _)   -> Doc.text "$" ^^ command_body indent e
   (* `$?` has no spelling with a space: `$? (e)` does not lex as a query at
      all, and the parser builds a `RunQuery` only from the tight form. So
      its body is always the text, and always written tight. *)
-  | RunQuery (e, _) -> "$?(" ^ emit_command indent e ^ ")"
+  | RunQuery (e, _) -> Doc.text "$?(" ^^ emit_command indent e ^^ Doc.text ")"
   (* `$*` is the same: only the tight form lexes, so the body is always the
      command text. *)
-  | MkCommand (e, _) -> "$*(" ^ emit_command indent e ^ ")"
-  | RegexLit (p, f) -> "r/" ^ p ^ "/" ^ f
-  | ImportExpr (StdlibModule n) -> "import " ^ n
-  | ImportExpr (UserPath p)     -> "import " ^ p
+  | MkCommand (e, _) -> Doc.text "$*(" ^^ emit_command indent e ^^ Doc.text ")"
+  | RegexLit (p, f) -> Doc.text ("r/" ^ p ^ "/" ^ f)
+  | ImportExpr (StdlibModule n) -> Doc.text ("import " ^ n)
+  | ImportExpr (UserPath p)     -> Doc.text ("import " ^ p)
   (* Given back as it was written. Its content is verbatim by definition, so
      nothing is escaped -- and the newline the lexer dropped after the
      opening backtick is put back, or a reformat would eat one line of
      layout on every pass. *)
-  | RawString s -> "`" ^ reopen_raw s ^ "`"
+  | RawString s -> Doc.text ("`" ^ reopen_raw s ^ "`")
   | RawInterp (parts, tail) ->
     let buf = Buffer.create 32 in
     Buffer.add_char buf '`';
     List.iteri (fun i (lit, e) ->
       Buffer.add_string buf (if i = 0 then reopen_raw lit else lit);
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_splice indent e);
+      Buffer.add_string buf (Doc.to_string (emit_splice indent e));
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf tail;
     Buffer.add_char buf '`';
-    Buffer.contents buf
+    Doc.text (Buffer.contents buf)
   | Interp (parts, tail) ->
     (* The same backtick preference as a plain String: when some literal
        piece escapes a quote and every piece survives rawly, the whole
@@ -1284,12 +1313,12 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
       (* `$NAME` is plain text in a string now, so an env read has to be
          written out as the expression it is: `%{$HOME}`. *)
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_splice indent e);
+      Buffer.add_string buf (Doc.to_string (emit_splice indent e));
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf (lit_body tail);
     Buffer.add_string buf quote;
-    Buffer.contents buf
+    Doc.text (Buffer.contents buf)
   (* Only reachable inside `$()`, which `emit_command` handles; rendered here so
      the match is total and so a stray one is still legible. *)
   | CmdInterp (parts, tail) ->
@@ -1298,20 +1327,22 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
       Buffer.add_string buf lit;
       Buffer.add_string buf
         (match (h : Token.hole) with Token.Source -> "%!{" | _ -> "%{");
-      Buffer.add_string buf (emit_splice indent e);
+      Buffer.add_string buf (Doc.to_string (emit_splice indent e));
       Buffer.add_char buf '}'
     ) parts;
     Buffer.add_string buf tail;
-    Buffer.contents buf
+    Doc.text (Buffer.contents buf)
   | Handle (body, cases) ->
     (* Same stepping rule as emit_match: arms of a `handle` that starts
        mid-line indent past the line that introduced it. *)
     let arm_indent = if col > indent then indent + 2 else indent in
     let emit_arm = function
       | EffectCase (op, p, k, b) ->
-        Printf.sprintf "| %s %s %s -> %s" op (emit_pat p) k (emit_case_body arm_indent b)
+        Doc.text (Printf.sprintf "| %s %s %s -> " op (emit_pat p) k)
+        ^^ emit_case_body arm_indent b
       | ReturnCase (p, b) ->
-        Printf.sprintf "| return %s -> %s" (emit_pat p) (emit_case_body arm_indent b)
+        Doc.text (Printf.sprintf "| return %s -> " (emit_pat p))
+        ^^ emit_case_body arm_indent b
     in
     (* `with` has to follow the body, so a body that wrapped puts the
        keyword out of the parser's reach. `with ... as` has the same shape,
@@ -1321,7 +1352,7 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        after that for the newline to cut off. Any body that wrapped at all
        gets the brackets. *)
     let emitted_body = emit_expr indent body in
-    let wrapped = String.contains emitted_body '\n' in
+    let wrapped = Doc.has_newline emitted_body in
     let head = if wrapped then bracket emitted_body else emitted_body in
     (* The arms carry the line break, so with no arms there is no break to
        carry. Emitting one anyway left a trailing newline that the item
@@ -1332,13 +1363,13 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        Only `handle` needs this. A `match` with no cases does not parse at
        all -- "match has no cases" -- so the same shape there is a state no
        source can reach. *)
-    "handle " ^ head ^ " with"
-    ^ (match cases with
-       | [] -> ""
+    Doc.text "handle " ^^ head ^^ Doc.text " with"
+    ^^ (match cases with
+       | [] -> Doc.empty
        | _ ->
-         let pad = String.make arm_indent ' ' in
-         "\n" ^ pad ^ String.concat ("\n" ^ pad) (List.map emit_arm cases))
-  | Try e -> "try " ^ emit_expr indent e
+         let pad = Doc.spaces arm_indent in
+         Doc.text "\n" ^^ pad ^^ Doc.concat (Doc.text "\n" ^^ pad) (List.map emit_arm cases))
+  | Try e -> Doc.text "try " ^^ emit_expr indent e
   (* The body stays at the bracket's own indentation rather than stepping in.
      Brackets nest -- a temp dir holding a lock holding a directory change --
      and indenting each one would push the actual work off the page for
@@ -1347,8 +1378,9 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
     (* `as` has to follow the resource, so one that wrapped puts the keyword
        out of the parser's reach. *)
     let head =
-      Printf.sprintf "with %s as %s ->"
-        (bracket_if_wrapped_app_at ~anchor:indent r (emit_expr indent r)) (emit_pat p) in
+      Doc.text "with "
+      ^^ bracket_if_wrapped_app_at ~anchor:indent r (emit_expr indent r)
+      ^^ Doc.text (" as " ^ emit_pat p ^ " ->") in
     (* A body that opens a bracket of its own opens it on the `->` line and
        lets the items carry the break, as a binding's value does. Given a
        line to itself the bracket says nothing: the items sit at the same
@@ -1356,18 +1388,20 @@ and emit_expr_inner ?col ?(stmt = false) indent e =
        `with` wide enough to wrap. It is laid out from where it lands, three
        columns past the `->`, so it wraps against the room it really has. *)
     if opens_a_bracket body then
-      head ^ " " ^ emit_expr ~col:(col + String.length head + 1) indent body
+      head ^^ Doc.text " " ^^ emit_expr ~col:(col + Doc.width head + 1) indent body
     else
-      let one_line = head ^ " " ^ emit_expr indent body in
+      let one_line = head ^^ Doc.text " " ^^ emit_expr indent body in
       if fits col one_line then one_line
-      else head ^ "\n" ^ String.make indent ' ' ^ emit_expr indent body
-  | Annot (te, e) -> emit_atom indent e ^ " : " ^ emit_type_expr te
+      else head ^^ Doc.text "\n" ^^ Doc.spaces indent ^^ emit_expr indent body
+  | Annot (te, e) ->
+    emit_atom indent e ^^ Doc.text (" : " ^ emit_type_expr te)
   | MapLit kvs ->
     (* Measured from where the brace actually lands, as the other two
        bracket forms are: a map opened on a binding's line starts well
        right of the indent it wraps to. *)
     emit_sequence ~col indent "{" "}"
-      (List.map (fun (k, e) -> map_key k ^ " = " ^ emit_expr (indent + 2) e) kvs)
+      (List.map (fun (k, e) ->
+         Doc.text (map_key k ^ " = ") ^^ emit_expr (indent + 2) e) kvs)
 
 and emit_app ?col indent e =
   let col = match col with Some c -> c | None -> indent in
@@ -1396,7 +1430,7 @@ and emit_app ?col indent e =
        argument that is not the last has text after it on its own last line.
        Joined with newlines instead, every argument ends its line whatever
        follows, and none of them needs the break. *)
-    let spine ?(following = "") ?(inline = false) ind =
+    let spine ?(following = Doc.empty) ?(inline = false) ind =
       let n = List.length args in
       guard_spine head (emit_atom indent head) args
         (List.mapi (fun i a -> emit_arg ~followed:(inline && i < n - 1) ind a)
@@ -1407,14 +1441,14 @@ and emit_app ?col indent e =
        are asked at two different indents, so neither answer is the other's.
        Asked flat, the question costs one pass over the subtree. *)
     let oneline =
-      with_width max_int (fun () -> String.concat " " (spine ~inline:true indent))
+      with_width max_int (fun () -> Doc.concat (Doc.text " ") (spine ~inline:true indent))
     in
     if fits col oneline then oneline
     else
       (* Too wide. A trailing lambda is the common shape -- `test "..." (fn t
          -> ...)` -- and reads best with its body on the next line, the way
          it would have been written by hand. *)
-      let inner = String.make (indent + 2) ' ' in
+      let inner = Doc.spaces (indent + 2) in
       let rec split_last acc = function
         | [x]     -> (List.rev acc, Some x)
         | x :: tl -> split_last (x :: acc) tl
@@ -1425,20 +1459,20 @@ and emit_app ?col indent e =
          (match strip_located last with
           | Fn (ps, body) ->
             let prefix =
-              String.concat " "
+              Doc.concat (Doc.text " ")
                 (guard_spine head (emit_atom indent head) before
-                   (List.map (emit_arg ~followed:true indent) before) "(")
+                   (List.map (emit_arg ~followed:true indent) before)
+                   a_whole_bracket_follows)
             in
-            let head_s =
-              prefix ^ " (" ^ emit_fn_head ps in
+            let head_s = prefix ^^ Doc.text (" (" ^ emit_fn_head ps) in
             (* A bracketed body opens on the arrow's line, as it does after
                an `=`, rather than spending a line on a bracket alone. *)
             if opens_a_bracket body && not (is_bare_chain body) then
-              head_s ^ " " ^ emit_expr ~col:(indent + String.length head_s + 1) indent body ^ ")"
+              head_s ^^ Doc.text " " ^^ emit_expr ~col:(indent + Doc.width head_s + 1) indent body ^^ Doc.text ")"
             (* A chain of bindings takes the line below the arrow, where its
                statements share an indent with the `let` that opens them. *)
-            else head_s ^ "\n" ^ inner
-                 ^ emit_expr ~stmt:(is_bare_chain body) (indent + 2) body ^ ")"
+            else head_s ^^ Doc.text "\n" ^^ inner
+                 ^^ emit_expr ~stmt:(is_bare_chain body) (indent + 2) body ^^ Doc.text ")"
           (* A trailing bracket is the other common shape -- `report [...]`,
              `handle {...}` -- and reads the way a trailing lambda does: the
              bracket opens on the call's own line and the items carry the
@@ -1449,12 +1483,12 @@ and emit_app ?col indent e =
           | last_v when opens_a_bracket last_v || is_constr_call last_v ->
             let tail = emit_expr ~col:0 indent last_v in
             let prefix =
-              String.concat " "
+              Doc.concat (Doc.text " ")
                 (guard_spine head (emit_atom indent head) before
                    (List.map (emit_arg ~followed:true indent) before) tail)
             in
-            prefix ^ " "
-            ^ emit_expr ~col:(column_after col prefix + 1) indent last_v
+            prefix ^^ Doc.text " "
+            ^^ emit_expr ~col:(column_after col prefix + 1) indent last_v
           | _ ->
             (* Otherwise one argument per line, under the head. A newline
                does not stop a constructor absorbing the bracket below it --
@@ -1462,7 +1496,7 @@ and emit_app ?col indent e =
                to this layout exactly as it does to the flat one. *)
             (match spine (indent + 2) with
              | head_s :: rest ->
-               head_s ^ "\n" ^ inner ^ String.concat ("\n" ^ inner) rest
+               head_s ^^ Doc.text "\n" ^^ inner ^^ Doc.concat (Doc.text "\n" ^^ inner) rest
              | [] -> oneline))
        | _, None -> oneline)
 
@@ -1472,21 +1506,21 @@ and command_body indent e =
   match strip_located e with
   | String _ | Interp _ | CmdInterp _ | RawString _ | RawInterp _ ->
     bracket (emit_command indent e)
-  | _ -> " (" ^ emit_expr indent e ^ ")"
+  | _ -> Doc.text " (" ^^ emit_expr indent e ^^ Doc.text ")"
 
 (* A command's text, with interpolations left as %{...} and nothing quoted. *)
 and emit_command indent e =
   match strip_located e with
-  | String s -> s
+  | String s -> Doc.text s
   | Interp (parts, tail) ->
     let buf = Buffer.create 32 in
     List.iter (fun (lit, ex) ->
       Buffer.add_string buf lit;
       Buffer.add_string buf "%{";
-      Buffer.add_string buf (emit_splice indent ex);
+      Buffer.add_string buf (Doc.to_string (emit_splice indent ex));
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;
-    Buffer.contents buf
+    Doc.text (Buffer.contents buf)
   (* Which form each interpolation used has to survive formatting: rewriting
      `%!{x}` as `%{x}` would quietly quote a splice that was meant to be
      shell source, and the script would stop working. *)
@@ -1496,10 +1530,10 @@ and emit_command indent e =
       Buffer.add_string buf lit;
       Buffer.add_string buf
         (match (h : Token.hole) with Token.Source -> "%!{" | _ -> "%{");
-      Buffer.add_string buf (emit_splice indent ex);
+      Buffer.add_string buf (Doc.to_string (emit_splice indent ex));
       Buffer.add_char buf '}') parts;
     Buffer.add_string buf tail;
-    Buffer.contents buf
+    Doc.text (Buffer.contents buf)
   | other -> emit_expr indent other
 
 and emit_field indent e l =
@@ -1517,7 +1551,7 @@ and emit_field indent e l =
     | _ -> false
   in
   let ends_in_a_digit t =
-    t <> "" && (match t.[String.length t - 1] with '0' .. '9' -> true | _ -> false)
+    match Doc.last_char t with Some ('0' .. '9') -> true | _ -> false
   in
   (* The target is an atom, which is what `.` binds to. It was a list of
      the forms that need brackets, and the list left `App` out -- so
@@ -1555,7 +1589,7 @@ and emit_field indent e l =
       bracket t
     else t
   in
-  target ^ "." ^ l
+  target ^^ Doc.text ("." ^ l)
 
 (* Items on one line while they fit, one per line when they do not. The
    brackets carry the break rather than the items being aligned under the
@@ -1588,29 +1622,45 @@ and emit_list ?col indent es =
   if not !claimed then
     emit_sequence ~col indent "[" "]" (List.map snd parts)
   else begin
-    let inner = String.make (indent + 2) ' ' in
-    let buf = Buffer.create 128 in
+    let inner = Doc.spaces (indent + 2) in
     let n = List.length parts in
-    Buffer.add_string buf "[\n";
-    List.iteri (fun i (above, text) ->
-      List.iter (fun c -> Buffer.add_string buf (inner ^ c ^ "\n")) above;
-      Buffer.add_string buf (inner ^ text);
-      if i < n - 1 then Buffer.add_string buf ",\n"
-    ) parts;
-    Buffer.add_string buf ("\n" ^ String.make indent ' ' ^ "]");
-    Buffer.contents buf
+    let piece i (above, text) =
+      Doc.concat Doc.empty
+        (List.map (fun c -> inner ^^ Doc.text c ^^ Doc.text "\n") above)
+      ^^ inner ^^ text
+      ^^ (if i < n - 1 then Doc.text ",\n" else Doc.empty)
+    in
+    Doc.text "[\n"
+    ^^ Doc.concat Doc.empty (List.mapi piece parts)
+    ^^ Doc.text "\n" ^^ Doc.spaces indent ^^ Doc.text "]"
   end
 
 and emit_sequence ?col indent opening closing items =
   let col = match col with Some c -> c | None -> indent in
-  let body = String.concat ", " items in
-  let oneline = opener opening body ^ body ^ closing in
-  if fits col oneline then oneline
+  (* A round bracket round something is one bracket holding everything, which
+     is what a constructor in front of it needs to know. *)
+  let joined parts =
+    if opening = "(" && items <> [] then Doc.whole_bracket parts
+    else Doc.of_parts ~whole:false parts
+  in
+  let wrapped () =
+    let inner = Doc.spaces (indent + 2) in
+    joined [Doc.text opening; Doc.text "\n"; inner;
+            Doc.concat (Doc.text ",\n" ^^ inner) items;
+            Doc.text "\n"; Doc.spaces indent; Doc.text closing]
+  in
+  (* Measured before it is built. A candidate for one line that cannot fit on
+     one costs a copy of every item to find that out, and most do not fit. *)
+  let flat_width =
+    List.fold_left (fun a d -> a + Doc.width d + 2) 0 items - 2
+    + String.length opening + String.length closing + 1
+  in
+  if col + flat_width > !max_width || List.exists Doc.has_newline items then
+    wrapped ()
   else
-    let inner = String.make (indent + 2) ' ' in
-    opening ^ "\n" ^ inner
-    ^ String.concat (",\n" ^ inner) items
-    ^ "\n" ^ String.make indent ' ' ^ closing
+    let body = Doc.concat (Doc.text ", ") items in
+    let flat = joined [Doc.text (opener opening body); body; Doc.text closing] in
+    if fits col flat then flat else wrapped ()
 
 (* A pipeline reads as a list of stages, so when it does not fit it breaks
    into one stage per line with the operator leading -- which is where a
@@ -1645,12 +1695,12 @@ and emit_pipeline indent a b =
     | _ -> bracket_if_wrapped_app_at ~anchor:(indent + 2) e (emit_expr (indent + 2) e)
   in
   match all with
-  | [] -> ""
+  | [] -> Doc.empty
   | first :: rest ->
-    let inner = String.make (indent + 2) ' ' in
+    let inner = Doc.spaces (indent + 2) in
     piece `Left first
-    ^ String.concat ""
-        (List.map (fun e -> "\n" ^ inner ^ "|> " ^ piece `Right e) rest)
+    ^^ Doc.concat Doc.empty
+        (List.map (fun e -> Doc.text "\n" ^^ inner ^^ Doc.text "|> " ^^ piece `Right e) rest)
 
 and emit_binop ?col indent op a b =
   let col = match col with Some c -> c | None -> indent in
@@ -1674,7 +1724,8 @@ and emit_binop ?col indent op a b =
        far its right side goes. *)
     | _ -> bracket_if_wrapped_app_at ~anchor:indent e (emit_expr indent e)
   in
-  let oneline = Printf.sprintf "%s %s %s" (side_str `Left a) op (side_str `Right b) in
+  let oneline =
+    side_str `Left a ^^ Doc.text (" " ^ op ^ " ") ^^ side_str `Right b in
   if op = "|>" && not (fits col oneline) then emit_pipeline indent a b
   else oneline
 
@@ -1695,10 +1746,11 @@ and with_body_lead head indent e fallback =
   match body_lead e with
   | [] -> fallback ()
   | cs ->
-    let inner = String.make (indent + 2) ' ' in
-    head ^ " =\n"
-    ^ String.concat "" (List.map (fun c -> inner ^ c.c_text ^ "\n") cs)
-    ^ inner ^ emit_expr (indent + 2) e
+    let inner = Doc.spaces (indent + 2) in
+    head ^^ Doc.text " =\n"
+    ^^ Doc.concat Doc.empty
+         (List.map (fun c -> inner ^^ Doc.text c.c_text ^^ Doc.text "\n") cs)
+    ^^ inner ^^ emit_expr (indent + 2) e
 
 and split_clause_annot body =
   match strip_located body with
@@ -1822,14 +1874,14 @@ and emit_block ?col ?(bare = false) indent e =
   let probe_claimed = !claimed in
   prev_end := max_int; claimed := false;
   let oneline =
-    bracket (String.concat "; " (List.map (fun (_, t, _) -> t) probe)) in
+    bracket (Doc.concat (Doc.text "; ") (List.map (fun (_, t, _) -> t) probe)) in
   (* Bracketed, a block may run along one line: the brackets say where it
      starts and ends. Bare, nothing does but the lines themselves, so each
      statement takes one. `let before = ...; let answer = ...; (...)` on a
      single line is three statements wearing no punctuation a reader can
      see from the left margin. *)
   if (not bare) && not probe_claimed && fits col oneline
-     && not (String.contains oneline '\n')
+     && not (Doc.has_newline oneline)
   then oneline
   else if bare then begin
     (* A statement position: the statements are the body, so they sit at the
@@ -1837,34 +1889,35 @@ and emit_block ?col ?(bare = false) indent e =
        parser reads back -- a `;` at the binding's column hands the rest to
        its body -- so the node that comes back is the node that went in. *)
     let stmts = items indent e in
-    let ind = String.make indent ' ' in
-    let buf = Buffer.create 128 in
+    let ind = Doc.spaces indent in
     let n = List.length stmts in
-    List.iteri (fun i (above, text, in_term) ->
-      List.iter (fun c -> Buffer.add_string buf (ind ^ c ^ "\n")) above;
-      Buffer.add_string buf (if i = 0 then text else ind ^ text);
-      if i < n - 1 then
-        (* `in` takes a line of its own at the statement's indent, where the
-           old chain put it. Written onto the end of the value it would land
-           on an arm, which is the thing the `;` could not do either. *)
-        Buffer.add_string buf (if in_term then "\n" ^ ind ^ "in\n" else ";\n")
-    ) stmts;
-    Buffer.contents buf
+    let piece i (above, text, in_term) =
+      Doc.concat Doc.empty
+        (List.map (fun c -> ind ^^ Doc.text c ^^ Doc.text "\n") above)
+      ^^ (if i = 0 then text else ind ^^ text)
+      ^^ (if i >= n - 1 then Doc.empty
+          (* `in` takes a line of its own at the statement's indent, where the
+             old chain put it. Written onto the end of the value it would land
+             on an arm, which is the thing the `;` could not do either. *)
+          else if in_term then Doc.text "\n" ^^ ind ^^ Doc.text "in\n"
+          else Doc.text ";\n")
+    in
+    Doc.concat Doc.empty (List.mapi piece stmts)
   end
   else begin
     let stmts = items (indent + 2) e in
-    let ind = String.make indent ' ' in
-    let inner = String.make (indent + 2) ' ' in
-    let buf = Buffer.create 128 in
+    let ind = Doc.spaces indent in
+    let inner = Doc.spaces (indent + 2) in
     let n = List.length stmts in
-    Buffer.add_string buf "(\n";
-    List.iteri (fun i (above, text, _) ->
-      List.iter (fun c -> Buffer.add_string buf (inner ^ c ^ "\n")) above;
-      Buffer.add_string buf (inner ^ text);
-      if i < n - 1 then Buffer.add_string buf ";\n"
-    ) stmts;
-    Buffer.add_string buf ("\n" ^ ind ^ ")");
-    Buffer.contents buf
+    let piece i (above, text, _) =
+      Doc.concat Doc.empty
+        (List.map (fun c -> inner ^^ Doc.text c ^^ Doc.text "\n") above)
+      ^^ inner ^^ text
+      ^^ (if i < n - 1 then Doc.text ";\n" else Doc.empty)
+    in
+    Doc.whole_bracket
+      [Doc.text "(\n"; Doc.concat Doc.empty (List.mapi piece stmts);
+       Doc.text "\n"; ind; Doc.text ")"]
   end
 
 and emit_fn_clauses ~col indent p params fbody =
@@ -1887,18 +1940,18 @@ and emit_fn_clauses ~col indent p params fbody =
   let lines = List.mapi (fun i (pats, body) ->
     let (annot_s, body) = split_clause_annot body in
     let head =
-      let_keyword ^ " " ^ name ^ " "
-      ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s
+      Doc.text (let_keyword ^ " " ^ name ^ " "
+                ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s)
     in
     (* The first clause starts where the caller left the cursor; the rest
        start their own line at the indent. *)
     let clause_col = if i = 0 then col else indent in
-    let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) indent body in
+    let oneline = head ^^ Doc.text " = " ^^ emit_expr ~stmt:(is_bare_chain body) indent body in
     if fits clause_col oneline then oneline
     else emit_bound_value ~col:clause_col indent head body
   ) clauses in
-  String.concat "\n"
-    (List.mapi (fun i l -> if i = 0 then l else String.make indent ' ' ^ l) lines)
+  Doc.concat (Doc.text "\n")
+    (List.mapi (fun i l -> if i = 0 then l else Doc.spaces indent ^^ l) lines)
 
 (* One binding of a block, with no body after it: the `;` that follows is
    the terminator, as a newline is at the top level of a file. *)
@@ -1919,20 +1972,22 @@ and emit_binding ?col ?(in_terminated = false) indent p e1 =
   match e1 with
   | Fn (params, fbody) -> emit_fn_clauses ~col indent p params fbody
   | Annot (te, body) ->
-    "let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = " ^ value indent body
+    Doc.text ("let " ^ emit_pat p ^ " : " ^ emit_type_expr te ^ " = ")
+    ^^ value indent body
   | _ when is_multiline_raw_string e1 ->
     (* On the `=` line here as at the top level. A block binding gives every other
        wrapped value a line of its own, and that is the shape the corpus is
        written in -- but a line of its own is exactly what this one cannot
        have without indenting text that is content. *)
-    let head = "let " ^ emit_pat p ^ " = " in
-    head ^ emit_expr ~col:(col + String.length head) indent e1
+    let head = Doc.text ("let " ^ emit_pat p ^ " = ") in
+    head ^^ emit_expr ~col:(col + Doc.width head) indent e1
   | _ ->
-    let oneline = "let " ^ emit_pat p ^ " = " ^ value indent e1 in
+    let oneline =
+      Doc.text ("let " ^ emit_pat p ^ " = ") ^^ value indent e1 in
     if fits col oneline then oneline
     else
-      "let " ^ emit_pat p ^ " =\n" ^ String.make (indent + 2) ' '
-      ^ (if arm then value (indent + 2) e1
+      Doc.text ("let " ^ emit_pat p ^ " =\n") ^^ Doc.spaces (indent + 2)
+      ^^ (if arm then value (indent + 2) e1
          else bracket_if_wrapped_app_at ~anchor:(indent + 2) e1 (emit_expr (indent + 2) e1))
 
 and emit_let ?col indent p e1 e2 =
@@ -1941,14 +1996,16 @@ and emit_let ?col indent p e1 e2 =
      and before the body begins. It is written above the body, on the lines
      it already occupies. A binding that has one cannot be written on a
      single line. *)
-  let ind0 = String.make indent ' ' in
+  let ind0 = Doc.spaces indent in
   let after_in =
     match loc_of e1, loc_of e2 with
     | Some a, Some b -> comments_between a.Token.end_offset b.Token.offset
     | _ -> []
   in
   let commented = after_in <> [] in
-  let above = String.concat "" (List.map (fun c -> ind0 ^ c.c_text ^ "\n") after_in) in
+  let above =
+    Doc.concat Doc.empty
+      (List.map (fun c -> ind0 ^^ Doc.text c.c_text ^^ Doc.text "\n") after_in) in
   match e1 with
   | Fn (params, fbody) ->
     (* A *raw* (non-`Located`) `Fn` as a `let` RHS only ever comes from the
@@ -1962,7 +2019,7 @@ and emit_let ?col indent p e1 e2 =
        starts at; the rest are that name again, under it. The `in` closes
        the group from the keyword's own column, so the block reads as one
        shape rather than a stack of unrelated lines. *)
-    let ind = String.make indent ' ' in
+    let ind = Doc.spaces indent in
     let tail = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
     (* `in ` opens the tail three columns right of the keyword below it, but
        a `let ... in` chain lays its own continuation out at the indent it
@@ -1972,15 +2029,15 @@ and emit_let ?col indent p e1 e2 =
        one line takes the whole line, as it does after a value binding's
        `in` and after a commented one. Found by test/fuzz. *)
     let tail_on_its_own_line =
-      String.contains tail '\n'
+      Doc.has_newline tail
       && (match strip_located e2 with
           | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> true
           | _ -> false)
     in
     emit_fn_clauses ~col indent p params fbody
-    ^ "\n" ^ ind
-    ^ (if commented || tail_on_its_own_line then "in\n" ^ above ^ ind ^ tail
-       else "in " ^ tail)
+    ^^ Doc.text "\n" ^^ ind
+    ^^ (if commented || tail_on_its_own_line then Doc.text "in\n" ^^ above ^^ ind ^^ tail
+       else Doc.text "in " ^^ tail)
   | Annot (te, body) ->
     (* Reprinting an `Annot`'d let RHS via inline `expr : Type` syntax would
        be genuinely ambiguous: the parser's infix `:` in expression position
@@ -1999,58 +2056,62 @@ and emit_let ?col indent p e1 e2 =
       bracket_if_wrapped_app_at ~anchor:indent body emitted
     in
     let e2s = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
-    let head = "let " ^ name ^ " : " ^ emit_type_expr te in
-    let oneline = head ^ " = " ^ bodys ^ " in " ^ e2s in
+    let head = Doc.text ("let " ^ name ^ " : " ^ emit_type_expr te) in
+    let oneline = head ^^ Doc.text " = " ^^ bodys ^^ Doc.text " in " ^^ e2s in
     if (not commented) && fits col oneline then oneline
     else
-      let ind = String.make indent ' ' in
-      Printf.sprintf "%s = %s in\n%s%s%s" head bodys above ind e2s
+      let ind = Doc.spaces indent in
+      head ^^ Doc.text " = " ^^ bodys ^^ Doc.text " in\n"
+      ^^ above ^^ ind ^^ e2s
   | _ ->
   let e1s = emit_expr indent e1 in
   (* A wrapped application after `in` needs its brackets for the same reason
      one after `=` does: it ends where its first line ends, and the argument
      below reads as continuing the definition this `let` belongs to. *)
   let e2s = bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2) in
-  let oneline = Printf.sprintf "let %s = %s in %s" (emit_pat p) e1s e2s in
-  let ind = String.make indent ' ' in
+  let oneline =
+    Doc.text ("let " ^ emit_pat p ^ " = ") ^^ e1s ^^ Doc.text " in " ^^ e2s in
+  let ind = Doc.spaces indent in
   if (not commented) && fits col oneline then oneline
   else
     (* Splitting after `in` is the first thing to try, but the binding alone
        may still be too long -- and the value was rendered as though it began
        at the margin, not after `let name = `. Given its own line it gets the
        room the measurement assumed, and wraps on its own terms. *)
-    let bound = Printf.sprintf "let %s = %s in" (emit_pat p) e1s in
+    let bound =
+      Doc.text ("let " ^ emit_pat p ^ " = ") ^^ e1s ^^ Doc.text " in" in
     if fits col bound then
       (* A bracketed tail after `in` opens on the same line, brace-style,
          like a bracketed value after `=`. *)
       (if opens_a_bracket e2 && not commented then
-         bound ^ " " ^ emit_expr ~col:(col + String.length bound + 1) indent e2
-       else bound ^ "\n" ^ above ^ ind ^ e2s)
+         bound ^^ Doc.text " " ^^ emit_expr ~col:(col + Doc.width bound + 1) indent e2
+       else bound ^^ Doc.text "\n" ^^ above ^^ ind ^^ e2s)
     else
-      emit_bound_value ~col indent ("let " ^ emit_pat p) e1
-      ^ "\n" ^ ind ^ "in\n" ^ above ^ ind ^ e2s
+      emit_bound_value ~col indent (Doc.text ("let " ^ emit_pat p)) e1
+      ^^ Doc.text "\n" ^^ ind ^^ Doc.text "in\n" ^^ above ^^ ind ^^ e2s
 
 (* The `let f ... and g ...` group on its own, without whatever reads it:
    the `in` form puts its body below, the block form puts a `;`. *)
 and emit_letrec_bindings indent bindings =
   let emit_binding kw (name, params, body) =
     let (annot_s, body) = split_clause_annot body in
-    kw ^ " " ^ name
-    ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat_atom params))
-    ^ annot_s ^ " = " ^ emit_expr indent body
+    Doc.text (kw ^ " " ^ name)
+    ^^ (if params = [] then Doc.empty
+        else Doc.text (" " ^ String.concat " " (List.map emit_pat_atom params)))
+    ^^ Doc.text (annot_s ^ " = ") ^^ emit_expr indent body
   in
-  let ind = String.make indent ' ' in
+  let ind = Doc.spaces indent in
   let lines = match bindings with
     | [] -> []
     | first :: rest ->
       emit_binding "let" first :: List.map (emit_binding "and") rest
   in
-  String.concat ("\n" ^ ind) lines
+  Doc.concat (Doc.text "\n" ^^ ind) lines
 
 and emit_letrec indent bindings e2 =
-  let ind = String.make indent ' ' in
-  emit_letrec_bindings indent bindings ^ "\n" ^ ind ^ "in "
-  ^ bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2)
+  let ind = Doc.spaces indent in
+  emit_letrec_bindings indent bindings ^^ Doc.text "\n" ^^ ind ^^ Doc.text "in "
+  ^^ bracket_if_wrapped_app_at ~anchor:indent e2 (emit_expr indent e2)
 
 and emit_if ?col indent c t el =
   let col = match col with Some c -> c | None -> indent in
@@ -2064,14 +2125,17 @@ and emit_if ?col indent c t el =
      however it was written -- comes back as the one-armed form. *)
   match strip_located el with
   | Unit ->
-    let oneline = Printf.sprintf "if %s then %s" cs ts in
+    let oneline =
+      Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ ts in
     if fits col oneline then oneline
     else
-      Printf.sprintf "if %s then\n%s%s" cs (String.make (indent + 2) ' ')
-        (bracket_if_wrapped_app_at ~anchor:indent t ts)
+      Doc.text "if " ^^ cs ^^ Doc.text " then\n" ^^ Doc.spaces (indent + 2)
+      ^^ bracket_if_wrapped_app_at ~anchor:indent t ts
   | _ ->
     let es = emit_expr indent el in
-    let oneline = Printf.sprintf "if %s then %s else %s" cs ts es in
+    let oneline =
+      Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ ts
+      ^^ Doc.text " else " ^^ es in
     if fits col oneline then oneline
     else
       (* An `if` that starts mid-line -- after `x = ` or `fn a -> ` -- owns
@@ -2080,23 +2144,25 @@ and emit_if ?col indent c t el =
          is one ladder: every clause lands at that same indent, instead of
          each else stepping past the one before it. *)
       let cont = if col > indent then indent + 2 else indent in
-      let ind = String.make cont ' ' in
+      let ind = Doc.spaces cont in
       (* A branch that wrapped ends at its first line, so what is left of it
          below reads as continuing whatever the `if` belongs to. *)
       let rec ladder c t el =
         let clause =
-          let prefix =
-            Printf.sprintf "if %s then "
-              (bracket_if_wrapped_app_at ~anchor:cont c (emit_expr cont c)) in
+          let head =
+            Doc.text "if "
+            ^^ bracket_if_wrapped_app_at ~anchor:cont c (emit_expr cont c)
+            ^^ Doc.text " then" in
+          let prefix = head ^^ Doc.text " " in
           let flat =
             prefix
-            ^ bracket_if_wrapped_app_at ~anchor:cont t
+            ^^ bracket_if_wrapped_app_at ~anchor:cont t
                 (emit_expr ~col:(column_after cont prefix) cont t) in
           if fits cont flat then flat
           else
-            let body = String.make (cont + 2) ' ' in
-            String.trim prefix ^ "\n" ^ body
-            ^ bracket_if_wrapped_app_at ~anchor:(cont + 2) t (emit_expr (cont + 2) t) in
+            let body = Doc.spaces (cont + 2) in
+            head ^^ Doc.text "\n" ^^ body
+            ^^ bracket_if_wrapped_app_at ~anchor:(cont + 2) t (emit_expr (cont + 2) t) in
         match strip_located el with
         | Unit -> [clause]
         | If (c2, t2, el2) -> clause :: ladder c2 t2 el2
@@ -2104,7 +2170,7 @@ and emit_if ?col indent c t el =
           [clause;
            bracket_if_wrapped_app_at ~anchor:cont el (emit_expr ~col:(cont + 5) cont el)]
       in
-      String.concat ("\n" ^ ind ^ "else ") (ladder c t el)
+      Doc.concat (Doc.text "\n" ^^ ind ^^ Doc.text "else ") (ladder c t el)
 
 (* A `match`/`handle` case body ends only where the next `|`-prefixed case
    begins -- there's no other terminator. So an unparenthesized Match or
@@ -2156,9 +2222,9 @@ and emit_case_body ?col indent body =
        gets: open the block on the arrow's line, the nested match two
        deeper, the closing paren back at the arm's indent -- rather than a
        nested match whose arms sit flush with the outer ones. *)
-    let ind = String.make indent ' ' in
-    let inner = String.make (indent + 2) ' ' in
-    "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
+    let ind = Doc.spaces indent in
+    let inner = Doc.spaces (indent + 2) in
+    Doc.text "(\n" ^^ inner ^^ emit_expr (indent + 2) body ^^ Doc.text "\n" ^^ ind ^^ Doc.text ")"
   (* An application wide enough to wrap needs its parentheses back here for
      the same reason a binding's does: it ends where its first line does,
      and the argument left below is read as continuing the definition the
@@ -2175,10 +2241,10 @@ and emit_case_body ?col indent body =
       | Let (_, _, _, LetIn) | LetRec (_, _, LetIn) -> true
       | _ -> false
     in
-    if is_let_in && String.contains flat '\n' then begin
-      let ind = String.make indent ' ' in
-      let inner = String.make (indent + 2) ' ' in
-      "(\n" ^ inner ^ emit_expr (indent + 2) body ^ "\n" ^ ind ^ ")"
+    if is_let_in && Doc.has_newline flat then begin
+      let ind = Doc.spaces indent in
+      let inner = Doc.spaces (indent + 2) in
+      Doc.text "(\n" ^^ inner ^^ emit_expr (indent + 2) body ^^ Doc.text "\n" ^^ ind ^^ Doc.text ")"
     end else bracket_if_wrapped_app_at ~anchor:indent body flat
 
 (* The scrutinee shares its own "with" keyword with any enclosing match's
@@ -2197,7 +2263,7 @@ and emit_match ?col indent scr cases =
   (* Arms of a `match` that starts mid-line step in, as an `if`'s else
      does, instead of landing flush with the line that introduced it. *)
   let arm_indent = if col > indent then indent + 2 else indent in
-  let ind = String.make arm_indent ' ' in
+  let ind = Doc.spaces arm_indent in
   (* Where the arm before this one ended. A comment after that point and
      before this arm's own start belongs above this arm; one before it sits
      inside the previous arm and is that arm's to write. *)
@@ -2212,35 +2278,36 @@ and emit_match ?col indent scr cases =
       match loc_of (match guard with Some g -> g | None -> body) with
       | None -> []
       | Some l ->
-        List.map (fun c -> ind ^ c.c_text ^ "\n")
+        List.map (fun c -> ind ^^ Doc.text c.c_text ^^ Doc.text "\n")
           (comments_between !prev_end l.Token.offset)
     in
     (match loc_of body with
      | Some l -> prev_end := l.Token.end_offset
      | None -> prev_end := max_int);
     let guard_s = match guard with
-      | None -> ""
-      | Some g -> " when " ^ emit_expr arm_indent g
+      | None -> Doc.empty
+      | Some g -> Doc.text " when " ^^ emit_expr arm_indent g
     in
     (* The body starts after the pattern and the arrow, not at the case's
        indent -- which is the whole of this bug. *)
-    let prefix = ind ^ "| " ^ emit_pat p ^ guard_s ^ " -> " in
-    let text = prefix ^ emit_case_body ~col:(String.length prefix) arm_indent body in
-    String.concat "" lead ^ text
+    let prefix =
+      ind ^^ Doc.text ("| " ^ emit_pat p) ^^ guard_s ^^ Doc.text " -> " in
+    let text = prefix ^^ emit_case_body ~col:(Doc.width prefix) arm_indent body in
+    Doc.concat Doc.empty lead ^^ text
   in
-  "match " ^ emit_scrutinee indent scr ^ " with\n"
-  ^ String.concat "\n" (List.map emit_case cases)
+  Doc.text "match " ^^ emit_scrutinee indent scr ^^ Doc.text " with\n"
+  ^^ Doc.concat (Doc.text "\n") (List.map emit_case cases)
 
 (* The value after an `=`, once it is known not to fit on one line. It stays
    on the `=` line only when it carries the break itself and still needs
    more than one line. Otherwise it takes the next line, and an application
    that wrapped there gets its parentheses. *)
 and emit_bound_value ~col indent head body =
-  let below = "\n" ^ String.make (indent + 2) ' ' in
+  let below = Doc.text "\n" ^^ Doc.spaces (indent + 2) in
   (* Opened on the `=` line, the chain starts well right of the indent its
      own statements would take, so they would land left of the binding they
      belong to and stop being its body. Bracketed there, as before. *)
-  let on_eq_line () = emit_expr ~col:(col + String.length head + 3) indent body in
+  let on_eq_line () = emit_expr ~col:(col + Doc.width head + 3) indent body in
   (* A chain of bindings is the value, and given a line of its own it needs
      no bracket: its statements and the `let` that opens them share an
      indent, which is where the parser looks for a body. Asked before
@@ -2249,12 +2316,12 @@ and emit_bound_value ~col indent head body =
      the binding they belong to. *)
   match strip_located body with
   | (Let (_, _, _, LetBlock) | LetRec (_, _, LetBlock)) when is_bare_chain body ->
-    head ^ " =" ^ below ^ emit_expr ~stmt:true (indent + 2) body
+    head ^^ Doc.text " =" ^^ below ^^ emit_expr ~stmt:true (indent + 2) body
   | _ ->
   (* The value's own bracket goes here whatever it costs: given a line of
      its own it says nothing, since the items sit at the same column either
      way. *)
-  if opens_a_bracket body then head ^ " = " ^ on_eq_line ()
+  if opens_a_bracket body then head ^^ Doc.text " = " ^^ on_eq_line ()
   else
     (* Given a line of its own, the chain and its statements share an indent,
        which is where the parser looks for a binding's body. *)
@@ -2263,9 +2330,9 @@ and emit_bound_value ~col indent head body =
        what it was denied, and the room may be all it needed -- one line
        under the head beats a bracket opened here and closed three lines
        down. *)
-    if not (String.contains indented '\n') then head ^ " =" ^ below ^ indented
+    if not (Doc.has_newline indented) then head ^^ Doc.text " =" ^^ below ^^ indented
     else if not (carries_the_break body) then
-      head ^ " =" ^ below ^ bracket_if_wrapped_app_at ~anchor:col body indented
+      head ^^ Doc.text " =" ^^ below ^^ bracket_if_wrapped_app_at ~anchor:col body indented
     else
       (* The shape says the call ends in a bracket; this says the bracket is
          still open where the first line ends, which is the whole reason the
@@ -2275,15 +2342,23 @@ and emit_bound_value ~col indent head body =
          `carries_the_break` is asked first because it reads the shape and
          costs nothing, while `on_eq_line ()` lays the whole value out again. *)
       let c = on_eq_line () in
-      if depth_after_first_line c > 0 then head ^ " = " ^ c
-      else head ^ " =" ^ below ^ bracket_if_wrapped_app_at ~anchor:col body indented
+      if depth_after_first_line (Doc.first_line c) > 0 then
+        head ^^ Doc.text " = " ^^ c
+      else head ^^ Doc.text " =" ^^ below ^^ bracket_if_wrapped_app_at ~anchor:col body indented
+
+let with_body_lead_text head indent e fallback =
+  Doc.to_string
+    (with_body_lead (Doc.text head) indent e (fun () -> Doc.text (fallback ())))
+
+let doc_bound_value indent head body =
+  Doc.to_string (emit_bound_value ~col:0 indent (Doc.text head) body)
 
 let emit_one_equation head_kw pats body =
   let (annot_s, body) = split_clause_annot body in
   let head = head_kw ^ " " ^ String.concat " " (List.map emit_pat_atom pats) ^ annot_s in
-  let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) 0 body in
-  if fits 0 oneline then oneline
-  else emit_bound_value ~col:0 0 head body
+  let oneline = head ^ " = " ^ Doc.to_string (emit_expr ~stmt:(is_bare_chain body) 0 body) in
+  if fits_text 0 oneline then oneline
+  else doc_bound_value 0 head body
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
 
@@ -2298,7 +2373,7 @@ let emit_named_field_type t = emit_type_app_expr t
    one, so this never reaches the positional form. *)
 let emit_field_default defaults n =
   match List.assoc_opt n defaults with
-  | Some d -> " = " ^ emit_expr 0 d
+  | Some d -> " = " ^ Doc.to_string (emit_expr 0 d)
   | None -> ""
 
 let emit_ctor_fields ?(defaults = []) fields =
@@ -2352,7 +2427,7 @@ let emit_type_def = function
     let oneline =
       "type " ^ name_and_params
       ^ emit_ctor_fields ~defaults:c.defaults c.fields in
-    if fits 0 oneline then oneline
+    if fits_text 0 oneline then oneline
     else "type "
          ^ emit_ctor_fields_wrapped ~defaults:c.defaults name_and_params c.fields
   | _ ->
@@ -2362,7 +2437,7 @@ let emit_type_def = function
       (List.map (fun c ->
          c.name ^ emit_ctor_fields ~defaults:c.defaults c.fields) ctors)
   in
-  if fits 0 oneline then oneline
+  if fits_text 0 oneline then oneline
   else match ctors with
     (* A single constructor with named fields is a record: widen it down the
        page rather than past the margin. Several constructors wrap at the
@@ -2381,28 +2456,29 @@ let emit_top_item_pretty_uncached = function
   | TLImport (UserPath p)     -> "import " ^ p
   | TLType (tdef, _) -> emit_type_def tdef
   | TLLetPat (p, e) ->
-    let body = emit_expr 0 e in
+    let body = Doc.to_string (emit_expr 0 e) in
     let oneline = Printf.sprintf "let %s = %s" (emit_pat_binder p) body in
-    if fits 0 oneline then oneline
+    if fits_text 0 oneline then oneline
     else
       Printf.sprintf "let %s =\n  %s" (emit_pat_binder p)
-        (bracket_if_wrapped_app_at ~anchor:0 e
-           (emit_expr ~stmt:(is_bare_chain e) 2 e))
+        (Doc.to_string
+           (bracket_if_wrapped_app_at ~anchor:0 e
+              (emit_expr ~stmt:(is_bare_chain e) 2 e)))
   | TLLet (name, [], Annot (te, body)) ->
     (* Same ambiguity as the local-`let` case: reprinting via inline
        `expr : Type` would re-parse as cons, not ascription -- keep the
        dedicated `let name : T = e` syntax. *)
-    let bodys = emit_expr ~stmt:(is_bare_chain body) 0 body in
+    let bodys = Doc.to_string (emit_expr ~stmt:(is_bare_chain body) 0 body) in
     let head = "let " ^ name ^ " : " ^ emit_type_expr te in
     let oneline = head ^ " = " ^ bodys in
-    if fits 0 oneline then oneline
-    else emit_bound_value ~col:0 0 head body
+    if fits_text 0 oneline then oneline
+    else doc_bound_value 0 head body
   | TLLet (name, [], e) ->
-    with_body_lead ("let " ^ name) 0 e (fun () ->
-      let body = emit_expr ~stmt:(is_bare_chain e) 0 e in
+    with_body_lead_text ("let " ^ name) 0 e (fun () ->
+      let body = Doc.to_string (emit_expr ~stmt:(is_bare_chain e) 0 e) in
       let oneline = Printf.sprintf "let %s = %s" name body in
-      if fits 0 oneline then oneline
-      else emit_bound_value ~col:0 0 ("let " ^ name) e)
+      if fits_text 0 oneline then oneline
+      else doc_bound_value 0 ("let " ^ name) e)
   | TLLet (name, params, e) ->
     (match try_multi_equation params e with
      | Some clauses ->
@@ -2414,25 +2490,25 @@ let emit_top_item_pretty_uncached = function
        let head = "let " ^ name ^ " " ^ String.concat " " (List.map emit_pat_atom params) ^ annot_s in
        (match lead with
         | [] ->
-          let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain e) 0 e in
-          if fits 0 oneline then oneline
-          else emit_bound_value ~col:0 0 head e
+          let oneline = head ^ " = " ^ Doc.to_string (emit_expr ~stmt:(is_bare_chain e) 0 e) in
+          if fits_text 0 oneline then oneline
+          else doc_bound_value 0 head e
         | cs ->
           (* The comments take the lines above the value, and the value then
              starts its own line at the body's indent -- a statement position
              like any other. *)
           head ^ " =\n"
           ^ String.concat "" (List.map (fun c -> "  " ^ c.c_text ^ "\n") cs)
-          ^ "  " ^ emit_expr ~stmt:(is_bare_chain e) 2 e))
+          ^ "  " ^ Doc.to_string (emit_expr ~stmt:(is_bare_chain e) 2 e)))
   | TLLetRec bindings ->
     let emit_binding kw (name, params, body) =
       let (annot_s, body) = split_clause_annot body in
       let head = kw ^ " " ^ name
         ^ (if params = [] then "" else " " ^ String.concat " " (List.map emit_pat_atom params))
         ^ annot_s in
-      let oneline = head ^ " = " ^ emit_expr ~stmt:(is_bare_chain body) 0 body in
-      if fits 0 oneline then oneline
-      else emit_bound_value ~col:0 0 head body
+      let oneline = head ^ " = " ^ Doc.to_string (emit_expr ~stmt:(is_bare_chain body) 0 body) in
+      if fits_text 0 oneline then oneline
+      else doc_bound_value 0 head body
     in
     (match bindings with
      | [] -> ""
@@ -2441,9 +2517,8 @@ let emit_top_item_pretty_uncached = function
   | TLExpr e ->
     (* A top-level expression is subject to the same rule as a binding's
        value: wrapped as a bare application it stops being one expression. *)
-    let emitted = emit_expr 0 e in
     let text =
-      bracket_if_wrapped_app_at ~anchor:0 e emitted in
+      Doc.to_string (bracket_if_wrapped_app_at ~anchor:0 e (emit_expr 0 e)) in
     (* And to one more. A line that opens with an operator continues the
        line above it -- that is how a pipeline is written, and the reference
        warns that `-` surprises people the same way. An item of its own that
@@ -2456,7 +2531,8 @@ let emit_top_item_pretty_uncached = function
           | '-' | '+' | '*' | '/' | '<' | '>' | '=' | '&' | '|' | ':' -> true
           | _ -> false)
     in
-    if continues_the_line_above then bracket text else text
+    if continues_the_line_above then Doc.to_string (bracket (Doc.text text))
+    else text
 
 (* One item's layouts belong to that item. `interior` and `item_start` are
    set around this call and read while it runs, so a layout produced under
