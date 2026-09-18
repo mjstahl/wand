@@ -245,18 +245,29 @@ instances, and no call that has to work out where to go.
     variable is only in the result. That is the case the first draft of this
     design had to ban. Here it is unremarkable, because nothing is
     dispatched: `let limits (m: Bounded 'a) = (m.max_value, m.min_value)`.
-12. **A member says which interface member it answers to**, on its own line
-    between the signature and the doc -- the slot `performs` already uses for
-    a fact the type does not carry:
+12. **A member names the interfaces it answers to**, on its own line between
+    the signature and the doc -- the slot `performs` already uses for a fact
+    the type does not carry:
 
     ```
     $ wand d Int.max_value
     Int.max_value : Int
-    implements Bounded.max_value
+    implements Bounded
     The largest Int.
 
     >> Int.max_value
     4611686018427387903 : Int
+    ```
+
+    The interface names alone, comma-separated as `performs` writes its list,
+    and nothing else. The member's own name is in the signature above, and so
+    is the type, so `implements Bounded.max_value Int` would repeat two
+    things the reader is already looking at. One binding answering to two
+    interfaces needs no second shape:
+
+    ```
+    Int.max : Int -> Int -> Int
+    implements Comparable, Ord
     ```
 
     Where a member has both lines, `implements` comes first: what it answers
@@ -282,21 +293,7 @@ instances, and no call that has to work out where to go.
 
 ## Questions
 
-**What does a member answering to two interfaces print?** One binding can
-satisfy two interfaces that declare the same name at the same type, so
-`Int.max` could answer to `Ord.max` and to something else. The single-line
-form has nowhere to put the second. Either it takes the module's shape --
-
-```
-implements
-  Ord.max
-  Comparable.max
-```
-
--- and the one-interface case keeps the short line, or both use the long form
-and a member with one interface spends three lines saying it. It is a small
-decision and it only matters once a second interface declares a name that a
-first one already does.
+None open. What is left is the work in the order below.
 
 ## Order
 
