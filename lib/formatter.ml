@@ -899,6 +899,27 @@ module Layouts = Hashtbl.Make (Layout_key)
 
 let layouts : Doc.t Layouts.t = Layouts.create 1024
 
+(* The same node, keyed by itself alone. *)
+module Node_key = struct
+  type t = expr
+  let equal a b = a == b
+  let hash e =
+    match e with
+    | Located (l, _) -> Hashtbl.hash l.Token.offset
+    | _ -> Hashtbl.hash_param 8 32 e
+end
+
+module Nodes = Hashtbl.Make (Node_key)
+
+(* How wide a value is with nothing to wrap against, and `None` where it
+   breaks whatever the room. Neither answer depends on the column it starts
+   at or the indent it is handed: at an unbounded margin nothing chooses to
+   wrap, and what breaks anyway breaks the same way everywhere. So one
+   answer serves every caller asking whether a value fits, and the callers
+   that would have laid it out at their own column to find out -- and thrown
+   the layout away when it did not fit -- do not lay it out at all. *)
+let flat_layouts : Doc.t option Nodes.t = Nodes.create 256
+
 (* `stmt` says this expression stands where a statement may: a body, an arm,
    a branch. A binding chain written there is the body itself, so it needs no
    brackets round it; anywhere else it is one expression among others and
@@ -975,6 +996,26 @@ and parenthesize ?(close_alone = false) indent s =
    splice is rendered against a margin nothing reaches, and comes back on one
    line however long it is. *)
 and emit_splice indent e = with_width 1_000_000 (fun () -> emit_expr indent e)
+
+and flat_layout e =
+  match Nodes.find_opt flat_layouts e with
+  | Some d -> d
+  | None ->
+    let laid_out = with_width 1_000_000 (fun () -> emit_expr 0 e) in
+    let answer = if Doc.has_newline laid_out then None else Some laid_out in
+    Nodes.replace flat_layouts e answer;
+    answer
+
+(* The value on one line when it stands in `room`, and nothing when it does
+   not -- a value that breaks at an unbounded margin breaks at every one, and
+   a wider value has less room here than the probe gave it. The layout handed
+   back is the one the caller writes, so asking costs nothing over writing:
+   the caller that used to lay the value out at its own column and throw the
+   layout away when it did not fit now lays it out once, or not at all. *)
+and stands_in room e =
+  match flat_layout e with
+  | Some d when Doc.width d <= room -> Some d
+  | _ -> None
 
 and emit_atom ?(followed = false) indent e =
   let e' = strip_located e in
@@ -2119,25 +2160,42 @@ and emit_if ?col indent c t el =
      `then` has to follow it, and an application that wrapped is over by the
      time the next line starts -- so the parser arrives at the argument
      below still owed a `then`. Found by test/fuzz. *)
-  let cs = bracket_if_wrapped_app_at ~anchor:indent c (emit_expr indent c)
-  and ts = emit_expr indent t in
+  let cs = bracket_if_wrapped_app_at ~anchor:indent c (emit_expr indent c) in
   (* A branch that does nothing is written by leaving it out, so `else ()` --
      however it was written -- comes back as the one-armed form. *)
   match strip_located el with
   | Unit ->
-    let oneline =
-      Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ ts in
-    if fits col oneline then oneline
-    else
-      Doc.text "if " ^^ cs ^^ Doc.text " then\n" ^^ Doc.spaces (indent + 2)
-      ^^ bracket_if_wrapped_app_at ~anchor:indent t ts
+    let one_line =
+      if Doc.has_newline cs then None
+      else
+        match stands_in (!max_width - col - Doc.width cs - 9) t with
+        | None -> None
+        | Some td ->
+          let oneline = Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ td in
+          if fits col oneline then Some oneline else None
+    in
+    (match one_line with
+     | Some oneline -> oneline
+     | None ->
+       let ts = emit_expr indent t in
+       Doc.text "if " ^^ cs ^^ Doc.text " then\n" ^^ Doc.spaces (indent + 2)
+       ^^ bracket_if_wrapped_app_at ~anchor:indent t ts)
   | _ ->
-    let es = emit_expr indent el in
-    let oneline =
-      Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ ts
-      ^^ Doc.text " else " ^^ es in
-    if fits col oneline then oneline
-    else
+    let one_line =
+      if Doc.has_newline cs then None
+      else
+        let room = !max_width - col - Doc.width cs - 15 in
+        match stands_in room t, stands_in room el with
+        | Some td, Some ed ->
+          let oneline =
+            Doc.text "if " ^^ cs ^^ Doc.text " then " ^^ td
+            ^^ Doc.text " else " ^^ ed in
+          if fits col oneline then Some oneline else None
+        | _ -> None
+    in
+    match one_line with
+    | Some oneline -> oneline
+    | None ->
       (* An `if` that starts mid-line -- after `x = ` or `fn a -> ` -- owns
          none of the text to its left, so its `else` steps in rather than
          landing flush with the line that introduced it. An else-if chain
@@ -2154,15 +2212,20 @@ and emit_if ?col indent c t el =
             ^^ bracket_if_wrapped_app_at ~anchor:cont c (emit_expr cont c)
             ^^ Doc.text " then" in
           let prefix = head ^^ Doc.text " " in
-          let flat =
-            prefix
-            ^^ bracket_if_wrapped_app_at ~anchor:cont t
-                (emit_expr ~col:(column_after cont prefix) cont t) in
-          if fits cont flat then flat
-          else
+          let below () =
             let body = Doc.spaces (cont + 2) in
             head ^^ Doc.text "\n" ^^ body
-            ^^ bracket_if_wrapped_app_at ~anchor:(cont + 2) t (emit_expr (cont + 2) t) in
+            ^^ bracket_if_wrapped_app_at ~anchor:(cont + 2) t (emit_expr (cont + 2) t)
+          in
+          (* Same reading as the one-line form above: the branch is not laid
+             out beside the `then` unless it can stand there. *)
+          (if Doc.has_newline prefix then below ()
+           else
+             match stands_in (!max_width - cont - Doc.width prefix) t with
+             | None -> below ()
+             | Some td ->
+               let flat = prefix ^^ td in
+               if fits cont flat then flat else below ()) in
         match strip_located el with
         | Unit -> [clause]
         | If (c2, t2, el2) -> clause :: ladder c2 t2 el2
@@ -2539,6 +2602,7 @@ let emit_top_item_pretty_uncached = function
    one item's comments must not be handed to the next. *)
 let emit_top_item_pretty item =
   Layouts.reset layouts;
+  Nodes.reset flat_layouts;
   emit_top_item_pretty_uncached item
 
 (* ── Comment collection + attachment, and whole-file assembly ───────────────

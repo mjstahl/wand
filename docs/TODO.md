@@ -76,26 +76,6 @@ in files the command never opened, and `Fix.fix_file` takes one path. The
 tree would stop building until every importer was edited by hand. So this
 waits on `wand t` taking a directory, above.
 
-### `wand f` lays a nested `if` out once per column
-
-An else-ladder is still slow, and it is now the only shape that is:
-
-```
-depth 200    0.4s
-depth 400    2.6s
-depth 800   17.8s
-```
-
-Text is no longer the cost -- the time is in `emit_if` and `emit_expr_inner`
-themselves. The layout cache is keyed by the node, the indent, the column
-and the margin, and a ladder asks for the same node at a new column on every
-level, so nothing is reused: 9,217 layouts at depth 50, 36,042 at 100,
-142,204 at 200. The count is the square of the depth, and the walk that
-produces it is the whole of the remaining cost.
-
-It needs input no one writes by hand, which is why it is here rather than
-fixed.
-
 ### A signature does not show that a constraint is one type
 
 `Ord.max` takes two of the same type and answers with that type. The

@@ -4,15 +4,18 @@
 
 ### Changed
 
-- **`wand f` no longer crawls on deeply nested code.** The formatter joins
-  the pieces of a layout and writes them out once, where it used to copy
-  every level's text into the level above it.
+- **`wand f` no longer crawls on deeply nested code.** Two things cost it.
+  It built each level's text by copying what the level below it had built,
+  where it now joins the pieces and writes them out once. And it wrote a
+  value out to find whether the value fits, where it now measures first and
+  writes only what it keeps.
 
   ```
-                         before    after
-  400 nested calls        5.9s     0.20s
-  200 nested if/else      5.6s     0.38s
-  1000 nested lists       5.1s     0.04s
+                          before    after
+  400 nested if/else      189.1s    0.04s
+  2000 nested lists        50.5s    0.09s
+  400 nested calls          5.9s    0.17s
+  400 nested matches        1.1s    0.03s
   ```
 
   Formatting is unchanged: the corpus, the tools, the demos and every
