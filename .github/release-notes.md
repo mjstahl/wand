@@ -1,143 +1,158 @@
-## 0.78.0 - 2026-09-17
+## 0.79.0 - 2026-09-18
 
-A pre-release audit. Two ways past a manifest, five crashes `try` could not
-catch, and a set of fixes to the command line, the REPL, the VS Code
-extension and the ported examples.
+Checking a tree in one command, asking what a file reaches, and every
+unknown name in one pass. Plus a signature that says which of its types are
+the same one, and the comparisons moving onto the types they order.
 
-### `Shell(echo)` let a script run `whoami`
+### `wand t` takes a directory
 
-wand read every `$((` as arithmetic and stopped looking. Where the brackets
-close before the `))`, `sh` reads it as a command and runs what is inside:
-
-```ocaml
-uses {Shell(echo), IO}
-IO.println $(echo $((whoami) ))
-```
-
-That typechecked, and printed the user name. It is refused now, when you
-typecheck it and again when the command is about to run:
+Checking a tree was a shell loop, because a second path was "too many
+arguments".
 
 ```
-this command runs 'whoami', which Shell(echo) does not allow
+$ wand t .
+scripts/deploy.wand: type error: 3:11: unbound variable 'targt'
+scripts/report.wand: warning: 5:1: V-BANG2: 'safe!' cannot raise, so the
+  `!` promises a risk that is not there; it is 'safe'
+12 files, 1 error, 1 warning
 ```
 
-### `Net(api.github.com)` let a script reach any other host
+Every finding carries its path, and one file's error does not stop the rest:
+a gate wants the whole list, not the first line of it. The exit code is 1 if
+any file has an error. A directory is searched all the way down, past
+`_build`, `_opam`, `.git` and `node_modules`, without following a link to a
+directory.
 
-A URL you write out is checked against the manifest of the file you wrote it
-in. A URL the script works out while it runs — from `String.to_url`, from
-`URL.join`, from any `URL.with_*` setter — was checked against nothing:
+One file named on its own is unchanged.
 
-```ocaml
-uses {Net(api.github.com), IO}
-match String.to_url "https://anywhere.test/x" with
-| Ok u -> IO.println "%{HTTP.get u}"
-| Error e -> IO.println e
-```
+### `wand t --effects` says what a file reaches
 
-That sent the request and said nothing. Nor was any redirect it followed
-checked. The manifest of the file that is running answers for both now:
+`--json` reported lint findings, and a clean file reported `[]`, so there was
+no way to ask what a file reaches outside itself. Now there is, and a check
+can compare it with a policy by exit code.
 
 ```
-this request reaches 'anywhere.test', which Net(api.github.com) does not allow
+$ wand t --effects examples
+examples/hello.wand                 ! {}
+examples/log-summary.wand           ! {IO}
+examples/party.wand                 ! {Shell(whoami)}
+examples/ports/disk-threshold.wand  ! {IO, Shell(df)}
+examples/ports/http-retry.wand      ! {Clock, Env, IO, Net, Proc}
+examples/sysinfo.wand               ! {Env, Shell(hostname, uname)}
+32 files
 ```
 
-### A lex error named one byte of a character
+The set is the one wand inferred, never the `uses` line — a file with no
+manifest is unbounded rather than sealed, so reading the manifest would
+report the emptiest set for the least bounded file in a tree. A file that
+reaches nothing reports `! {}` rather than a blank, so a check can match it.
 
-A character wand has no use for was reported by the byte it starts with, so
-the message was not valid UTF-8 — a harness reading diagnostics as text died
-rather than reporting it — and `\342` said nothing anyone could act on. It
-names the character now, and for the ones a pasted document carries it names
-the fix:
+### Every unknown name in one run
+
+A failing typecheck answered with one error, so a file with six unknown names
+took six runs to clear. A person reread it between each, and a tool driving
+`wand t` in a loop paid a round trip per name.
 
 ```
-lex error: 1:11: unexpected character '—' -- write a hyphen, -
+$ wand t report.wand
+Error: type error: 1:11: unbound variable 'alpha' -- 'wand d' lists the modules...
+Error: type error: 3:11: unbound variable 'beta' -- 'wand d' lists the modules...
+Error: type error: 5:11: unbound variable 'gamma' -- 'wand d' lists the modules...
 ```
 
-Curly quotes, an en dash, an ellipsis and a no-break space say the same. A
-byte that begins no character is named rather than printed.
+An unbound name is the one error a check can carry on past: the name gets a
+fresh type variable, which unifies with anything, so nothing below the miss
+reports a consequence of it as a mistake of its own. Every other error still
+stops where it stood.
 
-### Five crashes `try` could not catch
+### A signature says which of its types are the same one
 
-An instant is written with four digits for the year, so `DateTime.on 10000 1
-1` had no way to be written down — and it killed the run instead of saying
-so. A `Duration` that moved an instant past that range did the same. A
-directory it could not read killed a `FS.glob_in`. `Proc.exit` under `wand
--e`, `wand s` or `wand d -t` reported a crash and the code 2 rather than the
-code it was given. And one position outside the file ended the language
-server, so the editor stopped reporting anything for the rest of the
-session.
+`Ord`, `Add` and `Num` printed as though they were types, so a signature
+could not say which of its uses were the same type — and where there were
+two, it said nothing at all:
 
-Each answers now, `try` catches each, and the exit codes are the ones the
-caller expects.
-
-### A `with` could not be a binding's body after a `;`
-
-Every other block form could be. The `;` ended the definition instead, and
-the line below it fell through to the top of the file:
-
-```ocaml
-let f! () =
-  let n = 1;
-  with FS.temp_dir "t_" as d -> n
+```
+before:  pair_of_maxes : Ord -> Ord -> Ord -> Ord -> (Ord, Ord)
+after:   pair_of_maxes : 'a: Ord -> 'a -> 'b: Ord -> 'b -> ('a, 'b)
 ```
 
-That is the shape `wand f` writes for such a chain, and it did not parse.
-Found by the daily fuzzer.
+Six `Ord`s there, and two types: `pair_of_maxes 1 2 "a" "b"` is legal. What
+`wand d` prints still pastes back as an annotation.
 
-### `--strict` was a gate on one side of the path and an argument on the other
+### The comparisons moved onto the ordered types
 
-`wand deploy.wand --strict` refused a violation. `wand --dry-run
-deploy.wand --strict` ran the script and passed `--strict` on to it as an
-argument. Both spellings are a gate now, wherever the flag is written.
+The `Ord` module is gone. Each of the eleven types wand orders carries `max`,
+`min`, `clamp` and `between?` itself, so the place to look for one is the
+type in your hand.
 
-### `Env.set` corrupted the environment
+```
+Ord.max 3 7            ->  Int.max 3 7
+Ord.min 4KB 100MB      ->  Size.min 4KB 100MB
+Ord.clamp 1s 30s 5min  ->  Duration.clamp 1s 30s 5min
+```
 
-A name is what stands left of the `=`. `Env.set "A=B" "x"` set `A` to
-`B=x`, and an empty name added an entry nothing could read. Both are
-refused.
+The old spelling says where its function went. `List.max`, `List.min`,
+`List.sum` and the three on `Stream` are unchanged — a list is where you
+already look for those.
 
-### The YAML reader had no bound on nesting
+### `wand d --index`
 
-There was already a limit on how far an anchor may be expanded, which is the
-well-known way to make a small file cost a lot. A file that simply nests
-fifty thousand deep needs no anchors and cost just as much: seconds to read,
-and it could end the run. Nesting stops at 200.
+Every module's members with their signatures in one listing, 547 lines: the
+whole standard library surface as a command that stays in step with what is
+on disk. `--json` gives the same as an array of `{name, type}`.
 
-### `:reload` served a stale dependency
+### `String.lines` drops the piece a trailing newline left
 
-Editing a file the script imports and reloading said it had reloaded, and
-then ran the version from before the edit.
+A newline ends a line rather than separating two, so nearly every file gave
+back one element more than it had lines, with `""` at the end, and every
+caller had to filter it.
 
-### The VS Code extension coloured code wand rejects
+```
+                        -- before            -- now
+String.lines "a\nb\n"    ["a", "b", ""]      ["a", "b"]
+String.lines ""          [""]                []
+```
 
-`(* ... *)` looked like a comment, `14:30:00` like a value, `and` and `or`
-like operators, and `for`, `do`, `end`, `class`, `instance`, `orphan` and
-`of` like keywords. Every one of those is an error when you run it, each
-with a message naming the wand spelling — so the editor said one thing and
-the run said another. Three of the ten effect names, `Net`, `Clock` and
-`Random`, were left uncoloured inside the `uses` line that declares them.
+An empty line written on purpose is still a line: only the piece after the
+last newline goes, and only when it is empty.
 
-The extension also said nothing useful when it could not start: a missing
-`wand` showed up as "extension failed to activate". It names the path it
-tried now, and offers to open the setting that fixes it. Changing
-`wand.path` takes effect at once rather than after a window reload.
+### The `String.to_*` family has its raising siblings
 
-`class`, `instance`, `orphan` and `let*` are names you can use again. They
-were reserved for nothing — no part of wand read them — and that list is
-where the colouring had taken its keywords from.
+The naming rule is that a fallible function comes as a pair, and this family
+was twelve exceptions to it in one module. `to_int!`, `to_float!`, `to_bool!`,
+`to_glob!`, `to_url!`, `to_ipv4!`, `to_cidr!`, `to_port!`, `to_version!`,
+`to_size!`, `to_datetime!` and `to_duration!`. `to_path` has none, because it
+cannot fail: any text is a path.
 
-### Three names that ran a command without checking the manifest
+### A named field's type can be a function
 
-`process_run`, `process_run_quiet` and `process_exit_code` took a command as
-text and ran it with no manifest consulted. No wand program could reach
-them. They are gone, so none can.
+The comma or the closing parenthesis ends a named field, so a pair of
+parentheses around the whole type said nothing.
 
-### The ported examples
+```
+-- before                          -- now
+type Handler(                      type Handler(
+  ok: (Bool -> Int),                 ok: Bool -> Int,
+  eq: ('a -> 'a -> Int)              eq: 'a -> 'a -> Int
+)                                  )
+```
 
-`stage-release.wand` exited 1 on every run — it listed a file it never
-staged — and its "lock" was a file two runs would both write. It takes a
-real one with `FS.lock` now. `dir-budget.wand` skipped every file with no
-dot in its name, so it answered under what `du` says. `rotate-backups.wand`
-deleted every `.tgz` in the directory where its comment promised only the
-`backup-*.tgz` it writes. `normalize-names.wand` renamed one file onto
-another when two names tidied to one.
+A function type written as a parameter keeps its parentheses, because there
+they say which type it is.
+
+### `wand f` no longer crawls on deeply nested code
+
+It built each level's text by copying what the level below it had built, and
+it wrote a value out to find whether the value fits. It joins the pieces once
+now, and measures before writing.
+
+```
+                        before    after
+400 nested if/else      189.1s    0.04s
+2000 nested lists        50.5s    0.09s
+400 nested calls          5.9s    0.17s
+400 nested matches        1.1s    0.03s
+```
+
+Formatting is unchanged: the corpus, the tools, the demos and every
+regression input come back byte for byte as before.
