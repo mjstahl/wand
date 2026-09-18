@@ -217,7 +217,56 @@ instances, and no call that has to work out where to go.
     interface is shared by every module that implements it, so a member
     declared `! {FS.Read}` and implemented over memory is the interface
     doing its job, not a mistake.
-11. **A module that declares one interface resolves to it.** `Ord.wand`
+11. **`wand d <Module>` lists what the module implements, above its
+    members.** A heading, the interfaces indented under it one to a line,
+    then a blank line, then the listing as it is today:
+
+    ```
+    $ wand d Int
+    implements
+      Bounded Int
+      Ord Int
+
+    Int.abs : Int -> Int
+    Int.between? : Int -> Int -> Int -> Bool
+    Int.clamp : Int -> Int -> Int -> Int
+    Int.divmod : Int -> Int -> (Int, Int)
+    Int.max : Int -> Int -> Int
+    Int.max_value : Int
+    Int.min : Int -> Int -> Int
+    Int.min_value : Int
+    Int.pow : Int -> Int -> Int ! 'e
+    ```
+
+    A module implementing nothing prints no heading and no blank line, so
+    the other thirty-nine modules are unchanged.
+
+    `Bounded` there is `max_value: 'a` and `min_value: 'a`, where the type
+    variable is only in the result. That is the case the first draft of this
+    design had to ban. Here it is unremarkable, because nothing is
+    dispatched: `let limits (m: Bounded 'a) = (m.max_value, m.min_value)`.
+12. **A member says which interface member it answers to**, on its own line
+    between the signature and the doc -- the slot `performs` already uses for
+    a fact the type does not carry:
+
+    ```
+    $ wand d Int.max_value
+    Int.max_value : Int
+    implements Bounded.max_value
+    The largest Int.
+
+    >> Int.max_value
+    4611686018427387903 : Int
+    ```
+
+    Where a member has both lines, `implements` comes first: what it answers
+    to, then what it does.
+13. **`wand d --index` is left alone.** Every line is one name and one type,
+    and that is what makes 535 lines usable as a single artefact by a reader
+    who does not know the library. Decorating the member lines would break
+    every consumer of it. If the index is to carry interfaces they belong on
+    lines of their own, which is a separate decision.
+14. **A module that declares one interface resolves to it.** `Ord.wand`
    declaring `interface Ord 'a(...)` is reached as `Ord`, so the first thing
    anyone writes is `implement Ord Int` rather than `implement Ord.Ord Int`.
    The qualified spelling still works, and a module declaring two interfaces
@@ -233,14 +282,21 @@ instances, and no call that has to work out where to go.
 
 ## Questions
 
-**May a module implement one interface twice?** `implement Foo.Ord Int` and
-`implement Foo.Ord Float` in one module both need a `max`, and a module has
-one namespace. So at most one instantiation per interface per module, and the
-second is an error naming the first.
+**What does a member answering to two interfaces print?** One binding can
+satisfy two interfaces that declare the same name at the same type, so
+`Int.max` could answer to `Ord.max` and to something else. The single-line
+form has nowhere to put the second. Either it takes the module's shape --
 
-**What does `wand d Int` show?** A module's bindings are already listed. Does
-the listing say which interfaces the module implements, and does `--index`
-carry it? That is how a reader learns `Int.max` answers to a contract.
+```
+implements
+  Ord.max
+  Comparable.max
+```
+
+-- and the one-interface case keeps the short line, or both use the long form
+and a member with one interface spends three lines saying it. It is a small
+decision and it only matters once a second interface declares a name that a
+first one already does.
 
 ## Order
 
