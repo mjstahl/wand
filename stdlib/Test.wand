@@ -11,12 +11,12 @@ type TestOutcome = Pass String | Fail String | Suite String (List TestOutcome)
 
 -- A handle passed into a test block, exposing assertion helpers.
 type Testing 'a 'b(
-  ok: (Bool -> TestOutcome),
-  not_ok: (Bool -> TestOutcome),
-  eq: ('a -> 'a -> TestOutcome),
-  not_eq: ('a -> 'a -> TestOutcome),
-  raises: ((Unit -> 'b ! 'e) -> TestOutcome ! 'e),
-  fail: (String -> TestOutcome)
+  ok: Bool -> TestOutcome,
+  not_ok: Bool -> TestOutcome,
+  eq: 'a -> 'a -> TestOutcome,
+  not_eq: 'a -> 'a -> TestOutcome,
+  raises: (Unit -> 'b ! 'e) -> TestOutcome ! 'e,
+  fail: String -> TestOutcome
 )
 
 -- Run a named test block, calling `f` with a handle whose `ok`/`not_ok`/

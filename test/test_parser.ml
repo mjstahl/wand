@@ -591,6 +591,30 @@ let test_keyword_field_names () =
     "type C(type: Int, n: Int)\nlet f c = match c with | C(type, n = 2) -> n"
     "cannot take the short form"
 
+(* A named field is ended by the comma or the closing parenthesis, so its
+   type may be a function with no parentheses of its own. A positional field
+   is ended by nothing, which is why `type P = P List Int` stays two
+   fields. *)
+let test_named_field_arrow () =
+  let fields src =
+    match (parse_program src).items with
+    | [Ast.TLType (Ast.Variants (_, _, [c]), _)] -> c.Ast.fields
+    | _ -> Alcotest.failf "expected one constructor in: %s" src
+  in
+  Alcotest.(check int) "an arrow is one field"
+    1 (List.length (fields "type T(f: Int -> Int)"));
+  Alcotest.(check int) "a curried arrow is still one"
+    1 (List.length (fields "type T(f: Int -> Int -> Int)"));
+  Alcotest.(check int) "two of them are two"
+    2 (List.length (fields "type T(f: Int -> Int, g: Int -> Int)"));
+  Alcotest.(check int) "an arrow carrying effects is one"
+    1 (List.length (fields "type T 'e(f: Int -> Int ! 'e)"));
+  Alcotest.(check int) "a positional pair is two fields"
+    2 (List.length (fields "type P = P List Int"));
+  (* A default still ends the type: `=` is not an arrow. *)
+  Alcotest.(check int) "a field with a default"
+    2 (List.length (fields "type T(f: Int -> Int, n: Int = 3)"))
+
 (* A pattern carries a type wherever a pattern is written, including inside
    a constructor's payload -- which is where a decoder's result lands. *)
 let test_annotated_payload_pattern () =
@@ -1176,6 +1200,7 @@ let () =
       Alcotest.test_case "constr pats"       `Quick test_constr_pats;
       Alcotest.test_case "constr named pats" `Quick test_constr_named_pats;
       Alcotest.test_case "keyword field names" `Quick test_keyword_field_names;
+      Alcotest.test_case "named field arrow" `Quick test_named_field_arrow;
       Alcotest.test_case "qualified names"  `Quick test_qualified_names;
       Alcotest.test_case "fn"           `Quick test_fn;
       Alcotest.test_case "paren seq"    `Quick test_paren_seq;

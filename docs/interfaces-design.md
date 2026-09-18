@@ -348,9 +348,9 @@ None open. What is left is the work in the order below.
 1. **A type for a module value.** This is the only real compiler work and the
    whole of the value: a parameter that can be annotated `Foo.Ord Int`, and a
    module value that satisfies it. Everything above is syntax over this.
-2. **The bare arrow in a named field.** A parser change and a formatter
-   change, standing on its own: it is worth doing whether or not interfaces
-   are, and `Test.wand` is the corpus case that shows it.
+2. ~~**The bare arrow in a named field.**~~ Done, in 0.79.0. It stood on its
+   own, as it was expected to: `Test.wand` lost the six pairs of parentheses
+   that showed the need for it.
 3. **The declarations** -- `interface` and `implement`, and their formatter
    cases.
 4. **The standard library's own.** The eleven ordered types conform, which

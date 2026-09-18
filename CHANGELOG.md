@@ -19,6 +19,25 @@
 
 ### Changed
 
+- **A named field's type can be a function, written without parentheses.**
+  The comma or the closing parenthesis ends a named field, so a pair around
+  the whole type said nothing.
+
+  ```
+  -- before                          -- now
+  type Handler(                      type Handler(
+    ok: (Bool -> Int),                 ok: Bool -> Int,
+    eq: ('a -> 'a -> Int)              eq: 'a -> 'a -> Int
+  )                                  )
+  ```
+
+  A function type written as a parameter keeps its parentheses, because
+  there they say which type it is: `raises: (Unit -> Int) -> Int` takes one
+  function, and `raises: Unit -> Int -> Int` takes two arguments. A
+  positional field is unchanged -- `Pair Int Int` is two fields, so nothing
+  but the next field ends one. `wand f` writes the bare form, and rewrote
+  the six fields in `Test.wand` that carried parentheses they did not need.
+
 - **`wand f` no longer crawls on deeply nested code.** Two things cost it.
   It built each level's text by copying what the level below it had built,
   where it now joins the pieces and writes them out once. And it wrote a

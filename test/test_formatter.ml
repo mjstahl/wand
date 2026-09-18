@@ -1001,6 +1001,25 @@ let test_wide_type_definition_wraps () =
   (* And the result still parses back to the same shape. *)
   assert_idempotent "wrapped type definition" src
 
+(* A named field's type may be a function, written bare: the comma or the
+   closing parenthesis ends the field, so the parentheses say nothing. The
+   formatter has to print it bare once the parser takes it, or a writer puts
+   one thing in and `wand f` gives another back. A function type in a
+   parameter position keeps its parentheses, because there they say which
+   type it is. *)
+let test_named_field_arrow_loses_brackets () =
+  let src =
+    "type T 'a 'b 'e(ok: (Bool -> Int), eq: ('a -> 'a -> Int), \
+     raises: ((Unit -> 'b ! 'e) -> Int ! 'e), plain: List Int)\nlet f x = x\nf 1"
+  in
+  let out = fmt src in
+  assert_contains "the top-level arrow is bare" out "ok: Bool -> Int";
+  assert_contains "and a curried one" out "eq: 'a -> 'a -> Int";
+  assert_contains "a parameter keeps its parentheses" out
+    "raises: (Unit -> 'b ! 'e) -> Int ! 'e";
+  assert_contains "an application is untouched" out "plain: List Int";
+  assert_idempotent "arrow fields" src
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -1864,5 +1883,6 @@ let () =
       Alcotest.test_case "doc run kept together" `Quick test_doc_run_kept_together;
       Alcotest.test_case "no blank after doc" `Quick test_no_blank_between_doc_and_binding;
       Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
+      Alcotest.test_case "named field arrow" `Quick test_named_field_arrow_loses_brackets;
     ];
   ]

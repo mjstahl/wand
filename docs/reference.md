@@ -2711,9 +2711,16 @@ The shorthand is the canonical form. If the one constructor has the name of
 the type, `wand f` writes the long spelling back to the short one.
 
 The type of a named field can be an application, as in `children : List
-Node` and `owner : Option String`. Write it without parentheses. A positional
-field cannot do this: `Pair Int Int` is two fields, not one type applied to
-another.
+Node` and `owner : Option String`. It can also be a function, as in
+`ok : Bool -> TestOutcome`. Write both without parentheses. The comma or the
+closing parenthesis ends the field, so nothing else has to.
+
+A function type written as a parameter keeps its parentheses, because there
+they say which type it is. `raises : (Unit -> Int) -> Int` takes one
+function; `raises : Unit -> Int -> Int` takes two arguments.
+
+A positional field cannot do either: `Pair Int Int` is two fields, not one
+type applied to another, and nothing but the next field ends one.
 
 ```ocaml
 type Point  (x : Int, y : Int)

@@ -2426,12 +2426,14 @@ let emit_one_equation head_kw pats body =
 
 (* ── Type definitions ─────────────────────────────────────────────────────── *)
 
-(* A named field's type may be an application -- `children: List Node` -- and
-   is written without parentheses, since the comma or the closing paren ends
-   it. A positional field may not: `Pair Int Int` is two fields, not one
-   applied to the other, so those stay atoms. An arrow needs its parentheses
-   either way, and `emit_type_app_expr` still adds them. *)
-let emit_named_field_type t = emit_type_app_expr t
+(* A named field's type may be an application -- `children: List Node` -- or
+   a function -- `max: 'a -> 'a -> 'a` -- and is written without parentheses,
+   since the comma or the closing parenthesis ends it. A function type in a
+   parameter position keeps its parentheses, because there they say which
+   type it is: `emit_type_operand` adds those. A positional field may not:
+   `Pair Int Int` is two fields, not one applied to the other, so those stay
+   atoms. *)
+let emit_named_field_type t = emit_type_expr t
 
 (* `= value` where the field declares a default. Only a named field can carry
    one, so this never reaches the positional form. *)

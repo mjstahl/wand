@@ -2053,12 +2053,13 @@ let parse_type_def s =
          let parse_named () =
            let fname = expect_field_name s in
            expect s Token.Colon;
-           (* An applied type -- `List String`, `Option Node` -- reads as one
-              field type. The comma and the closing paren are not type atoms,
-              so the application stops where the field does. Positional fields
-              stay atoms: `Pair Int Int` is two of them, not one applied to
-              the other. *)
-           let ftype = parse_type_app s in
+           (* An applied type -- `List String`, `Option Node` -- and a
+              function type -- `max: 'a -> 'a -> 'a` -- both read as one
+              field type. The comma and the closing parenthesis are not type
+              atoms, so the type stops where the field does. Positional
+              fields stay atoms: `Pair Int Int` is two of them, not one
+              applied to the other, and nothing ends one but the next. *)
+           let ftype = parse_type_expr s in
            (* `= value` gives the field a default, which is what lets a
               construction leave it out. *)
            let dflt =
