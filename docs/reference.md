@@ -6322,6 +6322,7 @@ wand s test_deploy.wand               # run named test files
 wand s --json                         # per-test results as JSON, for tools
 wand t script.wand                    # typecheck one file
 wand t . scripts                      # typecheck every .wand file in a tree
+wand t --effects .                    # what each file reaches, as data
 wand t --expr "List.map"              # typecheck an expression
 wand d                                # list all names and modules in scope
 wand d List                           # list one module's members
@@ -6472,6 +6473,60 @@ as, with no path and no count.
 $ wand t script.wand
 Int
 ```
+
+### `--effects`
+
+`wand t --effects` reports what a file reaches outside itself, and nothing
+else. It names the file, then the set, in the notation a signature uses for
+one:
+
+```console
+$ wand t --effects examples/ports/disk-threshold.wand
+examples/ports/disk-threshold.wand ! {IO, Shell(df)}
+```
+
+Over a tree the `!` lines up, the column set by the longest path:
+
+```console
+$ wand t --effects examples
+examples/hello.wand                 ! {}
+examples/log-summary.wand           ! {IO}
+examples/party.wand                 ! {Shell(whoami)}
+examples/ports/disk-threshold.wand  ! {IO, Shell(df)}
+examples/ports/http-retry.wand      ! {Clock, Env, IO, Net, Proc}
+examples/sysinfo.wand               ! {Env, Shell(hostname, uname)}
+32 files
+```
+
+A file that reaches nothing reports `! {}` rather than a blank, so a check
+can match it. The exit code is 1 if any file fails to typecheck, because a
+file that does not check has no inferred set; the rest of the tree still
+reports.
+
+The set is the one wand inferred, never the `uses` line. A file with no
+manifest is unbounded rather than sealed, so reading the manifest would
+report the emptiest set for the least bounded file in a tree. It names the
+labels a manifest would name, so `Raise` is not among them: a raise does not
+reach outside the file, which is why `uses {Raise}` draws `A-USES1`.
+
+`Shell` is narrowed to the binaries the file runs, on the same rule the
+manifest suggestion follows — only where every command word in the file is
+literal, since an interpolated word may spawn anything. `Net` is never
+narrowed here. A host list is something a manifest declares and wand checks
+at the request; it is not inferred, so the label comes back bare.
+
+`--json` gives an array of `{file, effects}`, one entry per file checked,
+with the narrowing split out so a tool never parses `Shell(df)`:
+
+```console
+$ wand t --effects --json examples/ports/disk-threshold.wand
+[{"file":"examples/ports/disk-threshold.wand",
+  "effects":[{"label":"IO"},{"label":"Shell","allows":["df"]}]}]
+```
+
+`allows` is absent for a bare label. `--effects` answers one question, so it
+does not also report lints, and it refuses `--fix` and `--expr`: a manifest
+bounds a file, and an expression is not one.
 
 ### `--fix`
 

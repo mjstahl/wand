@@ -688,6 +688,89 @@ let test_type_of_one_file_is_unchanged () =
     (* One file reports what it checks out as, with no path and no count. *)
     Alcotest.(check string) "and reports its type alone" "Int\n" out)
 
+(* ── wand t --effects ────────────────────────────────────────────────────── *)
+
+(* What a file reaches outside itself, as data, so a check can compare it
+   with a policy by exit code. The set is the inferred one and never the
+   `uses` line: a file with no manifest is unbounded rather than sealed. *)
+let test_effects_of_one_file () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand")
+      "uses {IO, Shell(df)}\n\nimport IO\n\nIO.println $(df -P)\n";
+    let (code, out) = wand_out ~dir:d ["t"; "--effects"; "a.wand"] in
+    Alcotest.(check int) "a file that checks out exits 0" 0 code;
+    (* The file, then the set, in the notation a signature uses for one.
+       Shell is narrowed to the words the file runs, because every command
+       position in it is literal. *)
+    Alcotest.(check string) "the file and what it performs"
+      "a.wand ! {IO, Shell(df)}\n" out;
+    (* A file that reaches nothing says so, rather than printing a blank:
+       a check has to be able to match it. *)
+    write_file (Filename.concat d "pure.wand") "let f x = x + 1\n";
+    let (_, out) = wand_out ~dir:d ["t"; "--effects"; "pure.wand"] in
+    Alcotest.(check string) "and a file that reaches nothing"
+      "pure.wand ! {}\n" out)
+
+let test_effects_ignore_the_manifest () =
+  in_scratch (fun d ->
+    (* No manifest at all. Reading the `uses` line would report the empty
+       set for the least bounded file there is. *)
+    write_file (Filename.concat d "a.wand") "import IO\n\nIO.println \"hi\"\n";
+    let (_, out) = wand_out ~dir:d ["t"; "--effects"; "a.wand"] in
+    Alcotest.(check string) "the inferred set, not the missing manifest"
+      "a.wand ! {IO}\n" out;
+    (* `Raise` is not a reach outside the file -- `uses {Raise}` draws
+       A-USES1 -- so it is not one of the labels reported. *)
+    write_file (Filename.concat d "r.wand")
+      "import List\n\nlet f! xs = List.head! xs\n\nf! [1]\n";
+    let (_, out) = wand_out ~dir:d ["t"; "--effects"; "r.wand"] in
+    Alcotest.(check string) "a raise is not a reach outside"
+      "r.wand ! {}\n" out)
+
+let test_effects_over_a_tree () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "one.wand") "import IO\n\nIO.println \"hi\"\n";
+    write_file (Filename.concat d "a_much_longer_name.wand") "let f x = x\n";
+    let (code, out) = wand_out ~dir:d ["t"; "--effects"; "."] in
+    Alcotest.(check int) "a tree that checks out exits 0" 0 code;
+    (* The `!` lines up, the column set by the longest path. *)
+    Alcotest.(check bool) "the longest path sets the column" true
+      (contains_sub out "./a_much_longer_name.wand ! {}");
+    Alcotest.(check bool) "and the shorter one is padded to it" true
+      (contains_sub out "./one.wand                ! {IO}");
+    Alcotest.(check bool) "the count is reported" true
+      (contains_sub out "2 files");
+    (* A file with no inferred set is one that does not check, and the rest
+       of the tree still reports. *)
+    write_file (Filename.concat d "bad.wand") "let f x = nope x\n";
+    let (code, out) = wand_out ~dir:d ["t"; "--effects"; "."] in
+    Alcotest.(check int) "one file that does not check exits 1" 1 code;
+    Alcotest.(check bool) "and the others still report" true
+      (contains_sub out "./one.wand"))
+
+let test_effects_json () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand")
+      "uses {IO, Shell(df)}\n\nimport IO\n\nIO.println $(df -P)\n";
+    let (_, out) = wand_out ~dir:d ["t"; "--effects"; "--json"; "a.wand"] in
+    (* The narrowing is split out, so a tool never parses `Shell(df)`. *)
+    Alcotest.(check string) "one entry per file, with allows split out"
+      "[{\"file\":\"a.wand\",\"effects\":[{\"label\":\"IO\"},\
+       {\"label\":\"Shell\",\"allows\":[\"df\"]}]}]\n" out)
+
+let test_effects_refuses_fix_and_expr () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand") "let f x = x\n";
+    let (code, _) = wand_out ~dir:d ["t"; "--effects"; "--fix"; "a.wand"] in
+    Alcotest.(check int) "--effects does not rewrite a file" 1 code;
+    (* A manifest bounds a file, and an expression is not one. *)
+    let (code, _) = wand_out ~dir:d ["t"; "--effects"; "-e"; "1 + 2"] in
+    Alcotest.(check int) "and an expression is not a file" 1 code;
+    (* It reports no lint findings, so there is nothing for --strict to
+       promote. Refused rather than ignored. *)
+    let (code, _) = wand_out ~dir:d ["t"; "--effects"; "--strict"; "a.wand"] in
+    Alcotest.(check int) "and --strict has nothing to promote" 1 code)
+
 let test_type_of_several_paths () =
   in_scratch (fun d ->
     write_file (Filename.concat d "a.wand") "let f x = x + 1\n";
@@ -746,6 +829,11 @@ let () =
       Alcotest.test_case "wand t over a tree" `Quick test_type_over_a_tree;
       Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
       Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
+      Alcotest.test_case "wand t --effects" `Quick test_effects_of_one_file;
+      Alcotest.test_case "--effects is inferred" `Quick test_effects_ignore_the_manifest;
+      Alcotest.test_case "--effects over a tree" `Quick test_effects_over_a_tree;
+      Alcotest.test_case "--effects --json" `Quick test_effects_json;
+      Alcotest.test_case "--effects refusals" `Quick test_effects_refuses_fix_and_expr;
     ];
     "scope", [
       Alcotest.test_case "list all"      `Quick test_env_all;

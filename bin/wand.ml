@@ -78,10 +78,19 @@ let usage_for sub =
     print_endline "";
     print_endline "Options:";
     print_endline "  -e, --expr <expr>  Typecheck an expression instead of a file";
+    print_endline "  --effects          Report what each file reaches outside itself,";
+    print_endline "                     as `<file> ! {IO, Shell(df)}`, and nothing else";
     print_endline "  --fix              Apply the fixes the findings carry, in place";
     print_endline "  --load <file>      Load a .wand file first (with -e; repeatable)";
     print_endline "  --strict           Treat violation lint findings as errors";
     print_endline "  --json             Emit lint findings as JSON instead of text";
+    print_endline "";
+    print_endline "--effects reports the set wand inferred, never the `uses`";
+    print_endline "line: a file with no manifest is unbounded rather than";
+    print_endline "sealed. It names the labels a manifest would, so `Raise` is";
+    print_endline "not among them, and it narrows Shell to the binaries the";
+    print_endline "file runs where every command word in it is literal. A file";
+    print_endline "that reaches nothing reports `! {}`.";
     print_endline "";
     print_endline "Lint findings are reported as warnings. Rule IDs carry";
     print_endline "what they do to a build: V- rules report a violation and";
@@ -170,15 +179,40 @@ let parse_loads args =
    tool to read rather than a person; --fix applies what the findings
    carry. *)
 let parse_lint_flags args =
-  let strict = ref false and json = ref false and fix = ref false in
+  let strict = ref false and json = ref false and fix = ref false
+  and effects = ref false in
   let rest = List.filter (fun a ->
     match a with
-    | "--strict" -> strict := true; false
-    | "--json"   -> json := true; false
-    | "--fix"    -> fix := true; false
+    | "--strict"  -> strict := true; false
+    | "--json"    -> json := true; false
+    | "--fix"     -> fix := true; false
+    | "--effects" -> effects := true; false
     | _ -> true) args
   in
-  (!strict, !json, !fix, rest)
+  (!strict, !json, !fix, !effects, rest)
+
+(* `Shell(df)` -- the manifest's own spelling, so what a file reaches is
+   written the way the line bounding it would be. *)
+let effect_label (name, allows) = Wand.Shell_scan.render_label (name, allows)
+
+(* `! {IO, Shell(df)}`, and `! {}` for a file that reaches nothing. Both are
+   spellings wand already has: this is the effect set of a signature, over a
+   file instead of a function. *)
+let effect_set effects =
+  " ! {" ^ String.concat ", " (List.map effect_label effects) ^ "}"
+
+let effect_json (name, allows) =
+  match allows with
+  | None -> Printf.sprintf "{\"label\":\"%s\"}" name
+  | Some ws ->
+    Printf.sprintf "{\"label\":\"%s\",\"allows\":[%s]}" name
+      (String.concat "," (List.map (fun w ->
+         "\"" ^ Wand.Diag.escape_json w ^ "\"") ws))
+
+let effects_json_entry path effects =
+  Printf.sprintf "{\"file\":\"%s\",\"effects\":[%s]}"
+    (Wand.Diag.escape_json path)
+    (String.concat "," (List.map effect_json effects))
 
 (* Returns the exit code: lints are warnings unless --strict promotes a
    violation. *)
@@ -581,7 +615,23 @@ let main () =
     | "l" | "lsp" ->
       exit (Wand.Lsp.serve stdin stdout)
     | "t" | "type" ->
-      let (strict, json, fix, rest) = parse_lint_flags rest in
+      let (strict, json, fix, effects, rest) = parse_lint_flags rest in
+      (* `--effects` answers one question about a file, so it does not also
+         rewrite it or report lints. Refused rather than ignored, because a
+         flag quietly dropped is work that did not happen. *)
+      if effects && fix then begin
+        Printf.eprintf
+          "Error: --effects reports what a file reaches; it does not rewrite one\n\
+           Run 'wand h t' for usage.\n";
+        exit 1
+      end;
+      if effects && strict then begin
+        Printf.eprintf
+          "Error: --effects reports no lint findings, so --strict has nothing \
+           to promote\n\
+           Run 'wand h t' for usage.\n";
+        exit 1
+      end;
       (* A file is named directly, as it is everywhere else in the CLI; an
          expression is given with `--expr`. Which one it is has to be said
          rather than guessed from the argument's shape, because `deploy.wand`
@@ -598,6 +648,14 @@ let main () =
        | Some _, _ when fix ->
          Printf.eprintf
            "Error: --fix rewrites a file, so it cannot be used with --expr\n\
+            Run 'wand h t' for usage.\n";
+         exit 1
+       | Some _, _ when effects ->
+         (* A manifest bounds a file. An expression is not one, so there is
+            nothing for the answer to be about. *)
+         Printf.eprintf
+           "Error: --effects reports what a file reaches, so it cannot be \
+            used with --expr\n\
             Run 'wand h t' for usage.\n";
          exit 1
        | Some expr, rest ->
@@ -653,7 +711,19 @@ let main () =
             not stop the rest, because a gate wants the whole list. *)
          match roots with
          | [path] when not (Wand.Runner.is_dir path) ->
-         if fix then
+         if effects then
+           (match Wand.Runner.typecheck_file path with
+            | Error d ->
+              if json then
+                (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
+              else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
+            | Ok sc ->
+              let es = sc.Wand.Runner.sc_effects in
+              if json then print_endline ("[" ^ effects_json_entry path es ^ "]")
+              (* The file, then what it performs -- the shape `wand d` gives
+                 a name, with the file standing where the name would. *)
+              else print_endline (path ^ effect_set es))
+         else if fix then
            (match Wand.Fix.fix_file path with
             | Error d ->
               (* An error with no applicable fix: nothing was written. *)
@@ -707,7 +777,34 @@ let main () =
                (String.concat ", " roots);
              exit 1
            end;
-           if fix then begin
+           if effects then begin
+             (* Aligned on the `!`, the column set by the longest path here,
+                so a reader scans one column instead of ragged text. *)
+             let width =
+               List.fold_left (fun w p -> max w (String.length p)) 0 files in
+             let failed = ref false and items = ref [] in
+             List.iter (fun path ->
+               match Wand.Runner.typecheck_file path with
+               | Error d ->
+                 failed := true;
+                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
+                 else (Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d);
+                       flush stderr)
+               | Ok sc ->
+                 let es = sc.Wand.Runner.sc_effects in
+                 if json then items := !items @ [effects_json_entry path es]
+                 else begin
+                   Printf.printf "%-*s%s\n" width path (effect_set es);
+                   flush stdout
+                 end)
+               files;
+             if json then print_endline ("[" ^ String.concat "," !items ^ "]")
+             else begin
+               flush stdout; flush stderr;
+               print_endline (count_of (List.length files) "file")
+             end;
+             if !failed then exit 1
+           end else if fix then begin
              let failed = ref false and fixed = ref 0 and items = ref [] in
              List.iter (fun path ->
                match Wand.Fix.fix_file path with

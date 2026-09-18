@@ -44,15 +44,6 @@ mean of 1.95 attempts with `--fix` applied first, and the attempts that
 needed three or more were files with several unknown names and nothing else
 wrong.
 
-### `wand t --effects`
-
-Print a file's inferred effect set as data, so a check can compare it with
-a policy by exit code. `wand t --json` reports lint findings, and a clean
-file reports `[]`, so there is no way to ask what a file reaches.
-
-The set has to be the inferred one, never the `uses` line: a file with no
-manifest is unbounded rather than sealed.
-
 ## Designed, not built
 
 ### Interfaces

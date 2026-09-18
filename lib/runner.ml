@@ -3650,6 +3650,12 @@ type source_check = {
   (* the extent of `uses {...}`, when the file declares one. A label inside
      it is an effect and nothing else, which is not something the name on
      its own can say: `Env` is a module everywhere else in the file. *)
+  sc_effects  : (string * string list option) list;
+  (* what the file reaches outside itself to do, inferred rather than read
+     off the manifest: a file with no manifest is unbounded, not sealed.
+     The labels a manifest would name, so `Raise` is not among them, each
+     with the binaries narrowing it where every command word in the file is
+     literal. *)
 }
 
 (* Checks text that need not exist on disk -- an editor's unsaved buffer.
@@ -3682,6 +3688,15 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
             ~type_names:imp.type_names prog with
     | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
     | Ok (full_type_env, own_type_env, last_t, holes) ->
+      (* Read before the record, because a record's fields are evaluated in
+         no stated order and these come off the check that just ran. *)
+      let effects =
+        let shell = Typechecker.shell_suggestion () in
+        List.map (fun e ->
+          let n = Effect_set.name_of e in
+          (n, if n = "Shell" then shell else None))
+          (Effect_set.EffSet.elements !Typechecker.last_file_effects)
+      in
       Ok { sc_type     = Typechecker.string_of_typ last_t;
            sc_holes    = List.map Typechecker.string_of_typ holes;
            sc_findings = Lint.check prog item_locs own_type_env;
@@ -3697,7 +3712,8 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
                    if j = i then Some (n, Typechecker.string_of_typ t)
                    else None) all))
                 item_locs);
-           sc_manifest = Option.map snd prog.Ast.manifest }
+           sc_manifest = Option.map snd prog.Ast.manifest;
+           sc_effects  = effects }
   with
   | (Lexer.LexError _ | Parser.ParseError _ | Typechecker.TypeError _
     | Typechecker.TypeErrorAt _ | Module_types.ImportError _

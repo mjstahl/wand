@@ -4,6 +4,38 @@
 
 ### Added
 
+- **`wand t --effects`** reports what a file reaches outside itself, and
+  nothing else, so a check can compare it with a policy by exit code. It
+  names the file, then the set, in the notation a signature uses for one.
+
+  ```
+  $ wand t --effects examples
+  examples/hello.wand                 ! {}
+  examples/log-summary.wand           ! {IO}
+  examples/party.wand                 ! {Shell(whoami)}
+  examples/ports/disk-threshold.wand  ! {IO, Shell(df)}
+  examples/ports/http-retry.wand      ! {Clock, Env, IO, Net, Proc}
+  examples/sysinfo.wand               ! {Env, Shell(hostname, uname)}
+  32 files
+  ```
+
+  The `!` lines up, the column set by the longest path. A file that reaches
+  nothing reports `! {}` rather than a blank, so a check can match it.
+
+  The set is the one wand inferred, never the `uses` line -- a file with no
+  manifest is unbounded rather than sealed, so reading the manifest would
+  report the emptiest set for the least bounded file in a tree. It names the
+  labels a manifest would, so `Raise` is not among them: a raise does not
+  reach outside the file. `Shell` is narrowed to the binaries the file runs,
+  on the rule the manifest suggestion already follows -- only where every
+  command word is literal. `Net` comes back bare, because a host list is
+  declared and checked at the request rather than inferred.
+
+  `--json` gives an array of `{file, effects}`, the narrowing split out as
+  `allows` so a tool never parses `Shell(df)`. `--effects` answers one
+  question, so it reports no lints and refuses `--fix`, `--strict` and
+  `--expr`.
+
 - **`wand t` takes a directory, or more than one path.** Checking a tree was
   a shell loop, because a second path was "too many arguments".
 
