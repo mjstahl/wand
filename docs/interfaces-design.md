@@ -106,14 +106,27 @@ a parameterised name is written everywhere else.
 
 ## What this is not
 
-**It is not the constraint system.** `Num`, `Add` and `Ord` are a closed
-variant in the typechecker, and `'a: Ord` is a bound on a type variable: a
-claim that a *type* is ordered. An interface is a claim about a *module*.
-They are two mechanisms, and under this design they stay two.
+**It is not the constraint system.** `Num`, `Add` and `Ord` cannot become
+interfaces, because a binary operator has nowhere to pass a module. `a < b`
+takes two arguments and both are operands. `List.max` could take one --
+`List.max Int [3, 1, 2]` -- but the operators are why the three constraints
+exist at all, and they are enforced in one place: unification checks a
+variable's constraint against `is_ordered`.
 
-So interfaces do not close the seam the constraints have. `List.sort` orders
-a type you declare, by its declaration order, while `<` on that same type is
-a type error:
+Resolving an operator would mean finding the implementation from the type of
+its operands, which is a lookup keyed by interface and type. That registry is
+the thing this design does without, and with it come the orphan, the
+duplicate and the visibility rule.
+
+So the two mechanisms are the two answers to where an implementation comes
+from. The caller passes it: open, nothing registered, no use to an operator.
+The compiler finds it from the type: works for operators, needs the registry.
+`Num`, `Add` and `Ord` are the second, kept closed so the registry is a fixed
+list of eleven types rather than a question.
+
+The price is worth stating plainly: under this design a user will never make
+their own type work with `<`. `List.sort` will keep ordering it while the
+operator refuses it.
 
 ```
 type S = Zulu | Alpha
@@ -121,10 +134,6 @@ List.sort [Alpha, Zulu]     -- [Zulu, Alpha]
 Zulu < Alpha                -- type error: S is not ordered, so it cannot
                             -- be compared with < > <= >=
 ```
-
-That is worth writing down, because the obvious reading of "wand gets
-interfaces" is that the built-in three become ordinary ones. They do not, and
-a reader will expect otherwise.
 
 **It is not dispatch.** No implementation is looked up from a value's type.
 The module arrives as an argument, so there is no dictionary, no table of
