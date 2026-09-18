@@ -32,6 +32,7 @@ For what wand is and why, see the [README](../README.md).
 - [Typed holes](#typed-holes)
 - [Type definitions](#type-definitions)
 - [Generics](#generics)
+- [Interfaces](#interfaces)
 - [Type inference](#type-inference)
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
@@ -2039,6 +2040,159 @@ A demand is not a deed. An effect that appears only on an argument's arrow
 is something the caller may bring, so it does not reach the file's manifest.
 An effect the file performs lands on an arrow the file returns, and those
 always count.
+
+---
+
+## Interfaces
+
+An interface is a contract on a **module**: the functions that module must
+provide. It is what lets a parameter be a module.
+
+wand passes a module around as a value already:
+
+```ocaml
+let m = import Int
+m.max 3 7            -- 7
+```
+
+What was missing was a type to give a parameter that is one. An interface is
+that type.
+
+```ocaml
+-- ord.wand
+interface Ranked 'a(top: 'a -> 'a -> 'a, bottom: 'a -> 'a -> 'a)
+
+-- ints.wand
+let ord = import ./ord
+
+implement ord.Ranked Int =
+  let top a b = if a > b then a else b;
+  let bottom a b = if a < b then a else b
+
+-- main.wand
+let ord = import ./ord
+let ints = import ./ints
+
+let biggest (m: ord.Ranked Int) a b = m.top a b
+
+biggest ints 3 7     -- 7
+```
+
+An interface is declared the way a type is — a name, its parameters, and a
+list of named things with their types. The type parameter is instantiation,
+not dispatch: `implement Ranked Int` binds `'a` to `Int`, so `top` in that
+implementation has to be `Int -> Int -> Int`.
+
+Nothing is registered anywhere, nothing is hoisted, and no implementation is
+looked up from a value. The caller passes the module, and a module is
+already a value, so an interface adds nothing at run time.
+
+### An implementation is a run of bindings
+
+`implement` takes a run of `let` bindings, separated by `;`. There is no
+bodyless form: a module conforms by having the implementation written in it.
+
+```ocaml
+implement ord.Ranked Int =
+  let top a b = if a > b then a else b;
+  let bottom a b = if a < b then a else b
+```
+
+The `;` separates siblings rather than nesting one binding inside the next.
+Each binding is the module's own and lands exactly where writing it as a
+top-level `let` would put it, so `Int.top` is one of `Int`'s bindings like
+any other. A run of comments above a member is its doc, as it is anywhere
+else.
+
+That shape is what closes the orphan problem. Bindings land in the file they
+are written in, so an implementation cannot be written anywhere but the
+module it is about. There is nothing to refuse and no rule to state.
+
+The block is checked against the contract. A member the interface declares
+and the block does not provide is an error; so is a member the interface does
+not declare, which belongs outside the block as a binding of its own; so is a
+member whose type does not match, reported at the member.
+
+### Conformance is nominal
+
+`implement` is what makes a module fit. A module with the right members by
+accident does not, so being a `Ranked` is something a module says rather than
+something a reader works out.
+
+```
+this module does not implement ord.Ranked, which it would have to declare
+with 'implement ord.Ranked Int' in its own file
+```
+
+### An interface belongs to the module that declares it
+
+Reached through the name a file bound for that module — the rule a type
+follows. There is no bare form for an imported interface, so `ord.Ranked`
+says which module's `Ranked` it means and two modules declaring one name
+cannot collide. The file that declares one writes it bare, having nothing to
+qualify it with. A destructuring binds no namespace, so it brings none.
+
+A bare name that is only reachable qualified says which spelling to write:
+
+```
+'Ranked' is an interface, and one is reached through the module that
+declares it: write 'ord.Ranked'
+```
+
+### `Ord` is built in
+
+`Ord` is declared by the compiler rather than by a file, because it belongs
+to no module: a type is ordered whether or not anything was imported. So it
+is written bare, the way a built-in type is, and there is nothing to qualify
+it with.
+
+```ocaml
+interface Ord 'a(
+  max: 'a -> 'a -> 'a,
+  min: 'a -> 'a -> 'a,
+  clamp: 'a -> 'a -> 'a -> 'a,
+  between?: 'a -> 'a -> 'a -> Bool
+)
+```
+
+The eleven ordered types implement it, each in its own file, so `Int.max` is
+one of `Int`'s bindings and `Ord` is what says it answers to something. One
+function serves all of them:
+
+```ocaml
+import Int
+import Size
+
+let biggest : Ord 'a -> 'a -> 'a -> 'a = fn m a b -> m.max a b
+
+biggest Int 3 7          -- 7
+biggest Size 4KB 100MB   -- 100MB
+```
+
+A declaration cannot take a built-in interface's name.
+
+### An interface is not the constraint system
+
+`Ord` also names the constraint that `<`, `>`, `<=` and `>=` check, and
+deliberately: both say "this type is ordered". They are two mechanisms for
+where an implementation comes from, never two properties.
+
+A binary operator has nowhere to take a module — `a < b` has two operands and
+no room for a third thing — so the constraint is what an operator checks, and
+the interface is what a caller passes. They cannot be confused when written
+either, since a constraint is only ever written after `'a:`.
+
+`Num` and `Add` cannot become interfaces for the same reason. Resolving an
+operator would mean finding the implementation from the type of its operands,
+which is a lookup keyed by interface and type — a registry, and with it the
+orphan, the duplicate and the visibility rule. So the constraints stay a
+closed set of three, and a user type still cannot be compared with `<`:
+
+```ocaml
+type S = Zulu | Alpha
+List.sort [Alpha, Zulu]     -- [Zulu, Alpha], through the constraint
+Zulu < Alpha                -- type error: S is not ordered
+```
 
 ---
 
@@ -5998,18 +6152,55 @@ no such line.
 
 `wand d --index` prints every module's members with their signatures, in one
 listing — the answer `wand d <Module>` gives, for each module in turn. It is
-the whole of the standard library's surface in 535 lines, which is what a
+the whole of the standard library's surface in 547 lines, which is what a
 reader who does not know the library yet needs in front of them:
 
 ```console
 $ wand d --index | head -3
-Args.help? : List String -> Bool
-Args.parse : Decoder 'a -> List String -> Result String 'a
+Args.help?      : List String -> Bool
+Args.parse      : Decoder 'a -> List String -> Result String 'a
 Args.parse_with : List String -> Decoder 'a -> List String -> Result String 'a
 ```
 
-`--json` gives the same listing as an array of `{name, type}`, and `--load`
-adds a file's own names to it. It takes no name, since it lists them all.
+The colons line up within a module and the column resets at the next. Not
+across the listing: names run from 8 to 23 characters, so one column would
+pad every short line by fifteen spaces.
+
+A member that answers to an [interface](#interfaces) says so after its type,
+in square brackets:
+
+```console
+$ wand d Int
+Int.abs       : Int -> Int
+Int.between?  : Int -> Int -> Int -> Bool [Ord]
+Int.clamp     : Int -> Int -> Int -> Int [Ord]
+Int.divmod    : Int -> Int -> (Int, Int)
+Int.max       : Int -> Int -> Int [Ord]
+Int.max_value : Int
+Int.min       : Int -> Int -> Int [Ord]
+Int.min_value : Int
+Int.pow       : Int -> Int -> Int ! 'e
+```
+
+Square brackets because round ones are type application — `Int (Ord)` is how
+`List Int` is written, so a reader copying the type into an annotation could
+take the interface for a last argument. A `[` never appears in a wand type.
+Two interfaces are `[Comparing, Ord]`. A single member carries the same mark
+on its signature:
+
+```console
+$ wand d Int.max
+Int.max : Int -> Int -> Int [Ord]
+The larger of two Ints.
+
+>> Int.max 3 7
+7 : Int
+```
+
+`--json` gives the same listing as an array of `{name, type, implements}`,
+where `implements` is null for a member that answers to nothing, and
+`--load` adds a file's own names to it. It takes no name, since it lists
+them all.
 
 `wand d -x <name>` prints the doc with its examples run where they stand, so
 what each one produces now sits where the file says it should. `wand d -t`

@@ -390,31 +390,28 @@ let word n s = str_word n s
 -- "b" : String
 let word! n s = str_word_exn n s
 
--- The larger of two Strings.
---
--- Byte order, so `"Z"` is before `"a"`.
---
--- >> String.max "a" "b"
--- "b" : String
-let max : String -> String -> String = fn a b -> if a > b then a else b
-
--- The smaller of two Strings.
---
--- >> String.min "a" "b"
--- "a" : String
-let min : String -> String -> String = fn a b -> if a < b then a else b
-
--- The value, held between a low and a high bound, both included.
---
--- The bounds come first so the value can arrive from a pipeline.
---
--- >> String.clamp "a" "m" "z"
--- "m" : String
-let clamp : String -> String -> String -> String =
-  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
-
--- True when the value is at or between the two bounds.
---
--- >> String.between? "a" "m" "f"
--- true : Bool
-let between? : String -> String -> String -> Bool = fn lo hi v -> v >= lo && v <= hi
+implement Ord String =
+  -- The larger of two Strings.
+  --
+  -- Byte order, so `"Z"` is before `"a"`.
+  --
+  -- >> String.max "a" "b"
+  -- "b" : String
+  let max a b = if a > b then a else b;
+  -- The smaller of two Strings.
+  --
+  -- >> String.min "a" "b"
+  -- "a" : String
+  let min a b = if a < b then a else b;
+  -- The value, held between a low and a high bound, both included.
+  --
+  -- The bounds come first so the value can arrive from a pipeline.
+  --
+  -- >> String.clamp "a" "m" "z"
+  -- "m" : String
+  let clamp lo hi v = if v < lo then lo else if v > hi then hi else v;
+  -- True when the value is at or between the two bounds.
+  --
+  -- >> String.between? "a" "m" "f"
+  -- true : Bool
+  let between? lo hi v = v >= lo && v <= hi

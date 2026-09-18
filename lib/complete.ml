@@ -41,7 +41,7 @@ let ident_at ?(limit = 0) (env : Typechecker.env) (line : string) : completion =
     match String.split_on_char '.' prefix with
     | [ns; member_prefix] ->
       (match List.assoc_opt ns env with
-       | Some (Typechecker.Namespace members) ->
+       | Some (Typechecker.Namespace (members, _)) ->
          List.filter_map (fun (name, _) ->
            if has_prefix ~prefix:member_prefix name
            then Some (ns ^ "." ^ name) else None)

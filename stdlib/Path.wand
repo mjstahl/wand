@@ -89,32 +89,29 @@ let of_string s = path_of_string s
 -- ["etc", "hosts"] : List String
 let components p = path_components p
 
--- The larger of two Paths.
---
--- The form that says which file a path names: repeated separators,
--- `.` segments and a trailing separator make no difference.
---
--- >> Path.max /a/b /a/c
--- /a/c : Path
-let max : Path -> Path -> Path = fn a b -> if a > b then a else b
-
--- The smaller of two Paths.
---
--- >> Path.min /a/b /a/c
--- /a/b : Path
-let min : Path -> Path -> Path = fn a b -> if a < b then a else b
-
--- The value, held between a low and a high bound, both included.
---
--- The bounds come first so the value can arrive from a pipeline.
---
--- >> Path.clamp /a/a /a/m /a/z
--- /a/m : Path
-let clamp : Path -> Path -> Path -> Path =
-  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
-
--- True when the value is at or between the two bounds.
---
--- >> Path.between? /a/a /a/z /a/m
--- true : Bool
-let between? : Path -> Path -> Path -> Bool = fn lo hi v -> v >= lo && v <= hi
+implement Ord Path =
+  -- The larger of two Paths.
+  --
+  -- The form that says which file a path names: repeated separators,
+  -- `.` segments and a trailing separator make no difference.
+  --
+  -- >> Path.max /a/b /a/c
+  -- /a/c : Path
+  let max a b = if a > b then a else b;
+  -- The smaller of two Paths.
+  --
+  -- >> Path.min /a/b /a/c
+  -- /a/b : Path
+  let min a b = if a < b then a else b;
+  -- The value, held between a low and a high bound, both included.
+  --
+  -- The bounds come first so the value can arrive from a pipeline.
+  --
+  -- >> Path.clamp /a/a /a/m /a/z
+  -- /a/m : Path
+  let clamp lo hi v = if v < lo then lo else if v > hi then hi else v;
+  -- True when the value is at or between the two bounds.
+  --
+  -- >> Path.between? /a/a /a/z /a/m
+  -- true : Bool
+  let between? lo hi v = v >= lo && v <= hi

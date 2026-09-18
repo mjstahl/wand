@@ -151,31 +151,28 @@ let with_prerelease pre v = version_with_prerelease pre v
 -- Ok(1.2.3+build.5) : Result String Version
 let with_build b v = version_with_build b v
 
--- The larger of two Versions.
---
--- The numbers are read, so `1.10.0` is after `1.9.0`.
---
--- >> Version.max 1.9.0 1.10.0
--- 1.10.0 : Version
-let max : Version -> Version -> Version = fn a b -> if a > b then a else b
-
--- The smaller of two Versions.
---
--- >> Version.min 1.9.0 1.10.0
--- 1.9.0 : Version
-let min : Version -> Version -> Version = fn a b -> if a < b then a else b
-
--- The value, held between a low and a high bound, both included.
---
--- The bounds come first so the value can arrive from a pipeline.
---
--- >> Version.clamp 1.0.0 2.0.0 3.1.0
--- 2.0.0 : Version
-let clamp : Version -> Version -> Version -> Version =
-  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
-
--- True when the value is at or between the two bounds.
---
--- >> Version.between? 1.0.0 2.0.0 1.5.0
--- true : Bool
-let between? : Version -> Version -> Version -> Bool = fn lo hi v -> v >= lo && v <= hi
+implement Ord Version =
+  -- The larger of two Versions.
+  --
+  -- The numbers are read, so `1.10.0` is after `1.9.0`.
+  --
+  -- >> Version.max 1.9.0 1.10.0
+  -- 1.10.0 : Version
+  let max a b = if a > b then a else b;
+  -- The smaller of two Versions.
+  --
+  -- >> Version.min 1.9.0 1.10.0
+  -- 1.9.0 : Version
+  let min a b = if a < b then a else b;
+  -- The value, held between a low and a high bound, both included.
+  --
+  -- The bounds come first so the value can arrive from a pipeline.
+  --
+  -- >> Version.clamp 1.0.0 2.0.0 3.1.0
+  -- 2.0.0 : Version
+  let clamp lo hi v = if v < lo then lo else if v > hi then hi else v;
+  -- True when the value is at or between the two bounds.
+  --
+  -- >> Version.between? 1.0.0 2.0.0 1.5.0
+  -- true : Bool
+  let between? lo hi v = v >= lo && v <= hi

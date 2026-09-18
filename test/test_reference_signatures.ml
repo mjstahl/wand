@@ -65,6 +65,15 @@ let signature_of ?current_module line =
   | Some i ->
     let lhs = String.trim (String.sub line 0 i) in
     let rhs = String.trim (String.sub line (i + 1) (String.length line - i - 1)) in
+    (* `wand d` marks a member that answers to an interface -- `[Ord]` after
+       the type -- and the reference shows its real output. The mark is not
+       part of the type, so it comes off before the comparison. *)
+    let rhs =
+      match String.rindex_opt rhs '[' with
+      | Some b when String.length rhs > 0 && rhs.[String.length rhs - 1] = ']' ->
+        String.trim (String.sub rhs 0 b)
+      | _ -> rhs
+    in
     if lhs = "" || rhs = "" then None
     else if String.exists (fun c -> c = ' ') lhs then None
     else if not (String.for_all (fun c -> is_name_char c || c = '.') lhs) then None
@@ -128,7 +137,7 @@ let members_of m =
   match Runner.run_session sess ("import " ^ m) with
   | Ok (sess, _) ->
     (match List.assoc_opt m sess.Runner.s_type_env with
-     | Some (Wand.Typechecker.Namespace members) -> List.map fst members
+     | Some (Wand.Typechecker.Namespace (members, _)) -> List.map fst members
      | _ -> Alcotest.failf "%s did not import as a namespace" m)
   | Error e -> Alcotest.failf "could not import %s: %s" m e
 

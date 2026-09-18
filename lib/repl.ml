@@ -258,11 +258,13 @@ let stdlib_prelude =
    could act on. `:v` has always listed members, so the two share a function
    rather than a shape: the copy is what goes stale. This is what
    `wand d <Module>` prints, so the REPL and the command agree. *)
-let print_members name members =
-  List.sort (fun (a, _) (b, _) -> String.compare a b) members
-  |> List.iter (fun (member, scheme) ->
-       Printf.printf "%s.%s : %s\n" name member
-         (Typechecker.string_of_scheme scheme));
+let print_members ?(claims = []) name members =
+  List.iter print_endline
+    (Runner.aligned_rows
+       (List.map (fun (member, scheme) ->
+          (name ^ "." ^ member, Typechecker.string_of_scheme scheme,
+           Runner.member_ifaces claims member))
+          (List.sort (fun (a, _) (b, _) -> String.compare a b) members)));
   flush stdout
 
 (* Everything the session holds: a module by name, a binding with its type.
@@ -315,7 +317,8 @@ let rec handle_command (sess : Runner.session) (line : string) : Runner.session 
       match List.assoc_opt rest sess.s_type_env with
       (* A module answers with what it holds. `:d List.map` asks the same
          question of one member and gets its doc, below. *)
-      | Some (Typechecker.Namespace members) -> print_members rest members; sess
+      | Some (Typechecker.Namespace (members, claims)) ->
+        print_members ~claims rest members; sess
       | _ ->
       (match Runner.lookup_type sess rest with
        | Some t -> Printf.printf "%s : %s\n" rest t

@@ -12,7 +12,7 @@ let make_sess () =
 
 let lookup_module name sess =
   match List.assoc_opt name sess.Runner.s_type_env with
-  | Some (Typechecker.Namespace members) -> Some members
+  | Some (Typechecker.Namespace (members, _)) -> Some members
   | _ -> None
 
 (* ── evaluating an expression (wand -e) ─────────────────────────────────── *)
@@ -91,7 +91,7 @@ let test_doc () =
   (* stdlib function has a doc string *)
   (match List.assoc_opt "map" (List.concat_map (fun (n, s) ->
       match s with
-      | Typechecker.Namespace members ->
+      | Typechecker.Namespace (members, _) ->
         if n = "List" then List.map (fun (mn, ms) -> (mn, ms)) members else []
       | _ -> []) sess.Runner.s_type_env) with
    | Some _ -> ()
@@ -131,8 +131,11 @@ let test_doc_index () =
         let qualified = modname ^ "." ^ m in
         Alcotest.(check bool) (qualified ^ " is in the index") true
           (List.mem_assoc qualified index)) members) modules;
-  (* A module that is gone stays gone. *)
+  (* A module that is gone stays gone. `Ord` is the interface the ordered
+     types implement, declared by the compiler rather than by a file, so
+     there is nothing to import and nothing to list. *)
   Alcotest.(check bool) "no Ord module" false (List.mem "Ord" modules);
+  Alcotest.(check bool) "and no Ord.max" false (List.mem_assoc "Ord.max" index);
   Alcotest.(check bool) "Int.max is in the index" true
     (List.mem_assoc "Int.max" index)
 
@@ -515,8 +518,9 @@ let test_repl_doc_of_a_module () =
   List.iter (fun needle ->
     if not (Lint.contains out needle) then
       Alcotest.failf ":d Random did not name %s:\n%s" needle out)
+    (* The colons line up, the column set by the longest name in the module. *)
     ["Random.shuffle : List 'a -> List 'a ! {Random}";
-     "Random.hex : Int -> String ! {Random}"];
+     "Random.hex     : Int -> String ! {Random}"];
   List.iter (fun stale ->
     if Lint.contains out stale then
       Alcotest.failf ":d Random still says %S:\n%s" stale out)
@@ -712,6 +716,37 @@ let test_every_unbound_name_reported () =
     in
     Alcotest.(check int) "three objects" 3 count)
 
+(* A member that answers to an interface says so after its type, in square
+   brackets -- round ones are type application, so a reader copying the type
+   into an annotation could take the interface for a last argument. A `[`
+   never appears in a wand type.
+
+   The colons line up within a module and the column resets at the next:
+   names run from 8 to 23 characters, so one column across the whole listing
+   would pad every short line by fifteen spaces. *)
+let test_wand_d_marks_interfaces () =
+  in_scratch (fun d ->
+    let (code, out) = wand_out ~dir:d ["d"; "Int"] in
+    Alcotest.(check int) "it lists" 0 code;
+    Alcotest.(check bool) "a member of Ord is marked" true
+      (contains_sub out "Int.max       : Int -> Int -> Int [Ord]");
+    Alcotest.(check bool) "and one that is not is left alone" true
+      (contains_sub out "Int.abs       : Int -> Int\n");
+    (* One member on its own puts it on the signature, where the index puts
+       it too, rather than in a slot of its own. *)
+    let (_, out) = wand_out ~dir:d ["d"; "Int.max"] in
+    Alcotest.(check bool) "a single member is marked" true
+      (contains_sub out "Int.max : Int -> Int -> Int [Ord]");
+    (* The index carries it, and `--json` carries it as a field. *)
+    let (_, out) = wand_out ~dir:d ["d"; "--index"] in
+    Alcotest.(check bool) "the index carries it" true
+      (contains_sub out "Size.max      : Size -> Size -> Size [Ord]");
+    let (_, out) = wand_out ~dir:d ["d"; "--index"; "--json"] in
+    Alcotest.(check bool) "as a field" true
+      (contains_sub out "\"name\":\"Int.max\",\"type\":\"Int -> Int -> Int\",\"implements\":[\"Ord\"]");
+    Alcotest.(check bool) "null where there is none" true
+      (contains_sub out "\"name\":\"Int.abs\",\"type\":\"Int -> Int\",\"implements\":null"))
+
 (* ── Interfaces across files ─────────────────────────────────────────────── *)
 
 (* An interface belongs to the module that declares it and is reached through
@@ -722,12 +757,12 @@ let test_every_unbound_name_reported () =
 
 let iface_files d =
   write_file (Filename.concat d "ord.wand")
-    "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n";
+    "interface Ranked 'a(top: 'a -> 'a -> 'a, bottom: 'a -> 'a -> 'a)\n";
   write_file (Filename.concat d "ints.wand")
     "let ord = import ./ord\n\n\
-     implement ord.Ord Int =\n\
-     \  let max a b = if a > b then a else b;\n\
-     \  let min a b = if a < b then a else b\n"
+     implement ord.Ranked Int =\n\
+     \  let top a b = if a > b then a else b;\n\
+     \  let bottom a b = if a < b then a else b\n"
 
 let test_a_module_is_passed_to_generic_code () =
   in_scratch (fun d ->
@@ -736,7 +771,7 @@ let test_a_module_is_passed_to_generic_code () =
       "uses {IO}\n\nimport IO\n\n\
        let ord = import ./ord\n\
        let ints = import ./ints\n\n\
-       let biggest (m: ord.Ord Int) a b = m.max a b\n\n\
+       let biggest (m: ord.Ranked Int) a b = m.top a b\n\n\
        IO.println \"%{biggest ints 3 7}\"\n";
     let (code, out) = wand_out ~dir:d ["main.wand"] in
     Alcotest.(check int) "it runs" 0 code;
@@ -748,14 +783,14 @@ let test_an_imported_interface_has_no_bare_form () =
     write_file (Filename.concat d "main.wand")
       "let ord = import ./ord\n\
        let ints = import ./ints\n\n\
-       let biggest (m: Ord Int) a b = m.max a b\n\n\
+       let biggest (m: Ranked Int) a b = m.top a b\n\n\
        biggest ints 3 7\n";
     let (code, out) = wand_out ~dir:d ["t"; "main.wand"] in
     Alcotest.(check int) "the bare name is refused" 1 code;
     (* And the message names the spelling that works, rather than saying the
        type is unknown. *)
     Alcotest.(check bool) "it says what to write" true
-      (contains_sub out "write 'ord.Ord'"))
+      (contains_sub out "write 'ord.Ranked'"))
 
 let test_two_modules_may_declare_one_name () =
   in_scratch (fun d ->
@@ -792,12 +827,12 @@ let test_a_module_must_have_claimed_it () =
     write_file (Filename.concat d "main.wand")
       "let ord = import ./ord\n\
        let other = import ./other\n\n\
-       let biggest (m: ord.Ord Int) a b = m.max a b\n\n\
+       let biggest (m: ord.Ranked Int) a b = m.top a b\n\n\
        biggest other 3 7\n";
     let (code, out) = wand_out ~dir:d ["t"; "main.wand"] in
     Alcotest.(check int) "it is refused" 1 code;
     Alcotest.(check bool) "and says what the module would have to declare" true
-      (contains_sub out "does not implement ord.Ord"))
+      (contains_sub out "does not implement ord.Ranked"))
 
 (* Reaching an interface through the module that declares it is a use of
    that import. The dead-import rule did not look at the qualifier, and
@@ -809,6 +844,86 @@ let test_a_qualified_interface_uses_its_import () =
     Alcotest.(check int) "it checks out" 0 code;
     Alcotest.(check bool) "with no dead-import warning" false
       (contains_sub out "V-IMP2"))
+
+(* Nothing in an interface is arity-specific: the parser collects its type
+   variables in a loop, the members are a `List.combine` of the parameters
+   with the claim's arguments, and unifying two of them zips the argument
+   lists. So N falls out rather than being handled -- which is exactly the
+   kind of thing a later change to substitution would break in silence. *)
+let test_interfaces_at_every_arity () =
+  in_scratch (fun d ->
+    for n = 0 to 6 do
+      let ps = List.init n (fun i -> Printf.sprintf "'%c" (Char.chr (97 + i))) in
+      let params = if ps = [] then "" else " " ^ String.concat " " ps in
+      let args = String.concat " " (List.init n (fun _ -> "Int")) in
+      let member = if n = 0 then "tag: String" else "pick: " ^ String.concat " -> " ps in
+      (* `pick` chains the n parameters, so at all-`Int` it takes n - 1
+         arguments and answers with one. *)
+      let body =
+        if n = 0 then "  let tag = \"x\""
+        else
+          "  let pick"
+          ^ String.concat ""
+              (List.init (n - 1) (fun i -> Printf.sprintf " p%d" i))
+          ^ " = 0"
+      in
+      let annot =
+        if n = 0 then Printf.sprintf "iface.I%d" n
+        else Printf.sprintf "iface.I%d %s" n args
+      in
+      write_file (Filename.concat d (Printf.sprintf "i%d.wand" n))
+        (Printf.sprintf "interface I%d%s(%s)\n" n params member);
+      write_file (Filename.concat d (Printf.sprintf "m%d.wand" n))
+        (Printf.sprintf "let iface = import ./i%d\n\nimplement iface.I%d %s =\n%s\n"
+           n n args body);
+      write_file (Filename.concat d (Printf.sprintf "u%d.wand" n))
+        (Printf.sprintf
+           "let iface = import ./i%d\nlet m = import ./m%d\n\n\
+            let f (x: %s) = x\n\nf m\n" n n annot);
+      let (code, out) = wand_out ~dir:d [Printf.sprintf "u%d.wand" n] in
+      Alcotest.(check int)
+        (Printf.sprintf "%d type parameter(s) checks out" n) 0 code;
+      ignore out
+    done)
+
+(* All-`Int` arguments would hide a parameter bound to the wrong one, so the
+   types have to differ. *)
+let test_each_parameter_binds_its_own_type () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "tri.wand")
+      "interface Tri 'a 'b 'c(first: 'a -> 'b, second: 'b -> 'c, both: 'a -> 'c)\n";
+    let impl order =
+      Printf.sprintf
+        "import String\n\nlet tri = import ./tri\n\n\
+         implement tri.Tri %s =\n\
+         \  let first n = \"%%{n}\";\n\
+         \  let second s = String.length s > 1;\n\
+         \  let both n = n > 9\n" order
+    in
+    write_file (Filename.concat d "m.wand") (impl "Int String Bool");
+    write_file (Filename.concat d "u.wand")
+      "let tri = import ./tri\n\
+       let m = import ./m\n\n\
+       let run (x: tri.Tri Int String Bool) n = \
+       (x.first n, x.second (x.first n), x.both n)\n\n\
+       run m 42\n";
+    let (code, out) = wand_out ~dir:d ["u.wand"] in
+    Alcotest.(check int) "it runs" 0 code;
+    Alcotest.(check string) "each parameter kept its own type"
+      "(\"42\", true, true)\n" out;
+    (* The arguments in the wrong order are refused at the first member that
+       disagrees, named rather than the block. *)
+    write_file (Filename.concat d "m.wand") (impl "Int Bool String");
+    let (code, out) = wand_out ~dir:d ["t"; "u.wand"] in
+    Alcotest.(check int) "the wrong order is refused" 1 code;
+    Alcotest.(check bool) "at the member" true
+      (contains_sub out "'first' does not match what 'tri.Tri' declares for it");
+    (* And too few arguments are counted. *)
+    write_file (Filename.concat d "m.wand") (impl "Int String");
+    let (code, out) = wand_out ~dir:d ["t"; "u.wand"] in
+    Alcotest.(check int) "too few is refused" 1 code;
+    Alcotest.(check bool) "saying how many" true
+      (contains_sub out "takes 3 type arguments, and this names 2"))
 
 (* ── wand t --effects ────────────────────────────────────────────────────── *)
 
@@ -952,6 +1067,9 @@ let () =
       Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
       Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
       Alcotest.test_case "every unbound name" `Quick test_every_unbound_name_reported;
+      Alcotest.test_case "interfaces at every arity" `Quick test_interfaces_at_every_arity;
+      Alcotest.test_case "each parameter binds its own" `Quick test_each_parameter_binds_its_own_type;
+      Alcotest.test_case "wand d marks interfaces" `Quick test_wand_d_marks_interfaces;
       Alcotest.test_case "a module passed as a value" `Quick test_a_module_is_passed_to_generic_code;
       Alcotest.test_case "no bare imported interface" `Quick test_an_imported_interface_has_no_bare_form;
       Alcotest.test_case "two modules, one name" `Quick test_two_modules_may_declare_one_name;

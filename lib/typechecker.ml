@@ -18,7 +18,8 @@ let stdlib_module_names =
    instead of it. *)
 let moved_module_names =
   [ "Ord", "the comparisons sit on each ordered type. Write 'Int.max', \
-            'Duration.min', 'Path.between?' etc." ]
+            'Duration.min', 'Path.between?' etc. `Ord` is the interface they \
+            implement, not a module" ]
 
 (* ── Types ────────────────────────────────────────────────────────────────── *)
 
@@ -595,6 +596,8 @@ let rec collect_evars t =
   | TDecoder t  -> collect_evars t
   | TMap t      -> collect_evars t
   | TApp (f, a) -> collect_evars f @ collect_evars a
+  | TIface (_, args) -> List.concat_map collect_evars args
+  | TModule claims -> List.concat_map (fun (_, a) -> List.concat_map collect_evars a) claims
   | _           -> []
 
 (* Does this type need brackets where it stands as an argument? Anything
@@ -802,6 +805,8 @@ let rec occurs (tv : tv) t =
   | TDecoder t  -> occurs tv t
   | TMap t      -> occurs tv t
   | TApp (f, a) -> occurs tv f || occurs tv a
+  | TIface (_, args) -> List.exists (occurs tv) args
+  | TModule claims -> List.exists (fun (_, a) -> List.exists (occurs tv) a) claims
   | _           -> false
 
 (* ── Unification ──────────────────────────────────────────────────────────── *)
@@ -1017,13 +1022,19 @@ let unify_expected ~expected ~got =
 type scheme =
   | Mono of typ
   | Poly of int list * int list * typ   (* type vars, effect vars, body *)
-  | Namespace of env
+  (* A module: what it holds, and what it claims to implement. The claims
+     are beside the members rather than among them -- a claim is not
+     something a file can select, and every listing of a module's surface
+     would otherwise have to remember to leave it out. *)
+  | Namespace of env * (string * typ list) list
 
 and env = (string * scheme) list
 
-(* The entry a module's own environment carries its claims under. The space
-   is what keeps it out of reach: no file can write this name, so it is not
-   a member and cannot be selected, shadowed or reported. *)
+(* A module's claims ride in its own environment, under a name no file can
+   write -- the space is what puts it out of reach -- so an import brings
+   them along and a cached module keeps them, with no table to hold
+   consistent. `split_claims` lifts them out where the module becomes a
+   namespace, which is why no listing has to know about them. *)
 let implements_key = "implements claims"
 
 (* Names a reader of another language reaches for. wand has no training-data
@@ -1073,6 +1084,14 @@ let foreign_member_hint ns member =
   | "String", "sub" -> Some "use String.slice"
   | "FS", "read_lines" -> Some "FS.read_file! reads the whole file; \
                                 String.lines splits it"
+  (* `Ord` was a module of four functions until 0.79.0, and is a module
+     declaring an interface again from 0.80.0. A script written against the
+     old one names a member that is not there, and the answer is the same as
+     it was: the comparisons sit on the type. *)
+  | "Ord", ("max" | "min" | "clamp" | "between?") ->
+    Some "the comparisons sit on each ordered type; write 'Int.max', \
+          'Duration.min', 'Path.between?' etc. `Ord` declares the interface \
+          they answer to"
   | "Shell", ("run" | "run!" | "exec" | "exec!") ->
     Some "commands run with $(...); Shell only reads their output \
           (Shell.decode, Shell.lines)"
@@ -1145,6 +1164,8 @@ let rec free_tvars t =
   | TDecoder t  -> free_tvars t
   | TMap t      -> free_tvars t
   | TApp (f, a) -> free_tvars f @ free_tvars a
+  | TIface (_, args) -> List.concat_map free_tvars args
+  | TModule claims -> List.concat_map (fun (_, a) -> List.concat_map free_tvars a) claims
   | _           -> []
 
 let rec free_evars_typ t =
@@ -1159,6 +1180,9 @@ let rec free_evars_typ t =
   | TDecoder t  -> free_evars_typ t
   | TMap t      -> free_evars_typ t
   | TApp (f, a) -> free_evars_typ f @ free_evars_typ a
+  | TIface (_, args) -> List.concat_map free_evars_typ args
+  | TModule claims ->
+    List.concat_map (fun (_, a) -> List.concat_map free_evars_typ a) claims
   | _           -> []
 
 let free_tvars_scheme = function
@@ -1240,6 +1264,8 @@ let refresh_scheme (sch : scheme) : scheme =
     | TDecoder t -> TDecoder (go t)
     | TMap t -> TMap (go t)
     | TApp (f, a) -> TApp (go f, go a)
+    | TIface (n, args) -> TIface (n, List.map go args)
+    | TModule claims -> TModule (List.map (fun (n, a) -> (n, List.map go a)) claims)
     | other -> other
   in
   let id_of t = match repr t with TVar tv -> Some tv.id | _ -> None in
@@ -1272,10 +1298,7 @@ let instantiate = function
      says it implements: that is the only question anything asks of it, since
      a parameter is annotated with an interface and never with a module. A
      module claiming nothing is a value nothing accepts. *)
-  | Namespace ns ->
-    (match List.assoc_opt implements_key ns with
-     | Some (Mono (TModule _ as t)) -> t
-     | _ -> TModule [])
+  | Namespace (_, claims) -> TModule claims
   | Mono t -> t
   | Poly (ids, evar_ids, t) ->
     (* Replacements are made per variable rather than precomputed per id,
@@ -1303,6 +1326,14 @@ let instantiate = function
       | TDecoder t  -> TDecoder (inst t)
       | TMap t      -> TMap (inst t)
       | TApp (f, a) -> TApp (inst f, inst a)
+      (* An interface's arguments are types like any other, and a module's
+         claims carry types too. Left out of the walk, a signature written
+         `Ord 'a -> 'a -> 'a` came back as `Ord 'a -> 'b -> 'b`: the
+         argument kept the quantified variable while the rest was
+         refreshed. *)
+      | TIface (n, args) -> TIface (n, List.map inst args)
+      | TModule claims ->
+        TModule (List.map (fun (n, a) -> (n, List.map inst a)) claims)
       | t           -> t
     in
     inst t
@@ -1426,7 +1457,47 @@ let written_evars : int list ref = ref []
    parameter is annotated with it. *)
 let iface_defs : (string, Ast.interface_def) Hashtbl.t = Hashtbl.create 8
 
+(* `Ord` is declared here rather than in a file, because it belongs to no
+   module: it is what the eleven ordered types implement, and a type is
+   ordered whether or not anything was imported. So it is written bare, the
+   way a built-in type is, and there is nothing to qualify it with.
+
+   It shares its name with the constraint `<` and `>` check, and deliberately
+   -- both say "this type is ordered". They are two mechanisms for where an
+   implementation comes from, never two properties: an operator has nowhere
+   to take a module, so the constraint is what it checks; a caller passes the
+   module, which is what this is. They cannot be confused syntactically
+   either, since a constraint is only ever written after `'a:`. *)
+let builtin_ifaces : (string * Ast.interface_def) list =
+  let v n = Ast.TEVar (n, None) in
+  let arrow a b = Ast.TEFun (a, b, None) in
+  let a = v "a" in
+  [ ("Ord",
+     { Ast.if_name = "Ord";
+       if_params = ["a"];
+       if_members =
+         [ ("max",      arrow a (arrow a a));
+           ("min",      arrow a (arrow a a));
+           ("clamp",    arrow a (arrow a (arrow a a)));
+           ("between?", arrow a (arrow a (arrow a (Ast.TEName "Bool")))) ] }) ]
+
 let is_iface name = Hashtbl.mem iface_defs name
+
+(* The members an interface declares, for the listings that mark which of a
+   module's bindings answer to one. None where the interface is not in
+   scope, which marks nothing rather than guessing. *)
+let iface_member_names name =
+  match Hashtbl.find_opt iface_defs name with
+  | Some i -> Some (List.map fst i.Ast.if_members)
+  | None -> None
+
+let split_claims (own : env) : env * (string * typ list) list =
+  let claims =
+    match List.assoc_opt implements_key own with
+    | Some (Mono (TModule cs)) -> cs
+    | _ -> []
+  in
+  (List.filter (fun (n, _) -> n <> implements_key) own, claims)
 
 (* The qualified spellings of an interface written bare. An imported one is
    reached only through the module that declares it, so a bare name that
@@ -2760,6 +2831,16 @@ let rec infer tenv (env : env) (e : expr) : typ =
          unbound_names := !unbound_names @ [(!cur_loc, unbound_message name env)]
        end;
        fresh ())
+  (* A module used as a value. A stdlib module's name is uppercase, so it
+     arrives here rather than as a variable -- `biggest Int 3 7` passes the
+     `Int` module. Only where nothing declares a constructor of the name, so
+     a constructor is never shadowed by a module. *)
+  | Constr name when find_ctor_in_tenv tenv name = None
+                  && (match List.assoc_opt name env with
+                      | Some (Namespace _) -> true | _ -> false) ->
+    (match List.assoc_opt name env with
+     | Some (Namespace (_, claims)) -> TModule claims
+     | _ -> assert false)
   | Constr name ->
     let ctor_env = tenv_to_ctor_env tenv in
     (* A constructor with named fields is built by naming them. Supplying its
@@ -3252,7 +3333,7 @@ let rec infer tenv (env : env) (e : expr) : typ =
     (* Namespace access: Ns.member — check before falling into regular field inference *)
     let lookup_ns ns_name =
       match List.assoc_opt ns_name env with
-      | Some (Namespace ns_env) ->
+      | Some (Namespace (ns_env, _)) ->
         Some (match List.assoc_opt label ns_env with
           | Some s -> instantiate s
           | None ->
@@ -4868,6 +4949,9 @@ let rec labels_of_typ ?(demanded = false) t =
     Effect_set.EffSet.union (Effect_set.labels_of r) (self t)
   | TDecoder t -> self t
   | TApp (f, a) -> Effect_set.EffSet.union (self f) (self a)
+  | TIface (_, args) ->
+    List.fold_left (fun acc a -> Effect_set.EffSet.union acc (self a))
+      Effect_set.EffSet.empty args
   | _ -> Effect_set.EffSet.empty
 
 (* A manifest bounds what a file can do to the machine. Raise is control
@@ -5169,6 +5253,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
   (* Seeded per file rather than accumulated: an interface is in scope where
      it is declared and where it is imported, and nowhere else. *)
   Hashtbl.reset iface_defs;
+  List.iter (fun (n, i) -> Hashtbl.replace iface_defs n i) builtin_ifaces;
   List.iter (fun (n, i) -> Hashtbl.replace iface_defs n i) init_ifaces;
   expr_item_types := [];
   expr_item_effects := [];
@@ -5191,6 +5276,12 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
      it. *)
   List.iter (function
     | TLInterface (i, loc) ->
+      (* A name declares one thing, and a built-in's name is taken before
+         any file is read. *)
+      if List.mem_assoc i.Ast.if_name builtin_ifaces then
+        fail_at_opt loc (Printf.sprintf
+          "'%s' is a built-in interface, so a declaration cannot take its \
+           name; rename this one" i.Ast.if_name);
       if List.mem_assoc i.Ast.if_name init_ifaces then
         fail_at_opt loc (Printf.sprintf
           "'%s' is already an interface this file imports: a name declares \

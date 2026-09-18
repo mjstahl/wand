@@ -387,7 +387,7 @@ let describe (d : doc) word : (string * string option) option =
   match String.split_on_char '.' word with
   | [ns; m] when m <> "" ->
     (match List.assoc_opt ns scope with
-     | Some (Typechecker.Namespace members) ->
+     | Some (Typechecker.Namespace (members, _)) ->
        (match List.assoc_opt m members with
         | Some s -> Some (Typechecker.string_of_scheme s,
                           List.assoc_opt word (docs_of d))
@@ -593,7 +593,7 @@ let completion_items (d : doc) line_idx line_text character : J.t list =
     match String.split_on_char '.' typed with
     | [ns; _] when not (List.mem_assoc ns scope) ->
       (match Runner.stdlib_module_sig ns with
-       | Some (sig_env, _) -> (Some ns, scope @ [(ns, Typechecker.Namespace sig_env)])
+       | Some (sig_env, _) -> (Some ns, scope @ [(ns, Typechecker.Namespace (sig_env, []))])
        | None -> (None, scope))
     | _ -> (None, scope)
   in

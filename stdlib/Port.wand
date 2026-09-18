@@ -22,29 +22,26 @@ let to_int p = port_to_int p
 -- Error("invalid port 70000: must be 0-65535") : Result String Port
 let of_int n = port_of_int n
 
--- The larger of two Ports.
---
--- >> Port.max :80 :8080
--- :8080 : Port
-let max : Port -> Port -> Port = fn a b -> if a > b then a else b
-
--- The smaller of two Ports.
---
--- >> Port.min :80 :8080
--- :80 : Port
-let min : Port -> Port -> Port = fn a b -> if a < b then a else b
-
--- The value, held between a low and a high bound, both included.
---
--- The bounds come first so the value can arrive from a pipeline.
---
--- >> Port.clamp :80 :443 :8080
--- :443 : Port
-let clamp : Port -> Port -> Port -> Port =
-  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
-
--- True when the value is at or between the two bounds.
---
--- >> Port.between? :80 :443 :100
--- true : Bool
-let between? : Port -> Port -> Port -> Bool = fn lo hi v -> v >= lo && v <= hi
+implement Ord Port =
+  -- The larger of two Ports.
+  --
+  -- >> Port.max :80 :8080
+  -- :8080 : Port
+  let max a b = if a > b then a else b;
+  -- The smaller of two Ports.
+  --
+  -- >> Port.min :80 :8080
+  -- :80 : Port
+  let min a b = if a < b then a else b;
+  -- The value, held between a low and a high bound, both included.
+  --
+  -- The bounds come first so the value can arrive from a pipeline.
+  --
+  -- >> Port.clamp :80 :443 :8080
+  -- :443 : Port
+  let clamp lo hi v = if v < lo then lo else if v > hi then hi else v;
+  -- True when the value is at or between the two bounds.
+  --
+  -- >> Port.between? :80 :443 :100
+  -- true : Bool
+  let between? lo hi v = v >= lo && v <= hi

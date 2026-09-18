@@ -926,11 +926,7 @@ let main () =
             command already answers one module at a time. *)
          let sess = load_files ~sources:[all_stdlib_imports] loads in
          if json then print_endline (Wand.Runner.index_json sess)
-         else
-           List.iter (fun (name, scheme) ->
-             Printf.printf "%s : %s\n" name
-               (Wand.Typechecker.string_of_scheme scheme))
-             (Wand.Runner.index sess)
+         else List.iter print_endline (Wand.Runner.index_lines sess)
        | [] when execute || test ->
          Printf.eprintf
            "Error: -x and -t run one name's examples, so they need a name\n\
@@ -1003,16 +999,16 @@ let main () =
             namespace, found none, and said so. Listing the members is the
             question that was asked. *)
          (match List.assoc_opt name sess.Wand.Runner.s_type_env with
-          | Some (Wand.Typechecker.Namespace members) ->
+          | Some (Wand.Typechecker.Namespace (members, _)) ->
             if json then
               (match Wand.Runner.module_json sess name with
                | Ok out    -> print_endline out
                | Error msg -> Printf.eprintf "%s\n" msg; exit 1)
             else
-              List.iter (fun (n, scheme) ->
-                Printf.printf "%s.%s : %s\n" name n
-                  (Wand.Typechecker.string_of_scheme scheme))
-                (List.sort (fun (a, _) (b, _) -> String.compare a b) members)
+              (ignore members;
+               match Wand.Runner.module_lines sess name with
+               | Some lines -> List.iter print_endline lines
+               | None -> ())
           | _ ->
             if json then
               (* An array whether one name was asked about or a whole
@@ -1021,7 +1017,11 @@ let main () =
               print_endline ("[" ^ Wand.Runner.doc_json sess name ^ "]")
             else begin
               (match Wand.Runner.lookup_type sess name with
-               | Some t -> Printf.printf "%s : %s\n" name t
+               (* The interfaces go on the signature, where `--index` puts
+                  them too, rather than in a slot of their own. *)
+               | Some t ->
+                 Printf.printf "%s : %s%s\n" name t
+                   (Wand.Runner.iface_suffix (Wand.Runner.name_ifaces sess name))
                | None   -> ());
               (* What a handler intercepts. The signature carries the label
                  and a label covers several operations, so without this the

@@ -1891,7 +1891,7 @@ let test_manifest_labels_of_member () =
   in
   let member ns name =
     match List.assoc_opt ns env with
-    | Some (Typechecker.Namespace members) ->
+    | Some (Typechecker.Namespace (members, _)) ->
       (match List.assoc_opt name members with
        | Some s -> s
        | None -> Alcotest.failf "%s has no member %s" ns name)
@@ -2025,7 +2025,7 @@ let test_the_collection_does_not_leak () =
 (* ── Interfaces ───────────────────────────────────────────────────────────── *)
 
 (* A contract on a module: the functions it must provide. The type parameter
-   is instantiation rather than dispatch -- `implement Ord Int` binds `'a` to
+   is instantiation rather than dispatch -- `implement Ranked Int` binds `'a` to
    `Int`, so `max` in that implementation has to be `Int -> Int -> Int`. *)
 
 let iface_error src =
@@ -2046,9 +2046,9 @@ let iface_refuses label src needle =
     if not (Lint.contains m needle) then
       Alcotest.failf "%s: expected %S in: %s" label needle m
 
-let ord = "interface Ord 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n\n"
+let ord = "interface Ranked 'a(max: 'a -> 'a -> 'a, min: 'a -> 'a -> 'a)\n\n"
 
-let both = "implement Ord Int =\n\
+let both = "implement Ranked Int =\n\
             \  let max a b = if a > b then a else b;\n\
             \  let min a b = if a < b then a else b\n"
 
@@ -2060,7 +2060,7 @@ let test_an_implementation_is_checked () =
 
 let test_every_member_is_answered_for () =
   iface_refuses "a member the interface declares and this does not"
-    (ord ^ "implement Ord Int =\n  let max a b = a\n")
+    (ord ^ "implement Ranked Int =\n  let max a b = a\n")
     "declares 'min', which this implementation does not provide";
   (* A member the interface does not declare is not part of the contract, so
      the block is the wrong place for it. *)
@@ -2070,14 +2070,14 @@ let test_every_member_is_answered_for () =
 
 let test_a_member_is_held_to_its_declared_type () =
   iface_refuses "the wrong type"
-    (ord ^ "implement Ord Int =\n\
+    (ord ^ "implement Ranked Int =\n\
             \  let max a b = \"x\";\n\
             \  let min a b = if a < b then a else b\n")
-    "does not match what 'Ord' declares for it"
+    "does not match what 'Ranked' declares for it"
 
 let test_the_type_arguments_are_counted () =
   iface_refuses "none where one is wanted"
-    (ord ^ "implement Ord =\n  let max a b = a;\n  let min a b = a\n")
+    (ord ^ "implement Ranked =\n  let max a b = a;\n  let min a b = a\n")
     "takes 1 type argument, and this names 0";
   iface_refuses "an interface that is not in scope"
     "implement Nope Int =\n  let max a b = a\n"
@@ -2087,21 +2087,34 @@ let test_the_type_arguments_are_counted () =
    read off the contract at the types the annotation bound them to. Nothing
    is dispatched. *)
 let test_a_parameter_can_be_a_module () =
-  iface_ok (ord ^ "let biggest (m: Ord Int) a b = m.max a b\n\nbiggest\n");
+  iface_ok (ord ^ "let biggest (m: Ranked Int) a b = m.max a b\n\nbiggest\n");
   iface_refuses "a member the interface does not declare"
-    (ord ^ "let f (m: Ord Int) a b = m.nope a b\n\nf\n")
+    (ord ^ "let f (m: Ranked Int) a b = m.nope a b\n\nf\n")
     "declares no member 'nope'";
   (* An interface is not a type, and its own arity is what counts. *)
   iface_refuses "the wrong number of arguments in an annotation"
-    (ord ^ "let f (m: Ord Int String) = m\n\nf\n")
+    (ord ^ "let f (m: Ranked Int String) = m\n\nf\n")
     "takes 1 type argument, and this names 2"
 
 (* Conformance is nominal: `implement` is what makes a module fit, and a
    module with the right members by accident does not. *)
 let test_conformance_is_nominal () =
   iface_refuses "a module that claims nothing"
-    (ord ^ "let f (m: Ord Int) = m.max 1 2\n\nf 3\n")
+    (ord ^ "let f (m: Ranked Int) = m.max 1 2\n\nf 3\n")
     "expected"
+
+(* `Ord` is declared by the compiler rather than by a file, because it
+   belongs to no module: a type is ordered whether or not anything was
+   imported. So it is written bare, the way a built-in type is. *)
+let test_ord_is_built_in () =
+  iface_ok "let biggest (m: Ord Int) a b = m.max a b\n\nbiggest\n";
+  (* It shares its name with the constraint `<` checks, deliberately: both
+     say "this type is ordered". They cannot be confused syntactically, since
+     a constraint is only ever written after `'a:`. *)
+  iface_ok "let f : 'a: Ord -> 'a -> 'a = fn a b -> if a < b then b else a\n\nf\n";
+  iface_refuses "a declaration cannot take a built-in's name"
+    "interface Ord 'a(max: 'a -> 'a -> 'a)\n"
+    "is a built-in interface"
 
 let () =
   Alcotest.run "Typechecker" [
@@ -2112,6 +2125,7 @@ let () =
       Alcotest.test_case "type arguments counted"       `Quick test_the_type_arguments_are_counted;
       Alcotest.test_case "a parameter can be a module"  `Quick test_a_parameter_can_be_a_module;
       Alcotest.test_case "conformance is nominal"       `Quick test_conformance_is_nominal;
+      Alcotest.test_case "Ord is built in"              `Quick test_ord_is_built_in;
     ];
     "unbound names", [
       Alcotest.test_case "several in one pass"  `Quick test_several_unbound_names;

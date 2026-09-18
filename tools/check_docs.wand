@@ -78,12 +78,14 @@ let exempt = [
   "HTTP.upload!"
 ]
 
--- `wand d` lists a module's members, one per line, as `Module.name : type`.
+-- `wand d` lists a module's members, one per line, as `Module.name : type`,
+-- with the names padded so the colons line up within the module. The name is
+-- what stands before the colon, trimmed of that padding.
 let members_of! name =
   $(%{wand} d %{name})
     |> String.lines
     |> List.filter (fn l -> String.starts_with? "%{name}." l)
-    |> List.map (fn l -> List.head! (String.split " : " l))
+    |> List.map (fn l -> String.trim (List.head! (String.split " : " l)))
 
 -- A name has an example when its doc carries the session's prompt.
 let has_example! name = String.contains? ">>" $(%{wand} d --json %{name})

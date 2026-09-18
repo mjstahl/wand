@@ -2077,7 +2077,8 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (ns_name ^ "." ^ n, d)) mod_docs in
       add_import ~modul ~alias:ns_name ~own_tenv modul_import
-        [(ns_name, Typechecker.Namespace own_type)]
+        [(ns_name, (let (ms, cs) = Typechecker.split_claims own_type in
+           Typechecker.Namespace (ms, cs)))]
         (* The namespace holds the module's constructors as well as its
            values, so `Foo.Live` reads the one `Foo` declares rather than
            whichever `Live` was registered last. *)
@@ -2089,7 +2090,8 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       let (modul_import, own_type, own_eval, own_tenv, mod_docs) = load_kind kind in
       let prefixed_docs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
       add_import ~modul ~alias:name ~own_tenv modul_import
-        [(name, Typechecker.Namespace own_type)]
+        [(name, (let (ms, cs) = Typechecker.split_claims own_type in
+           Typechecker.Namespace (ms, cs)))]
         [(name, VRecord (Evaluator.vrecord_make (own_eval @ ctor_bindings_of ~modul own_tenv)))]
         prefixed_docs
     | Ast.TLLetPat (pat, body) when Option.is_some (import_kind_of body) ->
@@ -2099,7 +2101,8 @@ let rec load_imports_for ?(item_locs = []) ~base_dir ~cache ~loading ~evaluate p
       let (type_entries, eval_entries, extra_docs, selected_tenv) = match pat with
         | Ast.PVar name ->
           let pdocs = List.map (fun (n, d) -> (name ^ "." ^ n, d)) mod_docs in
-          [(name, Typechecker.Namespace own_type)],
+          [(name, (let (ms, cs) = Typechecker.split_claims own_type in
+           Typechecker.Namespace (ms, cs)))],
           [(name, VRecord (Evaluator.vrecord_make (own_eval @ ctor_bindings_of ~modul own_tenv)))],
           pdocs,
           own_tenv
@@ -3345,7 +3348,7 @@ let lookup_type (sess : session) (name : string) : string option =
   match String.split_on_char '.' name with
   | [ns; member] ->
     (match List.assoc_opt ns sess.s_type_env with
-     | Some (Typechecker.Namespace members) ->
+     | Some (Typechecker.Namespace (members, _)) ->
        (match List.assoc_opt member members with
         | Some s -> Some (Typechecker.string_of_scheme s)
         | None   -> None)
@@ -3446,13 +3449,13 @@ let scope_json (sess : session) : string =
 (* The names a module exports, or None when the name is not a module. *)
 let module_members (sess : session) (modname : string) : string list option =
   match List.assoc_opt modname sess.s_type_env with
-  | Some (Typechecker.Namespace members) ->
+  | Some (Typechecker.Namespace (members, _)) ->
     Some (List.sort String.compare (List.map fst members))
   | _ -> None
 
 let module_json (sess : session) (modname : string) : (string, string) result =
   match List.assoc_opt modname sess.s_type_env with
-  | Some (Typechecker.Namespace members) ->
+  | Some (Typechecker.Namespace (members, _)) ->
     let sorted =
       List.sort (fun (a, _) (b, _) -> String.compare a b) members
     in
@@ -3467,6 +3470,29 @@ let module_json (sess : session) (modname : string) : (string, string) result =
    name, so a tool that wants the whole surface makes one call rather than a
    loop over the module list -- and a loop's output cannot be depended on to
    stay in step with what is on disk. *)
+(* The interfaces a module's member answers to, named as a reader writes
+   them. A member is marked when the module claimed an interface that
+   declares it -- nothing is worked out from the member's shape, because
+   conformance is what the module said rather than what it happens to
+   have. *)
+let member_ifaces claims member =
+  List.filter_map (fun (iname, _) ->
+    match Typechecker.iface_member_names iname with
+    | Some names when List.mem member names -> Some iname
+    | _ -> None) claims
+
+(* `[Ord]` after a member's type, where it answers to one. Square brackets
+   because round ones are type application: `Int (Ord)` is how `List Int` is
+   written, so a reader copying the type into an annotation could take the
+   interface for a last argument. A `[` never appears in a wand type. *)
+let iface_suffix ifaces =
+  if ifaces = [] then "" else " [" ^ String.concat ", " ifaces ^ "]"
+
+let module_claims (sess : session) modname =
+  match List.assoc_opt modname sess.s_type_env with
+  | Some (Typechecker.Namespace (_, claims)) -> claims
+  | _ -> []
+
 let index (sess : session) : (string * Typechecker.scheme) list =
   let modules =
     List.sort String.compare
@@ -3476,14 +3502,92 @@ let index (sess : session) : (string * Typechecker.scheme) list =
   in
   List.concat_map (fun modname ->
     match List.assoc_opt modname sess.s_type_env with
-    | Some (Typechecker.Namespace members) ->
+    | Some (Typechecker.Namespace (members, _)) ->
       List.map (fun (n, s) -> (modname ^ "." ^ n, s))
         (List.sort (fun (a, _) (b, _) -> String.compare a b) members)
     | _ -> []) modules
 
+(* The same listing with each member's interfaces beside it. *)
+let index_with_ifaces (sess : session) =
+  List.map (fun (qualified, scheme) ->
+    match String.index_opt qualified '.' with
+    | None -> (qualified, scheme, [])
+    | Some i ->
+      let modname = String.sub qualified 0 i in
+      let member =
+        String.sub qualified (i + 1) (String.length qualified - i - 1) in
+      (qualified, scheme, member_ifaces (module_claims sess modname) member))
+    (index sess)
+
+(* One aligned block per module: the column is set by the longest name in
+   that module and resets at the next. Not across the whole listing -- names
+   run from 8 to 23 characters, so one column would pad every short line by
+   fifteen spaces. And not a third column after the type: the longest type in
+   the library is 83 characters, which would start the interfaces past column
+   130, so the brackets fall where they fall. *)
+let aligned_rows rows =
+  let modul n = match String.index_opt n '.' with
+    | Some i -> String.sub n 0 i
+    | None -> n
+  in
+  let rec groups acc = function
+    | [] -> List.rev acc
+    | ((n, _, _) :: _) as rest ->
+      let m = modul n in
+      let (here, later) =
+        List.partition (fun (x, _, _) -> modul x = m) rest in
+      (* `partition` keeps the order, and the listing is already grouped by
+         module, so a later module cannot be pulled into this one. *)
+      groups (here :: acc) later
+  in
+  List.concat_map (fun group ->
+    let width =
+      List.fold_left (fun w (n, _, _) -> max w (String.length n)) 0 group in
+    List.map (fun (n, t, ifaces) ->
+      Printf.sprintf "%-*s : %s%s" width n t (iface_suffix ifaces)) group)
+    (groups [] rows)
+
+let index_lines (sess : session) : string list =
+  aligned_rows
+    (List.map (fun (n, scheme, ifaces) ->
+       (n, Typechecker.string_of_scheme scheme, ifaces))
+       (index_with_ifaces sess))
+
+(* `wand d <Module>`: the module's own members, aligned the same way. *)
+let module_lines (sess : session) modname : string list option =
+  match List.assoc_opt modname sess.s_type_env with
+  | Some (Typechecker.Namespace (members, claims)) ->
+    Some (aligned_rows
+            (List.map (fun (n, scheme) ->
+               (modname ^ "." ^ n, Typechecker.string_of_scheme scheme,
+                member_ifaces claims n))
+               (List.sort (fun (a, _) (b, _) -> String.compare a b) members)))
+  | _ -> None
+
+(* `Int.max` -> the interfaces `Int` claims that declare `max`. A name with
+   no module part answers with none: a binding of a script's own answers to
+   nothing. *)
+let name_ifaces (sess : session) qualified =
+  match String.index_opt qualified '.' with
+  | None -> []
+  | Some i ->
+    let modname = String.sub qualified 0 i in
+    let member = String.sub qualified (i + 1) (String.length qualified - i - 1) in
+    member_ifaces (module_claims sess modname) member
+
+(* Each entry gains `implements` beside `name` and `type`, null where there
+   is none. Tools read that and never the aligned text. *)
 let index_json (sess : session) : string =
   "[" ^ String.concat ","
-          (List.map (fun (n, s) -> binding_json n s) (index sess))
+          (List.map (fun (n, scheme, ifaces) ->
+             Printf.sprintf "{\"name\":\"%s\",\"type\":\"%s\",\"implements\":%s}"
+               (Diag.escape_json n)
+               (Diag.escape_json (Typechecker.string_of_scheme scheme))
+               (if ifaces = [] then "null"
+                else "[" ^ String.concat ","
+                       (List.map (fun i -> "\"" ^ Diag.escape_json i ^ "\"") ifaces)
+                     ^ "]"))
+             (index_with_ifaces sess))
   ^ "]"
 
 let last_non_import prog =

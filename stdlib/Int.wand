@@ -67,29 +67,26 @@ let max_value = 4611686018427387903
 -- -4611686018427387904 : Int
 let min_value = 0 - max_value - 1
 
--- The larger of two Ints.
---
--- >> Int.max 3 7
--- 7 : Int
-let max : Int -> Int -> Int = fn a b -> if a > b then a else b
-
--- The smaller of two Ints.
---
--- >> Int.min 3 7
--- 3 : Int
-let min : Int -> Int -> Int = fn a b -> if a < b then a else b
-
--- The value, held between a low and a high bound, both included.
---
--- The bounds come first so the value can arrive from a pipeline.
---
--- >> Int.clamp 0 10 42
--- 10 : Int
-let clamp : Int -> Int -> Int -> Int =
-  fn lo hi v -> if v < lo then lo else if v > hi then hi else v
-
--- True when the value is at or between the two bounds.
---
--- >> Int.between? 1 10 5
--- true : Bool
-let between? : Int -> Int -> Int -> Bool = fn lo hi v -> v >= lo && v <= hi
+implement Ord Int =
+  -- The larger of two Ints.
+  --
+  -- >> Int.max 3 7
+  -- 7 : Int
+  let max a b = if a > b then a else b;
+  -- The smaller of two Ints.
+  --
+  -- >> Int.min 3 7
+  -- 3 : Int
+  let min a b = if a < b then a else b;
+  -- The value, held between a low and a high bound, both included.
+  --
+  -- The bounds come first so the value can arrive from a pipeline.
+  --
+  -- >> Int.clamp 0 10 42
+  -- 10 : Int
+  let clamp lo hi v = if v < lo then lo else if v > hi then hi else v;
+  -- True when the value is at or between the two bounds.
+  --
+  -- >> Int.between? 1 10 5
+  -- true : Bool
+  let between? lo hi v = v >= lo && v <= hi
