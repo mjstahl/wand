@@ -4,8 +4,49 @@
 
 ### Added
 
+- **`wand t` takes a directory, or more than one path.** Checking a tree was
+  a shell loop, because a second path was "too many arguments".
+
+  ```
+  $ wand t .
+  scripts/deploy.wand: type error: 3:11: unbound variable 'targt'
+  scripts/report.wand: warning: 5:1: V-BANG2: 'safe!' cannot raise, so the
+    `!` promises a risk that is not there; it is 'safe'
+  12 files, 1 error, 1 warning
+  ```
+
+  A directory is searched all the way down for `.wand` files, past `_build`,
+  `_opam`, `.git` and `node_modules`, and without following a link to a
+  directory -- the same walk `wand s` uses to find tests. Every finding
+  carries its path, and one file's error does not stop the rest, because a
+  gate wants the whole list rather than the first line of it. The last line
+  counts what was covered, and it is printed even when nothing was found,
+  since silence reads the same as finding no files to check.
+
+  The exit code is 1 if any file has an error, or if `--strict` is given and
+  any file has a violation. `--json` gives one array for the whole run, each
+  object carrying its `file`. `--fix` writes every file it can fix.
+
+  One file named on its own is unchanged: it reports what the file checks
+  out as, with no path and no count.
+
+- **The `String.to_*` family has its raising siblings.** The naming rule is
+  that a fallible function comes as a pair, and this family was twelve
+  exceptions to it in one module.
+
+  ```
+  $ wand -e 'String.to_url! "https://example.com"'
+  https://example.com : URL
+  ```
+
+  `to_int!`, `to_float!`, `to_bool!`, `to_glob!`, `to_url!`, `to_ipv4!`,
+  `to_cidr!`, `to_port!`, `to_version!`, `to_size!`, `to_datetime!` and
+  `to_duration!`. Each answers with the value and raises the reason the
+  plain name would have returned, so `try` gives that `Result` back.
+  `to_path` has none, because it cannot fail: any text is a path.
+
 - **`wand d --index`** prints every module's members with their signatures in
-  one listing -- 535 lines, the whole standard library surface. It is what a
+  one listing -- 547 lines, the whole standard library surface. It is what a
   shell loop over `wand d <module>` produced, as a command that stays in step
   with what is on disk.
 
@@ -18,6 +59,22 @@
   `--json` gives the same as an array of `{name, type}`.
 
 ### Changed
+
+- **`String.lines` drops the empty piece a trailing newline left.** A newline
+  ends a line rather than separating two, so nearly every file gave back one
+  element more than it had lines, with `""` at the end, and every caller had
+  to filter it.
+
+  ```
+                          -- before            -- now
+  String.lines "a\nb\n"    ["a", "b", ""]      ["a", "b"]
+  String.lines ""          [""]                []
+  ```
+
+  Only the piece after the last newline goes, and only when it is empty, so
+  a blank line written on purpose is still a line: `String.lines "a\n\nb\n"`
+  is `["a", "", "b"]`. `Shell.lines` already read this way, so the two agree
+  now.
 
 - **A named field's type can be a function, written without parentheses.**
   The comma or the closing parenthesis ends a named field, so a pair around

@@ -4,38 +4,6 @@ What is known to be worth doing and is not done. An item leaves this file
 when it ships, in the release that ships it. Nothing here is a commitment to
 an order.
 
-## Standard library
-
-### `String.lines` keeps the empty piece after a trailing newline
-
-Nearly every file ends in a newline, so `String.lines` almost always hands
-back one more element than there are lines, and the last one is `""`:
-
-```
->> String.lines "a\nb\n"
-["a", "b", ""]
-```
-
-Found by writing a log reader: asking for the last two lines gave one line
-and a blank. `Shell.lines` documents the same rule and says so; this one
-does not, and the caller has to filter. Either drop the trailing empty piece
-or say in the doc that it is there.
-
-### `String.to_*` has no raising sibling
-
-Thirteen functions read text into a domain type, every one returns a
-`Result`, and none has a `!` form:
-
-```
->> String.to_url! "https://x/"
-namespace 'String' has no member 'to_url!' (did you mean 'to_url'?)
-```
-
-The naming rule says a fallible function has a raising sibling, and
-`String.word` / `String.word!` in the same module follows it. So the rule
-has thirteen exceptions in one family. Either add the siblings or write the
-exception down.
-
 ## Compiler and CLI
 
 ### `--fix` does not carry the naming corrections

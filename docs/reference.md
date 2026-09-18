@@ -3496,23 +3496,49 @@ word         : Int -> String -> Option String
 word!        : Int -> String -> String ! {Raise}
 of_int       : Int -> String
 to_int       : String -> Result String Int
+to_int!      : String -> Int ! {Raise}
 to_float     : String -> Result String Float
+to_float!    : String -> Float ! {Raise}
 to_bool      : String -> Result String Bool
+to_bool!     : String -> Bool ! {Raise}
 to_path      : String -> Path
 to_glob      : String -> Result String Glob
+to_glob!     : String -> Glob ! {Raise}
 to_url       : String -> Result String URL
+to_url!      : String -> URL ! {Raise}
 to_ipv4      : String -> Result String IPv4
+to_ipv4!     : String -> IPv4 ! {Raise}
 to_cidr      : String -> Result String CIDR
+to_cidr!     : String -> CIDR ! {Raise}
 to_port      : String -> Result String Port
+to_port!     : String -> Port ! {Raise}
 to_version   : String -> Result String Version
+to_version!  : String -> Version ! {Raise}
 to_size      : String -> Result String Size
+to_size!     : String -> Size ! {Raise}
 to_datetime  : String -> Result String DateTime
+to_datetime! : String -> DateTime ! {Raise}
 to_duration  : String -> Result String Duration
+to_duration! : String -> Duration ! {Raise}
 max          : String -> String -> String
 min          : String -> String -> String
 clamp        : String -> String -> String -> String
 between?     : String -> String -> String -> Bool
 ```
+
+`lines` treats a newline as ending a line rather than separating two, so a
+trailing newline adds no empty line and text with nothing in it has no
+lines. Only the piece after the last newline goes, and only when it is
+empty, so a blank line written on purpose is still a line.
+
+```ocaml
+String.lines "a\nb\n"      -- ["a", "b"]
+String.lines "a\n\nb\n"    -- ["a", "", "b"]
+String.lines ""            -- []
+```
+
+`Shell.lines` reads the same way, and `$()` strips the trailing newline
+before either of them sees it.
 
 `word` reads one of what `words` would return, and follows the same rule: a
 run of whitespace separates once, and leading or trailing whitespace adds no
@@ -3545,6 +3571,18 @@ String.to_port ":99999"       -- Error (invalid port :99999: must be 0-65535)
 `to_port` also takes the bare number. `"8080"` and `":8080"` both read. That
 is what an environment variable, a config file or a flag holds. `Decode.port`
 accepts both for the same reason.
+
+Each fallible one has a raising sibling, as every fallible function does. The
+`!` answers with the value and raises the reason the plain name would have
+returned, so `try` gives that `Result` back:
+
+```ocaml
+String.to_port! ":8080"       -- :8080
+String.to_port! ":99999"      -- raises: invalid port :99999: must be 0-65535
+try (String.to_port! ":99999")  -- Error (invalid port :99999: must be 0-65535)
+```
+
+`to_path` has none, because it cannot fail: any text is a path.
 
 ### `Regex`
 

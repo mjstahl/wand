@@ -2803,6 +2803,23 @@ let is_word_space = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false
    full copies plus one interpreted closure call per field. Over a 200k-line
    log that was ~2.2M closure calls and about 3.2 seconds, against 73ms to
    read the same lines. *)
+(* `String.lines`. A newline ends a line rather than separating two, so the
+   bytes after the last one are a line only when there are some. Splitting on
+   "\n" gave back one element more than there were lines, with "" at the
+   end, and nearly every file ends in a newline. *)
+let str_lines_impl str =
+  let slen = String.length str in
+  let result = ref [] and start = ref 0 in
+  for i = 0 to slen - 1 do
+    if str.[i] = '\n' then begin
+      result := VString (String.sub str !start (i - !start)) :: !result;
+      start := i + 1
+    end
+  done;
+  if !start < slen then
+    result := VString (String.sub str !start (slen - !start)) :: !result;
+  List.rev !result
+
 let str_words_impl str =
   let slen = String.length str in
   let result = ref [] in
@@ -4435,6 +4452,9 @@ let stdlib_eval_env : env = [
   ("str_words", VBuiltin (function
     | VString str -> VList (str_words_impl str)
     | _ -> raise (EvalError "str_words: expected String")));
+  ("str_lines", VBuiltin (function
+    | VString str -> VList (str_lines_impl str)
+    | _ -> raise (EvalError "str_lines: expected String")));
   ("str_contains", VBuiltin (function
     | VString needle -> VBuiltin (function
       | VString haystack -> VBool (str_contains_impl needle haystack)

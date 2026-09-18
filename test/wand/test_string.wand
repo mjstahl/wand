@@ -144,6 +144,18 @@ test "join of two empties is one separator" (fn t -> t.eq "," (String.join "," [
 -- ── lines / words ───────────────────────────────────────────────────────
 
 test "lines" (fn t -> t.eq ["a", "b", "c"] (String.lines "a\nb\nc"))
+
+-- A newline ends a line rather than separating two. Nearly every file ends
+-- in one, so splitting on "\n" answered with an extra "" at the end and
+-- every caller had to drop it.
+test "a trailing newline adds no line" (fn t -> t.eq ["a", "b"] (String.lines "a\nb\n"))
+test "text with nothing in it has no lines" (fn t -> t.eq [] (String.lines ""))
+-- Only the piece after the last newline goes, so a blank line written on
+-- purpose is still a line.
+test "an empty line inside is kept" (fn t -> t.eq ["a", "", "c"] (String.lines "a\n\nc\n"))
+test "an empty line at the end is kept" (fn t -> t.eq ["a", ""] (String.lines "a\n\n"))
+test "one newline is one empty line" (fn t -> t.eq [""] (String.lines "\n"))
+test "a line without a newline is a line" (fn t -> t.eq ["a"] (String.lines "a"))
 test "words" (fn t -> t.eq ["one", "two", "three"] (String.words "one two three"))
 
 -- Whatever the spacing looks like, the words are the words: a run of spaces
@@ -269,3 +281,30 @@ test "and says how many there were" (fn t ->
   t.eq (Error "no word 9: the string has 2") (try String.word! 9 "a b"))
 
 test "no words at all" (fn t -> t.eq (None, []) (String.word 0 "   ", String.words "   "))
+
+-- ── the raising siblings of the to_* family ─────────────────────────────
+
+-- Every fallible function comes as a pair, and this family had twelve
+-- exceptions to that in one module. Each `!` answers with the value where
+-- the plain name answers with Ok, and raises the same reason where it
+-- answers with Error.
+
+test "to_int!" (fn t -> t.eq 42 (String.to_int! "42"))
+test "to_float!" (fn t -> t.eq 1.5 (String.to_float! "1.5"))
+test "to_bool!" (fn t -> t.ok (String.to_bool! "TRUE"))
+test "to_glob!" (fn t -> t.eq (Ok *.wand) (try String.to_glob! "*.wand"))
+test "to_url!" (fn t -> t.eq https://example.com (String.to_url! "https://example.com"))
+test "to_ipv4!" (fn t -> t.eq 192.168.1.1 (String.to_ipv4! "192.168.1.1"))
+test "to_cidr!" (fn t -> t.eq 10.0.0.0/8 (String.to_cidr! "10.0.0.0/8"))
+test "to_port!" (fn t -> t.eq :8080 (String.to_port! ":8080"))
+test "to_version!" (fn t -> t.eq 1.2.3 (String.to_version! "1.2.3"))
+test "to_size!" (fn t -> t.eq 10MB (String.to_size! "10MB"))
+test "to_datetime!" (fn t -> t.eq 2026-08-22 (String.to_datetime! "2026-08-22"))
+test "to_duration!" (fn t -> t.eq 1h30m (String.to_duration! "1h30m"))
+
+test "a bad parse raises" (fn t -> t.raises (fn () -> String.to_int! "abc"))
+
+-- The reason is the one the plain name would have answered with, passed
+-- through rather than rewritten.
+test "and raises the reason the pair reports" (fn t ->
+  t.eq (String.to_int "abc") (try String.to_int! "abc"))
