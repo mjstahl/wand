@@ -631,6 +631,19 @@ let string_of_typ t =
               else Printf.sprintf "'e%d" !var_counter in
       incr var_counter; Hashtbl.add var_names rid n; n
   in
+  (* Left to right, because a constraint is written where its variable is
+     first met and `List.map` does not say which end it starts from. *)
+  let map_lr f xs = List.rev (List.fold_left (fun acc x -> f x :: acc) [] xs) in
+  let annotated : (int, unit) Hashtbl.t = Hashtbl.create 4 in
+  (* A variable about to show its constraint is two words, so it takes
+     brackets in an argument position: `List ('a: Ord)`, not `List 'a: Ord`,
+     which is not a type anyone could write back. *)
+  let shows_a_constraint t =
+    match repr t with
+    | TVar tv -> tv.constrained <> Free && not (Hashtbl.mem annotated tv.id)
+    | _ -> false
+  in
+  let wants_brackets t = needs_brackets t || shows_a_constraint t in
   let rec go t =
     (* The one place an alias is looked at rather than through. It shows
        with what it names, so the name the reader wrote is in the message
@@ -639,7 +652,7 @@ let string_of_typ t =
     | TAlias (n, args, u) ->
       let applied =
         if args = [] then n
-        else n ^ " " ^ String.concat " " (List.map go args) in
+        else n ^ " " ^ String.concat " " (map_lr go args) in
       Printf.sprintf "%s (= %s)" applied (go u)
     | _ ->
     match repr t with
@@ -661,12 +674,23 @@ let string_of_typ t =
       (match String.rindex_opt n '#' with
        | Some i -> String.sub n (i + 1) (String.length n - i - 1)
        | None -> n)
+    (* A constrained variable is named like any other, and carries its
+       constraint where it is first met: `'a: Ord -> 'a -> 'a` says the three
+       are one type, which `Ord -> Ord -> Ord` could not, and says it about
+       each variable separately, which is what two of them need. *)
     | TVar tv   ->
-      (match tv.constrained with
-       | Num  -> "Num"
-       | Add  -> "Add"
-       | Ord  -> "Ord"
-       | Free -> name_of tv.id)
+      let constraint_name = match tv.constrained with
+        | Num  -> Some "Num"
+        | Add  -> Some "Add"
+        | Ord  -> Some "Ord"
+        | Free -> None
+      in
+      (match constraint_name with
+       | None -> name_of tv.id
+       | Some c ->
+         let n = name_of tv.id in
+         if Hashtbl.mem annotated tv.id then n
+         else (Hashtbl.add annotated tv.id (); n ^ ": " ^ c))
     | TFun (a, b, eff) ->
       (* A set prints when it says something. Known effects always do. A set
          variable does only when it appears more than once, because then it
@@ -705,27 +729,27 @@ let string_of_typ t =
       let suffix = if suffix <> "" && ends_with rendered_b suffix then "" else suffix in
       sa ^ " -> " ^ rendered_b ^ suffix
     | TTuple ts ->
-      "(" ^ String.concat ", " (List.map go ts) ^ ")"
+      "(" ^ String.concat ", " (map_lr go ts) ^ ")"
     | TList t ->
-      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
+      let s = if wants_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "List " ^ s
     | TResult (e, t) ->
-      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
+      let wrap x = if wants_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Result " ^ wrap e ^ " " ^ wrap t
     | TResource (r, t) ->
-      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
+      let wrap x = if wants_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Resource " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TStream (r, t) ->
-      let wrap x = if needs_brackets (repr x) then "(" ^ go x ^ ")" else go x in
+      let wrap x = if wants_brackets (repr x) then "(" ^ go x ^ ")" else go x in
       "Stream " ^ Effect_set.to_string r ^ " " ^ wrap t
     | TDecoder t ->
-      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
+      let s = if wants_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "Decoder " ^ s
     | TMap t ->
-      let s = if needs_brackets (repr t) then "(" ^ go t ^ ")" else go t in
+      let s = if wants_brackets (repr t) then "(" ^ go t ^ ")" else go t in
       "Map " ^ s
     | TApp (f, a) ->
-      let sa = if needs_brackets (repr a) then "(" ^ go a ^ ")" else go a in
+      let sa = if wants_brackets (repr a) then "(" ^ go a ^ ")" else go a in
       go f ^ " " ^ sa
   in
   go t
@@ -1454,10 +1478,35 @@ let type_of_te_bound_with_vars (bound : (string * typ) list) (te : type_expr)
               n (Util.hint n (known @ builtin_type_names))))
           (* The name a file writes; the type is the one it stands for. *)
           | _ -> TName (canonical_type_name n)))
-    | TEVar name ->
+    (* The constraint is applied to the variable wherever it is written,
+       rather than only where the variable is first created: a written type
+       is read as a tree, and which branch of an arrow is walked first is
+       not something the reader chose. Written `'a -> 'a: Ord`, the bare
+       mention would otherwise make the variable and the constraint would
+       reach it too late to bind. *)
+    | TEVar (name, constraint_) ->
+      let constrained = function
+        | "Num" -> fresh_num ()
+        | "Add" -> fresh_add ()
+        | "Ord" -> fresh_ord ()
+        | other ->
+          raise (TypeError (Printf.sprintf
+            "'%s' is not a constraint; the constraints are Num, Add and Ord"
+            other))
+      in
       (match Hashtbl.find_opt vars name with
-       | Some t -> t
-       | None -> let t = fresh () in Hashtbl.add vars name t; t)
+       | Some t ->
+         (match constraint_ with
+          | None   -> ()
+          | Some c -> unify t (constrained c));
+         t
+       | None ->
+         let t =
+           match constraint_ with
+           | None   -> fresh ()
+           | Some c -> constrained c
+         in
+         Hashtbl.add vars name t; t)
     | TEFun (a, b, eff) -> TFun (go a, go b, effects_of eff)
     | TETuple ts    -> TTuple (List.map go ts)
     (* A parameterised alias applied to its arguments, written bare or
@@ -1586,7 +1635,7 @@ let ctor_schemes ?key (tdef : type_def) : (string * scheme) list =
       (* The module says which type this is; the canonical name is what the
          rest of the checker knows it by. *)
       | TEQual (m, n) -> conv_ (TEName (canonical_type_name (m ^ "." ^ n)))
-      | TEVar name ->
+      | TEVar (name, _) ->
         (match List.assoc_opt name var_table with
          | Some v -> v
          | None -> raise (TypeError (Printf.sprintf
@@ -1700,7 +1749,7 @@ let rec derivable_field_type tenv seen params (te : type_expr) : (unit, string) 
   | TEApp (TEName "Map", inner)    -> derivable_field_type tenv seen params inner
   (* A type variable is read by the decoder supplied for it, so it is fine
      when the type declares it and nonsense when it does not. *)
-  | TEVar v ->
+  | TEVar (v, _) ->
     if List.mem v params then Ok ()
     else Error (Printf.sprintf "'%s is not one of the type's parameters" v)
   | TETuple _ ->
@@ -4404,7 +4453,7 @@ let stdlib_type_env : env = [
 let option_tdef : type_def =
   Variants ("Option", ["a"], [
     { name = "None"; loc = None; fields = []; defaults = [] };
-    { name = "Some"; loc = None; fields = [ (None, TEVar "a") ]; defaults = [] };
+    { name = "Some"; loc = None; fields = [ (None, TEVar ("a", None)) ]; defaults = [] };
   ])
 
 let shell_result_tdef : type_def =
@@ -4434,7 +4483,7 @@ let command_line_tdef : type_def =
     name   = "CommandLine";
     loc    = None;
     fields = [ (Some "spec",   TEApp (TEName "Map", TEName "String"));
-               (Some "reader", TEApp (TEName "Decoder", TEVar "a"));
+               (Some "reader", TEApp (TEName "Decoder", TEVar ("a", None)));
                (Some "usage",  TEName "String") ];
     defaults = [];
   }])

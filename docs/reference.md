@@ -102,12 +102,16 @@ convert. [`Float`](#float) holds them. `%` accepts `Int` only. A function
 that does not pin its numbers accepts both:
 
 ```ocaml
-let square x = x * x     -- square : Num -> Num
+let square x = x * x     -- square : 'a: Num -> 'a
 (square 2, square 1.5)   -- (4, 2.25) : (Int, Float) — each call picks its type
 ```
 
-`Num` in a signature means `Int` or `Float`. The use site decides which.
-It appears in [Type annotations](#type-annotations) like any type name.
+`'a: Num` is a type variable carrying a constraint: one type, `Int` or
+`Float`, decided at the use site. The constraint is written where the
+variable is first met and the variable alone after that, so a signature says
+which of its types are the same one. `Num` written without a variable is the
+same constraint with no name to tell it from another, which is all a
+signature with one of them needs.
 Float division does not raise: `1.0 / 0.0` is infinity, as IEEE 754 says.
 Int division keeps its check.
 
@@ -119,7 +123,7 @@ Int division keeps its check.
 ```ocaml
 100MB + 4KB     -- 100004000B : Size
 1h + 30min      -- 1h30m : Duration
-let sum a b = a + b     -- sum : Add -> Add -> Add
+let sum a b = a + b     -- sum : 'a: Add -> 'a -> 'a
 ```
 
 `Add` is `Int`, `Float`, `Size` or `Duration`, and every `Num` is an `Add`.
@@ -158,7 +162,7 @@ r/a/ < r/b/
 polymorphic:
 
 ```ocaml
-let later a b = if a < b then b else a     -- later : Ord -> Ord -> Ord
+let later a b = if a < b then b else a     -- later : 'a: Ord -> 'a -> 'a
 ```
 
 The four functions people write out of those operators -- `max`, `min`,
@@ -3087,10 +3091,12 @@ let m : Map (List Int) = {a = [1, 2], b = [3]}   -- parens needed for a compound
 ```
 
 `:t` prints a type in this syntax. So you can paste what you see into an
-annotation. This includes the constraints `Num`, `Add` and `Ord`. Each
-written `Num` is a new "`Int` or `Float`" variable, and the use sites link
-them. `let square : Num -> Num = fn x -> x * x` rebuilds what `:t square`
-printed.
+annotation. This includes the constraints `Num`, `Add` and `Ord`, which are
+written on a type variable: `let square : 'a: Num -> 'a = fn x -> x * x`
+rebuilds what `:t square` printed. A constraint written bare, without a
+variable, is a new one each time, so `Num -> Num` is two variables that the
+use sites link; the named form says in the signature what the bare one
+leaves to be worked out.
 
 ### A type on a parameter
 
@@ -3420,9 +3426,9 @@ flatten    : List (List 'a) -> List 'a
 concat     : List 'a -> List 'a -> List 'a
 get        : Int -> List 'a -> Option 'a
 get!       : Int -> List 'a -> 'a ! {Raise}
-sum        : List Add -> Option Add
-max        : List Ord -> Option Ord
-min        : List Ord -> Option Ord
+sum        : List ('a: Add) -> Option 'a
+max        : List ('a: Ord) -> Option 'a
+min        : List ('a: Ord) -> Option 'a
 ```
 
 `sum`, `max` and `min` start from the first element rather than from a
@@ -3956,9 +3962,9 @@ empty?    : Stream {..} 'a -> Bool ! 'e
 any?      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Bool ! 'e
 all?      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Bool ! 'e
 find      : ('a -> Bool ! 'e) -> Stream {..} 'a -> Option 'a ! 'e
-sum       : Stream {..} Add -> Option Add ! 'e
-max       : Stream {..} Ord -> Option Ord ! 'e
-min       : Stream {..} Ord -> Option Ord ! 'e
+sum       : Stream {..} ('a: Add) -> Option 'a ! 'e
+max       : Stream {..} ('a: Ord) -> Option 'a ! 'e
+min       : Stream {..} ('a: Ord) -> Option 'a ! 'e
 tally     : Stream {..} String -> Map Int ! 'e
 ```
 

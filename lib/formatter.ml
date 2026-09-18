@@ -273,7 +273,8 @@ and emit_type_app_expr te = match te with
 and emit_type_atom te = match te with
   | TEName n -> n
   | TEQual (m, n) -> m ^ "." ^ n
-  | TEVar v -> "'" ^ v
+  | TEVar (v, None) -> "'" ^ v
+  | TEVar (v, Some c) -> "'" ^ v ^ ": " ^ c
   | TETuple ts -> "(" ^ String.concat ", " (List.map emit_type_expr ts) ^ ")"
   | TEApp _ | TEFun _ -> "(" ^ emit_type_expr te ^ ")"
 

@@ -263,8 +263,8 @@ declaration over a built-in's name are all errors naming which to rename.
 
 Arithmetic (`+ - * /`) works on `Int` and `Float` alike — one numeric
 type per expression, never mixed implicitly (`Float.of_int` /
-`Float.round` convert); `%` is `Int`-only; `Num` in a signature means
-"`Int` or `Float`, decided at use". `+` and `-` also add two `Size`s or
+`Float.round` convert); `%` is `Int`-only; `'a: Num` in a signature is a
+variable carrying a constraint -- "`Int` or `Float`, decided at use". `+` and `-` also add two `Size`s or
 two `Duration`s (`Add` in a signature); `*` and `/` do not. A `Duration`
 also moves a `DateTime`, and two `DateTime`s subtract to the `Duration`
 between them — two instants do not add.

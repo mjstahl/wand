@@ -1449,13 +1449,14 @@ Path.to_string /a//b" "/a//b";
     "[Zulu, Alpha]";
   (* Ord composes as Num does: a function that only compares stays
      polymorphic over every ordered type. *)
-  Alcotest.(check string) "a comparison stays polymorphic" "Ord -> Ord -> Ord"
+  Alcotest.(check string) "a comparison stays polymorphic"
+    "'a: Ord -> 'a -> 'a"
     (type_of "later" "let later a b = if a < b then b else a in later");
   (* The constraints nest, so a variable carrying two of them keeps the
      narrower: Num inside Add inside Ord. *)
-  Alcotest.(check string) "Add wins over Ord" "Add -> Add -> Bool"
+  Alcotest.(check string) "Add wins over Ord" "'a: Add -> 'a -> Bool"
     (type_of "add and compare" "let f a b = a + b > a in f");
-  Alcotest.(check string) "Num wins over Add" "Num -> Num -> Num -> Num"
+  Alcotest.(check string) "Num wins over Add" "'a: Num -> 'a -> 'a -> 'a"
     (type_of "add and multiply" "let f a b c = a + b * c in f")
 
 (* `+` and `-` take one constraint wider than `*` and `/`: the two
@@ -1481,10 +1482,22 @@ let test_add_constraint () =
   fails "a path" "/tmp + /var" "Path does not add";
   fails "a string" {|"a" + "b"|} "strings concatenate with '++'";
   fails "a size times a size" "100MB * 2" "* and / work on Int and Float";
-  Alcotest.(check string) "a sum stays polymorphic" "Add -> Add -> Add"
+  Alcotest.(check string) "a sum stays polymorphic" "'a: Add -> 'a -> 'a"
     (type_of "sum" "let sum a b = a + b in sum");
   Alcotest.(check string) "and the annotation for it round-trips" "Size"
-    (type_of "annotated" "let sum : Add -> Add -> Add = fn a b -> a + b in sum 1MB 2MB")
+    (type_of "annotated" "let sum : Add -> Add -> Add = fn a b -> a + b in sum 1MB 2MB");
+  (* The printed form is the writable one, which is the whole point of naming
+     the variable: what `wand d` reports goes back in as an annotation. *)
+  Alcotest.(check string) "the printed form round-trips" "Size"
+    (type_of "written variable"
+       "let sum : 'a: Add -> 'a -> 'a = fn a b -> a + b in sum 1MB 2MB");
+  (* Two variables under one constraint stay two, which the bare spelling
+     cannot say at all. *)
+  Alcotest.(check string) "two variables stay apart" "(Int, String)"
+    (type_of "two ords"
+       "let f : 'a: Ord -> 'a -> 'b: Ord -> 'b -> ('a, 'b) = \
+        fn a b c d -> (if a < b then b else a, if c < d then d else c) in \
+        f 1 2 \"a\" \"b\"")
 
 (* Written effects are checked, not assumed: an annotation cannot quietly
    narrow what a function does. This is what makes writing them safe to

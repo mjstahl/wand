@@ -31,7 +31,10 @@ let show_qname q =
 
 type type_expr =
   | TEName  of string
-  | TEVar   of string                    (* 'a — type variable *)
+  (* 'a, and 'a: Ord for one that carries a constraint. The constraint is
+     on the variable rather than standing in for it, so two variables under
+     one constraint stay two. *)
+  | TEVar   of string * string option
   (* `Foo.Status`: a type reached through the module that declares it. Kept
      apart from `TEName` so that every match on a type has to say what it
      does with one. *)

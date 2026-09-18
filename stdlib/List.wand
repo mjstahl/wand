@@ -256,7 +256,7 @@ let concat xs ys = list_concat xs ys
 -- Some(1500B) : Option Size
 --
 -- >> List.sum []
--- None : Option Add
+-- None : Option ('a: Add)
 let sum [] = None
 let sum [h :: t] = Some (fold_left (fn a x -> a + x) h t)
 
@@ -272,7 +272,7 @@ let sum [h :: t] = Some (fold_left (fn a x -> a + x) h t)
 -- Some(1.10.0) : Option Version
 --
 -- >> List.max []
--- None : Option Ord
+-- None : Option ('a: Ord)
 let max [] = None
 let max [h :: t] = Some (fold_left (fn a x -> if x > a then x else a) h t)
 
@@ -282,6 +282,6 @@ let max [h :: t] = Some (fold_left (fn a x -> if x > a then x else a) h t)
 -- Some(1) : Option Int
 --
 -- >> List.min []
--- None : Option Ord
+-- None : Option ('a: Ord)
 let min [] = None
 let min [h :: t] = Some (fold_left (fn a x -> if x < a then x else a) h t)

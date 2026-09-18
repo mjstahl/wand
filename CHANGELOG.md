@@ -36,6 +36,29 @@
   Formatting is unchanged: the corpus, the tools, the demos and every
   regression input come back byte for byte as before.
 
+- **A constraint in a signature now names its variable.** `Ord`, `Add` and
+  `Num` printed as though they were types, so a signature could not say which
+  of its uses were the same type -- and where there were two, it said nothing
+  at all:
+
+  ```
+  before:  pair_of_maxes : Ord -> Ord -> Ord -> Ord -> (Ord, Ord)
+  after:   pair_of_maxes : 'a: Ord -> 'a -> 'b: Ord -> 'b -> ('a, 'b)
+  ```
+
+  Six `Ord`s there, and two types: `pair_of_maxes 1 2 "a" "b"` is legal.
+
+  `'a: Ord` is a type you can write as well as read, so what `wand d` prints
+  still pastes back as an annotation:
+
+  ```
+  let bigger : 'a: Ord -> 'a -> 'a = fn a b -> if a < b then b else a
+  ```
+
+  A constraint written bare is unchanged -- it is the same constraint with no
+  name to tell it from another, which is all a signature with one of them
+  needs.
+
 - **`max`, `min`, `clamp` and `between?` moved onto the ordered types.** The
   `Ord` module is gone. Each of the eleven types wand orders carries the four
   itself, so the place to look for one is the type in your hand.

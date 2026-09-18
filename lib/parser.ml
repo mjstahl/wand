@@ -629,7 +629,16 @@ let rec parse_type_atom s =
     in
     Ast.TEQual (name, base)
   | Token.Upper name -> Ast.TEName name
-  | Token.TypeVar name -> Ast.TEVar name
+  (* `'a: Ord` is a variable carrying a constraint. `Ord` written alone is
+     the same constraint with no name to tell it from another one. *)
+  | Token.TypeVar name ->
+    if peek s = Token.Colon then begin
+      ignore (advance s);
+      match advance s with
+      | Token.Upper c -> Ast.TEVar (name, Some c)
+      | t -> fail_at (peek_loc s) (Format.asprintf
+          "expected a constraint after ''%s:', got %a" name Token.pp t)
+    end else Ast.TEVar (name, None)
   | Token.LParen ->
     let first = parse_type_expr s in
     if peek s = Token.Comma then begin

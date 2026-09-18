@@ -151,7 +151,7 @@ let _reduce f s =
 -- Some(6) : Option Int
 --
 -- >> Stream.of_list [] |> Stream.sum
--- None : Option Add
+-- None : Option ('a: Add)
 let sum s = _reduce (fn a b -> a + b) s
 
 -- The largest element, or None when the source is empty.

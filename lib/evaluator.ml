@@ -6203,7 +6203,7 @@ let rec decoder_of_type_expr venv (te : type_expr) :
   (* A decoder is derived from the declaration, which the module registered
      under the type's own name. *)
   | TEQual (_, name) -> named name
-  | TEVar v ->
+  | TEVar (v, _) ->
     (match List.assoc_opt v venv with
      | Some d -> d
      | None ->
@@ -6347,7 +6347,7 @@ and read_field venv ?(defaults = []) key te j path =
    falls through to the value, which carries its own tag. *)
 and json_of_typed venv (te : type_expr) (v : value) : Yojson.Basic.t =
   match te, v with
-  | TEVar name, _ ->
+  | TEVar (name, _), _ ->
     (match List.assoc_opt name venv with
      | Some f ->
        (match apply f v with
@@ -6852,7 +6852,8 @@ let rec usage_type_name (te : Ast.type_expr) =
   match te with
   | Ast.TEName n -> n
   | Ast.TEQual (_, n) -> n
-  | Ast.TEVar v -> "'" ^ v
+  | Ast.TEVar (v, None) -> "'" ^ v
+  | Ast.TEVar (v, Some c) -> "'" ^ v ^ ": " ^ c
   | Ast.TEApp (f, a) -> usage_type_name f ^ " " ^ usage_type_name a
   | Ast.TETuple ts ->
     "(" ^ String.concat ", " (List.map usage_type_name ts) ^ ")"

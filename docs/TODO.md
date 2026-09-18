@@ -76,23 +76,6 @@ in files the command never opened, and `Fix.fix_file` takes one path. The
 tree would stop building until every importer was edited by hand. So this
 waits on `wand t` taking a directory, above.
 
-### A signature does not show that a constraint is one type
-
-`List.max` takes a list of one ordered type and answers with that type. The
-signature does not say so:
-
-```
-List.max : List Ord -> Option Ord
-```
-
-Read cold, `Ord` looks like a type, and the two uses of it look independent.
-They are one type, decided per call. `Add` and `Num` print the same way.
-Six signatures are left with this shape, all in `List` and `Stream`: `max`,
-`min` and `sum`.
-
-The short form is worth a lot and a longer one would say more. This is a
-decision about which, not a defect to fix.
-
 ### `wand t` reports one error per run
 
 Every failing typecheck answers with a single error, so a file with six

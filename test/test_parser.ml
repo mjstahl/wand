@@ -93,7 +93,8 @@ let rec type_text (te : Ast.type_expr) =
   match te with
   | Ast.TEName n      -> n
   | Ast.TEQual (m, n) -> m ^ "." ^ n
-  | Ast.TEVar v       -> "'" ^ v
+  | Ast.TEVar (v, None)   -> "'" ^ v
+  | Ast.TEVar (v, Some c) -> "'" ^ v ^ ": " ^ c
   | Ast.TEApp (f, a)  -> type_text f ^ " " ^ type_text a
   | Ast.TETuple ts    -> "(" ^ String.concat ", " (List.map type_text ts) ^ ")"
   | Ast.TEFun (a, b, _) -> type_text a ^ " -> " ^ type_text b
@@ -1066,7 +1067,7 @@ let test_written_effects_shapes () =
               Some { te_labels = ["FS.Read"; "Shell"]; te_var = None }));
   Alcotest.(check bool) "a variable alone" true
     (te_of (ann "'a -> 'a ! 'e")
-     = TEFun (TEVar "a", TEVar "a",
+     = TEFun (TEVar ("a", None), TEVar ("a", None),
               Some { te_labels = []; te_var = Some "e" }));
   Alcotest.(check bool) "labels and a tail" true
     (te_of (ann "Unit -> Unit ! {Shell | 'e}")
