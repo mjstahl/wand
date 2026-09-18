@@ -151,33 +151,20 @@ instances, and no call that has to work out where to go.
    `implement` is a claim over bindings, checked against the interface.
 5. **Generic code passes the module.** `let biggest (m: Foo.Ord 'a) ...`,
    with no new runtime mechanism.
+6. **Conformance is nominal.** `implement` is what makes a module fit. A
+   module with the right members by accident does not, so being an `Ord` is
+   something a module says rather than something a reader works out.
+7. **There is no bodyless form.** A module conforms by having the
+   implementation written in it. So the eleven ordered types in the standard
+   library are rewritten to conform, and their comparisons move into
+   `implement` blocks rather than being claimed where they sit.
+
+   This closes the orphan for good. A block declares bindings, and bindings
+   land in the file they are written in, so an implementation cannot be
+   written anywhere but the module it is about. There is nothing to refuse
+   and no rule to state -- the shape of the thing prevents it.
 
 ## Questions
-
-**Is conformance nominal or structural?** A module value's type is not unique
--- `Int` provides `max` and `min` at `Int`, so it fits `Foo.Ord Int`, and it
-provides a great deal else besides. Does a module have to declare
-`implement Foo.Ord Int` before it can be passed where that type is wanted, or
-does any module with the right members fit? Nominal makes the claim
-load-bearing. Structural makes `implement` a checked comment. Everything
-below depends on the answer.
-
-**May an implementation claim bindings that already exist?** `Int.wand`
-already has `max : Int -> Int -> Int` and `min : Int -> Int -> Int`, written
-by hand in 0.79.0. A block that declares them again collides with them, so
-either the block is where they now live, or there is a bodyless form:
-
-```
-implement Foo.Ord Int
-```
-
-which asserts what the module already provides. It reads as what it is, and
-it is the difference between claiming forty-four members and rewriting them.
-
-**May `implement` be written outside the module it is about?** The block form
-cannot be -- it declares bindings, and they land where they are written. A
-bodyless claim could be, and then it is an orphan again, with every question
-that comes back with it. Refusing it keeps the design's main simplification.
 
 **May a module implement one interface twice?** `implement Foo.Ord Int` and
 `implement Foo.Ord Float` in one module both need a `max`, and a module has
@@ -199,10 +186,14 @@ carries one already. What needs deciding is whether an implementation may
 perform less than the interface allows, which is the question a manifest
 answers with `A-USES1`.
 
-**Does an interface name collide with a constraint name?** `Ord` is a name
-the checker owns. An interface reached as `Foo.Ord` is qualified and does not
-collide, but a bare `Ord` would be ambiguous between the two mechanisms.
-Either an interface is always qualified, or the bare name is refused.
+**How is a standard library interface named and reached?** An interface is
+reached through the module that declares it, so an `Ord` interface declared
+in `stdlib/Ord.wand` is written `implement Ord.Ord Int`, which reads badly
+and is the first thing anyone will type. The options are a module whose name
+is not the interface's, a stdlib interface reachable unqualified the way a
+built-in type is, or a rule that a module declaring one interface lends it
+its own name. `Ord` is also a name the checker owns for the constraint, so
+whatever is chosen has to keep the two apart.
 
 **What does `wand d Int` show?** A module's bindings are already listed. Does
 the listing say which interfaces the module implements, and does `--index`
@@ -210,14 +201,12 @@ carry it? That is how a reader learns `Int.max` answers to a contract.
 
 ## Order
 
-1. **Answer nominal or structural.** Nothing else is worth building first: it
-   decides whether `implement` is a declaration the checker enforces or a
-   comment it verifies, and the two produce different type rules.
-2. **Answer the bodyless form**, because it decides whether this work moves
-   the forty-four comparison members or leaves them where they are.
-3. **A type for a module value.** This is the only real compiler work and the
+1. **A type for a module value.** This is the only real compiler work and the
    whole of the value: a parameter that can be annotated `Foo.Ord Int`, and a
    module value that satisfies it. Everything above is syntax over this.
-4. **The declarations** -- `interface` and `implement`, their formatter cases,
+2. **The declarations** -- `interface` and `implement`, their formatter cases,
    and the arrow rule for members.
-5. **`wand d`**, once there is something to report.
+3. **The standard library's own.** The eleven ordered types conform, which
+   moves the forty-four comparison members into `implement` blocks and is the
+   first real use of the feature.
+4. **`wand d`**, once there is something to report.
