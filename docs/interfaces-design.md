@@ -92,10 +92,15 @@ formatter produces unprompted:
 -- in Int.wand
 import ./foo
 
-implement Foo.Ord Int =
+implement Foo Int =
   let max a b = if a > b then a else b;
   let min a b = if a < b then a else b
 ```
+
+`foo.wand` declares one interface, so `Foo` names it. `Foo.Ord Int` is the
+same type written out, and a module declaring two interfaces has only the
+long spelling. In the standard library the module is named for its interface,
+so it reads `implement Ord Int`.
 
 `let` is the vocabulary inside, because an implementation defines values.
 `implement Foo.Ord Int` puts the interface before its argument, matching how
@@ -163,6 +168,19 @@ instances, and no call that has to work out where to go.
    land in the file they are written in, so an implementation cannot be
    written anywhere but the module it is about. There is nothing to refuse
    and no rule to state -- the shape of the thing prevents it.
+8. **A module that declares one interface resolves to it.** `Ord.wand`
+   declaring `interface Ord 'a(...)` is reached as `Ord`, so the first thing
+   anyone writes is `implement Ord Int` rather than `implement Ord.Ord Int`.
+   The qualified spelling still works, and a module declaring two interfaces
+   has no name to lend, so both are reached through it.
+
+   wand forwards a name this way already, and across a name change: an alias
+   to a single-constructor type builds one, so `type MyConf = Conf` gives
+   `MyConf(port = :80)`. A module lending its name to its one interface is
+   that rule a level up. Note it is the alias that does this and not a
+   declaration -- `type Box = MkBox Int` leaves `Box 5` an error naming
+   `MkBox` -- so the forwarding is something a second name does, which is
+   what a module reaching its interface is.
 
 ## Questions
 
@@ -185,23 +203,6 @@ interface must be able to write it. A member's grammar is a type, so it
 carries one already. What needs deciding is whether an implementation may
 perform less than the interface allows, which is the question a manifest
 answers with `A-USES1`.
-
-**How is a standard library interface named and reached?** An interface is
-reached through the module that declares it, so an `Ord` interface declared
-in `stdlib/Ord.wand` is written `implement Ord.Ord Int`. That reads badly and
-it is the first thing anyone will type. Three ways out:
-
-- Name the module something the interface is not, so the two halves differ.
-- Let a standard library interface be reached unqualified, the way a built-in
-  type is.
-- Let a module that declares exactly one interface resolve to it by its own
-  name, so `Ord` alone means the interface in `Ord.wand` and
-  `implement Ord Int` is what anyone writes. wand has this rule one step
-  down already: a type with one constructor names that constructor too, which
-  is what `ctor_name_for` is for.
-
-`Ord` is also the checker's name for the constraint, so whatever is chosen
-has to keep the two apart.
 
 **What does `wand d Int` show?** A module's bindings are already listed. Does
 the listing say which interfaces the module implements, and does `--index`
