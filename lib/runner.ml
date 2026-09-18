@@ -3151,7 +3151,10 @@ let is_walkable path =
   | { Unix.st_kind = Unix.S_DIR; _ } -> true
   | _ | exception Unix.Unix_error _ -> false
 
-let find_test_files root =
+(* A file named directly is taken as given, whatever it is called: naming a
+   file is saying which one you mean, and a walk is where the name has to be
+   matched. *)
+let find_files_named wanted root =
   let found = ref [] in
   let rec walk dir =
     match Sys.readdir dir with
@@ -3162,12 +3165,20 @@ let find_test_files root =
         let path = Filename.concat dir name in
         if is_walkable path then begin
           if not (skipped_dir name) then walk path
-        end else if is_test_file name then found := path :: !found
+        end else if wanted name then found := path :: !found
       ) entries
   in
   if is_dir root then walk root
   else if Sys.file_exists root then found := [root];
   List.rev !found
+
+let find_test_files root = find_files_named is_test_file root
+
+(* Every `.wand` file at or below `root`, for the commands that check a tree
+   rather than a file. The same skips as the test walk, and the same refusal
+   to follow a directory symlink. *)
+let find_wand_files root =
+  find_files_named (fun name -> Filename.check_suffix name ".wand") root
 
 let run_test_file path : (test_outcome list, string) result =
   let full = entry_path path in

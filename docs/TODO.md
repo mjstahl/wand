@@ -38,20 +38,6 @@ exception down.
 
 ## Compiler and CLI
 
-### `wand t` takes one file
-
-There is no way to check a directory in one command:
-
-```
-$ wand t tools/*.wand
-Error: too many arguments
-```
-
-`wand s` walks a directory looking for tests; `wand t` does not. That is the
-gap between a file a model wrote and a file anyone should run, so it is the
-command a deploy gate would be built from, and it has to be a shell loop
-today.
-
 ### `--fix` does not carry the naming corrections
 
 `V-BANG2` and `V-PRED3` each name one correction to one name:
@@ -73,8 +59,10 @@ What blocks the two that are determined is that all four fire on top-level
 names only -- a local `let inner y = y > 0` is not flagged -- so every one
 of them is on a module's public surface. Renaming there changes call sites
 in files the command never opened, and `Fix.fix_file` takes one path. The
-tree would stop building until every importer was edited by hand. So this
-waits on `wand t` taking a directory, above.
+tree would stop building until every importer was edited by hand.
+
+`wand t` takes a directory now, so the command can see the tree. What is
+left is for a rename to reach the call sites in it.
 
 ### `wand t` reports one error per run
 
@@ -117,11 +105,11 @@ implement Ord Int =
   let min a b = if a < b then a else b
 ```
 
-The record's order is a type for a module value, the bare arrow in a named
-field, the two declarations, the standard library's own conformance, and
-`wand d`. Only the first is real compiler work: wand already passes a module
-as a value, and the one thing missing is a type to give a parameter that is
-one.
+The record's order is a type for a module value, the two declarations, the
+standard library's own conformance, and `wand d`. The bare arrow in a named
+field was the fifth, and it shipped on its own. Only the first is real
+compiler work: wand already passes a module as a value, and the one thing
+missing is a type to give a parameter that is one.
 
 ## Beyond the compiler
 

@@ -861,10 +861,13 @@ let to_diag ~strict f : Diag.t =
 let hole_json t =
   Printf.sprintf "{\"kind\":\"hole\",\"type\":\"%s\"}" (Diag.escape_json t)
 
+(* The objects alone, so a run over several files can put them all in one
+   array rather than printing an array per file. *)
+let diagnostics_json_items ~strict ?file ~holes findings =
+  List.map hole_json holes
+  @ List.map (fun f -> Diag.to_json ?file (to_diag ~strict f)) findings
+
 let diagnostics_json ~strict ?file ~holes findings =
-  "[" ^ String.concat ","
-    (List.map hole_json holes
-     @ List.map (fun f -> Diag.to_json ?file (to_diag ~strict f)) findings)
-  ^ "]"
+  "[" ^ String.concat "," (diagnostics_json_items ~strict ?file ~holes findings) ^ "]"
 
 let to_json fs = diagnostics_json ~strict:false ~holes:[] fs

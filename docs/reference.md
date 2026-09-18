@@ -55,6 +55,7 @@ wand --trace deploy.wand     # run it, reporting each effect as it happens
 wand i                  # interactive session
 wand -e "1 + 2"         # evaluate an expression
 wand t script.wand      # typecheck a file without running it
+wand t .                # typecheck every .wand file from here down
 wand d "List.map"       # show doc string
 wand d                  # list the modules in scope
 wand d --index          # every module's members, with signatures
@@ -6281,6 +6282,8 @@ wand h e                              # help for a specific command
 wand s                                # run every test_*.wand from here down
 wand s test_deploy.wand               # run named test files
 wand s --json                         # per-test results as JSON, for tools
+wand t script.wand                    # typecheck one file
+wand t . scripts                      # typecheck every .wand file in a tree
 wand t --expr "List.map"              # typecheck an expression
 wand d                                # list all names and modules in scope
 wand d List                           # list one module's members
@@ -6396,6 +6399,40 @@ question you asked.
 wand t --strict script.wand       # violations become errors (exit 1)
 wand t --json script.wand         # diagnostics as JSON, for tools
 wand t --fix script.wand          # apply the fixes the findings carry
+```
+
+### Checking a tree
+
+`wand t` takes a directory, or more than one path. A directory is searched all
+the way down for `.wand` files, past `_build`, `_opam`, `.git` and
+`node_modules`, and without following a link to a directory. A file named
+directly is checked whatever it is called.
+
+```console
+$ wand t .
+scripts/deploy.wand: type error: 3:11: unbound variable 'targt'
+scripts/report.wand: warning: 5:1: V-BANG2: 'safe!' cannot raise, so the `!`
+  promises a risk that is not there; it is 'safe'
+12 files, 1 error, 1 warning
+```
+
+Every finding carries its path. One file's error does not stop the rest,
+because a gate wants the whole list rather than the first line of it. The last
+line counts what was covered, and it is printed even when nothing was found,
+since silence reads the same as finding no files to check. The exit code is 1
+if any file has an error, or if `--strict` is given and any file has a
+violation.
+
+`--json` gives one array for the whole run, each object carrying its `file`.
+`--fix` writes every file it can fix and reports each correction under its
+path.
+
+One file named on its own is unchanged: it reports what the file checks out
+as, with no path and no count.
+
+```console
+$ wand t script.wand
+Int
 ```
 
 ### `--fix`

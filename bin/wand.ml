@@ -1,3 +1,7 @@
+(* `1 file`, `2 files`. Every word this counts takes a plain `s`. *)
+let count_of n word =
+  Printf.sprintf "%d %s%s" n word (if n = 1 then "" else "s")
+
 let usage () =
   print_endline "wand — a typed language for human/AI pairing";
   print_endline "";
@@ -17,7 +21,7 @@ let usage () =
   print_endline "  i   interactive             Start an interactive session";
   print_endline "  l   lsp                     Start the language server (LSP over stdio)";
   print_endline "  s   test [<file>|<dir>]...  Run test_*.wand files (default: search from here)";
-  print_endline "  t   type <file>             Typecheck a file without running it";
+  print_endline "  t   type [<file>|<dir>]...  Typecheck files without running them";
   print_endline "  v   version                 Print the version and exit";
   print_endline "";
   print_endline "Evaluating an expression:";
@@ -54,19 +58,27 @@ let usage_for sub =
     print_endline "Options:";
     print_endline "  --load <file>   Load a .wand file before starting (repeatable)"
   | "t" | "type" ->
-    print_endline "Usage: wand t <file>";
+    print_endline "Usage: wand t [<file>|<dir>]...";
     print_endline "       wand t [--load <file>]... -e <expr>";
     print_endline "";
-    print_endline "Typecheck a wand file without running it.";
+    print_endline "Typecheck wand files without running them.";
     print_endline "";
     print_endline "A file is named directly, as it is everywhere else. An";
     print_endline "expression is given with -e/--expr: `deploy.wand` is itself";
     print_endline "a valid path expression, so the two cannot be told apart";
     print_endline "by shape and one of them has to say which it is.";
     print_endline "";
+    print_endline "One file named on its own reports what it checks out as. A";
+    print_endline "directory, or more than one path, is checked file by file:";
+    print_endline "each finding carries its path, a failure in one file does";
+    print_endline "not stop the rest, and the last line counts what was";
+    print_endline "covered. The exit code is 1 if any file has an error, which";
+    print_endline "is what a gate reads. A directory is searched all the way";
+    print_endline "down for .wand files.";
+    print_endline "";
     print_endline "Options:";
     print_endline "  -e, --expr <expr>  Typecheck an expression instead of a file";
-    print_endline "  --fix              Apply the fixes the findings carry, in place (a file only)";
+    print_endline "  --fix              Apply the fixes the findings carry, in place";
     print_endline "  --load <file>      Load a .wand file first (with -e; repeatable)";
     print_endline "  --strict           Treat violation lint findings as errors";
     print_endline "  --json             Emit lint findings as JSON instead of text";
@@ -622,20 +634,25 @@ let main () =
             neither names the thing that is actually wrong. Found by asking
             what `wand t -e "1 + 2"` does. *)
          reject_unknown_options "t" rest';
-         let path =
+         let roots =
            match rest' with
-           | [path] -> path
            | [] ->
-             Printf.eprintf "Error: expected a file\nRun 'wand h t' for usage.\n";
+             Printf.eprintf
+               "Error: expected a file or a directory\nRun 'wand h t' for usage.\n";
              exit 1
-           | _ ->
-             Printf.eprintf "Error: too many arguments\nRun 'wand h t' for usage.\n";
-             exit 1
+           | paths -> paths
          in
-         if not (Sys.file_exists path) then
-           no_such_file path
-             ?hint:(if reads_as_an_expression path
-                    then Some ("wand t --expr " ^ requote path) else None);
+         List.iter (fun p ->
+           if not (Sys.file_exists p) then
+             no_such_file p
+               ?hint:(if List.length roots = 1 && reads_as_an_expression p
+                      then Some ("wand t --expr " ^ requote p) else None)) roots;
+         (* One file named directly answers about that file, and says what it
+            checks out as. A directory, or more than one path, is a question
+            about a tree: the answer is per file, and a failure in one does
+            not stop the rest, because a gate wants the whole list. *)
+         match roots with
+         | [path] when not (Wand.Runner.is_dir path) ->
          if fix then
            (match Wand.Fix.fix_file path with
             | Error d ->
@@ -682,7 +699,89 @@ let main () =
                  the JSON and then exiting 0 told the CI step that read the
                  code -- which is most of them -- that the file was clean. *)
               if strict && List.exists Wand.Lint.fails_strict findings
-              then exit 1))
+              then exit 1)
+         | _ ->
+           let files = List.concat_map Wand.Runner.find_wand_files roots in
+           if files = [] then begin
+             Printf.eprintf "No .wand files found in %s\n"
+               (String.concat ", " roots);
+             exit 1
+           end;
+           if fix then begin
+             let failed = ref false and fixed = ref 0 and items = ref [] in
+             List.iter (fun path ->
+               match Wand.Fix.fix_file path with
+               | Error d ->
+                 failed := true;
+                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
+                 else Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d)
+               | Ok applied ->
+                 fixed := !fixed + List.length applied;
+                 if json then
+                   items := !items
+                     @ List.map (fun a -> Wand.Diag.to_json ~file:path a.Wand.Fix.diag)
+                         applied
+                 else
+                   List.iter (fun a ->
+                     Printf.printf "%s: %s: %d — %s\n"
+                       path a.Wand.Fix.code a.Wand.Fix.line a.Wand.Fix.note) applied)
+               files;
+             if json then print_endline ("[" ^ String.concat "," !items ^ "]")
+             else begin
+               (* Both streams are buffered, and the summary belongs under
+                  what it summarises. Without this the count came out first. *)
+               flush stdout; flush stderr;
+               Printf.printf "%s, %s\n"
+                 (count_of (List.length files) "file")
+                 (if !fixed = 0 then "nothing to fix"
+                  else Printf.sprintf "%d fixed" !fixed)
+             end;
+             if !failed then exit 1
+           end else begin
+             let errors = ref 0 and warnings = ref 0 and strict_hit = ref false
+             and items = ref [] in
+             List.iter (fun path ->
+               match Wand.Runner.typecheck_file path with
+               | Error d ->
+                 incr errors;
+                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
+                 else (Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d);
+                       flush stderr)
+               | Ok sc ->
+                 let holes    = sc.Wand.Runner.sc_holes in
+                 let findings = sc.Wand.Runner.sc_findings in
+                 warnings := !warnings + List.length findings;
+                 if List.exists Wand.Lint.fails_strict findings then strict_hit := true;
+                 if json then
+                   items := !items
+                     @ Wand.Lint.diagnostics_json_items ~strict ~file:path ~holes findings
+                 else begin
+                   List.iter (fun h -> Printf.printf "%s: hole: %s\n" path h) holes;
+                   flush stdout;
+                   List.iter (fun f ->
+                     Printf.eprintf "%s: warning: %s\n" path (Wand.Lint.to_text f))
+                     findings;
+                   flush stderr
+                 end)
+               files;
+             if json then print_endline ("[" ^ String.concat "," !items ^ "]")
+             else begin
+               (* A run over a tree says what it covered even when it found
+                  nothing, because silence reads the same as finding no files
+                  to check. It goes under what it summarises, which is why
+                  both streams are flushed first. *)
+               flush stdout; flush stderr;
+               let found =
+                 match (!errors, !warnings) with
+                 | (0, 0) -> "nothing to report"
+                 | (e, 0) -> count_of e "error"
+                 | (0, w) -> count_of w "warning"
+                 | (e, w) -> count_of e "error" ^ ", " ^ count_of w "warning"
+               in
+               Printf.printf "%s, %s\n" (count_of (List.length files) "file") found
+             end;
+             if !errors > 0 || (strict && !strict_hit) then exit 1
+           end)
     | "d" | "doc" ->
       let (json, rest) = parse_json_flag rest in
       let (execute, rest) = parse_execute_flag rest in

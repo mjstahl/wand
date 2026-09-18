@@ -621,6 +621,82 @@ let check_rewrite label args =
 let test_fmt_rewrites_in_place () = check_rewrite "wand f" ["f"]
 let test_fix_rewrites_in_place () = check_rewrite "wand t --fix" ["t"; "--fix"]
 
+(* ── wand t over a tree ──────────────────────────────────────────────────── *)
+
+(* One file named on its own answers about that file. A directory, or more
+   than one path, is a question about a tree: every finding carries its path,
+   one file's error does not stop the rest, and the exit code is what a gate
+   reads. Before this the command took one file and a second path was
+   "too many arguments", so checking a directory was a shell loop. *)
+
+let wand_out ~dir args =
+  let out = Filename.concat dir "_out" in
+  let cmd =
+    Printf.sprintf "cd %s && %s %s >%s 2>&1" (Filename.quote dir)
+      (Filename.quote wand_binary)
+      (String.concat " " (List.map Filename.quote args))
+      (Filename.quote out)
+  in
+  let code = Sys.command cmd in
+  let text = read_file out in
+  Sys.remove out;
+  (code, text)
+
+let contains_sub hay needle =
+  let n = String.length needle and h = String.length hay in
+  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
+  n = 0 || go 0
+
+let test_type_over_a_tree () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "bad.wand") "let f x = unknown_name x\n";
+    write_file (Filename.concat d "ok.wand") "let g x = x + 1\n";
+    Unix.mkdir (Filename.concat d "sub") 0o700;
+    write_file (Filename.concat d "sub/deep.wand") "let h x = also_unknown x\n";
+    let (code, out) = wand_out ~dir:d ["t"; "."] in
+    Alcotest.(check int) "a tree with an error exits 1" 1 code;
+    Alcotest.(check bool) "the first error names its file" true
+      (contains_sub out "bad.wand:");
+    (* One file's error does not stop the rest -- a gate wants the whole
+       list, not the first line of it. *)
+    Alcotest.(check bool) "and so does the one below it" true
+      (contains_sub out "deep.wand:");
+    Alcotest.(check bool) "the count is the last line" true
+      (contains_sub out "3 files, 2 errors");
+    (* The summary goes under what it summarises. Both streams are buffered,
+       and without a flush the count came out first. *)
+    let lines = List.filter (fun l -> l <> "") (String.split_on_char '\n' out) in
+    Alcotest.(check bool) "nothing is printed after it" true
+      (match List.rev lines with
+       | last :: _ -> contains_sub last "3 files, 2 errors"
+       | [] -> false);
+    (* A clean tree still says what it covered: silence reads the same as
+       finding no files to check. *)
+    Sys.remove (Filename.concat d "bad.wand");
+    Sys.remove (Filename.concat d "sub/deep.wand");
+    let (code, out) = wand_out ~dir:d ["t"; "."] in
+    Alcotest.(check int) "a clean tree exits 0" 0 code;
+    Alcotest.(check bool) "and says so" true
+      (contains_sub out "1 file, nothing to report");
+    (try Unix.rmdir (Filename.concat d "sub") with Unix.Unix_error _ -> ()))
+
+let test_type_of_one_file_is_unchanged () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand") "1 + 2\n";
+    let (code, out) = wand_out ~dir:d ["t"; "a.wand"] in
+    Alcotest.(check int) "a clean file exits 0" 0 code;
+    (* One file reports what it checks out as, with no path and no count. *)
+    Alcotest.(check string) "and reports its type alone" "Int\n" out)
+
+let test_type_of_several_paths () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand") "let f x = x + 1\n";
+    write_file (Filename.concat d "b.wand") "let g x = unknown_name x\n";
+    let (code, out) = wand_out ~dir:d ["t"; "a.wand"; "b.wand"] in
+    Alcotest.(check int) "two paths, one bad, exits 1" 1 code;
+    Alcotest.(check bool) "the bad one is named" true (contains_sub out "b.wand:");
+    Alcotest.(check bool) "both were checked" true (contains_sub out "2 files"))
+
 let () =
   Alcotest.run "CLI" [
     "wand d --index", [
@@ -667,6 +743,9 @@ let () =
     "rewriting a file", [
       Alcotest.test_case "wand f"        `Quick test_fmt_rewrites_in_place;
       Alcotest.test_case "wand t --fix"  `Quick test_fix_rewrites_in_place;
+      Alcotest.test_case "wand t over a tree" `Quick test_type_over_a_tree;
+      Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
+      Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
     ];
     "scope", [
       Alcotest.test_case "list all"      `Quick test_env_all;
