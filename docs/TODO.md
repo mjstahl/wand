@@ -97,20 +97,31 @@ file reports `[]`, so there is no way to ask what a file reaches.
 The set has to be the inferred one, never the `uses` line: a file with no
 manifest is unbounded rather than sealed.
 
-## Decisions, not changes
+## Designed, not built
 
-### Whether `Mod.X(...)` should read the module's names for its fields
+### Interfaces
 
-`HTTP.Request(method = POST)` typechecks, because a qualified construction
-reads that module's names for the whole expression, fields included. So
-after 0.72.0 a method is written `HTTP.POST` everywhere except inside a
-construction that already names `HTTP`.
+A contract on a module: the functions it must provide. `docs/interfaces-design.md`
+is the scope, and it is settled -- fifteen decisions, nothing open.
 
-This is the rule for every module, not something HTTP added, and it reads
-the way a local open reads. Narrowing it to the constructor name alone
-would make the spelling uniform and would touch every qualified
-construction in the language. It is a decision about which reading is
-right, and it should be made once rather than per module.
+The shape of it:
+
+```
+interface Ord 'a(
+  max: 'a -> 'a -> 'a,
+  min: 'a -> 'a -> 'a
+)
+
+implement Ord Int =
+  let max a b = if a > b then a else b;
+  let min a b = if a < b then a else b
+```
+
+The record's order is a type for a module value, the bare arrow in a named
+field, the two declarations, the standard library's own conformance, and
+`wand d`. Only the first is real compiler work: wand already passes a module
+as a value, and the one thing missing is a type to give a parameter that is
+one.
 
 ## Beyond the compiler
 
