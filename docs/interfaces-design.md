@@ -168,7 +168,22 @@ instances, and no call that has to work out where to go.
    land in the file they are written in, so an implementation cannot be
    written anywhere but the module it is about. There is nothing to refuse
    and no rule to state -- the shape of the thing prevents it.
-8. **A module that declares one interface resolves to it.** `Ord.wand`
+8. **A module implements an interface once, and wand already refuses the
+   second.** Two `let`s of one name are clauses of one function, so
+   `implement Ord Int` and `implement Ord Float` in one module declare `max`
+   twice and the two equations will not unify:
+
+   ```
+   let f (x: Int) = x
+   let f (x: String) = x
+   -- type error: expected Int, got String
+   ```
+
+   No new rule is needed. What is left is the message: a reader gets
+   `expected Int, got Float` pointing at `max`, which names the symptom. The
+   cause is that a module implements an interface once, and `implement`
+   should say so in those words.
+9. **A module that declares one interface resolves to it.** `Ord.wand`
    declaring `interface Ord 'a(...)` is reached as `Ord`, so the first thing
    anyone writes is `implement Ord Int` rather than `implement Ord.Ord Int`.
    The qualified spelling still works, and a module declaring two interfaces
@@ -189,13 +204,23 @@ instances, and no call that has to work out where to go.
 one namespace. So at most one instantiation per interface per module, and the
 second is an error naming the first.
 
-**Do interface members relax the bracket rule on an arrow?** A named field's
-type may be an application written bare, but an arrow takes its brackets
-either way -- `type Ordering(max: Int -> Int -> Int)` is a parse error today.
-An interface member is always a function, so the arrow is expected rather
-than a surprise, and `max: 'a -> 'a -> 'a` reads better than
-`max: ('a -> 'a -> 'a)`. Relaxing it for members is defensible; it should be
-done on purpose.
+**May a member's arrow be written without brackets?** `max: 'a -> 'a -> 'a`
+is how anyone would write it, and it is a parse error today:
+
+```
+type O(f: Int -> Int)
+-- parse error: expected ), got ->
+```
+
+This is a parser question and not a formatting one. The formatter only
+reformats what parses, so nothing reaches it, and bracketed it keeps what was
+written. Relaxing the parser comes first; then the formatter prints a member
+bare, or a writer would put one thing in and get another back.
+
+The restriction may not be needed for records either. A named field's type is
+already ended by the comma or the closing bracket, and that would end an
+arrow as well. If it holds, `type Ordering(max: Int -> Int -> Int)` simply
+works and a member needs no rule of its own.
 
 **What does a member's signature say about effects?** `max` performs nothing,
 but a member that reads a file or runs a command has an effect set, and the
@@ -214,7 +239,8 @@ carry it? That is how a reader learns `Int.max` answers to a contract.
    whole of the value: a parameter that can be annotated `Foo.Ord Int`, and a
    module value that satisfies it. Everything above is syntax over this.
 2. **The declarations** -- `interface` and `implement`, their formatter cases,
-   and the arrow rule for members.
+   and the arrow in a member, which is a change to the parser before it is
+   one to the formatter.
 3. **The standard library's own.** The eleven ordered types conform, which
    moves the forty-four comparison members into `implement` blocks and is the
    first real use of the feature.
