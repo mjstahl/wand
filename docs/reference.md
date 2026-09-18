@@ -36,6 +36,7 @@ For what wand is and why, see the [README](../README.md).
 - [Type annotations](#type-annotations)
 - [Imports](#imports)
 - [Current standard library](#current-standard-library)
+  - [Three collections, and where they differ](#three-collections-and-where-they-differ)
   - [List](#list) · [String](#string) · [Regex](#regex) · [Map](#map) · [FS](#fs) · [Resource](#resource) · [Stream](#stream) · [Path](#path) · [IO](#io) · [Float](#float) · [Int](#int) · [Ord](#ord) · [DateTime](#datetime) · [Clock](#clock) · [Random](#random) · [Proc](#proc) · [HTTP](#http) · [Env](#env) · [CSV](#csv) · [JSON](#json) · [TOML](#toml) · [YAML](#yaml) · [Duration](#duration) · [Size](#size) · [Port](#port) · [Version](#version) · [Glob](#glob) · [IPv4](#ipv4) · [CIDR](#cidr) · [URL](#url) · [Par](#par) · [Shell](#shell) · [Decode](#decode) · [Args](#args) · [Hash](#hash) · [Digest](#digest) · [Base64](#base64) · [Test](#test) · [Option](#option) · [Result](#result)
 - [Testing](#testing)
 - [Comments](#comments)
@@ -3326,6 +3327,40 @@ write the name.
 ---
 
 ## Current standard library
+
+### Three collections, and where they differ
+
+`List`, `String` and `Stream` are the three things you walk, and they do not
+carry the same operations. The gaps are not oversights, so it is worth
+knowing which is which before you reach for a name from the wrong one.
+
+| | `List` | `String` | `Stream` |
+|---|---|---|---|
+| how many | `length` | `length` | `count` |
+| first | `head` | — | `take 1`, or `find` |
+| last | `head` of `reverse` | — | `last` |
+| a piece of it | `take`, `drop` | `slice` | `take`, `drop` |
+| backwards | `reverse` | `reverse` | — |
+| in order | `sort` | — | — |
+| `map`, `filter`, `fold_left` | yes | — | yes |
+
+Three rules explain the whole table.
+
+**A stream is read once, and may not end.** So it counts rather than
+measures: `Stream.count` walks the source and `List.length` does not,
+and the different name is there to say so. A stream cannot go backwards, so
+there is no `reverse` and no `sort`. And `Stream.last` exists precisely
+because the list answer, `List.head (List.reverse xs)`, is not available to
+it.
+
+**A string is measured in bytes, not elements.** So it slices between two
+indices rather than taking and dropping a number of things, and it has no
+`head`: the first byte of a character is rarely what anyone wants. To walk
+the characters, use `String.bytes` or `String.words` and walk that list.
+
+**A list is in memory and finite.** It is the only one that can be sorted,
+the only one that knows its length for free, and the only one you can read
+twice without paying twice.
 
 ### `List`
 

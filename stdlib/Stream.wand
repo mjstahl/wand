@@ -70,8 +70,9 @@ let to_list s = stream_to_list s
 
 -- The number of elements the source yields.
 --
--- Not `length`, because it is not free: counting reads the whole source,
--- and counting twice reads it twice. The different word is the warning.
+-- Counting reads the whole source, and counting twice reads it twice. A
+-- source that never ends -- `Shell.stream $*(tail -f app.log)` -- never
+-- finishes counting.
 --
 -- >> Stream.of_list [1, 2, 3] |> Stream.count
 -- 3 : Int
