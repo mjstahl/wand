@@ -196,8 +196,14 @@ which case the collision is the migration.
 
 **Can an interface be implemented for a type in another module?** `Int` is a
 stdlib module, so the first implementation anyone writes is already this
-case. If it is allowed generally, the two questions above are the whole of
-the coherence story.
+case, and answering no outright is not open.
+
+Answering it narrowly is what makes the two questions above go away. Allow an
+implementation only where the type is declared, and there is one place each
+pair can be written: two files cannot both implement `Ord` for `Int`, and who
+sees one is whoever can see the type. Allow it anywhere, and both questions
+come back, and between them they are the whole of stopping one program from
+seeing two implementations of one pair.
 
 **What does `wand d Int` show?** An implemented member is on `Int` and
 declared in an interface. The doc, the signature and `wand d --index` all
