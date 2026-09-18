@@ -21,10 +21,10 @@ and a blank. `Shell.lines` documents the same rule and says so; this one
 does not, and the caller has to filter. Either drop the trailing empty piece
 or say in the doc that it is there.
 
-### Three collection modules, three vocabularies
+### Where the collection modules differ, the reason is only in the doc
 
-The same idea has a different name, or no name, depending on which module
-you are in:
+`List`, `String` and `Stream` name things differently, and every difference
+I checked turned out to be deliberate:
 
 ```
             head  last  take  drop  slice  length
@@ -33,14 +33,23 @@ String       no    no    no    no    yes    length
 Stream       no    yes   yes   yes   no     count
 ```
 
-`String.drop` and `List.last` are both reasonable guesses that do not exist.
-`Stream` calls the size `count` where the other two call it `length`. A
-reader who has learnt one module cannot carry it to the next, and a model
-writing wand will guess the name it already knows.
+`Stream.count` is not called `length` because it is not free -- counting
+reads the whole source, twice if you ask twice, and never returns on a
+source like `tail -f`. Its doc says exactly that. `Stream.last` exists where
+`List.last` does not, because a list can be reversed and a stream cannot, so
+the list answer is `List.head (List.reverse xs)` and the stream has no such
+route. `String` is indexed by byte, so `slice` from one index to another is
+the honest primitive where `take` and `drop` would suggest elements.
 
-This is a decision before it is work: either the three modules share a
-vocabulary, or the differences are deliberate and the docs say which is
-which and why.
+So this is not a naming defect, and nothing here should be renamed. The
+problem is where the reasoning lives. Each explanation sits in the doc of
+the function you have not found yet, so it reaches the reader who already
+knows, and not the one guessing `String.drop` or `List.last` from a module
+they have used. Both are reasonable guesses and neither exists.
+
+The reference documents each module on its own and never puts the three side
+by side. A short table of what each one has and what it costs, in one place,
+would answer the guess before it is made.
 
 ### `String.to_*` has no raising sibling
 
