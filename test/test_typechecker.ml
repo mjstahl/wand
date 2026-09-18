@@ -1968,8 +1968,70 @@ let test_generic_derivation () =
     "Int"
 
 
+(* ── Several unbound names in one pass ───────────────────────────────────── *)
+
+(* A file with six unknown names took six runs to clear: a person reread it
+   between each, and a tool driving `wand t` in a loop paid a round trip per
+   name. An unbound name is the one error a check can carry on past -- the
+   name is given a fresh variable, which unifies with anything -- so all of
+   them are known by the end. *)
+
+let unbound_of src =
+  let prog = Lexer.tokenize src |> Parser.parse_program in
+  match Typechecker.infer_program_full_with_own prog with
+  | Ok _ -> []
+  | Error _ -> List.map snd !Typechecker.unbound_names
+
+let test_several_unbound_names () =
+  let msgs = unbound_of "let a x = alpha x\n\nlet b y = beta y\n\nlet c z = gamma z\n" in
+  Alcotest.(check int) "three names, one pass" 3 (List.length msgs);
+  List.iter2 (fun want got ->
+    if not (Lint.contains got want) then
+      Alcotest.failf "expected %S in: %s" want got)
+    ["'alpha'"; "'beta'"; "'gamma'"] msgs
+
+let test_one_unbound_name_reads_as_before () =
+  let msgs = unbound_of "let a x = alpha x\n" in
+  Alcotest.(check int) "one name, one error" 1 (List.length msgs)
+
+(* The same name used twice is one mistake. Reporting it per use would bury
+   the other names under it. *)
+let test_a_repeated_unbound_name_is_one () =
+  let msgs = unbound_of "let a x = alpha (alpha x)\n\nlet b y = beta y\n" in
+  Alcotest.(check int) "each name once" 2 (List.length msgs)
+
+(* Every other error still stops where it stood. A type that did not fit
+   leaves the wrong type behind, and going on from one invents mistakes the
+   file does not have. *)
+let test_other_errors_still_stop () =
+  Alcotest.(check int) "a mismatch reports one thing"
+    0 (List.length (unbound_of "let f x = x + 1\n\nf \"s\"\n"))
+
+(* Where a file has both, the names are the answer: an error raised after
+   the first miss may be a consequence of it, and reporting a consequence
+   sends the reader to the wrong line. *)
+let test_names_win_over_a_later_error () =
+  let msgs = unbound_of "let f x = nope x\n\nlet g = 1 + \"s\"\n" in
+  Alcotest.(check int) "the name is what is reported" 1 (List.length msgs)
+
+(* The collection is reset per check, and every entry point shares the
+   reset: a name left over from the last file would be reported against
+   this one, and a check that never reset would stop raising at all. *)
+let test_the_collection_does_not_leak () =
+  ignore (unbound_of "let a x = alpha x\n");
+  Alcotest.(check int) "a clean file after a broken one"
+    0 (List.length (unbound_of "let a x = x + 1\n"))
+
 let () =
   Alcotest.run "Typechecker" [
+    "unbound names", [
+      Alcotest.test_case "several in one pass"  `Quick test_several_unbound_names;
+      Alcotest.test_case "one reads as before"  `Quick test_one_unbound_name_reads_as_before;
+      Alcotest.test_case "a repeat is one"      `Quick test_a_repeated_unbound_name_is_one;
+      Alcotest.test_case "others still stop"    `Quick test_other_errors_still_stop;
+      Alcotest.test_case "names win"            `Quick test_names_win_over_a_later_error;
+      Alcotest.test_case "no leak between runs" `Quick test_the_collection_does_not_leak;
+    ];
     "constructor arguments", [
       Alcotest.test_case "imported tuple payload" `Quick test_imported_constructor_takes_a_tuple;
       Alcotest.test_case "local tuple payload"    `Quick test_local_constructor_takes_a_tuple;

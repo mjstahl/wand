@@ -92,6 +92,30 @@
 
 ### Changed
 
+- **`wand t` reports every unbound name in one run.** A failing typecheck
+  answered with one error, so a file with six unknown names took six runs to
+  clear -- a person reread it between each, and a tool driving `wand t` in a
+  loop paid a round trip per name.
+
+  ```
+  $ wand t report.wand
+  Error: type error: 1:11: unbound variable 'alpha' -- 'wand d' lists the modules...
+  Error: type error: 3:11: unbound variable 'beta' -- 'wand d' lists the modules...
+  Error: type error: 5:11: unbound variable 'gamma' -- 'wand d' lists the modules...
+  ```
+
+  An unbound name is the one error a check can carry on past: the name gets
+  a fresh type variable, which unifies with anything, so nothing below the
+  miss reports a consequence of it as a mistake of its own. Each name is
+  reported once however many times it is written.
+
+  Every other error still stops where it stood. A type that did not fit
+  leaves the wrong type behind, and carrying on from one invents mistakes
+  the file does not have. Where a file has both, the names are the answer.
+
+  `--json` gives one object per name, and the language server lists them all
+  in the Problems pane rather than one at a time.
+
 - **`String.lines` drops the empty piece a trailing newline left.** A newline
   ends a line rather than separating two, so nearly every file gave back one
   element more than it had lines, with `""` at the end, and every caller had

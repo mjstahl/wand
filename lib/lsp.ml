@@ -180,12 +180,16 @@ let path_of_uri uri =
     | Some i -> String.sub uri (i + 1) (String.length uri - i - 1)
     | None -> uri
 
-(* What the Problems pane shows for one buffer: the check's single error,
-   or its findings. Holes wait for locations; a diagnostic
-   that cannot point anywhere is noise, not information. *)
+(* What the Problems pane shows for one buffer: the check's errors, or its
+   findings. Holes wait for locations; a diagnostic that cannot point
+   anywhere is noise, not information.
+
+   A check answers with one diagnostic and the ones that travel with it --
+   every unbound name in the buffer, where there are several -- so the pane
+   lists them all rather than one at a time. *)
 let analyze uri text : Runner.source_check option * Diag.t list =
   match Runner.typecheck_source ~path:(path_of_uri uri) text with
-  | Error d -> (None, [d])
+  | Error d -> (None, Diag.all d)
   | Ok sc -> (Some sc, List.map (Lint.to_diag ~strict:false) sc.Runner.sc_findings)
 
 let publish uri diags =

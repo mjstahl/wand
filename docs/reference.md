@@ -6440,6 +6440,34 @@ wand t --json script.wand         # diagnostics as JSON, for tools
 wand t --fix script.wand          # apply the fixes the findings carry
 ```
 
+### Every unbound name at once
+
+A failing typecheck reports one error, and stops. An unbound name is the
+exception: the check records it, gives the name a fresh type variable, and
+carries on, so every unknown name in the file comes back from one run.
+
+```console
+$ wand t report.wand
+Error: type error: 1:11: unbound variable 'alpha' -- 'wand d' lists the modules, 'wand d List' one module's members
+Error: type error: 3:11: unbound variable 'beta' -- 'wand d' lists the modules, 'wand d List' one module's members
+Error: type error: 5:11: unbound variable 'gamma' -- 'wand d' lists the modules, 'wand d List' one module's members
+```
+
+A fresh variable unifies with anything, so nothing below the miss reports a
+consequence of it as a mistake of its own. Each name is reported once,
+however many times it is written: the same name twice is one mistake.
+
+Every other error still stops where it stood. A type that did not fit leaves
+the wrong type behind, and carrying on from one invents mistakes the file
+does not have. Where a file has both, the names are the answer — an error
+raised after the first miss may be a consequence of it, and reporting a
+consequence sends the reader to the wrong line.
+
+`--json` gives one object per name. The position is the enclosing expression
+for a name inside an application, which is where wand reports the first
+error too, so two names in one call can share a position; the name in the
+message is what tells them apart.
+
 ### Checking a tree
 
 `wand t` takes a directory, or more than one path. A directory is searched all

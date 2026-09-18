@@ -1022,18 +1022,52 @@ let foreign_member_hint ns member =
 let discovery_hint =
   " -- 'wand d' lists the modules, 'wand d List' one module's members"
 
+let unbound_message name (env : env) =
+  let hint = match foreign_name_hint name with
+    | Some h -> " -- " ^ h
+    | None ->
+      (match Util.hint name (List.map fst env) with
+       | "" -> discovery_hint
+       | h -> h)
+  in
+  Printf.sprintf "unbound variable '%s'%s" name hint
+
 let lookup name (env : env) =
   match List.assoc_opt name env with
   | Some s -> s
-  | None   ->
-    let hint = match foreign_name_hint name with
-      | Some h -> " -- " ^ h
-      | None ->
-        (match Util.hint name (List.map fst env) with
-         | "" -> discovery_hint
-         | h -> h)
-    in
-    raise (TypeError (Printf.sprintf "unbound variable '%s'%s" name hint))
+  | None   -> raise (TypeError (unbound_message name env))
+
+(* Every unbound name the check met, in the order it met them, each once.
+   A file with six of them took six runs to clear -- a person reread it
+   between each, and a tool driving `wand t` in a loop paid a round trip.
+
+   This is the one error a check can carry on past. The name is given a
+   fresh variable, which unifies with anything, so nothing below reports a
+   consequence of the miss as a mistake of its own. Every other error still
+   stops where it stood: a type that did not fit leaves the wrong type
+   behind, and going on from one invents mistakes the file does not have. *)
+let unbound_names : (Token.loc option * string) list ref = ref []
+let unbound_seen : (string, unit) Hashtbl.t = Hashtbl.create 8
+
+(* Where the check is, for the errors it records rather than raises. A
+   raised one is located by the `Located` it passes on the way out; a
+   recorded one never leaves, so it reads the position here. *)
+let cur_loc : Token.loc option ref = ref None
+
+let forget_unbound () =
+  unbound_names := [];
+  Hashtbl.reset unbound_seen;
+  cur_loc := None
+
+(* Raise the first name the check went past, so every caller sees the one
+   error it has always seen. `infer_program_full_with_own` reads the rest off
+   `unbound_names` and reports them alongside; nothing else has to change to
+   stay correct. *)
+let raise_first_unbound () =
+  match !unbound_names with
+  | [] -> ()
+  | (Some loc, msg) :: _ -> raise (TypeErrorAt (loc, msg))
+  | (None, msg) :: _ -> raise (TypeError msg)
 
 (* ── Free type variables ──────────────────────────────────────────────────── *)
 
@@ -2524,7 +2558,15 @@ let rec infer tenv (env : env) (e : expr) : typ =
   | Port _     -> TPort
   | Version _  -> TVersion
   | Size _     -> TSize
-  | Var name   -> instantiate (lookup name env)
+  | Var name ->
+    (match List.assoc_opt name env with
+     | Some s -> instantiate s
+     | None ->
+       if not (Hashtbl.mem unbound_seen name) then begin
+         Hashtbl.add unbound_seen name ();
+         unbound_names := !unbound_names @ [(!cur_loc, unbound_message name env)]
+       end;
+       fresh ())
   | Constr name ->
     let ctor_env = tenv_to_ctor_env tenv in
     (* A constructor with named fields is built by naming them. Supplying its
@@ -3485,8 +3527,12 @@ let rec infer tenv (env : env) (e : expr) : typ =
        check_written_vars written;
        t)
   | Located (loc, e) ->
-    (try infer tenv env e
-     with TypeError msg -> raise (TypeErrorAt (loc, msg)))
+    let outer = !cur_loc in
+    cur_loc := Some loc;
+    Fun.protect ~finally:(fun () -> cur_loc := outer)
+      (fun () ->
+         try infer tenv env e
+         with TypeError msg -> raise (TypeErrorAt (loc, msg)))
 
 (* An argument that is a nullary constructor holding a bracket it cannot
    own: `Sha256 (x)` as the argument of a call. Answers the constructor and
@@ -3801,7 +3847,11 @@ and infer_binop tenv (env : env) op a b : typ =
 (* ── Public API ───────────────────────────────────────────────────────────── *)
 
 let infer_expr (e : expr) : (typ, string) result =
-  try Ok (infer [] [] e)
+  try
+    forget_unbound ();
+    let t = infer [] [] e in
+    raise_first_unbound ();
+    Ok t
   with
   | TypeError msg -> Error msg
   | TypeErrorAt (loc, msg) ->
@@ -5219,9 +5269,14 @@ let infer_program_ ?base_env ?init_tenv ?init_env ?(type_names = []) prog =
     List.filter_map (fun (written, canon) ->
       if String.contains written '.' then None else Some canon) type_names
   in
-  with_type_name_map type_names (fun () ->
-    with_visible visible (fun () ->
-      infer_program_body ?base_env ?init_tenv ?init_env prog))
+  forget_unbound ();
+  let result =
+    with_type_name_map type_names (fun () ->
+      with_visible visible (fun () ->
+        infer_program_body ?base_env ?init_tenv ?init_env prog))
+  in
+  raise_first_unbound ();
+  result
 
 let infer_program_full ?(init_tenv=[]) ?(init_env=[]) ?(type_names=[]) (prog : program)
     : (env * typ, string) result =
@@ -5256,11 +5311,30 @@ let infer_program_full_with_own ?(base_env=builtin_type_env) ?(init_tenv=[])
     ?(init_env=[]) ?(type_names=[]) (prog : program)
     : (env * env * typ * typ list,
        Token.loc option * string * Diag.fix option) result =
+  (* An unbound name is recorded rather than raised, so the check reaches the
+     end and every one of them is known. Where any were found, they are the
+     answer: an error raised after the first miss may be a consequence of it,
+     and reporting a consequence as a mistake sends the reader to the wrong
+     line. *)
+  let answer_with_unbound () =
+    match !unbound_names with
+    | [] -> None
+    | (loc, msg) :: _ -> Some (loc, msg)
+  in
   try
     let (_, full_env, own_env, last_t) =
       infer_program_ ~base_env ~init_tenv ~init_env ~type_names prog in
-    let hole_types = List.rev_map repr !holes in
-    Ok (full_env, own_env, last_t, hole_types)
+    match answer_with_unbound () with
+    | Some (loc, msg) -> Error (loc, msg, None)
+    | None ->
+      let hole_types = List.rev_map repr !holes in
+      Ok (full_env, own_env, last_t, hole_types)
   with
-  | TypeError msg -> Error (None, msg, take_pending_fix ())
-  | TypeErrorAt (loc, msg) -> Error (Some loc, msg, take_pending_fix ())
+  | TypeError msg ->
+    (match answer_with_unbound () with
+     | Some (loc, m) -> Error (loc, m, None)
+     | None -> Error (None, msg, take_pending_fix ()))
+  | TypeErrorAt (loc, msg) ->
+    (match answer_with_unbound () with
+     | Some (l, m) -> Error (l, m, None)
+     | None -> Error (Some loc, msg, take_pending_fix ()))

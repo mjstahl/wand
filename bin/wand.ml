@@ -191,6 +191,21 @@ let parse_lint_flags args =
   in
   (!strict, !json, !fix, !effects, rest)
 
+(* A check answers with one diagnostic, and an unbound name is the one error
+   it carries on past, so several may travel together. Everything that
+   reports a file's errors reports all of them. *)
+let report_diags ~json ~path d =
+  let ds = Wand.Diag.all d in
+  if json then print_endline (Wand.Diag.to_json_array ~file:path ds)
+  else List.iter (fun x ->
+    Printf.eprintf "Error: %s\n" (Wand.Diag.legacy x)) ds
+
+(* The same, under the path, for a run over a tree. *)
+let report_diags_under ~path d =
+  List.iter (fun x ->
+    Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy x)) (Wand.Diag.all d);
+  flush stderr
+
 (* `Shell(df)` -- the manifest's own spelling, so what a file reaches is
    written the way the line bounding it would be. *)
 let effect_label (name, allows) = Wand.Shell_scan.render_label (name, allows)
@@ -714,9 +729,7 @@ let main () =
          if effects then
            (match Wand.Runner.typecheck_file path with
             | Error d ->
-              if json then
-                (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
-              else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
+              report_diags ~json ~path d; exit 1
             | Ok sc ->
               let es = sc.Wand.Runner.sc_effects in
               if json then print_endline ("[" ^ effects_json_entry path es ^ "]")
@@ -747,9 +760,7 @@ let main () =
          else
            (match Wand.Runner.typecheck_file path with
             | Error d ->
-              if json then
-                (print_endline (Wand.Diag.to_json_array ~file:path [d]); exit 1)
-              else (Printf.eprintf "Error: %s\n" (Wand.Diag.legacy d); exit 1)
+              report_diags ~json ~path d; exit 1
             | Ok sc ->
               let holes    = sc.Wand.Runner.sc_holes in
               let findings = sc.Wand.Runner.sc_findings in
@@ -787,9 +798,10 @@ let main () =
                match Wand.Runner.typecheck_file path with
                | Error d ->
                  failed := true;
-                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
-                 else (Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d);
-                       flush stderr)
+                 if json then
+                   items := !items
+                     @ List.map (Wand.Diag.to_json ~file:path) (Wand.Diag.all d)
+                 else report_diags_under ~path d
                | Ok sc ->
                  let es = sc.Wand.Runner.sc_effects in
                  if json then items := !items @ [effects_json_entry path es]
@@ -810,8 +822,10 @@ let main () =
                match Wand.Fix.fix_file path with
                | Error d ->
                  failed := true;
-                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
-                 else Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d)
+                 if json then
+                   items := !items
+                     @ List.map (Wand.Diag.to_json ~file:path) (Wand.Diag.all d)
+                 else report_diags_under ~path d
                | Ok applied ->
                  fixed := !fixed + List.length applied;
                  if json then
@@ -841,9 +855,10 @@ let main () =
                match Wand.Runner.typecheck_file path with
                | Error d ->
                  incr errors;
-                 if json then items := !items @ [Wand.Diag.to_json ~file:path d]
-                 else (Printf.eprintf "%s: %s\n" path (Wand.Diag.legacy d);
-                       flush stderr)
+                 if json then
+                   items := !items
+                     @ List.map (Wand.Diag.to_json ~file:path) (Wand.Diag.all d)
+                 else report_diags_under ~path d
                | Ok sc ->
                  let holes    = sc.Wand.Runner.sc_holes in
                  let findings = sc.Wand.Runner.sc_findings in

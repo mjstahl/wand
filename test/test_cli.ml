@@ -688,6 +688,30 @@ let test_type_of_one_file_is_unchanged () =
     (* One file reports what it checks out as, with no path and no count. *)
     Alcotest.(check string) "and reports its type alone" "Int\n" out)
 
+(* Every unbound name in one run, all the way out to the command. A file
+   with six of them took six runs to clear. *)
+let test_every_unbound_name_reported () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "a.wand")
+      "let a x = alpha x\n\nlet b y = beta y\n\nlet c z = gamma z\n";
+    let (code, out) = wand_out ~dir:d ["t"; "a.wand"] in
+    Alcotest.(check int) "a file that does not check exits 1" 1 code;
+    List.iter (fun name ->
+      Alcotest.(check bool) (name ^ " is reported") true
+        (contains_sub out ("unbound variable '" ^ name ^ "'")))
+      ["alpha"; "beta"; "gamma"];
+    (* --json carries each as its own object, so a tool reads them without
+       parsing the text. *)
+    let (_, out) = wand_out ~dir:d ["t"; "--json"; "a.wand"] in
+    let count =
+      let n = ref 0 and needle = "\"code\":\"E-TYPE\"" in
+      String.iteri (fun i _ ->
+        if i + String.length needle <= String.length out
+        && String.sub out i (String.length needle) = needle then incr n) out;
+      !n
+    in
+    Alcotest.(check int) "three objects" 3 count)
+
 (* ── wand t --effects ────────────────────────────────────────────────────── *)
 
 (* What a file reaches outside itself, as data, so a check can compare it
@@ -829,6 +853,7 @@ let () =
       Alcotest.test_case "wand t over a tree" `Quick test_type_over_a_tree;
       Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
       Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
+      Alcotest.test_case "every unbound name" `Quick test_every_unbound_name_reported;
       Alcotest.test_case "wand t --effects" `Quick test_effects_of_one_file;
       Alcotest.test_case "--effects is inferred" `Quick test_effects_ignore_the_manifest;
       Alcotest.test_case "--effects over a tree" `Quick test_effects_over_a_tree;

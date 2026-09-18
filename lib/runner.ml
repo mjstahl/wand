@@ -3686,7 +3686,17 @@ let typecheck_source ~path (src : string) : (source_check, Diag.t) result =
     match Typechecker.infer_program_full_with_own ~base_env
             ~init_tenv:imp.tenv ~init_env:imp.type_env
             ~type_names:imp.type_names prog with
-    | Error (loc, msg, fix) -> Error (Diag.error ~code:"E-TYPE" ?loc ?fix msg)
+    | Error (loc, msg, fix) ->
+      (* An unbound name is the one error a check carries on past, so there
+         may be several. They travel with the first, which is what every
+         consumer that shows one diagnostic already takes. *)
+      let others =
+        match !Typechecker.unbound_names with
+        | _ :: rest ->
+          List.map (fun (l, m) -> Diag.error ~code:"E-TYPE" ?loc:l m) rest
+        | [] -> []
+      in
+      Error { (Diag.error ~code:"E-TYPE" ?loc ?fix msg) with Diag.others }
     | Ok (full_type_env, own_type_env, last_t, holes) ->
       (* Read before the record, because a record's fields are evaluated in
          no stated order and these come off the check that just ran. *)

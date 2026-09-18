@@ -856,7 +856,8 @@ let to_diag ~strict f : Diag.t =
     code    = Lint_rules.code f.rule;
     loc     = Some f.loc;
     message = f.text;
-    fix     = f.fix }
+    fix     = f.fix;
+    others  = [] }
 
 let hole_json t =
   Printf.sprintf "{\"kind\":\"hole\",\"type\":\"%s\"}" (Diag.escape_json t)

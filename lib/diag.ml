@@ -24,6 +24,11 @@ type t = {
   loc      : Token.loc option;   (* None renders as 1:1 in JSON *)
   message  : string;             (* bare text: no label, no position *)
   fix      : fix option;
+  (* Further diagnostics found in the same pass, each standing on its own.
+     A check answers with one diagnostic everywhere, so the rest travel with
+     the first rather than changing what every consumer takes. `all` is what
+     a consumer that can show more than one reads. *)
+  others   : t list;
 }
 
 (* ── Construction ────────────────────────────────────────────────────────── *)
@@ -60,7 +65,11 @@ let error ~code ?loc ?fix message =
        | Some (_, (from_, to_)) -> Some (Replace { from_; to_ })
        | None -> None)
   in
-  { severity = Error; code; loc; message; fix }
+  { severity = Error; code; loc; message; fix; others = [] }
+
+(* The diagnostic and the ones that travel with it, in the order they were
+   found. A consumer that shows one takes the head and is unchanged. *)
+let all d = d :: d.others
 
 (* ── Rendering ───────────────────────────────────────────────────────────── *)
 
