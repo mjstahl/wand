@@ -260,9 +260,9 @@ instances, and no call that has to work out where to go.
     ```
 
     The interface names alone, comma-separated as `performs` writes its list,
-    and nothing else. The member's own name is in the signature above, and so
-    is the type, so `implements Bounded.max_value Int` would repeat two
-    things the reader is already looking at. One binding answering to two
+    and each the name a reader would write. The member's own name is in the
+    signature above, and so is the type, so `implements Bounded.max_value Int`
+    would repeat two things the reader is already looking at. One binding answering to two
     interfaces needs no second shape:
 
     ```
@@ -272,12 +272,60 @@ instances, and no call that has to work out where to go.
 
     Where a member has both lines, `implements` comes first: what it answers
     to, then what it does.
-13. **`wand d --index` is left alone.** Every line is one name and one type,
-    and that is what makes 535 lines usable as a single artefact by a reader
-    who does not know the library. Decorating the member lines would break
-    every consumer of it. If the index is to carry interfaces they belong on
-    lines of their own, which is a separate decision.
-14. **A module that declares one interface resolves to it.** `Ord.wand`
+13. **`wand d --index` carries the interfaces.** Leaving it alone was the
+    first answer and it was wrong. The index is what a model reads: with the
+    language guide alone a model cleared 7 of 20 tasks, and with the guide
+    and the index, 18. An interface absent from it is a feature a model never
+    learns exists, and the fallback -- `wand d <Module>` per module -- is the
+    loop measured at 5.4x the index's cost.
+
+    Three things, and the first needs no new shape at all.
+
+    **An interface's members list like any module's.** They are members.
+
+    ```
+    Ord.max : 'a -> 'a -> 'a
+    Ord.min : 'a -> 'a -> 'a
+    ```
+
+    That alone puts the contract in front of a reader who has to write
+    `implement Ord Int` or `(m: Ord 'a)`, and every line is still one name
+    and one type.
+
+    **A member names its interfaces after its type, in square brackets.**
+
+    ```
+    Int.abs       : Int -> Int
+    Int.between?  : Int -> Int -> Int -> Bool [Ord]
+    Int.clamp     : Int -> Int -> Int -> Int [Ord]
+    Int.divmod    : Int -> Int -> (Int, Int)
+    Int.max       : Int -> Int -> Int [Ord]
+    Int.max_value : Int [Bounded]
+    Int.min       : Int -> Int -> Int [Ord]
+    Int.min_value : Int [Bounded]
+    Int.pow       : Int -> Int -> Int ! 'e
+    ```
+
+    Square brackets because round ones are type application: `Int (Ord)`
+    is how `List Int` is written, so a reader and a model copying the type
+    into an annotation could both take the interface for a last argument.
+    A `[` never appears in a wand type. Two interfaces are `[Comparable, Ord]`.
+
+    The name in the brackets is the one a reader would **write** -- `Foo`
+    where `foo.wand` declares the interface, not the interface's declared
+    name -- because the point of the line is that it can be acted on.
+
+    **Names are aligned within a module.** The column is set by the longest
+    name in that module and resets at the next, which is what
+    `docs/reference.md` already does. Not across the file: names run from 8
+    to 23 characters, so one column would pad every short line by fifteen
+    spaces. And not a third column after the type: the longest type in the
+    library is 83 characters, which would start the interfaces past column
+    130.
+14. **`--index --json` carries it as a field.** The flag exists; each entry
+    gains `implements` beside `name` and `type`, null where there is none.
+    Tools read that and never the aligned text.
+15. **A module that declares one interface resolves to it.** `Ord.wand`
    declaring `interface Ord 'a(...)` is reached as `Ord`, so the first thing
    anyone writes is `implement Ord Int` rather than `implement Ord.Ord Int`.
    The qualified spelling still works, and a module declaring two interfaces
