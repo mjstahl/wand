@@ -141,18 +141,23 @@ export async function activate(context: ExtensionContext) {
   // the terminal. Windows has no /bin/sh and no /dev/null, so it spawns wand
   // itself and does without the redirect.
   const REHEARSE = 'wand rehearse';
-  // A rehearsal that reports a blocked release is doing its job, and a gate
-  // script says so by exiting non-zero. VS Code reads a quick non-zero exit
-  // of a terminal's own process as "failed to launch" and shows that instead
-  // of what wand said, so the shell reports the status itself and exits 0.
-  // A wand that cannot be found still fails, because that one is a launch
-  // failure.
-  const REHEARSE_SH = [
-    'command -v "$0" > /dev/null 2>&1 || [ -x "$0" ] || {',
-    '  printf "wand: not found at %s\\n" "$0" >&2; exit 1; }',
-    '"$0" --dry-run "$1" < /dev/null',
-    'printf "\\n[rehearsal exited %s]\\n" "$?"',
-  ].join('\n');
+  // The command is a constant, and the two paths travel in the environment.
+  // A shell expands `"$WAND_BIN"` without reading the value back as source,
+  // so a file named `x$(cmd).wand` is a file name and nothing else. Typed in
+  // with `JSON.stringify` around it, that name ran `cmd` the moment the lens
+  // was clicked: double quotes do not stop a shell reading `$(...)`.
+  //
+  // It goes to an ordinary terminal, which is what a developer expects of a
+  // command: the prompt comes back, the output stays, and running it again
+  // is one keystroke. A terminal whose own process is the command is closed
+  // the moment the command ends, and a rehearsal is read rather than
+  // watched.
+  //
+  // `< /dev/null` means a script that reads stdin rehearses against empty
+  // input instead of blocking on the terminal. Windows has no /bin/sh and no
+  // /dev/null, so it spawns wand itself and does without the redirect.
+  const REHEARSE_CMD = '"$WAND_BIN" --dry-run "$WAND_FILE" < /dev/null';
+
   context.subscriptions.push(
     commands.registerCommand('wand.rehearse', (uri?: Uri) => {
       const file = uri?.fsPath ?? window.activeTextEditor?.document.uri.fsPath;
@@ -161,13 +166,16 @@ export async function activate(context: ExtensionContext) {
       // replaced rather than reused.
       window.terminals.filter((t) => t.name === REHEARSE)
         .forEach((t) => t.dispose());
+      if (process.platform === 'win32') {
+        const term = window.createTerminal(
+          { name: REHEARSE, shellPath: wandPath(), shellArgs: ['--dry-run', file] });
+        term.show(true);
+        return;
+      }
       const term = window.createTerminal(
-        process.platform === 'win32'
-          ? { name: REHEARSE, shellPath: wandPath(),
-              shellArgs: ['--dry-run', file] }
-          : { name: REHEARSE, shellPath: '/bin/sh',
-              shellArgs: ['-c', REHEARSE_SH, wandPath(), file] });
+        { name: REHEARSE, env: { WAND_BIN: wandPath(), WAND_FILE: file } });
       term.show(true);
+      term.sendText(REHEARSE_CMD);
     }));
 
   await start();
