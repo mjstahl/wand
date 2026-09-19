@@ -1,19 +1,20 @@
-## 0.80.3 - 2026-09-18
+## 0.80.4 - 2026-09-19
 
-One formatting change.
+One parser fix.
 
-### `wand f` no longer brackets a match that stands as a statement
+### A positional payload reaches through a lowercase module
 
-The parentheses were for the reader, not the parser, and they made a match
-in the middle of a block look unlike the match that ends one.
+A module bound by `let l = import ./lib` has a lowercase name, so the type
+`l.S` opens with a word the parser also reads as a variable. The bracketed
+spelling read it; the unbracketed one `wand f` writes did not, and the
+payload became a statement below the constructor.
 
 ```
--- before                     -- now
-(match same with              match same with
- | false -> stop ()           | false -> stop ()
- | true -> ());               | true -> ();
+-- type T(l.S) formatted
+-- before        -- now
+type T = T       type T = T l.S
+l.S
 ```
 
-A match that is a binding's value is unchanged: it still ends on `in`,
-which no arm can swallow. Run `wand f` once and your own files settle the
-same way.
+Both spellings read it now, so a type declared this way survives `wand f`.
+An applied type and the arguments of `implement` read it too.
