@@ -1,19 +1,27 @@
-## 0.80.1 - 2026-09-18
+## 0.80.2 - 2026-09-18
 
-Two editor faults from the interfaces release.
+Two fixes from the interfaces releases.
 
-### The editor put every member of an implementation on one line
+### A pipeline indented a stage that wrapped two spaces too deep
 
-Each member reported the position of the block, not of its own `let`.
+The closing bracket did not line up with the one it opened.
 
 ```
-between? : ... | clamp : ... | max : ... | min : ...
-implement Ord Int =
-  let max a b = if a > b then a else b;
+-- before                      -- now
+  [                              [
+      (r.draft, "a draft"),        (r.draft, "a draft"),
+      (bad, "below the floor")     (bad, "below the floor")
+    ]                            ]
+    |> List.filter_map f         |> List.filter_map f
 ```
 
-A member now gets a code lens above its own `let`.
+Every stage now starts at the column the pipeline starts at. This reformats
+wrapped pipelines across the standard library, the examples and the tools.
+Run `wand f` once and your own files settle the same way.
 
-### The VS Code extension did not know `interface` or `implement`
+### The rehearse lens reported a blocked script as a failure to launch
 
-Both are declaration keywords now. The extension is 0.3.1.
+A gate script exits non-zero to say that it blocks. VS Code reads that as a
+launch failure and hides what wand printed. The lens now reports the exit
+status and leaves the output in the terminal. A `wand` that cannot be found
+still fails. The extension is 0.3.2.
