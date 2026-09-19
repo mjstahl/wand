@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.80.3] - 2026-09-18
+
+### Changed
+
+- **`wand f` no longer brackets a `match` that stands as a statement.** The
+  parentheses were for the reader, not the parser, and they made a `match`
+  in the middle of a block look unlike the `match` that ends one.
+
+  ```
+  -- before                     -- now
+  (match same with              match same with
+   | false -> stop ()           | false -> stop ()
+   | true -> ());               | true -> ();
+  ```
+
+  Reformated `tools/fuzz_sweep.wand`.
+
 ## [0.80.2] - 2026-09-18
 
 ### Fixed
