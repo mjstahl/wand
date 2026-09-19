@@ -36,10 +36,10 @@ let plan paths = List.fold_right (fn p acc ->
 -- than done: the file that would go is the one nobody asked about.
 let rename_all! moves =
   moves
-    |> List.each (fn (from, to) ->
-      if FS.exists? to then
-        IO.println_err "%{Path.to_string from} -> %{Path.to_string to}: taken, left alone"
-      else (IO.println "%{Path.to_string from} -> %{Path.to_string to}"; FS.rename! from to))
+  |> List.each (fn (from, to) ->
+    if FS.exists? to then
+      IO.println_err "%{Path.to_string from} -> %{Path.to_string to}: taken, left alone"
+    else (IO.println "%{Path.to_string from} -> %{Path.to_string to}"; FS.rename! from to))
 
 -- argv is an effect, and an import runs a file's bindings, so reading it
 -- here would read it on import. In `main!` it does not.

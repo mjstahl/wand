@@ -73,7 +73,7 @@ let main! () = (
   | [] -> IO.println "nothing to rotate"
   | old -> (
     old
-      |> List.each (fn (p, taken) -> IO.println "%{Path.to_string p} is %{age now taken} old");
+    |> List.each (fn (p, taken) -> IO.println "%{Path.to_string p} is %{age now taken} old");
     old |> List.each (fn (p, _) -> FS.delete! p);
     -- What the listing held, not what was done to it: `--dry-run` runs this
     -- line having deleted nothing, so a sentence in the past tense would be

@@ -241,10 +241,10 @@ test "a document that names a key twice reads the later one, whichever way it is
   let via_field = JSON.field "a" doc |> Result.and_then JSON.get_int;
   let via_object =
     JSON.get_object doc
-      |> Result.and_then (fn m ->
-        match Map.get "a" m with
-        | Some v -> JSON.get_int v
-        | None -> Error "missing");
+    |> Result.and_then (fn m ->
+      match Map.get "a" m with
+      | Some v -> JSON.get_int v
+      | None -> Error "missing");
   t.eq (Ok 9, Ok 9, Ok 9) (
     via_field,
     via_object,

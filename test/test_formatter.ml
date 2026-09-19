@@ -1051,6 +1051,24 @@ let test_a_wide_interface_wraps () =
   assert_contains "the members survive" out "within?:";
   assert_idempotent "wrapped interface" src
 
+(* Every stage of a pipeline starts at the pipeline's own column. The first
+   stage was rendered at the column the later ones use, so a first stage that
+   wrapped put its interior two spaces too deep and closed its bracket out of
+   line with the one it opened. *)
+let test_a_pipeline_aligns_its_stages () =
+  let src =
+    "let blockers floor r = [\n\
+     \    (r, \"still a draft\"),\n\
+     \    (floor, \"below the floor, and this line is long enough to wrap it\")\n\
+     \  ] |> List.filter_map (fn (bad, why) -> if bad then Some why else None)\n"
+  in
+  let out = fmt src in
+  assert_contains "the list opens at the body indent" out "\n  [\n";
+  assert_contains "its elements sit one level in" out "\n    (r, ";
+  assert_contains "and it closes in line with the bracket it opened" out "\n  ]\n";
+  assert_contains "the pipe joins them at the same column" out "\n  |> List.filter_map";
+  assert_idempotent "a wrapped pipeline" src
+
 let test_blank_lines () =
   let src = "let x = 1\n\n\n\nlet y = 2\nx + y" in
   let out = fmt src in
@@ -1916,6 +1934,7 @@ let () =
       Alcotest.test_case "wide type wraps" `Quick test_wide_type_definition_wraps;
       Alcotest.test_case "named field arrow" `Quick test_named_field_arrow_loses_brackets;
       Alcotest.test_case "interface settles" `Quick test_interface_and_implement_settle;
+      Alcotest.test_case "pipeline stages align" `Quick test_a_pipeline_aligns_its_stages;
       Alcotest.test_case "a wide interface wraps" `Quick test_a_wide_interface_wraps;
     ];
   ]

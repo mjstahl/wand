@@ -117,8 +117,8 @@ test "over files, FS.glob answers exactly what matches? accepts" (fn t ->
     let found_names = found |> List.map (fn p -> Path.to_string (relative p));
     let missed =
       names
-        |> List.filter (fn n -> List.find (fn f -> f == n) found_names == None)
-        |> List.filter (fn n -> Glob.matches? **.wand (Path.of_string n));
+      |> List.filter (fn n -> List.find (fn f -> f == n) found_names == None)
+      |> List.filter (fn n -> Glob.matches? **.wand (Path.of_string n));
     t.eq (3, true, []) (List.length found, all_match, missed)
   ))
 

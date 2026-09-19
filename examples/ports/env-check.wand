@@ -25,11 +25,11 @@ type Gap = Unset String | Empty String
 -- The variables that are not usable, in the order they were asked for.
 let gaps names =
   names
-    |> List.filter_map (fn name ->
-      match Env.get name with
-      | None -> Some (Unset name)
-      | Some "" -> Some (Empty name)
-      | Some _ -> None)
+  |> List.filter_map (fn name ->
+    match Env.get name with
+    | None -> Some (Unset name)
+    | Some "" -> Some (Empty name)
+    | Some _ -> None)
 
 let describe gap =
   match gap with

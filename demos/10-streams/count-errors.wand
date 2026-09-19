@@ -19,7 +19,7 @@ let log =
 
 let errors =
   FS.stream_lines log
-    |> Stream.filter (fn l -> String.contains? "ERROR" l)
-    |> Stream.fold_left (fn n _ -> n + 1) 0
+  |> Stream.filter (fn l -> String.contains? "ERROR" l)
+  |> Stream.fold_left (fn n _ -> n + 1) 0
 
 IO.println "%{errors} ERROR lines"

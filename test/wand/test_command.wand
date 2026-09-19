@@ -116,9 +116,9 @@ test "the stages run over the lines" (fn t ->
   t.eq
     ["B"]
     (Shell.stream $*(printf "a\nb\n")
-      |> Stream.filter (fn l -> l == "b")
-      |> Stream.map String.upper
-      |> Stream.to_list))
+    |> Stream.filter (fn l -> l == "b")
+    |> Stream.map String.upper
+    |> Stream.to_list))
 
 test "folding twice runs the command twice" (fn t ->
   let s = Shell.stream $*(printf "a\n");

@@ -28,11 +28,11 @@ type Release(version: Version, draft: Bool, artifacts: List String)
 -- Every reason this release cannot ship, rather than the first one.
 let blockers floor (r: Release) =
   [
-      (r.draft, "still a draft"),
-      (r.version < floor, "%{r.version} is below %{floor}"),
-      (List.length r.artifacts < 4, "%{List.length r.artifacts} artifacts, expected 4")
-    ]
-    |> List.filter_map (fn (bad, why) -> if bad then Some why else None)
+    (r.draft, "still a draft"),
+    (r.version < floor, "%{r.version} is below %{floor}"),
+    (List.length r.artifacts < 4, "%{List.length r.artifacts} artifacts, expected 4")
+  ]
+  |> List.filter_map (fn (bad, why) -> if bad then Some why else None)
 
 let report floor r =
   match blockers floor r with

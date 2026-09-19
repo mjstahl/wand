@@ -24,22 +24,22 @@ import Size
 
 let sized paths =
   paths
-    |> List.filter_map (fn p ->
-      match FS.size p with
-      | Ok size -> Some(p, size)
-      | Error _ -> None)
+  |> List.filter_map (fn p ->
+    match FS.size p with
+    | Ok size -> Some(p, size)
+    | Error _ -> None)
 
 let over limit dir =
   FS.glob_in **.wand dir
-    |> sized
-    |> List.filter (fn (_, size) -> size > limit)
-    |> List.sort_by (fn (_, size) -> size)
-    |> List.reverse
+  |> sized
+  |> List.filter (fn (_, size) -> size > limit)
+  |> List.sort_by (fn (_, size) -> size)
+  |> List.reverse
 
 let report limit dir = (
   IO.println "Over %{Size.format limit} in %{Path.to_string dir}";
   over limit dir
-    |> List.each (fn (p, size) -> IO.println "%{Size.format size}\t%{Path.to_string p}")
+  |> List.each (fn (p, size) -> IO.println "%{Size.format size}\t%{Path.to_string p}")
 )
 
 let main () = report 4KB ./stdlib

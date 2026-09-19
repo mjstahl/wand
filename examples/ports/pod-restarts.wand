@@ -37,9 +37,9 @@ type PodList(items: List Pod)
 -- Every container, not the first.
 let restarts (p: Pod) =
   p.status.containerStatuses
-    |> List.map (fn (c: Container) -> c.restartCount)
-    |> List.sum
-    |> Option.default 0
+  |> List.map (fn (c: Container) -> c.restartCount)
+  |> List.sum
+  |> Option.default 0
 
 let flapping limit pods = pods |> List.filter (fn p -> restarts p > limit)
 
@@ -48,8 +48,8 @@ let summary (p: Pod) =
 
 let pods out =
   JSON.parse out
-    |> Result.and_then (JSON.decode PodList.decoder)
-    |> Result.map (fn (list: PodList) -> list.items)
+  |> Result.and_then (JSON.decode PodList.decoder)
+  |> Result.map (fn (list: PodList) -> list.items)
 
 let report limit pods =
   match flapping limit pods with

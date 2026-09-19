@@ -32,9 +32,9 @@ group "what 1.1 would get wrong" (fn () -> [
     t.eq
       (Ok "2200:22")
       (YAML.parse! "ports:\n  - 2200:22"
-        |> YAML.field! "ports"
-        |> YAML.get_sequence
-        |> Result.and_then (fn ps -> List.head! ps |> YAML.get_string))),
+      |> YAML.field! "ports"
+      |> YAML.get_sequence
+      |> Result.and_then (fn ps -> List.head! ps |> YAML.get_string))),
   test "NO is a country" (fn t ->
     t.eq
       (Ok "NO")
@@ -43,8 +43,8 @@ group "what 1.1 would get wrong" (fn () -> [
     t.eq
       [Ok "yes", Ok "off"]
       (["a: yes", "a: off"]
-        |> List.map (fn src ->
-          YAML.parse! src |> YAML.field "a" |> Result.and_then YAML.get_string)))
+      |> List.map (fn src ->
+        YAML.parse! src |> YAML.field "a" |> Result.and_then YAML.get_string)))
 ])
 
 group "what it does resolve" (fn () -> [
@@ -85,16 +85,16 @@ group "anchors" (fn () -> [
     t.eq
       (Ok 1)
       (YAML.parse! "base: &b\n  x: 1\nsvc:\n  <<: *b"
-        |> YAML.field! "svc"
-        |> YAML.field "x"
-        |> Result.and_then YAML.get_int)),
+      |> YAML.field! "svc"
+      |> YAML.field "x"
+      |> Result.and_then YAML.get_int)),
   test "an explicit key wins over a merged one" (fn t ->
     t.eq
       (Ok 9)
       (YAML.parse! "base: &b\n  y: 2\nsvc:\n  <<: *b\n  y: 9"
-        |> YAML.field! "svc"
-        |> YAML.field "y"
-        |> Result.and_then YAML.get_int)),
+      |> YAML.field! "svc"
+      |> YAML.field "y"
+      |> Result.and_then YAML.get_int)),
   test "an alias naming nothing is refused" (fn t ->
     t.eq true (Result.error? (YAML.parse "a: *nope")))
 ])

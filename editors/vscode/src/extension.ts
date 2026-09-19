@@ -141,6 +141,18 @@ export async function activate(context: ExtensionContext) {
   // the terminal. Windows has no /bin/sh and no /dev/null, so it spawns wand
   // itself and does without the redirect.
   const REHEARSE = 'wand rehearse';
+  // A rehearsal that reports a blocked release is doing its job, and a gate
+  // script says so by exiting non-zero. VS Code reads a quick non-zero exit
+  // of a terminal's own process as "failed to launch" and shows that instead
+  // of what wand said, so the shell reports the status itself and exits 0.
+  // A wand that cannot be found still fails, because that one is a launch
+  // failure.
+  const REHEARSE_SH = [
+    'command -v "$0" > /dev/null 2>&1 || [ -x "$0" ] || {',
+    '  printf "wand: not found at %s\\n" "$0" >&2; exit 1; }',
+    '"$0" --dry-run "$1" < /dev/null',
+    'printf "\\n[rehearsal exited %s]\\n" "$?"',
+  ].join('\n');
   context.subscriptions.push(
     commands.registerCommand('wand.rehearse', (uri?: Uri) => {
       const file = uri?.fsPath ?? window.activeTextEditor?.document.uri.fsPath;
@@ -154,8 +166,7 @@ export async function activate(context: ExtensionContext) {
           ? { name: REHEARSE, shellPath: wandPath(),
               shellArgs: ['--dry-run', file] }
           : { name: REHEARSE, shellPath: '/bin/sh',
-              shellArgs: ['-c', 'exec "$0" --dry-run "$1" < /dev/null',
-                          wandPath(), file] });
+              shellArgs: ['-c', REHEARSE_SH, wandPath(), file] });
       term.show(true);
     }));
 

@@ -35,10 +35,10 @@ import String
 -- sits in rather than against wherever this runs.
 let stated file =
   FS.read_file file
-    |> Result.and_then (fn text ->
-      match String.words text with
-      | [digest, name] -> Ok (digest, Path.join (Path.parent file) (Path.of_string name))
-      | _ -> Error "not one digest and one name")
+  |> Result.and_then (fn text ->
+    match String.words text with
+    | [digest, name] -> Ok (digest, Path.join (Path.parent file) (Path.of_string name))
+    | _ -> Error "not one digest and one name")
 
 let taken! archive =
   match String.words $(shasum -a 256 %{archive}) with
@@ -47,8 +47,8 @@ let taken! archive =
 
 let check! file =
   stated file
-    |> Result.and_then (fn (digest, archive) ->
-      taken! archive |> Result.map (fn got -> got == digest))
+  |> Result.and_then (fn (digest, archive) ->
+    taken! archive |> Result.map (fn got -> got == digest))
 
 let verify! limit files = List.zip files (Par.map limit check! files)
 
@@ -57,11 +57,11 @@ let verify! limit files = List.zip files (Par.map limit check! files)
 -- Either way the archive is not verified, so `flatten` makes them one.
 let failures checked =
   checked
-    |> List.filter_map (fn (file, outcome) ->
-      match Result.flatten outcome with
-      | Ok true -> None
-      | Ok false -> Some (file, "digest does not match")
-      | Error why -> Some(file, why))
+  |> List.filter_map (fn (file, outcome) ->
+    match Result.flatten outcome with
+    | Ok true -> None
+    | Ok false -> Some (file, "digest does not match")
+    | Error why -> Some(file, why))
 
 let report! limit dir = (
   let files = FS.glob_in *.sha256 dir;

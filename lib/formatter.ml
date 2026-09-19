@@ -1715,10 +1715,13 @@ and emit_pipeline indent a b =
     | other -> [other]
   in
   let all = stages (BinOp ("|>", a, b)) in
-  let piece side e =
+  (* Every stage starts at the pipeline's own column: the first where the
+     pipeline begins, and each later one under the `|>` that leads it. So a
+     stage that wraps closes its brackets in line with the ones it opened. *)
+  let piece ?(at = indent) side e =
     match strip_located e with
     | (Try _ | Handle _ | Contract _ | Fn _ | If _ | Match _
-      | Let _ | LetRec _ | With _) as inner -> bracket (emit_expr indent inner)
+      | Let _ | LetRec _ | With _) as inner -> bracket (emit_expr at inner)
     (* A stage that is an operator of its own keeps the brackets `emit_binop`
        would have given it, and did not: the stages are read back as one
        left-associative chain, so an operator on the right of a `|>` needs
@@ -1728,18 +1731,18 @@ and emit_pipeline indent a b =
        fuzzer saw it. Found by test/fuzz. *)
     | BinOp (op2, _, _) as inner ->
       let prec = bin_prec "|>" and cp = bin_prec op2 in
-      let rendered = emit_expr (indent + 2) inner in
+      let rendered = emit_expr at inner in
       if cp > prec || (cp = prec && side = `Left)
-      then bracket_if_wrapped_app_at ~anchor:(indent + 2) e rendered
+      then bracket_if_wrapped_app_at ~anchor:at e rendered
       else bracket rendered
     (* A stage that wrapped ends at its first line; the `|>` leading the
        next stage says nothing about the argument left below this one. *)
-    | _ -> bracket_if_wrapped_app_at ~anchor:(indent + 2) e (emit_expr (indent + 2) e)
+    | _ -> bracket_if_wrapped_app_at ~anchor:at e (emit_expr at e)
   in
   match all with
   | [] -> Doc.empty
   | first :: rest ->
-    let inner = Doc.spaces (indent + 2) in
+    let inner = Doc.spaces indent in
     piece `Left first
     ^^ Doc.concat Doc.empty
         (List.map (fun e -> Doc.text "\n" ^^ inner ^^ Doc.text "|> " ^^ piece `Right e) rest)

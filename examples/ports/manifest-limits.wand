@@ -52,8 +52,8 @@ type Doc(kind: String = "", spec: Spec = Spec())
 -- they have no containers to check.
 let deployments docs =
   docs
-    |> List.filter_map (fn d -> Result.to_option (YAML.decode Doc.decoder d))
-    |> List.filter (fn (d: Doc) -> d.kind == "Deployment")
+  |> List.filter_map (fn d -> Result.to_option (YAML.decode Doc.decoder d))
+  |> List.filter (fn (d: Doc) -> d.kind == "Deployment")
 
 let containers (d: Doc) = d.spec.template.spec.containers
 
@@ -64,10 +64,10 @@ let report! path = (
   let docs = deployments (YAML.read_file_all! path);
   let bad =
     docs
-      |> List.map containers
-      |> List.flatten
-      |> List.filter unlimited?
-      |> List.map (fn (c: Container) -> c.name);
+    |> List.map containers
+    |> List.flatten
+    |> List.filter unlimited?
+    |> List.map (fn (c: Container) -> c.name);
   IO.println "%{List.length docs} Deployments, %{List.length bad} containers without limits";
   match bad with
   | [] -> ()

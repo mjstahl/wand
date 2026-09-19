@@ -45,8 +45,8 @@ let fuzz_exe =
 -- refuses over a typo.
 let int_env name fallback =
   Env.get name
-    |> Option.and_then (fn s -> String.to_int s |> Result.to_option)
-    |> Option.default fallback
+  |> Option.and_then (fn s -> String.to_int s |> Result.to_option)
+  |> Option.default fallback
 
 -- Six seeds of five minutes each finds what one seed of thirty does not:
 -- the seeds are independent, so they walk different parts of the corpus.
@@ -167,10 +167,10 @@ let main! () = (
   let results = Par.map workers (fn s -> run_seed pinned s) (List.range 0 (seeds - 1));
   let ran =
     results
-      |> List.map (fn r ->
-        match r with
-        | Ok v -> v
-        | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2));
+    |> List.map (fn r ->
+      match r with
+      | Ok v -> v
+      | Error m -> (IO.println_err "a seed raised: %{m}"; Proc.exit 2));
   report (ran |> List.map report_seed)
 )
 

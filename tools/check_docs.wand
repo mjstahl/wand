@@ -29,8 +29,8 @@ let wand = Env.get "WAND" |> Option.default "wand"
 -- it goes stale is silently.
 let modules =
   FS.glob_in *.wand (Path.of_string "stdlib")
-    |> List.map (fn p -> Path.to_string (Path.with_extension "" (Path.basename p)))
-    |> List.sort
+  |> List.map (fn p -> Path.to_string (Path.with_extension "" (Path.basename p)))
+  |> List.sort
 
 -- `wand d --test` answers with its exit code and says nothing when every
 -- example holds, so a module that has no examples yet passes quietly and a
@@ -83,17 +83,17 @@ let exempt = [
 -- what stands before the colon, trimmed of that padding.
 let members_of! name =
   $(%{wand} d %{name})
-    |> String.lines
-    |> List.filter (fn l -> String.starts_with? "%{name}." l)
-    |> List.map (fn l -> String.trim (List.head! (String.split " : " l)))
+  |> String.lines
+  |> List.filter (fn l -> String.starts_with? "%{name}." l)
+  |> List.map (fn l -> String.trim (List.head! (String.split " : " l)))
 
 -- A name has an example when its doc carries the session's prompt.
 let has_example! name = String.contains? ">>" $(%{wand} d --json %{name})
 
 let undocumented_in! module =
   members_of! module
-    |> List.filter (fn n -> !(List.any? (fn e -> e == n) exempt))
-    |> List.filter (fn n -> !(has_example! n))
+  |> List.filter (fn n -> !(List.any? (fn e -> e == n) exempt))
+  |> List.filter (fn n -> !(has_example! n))
 
 let report (r: ShellResult) = (IO.println_err r.stdout; IO.println_err r.stderr)
 

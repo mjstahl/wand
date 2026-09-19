@@ -750,8 +750,8 @@ either. A pipeline that leads with `|>` needs this:
 ```ocaml
 let count =
   names
-    |> List.filter short?
-    |> List.length
+  |> List.filter short?
+  |> List.length
 ```
 
 `-` follows the same rule, and there it can surprise you. These two lines
@@ -1250,8 +1250,8 @@ Pipeline with `|>` threads the left-hand string as stdin to the command:
 
 ```ocaml
 $(git log --oneline)
-  |> $(grep "fix")
-  |> $(wc -l)
+|> $(grep "fix")
+|> $(wc -l)
 ```
 
 The stderr of a command is the stderr of the script. It appears as the
@@ -1262,8 +1262,8 @@ Combined with regex:
 
 ```ocaml
 $(git log --oneline)
-  |> String.lines
-  |> List.filter (Regex.match? r/fix|bug/i)
+|> String.lines
+|> List.filter (Regex.match? r/fix|bug/i)
 ```
 
 ---
@@ -4894,8 +4894,8 @@ import YAML
 
 let deployments =
   YAML.read_file_all! ./deploy.yaml
-    |> List.filter (fn d ->
-      YAML.field "kind" d |> Result.and_then YAML.get_string == Ok "Deployment")
+  |> List.filter (fn d ->
+    YAML.field "kind" d |> Result.and_then YAML.get_string == Ok "Deployment")
 ```
 
 Anchors are per document: `---` starts a new naming scope, so an alias

@@ -74,9 +74,9 @@ group "and_then" (fn () -> [
     t.eq
       (Error "second")
       (Ok 1
-        |> Result.and_then (fn x -> Ok (x + 1))
-        |> Result.and_then (fn _ -> Error "second")
-        |> Result.and_then (fn _ -> Error "third")))
+      |> Result.and_then (fn x -> Ok (x + 1))
+      |> Result.and_then (fn _ -> Error "second")
+      |> Result.and_then (fn _ -> Error "third")))
 ])
 
 group "map_error" (fn () -> [

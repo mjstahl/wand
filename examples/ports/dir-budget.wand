@@ -28,12 +28,12 @@ import Size
 -- that skipped `Makefile` and `LICENSE` would answer under what `du` says.
 let used dir =
   FS.glob_in ** dir
-    |> List.filter_map (fn p ->
-      match FS.size p with
-      | Ok size -> Some size
-      | Error _ -> None)
-    |> List.sum
-    |> Option.default 0B
+  |> List.filter_map (fn p ->
+    match FS.size p with
+    | Ok size -> Some size
+    | Error _ -> None)
+  |> List.sum
+  |> Option.default 0B
 
 let check budget dir = (
   let total = used dir;
