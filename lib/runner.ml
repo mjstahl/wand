@@ -2233,15 +2233,27 @@ and load_module src_ref ~cache ~loading ~evaluate =
      theirs. Parsing happens either way -- it is a fifth of what inference
      costs, and the import list has to be read to know what the key depends
      on. Inference is what the entry saves. *)
+  (* A binding's right-hand side arrives wrapped in its position, so the
+     import has to be read through that wrapper rather than matched raw.
+     Matched raw, every `let x = import ./y` fell out of the key and a change
+     to `y` left `x` served from the cache: `wand t` passed code that does not
+     typecheck, and only clearing the cache said otherwise. A bare
+     `import M` matched, which is why the standard library never showed it --
+     a module that never changes cannot go stale. *)
   let dep_keys =
     List.filter_map (fun item ->
-      match item with
-      | Ast.TLImport kind
-      | Ast.TLLet (_, [], Ast.ImportExpr kind)
-      | Ast.TLLetPat (_, Ast.ImportExpr kind) ->
+      let kind = match item with
+        | Ast.TLImport kind -> Some kind
+        | Ast.TLLet (_, [], body) | Ast.TLLetPat (_, body) ->
+          Module_types.import_kind_of body
+        | _ -> None
+      in
+      match kind with
+      | None -> None
+      | Some kind ->
         Hashtbl.find_opt module_keys
-          (Module_types.key_of (resolve_import base_dir kind))
-      | _ -> None) prog.Ast.items
+          (Module_types.key_of (resolve_import base_dir kind)))
+      prog.Ast.items
   in
   (* This module's own types, by the name a reader writes and the name they
      are known by everywhere else. *)

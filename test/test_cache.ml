@@ -65,6 +65,48 @@ let test_a_dependency_type_change_still_errors () =
   in
   Alcotest.(check bool) ("a type error, got: " ^ out) true has_error
 
+(* Three levels, which is where it actually went wrong. The tests above have
+   the importer as the entry file, and an entry file is never cached -- so
+   they passed while a *module* importing a changed module was served stale.
+
+   A binding's right-hand side arrives wrapped in its position, and the key's
+   dependency list matched the import raw, so every `let x = import ./y` fell
+   out of it. A bare `import M` matched, which is why the standard library
+   never showed it: a module that never changes cannot go stale. *)
+let test_a_dependency_of_a_dependency_is_seen () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "dep.wand") "let n = 1";
+  write (Filename.concat d "mid.wand") "let d = import ./dep\n\nlet f () = d.n + 1";
+  write (Filename.concat d "main.wand") "let m = import ./mid\n\nm.f ()";
+  ignore (run ~dir:d ~cache:c ["t"; "main.wand"]);
+  (* `dep.n` is a String now, so `mid.f` does not typecheck. The error has to
+     appear even though `mid.wand` itself is untouched. *)
+  write (Filename.concat d "dep.wand") "let n = \"x\"";
+  let out = run ~dir:d ~cache:c ["t"; "main.wand"] in
+  let has_error = String.length out >= 5 && String.sub out 0 5 = "Error" in
+  Alcotest.(check bool) ("a type error, got: " ^ out) true has_error
+
+(* The same at three levels for a check that leaves no trace in what a module
+   exports. An implementation's conformance is settled where it is written,
+   so a stale entry hides it completely rather than one level down. *)
+let test_a_dependency_of_a_dependency_is_seen_for_interfaces () =
+  let (d, c) = scratch () in
+  write (Filename.concat d "r.wand")
+    "interface Runner(go: Unit -> String ! {Raise, Shell})";
+  write (Filename.concat d "impl.wand")
+    "uses {Shell(whoami)}\n\nlet r = import ./r\n\n\
+     implement r.Runner =\n  let go () = $(whoami)";
+  write (Filename.concat d "main.wand")
+    "let r = import ./r\nlet impl = import ./impl\n\nimpl.go";
+  ignore (run ~dir:d ~cache:c ["t"; "main.wand"]);
+  (* The contract no longer allows Raise, so the implementation no longer
+     answers to it. *)
+  write (Filename.concat d "r.wand")
+    "interface Runner(go: Unit -> String ! {Shell})";
+  let out = run ~dir:d ~cache:c ["t"; "main.wand"] in
+  let has_error = String.length out >= 5 && String.sub out 0 5 = "Error" in
+  Alcotest.(check bool) ("a type error, got: " ^ out) true has_error
+
 (* An entry that cannot be read is a miss, not a failure. *)
 let test_a_corrupt_entry_is_survivable () =
   let (d, c) = scratch () in
@@ -296,5 +338,9 @@ let () =
       Alcotest.test_case "left on"                 `Quick test_other_values_leave_it_on;
       Alcotest.test_case "where it lives"          `Quick test_cache_home_layers;
       Alcotest.test_case "a rebuilt binary"        `Quick test_a_rebuilt_binary_invalidates_entries;
+      Alcotest.test_case "a dependency two levels down" `Quick
+        test_a_dependency_of_a_dependency_is_seen;
+      Alcotest.test_case "and for a conformance check"  `Quick
+        test_a_dependency_of_a_dependency_is_seen_for_interfaces;
     ];
   ]

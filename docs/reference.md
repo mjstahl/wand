@@ -2113,6 +2113,29 @@ and the block does not provide is an error; so is a member the interface does
 not declare, which belongs outside the block as a binding of its own; so is a
 member whose type does not match, reported at the member.
 
+A member's effects bound what any module implementing it may perform, so
+they have to say something. An effect variable that no argument determines
+is refused where the interface is declared:
+
+```ocaml
+interface Poly(go: Unit -> String ! 'e)
+-- type error: 'go' answers with effects ''e', and no argument of it names
+-- ''e', so the effects are not bounded
+```
+
+The effects a caller sees are read from the declaration, and the declaration
+never meets the implementation — so an unbounded variable would let a module
+performing `Shell` answer to the member while the caller was told nothing.
+Write what the member performs, or leave the effects off where it performs
+none.
+
+A variable an argument also names is the ordinary higher-order shape and
+stays legal, because there the caller's own function settles it:
+
+```ocaml
+interface Mapper(each: (Int -> Int ! 'e) -> List Int -> List Int ! 'e)
+```
+
 ### Conformance is nominal
 
 `implement` is what makes a module fit. A module with the right members by

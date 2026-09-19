@@ -2116,6 +2116,27 @@ let test_ord_is_built_in () =
     "interface Ord 'a(max: 'a -> 'a -> 'a)\n"
     "is a built-in interface"
 
+(* A member's effects bound what any module implementing it may perform, and
+   a variable nothing determines bounds nothing.
+
+   Without this a module performing Shell answered to a member declared
+   `! 'e` and the caller was told nothing: the effects were read from the
+   declaration and never met the implementation, so a file bounded
+   `uses {IO}` ran a subprocess and typechecked clean. *)
+let test_a_member_cannot_leave_its_effects_open () =
+  iface_refuses "an effect variable no argument names"
+    "interface Poly(go: Unit -> String ! 'e)\n"
+    "the effects are not bounded";
+  (* Where the variable also names an argument's effects, the caller settles
+     it -- the ordinary higher-order shape, and it stays legal. *)
+  iface_ok "interface Mapper(each: (Int -> Int ! 'e) -> List Int -> List Int ! 'e)\n\
+            \nlet f (m: Mapper) = m\n\nf\n";
+  (* Written out, it bounds. *)
+  iface_ok "interface Runner(go: Unit -> String ! {Raise, Shell})\n\
+            \nlet f (m: Runner) = m\n\nf\n";
+  (* A member performing nothing says nothing. *)
+  iface_ok "interface Plain(name: Unit -> String)\n\nlet f (m: Plain) = m\n\nf\n"
+
 let () =
   Alcotest.run "Typechecker" [
     "interfaces", [
@@ -2126,6 +2147,7 @@ let () =
       Alcotest.test_case "a parameter can be a module"  `Quick test_a_parameter_can_be_a_module;
       Alcotest.test_case "conformance is nominal"       `Quick test_conformance_is_nominal;
       Alcotest.test_case "Ord is built in"              `Quick test_ord_is_built_in;
+      Alcotest.test_case "effects must be bounded"      `Quick test_a_member_cannot_leave_its_effects_open;
     ];
     "unbound names", [
       Alcotest.test_case "several in one pass"  `Quick test_several_unbound_names;

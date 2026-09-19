@@ -925,6 +925,49 @@ let test_each_parameter_binds_its_own_type () =
     Alcotest.(check bool) "saying how many" true
       (contains_sub out "takes 3 type arguments, and this names 2"))
 
+(* A member's effects reach the file that calls it, and its manifest answers
+   for them. The interface is what bounds them, which is why a member cannot
+   leave them open: the effects are read from the declaration and never meet
+   the implementation, so an unbounded variable would let a module performing
+   Shell answer to it and tell the caller nothing. *)
+let test_a_members_effects_reach_the_caller () =
+  in_scratch (fun d ->
+    write_file (Filename.concat d "r.wand")
+      "interface Runner(go: Unit -> String ! {Raise, Shell})\n";
+    write_file (Filename.concat d "impl.wand")
+      "uses {Shell(whoami)}\n\n\
+       let r = import ./r\n\n\
+       implement r.Runner =\n\
+       \  let go () = $(whoami)\n";
+    (* A manifest that forbids Shell is held to it. *)
+    write_file (Filename.concat d "narrow.wand")
+      "uses {IO}\n\n\
+       let r = import ./r\n\
+       let impl = import ./impl\n\n\
+       let use! (m: r.Runner) = m.go ()\n\n\
+       use! impl\n";
+    let (code, out) = wand_out ~dir:d ["t"; "narrow.wand"] in
+    Alcotest.(check int) "the caller is held to its manifest" 1 code;
+    Alcotest.(check bool) "and told what it performs" true
+      (contains_sub out "performs Shell, which the manifest does not allow");
+    (* Declaring it, the file checks out. *)
+    write_file (Filename.concat d "wide.wand")
+      "uses {Shell}\n\n\
+       let r = import ./r\n\
+       let impl = import ./impl\n\n\
+       let use! (m: r.Runner) = m.go ()\n\n\
+       use! impl\n";
+    let (code, _) = wand_out ~dir:d ["t"; "wide.wand"] in
+    Alcotest.(check int) "and passes when it says so" 0 code;
+    (* An implementation performing more than the member declares is refused
+       where it is written. *)
+    write_file (Filename.concat d "r.wand")
+      "interface Runner(go: Unit -> String ! {Shell})\n";
+    let (code, out) = wand_out ~dir:d ["t"; "wide.wand"] in
+    Alcotest.(check int) "performing more than declared is refused" 1 code;
+    Alcotest.(check bool) "naming the member" true
+      (contains_sub out "'go' does not match what 'r.Runner' declares for it"))
+
 (* ── wand t --effects ────────────────────────────────────────────────────── *)
 
 (* What a file reaches outside itself, as data, so a check can compare it
@@ -1067,6 +1110,7 @@ let () =
       Alcotest.test_case "wand t on one file" `Quick test_type_of_one_file_is_unchanged;
       Alcotest.test_case "wand t on several paths" `Quick test_type_of_several_paths;
       Alcotest.test_case "every unbound name" `Quick test_every_unbound_name_reported;
+      Alcotest.test_case "a member's effects reach the caller" `Quick test_a_members_effects_reach_the_caller;
       Alcotest.test_case "interfaces at every arity" `Quick test_interfaces_at_every_arity;
       Alcotest.test_case "each parameter binds its own" `Quick test_each_parameter_binds_its_own_type;
       Alcotest.test_case "wand d marks interfaces" `Quick test_wand_d_marks_interfaces;

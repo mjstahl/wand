@@ -1481,6 +1481,47 @@ let builtin_ifaces : (string * Ast.interface_def) list =
            ("clamp",    arrow a (arrow a (arrow a a)));
            ("between?", arrow a (arrow a (arrow a (Ast.TEName "Bool")))) ] }) ]
 
+(* A member's own effects: the ones on the innermost arrow of its type, which
+   is where the parser puts them. The arguments are the left of each arrow on
+   the way there. *)
+let rec member_spine (te : Ast.type_expr) =
+  match te with
+  | Ast.TEFun (a, b, eff) ->
+    let (args, inner) = member_spine b in
+    (a :: args, (match inner with None -> eff | some -> some))
+  | _ -> ([], None)
+
+(* Every effect variable written anywhere inside a type. *)
+let rec written_eff_vars (te : Ast.type_expr) =
+  match te with
+  | Ast.TEFun (a, b, eff) ->
+    written_eff_vars a @ written_eff_vars b
+    @ (match eff with
+       | Some { Ast.te_var = Some v; _ } -> [v]
+       | _ -> [])
+  | Ast.TEApp (a, b) -> written_eff_vars a @ written_eff_vars b
+  | Ast.TETuple ts -> List.concat_map written_eff_vars ts
+  | Ast.TEName _ | Ast.TEQual _ | Ast.TEVar _ -> []
+
+(* A member's effects bound what any module implementing it may perform, and
+   a variable nothing determines bounds nothing. Where the variable also
+   names an argument's effects the caller settles it, which is the ordinary
+   higher-order shape and stays legal.
+
+   Without this a module performing Shell answered to a member declared
+   `! 'e`, and the caller was told nothing: `'e` was read from the
+   declaration and never met the implementation, so a file bounded
+   `uses {IO}` ran a subprocess and typechecked clean. The same shape written
+   as a plain parameter is caught, because there the real function's type
+   binds the variable. *)
+let undetermined_member_effect (te : Ast.type_expr) =
+  let (args, result_eff) = member_spine te in
+  match result_eff with
+  | Some { Ast.te_var = Some v; _ }
+    when not (List.exists (fun a -> List.mem v (written_eff_vars a)) args) ->
+    Some v
+  | _ -> None
+
 let is_iface name = Hashtbl.mem iface_defs name
 
 (* The members an interface declares, for the listings that mark which of a
@@ -2835,9 +2876,13 @@ let rec infer tenv (env : env) (e : expr) : typ =
      arrives here rather than as a variable -- `biggest Int 3 7` passes the
      `Int` module. Only where nothing declares a constructor of the name, so
      a constructor is never shadowed by a module. *)
-  | Constr name when find_ctor_in_tenv tenv name = None
-                  && (match List.assoc_opt name env with
-                      | Some (Namespace _) -> true | _ -> false) ->
+  (* The environment lookup first: almost every `Constr` is a constructor and
+     no module, so the cheap test is what should decide. Written the other way
+     round, every constructor in every program paid two `find_ctor_in_tenv`
+     calls -- the guard's, then the ordinary case's. *)
+  | Constr name when (match List.assoc_opt name env with
+                      | Some (Namespace _) -> true | _ -> false)
+                  && find_ctor_in_tenv tenv name = None ->
     (match List.assoc_opt name env with
      | Some (Namespace (_, claims)) -> TModule claims
      | _ -> assert false)
@@ -5286,6 +5331,17 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
         fail_at_opt loc (Printf.sprintf
           "'%s' is already an interface this file imports: a name declares \
            one thing" i.Ast.if_name);
+      List.iter (fun (mname, te) ->
+        match undetermined_member_effect te with
+        | None -> ()
+        | Some v ->
+          fail_at_opt loc (Printf.sprintf
+            "'%s' answers with effects ''%s', and no argument of it names \
+             ''%s', so the effects are not bounded: a module implementing \
+             '%s' could perform anything and a file calling it would not be \
+             told. Write what it performs, as '! {Shell}', or leave the \
+             effects off where it performs none"
+            mname v v i.Ast.if_name)) i.Ast.if_members;
       Hashtbl.replace iface_defs i.Ast.if_name i
     | _ -> ()) prog.items;
   let local_tenv = List.filter_map (function
