@@ -1702,13 +1702,13 @@ let test_a_pun_reads_back_as_the_field_it_came_from () =
 (* A `;` after a `match` or `handle` arm lands hard against the arm, and a
    reader has to know it closed the statement above rather than belonging to
    the arm. The parse was never in doubt -- the arms are still owed when the
-   `;` arrives -- so the bracket is for the reader, and it goes on both the
-   statement and the binding value, which are the two places a `;` can
-   follow an arm. *)
+   `;` arrives -- so the bracket is for the reader, and it goes on the
+   binding value. A statement takes none: it stands at the block's own
+   indent, where the `;` closes a line that opened with `match`. *)
 let test_an_arm_before_a_semicolon_is_bracketed () =
-  fmt_eq "a match as a statement"
+  fmt_eq "a match as a statement is left bare"
     "let f x = (\n  match x with\n  | true -> g ()\n  | false -> ();\n  h ()\n)"
-    "let f x = (\n  (match x with\n   | true -> g ()\n   | false -> ());\n  h ()\n)";
+    "let f x = (\n  match x with\n  | true -> g ()\n  | false -> ();\n  h ()\n)";
   fmt_eq "a match as a binding's value"
     "let f x = (\n  let y = match x with | true -> 1 | false -> 2;\n  g y\n)"
     "let f x =\n  let y =\n    match x with\n    | true -> 1\n    | false -> 2\n  in\n  g y";
@@ -1720,8 +1720,8 @@ let test_an_arm_before_a_semicolon_is_bracketed () =
   fmt_eq "the last statement is left alone"
     "let f x = (\n  g ();\n  match x with\n  | true -> 1\n  | false -> 2\n)"
     "let f x = (\n  g ();\n  match x with\n  | true -> 1\n  | false -> 2\n)";
-  assert_idempotent "the bracketed form is a fixed point"
-    "let f x = (\n  (match x with\n   | true -> g ()\n   | false -> ());\n  h ()\n)"
+  assert_idempotent "the bare statement is a fixed point"
+    "let f x = (\n  match x with\n  | true -> g ()\n  | false -> ();\n  h ()\n)"
 
 let test_a_newline_binding_stops_at_the_next_definition () =
   fmt_eq "the definition below stays its own"

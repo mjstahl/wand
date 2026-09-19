@@ -76,20 +76,20 @@ let archive_dir = Path.of_string "%{wand_root}/_fuzz-findings/sweep"
 -- body, so a pin made inside one is deleted before the first seed runs.
 let pin! () = (
   let src = Path.of_string fuzz_exe;
-  (match FS.exists? src with
-   | false -> (
-     IO.println_err "no fuzzer at %{fuzz_exe} -- set FUZZ_EXE, or build it";
-     Proc.exit 2
-   )
-   | true -> ());
+  match FS.exists? src with
+  | false -> (
+    IO.println_err "no fuzzer at %{fuzz_exe} -- set FUZZ_EXE, or build it";
+    Proc.exit 2
+  )
+  | true -> ();
   let pinned = Path.join archive_dir (Path.of_string "fuzz.exe");
   FS.copy! src pinned;
   -- Compared, not assumed. A copy that failed and was not checked is the
   -- whole reason this file exists.
   let same = FS.read_file! (Path.of_string fuzz_exe) == FS.read_file! pinned;
-  (match same with
-   | false -> (IO.println_err "the pinned copy differs from %{fuzz_exe}"; Proc.exit 2)
-   | true -> ());
+  match same with
+  | false -> (IO.println_err "the pinned copy differs from %{fuzz_exe}"; Proc.exit 2)
+  | true -> ();
   -- The copy has to be runnable, and a copy does not have to carry the
   -- execute bit. Asked here, where the answer is one line, rather than as
   -- "No such file or directory" once per seed.
@@ -129,9 +129,9 @@ let report_seed (seed, code, output, found) = (
   -- The fuzzer exits 0 with nothing to say and 1 when it found something.
   -- Anything else means it did not run, and a sweep that could not start
   -- must not report a quiet night.
-  (match code > 1 with
-   | true -> (IO.println_err "seed %{seed} did not run (exit %{code})"; Proc.exit 2)
-   | false -> ());
+  match code > 1 with
+  | true -> (IO.println_err "seed %{seed} did not run (exit %{code})"; Proc.exit 2)
+  | false -> ();
   -- The fuzzer says it found something by exiting 1, and shows what by
   -- writing the input and its notes. If the two disagree, the sweep cannot
   -- say what happened, and saying "no new findings" would be the worst of
@@ -155,9 +155,9 @@ let report kept = (
 )
 
 let main! () = (
-  (match FS.exists? archive_dir with
-   | true -> FS.delete_tree! archive_dir
-   | false -> ());
+  match FS.exists? archive_dir with
+  | true -> FS.delete_tree! archive_dir
+  | false -> ();
   FS.mkdir! archive_dir;
   let pinned = pin! ();
   IO.println "pinned %{fuzz_exe}, %{seeds} seeds of %{seconds}s, %{workers} at a time";

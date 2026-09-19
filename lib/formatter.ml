@@ -1862,14 +1862,7 @@ and emit_block ?col ?(bare = false) indent e =
     match strip_located e with
     | Seq (a, b) ->
       let above = match starts_at (loc_of a) with Some hi -> lead hi | None -> [] in
-      (* Every statement but the last is followed by a `;`, so one ending in
-         an arm gets the bracket that keeps the two apart. Laid out one
-         column further in, because the bracket takes that column and the
-         arms belong under the `match` rather than under its `(`. *)
-      let a_text =
-        if printed_ends_in_an_arm a then bracket (emit_expr (ind + 1) a)
-        else emit_expr ind a
-      in
+      let a_text = emit_expr ind a in
       advance_past (loc_of a);
       (above, a_text, false) :: items ind b
     (* A binding reached here is one of the block's statements, so it takes
