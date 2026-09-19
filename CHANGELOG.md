@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.80.4] - 2026-09-19
+
+### Fixed
+
+- **A positional payload reached through a lowercase module was dropped by
+  `wand f`.** A module bound by `let l = import ./lib` has a lowercase name,
+  so `l.S` opens with a word the parser also reads as a variable. The
+  bracketed spelling read it; the unbracketed one `wand f` writes did
+  not, and the payload became a statement below the constructor.
+
+  ```
+  -- type T(l.S) formatted
+  -- before        -- now
+  type T = T       type T = T l.S
+  l.S
+  ```
+
 ## [0.80.3] - 2026-09-18
 
 ### Changed

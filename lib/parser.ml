@@ -605,6 +605,14 @@ let is_type_atom_start = function
   | Token.Upper _ | Token.LParen | Token.TypeVar _ -> true
   | _ -> false
 
+(* A user module is bound to a lowercase name, so `l.S` is a type atom that
+   its first token cannot tell from a variable. Three tokens say it. *)
+let type_atom_ahead s =
+  is_type_atom_start (peek s)
+  || ((match peek s with Token.Ident _ -> true | _ -> false)
+      && peek2 s = Token.Dot
+      && (match peek3 s with Token.Upper _ -> true | _ -> false))
+
 let rec parse_type_atom s =
   let loc = peek_loc s in
   match advance s with
@@ -665,7 +673,7 @@ let rec parse_type_atom s =
 
 and parse_type_app s =
   let left = ref (parse_type_atom s) in
-  while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
+  while type_atom_ahead s && not (newline_breaks_expr s) do
     left := Ast.TEApp (!left, parse_type_atom s)
   done;
   !left
@@ -2101,7 +2109,7 @@ let parse_implement s =
   (* `implement` already consumed *)
   let iface = parse_iface_name s in
   let args = ref [] in
-  while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
+  while type_atom_ahead s && not (newline_breaks_expr s) do
     args := !args @ [parse_type_atom s]
   done;
   expect s Token.Eq;
@@ -2174,9 +2182,10 @@ let parse_type_def s =
        C's field list -- and `wand f`, which writes a leading unary minus
        bracketed, turned the two items `type S = C` and `-1` into source the
        parser then refused. Found by test/fuzz. *)
-    | (Token.Upper _ | Token.TypeVar _) when not (newline_breaks_expr s) ->
+    | (Token.Upper _ | Token.TypeVar _ | Token.Ident _)
+      when type_atom_ahead s && not (newline_breaks_expr s) ->
       let fields = ref [(None, parse_type_atom s)] in
-      while is_type_atom_start (peek s) && not (newline_breaks_expr s) do
+      while type_atom_ahead s && not (newline_breaks_expr s) do
         fields := !fields @ [(None, parse_type_atom s)]
       done;
       (* A default belongs to a field a construction can leave out, and a

@@ -666,6 +666,16 @@ let test_named_field_arrow () =
     1 (List.length (fields "type T 'e(f: Int -> Int ! 'e)"));
   Alcotest.(check int) "a positional pair is two fields"
     2 (List.length (fields "type P = P List Int"));
+  (* A module bound to a lowercase name opens a type atom the first token
+     cannot tell from a variable, so the payload used to end above it: the
+     declaration read as a nullary constructor and `l.S` as the statement
+     below. Both spellings of the payload read it now. *)
+  Alcotest.(check int) "a type reached through a lowercase module"
+    1 (List.length (fields "type T = T l.S"));
+  Alcotest.(check int) "bracketed, which always read it"
+    1 (List.length (fields "type T(l.S)"));
+  Alcotest.(check int) "and beside other atoms"
+    3 (List.length (fields "type T = T l.S Int m.U"));
   (* A default still ends the type: `=` is not an arrow. *)
   Alcotest.(check int) "a field with a default"
     2 (List.length (fields "type T(f: Int -> Int, n: Int = 3)"))
