@@ -464,7 +464,10 @@ type interface_def = {
 type implement_def = {
   im_iface : string;          (* as written: `Ord`, or `Foo.Ord` *)
   im_args  : type_expr list;  (* the `Int` in `implement Ord Int` *)
-  im_binds : (string * pat list * expr) list;
+  (* Each binding with the position of its own `let`, because a member is a
+     definition in its own right: an editor that showed them all at the
+     block's position ran four signatures together on one line. *)
+  im_binds : (string * pat list * expr * Token.loc) list;
 }
 
 type top_item =

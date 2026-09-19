@@ -619,7 +619,7 @@ let test_interface_and_implement () =
      Alcotest.(check string) "the interface" "Ord" im.Ast.im_iface;
      Alcotest.(check int) "one type argument" 1 (List.length im.Ast.im_args);
      Alcotest.(check (list string)) "two siblings, not one nested in the next"
-       ["max"; "min"] (List.map (fun (n, _, _) -> n) im.Ast.im_binds)
+       ["max"; "min"] (List.map (fun (n, _, _, _) -> n) im.Ast.im_binds)
    | _ -> Alcotest.fail "expected one implementation");
   (* Reached through the module that declares it. *)
   (match items "implement ord.Ord Int =\n  let max a b = a" with

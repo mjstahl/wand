@@ -5087,7 +5087,7 @@ let shell_sites (prog : program) : (Token.loc * Ast.expr) list =
     | TLLetRec bs -> List.iter (fun (_, _, b) -> go no_loc b) bs
     | TLExpr b -> go no_loc b
     | TLImplement (im, _) ->
-      List.iter (fun (_, _, b) -> go no_loc b) im.Ast.im_binds
+      List.iter (fun (_, _, b, _) -> go no_loc b) im.Ast.im_binds
     | TLImport _ | TLType _ | TLInterface _ -> ()) prog.items;
   List.rev !sites
 
@@ -5650,7 +5650,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
       (* A member the interface does not declare is not part of the contract,
          so the block is the wrong place for it: it would read as though the
          interface asked for it. *)
-      List.iter (fun (n, _, _) ->
+      List.iter (fun (n, _, _, _) ->
         if not (List.mem_assoc n declared) then
           fail_at_opt loc (Printf.sprintf
             "'%s' declares no member '%s', so this belongs outside the \
@@ -5658,7 +5658,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
             im.Ast.im_iface n
             (String.concat ", " (List.map fst declared)))) im.Ast.im_binds;
       List.iter (fun (n, _) ->
-        if not (List.exists (fun (b, _, _) -> b = n) im.Ast.im_binds) then
+        if not (List.exists (fun (b, _, _, _) -> b = n) im.Ast.im_binds) then
           fail_at_opt loc (Printf.sprintf
             "'%s' declares '%s', which this implementation does not provide"
             im.Ast.im_iface n)) declared;
@@ -5666,7 +5666,7 @@ let infer_program_body ?(base_env=builtin_type_env) ?(init_tenv=[]) ?(init_env=[
          top-level `let` would put it. What the block adds is the check
          against the type the interface declared. *)
       let env' =
-        List.fold_left (fun env (name, params, body) ->
+        List.fold_left (fun env (name, params, body, _) ->
           let want = List.assoc name declared in
           let placeholder = fresh () in
           let env_rec = (name, Mono placeholder) :: env in

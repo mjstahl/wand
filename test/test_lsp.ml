@@ -321,6 +321,24 @@ let test_code_lens_names_a_shared_line () =
     [(0, "a : Int"); (0, "b : String")]
     (lens_titles (response_for 21 outs))
 
+(* A member of an implementation is a definition in its own right, so its
+   lens sits above its own `let`. Given the block's position, all four ran
+   together on one line above `implement`. *)
+let test_code_lens_types_each_member () =
+  let text =
+    "interface Pair 'a(first: 'a -> 'a -> 'a, second: 'a -> 'a -> 'a)\n\n\
+     implement Pair Int =\n\
+     \  let first a b = a;\n\
+     \  let second a b = b\n\n\
+     first 1 2\n"
+  in
+  let (_, outs) =
+    session [did_open uri text; at_position 22 "textDocument/codeLens" uri 0 0]
+  in
+  Alcotest.(check (list (pair int string))) "one per member, at its own let"
+    [(3, "Int -> Int -> Int"); (4, "Int -> Int -> Int")]
+    (lens_titles (response_for 22 outs))
+
 let items_of result = match result with
   | `List items -> items
   | _ -> Alcotest.fail "expected a completion list"
@@ -669,6 +687,7 @@ let () =
     ];
     "code lens", [
       Alcotest.test_case "types definitions" `Quick test_code_lens_types_the_definitions;
+      Alcotest.test_case "types each member" `Quick test_code_lens_types_each_member;
       Alcotest.test_case "shared line"       `Quick test_code_lens_names_a_shared_line;
     ];
     "completion", [

@@ -1832,7 +1832,7 @@ let run_item ?modul env item =
      hoisted or registered: the block is a claim over bindings, and the
      bindings are ordinary. *)
   | Ast.TLImplement (im, _) ->
-    List.fold_left (fun env (name, params, body) ->
+    List.fold_left (fun env (name, params, body, _) ->
       match params with
       | [] -> (name, eval env body) :: env
       | _ ->
@@ -2432,6 +2432,13 @@ let defs_of_program (prog : Ast.program)
        let loc =
          if i < Array.length locs then fst locs.(i) else Token.point 1 1 0
        in
+       (* A member of an implementation is a definition in its own right, so
+          it answers with the position of its own `let`. Given the block's
+          position, an editor put every member's signature on one line. *)
+       match item with
+       | Ast.TLImplement (im, _) ->
+         List.map (fun (n, _, _, l) -> (n, l)) im.Ast.im_binds
+       | _ ->
        let names = match item with
          | Ast.TLLet (name, _, _) -> [name]
          | Ast.TLLetRec bs -> List.map (fun (n, _, _) -> n) bs
@@ -2440,7 +2447,7 @@ let defs_of_program (prog : Ast.program)
          | Ast.TLType (Ast.Variants (tname, _, ctors), _) ->
            tname :: List.map (fun (c : Ast.ctor_def) -> c.Ast.name) ctors
          | Ast.TLInterface (i, _) -> [i.Ast.if_name]
-         | Ast.TLImplement (im, _) -> List.map (fun (n, _, _) -> n) im.Ast.im_binds
+         | Ast.TLImplement _ -> []
          | Ast.TLImport _ | Ast.TLExpr _ -> []
        in
        List.map (fun n -> (n, loc)) names)
@@ -3677,7 +3684,7 @@ let run_session (sess : session) (src : string) : (session * repl_result, string
             | Ast.TLLetPat (pat, e) ->
               env_ref := Evaluator.bind_pat ~prefix:true pat (eval !env_ref e) !env_ref
             | Ast.TLImplement (im, _) ->
-              List.iter (fun (name, params, body) ->
+              List.iter (fun (name, params, body, _) ->
                 let v = match params with
                   | [] -> eval !env_ref body
                   | _  -> VFix (name, !env_ref, params, body)

@@ -2551,7 +2551,7 @@ let emit_top_item_pretty_uncached = function
     in
     head ^ "\n  "
     ^ String.concat ";\n  "
-        (List.map (fun (n, params, body) ->
+        (List.map (fun (n, params, body, _) ->
            Doc.to_string (emit_expr 2 body) |> fun b ->
            "let " ^ n
            ^ (if params = [] then ""

@@ -2126,7 +2126,7 @@ let parse_implement s =
     while is_pat_atom_start (peek s) do params := !params @ [pat_atom_ s] done;
     expect s Token.Eq;
     let body = locate s (fun () -> parse_contract_body s) in
-    ((name, !params, body), Option.map (fun d -> (name, d)) doc)
+    ((name, !params, body, loc), Option.map (fun d -> (name, d)) doc)
   in
   let binds = ref [parse_binding ()] in
   while peek s = Token.Semicolon do

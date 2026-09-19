@@ -453,7 +453,7 @@ let names_of_item (item : Ast.top_item) : string list =
        bound, so the qualifier is a use of that import like any other. *)
     iface_qualifier im.Ast.im_iface
     @ List.concat_map names_of_type_expr im.Ast.im_args
-    @ List.concat_map (fun (_, ps, b) ->
+    @ List.concat_map (fun (_, ps, b, _) ->
         List.concat_map names_of_pat ps @ names_of_expr b) im.Ast.im_binds
   | Ast.TLImport _ -> []
 
@@ -521,7 +521,7 @@ let names_of_item_types (item : Ast.top_item) : string list =
   | Ast.TLImplement (im, _) ->
     iface_qualifier im.Ast.im_iface
     @ List.concat_map names_of_type_expr im.Ast.im_args
-    @ List.concat_map (fun (_, ps, b) ->
+    @ List.concat_map (fun (_, ps, b, _) ->
         List.concat_map te_of_pat ps @ te_of_expr b) im.Ast.im_binds
   | Ast.TLImport _ -> []
 
@@ -758,7 +758,7 @@ let check (prog : Ast.program) (item_locs : (Token.loc * Token.loc) list)
       List.iter (fun (_, _, b) ->
         findings := List.rev_append (walk_expr loc b) !findings) bindings
     | Ast.TLImplement (im, _) ->
-      List.iter (fun (_, _, b) ->
+      List.iter (fun (_, _, b, _) ->
         findings := List.rev_append (walk_expr loc b) !findings) im.Ast.im_binds
     | Ast.TLImport _ | Ast.TLType _ | Ast.TLInterface _ -> ()
   ) prog.Ast.items;

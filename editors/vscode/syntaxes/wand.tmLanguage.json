@@ -180,7 +180,7 @@
         {
           "comment": "`and` joins mutually recursive bindings; it is not the boolean operator, which is `&&`.",
           "name": "keyword.declaration.wand",
-          "match": "\\b(let|in|type|import|fn|as|requires|ensures|and)\\b"
+          "match": "\\b(let|in|type|import|interface|implement|fn|as|requires|ensures|and)\\b"
         }
       ]
     },
